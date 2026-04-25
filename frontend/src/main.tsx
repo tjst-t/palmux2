@@ -4,6 +4,8 @@ import { BrowserRouter } from 'react-router-dom'
 
 import App from './App.tsx'
 import './index.css'
+// Side-effect imports register tab renderers with the registry.
+import './tabs/files'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

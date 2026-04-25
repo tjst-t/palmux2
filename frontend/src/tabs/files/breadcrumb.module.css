@@ -1,0 +1,28 @@
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  font-size: 12px;
+  color: var(--color-fg-muted);
+}
+
+.row {
+  display: inline-flex;
+  align-items: center;
+}
+
+.sep {
+  margin: 0 var(--space-1);
+  color: var(--color-fg-faint);
+}
+
+.crumb {
+  font-family: var(--font-mono);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--color-fg);
+}
+.crumb:hover {
+  background-color: var(--color-elevated);
+  color: var(--color-accent);
+}

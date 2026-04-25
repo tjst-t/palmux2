@@ -25,6 +25,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/tab"
 	"github.com/tjst-t/palmux2/internal/tab/bash"
 	"github.com/tjst-t/palmux2/internal/tab/claude"
+	"github.com/tjst-t/palmux2/internal/tab/files"
 	"github.com/tjst-t/palmux2/internal/tmux"
 )
 
@@ -63,8 +64,10 @@ func run(addr, configDir, token, basePath string) error {
 
 	registry := tab.NewRegistry()
 	registry.Register(claude.New(claude.Options{}))
+	// Bash before Files? No — TabBar order is: Claude / Files / Git / Bash.
+	// We wire the storeRef after Store.New, so Files Provider is added then.
 	registry.Register(bash.New())
-	// Files / Git providers register themselves in Phase 4 / 5.
+	// Git provider lands in Phase 5.
 
 	tmuxClient := tmux.NewExecClient()
 	ghqClient := ghq.New()
@@ -87,6 +90,9 @@ func run(addr, configDir, token, basePath string) error {
 	if err != nil {
 		return err
 	}
+	// Files Provider needs a Store reference (handlers look up worktree
+	// paths at request time). Register after Store.New.
+	registry.Register(files.New(st))
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

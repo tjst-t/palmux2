@@ -1,0 +1,123 @@
+.wrap {
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+  padding: var(--space-2) var(--space-3);
+}
+
+.controls {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.input {
+  flex: 1;
+  padding: var(--space-1) var(--space-2);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--color-fg);
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+.input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.modes {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.modeBtn {
+  padding: var(--space-1) var(--space-2);
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  border-radius: var(--radius-sm);
+}
+.modeBtn:hover {
+  background-color: var(--color-elevated);
+}
+
+.modeBtnActive {
+  color: var(--color-accent);
+  background-color: var(--color-elevated);
+}
+
+.case {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--color-fg-muted);
+}
+.case input {
+  margin: 0;
+}
+
+.run {
+  padding: var(--space-1) var(--space-3);
+  font-size: 11px;
+  color: var(--color-bg);
+  background-color: var(--color-accent);
+  border-radius: var(--radius-sm);
+}
+.run:disabled {
+  background-color: var(--color-fg-faint);
+  cursor: not-allowed;
+}
+
+.results {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  max-height: 300px;
+  overflow: auto;
+}
+
+.row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 20px 1fr auto 2fr;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-1) var(--space-2);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--color-fg);
+  text-align: left;
+  border-radius: var(--radius-sm);
+}
+.row:hover {
+  background-color: var(--color-elevated);
+}
+
+.icon {
+  text-align: center;
+}
+
+.path {
+  color: var(--color-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lineNum {
+  color: var(--color-accent);
+}
+
+.line {
+  color: var(--color-fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.error {
+  color: var(--color-error);
+  margin: var(--space-2) 0 0;
+  font-size: 11px;
+}
