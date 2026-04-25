@@ -1,0 +1,26 @@
+# Build output
+bin/
+frontend/dist/*
+!frontend/dist/.gitkeep
+frontend/node_modules/
+node_modules/
+
+# Tooling caches
+.cache/
+.eslintcache
+*.log
+npm-debug.log*
+
+# Local config / scratch
+tmp/
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
