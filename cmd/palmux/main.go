@@ -101,11 +101,12 @@ func run(addr, configDir, token, basePath string) error {
 	mux := server.NewMux(server.Deps{
 		Store:      st,
 		Auth:       authn,
+		Tmux:       tmuxClient,
 		FrontendFS: frontendFS,
 		BasePath:   basePath,
 		Logger:     slog.Default(),
 		HealthDetail: map[string]any{
-			"version":   "phase-1",
+			"version":   "phase-2",
 			"open":      authn.Open(),
 			"configDir": configDir,
 		},

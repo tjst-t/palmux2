@@ -15,12 +15,14 @@ import (
 
 	"github.com/tjst-t/palmux2/internal/auth"
 	"github.com/tjst-t/palmux2/internal/store"
+	"github.com/tjst-t/palmux2/internal/tmux"
 )
 
 // Deps bundles dependencies for NewMux.
 type Deps struct {
 	Store        *store.Store
 	Auth         *auth.Authenticator
+	Tmux         tmux.Client
 	FrontendFS   fs.FS // embedded SPA bundle
 	BasePath     string
 	Logger       *slog.Logger
@@ -39,6 +41,9 @@ func NewMux(deps Deps) *http.ServeMux {
 
 	apiMux := http.NewServeMux()
 	registerRoutes(apiMux, deps)
+	if deps.Tmux != nil {
+		registerTerminalWS(apiMux, deps)
+	}
 
 	// Let registered tab providers attach their REST endpoints under their
 	// own prefix. (Files / Git providers — Phase 4 / 5.)

@@ -2,23 +2,68 @@ package tmux
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"io"
+	"os"
+	"os/exec"
+
+	"github.com/creack/pty"
 )
 
-// Attach and NewGroupSession are implemented in Phase 2. The interface is
-// declared here so the rest of the codebase compiles against the full Client.
-
+// Attach starts `tmux attach-session -t {session}:{windowIdx} -d` under a
+// pty and returns an io.ReadWriteCloser plus a resize callback. Closing the
+// returned conn kills the underlying tmux client process.
+//
+// `-d` (detach others) is intentionally omitted here; multi-client viewing
+// is handled at a higher level via session groups.
 func (c *execClient) Attach(ctx context.Context, session, windowName string) (io.ReadWriteCloser, ResizeFunc, error) {
-	_ = ctx
-	_ = session
-	_ = windowName
-	return nil, nil, errors.New("tmux.Attach: implemented in Phase 2")
+	idx, err := c.WindowIndexByName(ctx, session, windowName)
+	if err != nil {
+		return nil, nil, err
+	}
+	target := fmt.Sprintf("%s:%d", session, idx)
+
+	cmd := exec.CommandContext(ctx, c.bin, "attach-session", "-t", target)
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+
+	f, err := pty.Start(cmd)
+	if err != nil {
+		return nil, nil, fmt.Errorf("pty start: %w", err)
+	}
+
+	conn := &ptyConn{cmd: cmd, f: f}
+	resize := func(cols, rows int) error {
+		return pty.Setsize(f, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+	}
+	return conn, resize, nil
 }
 
+// NewGroupSession creates a new session that belongs to the same tmux
+// session-group as `target`. Group sessions share the underlying windows
+// but allow independent attach lifecycles, which is how Palmux supports
+// multiple browser clients viewing the same branch terminal.
 func (c *execClient) NewGroupSession(ctx context.Context, target, groupName string) error {
-	_ = ctx
-	_ = target
-	_ = groupName
-	return errors.New("tmux.NewGroupSession: implemented in Phase 2")
+	if target == "" || groupName == "" {
+		return fmt.Errorf("NewGroupSession: empty argument")
+	}
+	_, err := c.run(ctx, "new-session", "-d", "-t", target, "-s", groupName)
+	return err
+}
+
+// ptyConn wraps the pty file + tmux client process so closing the conn also
+// terminates the client.
+type ptyConn struct {
+	cmd *exec.Cmd
+	f   *os.File
+}
+
+func (p *ptyConn) Read(b []byte) (int, error)  { return p.f.Read(b) }
+func (p *ptyConn) Write(b []byte) (int, error) { return p.f.Write(b) }
+func (p *ptyConn) Close() error {
+	_ = p.f.Close()
+	if p.cmd.Process != nil {
+		_ = p.cmd.Process.Kill()
+	}
+	_, _ = p.cmd.Process.Wait()
+	return nil
 }
