@@ -6,6 +6,7 @@ import App from './App.tsx'
 import './index.css'
 // Side-effect imports register tab renderers with the registry.
 import './tabs/files'
+import './tabs/git'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

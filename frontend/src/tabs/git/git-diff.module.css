@@ -1,0 +1,136 @@
+.wrap {
+  padding: var(--space-3);
+}
+
+.toolbar {
+  display: flex;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+
+.modeBtn {
+  padding: var(--space-1) var(--space-3);
+  font-size: 12px;
+  color: var(--color-fg-muted);
+  background-color: var(--color-elevated);
+  border-radius: var(--radius-sm);
+}
+.modeBtn:hover {
+  color: var(--color-fg);
+}
+.modeBtnActive {
+  color: var(--color-accent);
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-accent);
+}
+
+.file {
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background-color: var(--color-surface);
+}
+
+.fileHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-fg);
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-elevated);
+}
+
+.binTag {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--color-warning);
+}
+
+.hunk + .hunk {
+  border-top: 1px solid var(--color-border);
+}
+
+.hunkHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  background-color: rgba(124, 138, 255, 0.05);
+}
+
+.hunkActions {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.btn {
+  padding: 2px var(--space-2);
+  font-size: 11px;
+  color: var(--color-fg);
+  background-color: var(--color-elevated);
+  border-radius: var(--radius-sm);
+}
+.btn:hover {
+  background-color: var(--color-bg);
+}
+.btn:disabled {
+  opacity: 0.5;
+}
+
+.danger {
+  color: var(--color-error);
+}
+.danger:hover {
+  background-color: rgba(239, 68, 68, 0.1);
+}
+
+.lines {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-fg);
+  white-space: pre;
+  overflow-x: auto;
+  background-color: var(--color-bg);
+}
+
+.add {
+  color: var(--color-success);
+  display: block;
+}
+
+.del {
+  color: var(--color-error);
+  display: block;
+}
+
+.context {
+  color: var(--color-fg-muted);
+  display: block;
+}
+
+.meta {
+  color: var(--color-fg-faint);
+  display: block;
+  font-style: italic;
+}
+
+.empty,
+.error {
+  margin: var(--space-3);
+  font-size: 12px;
+  color: var(--color-fg-muted);
+}
+.error {
+  color: var(--color-error);
+}

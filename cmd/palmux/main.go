@@ -26,6 +26,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/tab/bash"
 	"github.com/tjst-t/palmux2/internal/tab/claude"
 	"github.com/tjst-t/palmux2/internal/tab/files"
+	gittab "github.com/tjst-t/palmux2/internal/tab/git"
 	"github.com/tjst-t/palmux2/internal/tmux"
 )
 
@@ -90,9 +91,10 @@ func run(addr, configDir, token, basePath string) error {
 	if err != nil {
 		return err
 	}
-	// Files Provider needs a Store reference (handlers look up worktree
-	// paths at request time). Register after Store.New.
+	// Files / Git Providers need a Store reference (handlers look up
+	// worktree paths at request time). Register after Store.New.
 	registry.Register(files.New(st))
+	registry.Register(gittab.New(st))
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
