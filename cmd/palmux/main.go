@@ -8,20 +8,29 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
-	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/spf13/pflag"
 
 	palmux2 "github.com/tjst-t/palmux2"
+	"github.com/tjst-t/palmux2/internal/auth"
+	"github.com/tjst-t/palmux2/internal/config"
+	"github.com/tjst-t/palmux2/internal/ghq"
+	"github.com/tjst-t/palmux2/internal/gwq"
+	"github.com/tjst-t/palmux2/internal/server"
+	"github.com/tjst-t/palmux2/internal/store"
+	"github.com/tjst-t/palmux2/internal/tab"
+	"github.com/tjst-t/palmux2/internal/tab/bash"
+	"github.com/tjst-t/palmux2/internal/tab/claude"
+	"github.com/tjst-t/palmux2/internal/tmux"
 )
 
 func main() {
 	addr := pflag.String("addr", "0.0.0.0:8080", "listen address (host:port)")
-	configDir := pflag.String("config-dir", "./tmp", "config directory (repos.json / settings.json)")
+	configDir := pflag.String("config-dir", defaultConfigDir(), "config directory (repos.json / settings.json)")
 	token := pflag.String("token", "", "auth token. empty = open access")
 	basePath := pflag.String("base-path", "/", "URL base path (e.g. /palmux/)")
 	pflag.Parse()
@@ -29,35 +38,94 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
-	if err := os.MkdirAll(*configDir, 0o755); err != nil {
-		slog.Error("create config dir", "dir", *configDir, "err", err)
+	if err := run(*addr, *configDir, *token, *basePath); err != nil {
+		slog.Error("fatal", "err", err)
 		os.Exit(1)
 	}
+}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/health", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"ok","phase":0}`))
-	})
+func run(addr, configDir, token, basePath string) error {
+	if err := requireBins("tmux", "ghq", "gwq", "git"); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir config dir %s: %w", configDir, err)
+	}
 
-	frontendFS, err := fs.Sub(palmux2.FrontendFS, "frontend/dist")
+	repoStore, err := config.NewRepoStore(configDir)
 	if err != nil {
-		slog.Error("frontend fs sub", "err", err)
-		os.Exit(1)
+		return err
 	}
-	mux.Handle("/", spaHandler(frontendFS, *basePath))
+	settingsStore, err := config.NewSettingsStore(configDir)
+	if err != nil {
+		return err
+	}
 
-	srv := &http.Server{
-		Addr:              *addr,
-		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
+	registry := tab.NewRegistry()
+	registry.Register(claude.New(claude.Options{}))
+	registry.Register(bash.New())
+	// Files / Git providers register themselves in Phase 4 / 5.
+
+	tmuxClient := tmux.NewExecClient()
+	ghqClient := ghq.New()
+	gwqClient := gwq.New()
+
+	authn, err := auth.New(token)
+	if err != nil {
+		return err
+	}
+
+	st, err := store.New(store.Deps{
+		Tmux:      tmuxClient,
+		GHQ:       ghqClient,
+		Gwq:       gwqClient,
+		RepoStore: repoStore,
+		Settings:  settingsStore,
+		Registry:  registry,
+		Logger:    slog.Default(),
+	})
+	if err != nil {
+		return err
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	st.Run(ctx)
+
+	frontendFS, err := fs.Sub(palmux2.FrontendFS, "frontend/dist")
+	if err != nil {
+		return fmt.Errorf("frontend embed: %w", err)
+	}
+
+	mux := server.NewMux(server.Deps{
+		Store:      st,
+		Auth:       authn,
+		FrontendFS: frontendFS,
+		BasePath:   basePath,
+		Logger:     slog.Default(),
+		HealthDetail: map[string]any{
+			"version":   "phase-1",
+			"open":      authn.Open(),
+			"configDir": configDir,
+		},
+	})
+
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
 	go func() {
-		slog.Info("palmux2 listening", "addr", *addr, "configDir", *configDir, "auth", authMode(*token))
+		mode := "open"
+		if !authn.Open() {
+			mode = "token"
+		}
+		slog.Info("palmux2 listening", "addr", addr, "configDir", configDir, "auth", mode)
+		if !authn.Open() {
+			slog.Info("authenticate at", "url", fmt.Sprintf("http://localhost%s/auth?token=%s", listenLocalAddr(addr), token))
+		}
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("server error", "err", err)
 			stop()
@@ -71,65 +139,41 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown", "err", err)
 	}
+	return nil
 }
 
-func authMode(token string) string {
-	if token == "" {
-		return "open"
+func defaultConfigDir() string {
+	// Spec default is ~/.config/palmux/, but during dev we run with
+	// --config-dir ./tmp via the Makefile. Prefer the spec default for
+	// production; the Makefile overrides for dev.
+	if home, err := os.UserHomeDir(); err == nil {
+		return home + "/.config/palmux"
 	}
-	return "token"
+	return "./tmp"
 }
 
-// spaHandler serves static assets from the embedded frontend.
-// Unknown paths fall back to index.html so the SPA router can take over.
-// /api/* and /auth are handled separately by their own routes.
-func spaHandler(frontendFS fs.FS, basePath string) http.Handler {
-	fileServer := http.FileServer(http.FS(frontendFS))
-	prefix := strings.TrimRight(basePath, "/")
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
+func requireBins(names ...string) error {
+	for _, n := range names {
+		if _, err := exec.LookPath(n); err != nil {
+			return fmt.Errorf("required binary %q not on PATH: %w", n, err)
 		}
-		path := r.URL.Path
-		if prefix != "" {
-			path = strings.TrimPrefix(path, prefix)
-		}
-		if path == "" {
-			path = "/"
-		}
-		if strings.HasPrefix(path, "/api/") || path == "/auth" {
-			http.NotFound(w, r)
-			return
-		}
-		if path == "/" || !hasFile(frontendFS, strings.TrimPrefix(path, "/")) {
-			serveIndex(w, r, frontendFS)
-			return
-		}
-		r2 := r.Clone(r.Context())
-		r2.URL.Path = path
-		fileServer.ServeHTTP(w, r2)
-	})
+	}
+	return nil
 }
 
-func hasFile(fsys fs.FS, name string) bool {
-	if name == "" {
-		return false
+// listenLocalAddr converts "0.0.0.0:8080" into ":8080" for friendlier
+// localhost prompts.
+func listenLocalAddr(addr string) string {
+	if addr == "" {
+		return ""
 	}
-	name = filepath.ToSlash(name)
-	if _, err := fs.Stat(fsys, name); err == nil {
-		return true
+	if addr[0] == ':' {
+		return addr
 	}
-	return false
-}
-
-func serveIndex(w http.ResponseWriter, _ *http.Request, fsys fs.FS) {
-	data, err := fs.ReadFile(fsys, "index.html")
-	if err != nil {
-		http.Error(w, fmt.Sprintf("index.html not found in embed: %v (run `make build`?)", err), http.StatusInternalServerError)
-		return
+	for i := 0; i < len(addr); i++ {
+		if addr[i] == ':' {
+			return addr[i:]
+		}
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
-	_, _ = w.Write(data)
+	return ":" + addr
 }

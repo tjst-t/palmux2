@@ -54,16 +54,30 @@ func (s *Store) SyncTmux(ctx context.Context) error {
 	s.mu.RUnlock()
 
 	// 2. Kill zombie Palmux sessions (and group sessions with missing conn).
+	//
+	// Only kill sessions that match Palmux's strict naming format
+	// (_palmux_{repoId}_{branchId}). Other `_palmux_*` sessions that don't
+	// parse — for example created by unrelated tools — are left alone so
+	// Palmux never breaks software it doesn't own.
 	for _, sess := range sessions {
 		if !domain.IsPalmuxSession(sess.Name) {
 			continue
 		}
-		// Group session: `_palmux_..._branch__grp_{connId}`.
+		// Group session: `_palmux_..._branch__grp_{connId}`. Only manage
+		// groups whose base session parses as one of ours.
 		if idx := strings.Index(sess.Name, domain.SessionGroupSeparator); idx > 0 {
+			base := sess.Name[:idx]
+			if _, _, ok := domain.ParseSessionName(base); !ok {
+				continue
+			}
 			connID := sess.Name[idx+len(domain.SessionGroupSeparator):]
 			if !connsAlive[connID] {
 				_ = s.deps.Tmux.KillSession(ctx, sess.Name)
 			}
+			continue
+		}
+		if _, _, ok := domain.ParseSessionName(sess.Name); !ok {
+			// Doesn't match the format Palmux generates — leave alone.
 			continue
 		}
 		if !tracked[sess.Name] {

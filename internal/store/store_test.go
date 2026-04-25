@@ -120,6 +120,21 @@ func TestSyncTmux_KillsZombieSessions(t *testing.T) {
 	}
 }
 
+func TestSyncTmux_LeavesUnrecognizedPalmuxSessionsAlone(t *testing.T) {
+	// A `_palmux_<hash>` session that doesn't follow the
+	// _palmux_{repo}_{branch} format must not be killed — it likely belongs
+	// to another tool / a different Palmux installation.
+	s, mockTmux := newStoreFixture(t)
+	mockTmux.SeedSession("_palmux_a5e0b6e193deafbc") // single segment, no inner _
+
+	if err := s.SyncTmux(context.Background()); err != nil {
+		t.Fatalf("SyncTmux: %v", err)
+	}
+	if has, _ := mockTmux.HasSession(context.Background(), "_palmux_a5e0b6e193deafbc"); !has {
+		t.Error("non-palmux-formatted _palmux_ session should not be killed")
+	}
+}
+
 func TestSyncTmux_KillsOrphanGroupSessions(t *testing.T) {
 	s, mockTmux := newStoreFixture(t)
 	repoID := "tjst-t--demo--abcd"
