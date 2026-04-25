@@ -1,97 +1,53 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
+import { Route, Routes } from 'react-router-dom'
 
-import styles from './App.module.css'
-import { api, type Repository, type Tab } from './lib/api'
-import { TabContent } from './tabs/tab-content'
-
-interface Selection {
-  repoId: string
-  branchId: string
-  tab: Tab
-}
-
-function readURL(): Partial<{ repoId: string; branchId: string; tabId: string }> {
-  const p = new URLSearchParams(window.location.search)
-  return {
-    repoId: p.get('repo') ?? undefined,
-    branchId: p.get('branch') ?? undefined,
-    tabId: p.get('tab') ?? undefined,
-  }
-}
-
-function autoSelect(repos: Repository[]): Selection | null {
-  for (const repo of repos) {
-    for (const branch of repo.openBranches) {
-      const tab = branch.tabSet.tabs.find((t) => !!t.windowName)
-      if (tab) return { repoId: repo.id, branchId: branch.id, tab }
-    }
-  }
-  return null
-}
+import { HomeRedirect } from './components/redirect'
+import { MainLayout } from './components/main-layout'
+import { useEventStream } from './hooks/use-event-stream'
+import { usePalmuxStore } from './stores/palmux-store'
 
 function App() {
-  const [selection, setSelection] = useState<Selection | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [hint, setHint] = useState<string | null>(null)
+  const bootstrap = usePalmuxStore((s) => s.bootstrap)
+  const error = usePalmuxStore((s) => s.error)
+  const theme = usePalmuxStore((s) => s.deviceSettings.theme)
 
   useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      try {
-        const repos = await api.get<Repository[]>('/api/repos')
-        if (cancelled) return
-        const url = readURL()
-        if (url.repoId && url.branchId && url.tabId) {
-          const repo = repos.find((r) => r.id === url.repoId)
-          const branch = repo?.openBranches.find((b) => b.id === url.branchId)
-          const tab = branch?.tabSet.tabs.find((t) => t.id === url.tabId)
-          if (repo && branch && tab) {
-            setSelection({ repoId: repo.id, branchId: branch.id, tab })
-            return
-          }
-          setHint(`Couldn't find ?repo=${url.repoId}&branch=${url.branchId}&tab=${url.tabId} in /api/repos.`)
-        }
-        const auto = autoSelect(repos)
-        if (auto) {
-          setSelection(auto)
-        } else {
-          setHint('No open branches yet. Open a repo + branch via the API; Phase 3 adds the Drawer UI.')
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err))
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
+    void bootstrap()
+  }, [bootstrap])
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+  }, [theme])
+
+  useEventStream()
+
+  if (error) {
+    return (
+      <div style={{ padding: 24, color: 'var(--color-error)' }}>
+        <p>Error talking to Palmux server: {error}</p>
+        <p style={{ color: 'var(--color-fg-muted)' }}>
+          Open <code>?</code> via <code>/auth?token=…</code> if you started the server with{' '}
+          <code>--token</code>.
+        </p>
+      </div>
+    )
+  }
 
   return (
-    <div className={styles.shell}>
-      <header className={styles.header}>
-        <span className={styles.brand}>Palmux v2</span>
-        {selection ? (
-          <span className={styles.phase}>
-            {selection.repoId} / {selection.branchId} / <strong>{selection.tab.name}</strong>
-          </span>
-        ) : (
-          <span className={styles.phase}>Phase 2 · Terminal Attach</span>
-        )}
-      </header>
-      <main className={styles.main}>
-        {selection ? (
-          <TabContent tab={selection.tab} repoId={selection.repoId} branchId={selection.branchId} />
-        ) : (
-          <div style={{ padding: 24 }}>
-            {error ? (
-              <p style={{ color: 'var(--color-error)' }}>API error: {error}</p>
-            ) : (
-              <p className={styles.muted}>{hint ?? 'Loading…'}</p>
-            )}
-          </div>
-        )}
-      </main>
-    </div>
+    <Routes>
+      <Route path="/" element={<HomeOrLayout />} />
+      <Route path="/:repoId/:branchId/:tabId/*" element={<MainLayout />} />
+    </Routes>
+  )
+}
+
+function HomeOrLayout() {
+  const bootstrapped = usePalmuxStore((s) => s.bootstrapped)
+  return (
+    <>
+      <HomeRedirect />
+      {bootstrapped && <MainLayout />}
+    </>
   )
 }
 

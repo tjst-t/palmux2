@@ -1,0 +1,95 @@
+import { useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
+
+import type { Branch, Tab } from '../lib/api'
+import { usePalmuxStore } from '../stores/palmux-store'
+
+import styles from './tab-bar.module.css'
+
+interface Props {
+  branch: Branch
+}
+
+export function TabBar({ branch }: Props) {
+  const { repoId } = useParams()
+  const { tabId } = useParams()
+  const navigate = useNavigate()
+  const addTab = usePalmuxStore((s) => s.addTab)
+  const removeTab = usePalmuxStore((s) => s.removeTab)
+  const renameTab = usePalmuxStore((s) => s.renameTab)
+  const [adding, setAdding] = useState(false)
+
+  if (!repoId) return null
+
+  const onSelect = (id: string) => {
+    navigate(`/${repoId}/${branch.id}/${encodeURIComponent(id)}`)
+  }
+
+  const onAddBash = async () => {
+    setAdding(true)
+    try {
+      const t = await addTab(repoId, branch.id, 'bash')
+      navigate(`/${repoId}/${branch.id}/${encodeURIComponent(t.id)}`)
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  const onContext = (e: React.MouseEvent, t: Tab) => {
+    e.preventDefault()
+    if (t.protected) return
+    if (e.shiftKey) {
+      const newName = prompt('Rename tab', extractName(t))
+      if (newName && newName !== extractName(t)) void renameTab(repoId, branch.id, t.id, newName)
+      return
+    }
+    if (confirm(`Close tab ${t.name}?`)) void removeTab(repoId, branch.id, t.id)
+  }
+
+  return (
+    <div className={styles.bar} role="tablist">
+      <div className={styles.scroll}>
+        {branch.tabSet.tabs.map((t) => {
+          const active = t.id === decodeURIComponent(tabId ?? '')
+          return (
+            <button
+              key={t.id}
+              role="tab"
+              aria-selected={active}
+              className={active ? `${styles.tab} ${styles.tabActive}` : styles.tab}
+              onClick={() => onSelect(t.id)}
+              onContextMenu={(e) => onContext(e, t)}
+              title={t.protected ? `${t.name} (protected)` : `${t.name} — Right-click: close • Shift+Right-click: rename`}
+            >
+              <span className={styles.tabIcon}>{iconFor(t.type)}</span>
+              <span className={styles.tabLabel}>{t.name}</span>
+            </button>
+          )
+        })}
+      </div>
+      <button className={styles.addBtn} onClick={onAddBash} disabled={adding} title="New Bash tab">
+        +
+      </button>
+    </div>
+  )
+}
+
+function extractName(t: Tab): string {
+  if (!t.id.includes(':')) return t.name
+  return t.id.split(':')[1] ?? t.name
+}
+
+function iconFor(type: string): string {
+  switch (type) {
+    case 'claude':
+      return '🧠'
+    case 'bash':
+      return '$'
+    case 'files':
+      return '📁'
+    case 'git':
+      return '⎇'
+    default:
+      return '•'
+  }
+}

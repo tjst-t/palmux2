@@ -1,0 +1,62 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(15, 17, 23, 0.6);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: fade 150ms ease-out;
+}
+
+.card {
+  background-color: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-fg);
+}
+
+.close {
+  font-size: 20px;
+  color: var(--color-fg-muted);
+  padding: 0 var(--space-2);
+  line-height: 1;
+}
+.close:hover {
+  color: var(--color-fg);
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-4);
+  overflow: auto;
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

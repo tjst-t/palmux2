@@ -31,6 +31,70 @@ const (
 func registerTerminalWS(mux *http.ServeMux, deps Deps) {
 	h := &wsHandlers{store: deps.Store, tmux: deps.Tmux, logger: deps.Logger}
 	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/tabs/{tabId}/attach", h.attachTab)
+	mux.HandleFunc("GET /api/events", h.eventsStream)
+}
+
+// eventsStream is the broadcast WS that fans out store events to every
+// connected client. Clients re-fetch full state via REST after reconnect, so
+// transient losses are recoverable; that's the design contract in
+// 01-architecture §3.6.
+func (h *wsHandlers) eventsStream(w http.ResponseWriter, r *http.Request) {
+	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		OriginPatterns: []string{"*"},
+	})
+	if err != nil {
+		h.logger.Warn("ws events accept", "err", err)
+		return
+	}
+	defer c.CloseNow()
+	c.SetReadLimit(64 * 1024)
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	events, unsub := h.store.Hub().Subscribe()
+	defer unsub()
+
+	// One goroutine drains pings/closes from the client; the main loop
+	// pushes events.
+	go func() {
+		defer cancel()
+		for {
+			if _, _, err := c.Read(ctx); err != nil {
+				return
+			}
+		}
+	}()
+
+	ticker := time.NewTicker(wsPingInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			pingCtx, pcancel := context.WithTimeout(ctx, wsPingTimeout)
+			err := c.Ping(pingCtx)
+			pcancel()
+			if err != nil {
+				return
+			}
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
+			payload, err := json.Marshal(ev)
+			if err != nil {
+				continue
+			}
+			wctx, wcancel := context.WithTimeout(ctx, wsWriteTimeout)
+			err = c.Write(wctx, websocket.MessageText, payload)
+			wcancel()
+			if err != nil {
+				return
+			}
+		}
+	}
 }
 
 type wsHandlers struct {

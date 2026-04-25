@@ -1,0 +1,172 @@
+.drawer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.scroll {
+  flex: 1;
+  overflow: auto;
+  padding: var(--space-2) 0;
+}
+
+.section + .section {
+  margin-top: var(--space-3);
+}
+
+.sectionHeader {
+  padding: var(--space-2) var(--space-3);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-fg-dim);
+  font-weight: 600;
+}
+
+.repoList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.repo {
+  margin-bottom: var(--space-1);
+}
+
+.repoRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-2);
+}
+
+.repoToggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+  border-radius: var(--radius-sm);
+  color: var(--color-fg);
+  min-width: 0;
+}
+.repoToggle:hover {
+  background-color: var(--color-elevated);
+}
+
+.repoChevron {
+  font-size: 9px;
+  color: var(--color-fg-muted);
+  width: 10px;
+  flex-shrink: 0;
+}
+
+.repoName {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+}
+
+.starBtn {
+  padding: 0 var(--space-2);
+  color: var(--color-fg-faint);
+  font-size: 14px;
+}
+.starBtn:hover {
+  color: var(--color-warning);
+}
+
+.branchList {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 var(--space-4);
+}
+
+.branch {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  font-size: 13px;
+  color: var(--color-fg);
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+.branch:hover {
+  background-color: var(--color-elevated);
+}
+
+.branchActive {
+  background-color: var(--color-elevated);
+  color: var(--color-accent);
+}
+
+.branchName {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.primaryTag {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background-color: var(--color-bg);
+  color: var(--color-fg-muted);
+}
+
+.activeDot {
+  color: var(--color-accent);
+  font-size: 10px;
+}
+
+.addBranchBtn {
+  width: 100%;
+  text-align: left;
+  padding: var(--space-1) var(--space-2);
+  font-size: 12px;
+  color: var(--color-fg-muted);
+  border-radius: var(--radius-sm);
+}
+.addBranchBtn:hover {
+  background-color: var(--color-elevated);
+  color: var(--color-fg);
+}
+
+.footer {
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.addRepoBtn {
+  width: 100%;
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  font-size: 13px;
+  color: var(--color-fg);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-elevated);
+}
+.addRepoBtn:hover {
+  background-color: var(--color-bg);
+}
+
+.resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+}
+.resizer:hover {
+  background-color: var(--color-accent);
+  opacity: 0.3;
+}
