@@ -20,8 +20,10 @@ import (
 	"github.com/tjst-t/palmux2/internal/auth"
 	"github.com/tjst-t/palmux2/internal/commands"
 	"github.com/tjst-t/palmux2/internal/config"
+	"github.com/tjst-t/palmux2/internal/domain"
 	"github.com/tjst-t/palmux2/internal/ghq"
 	"github.com/tjst-t/palmux2/internal/gwq"
+	"github.com/tjst-t/palmux2/internal/notify"
 	"github.com/tjst-t/palmux2/internal/server"
 	"github.com/tjst-t/palmux2/internal/store"
 	"github.com/tjst-t/palmux2/internal/tab"
@@ -107,6 +109,21 @@ func run(addr, configDir, token, basePath string) error {
 
 	st.Run(ctx)
 
+	notifyHub := notify.New(
+		// Resolve a tmux session name back to a (repoID, branchID) the store knows.
+		func(sessionName string) (string, string, bool) {
+			rid, bid, ok := domain.ParseSessionName(sessionName)
+			if !ok {
+				return "", "", false
+			}
+			if _, err := st.Branch(rid, bid); err != nil {
+				return "", "", false
+			}
+			return rid, bid, true
+		},
+		eventPublisher{hub: st.Hub()},
+	)
+
 	frontendFS, err := fs.Sub(palmux2.FrontendFS, "frontend/dist")
 	if err != nil {
 		return fmt.Errorf("frontend embed: %w", err)
@@ -117,6 +134,7 @@ func run(addr, configDir, token, basePath string) error {
 		Auth:       authn,
 		Tmux:       tmuxClient,
 		Commands:   commands.New(),
+		Notify:     notifyHub,
 		FrontendFS: frontendFS,
 		BasePath:   basePath,
 		Logger:     slog.Default(),
@@ -131,6 +149,10 @@ func run(addr, configDir, token, basePath string) error {
 		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	if err := writeEnvFile(configDir, addr, token); err != nil {
+		slog.Warn("env file write", "err", err)
 	}
 
 	go func() {
@@ -175,6 +197,48 @@ func requireBins(names ...string) error {
 		}
 	}
 	return nil
+}
+
+// writeEnvFile drops a small KEY=VALUE file under configDir for hook scripts
+// (e.g. Claude Code's Stop hook) to source. Filename is env.{port} so multiple
+// instances don't collide.
+func writeEnvFile(configDir, addr, token string) error {
+	port := portFromAddr(addr)
+	if port == "" {
+		return nil
+	}
+	host := "localhost"
+	body := fmt.Sprintf(
+		"PALMUX_URL=http://%s:%s\nPALMUX_TOKEN=%s\nPALMUX_PORT=%s\n",
+		host, port, token, port,
+	)
+	return os.WriteFile(
+		fmt.Sprintf("%s/env.%s", configDir, port),
+		[]byte(body),
+		0o600,
+	)
+}
+
+func portFromAddr(addr string) string {
+	for i := len(addr) - 1; i >= 0; i-- {
+		if addr[i] == ':' {
+			return addr[i+1:]
+		}
+	}
+	return ""
+}
+
+// eventPublisher adapts *store.EventHub to notify.Publisher so the Hub can
+// broadcast notification events without importing store.
+type eventPublisher struct{ hub *store.EventHub }
+
+func (p eventPublisher) Publish(eventType, repoID, branchID string, payload any) {
+	p.hub.Publish(store.Event{
+		Type:     store.EventType(eventType),
+		RepoID:   repoID,
+		BranchID: branchID,
+		Payload:  payload,
+	})
 }
 
 // listenLocalAddr converts "0.0.0.0:8080" into ":8080" for friendlier

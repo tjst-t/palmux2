@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import type { Branch, Repository } from '../lib/api'
-import { usePalmuxStore } from '../stores/palmux-store'
+import { selectBranchNotifications, usePalmuxStore } from '../stores/palmux-store'
 
 import { BranchPicker } from './branch-picker'
 import { RepoPicker } from './repo-picker'
@@ -200,6 +200,8 @@ function BranchItem({
   onSelect: (tabId?: string) => void
 }) {
   const closeBranch = usePalmuxStore((s) => s.closeBranch)
+  const notifs = usePalmuxStore(selectBranchNotifications(repoId, branch.id))
+  const unread = notifs?.unreadCount ?? 0
   const onContext = (e: React.MouseEvent) => {
     e.preventDefault()
     if (confirm(`Close branch ${branch.name}?`)) {
@@ -212,10 +214,15 @@ function BranchItem({
         className={isActive ? `${styles.branch} ${styles.branchActive}` : styles.branch}
         onClick={() => onSelect()}
         onContextMenu={onContext}
-        title={branch.worktreePath}
+        title={
+          notifs?.lastMessage
+            ? `${branch.worktreePath}\n${notifs.lastMessage}`
+            : branch.worktreePath
+        }
       >
         <span className={styles.branchName}>{branch.name}</span>
         {branch.isPrimary && <span className={styles.primaryTag}>main</span>}
+        {unread > 0 && <span className={styles.notifyDot} aria-label={`${unread} unread`} />}
         {isActive && <span className={styles.activeDot}>●</span>}
       </button>
     </li>

@@ -128,6 +128,21 @@
   font-size: 10px;
 }
 
+.notifyDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--color-warning);
+  flex-shrink: 0;
+  animation: notifyPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes notifyPulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
 .addBranchBtn {
   width: 100%;
   text-align: left;

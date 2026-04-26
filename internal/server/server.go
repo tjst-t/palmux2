@@ -15,6 +15,7 @@ import (
 
 	"github.com/tjst-t/palmux2/internal/auth"
 	"github.com/tjst-t/palmux2/internal/commands"
+	"github.com/tjst-t/palmux2/internal/notify"
 	"github.com/tjst-t/palmux2/internal/store"
 	"github.com/tjst-t/palmux2/internal/tmux"
 )
@@ -25,6 +26,7 @@ type Deps struct {
 	Auth         *auth.Authenticator
 	Tmux         tmux.Client
 	Commands     *commands.Detector
+	Notify       *notify.Hub
 	FrontendFS   fs.FS // embedded SPA bundle
 	BasePath     string
 	Logger       *slog.Logger
@@ -69,6 +71,7 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 		logger:       deps.Logger,
 		healthDetail: deps.HealthDetail,
 		commands:     deps.Commands,
+		notify:       deps.Notify,
 	}
 
 	mux.HandleFunc("GET /api/health", h.health)
@@ -97,6 +100,10 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 
 	mux.HandleFunc("GET /api/connections", h.connections)
 	mux.HandleFunc("GET /api/orphan-sessions", h.orphanSessions)
+
+	mux.HandleFunc("GET /api/notifications", h.listNotifications)
+	mux.HandleFunc("POST /api/notify", h.ingestNotification)
+	mux.HandleFunc("POST /api/notify/clear", h.clearNotifications)
 }
 
 // handlers groups every handler that needs Store access.
@@ -105,6 +112,7 @@ type handlers struct {
 	logger       *slog.Logger
 	healthDetail map[string]any
 	commands     *commands.Detector
+	notify       *notify.Hub
 }
 
 // helpers ────────────────────────────────────────────────────────────────────

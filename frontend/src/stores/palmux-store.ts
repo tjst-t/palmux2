@@ -13,6 +13,21 @@ import type { ToolbarConfig } from '../types/toolbar'
 export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected'
 export type FocusedPanel = 'left' | 'right'
 
+export interface NotificationItem {
+  type: string
+  message?: string
+  title?: string
+  createdAt: string
+}
+
+export interface BranchNotificationState {
+  unreadCount: number
+  lastMessage?: string
+  lastType?: string
+  lastAt?: string
+  notifications?: NotificationItem[]
+}
+
 export interface DeviceSettings {
   theme: 'dark' | 'light'
   fontSize: number
@@ -105,6 +120,8 @@ interface PalmuxStoreState {
   focusedPanel: FocusedPanel
   mobileDrawerOpen: boolean
 
+  notifications: Record<string, BranchNotificationState>
+
   // Actions ────────────────────────────────────────────────────────────────
   bootstrap: () => Promise<void>
   reloadRepos: () => Promise<void>
@@ -114,6 +131,7 @@ interface PalmuxStoreState {
   setConnectionStatus: (status: ConnectionStatus) => void
   setFocusedPanel: (panel: FocusedPanel) => void
   setMobileDrawerOpen: (open: boolean) => void
+  clearBranchNotifications: (repoId: string, branchId: string) => Promise<void>
 
   setDeviceSetting: <K extends keyof DeviceSettings>(key: K, value: DeviceSettings[K]) => void
 
@@ -141,16 +159,26 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
   connectionStatus: 'connecting',
   focusedPanel: 'left',
   mobileDrawerOpen: false,
+  notifications: {},
 
   bootstrap: async () => {
     if (get().bootstrapped || get().loading) return
     set({ loading: true, error: null })
     try {
-      const [repos, settings] = await Promise.all([
+      const [repos, settings, notifications] = await Promise.all([
         api.get<Repository[]>('/api/repos'),
         api.get<GlobalSettings>('/api/settings'),
+        api
+          .get<Record<string, BranchNotificationState>>('/api/notifications')
+          .catch(() => ({}) as Record<string, BranchNotificationState>),
       ])
-      set({ repos, globalSettings: settings, bootstrapped: true, loading: false })
+      set({
+        repos,
+        globalSettings: settings,
+        notifications,
+        bootstrapped: true,
+        loading: false,
+      })
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err), loading: false })
     }
@@ -197,11 +225,45 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
     if (ev.type === 'settings.updated' && ev.payload) {
       set({ globalSettings: ev.payload as GlobalSettings })
     }
+    if (
+      (ev.type === 'notification' || ev.type === 'notification.cleared') &&
+      ev.repoId &&
+      ev.branchId &&
+      ev.payload
+    ) {
+      const key = `${ev.repoId}/${ev.branchId}`
+      const state = ev.payload as BranchNotificationState
+      set((s) => ({
+        notifications: { ...s.notifications, [key]: state },
+      }))
+      // Browser-level notification on a new message (not a clear).
+      if (ev.type === 'notification' && state.lastMessage) {
+        maybePostNotification(state.lastMessage)
+      }
+    }
   },
 
   setConnectionStatus: (status) => set({ connectionStatus: status }),
   setFocusedPanel: (panel) => set({ focusedPanel: panel }),
   setMobileDrawerOpen: (open) => set({ mobileDrawerOpen: open }),
+
+  clearBranchNotifications: async (repoId, branchId) => {
+    const key = `${repoId}/${branchId}`
+    const current = get().notifications[key]
+    if (!current || current.unreadCount === 0) return
+    // Optimistic — server will broadcast the canonical state via the WS.
+    set((s) => ({
+      notifications: {
+        ...s.notifications,
+        [key]: { ...current, unreadCount: 0 },
+      },
+    }))
+    try {
+      await api.post('/api/notify/clear', { repoId, branchId })
+    } catch {
+      // ignore — next event-stream message will resync.
+    }
+  },
 
   setDeviceSetting: (key, value) => {
     persistDeviceSetting(key, value)
@@ -271,3 +333,36 @@ export const selectRepoById = (id: string) => (s: PalmuxStoreState) =>
 
 export const selectBranchById = (repoId: string, branchId: string) => (s: PalmuxStoreState) =>
   s.repos.find((r) => r.id === repoId)?.openBranches.find((b) => b.id === branchId)
+
+export const selectBranchNotifications =
+  (repoId: string, branchId: string) =>
+  (s: PalmuxStoreState): BranchNotificationState | undefined =>
+    s.notifications[`${repoId}/${branchId}`]
+
+// maybePostNotification asks for permission once, then surfaces a system
+// notification on subsequent events. Vibrates if the API is supported. All
+// optional — a denied permission silently degrades to badges-only UX.
+function maybePostNotification(message: string) {
+  if (typeof window === 'undefined' || typeof Notification === 'undefined') return
+  const fire = () => {
+    try {
+      new Notification('Palmux', { body: message })
+    } catch {
+      // ignore (e.g. Safari restricts in some contexts)
+    }
+    if ('vibrate' in navigator) {
+      try {
+        navigator.vibrate?.(100)
+      } catch {
+        // ignore
+      }
+    }
+  }
+  if (Notification.permission === 'granted') {
+    fire()
+  } else if (Notification.permission === 'default') {
+    void Notification.requestPermission().then((p) => {
+      if (p === 'granted') fire()
+    })
+  }
+}

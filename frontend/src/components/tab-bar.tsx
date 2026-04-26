@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import type { Branch, Tab } from '../lib/api'
-import { usePalmuxStore } from '../stores/palmux-store'
+import { selectBranchNotifications, usePalmuxStore } from '../stores/palmux-store'
 
 import styles from './tab-bar.module.css'
 
@@ -18,6 +18,10 @@ export function TabBar({ branch }: Props) {
   const addTab = usePalmuxStore((s) => s.addTab)
   const removeTab = usePalmuxStore((s) => s.removeTab)
   const renameTab = usePalmuxStore((s) => s.renameTab)
+  const notifs = usePalmuxStore(
+    repoId ? selectBranchNotifications(repoId, branch.id) : () => undefined,
+  )
+  const claudeUnread = notifs?.unreadCount ?? 0
   const [adding, setAdding] = useState(false)
 
   if (!repoId) return null
@@ -66,6 +70,9 @@ export function TabBar({ branch }: Props) {
             >
               <span className={styles.tabIcon}>{iconFor(t.type)}</span>
               <span className={styles.tabLabel}>{t.name}</span>
+              {t.type === 'claude' && claudeUnread > 0 && (
+                <span className={styles.tabBadge}>{claudeUnread}</span>
+              )}
             </button>
           )
         })}

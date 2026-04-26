@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 
-import { usePalmuxStore } from '../stores/palmux-store'
+import { selectBranchById, usePalmuxStore } from '../stores/palmux-store'
 
 import { Divider } from './divider'
 import { Panel, type PanelTarget } from './panel'
@@ -59,6 +59,44 @@ export function MainArea() {
       setRightTarget({ repoId: rightTarget.repoId })
     }
   }, [repos, rightTarget.repoId, rightTarget.branchId, setRightTarget])
+
+  // Clear notifications whenever a Claude tab is the active tab on either
+  // panel — visiting the agent counts as "I read it".
+  const clearBranchNotifications = usePalmuxStore((s) => s.clearBranchNotifications)
+  const leftBranch = usePalmuxStore((s) =>
+    leftTarget.repoId && leftTarget.branchId
+      ? selectBranchById(leftTarget.repoId, leftTarget.branchId)(s)
+      : undefined,
+  )
+  const rightBranch = usePalmuxStore((s) =>
+    rightTarget.repoId && rightTarget.branchId
+      ? selectBranchById(rightTarget.repoId, rightTarget.branchId)(s)
+      : undefined,
+  )
+  useEffect(() => {
+    const checks: { repoId?: string; branchId?: string; tabId?: string; branch: typeof leftBranch }[] = [
+      { ...leftTarget, branch: leftBranch },
+    ]
+    if (showSplit) checks.push({ ...rightTarget, branch: rightBranch })
+    for (const c of checks) {
+      if (!c.repoId || !c.branchId || !c.tabId || !c.branch) continue
+      const tab = c.branch.tabSet.tabs.find((t) => t.id === decodeURIComponent(c.tabId!))
+      if (tab?.type === 'claude') {
+        void clearBranchNotifications(c.repoId, c.branchId)
+      }
+    }
+  }, [
+    leftTarget.repoId,
+    leftTarget.branchId,
+    leftTarget.tabId,
+    leftBranch,
+    rightTarget.repoId,
+    rightTarget.branchId,
+    rightTarget.tabId,
+    rightBranch,
+    showSplit,
+    clearBranchNotifications,
+  ])
 
   // Ctrl+Shift+Left/Right swaps focus between panels when split.
   useEffect(() => {
