@@ -18,7 +18,7 @@ type MockClient struct {
 
 	// AttachFn lets tests override Attach behaviour. If nil, Attach returns
 	// an error.
-	AttachFn func(ctx context.Context, session, windowName string) (io.ReadWriteCloser, ResizeFunc, error)
+	AttachFn func(ctx context.Context, session, windowName string, opts AttachOpts) (io.ReadWriteCloser, ResizeFunc, error)
 }
 
 type mockSession struct {
@@ -189,13 +189,13 @@ func (m *MockClient) SendKeys(_ context.Context, session, windowName, keys strin
 	return fmt.Errorf("window %s not found in %s", windowName, session)
 }
 
-func (m *MockClient) Attach(ctx context.Context, session, windowName string) (io.ReadWriteCloser, ResizeFunc, error) {
+func (m *MockClient) Attach(ctx context.Context, session, windowName string, opts AttachOpts) (io.ReadWriteCloser, ResizeFunc, error) {
 	m.mu.Lock()
 	fn := m.AttachFn
-	m.calls = append(m.calls, fmt.Sprintf("Attach %s/%s", session, windowName))
+	m.calls = append(m.calls, fmt.Sprintf("Attach %s/%s %dx%d", session, windowName, opts.Cols, opts.Rows))
 	m.mu.Unlock()
 	if fn != nil {
-		return fn(ctx, session, windowName)
+		return fn(ctx, session, windowName, opts)
 	}
 	return nil, nil, errors.New("MockClient.Attach: not configured")
 }

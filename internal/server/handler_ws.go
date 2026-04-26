@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/coder/websocket"
@@ -103,6 +104,36 @@ type wsHandlers struct {
 	logger *slog.Logger
 }
 
+// parseAttachOpts pulls cols/rows out of the request query. Values are
+// clamped to the tmux supported range; anything unparseable becomes 0 so
+// Attach falls back to the platform default.
+func parseAttachOpts(q map[string][]string) tmux.AttachOpts {
+	parse := func(key string) int {
+		v := firstNonEmpty(q[key])
+		if v == "" {
+			return 0
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			return 0
+		}
+		if n > 999 {
+			n = 999
+		}
+		return n
+	}
+	return tmux.AttachOpts{Cols: parse("cols"), Rows: parse("rows")}
+}
+
+func firstNonEmpty(vs []string) string {
+	for _, v := range vs {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 // inboundMsg is what the client sends.
 type inboundMsg struct {
 	Type string `json:"type"`           // "input" | "resize"
@@ -165,7 +196,12 @@ func (h *wsHandlers) attachTab(w http.ResponseWriter, r *http.Request) {
 		_ = h.tmux.KillSession(context.Background(), groupSession)
 	}()
 
-	pty, resize, err := h.tmux.Attach(ctx, groupSession, target.WindowName)
+	// Initial pty size from the URL — clients fit before connecting so we
+	// open the underlying pty at the right size and tmux doesn't shrink the
+	// session to 80x24 first. Anything missing/invalid falls back to defaults.
+	attachOpts := parseAttachOpts(r.URL.Query())
+
+	pty, resize, err := h.tmux.Attach(ctx, groupSession, target.WindowName, attachOpts)
 	if err != nil {
 		h.logger.Warn("Attach", "err", err)
 		_ = c.Close(websocket.StatusInternalError, "failed to attach")

@@ -47,6 +47,14 @@ type NewWindowOpts struct {
 // dimensions.
 type ResizeFunc func(cols, rows int) error
 
+// AttachOpts configures an Attach call. Cols/Rows are the initial pty size;
+// 0 means use the platform default (which tmux then forces the window down to,
+// causing the visible "resize flash" if the client is bigger).
+type AttachOpts struct {
+	Cols int
+	Rows int
+}
+
 // Client is the abstraction. All methods take a Context for cancellation.
 type Client interface {
 	// Sessions
@@ -64,6 +72,6 @@ type Client interface {
 	SendKeys(ctx context.Context, session, windowName, keys string) error
 
 	// Attach (terminal pty I/O)
-	Attach(ctx context.Context, session, windowName string) (io.ReadWriteCloser, ResizeFunc, error)
+	Attach(ctx context.Context, session, windowName string, opts AttachOpts) (io.ReadWriteCloser, ResizeFunc, error)
 	NewGroupSession(ctx context.Context, target, groupName string) error
 }

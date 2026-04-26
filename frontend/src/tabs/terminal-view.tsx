@@ -17,9 +17,18 @@ interface Props {
   tabId: string
 }
 
-function buildAttachURL(repoId: string, branchId: string, tabId: string): string {
+function buildAttachURL(
+  repoId: string,
+  branchId: string,
+  tabId: string,
+  size?: { cols: number; rows: number },
+): string {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${proto}//${window.location.host}/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/tabs/${encodeURIComponent(tabId)}/attach`
+  let url = `${proto}//${window.location.host}/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/tabs/${encodeURIComponent(tabId)}/attach`
+  if (size && size.cols > 0 && size.rows > 0) {
+    url += `?cols=${size.cols}&rows=${size.rows}`
+  }
+  return url
 }
 
 async function handlePaste(sendInput: (data: string) => void): Promise<void> {
@@ -117,12 +126,36 @@ export function TerminalView({ repoId, branchId, tabId }: Props) {
     term.unicode.activeVersion = '11'
 
     term.open(containerRef.current)
-    requestAnimationFrame(() => fit.fit())
+    // Fit synchronously before connecting the WS so we can pass the real
+    // cols/rows in the attach URL — the server creates the underlying pty at
+    // that size, which prevents tmux from briefly showing 80x24 first.
+    try {
+      fit.fit()
+    } catch {
+      // ignore — measurement may fail if the container has 0 size; the WS
+      // will still send a resize once xterm reports its actual dimensions.
+    }
+    const initialSize = { cols: term.cols, rows: term.rows }
 
-    const ws = new ReconnectingWebSocket({
-      url: buildAttachURL(repoId, branchId, tabId),
+    let ws: ReconnectingWebSocket | null = null
+    const sendInput = (data: string) => ws?.send(JSON.stringify({ type: 'input', data }))
+    const sendResize = (cols: number, rows: number) =>
+      ws?.send(JSON.stringify({ type: 'resize', cols, rows }))
+
+    ws = new ReconnectingWebSocket({
+      url: buildAttachURL(repoId, branchId, tabId, initialSize),
       binaryType: 'arraybuffer',
-      onState: (s) => setConnState(s),
+      onState: (s) => {
+        setConnState(s)
+        // On (re)connect, re-announce the current size so the freshly created
+        // server-side pty matches our actual viewport. Covers two cases:
+        //   1. the user resized the window between disconnect and reconnect;
+        //   2. the URL-embedded cols/rows were too small because fit() failed
+        //      on the initial mount.
+        if (s === 'open') {
+          sendResize(term.cols, term.rows)
+        }
+      },
       onMessage: (ev) => {
         if (ev.data instanceof ArrayBuffer) {
           term.write(new Uint8Array(ev.data))
@@ -132,9 +165,6 @@ export function TerminalView({ repoId, branchId, tabId }: Props) {
       },
     })
     ws.connect()
-
-    const sendInput = (data: string) => ws.send(JSON.stringify({ type: 'input', data }))
-    const sendResize = (cols: number, rows: number) => ws.send(JSON.stringify({ type: 'resize', cols, rows }))
 
     const onDataDisp = term.onData(sendInput)
 
@@ -148,14 +178,6 @@ export function TerminalView({ repoId, branchId, tabId }: Props) {
     ro.observe(containerRef.current)
 
     const onResizeDisp = term.onResize(({ cols, rows }) => sendResize(cols, rows))
-
-    // Open WS → kick the initial size to the server so the pty matches.
-    const announceSize = () => {
-      if (ws.getState() === 'open') {
-        sendResize(term.cols, term.rows)
-      }
-    }
-    const stateInterval = setInterval(announceSize, 1000)
 
     // Custom key handler for Ctrl+V / Cmd+V — intercept to read from system
     // clipboard. Plain text → terminal input. Image (Blob) → POST /api/upload
@@ -200,7 +222,6 @@ export function TerminalView({ repoId, branchId, tabId }: Props) {
     })
 
     const dispose = () => {
-      clearInterval(stateInterval)
       ro.disconnect()
       onDataDisp.dispose()
       onResizeDisp.dispose()
