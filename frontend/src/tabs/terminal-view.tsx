@@ -22,6 +22,57 @@ function buildAttachURL(repoId: string, branchId: string, tabId: string): string
   return `${proto}//${window.location.host}/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/tabs/${encodeURIComponent(tabId)}/attach`
 }
 
+async function handlePaste(sendInput: (data: string) => void): Promise<void> {
+  // Try the async clipboard `read` (gives both text and blobs); fall back to
+  // readText if blob read isn't available or the user has only text.
+  if (typeof navigator !== 'undefined' && 'clipboard' in navigator && 'read' in navigator.clipboard) {
+    try {
+      const items = await navigator.clipboard.read()
+      for (const item of items) {
+        const imgType = item.types.find((t) => t.startsWith('image/'))
+        if (imgType) {
+          const blob = await item.getType(imgType)
+          await uploadAndSend(blob, sendInput)
+          return
+        }
+      }
+    } catch {
+      // permission denied or insecure context — fall through to text.
+    }
+  }
+  try {
+    const text = await navigator.clipboard.readText()
+    if (text) sendInput(text)
+  } catch {
+    // ignore
+  }
+}
+
+async function uploadAndSend(blob: Blob, sendInput: (data: string) => void): Promise<void> {
+  const fd = new FormData()
+  // Some pickers don't supply a name; provide a fallback so multer-style
+  // parsers find the file.
+  const file = blob instanceof File ? blob : new File([blob], guessName(blob), { type: blob.type })
+  fd.append('file', file)
+  try {
+    const res = await fetch('/api/upload', {
+      method: 'POST',
+      body: fd,
+      credentials: 'include',
+    })
+    if (!res.ok) return
+    const data = (await res.json()) as { path?: string }
+    if (data.path) sendInput(data.path)
+  } catch {
+    // network or auth failure — the user can drag-drop or attach manually.
+  }
+}
+
+function guessName(blob: Blob): string {
+  const ext = blob.type === 'image/png' ? 'png' : blob.type === 'image/jpeg' ? 'jpg' : 'bin'
+  return `pasted-${Date.now()}.${ext}`
+}
+
 function readThemeVar(name: string, fallback: string): string {
   if (typeof window === 'undefined') return fallback
   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
@@ -107,19 +158,45 @@ export function TerminalView({ repoId, branchId, tabId }: Props) {
     const stateInterval = setInterval(announceSize, 1000)
 
     // Custom key handler for Ctrl+V / Cmd+V — intercept to read from system
-    // clipboard and send as input. Phase 10 polish adds image-paste and
-    // OSC-52 copy handling.
+    // clipboard. Plain text → terminal input. Image (Blob) → POST /api/upload
+    // and send the resulting absolute path so Claude / shells can pick it up.
     term.attachCustomKeyEventHandler((ev) => {
       if (ev.type !== 'keydown') return true
       const isPaste = (ev.ctrlKey || ev.metaKey) && (ev.key === 'v' || ev.key === 'V')
       if (!isPaste) return true
-      navigator.clipboard
-        .readText()
-        .then((text) => {
-          if (text) sendInput(text)
-        })
-        .catch(() => {})
+      void handlePaste(sendInput)
       return false
+    })
+
+    // Also intercept browser paste events (covers right-click → paste, mobile,
+    // and any case where the keyhandler missed).
+    const pasteHandler = (e: ClipboardEvent) => {
+      if (!containerRef.current?.contains(document.activeElement)) return
+      if (!e.clipboardData) return
+      const item = Array.from(e.clipboardData.items).find((i) => i.kind === 'file')
+      if (!item) return
+      const file = item.getAsFile()
+      if (!file) return
+      e.preventDefault()
+      void uploadAndSend(file, sendInput)
+    }
+    document.addEventListener('paste', pasteHandler)
+
+    // OSC 52 — tmux Set/Get clipboard. xterm.js fires this back to us via
+    // the onData hook *after* we install a listener. Mirror to navigator.
+    const onClipboardDisp = term.parser.registerOscHandler(52, (data: string) => {
+      // Format: "<destinations>;<base64>" or "<destinations>;?" for Get.
+      const semi = data.indexOf(';')
+      if (semi < 0) return false
+      const payload = data.slice(semi + 1)
+      if (payload === '?') return true
+      try {
+        const decoded = atob(payload)
+        void navigator.clipboard.writeText(decoded)
+      } catch {
+        // ignore — malformed payload
+      }
+      return true
     })
 
     const dispose = () => {
@@ -127,6 +204,8 @@ export function TerminalView({ repoId, branchId, tabId }: Props) {
       ro.disconnect()
       onDataDisp.dispose()
       onResizeDisp.dispose()
+      document.removeEventListener('paste', pasteHandler)
+      onClipboardDisp.dispose()
     }
 
     terminalManager.acquire({ key, terminal: term, ws, dispose })

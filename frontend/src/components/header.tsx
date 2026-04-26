@@ -54,6 +54,18 @@ export function Header() {
         )}
       </div>
       <div className={styles.right}>
+        {repo && githubURL(repo.ghqPath, branch?.name) && (
+          <a
+            className={styles.iconBtn}
+            href={githubURL(repo.ghqPath, branch?.name)!}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open on GitHub"
+            aria-label="Open on GitHub"
+          >
+            ⎘
+          </a>
+        )}
         {wide && (
           <button
             className={
@@ -99,4 +111,12 @@ function useWideViewport(threshold: number): boolean {
 function repoLabel(ghqPath: string): string {
   const parts = ghqPath.split('/')
   return parts.slice(1).join('/') || ghqPath
+}
+
+function githubURL(ghqPath: string, branchName?: string): string | null {
+  if (!ghqPath.startsWith('github.com/')) return null
+  const repo = ghqPath.slice('github.com/'.length)
+  if (!repo.includes('/')) return null
+  const base = `https://github.com/${repo}`
+  return branchName ? `${base}/tree/${encodeURIComponent(branchName)}` : base
 }

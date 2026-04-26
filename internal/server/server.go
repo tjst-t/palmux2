@@ -104,6 +104,8 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("GET /api/notifications", h.listNotifications)
 	mux.HandleFunc("POST /api/notify", h.ingestNotification)
 	mux.HandleFunc("POST /api/notify/clear", h.clearNotifications)
+
+	mux.HandleFunc("POST /api/upload", h.uploadImage)
 }
 
 // handlers groups every handler that needs Store access.
@@ -186,6 +188,13 @@ func spaHandler(frontendFS fs.FS, basePath string) http.Handler {
 		if path == "/" || !hasFile(frontendFS, strings.TrimPrefix(path, "/")) {
 			serveIndex(w, r, frontendFS)
 			return
+		}
+		// Hashed assets get long-lived cache headers; everything else stays
+		// fresh because the SPA may need to re-fetch.
+		if strings.HasPrefix(path, "/assets/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			w.Header().Set("Cache-Control", "no-cache")
 		}
 		r2 := r.Clone(r.Context())
 		r2.URL.Path = path
