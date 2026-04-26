@@ -93,6 +93,24 @@ class TerminalManager {
   size(): { active: number; cached: number } {
     return { active: this.active.size, cached: this.cached.length }
   }
+
+  /** Send the same JSON input frame TerminalView uses. Returns true if the
+   *  terminal exists and the message was queued; false otherwise. */
+  sendInput(key: string, data: string): boolean {
+    const m = this.get(key)
+    if (!m) return false
+    m.ws.send(JSON.stringify({ type: 'input', data }))
+    return true
+  }
+
+  /** Move keyboard focus to the terminal so subsequent keystrokes flow
+   *  through xterm.js. */
+  focus(key: string): boolean {
+    const m = this.get(key)
+    if (!m) return false
+    m.terminal.focus()
+    return true
+  }
 }
 
 export const terminalManager = new TerminalManager()

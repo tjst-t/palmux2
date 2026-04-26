@@ -8,6 +8,7 @@ import {
   type Repository,
   type Tab,
 } from '../lib/api'
+import type { ToolbarConfig } from '../types/toolbar'
 
 export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected'
 export type FocusedPanel = 'left' | 'right'
@@ -27,6 +28,7 @@ export interface GlobalSettings {
   branchSortOrder?: 'name' | 'activity'
   lastActiveBranch?: string
   imageUploadDir?: string
+  toolbar?: Partial<ToolbarConfig>
 }
 
 const DEVICE_DEFAULTS: DeviceSettings = {

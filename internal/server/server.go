@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/tjst-t/palmux2/internal/auth"
+	"github.com/tjst-t/palmux2/internal/commands"
 	"github.com/tjst-t/palmux2/internal/store"
 	"github.com/tjst-t/palmux2/internal/tmux"
 )
@@ -23,6 +24,7 @@ type Deps struct {
 	Store        *store.Store
 	Auth         *auth.Authenticator
 	Tmux         tmux.Client
+	Commands     *commands.Detector
 	FrontendFS   fs.FS // embedded SPA bundle
 	BasePath     string
 	Logger       *slog.Logger
@@ -62,7 +64,12 @@ func NewMux(deps Deps) *http.ServeMux {
 // registerRoutes attaches every Phase 1 API endpoint to the mux. Phase 2+
 // add their handlers in their own files but use the same mux.
 func registerRoutes(mux *http.ServeMux, deps Deps) {
-	h := &handlers{store: deps.Store, logger: deps.Logger, healthDetail: deps.HealthDetail}
+	h := &handlers{
+		store:        deps.Store,
+		logger:       deps.Logger,
+		healthDetail: deps.HealthDetail,
+		commands:     deps.Commands,
+	}
 
 	mux.HandleFunc("GET /api/health", h.health)
 
@@ -77,6 +84,8 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("GET /api/repos/{repoId}/branch-picker", h.branchPicker)
 	mux.HandleFunc("POST /api/repos/{repoId}/branches/open", h.openBranch)
 	mux.HandleFunc("DELETE /api/repos/{repoId}/branches/{branchId}", h.closeBranch)
+
+	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/commands", h.listCommands)
 
 	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/tabs", h.listTabs)
 	mux.HandleFunc("POST /api/repos/{repoId}/branches/{branchId}/tabs", h.addTab)
@@ -95,6 +104,7 @@ type handlers struct {
 	store        *store.Store
 	logger       *slog.Logger
 	healthDetail map[string]any
+	commands     *commands.Detector
 }
 
 // helpers ────────────────────────────────────────────────────────────────────

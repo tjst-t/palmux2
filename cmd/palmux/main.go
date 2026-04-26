@@ -17,6 +17,7 @@ import (
 
 	palmux2 "github.com/tjst-t/palmux2"
 	"github.com/tjst-t/palmux2/internal/auth"
+	"github.com/tjst-t/palmux2/internal/commands"
 	"github.com/tjst-t/palmux2/internal/config"
 	"github.com/tjst-t/palmux2/internal/ghq"
 	"github.com/tjst-t/palmux2/internal/gwq"
@@ -110,11 +111,12 @@ func run(addr, configDir, token, basePath string) error {
 		Store:      st,
 		Auth:       authn,
 		Tmux:       tmuxClient,
+		Commands:   commands.New(),
 		FrontendFS: frontendFS,
 		BasePath:   basePath,
 		Logger:     slog.Default(),
 		HealthDetail: map[string]any{
-			"version":   "phase-2",
+			"version":   "phase-7",
 			"open":      authn.Open(),
 			"configDir": configDir,
 		},

@@ -1,0 +1,114 @@
+.toolbar {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+  padding: 4px 6px;
+  gap: 4px;
+  position: relative;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 30px;
+  padding: 0 var(--space-2);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--color-fg-muted);
+  background-color: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.btn:hover {
+  color: var(--color-fg);
+  border-color: var(--color-accent);
+}
+.btn:active {
+  background-color: var(--color-bg);
+}
+.btn[data-mode='oneshot'] {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.btn[data-mode='lock'] {
+  color: var(--color-bg);
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.btn[disabled] {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.modeIndicator {
+  align-self: flex-start;
+  font-size: 10px;
+  color: var(--color-fg-faint);
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0 4px;
+}
+.modeClaude {
+  color: var(--color-accent);
+}
+
+.commandPopover {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  margin: 0 var(--space-3);
+  background-color: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 30;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.4);
+}
+
+.commandRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px 12px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--color-fg);
+  cursor: pointer;
+}
+.commandRow:hover {
+  background-color: var(--color-bg);
+}
+
+.commandTag {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background-color: var(--color-bg);
+  color: var(--color-fg-muted);
+  border: 1px solid var(--color-border);
+  text-transform: uppercase;
+}
+
+.commandEmpty {
+  padding: 12px;
+  text-align: center;
+  color: var(--color-fg-muted);
+  font-size: 12px;
+}

@@ -6,6 +6,7 @@ import { selectBranchById, usePalmuxStore } from '../stores/palmux-store'
 import { Drawer } from './drawer'
 import { Header } from './header'
 import { MainArea } from './main-area'
+import { Toolbar } from './toolbar/toolbar'
 import styles from './main-layout.module.css'
 
 export function MainLayout() {
@@ -57,6 +58,7 @@ export function MainLayout() {
       <div className={styles.body}>
         <Header />
         <MainArea />
+        <Toolbar />
       </div>
     </div>
   )
