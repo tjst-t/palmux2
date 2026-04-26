@@ -2,11 +2,10 @@ import { useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
 import { selectBranchById, usePalmuxStore } from '../stores/palmux-store'
-import { TabContent } from '../tabs/tab-content'
 
 import { Drawer } from './drawer'
 import { Header } from './header'
-import { TabBar } from './tab-bar'
+import { MainArea } from './main-area'
 import styles from './main-layout.module.css'
 
 export function MainLayout() {
@@ -38,9 +37,6 @@ export function MainLayout() {
     }
   }, [repoId, branchId, tabId])
 
-  const decodedTabId = tabId ? decodeURIComponent(tabId) : undefined
-  const activeTab = branch?.tabSet.tabs.find((t) => t.id === decodedTabId)
-
   if (!repoId || !branchId) {
     return (
       <div className={styles.shell}>
@@ -60,17 +56,7 @@ export function MainLayout() {
       {drawerPinned && <Drawer />}
       <div className={styles.body}>
         <Header />
-        {branch && <TabBar branch={branch} />}
-        <main className={styles.main}>
-          {branch && activeTab && (
-            <TabContent tab={activeTab} repoId={repoId} branchId={branchId} />
-          )}
-          {branch && !activeTab && (
-            <div className={styles.empty}>
-              <p>Tab not found. Pick another from the bar above.</p>
-            </div>
-          )}
-        </main>
+        <MainArea />
       </div>
     </div>
   )

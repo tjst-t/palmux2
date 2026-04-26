@@ -10,6 +10,7 @@ import {
 } from '../lib/api'
 
 export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected'
+export type FocusedPanel = 'left' | 'right'
 
 export interface DeviceSettings {
   theme: 'dark' | 'light'
@@ -18,6 +19,8 @@ export interface DeviceSettings {
   drawerWidth: number
   branchSortOrder: 'name' | 'activity'
   scrollbackLines: number
+  splitEnabled: boolean
+  splitRatio: number
 }
 
 export interface GlobalSettings {
@@ -33,6 +36,8 @@ const DEVICE_DEFAULTS: DeviceSettings = {
   drawerWidth: 280,
   branchSortOrder: 'name',
   scrollbackLines: 5000,
+  splitEnabled: false,
+  splitRatio: 50,
 }
 
 const LS_PREFIX = 'palmux:'
@@ -61,6 +66,10 @@ function loadDeviceSettings(): DeviceSettings {
   tryNum('drawerWidth', 'drawerWidth')
   tryStr('branchSortOrder', 'branchSortOrder')
   tryNum('scrollbackLines', 'scrollbackLines')
+  tryBool('splitEnabled', 'splitEnabled')
+  tryNum('splitRatio', 'splitRatio')
+  // Clamp the persisted ratio to the supported drag range.
+  if (out.splitRatio < 20 || out.splitRatio > 80) out.splitRatio = 50
   return out
 }
 
@@ -91,6 +100,8 @@ interface PalmuxStoreState {
 
   connectionStatus: ConnectionStatus
 
+  focusedPanel: FocusedPanel
+
   // Actions ────────────────────────────────────────────────────────────────
   bootstrap: () => Promise<void>
   reloadRepos: () => Promise<void>
@@ -98,6 +109,7 @@ interface PalmuxStoreState {
   reloadBranchPicker: (repoId: string) => Promise<void>
   applyEvent: (ev: RemoteEvent) => void
   setConnectionStatus: (status: ConnectionStatus) => void
+  setFocusedPanel: (panel: FocusedPanel) => void
 
   setDeviceSetting: <K extends keyof DeviceSettings>(key: K, value: DeviceSettings[K]) => void
 
@@ -123,6 +135,7 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
   globalSettings: {},
   deviceSettings: loadDeviceSettings(),
   connectionStatus: 'connecting',
+  focusedPanel: 'left',
 
   bootstrap: async () => {
     if (get().bootstrapped || get().loading) return
@@ -182,6 +195,7 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
   },
 
   setConnectionStatus: (status) => set({ connectionStatus: status }),
+  setFocusedPanel: (panel) => set({ focusedPanel: panel }),
 
   setDeviceSetting: (key, value) => {
     persistDeviceSetting(key, value)

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import type { Branch, Tab } from '../lib/api'
 import { usePalmuxStore } from '../stores/palmux-store'
@@ -14,6 +14,7 @@ export function TabBar({ branch }: Props) {
   const { repoId } = useParams()
   const { tabId } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const addTab = usePalmuxStore((s) => s.addTab)
   const removeTab = usePalmuxStore((s) => s.removeTab)
   const renameTab = usePalmuxStore((s) => s.renameTab)
@@ -21,15 +22,17 @@ export function TabBar({ branch }: Props) {
 
   if (!repoId) return null
 
-  const onSelect = (id: string) => {
-    navigate(`/${repoId}/${branch.id}/${encodeURIComponent(id)}`)
+  const goToTab = (id: string) => {
+    navigate(`/${repoId}/${branch.id}/${encodeURIComponent(id)}${location.search}`)
   }
+
+  const onSelect = (id: string) => goToTab(id)
 
   const onAddBash = async () => {
     setAdding(true)
     try {
       const t = await addTab(repoId, branch.id, 'bash')
-      navigate(`/${repoId}/${branch.id}/${encodeURIComponent(t.id)}`)
+      goToTab(t.id)
     } finally {
       setAdding(false)
     }

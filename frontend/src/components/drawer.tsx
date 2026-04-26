@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import type { Branch, Repository } from '../lib/api'
 import { usePalmuxStore } from '../stores/palmux-store'
@@ -122,6 +122,7 @@ function RepoItem({
   sortOrder: 'name' | 'activity'
 }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const { repoId: activeRepo, branchId: activeBranch } = useParams()
   const star = usePalmuxStore((s) => s.starRepo)
   const closeRepo = usePalmuxStore((s) => s.closeRepo)
@@ -172,7 +173,7 @@ function RepoItem({
               isActive={activeRepo === repo.id && activeBranch === branch.id}
               onSelect={(tab) => {
                 const target = tab ?? branch.tabSet.tabs[0]?.id ?? 'claude'
-                navigate(`/${repo.id}/${branch.id}/${encodeURIComponent(target)}`)
+                navigate(`/${repo.id}/${branch.id}/${encodeURIComponent(target)}${location.search}`)
               }}
             />
           ))}

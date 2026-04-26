@@ -1,0 +1,71 @@
+.area {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  background-color: var(--color-terminal-bg);
+}
+
+.panelFull {
+  flex: 1;
+}
+
+.panelFocusBorder {
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+
+.panelBody {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.panelEmpty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--color-fg-muted);
+  font-size: 13px;
+  padding: var(--space-5);
+  text-align: center;
+}
+
+.divider {
+  width: 4px;
+  cursor: col-resize;
+  background-color: var(--color-border);
+  flex-shrink: 0;
+  transition: background-color 120ms ease;
+  position: relative;
+}
+.divider:hover,
+.dividerActive {
+  background-color: var(--color-accent);
+}
+
+.dividerHandle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 12px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  pointer-events: none;
+}
+.divider:hover .dividerHandle,
+.dividerActive .dividerHandle {
+  background-color: var(--color-accent);
+  opacity: 0.3;
+}

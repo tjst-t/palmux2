@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 import type { BranchPickerEntry } from '../lib/api'
 import { usePalmuxStore } from '../stores/palmux-store'
@@ -18,6 +18,7 @@ export function BranchPicker({ open, repoId, onClose }: Props) {
   const picker = usePalmuxStore((s) => s.branchPicker)
   const openBranch = usePalmuxStore((s) => s.openBranch)
   const navigate = useNavigate()
+  const location = useLocation()
 
   const [filter, setFilter] = useState('')
   const [pending, setPending] = useState<string | null>(null)
@@ -49,7 +50,7 @@ export function BranchPicker({ open, repoId, onClose }: Props) {
     try {
       const branch = await openBranch(repoId, name)
       onClose()
-      navigate(`/${repoId}/${branch.id}/${branch.tabSet.tabs[0]?.id ?? 'claude'}`)
+      navigate(`/${repoId}/${branch.id}/${branch.tabSet.tabs[0]?.id ?? 'claude'}${location.search}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {

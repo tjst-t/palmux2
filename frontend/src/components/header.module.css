@@ -37,6 +37,11 @@
   color: var(--color-fg);
 }
 
+.iconBtnActive {
+  background-color: var(--color-elevated);
+  color: var(--color-accent);
+}
+
 .brand {
   font-weight: 600;
   letter-spacing: 0.02em;

@@ -1,8 +1,11 @@
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
 import { selectBranchById, selectRepoById, usePalmuxStore } from '../stores/palmux-store'
 
 import styles from './header.module.css'
+
+const SPLIT_MIN_WIDTH = 900
 
 export function Header() {
   const { repoId, branchId } = useParams()
@@ -12,8 +15,10 @@ export function Header() {
   )
   const status = usePalmuxStore((s) => s.connectionStatus)
   const drawerPinned = usePalmuxStore((s) => s.deviceSettings.drawerPinned)
+  const splitEnabled = usePalmuxStore((s) => s.deviceSettings.splitEnabled)
   const setDeviceSetting = usePalmuxStore((s) => s.setDeviceSetting)
   const navigate = useNavigate()
+  const wide = useWideViewport(SPLIT_MIN_WIDTH)
 
   return (
     <header className={styles.header}>
@@ -36,6 +41,19 @@ export function Header() {
         )}
       </div>
       <div className={styles.right}>
+        {wide && (
+          <button
+            className={
+              splitEnabled ? `${styles.iconBtn} ${styles.iconBtnActive}` : styles.iconBtn
+            }
+            onClick={() => setDeviceSetting('splitEnabled', !splitEnabled)}
+            title={splitEnabled ? 'Disable split' : 'Enable split'}
+            aria-label="Toggle split panel"
+            aria-pressed={splitEnabled}
+          >
+            ▥
+          </button>
+        )}
         <button
           className={styles.iconBtn}
           onClick={() => navigate('/')}
@@ -48,6 +66,21 @@ export function Header() {
       </div>
     </header>
   )
+}
+
+function useWideViewport(threshold: number): boolean {
+  const [wide, setWide] = useState(() =>
+    typeof window === 'undefined' ? true : window.innerWidth >= threshold,
+  )
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mql = window.matchMedia(`(min-width: ${threshold}px)`)
+    const onChange = () => setWide(mql.matches)
+    onChange()
+    mql.addEventListener('change', onChange)
+    return () => mql.removeEventListener('change', onChange)
+  }, [threshold])
+  return wide
 }
 
 function repoLabel(ghqPath: string): string {
