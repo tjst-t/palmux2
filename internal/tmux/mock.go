@@ -200,6 +200,13 @@ func (m *MockClient) Attach(ctx context.Context, session, windowName string, opt
 	return nil, nil, errors.New("MockClient.Attach: not configured")
 }
 
+func (m *MockClient) AttachByIndex(_ context.Context, session string, idx int, opts AttachOpts) (io.ReadWriteCloser, ResizeFunc, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.calls = append(m.calls, fmt.Sprintf("AttachByIndex %s:%d %dx%d", session, idx, opts.Cols, opts.Rows))
+	return nil, nil, errors.New("MockClient.AttachByIndex: not configured")
+}
+
 func (m *MockClient) NewGroupSession(_ context.Context, target, groupName string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

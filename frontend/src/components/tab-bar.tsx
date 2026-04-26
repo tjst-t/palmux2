@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { useLongPress } from '../hooks/use-long-press'
@@ -47,9 +47,67 @@ export function TabBar({ branch }: Props) {
     }
   }
 
+  // Drag-to-scroll the tab strip with the pointer. We swallow the synthetic
+  // click that follows a real drag so the tab under the pointer doesn't get
+  // accidentally activated.
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const dragRef = useRef<{ startX: number; startScroll: number; moved: boolean } | null>(null)
+  const dragHandlers = {
+    onPointerDown(e: React.PointerEvent) {
+      if (e.pointerType === 'mouse' && e.button !== 0) return
+      const el = scrollRef.current
+      if (!el) return
+      dragRef.current = { startX: e.clientX, startScroll: el.scrollLeft, moved: false }
+    },
+    onPointerMove(e: React.PointerEvent) {
+      const drag = dragRef.current
+      const el = scrollRef.current
+      if (!drag || !el) return
+      const dx = e.clientX - drag.startX
+      if (!drag.moved && Math.abs(dx) > 5) {
+        drag.moved = true
+        el.setPointerCapture?.(e.pointerId)
+      }
+      if (drag.moved) {
+        el.scrollLeft = drag.startScroll - dx
+      }
+    },
+    onPointerUp() {
+      dragRef.current = null
+    },
+    onClickCapture(e: React.MouseEvent) {
+      // If a drag actually moved, kill the click that follows.
+      // dragRef is already null here (pointerup cleared it); we cache the
+      // last-moved state on the element.
+      const el = scrollRef.current
+      if (el?.dataset.justDragged === '1') {
+        e.preventDefault()
+        e.stopPropagation()
+        delete el.dataset.justDragged
+      }
+    },
+  }
+  // Mark "we just dragged" after movement so onClickCapture can suppress.
+  const wrappedPointerUp = (e: React.PointerEvent) => {
+    const drag = dragRef.current
+    if (drag?.moved && scrollRef.current) {
+      scrollRef.current.dataset.justDragged = '1'
+    }
+    dragHandlers.onPointerUp()
+    e.currentTarget.releasePointerCapture?.(e.pointerId)
+  }
+
   return (
     <div className={styles.bar} role="tablist">
-      <div className={styles.scroll}>
+      <div
+        ref={scrollRef}
+        className={styles.scroll}
+        onPointerDown={dragHandlers.onPointerDown}
+        onPointerMove={dragHandlers.onPointerMove}
+        onPointerUp={wrappedPointerUp}
+        onPointerCancel={dragHandlers.onPointerUp}
+        onClickCapture={dragHandlers.onClickCapture}
+      >
         {branch.tabSet.tabs.map((t) => (
           <TabRow
             key={t.id}

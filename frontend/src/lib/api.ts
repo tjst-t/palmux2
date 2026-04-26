@@ -97,3 +97,15 @@ export interface BranchPickerEntry {
   state: 'open' | 'local' | 'remote'
   branchId?: string
 }
+
+export interface OrphanWindow {
+  index: number
+  name: string
+}
+
+export interface OrphanSession {
+  name: string
+  attached: boolean
+  createdAt?: number
+  windows: OrphanWindow[]
+}

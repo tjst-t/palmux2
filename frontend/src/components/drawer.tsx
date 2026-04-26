@@ -8,6 +8,7 @@ import { selectBranchNotifications, usePalmuxStore } from '../stores/palmux-stor
 import { BranchPicker } from './branch-picker'
 import { confirmDialog } from './context-menu/confirm-dialog'
 import { useContextMenu } from './context-menu/store'
+import { OrphanAttachModal } from './orphan/orphan-modal'
 import { RepoPicker } from './repo-picker'
 import styles from './drawer.module.css'
 
@@ -16,9 +17,16 @@ export function Drawer() {
   const drawerWidth = usePalmuxStore((s) => s.deviceSettings.drawerWidth)
   const setDeviceSetting = usePalmuxStore((s) => s.setDeviceSetting)
   const branchSortOrder = usePalmuxStore((s) => s.deviceSettings.branchSortOrder)
+  const orphanSessions = usePalmuxStore((s) => s.orphanSessions)
+  const reloadOrphanSessions = usePalmuxStore((s) => s.reloadOrphanSessions)
 
   const [pickerType, setPickerType] = useState<'repo' | { branchOf: string } | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [orphanTarget, setOrphanTarget] = useState<{
+    name: string
+    idx: number
+    windowName?: string
+  } | null>(null)
 
   // Auto-expand the active repo when its branch is mounted.
   const { repoId: activeRepo } = useParams()
@@ -50,6 +58,11 @@ export function Drawer() {
           onAddBranch={(repoId) => setPickerType({ branchOf: repoId })}
           sortOrder={branchSortOrder}
         />
+        <OrphanSection
+          sessions={orphanSessions}
+          onAttach={(name, idx, windowName) => setOrphanTarget({ name, idx, windowName })}
+          onRefresh={reloadOrphanSessions}
+        />
       </div>
       <footer className={styles.footer}>
         <button className={styles.addRepoBtn} onClick={() => setPickerType('repo')}>
@@ -66,7 +79,94 @@ export function Drawer() {
         repoId={typeof pickerType === 'object' && pickerType !== null ? pickerType.branchOf : ''}
         onClose={() => setPickerType(null)}
       />
+      {orphanTarget && (
+        <OrphanAttachModal
+          sessionName={orphanTarget.name}
+          windowIdx={orphanTarget.idx}
+          windowName={orphanTarget.windowName}
+          onClose={() => setOrphanTarget(null)}
+        />
+      )}
     </aside>
+  )
+}
+
+function OrphanSection({
+  sessions,
+  onAttach,
+  onRefresh,
+}: {
+  sessions: { name: string; attached: boolean; windows: { index: number; name: string }[] }[]
+  onAttach: (sessionName: string, idx: number, windowName: string) => void
+  onRefresh: () => void
+}) {
+  const [open, setOpen] = useState<Set<string>>(new Set())
+  if (sessions.length === 0) {
+    return (
+      <section className={styles.section}>
+        <header className={styles.sectionHeader} title="Tmux sessions Palmux did not create">
+          Orphans
+          <button
+            className={styles.addBranchBtn}
+            onClick={onRefresh}
+            title="Refresh orphan list"
+            aria-label="Refresh"
+            style={{ width: 'auto', padding: '0 8px', marginLeft: 8 }}
+          >
+            ↻
+          </button>
+        </header>
+      </section>
+    )
+  }
+  return (
+    <section className={styles.section}>
+      <header className={styles.sectionHeader}>Orphans</header>
+      <ul className={styles.repoList}>
+        {sessions.map((s) => {
+          const expanded = open.has(s.name)
+          return (
+            <li key={s.name} className={styles.repo}>
+              <div className={styles.repoRow}>
+                <button
+                  className={styles.repoToggle}
+                  onClick={() =>
+                    setOpen((prev) => {
+                      const next = new Set(prev)
+                      if (next.has(s.name)) next.delete(s.name)
+                      else next.add(s.name)
+                      return next
+                    })
+                  }
+                  aria-expanded={expanded}
+                >
+                  <span className={styles.repoChevron}>{expanded ? '▼' : '▶'}</span>
+                  <span className={styles.repoName} title={s.name}>
+                    {s.name}
+                  </span>
+                </button>
+              </div>
+              {expanded && (
+                <ul className={styles.branchList}>
+                  {s.windows.map((w) => (
+                    <li key={w.index}>
+                      <button
+                        className={styles.branch}
+                        onClick={() => onAttach(s.name, w.index, w.name)}
+                      >
+                        <span className={styles.branchName}>
+                          {w.index}: {w.name}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </section>
   )
 }
 

@@ -5,6 +5,7 @@ import {
   type AvailableRepoEntry,
   type Branch,
   type BranchPickerEntry,
+  type OrphanSession,
   type Repository,
   type Tab,
 } from '../lib/api'
@@ -115,6 +116,7 @@ interface PalmuxStoreState {
   repos: Repository[]
   availableRepos: AvailableRepoEntry[]
   branchPicker: { repoId: string; entries: BranchPickerEntry[] } | null
+  orphanSessions: OrphanSession[]
 
   globalSettings: GlobalSettings
   deviceSettings: DeviceSettings
@@ -131,6 +133,7 @@ interface PalmuxStoreState {
   reloadRepos: () => Promise<void>
   reloadAvailableRepos: () => Promise<void>
   reloadBranchPicker: (repoId: string) => Promise<void>
+  reloadOrphanSessions: () => Promise<void>
   applyEvent: (ev: RemoteEvent) => void
   setConnectionStatus: (status: ConnectionStatus) => void
   setFocusedPanel: (panel: FocusedPanel) => void
@@ -158,6 +161,7 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
   repos: [],
   availableRepos: [],
   branchPicker: null,
+  orphanSessions: [],
   globalSettings: {},
   deviceSettings: loadDeviceSettings(),
   connectionStatus: 'connecting',
@@ -169,17 +173,19 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
     if (get().bootstrapped || get().loading) return
     set({ loading: true, error: null })
     try {
-      const [repos, settings, notifications] = await Promise.all([
+      const [repos, settings, notifications, orphans] = await Promise.all([
         api.get<Repository[]>('/api/repos'),
         api.get<GlobalSettings>('/api/settings'),
         api
           .get<Record<string, BranchNotificationState>>('/api/notifications')
           .catch(() => ({}) as Record<string, BranchNotificationState>),
+        api.get<OrphanSession[]>('/api/orphan-sessions').catch(() => [] as OrphanSession[]),
       ])
       set({
         repos,
         globalSettings: settings,
         notifications,
+        orphanSessions: orphans ?? [],
         bootstrapped: true,
         loading: false,
       })
@@ -207,6 +213,15 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
       `/api/repos/${encodeURIComponent(repoId)}/branch-picker`,
     )
     set({ branchPicker: { repoId, entries } })
+  },
+
+  reloadOrphanSessions: async () => {
+    try {
+      const list = await api.get<OrphanSession[]>('/api/orphan-sessions')
+      set({ orphanSessions: list ?? [] })
+    } catch {
+      // ignore — best-effort
+    }
   },
 
   applyEvent: (ev) => {

@@ -13,6 +13,12 @@
   align-items: center;
   overflow-x: auto;
   scrollbar-width: thin;
+  cursor: grab;
+  user-select: none;
+  touch-action: pan-x;
+}
+.scroll:active {
+  cursor: grabbing;
 }
 
 .tab {

@@ -26,12 +26,21 @@ func (c *execClient) Attach(ctx context.Context, session, windowName string, opt
 	if err != nil {
 		return nil, nil, err
 	}
+	return c.AttachByIndex(ctx, session, idx, opts)
+}
+
+// AttachByIndex is the same as Attach but takes a pre-resolved window index.
+// Used by the orphan-session WS endpoint, whose windows aren't Palmux-named.
+func (c *execClient) AttachByIndex(ctx context.Context, session string, idx int, opts AttachOpts) (io.ReadWriteCloser, ResizeFunc, error) {
 	target := fmt.Sprintf("%s:%d", session, idx)
 
 	cmd := exec.CommandContext(ctx, c.bin, "attach-session", "-t", target)
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
 
-	var f *os.File
+	var (
+		f   *os.File
+		err error
+	)
 	if opts.Cols > 0 && opts.Rows > 0 {
 		f, err = pty.StartWithSize(cmd, &pty.Winsize{
 			Cols: uint16(opts.Cols),

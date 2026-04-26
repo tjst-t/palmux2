@@ -121,10 +121,14 @@ func (h *handlers) connections(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, h.store.Connections())
 }
 
-// orphanSessions returns non-Palmux tmux sessions in compat mode. Phase 1
-// returns an empty list — full implementation lands later.
-func (h *handlers) orphanSessions(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, []any{})
+// orphanSessions returns non-Palmux tmux sessions in compat mode.
+func (h *handlers) orphanSessions(w http.ResponseWriter, r *http.Request) {
+	out, err := h.store.OrphanSessions(r.Context())
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // silence unused import warning in some build configurations

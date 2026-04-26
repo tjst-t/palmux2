@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/coder/websocket"
@@ -32,6 +33,7 @@ const (
 func registerTerminalWS(mux *http.ServeMux, deps Deps) {
 	h := &wsHandlers{store: deps.Store, tmux: deps.Tmux, logger: deps.Logger}
 	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/tabs/{tabId}/attach", h.attachTab)
+	mux.HandleFunc("GET /api/orphan-sessions/{name}/windows/{idx}/attach", h.attachOrphan)
 	mux.HandleFunc("GET /api/events", h.eventsStream)
 }
 
@@ -102,6 +104,44 @@ type wsHandlers struct {
 	store  *store.Store
 	tmux   tmux.Client
 	logger *slog.Logger
+}
+
+// attachOrphan handles WS attach to a non-Palmux tmux session by index.
+// Path: /api/orphan-sessions/{name}/windows/{idx}/attach. Refuses to touch
+// anything that *is* a Palmux session — those go through attachTab.
+func (h *wsHandlers) attachOrphan(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	idxStr := r.PathValue("idx")
+	idx, err := strconv.Atoi(idxStr)
+	if err != nil || idx < 0 {
+		http.Error(w, "invalid window index", http.StatusBadRequest)
+		return
+	}
+	if strings.HasPrefix(name, domain.PalmuxSessionPrefix) {
+		http.Error(w, "use the regular tab attach endpoint", http.StatusBadRequest)
+		return
+	}
+
+	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		OriginPatterns: []string{"*"},
+	})
+	if err != nil {
+		h.logger.Warn("ws orphan accept", "err", err)
+		return
+	}
+	c.SetReadLimit(wsReadLimit)
+	defer c.CloseNow()
+
+	ctx := r.Context()
+	pty, resize, err := h.tmux.AttachByIndex(ctx, name, idx, parseAttachOpts(r.URL.Query()))
+	if err != nil {
+		h.logger.Warn("attachOrphan", "err", err)
+		_ = c.Close(websocket.StatusInternalError, "failed to attach")
+		return
+	}
+	defer pty.Close()
+
+	pumpWS(ctx, c, pty, resize, h.logger)
 }
 
 // parseAttachOpts pulls cols/rows out of the request query. Values are

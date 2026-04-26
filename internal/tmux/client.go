@@ -73,5 +73,8 @@ type Client interface {
 
 	// Attach (terminal pty I/O)
 	Attach(ctx context.Context, session, windowName string, opts AttachOpts) (io.ReadWriteCloser, ResizeFunc, error)
+	// AttachByIndex attaches to a tmux window by its numeric index. Used by
+	// the orphan-session attach handler where there's no Palmux-managed name.
+	AttachByIndex(ctx context.Context, session string, windowIdx int, opts AttachOpts) (io.ReadWriteCloser, ResizeFunc, error)
 	NewGroupSession(ctx context.Context, target, groupName string) error
 }

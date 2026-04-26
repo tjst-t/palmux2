@@ -7,17 +7,22 @@ import { Terminal } from '@xterm/xterm'
 
 import { terminalManager } from '../lib/terminal-manager'
 import { type ConnState, ReconnectingWebSocket } from '../lib/ws'
+import { usePalmuxStore } from '../stores/palmux-store'
 
 import '@xterm/xterm/css/xterm.css'
 import styles from './terminal-view.module.css'
 
 interface Props {
-  repoId: string
-  branchId: string
-  tabId: string
+  /** Tab-attach mode — uses /api/repos/.../tabs/.../attach. */
+  repoId?: string
+  branchId?: string
+  tabId?: string
+  /** Orphan-attach mode — uses /api/orphan-sessions/.../windows/<idx>/attach. */
+  orphanName?: string
+  orphanIdx?: number
 }
 
-function buildAttachURL(
+function buildTabAttachURL(
   repoId: string,
   branchId: string,
   tabId: string,
@@ -25,6 +30,19 @@ function buildAttachURL(
 ): string {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   let url = `${proto}//${window.location.host}/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/tabs/${encodeURIComponent(tabId)}/attach`
+  if (size && size.cols > 0 && size.rows > 0) {
+    url += `?cols=${size.cols}&rows=${size.rows}`
+  }
+  return url
+}
+
+function buildOrphanAttachURL(
+  name: string,
+  idx: number,
+  size?: { cols: number; rows: number },
+): string {
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  let url = `${proto}//${window.location.host}/api/orphan-sessions/${encodeURIComponent(name)}/windows/${idx}/attach`
   if (size && size.cols > 0 && size.rows > 0) {
     url += `?cols=${size.cols}&rows=${size.rows}`
   }
@@ -101,20 +119,37 @@ function buildTheme(): Terminal['options']['theme'] {
   }
 }
 
-export function TerminalView({ repoId, branchId, tabId }: Props) {
+export function TerminalView({
+  repoId,
+  branchId,
+  tabId,
+  orphanName,
+  orphanIdx,
+}: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [connState, setConnState] = useState<ConnState>('connecting')
+  const fontSize = usePalmuxStore((s) => s.deviceSettings.fontSize)
+  const scrollbackLines = usePalmuxStore((s) => s.deviceSettings.scrollbackLines)
 
   useEffect(() => {
     if (!containerRef.current) return
-    const key = `${repoId}/${branchId}/${tabId}`
+    const isTab = repoId && branchId && tabId
+    const isOrphan = orphanName && typeof orphanIdx === 'number'
+    if (!isTab && !isOrphan) return
+    const key = isTab
+      ? `${repoId}/${branchId}/${tabId}`
+      : `__orphan/${orphanName}/${orphanIdx}`
+    const buildURL = (size: { cols: number; rows: number }) =>
+      isTab
+        ? buildTabAttachURL(repoId!, branchId!, tabId!, size)
+        : buildOrphanAttachURL(orphanName!, orphanIdx!, size)
 
     const term = new Terminal({
       cursorBlink: true,
       fontFamily: readThemeVar('--font-mono', 'monospace'),
-      fontSize: 14,
+      fontSize,
       lineHeight: 1.2,
-      scrollback: 5000,
+      scrollback: scrollbackLines,
       allowProposedApi: true,
       theme: buildTheme(),
     })
@@ -143,7 +178,7 @@ export function TerminalView({ repoId, branchId, tabId }: Props) {
       ws?.send(JSON.stringify({ type: 'resize', cols, rows }))
 
     ws = new ReconnectingWebSocket({
-      url: buildAttachURL(repoId, branchId, tabId, initialSize),
+      url: buildURL(initialSize),
       binaryType: 'arraybuffer',
       onState: (s) => {
         setConnState(s)
@@ -234,7 +269,26 @@ export function TerminalView({ repoId, branchId, tabId }: Props) {
     return () => {
       terminalManager.remove(key)
     }
-  }, [repoId, branchId, tabId])
+    // fontSize / scrollbackLines are read only at mount; live updates land via
+    // the second effect below so we don't tear down the WS when the user
+    // adjusts font size on the toolbar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repoId, branchId, tabId, orphanName, orphanIdx])
+
+  // Live-update font size on the existing terminal when deviceSettings change.
+  useEffect(() => {
+    const isTab = repoId && branchId && tabId
+    const isOrphan = orphanName && typeof orphanIdx === 'number'
+    if (!isTab && !isOrphan) return
+    const key = isTab
+      ? `${repoId}/${branchId}/${tabId}`
+      : `__orphan/${orphanName}/${orphanIdx}`
+    const m = terminalManager.get(key)
+    if (!m) return
+    if (m.terminal.options.fontSize !== fontSize) {
+      m.terminal.options.fontSize = fontSize
+    }
+  }, [fontSize, repoId, branchId, tabId, orphanName, orphanIdx])
 
   return (
     <div className={styles.wrap}>
