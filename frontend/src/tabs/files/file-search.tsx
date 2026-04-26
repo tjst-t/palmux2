@@ -8,7 +8,7 @@ import type { Entry, GrepHit } from './types'
 interface Props {
   apiBase: string
   basePath: string
-  onPick: (path: string, lineNum?: number) => void
+  onPick: (target: { path: string; isDir?: boolean; lineNum?: number }) => void
 }
 
 type Mode = 'name' | 'grep'
@@ -92,7 +92,10 @@ export function FileSearch({ apiBase, basePath, onPick }: Props) {
         <ul className={styles.results}>
           {results.map((r) => (
             <li key={r.path}>
-              <button className={styles.row} onClick={() => onPick(r.path)}>
+              <button
+                className={styles.row}
+                onClick={() => onPick({ path: r.path, isDir: r.isDir })}
+              >
                 <span className={styles.icon}>{r.isDir ? '📁' : '📄'}</span>
                 <span className={styles.path}>{r.path}</span>
               </button>
@@ -104,7 +107,10 @@ export function FileSearch({ apiBase, basePath, onPick }: Props) {
         <ul className={styles.results}>
           {hits.map((h, i) => (
             <li key={`${h.path}-${h.lineNum}-${i}`}>
-              <button className={styles.row} onClick={() => onPick(h.path, h.lineNum)}>
+              <button
+                className={styles.row}
+                onClick={() => onPick({ path: h.path, lineNum: h.lineNum })}
+              >
                 <span className={styles.icon}>📄</span>
                 <span className={styles.path}>{h.path}</span>
                 <span className={styles.lineNum}>:{h.lineNum}</span>

@@ -132,8 +132,12 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
         <FileSearch
           apiBase={apiBase}
           basePath={path}
-          onPick={(p) => {
-            selectFile(p)
+          onPick={(target) => {
+            if (target.isDir) {
+              goToDir(target.path)
+            } else {
+              selectFile(target.path)
+            }
             setSearchOpen(false)
           }}
         />
