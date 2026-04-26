@@ -5,6 +5,7 @@ import type { Branch, Tab } from '../lib/api'
 import { selectBranchNotifications, usePalmuxStore } from '../stores/palmux-store'
 
 import { confirmDialog } from './context-menu/confirm-dialog'
+import { promptDialog } from './context-menu/prompt-dialog'
 import { useContextMenu } from './context-menu/store'
 import styles from './tab-bar.module.css'
 
@@ -54,11 +55,22 @@ export function TabBar({ branch }: Props) {
           label: 'Rename…',
           disabled: t.protected,
           onClick: async () => {
-            // Inline rename via prompt for now — a proper inline edit can be
-            // added under the same context-menu plumbing later.
-            const newName = window.prompt('Rename tab', extractName(t))
-            if (newName && newName !== extractName(t)) {
-              await renameTab(repoId, branch.id, t.id, newName)
+            const current = extractName(t)
+            const next = await promptDialog.ask({
+              title: 'Rename tab',
+              defaultValue: current,
+              confirmLabel: 'Rename',
+              validate: (v) => {
+                const trimmed = v.trim()
+                if (!trimmed) return 'Name cannot be empty.'
+                if (trimmed === current) return null
+                return null
+              },
+            })
+            if (next == null) return
+            const trimmed = next.trim()
+            if (trimmed && trimmed !== current) {
+              await renameTab(repoId, branch.id, t.id, trimmed)
             }
           },
         },

@@ -3,6 +3,7 @@ import { Route, Routes } from 'react-router-dom'
 
 import { ConfirmDialogRenderer } from './components/context-menu/confirm-dialog'
 import { ContextMenuRenderer } from './components/context-menu/context-menu'
+import { PromptDialogRenderer } from './components/context-menu/prompt-dialog'
 import { HomeRedirect } from './components/redirect'
 import { MainLayout } from './components/main-layout'
 import { useEventStream } from './hooks/use-event-stream'
@@ -43,6 +44,7 @@ function App() {
       </Routes>
       <ContextMenuRenderer />
       <ConfirmDialogRenderer />
+      <PromptDialogRenderer />
     </>
   )
 }
