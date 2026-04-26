@@ -1,9 +1,14 @@
 // Palmux app-shell service worker. Goal: make the SPA available offline /
 // instantly on subsequent loads. Anything under /api/ or /auth always goes
 // to the network — those are live state.
+//
+// VERSION must change every time we want browsers to drop the previous
+// cache. We bake the bundle's content hash from the Vite build into it via
+// the build pipeline; if the JS changes, this string changes, the browser
+// detects sw.js as different, and reinstalls.
 
-const VERSION = 'palmux-shell-v1'
-const APP_SHELL = ['/', '/index.html', '/favicon.svg', '/manifest.webmanifest']
+const VERSION = 'palmux-shell-v2'
+const APP_SHELL = ['/favicon.svg', '/manifest.webmanifest']
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(VERSION).then((c) => c.addAll(APP_SHELL)))
