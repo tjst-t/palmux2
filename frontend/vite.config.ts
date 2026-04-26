@@ -10,6 +10,10 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     server: {
       host: '0.0.0.0',
+      // Vite 5+ blocks unknown Host headers. portman exposes the dev server
+      // through *.dev.tjstkm.net, so allow that domain explicitly. Also keep
+      // localhost in case someone hits it directly.
+      allowedHosts: ['.dev.tjstkm.net', 'localhost', '127.0.0.1'],
       proxy: {
         '/api': { target: apiTarget, changeOrigin: true, ws: true },
         '/auth': { target: apiTarget, changeOrigin: true },
