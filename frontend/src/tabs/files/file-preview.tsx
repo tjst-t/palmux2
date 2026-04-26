@@ -63,6 +63,10 @@ export function FilePreview({ apiBase, path, lineNum }: Props) {
     )
   }
 
+  if (path.endsWith('.drawio') || path.endsWith('.drawio.svg') || path.endsWith('.drawio.png')) {
+    return <DrawioPreview path={body.path} content={body.content} />
+  }
+
   return (
     <div className={styles.wrap}>
       <header className={styles.header}>
@@ -96,6 +100,53 @@ export function FilePreview({ apiBase, path, lineNum }: Props) {
           File truncated. Open in your editor for the full contents.
         </p>
       )}
+    </div>
+  )
+}
+
+// DrawioPreview embeds the diagrams.net public viewer in an iframe and pushes
+// the file's XML over postMessage. We don't render mxgraph ourselves — that
+// would be a 1MB+ runtime; the cross-origin viewer is the standard approach.
+function DrawioPreview({ path, content }: { path: string; content: string }) {
+  const iframeRef = useRef<HTMLIFrameElement | null>(null)
+  const [ready, setReady] = useState(false)
+
+  useEffect(() => {
+    function onMessage(e: MessageEvent) {
+      if (typeof e.data !== 'string' || !iframeRef.current) return
+      let msg: { event?: string }
+      try {
+        msg = JSON.parse(e.data)
+      } catch {
+        return
+      }
+      if (msg.event === 'init') {
+        // Viewer is ready; push the XML to render.
+        iframeRef.current.contentWindow?.postMessage(
+          JSON.stringify({ action: 'load', xml: content, autosave: 0 }),
+          '*',
+        )
+        setReady(true)
+      }
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [content])
+
+  return (
+    <div className={styles.wrap}>
+      <header className={styles.header}>
+        <span className={styles.path}>{path}</span>
+        <span className={styles.meta}>drawio</span>
+      </header>
+      <iframe
+        ref={iframeRef}
+        title={`drawio: ${path}`}
+        src="https://viewer.diagrams.net/?embed=1&proto=json&spinner=1&chrome=0&toolbar=0"
+        style={{ flex: 1, minHeight: 0, border: 0, background: 'var(--color-elevated)' }}
+        sandbox="allow-scripts allow-same-origin"
+      />
+      {!ready && <p className={styles.placeholder}>Loading drawio viewer…</p>}
     </div>
   )
 }

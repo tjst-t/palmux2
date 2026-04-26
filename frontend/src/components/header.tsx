@@ -23,6 +23,7 @@ export function Header() {
   const setDeviceSetting = usePalmuxStore((s) => s.setDeviceSetting)
   const mobileDrawerOpen = usePalmuxStore((s) => s.mobileDrawerOpen)
   const setMobileDrawerOpen = usePalmuxStore((s) => s.setMobileDrawerOpen)
+  const portmanURL = usePalmuxStore((s) => s.serverInfo.portmanURL)
   const showPalette = useCommandPaletteStore((s) => s.show)
   const navigate = useNavigate()
   const wide = useWideViewport(SPLIT_MIN_WIDTH)
@@ -75,6 +76,18 @@ export function Header() {
         >
           {theme === 'dark' ? '☾' : '☀'}
         </button>
+        {portmanURL && (
+          <a
+            className={styles.iconBtn}
+            href={portmanURL}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open portman dashboard"
+            aria-label="Portman"
+          >
+            P
+          </a>
+        )}
         {repo && githubURL(repo.ghqPath, branch?.name) && (
           <a
             className={styles.iconBtn}

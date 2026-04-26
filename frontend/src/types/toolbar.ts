@@ -12,6 +12,8 @@ export type ToolbarButton =
   | FontSizeButton
   | CommandButton
   | ImeButton
+  | SpeechButton
+  | PopupButton
 
 export interface ModifierButton {
   type: 'modifier'
@@ -56,6 +58,28 @@ export interface CommandButton {
 export interface ImeButton {
   type: 'ime'
   label?: string
+}
+
+export interface SpeechButton {
+  type: 'speech'
+  label?: string
+  /** BCP-47 language tag passed to SpeechRecognition. Defaults to the
+   *  browser's navigator.language at runtime. */
+  lang?: string
+}
+
+/**
+ * PopupButton is a "tap to send the primary key, swipe-up / long-press to
+ * pick from alts". Useful on mobile where the toolbar is short on space.
+ */
+export interface PopupButton {
+  type: 'popup'
+  label?: string
+  /** First entry is the primary key (sent on plain tap). The rest open in
+   *  a popover via long-press / arrow-up. Each alternate is a regular
+   *  KeyButton or CtrlKeyButton. */
+  primary: KeyButton | CtrlKeyButton
+  alternates: (KeyButton | CtrlKeyButton)[]
 }
 
 export interface ToolbarMode {

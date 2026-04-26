@@ -44,18 +44,19 @@ func main() {
 	token := pflag.String("token", "", "auth token. empty = open access")
 	basePath := pflag.String("base-path", "/", "URL base path (e.g. /palmux/)")
 	maxConns := pflag.Int("max-connections", 0, "per-branch WS connection cap (0 = unlimited)")
+	portmanURL := pflag.String("portman-url", "", "URL of a portman dashboard; when set, the header shows a link")
 	pflag.Parse()
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
-	if err := run(*addr, *configDir, *token, *basePath, *maxConns); err != nil {
+	if err := run(*addr, *configDir, *token, *basePath, *maxConns, *portmanURL); err != nil {
 		slog.Error("fatal", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(addr, configDir, token, basePath string, maxConns int) error {
+func run(addr, configDir, token, basePath string, maxConns int, portmanURL string) error {
 	if err := requireBins("tmux", "ghq", "gwq", "git"); err != nil {
 		return err
 	}
@@ -146,9 +147,10 @@ func run(addr, configDir, token, basePath string, maxConns int) error {
 		BasePath:   basePath,
 		Logger:     slog.Default(),
 		HealthDetail: map[string]any{
-			"version":   "phase-7",
-			"open":      authn.Open(),
-			"configDir": configDir,
+			"version":    "phase-10",
+			"open":       authn.Open(),
+			"configDir":  configDir,
+			"portmanURL": portmanURL,
 		},
 	})
 

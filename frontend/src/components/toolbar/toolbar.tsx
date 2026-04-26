@@ -192,6 +192,12 @@ function ButtonView({
   if (btn.type === 'ime') {
     return <ImeToggle label={btn.label} />
   }
+  if (btn.type === 'speech') {
+    return <SpeechToggle label={btn.label} lang={btn.lang} disabled={disabled} onSend={onSend} />
+  }
+  if (btn.type === 'popup') {
+    return <PopupKeys btn={btn} disabled={disabled} onSend={onSend} />
+  }
   if (btn.type === 'arrow') {
     return (
       <ArrowButtonView
@@ -225,6 +231,212 @@ function ButtonView({
       {btn.label ?? btn.key}
     </button>
   )
+}
+
+// PopupKeys: tap the button to send `primary`; long-press / swipe-up to open
+// a popover with the alternates. Each alternate is the same shape as a
+// regular key/ctrl-key Toolbar button.
+function PopupKeys({
+  btn,
+  disabled,
+  onSend,
+}: {
+  btn: import('../../types/toolbar').PopupButton
+  disabled: boolean
+  onSend: (data: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+  const startY = useRef<number | null>(null)
+  const longTimer = useRef<number | null>(null)
+  const fired = useRef(false)
+
+  const sendKeyButton = (k: import('../../types/toolbar').KeyButton | import('../../types/toolbar').CtrlKeyButton) => {
+    if (k.type === 'ctrl-key') {
+      onSend(ctrlByte(k.key))
+    } else {
+      onSend(k.text ?? keyToBytes(k.key))
+    }
+  }
+
+  // Close on outside click / Esc.
+  useEffect(() => {
+    if (!open) return
+    const onPointer = (e: PointerEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('pointerdown', onPointer, true)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointerdown', onPointer, true)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  return (
+    <div ref={wrapRef} className={styles.popupWrap}>
+      <button
+        type="button"
+        className={styles.btn}
+        disabled={disabled}
+        onPointerDown={(e) => {
+          if (e.pointerType === 'mouse' && e.button !== 0) return
+          fired.current = false
+          startY.current = e.clientY
+          longTimer.current = window.setTimeout(() => {
+            fired.current = true
+            longTimer.current = null
+            setOpen(true)
+          }, 350)
+        }}
+        onPointerMove={(e) => {
+          if (startY.current == null) return
+          // Swipe-up while still pressed → open immediately.
+          if (e.clientY < startY.current - 24) {
+            if (longTimer.current !== null) {
+              clearTimeout(longTimer.current)
+              longTimer.current = null
+            }
+            fired.current = true
+            setOpen(true)
+          }
+        }}
+        onPointerUp={() => {
+          if (longTimer.current !== null) {
+            clearTimeout(longTimer.current)
+            longTimer.current = null
+          }
+          startY.current = null
+        }}
+        onPointerCancel={() => {
+          if (longTimer.current !== null) {
+            clearTimeout(longTimer.current)
+            longTimer.current = null
+          }
+          startY.current = null
+        }}
+        onClick={() => {
+          // Suppress click that follows a long-press / swipe-up.
+          if (fired.current) {
+            fired.current = false
+            return
+          }
+          sendKeyButton(btn.primary)
+        }}
+      >
+        {btn.label ?? btn.primary.label ?? btn.primary.key}
+      </button>
+      {open && (
+        <div className={styles.popupSheet} role="menu">
+          {btn.alternates.map((alt, i) => (
+            <button
+              key={i}
+              type="button"
+              className={styles.popupItem}
+              onClick={() => {
+                sendKeyButton(alt)
+                setOpen(false)
+              }}
+            >
+              {alt.label ?? alt.key}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// SpeechToggle uses the (prefixed in some browsers) SpeechRecognition API to
+// transcribe a single utterance and send the result + Enter to the focused
+// terminal. Tap to start, tap again to stop early.
+function SpeechToggle({
+  label,
+  lang,
+  disabled,
+  onSend,
+}: {
+  label?: string
+  lang?: string
+  disabled: boolean
+  onSend: (data: string) => void
+}) {
+  const [active, setActive] = useState(false)
+  const recRef = useRef<SpeechRecognitionLike | null>(null)
+
+  const SR = (typeof window !== 'undefined' ? window.SpeechRecognition ?? window.webkitSpeechRecognition : undefined) as
+    | (new () => SpeechRecognitionLike)
+    | undefined
+
+  const supported = !!SR
+
+  const start = () => {
+    if (!SR) return
+    const rec = new SR()
+    rec.continuous = false
+    rec.interimResults = false
+    rec.lang = lang ?? navigator.language ?? 'en-US'
+    rec.onresult = (ev: SpeechRecognitionEventLike) => {
+      const transcript = Array.from(ev.results)
+        .map((r) => r[0]?.transcript ?? '')
+        .join('')
+      if (transcript) onSend(transcript)
+    }
+    rec.onend = () => setActive(false)
+    rec.onerror = () => setActive(false)
+    recRef.current = rec
+    setActive(true)
+    try {
+      rec.start()
+    } catch {
+      setActive(false)
+    }
+  }
+  const stop = () => recRef.current?.stop()
+
+  return (
+    <button
+      type="button"
+      className={styles.btn}
+      data-mode={active ? 'lock' : undefined}
+      disabled={disabled || !supported}
+      title={
+        !supported
+          ? 'Web Speech not supported in this browser'
+          : active
+            ? 'Tap to stop voice input'
+            : 'Tap to start voice input'
+      }
+      onClick={() => (active ? stop() : start())}
+    >
+      {label ?? '🎤'}
+    </button>
+  )
+}
+
+// Minimal ambient typing for SpeechRecognition — TS lib.dom is missing it
+// in many setups. Only the methods we touch are listed.
+interface SpeechRecognitionLike {
+  continuous: boolean
+  interimResults: boolean
+  lang: string
+  onresult: ((ev: SpeechRecognitionEventLike) => void) | null
+  onend: ((ev: Event) => void) | null
+  onerror: ((ev: Event) => void) | null
+  start(): void
+  stop(): void
+}
+interface SpeechRecognitionEventLike {
+  results: ArrayLike<ArrayLike<{ transcript: string }>>
+}
+declare global {
+  interface Window {
+    SpeechRecognition?: { new (): SpeechRecognitionLike }
+    webkitSpeechRecognition?: { new (): SpeechRecognitionLike }
+  }
 }
 
 // ImeToggle cycles deviceSettings.imeMode through none → direct → ime →

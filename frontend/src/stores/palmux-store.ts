@@ -116,6 +116,12 @@ export interface RemoteEvent {
   payload?: unknown
 }
 
+export interface ServerInfo {
+  version?: string
+  open?: boolean
+  portmanURL?: string
+}
+
 interface PalmuxStoreState {
   bootstrapped: boolean
   loading: boolean
@@ -125,6 +131,7 @@ interface PalmuxStoreState {
   availableRepos: AvailableRepoEntry[]
   branchPicker: { repoId: string; entries: BranchPickerEntry[] } | null
   orphanSessions: OrphanSession[]
+  serverInfo: ServerInfo
 
   globalSettings: GlobalSettings
   deviceSettings: DeviceSettings
@@ -170,6 +177,7 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
   availableRepos: [],
   branchPicker: null,
   orphanSessions: [],
+  serverInfo: {},
   globalSettings: {},
   deviceSettings: loadDeviceSettings(),
   connectionStatus: 'connecting',
@@ -181,19 +189,21 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
     if (get().bootstrapped || get().loading) return
     set({ loading: true, error: null })
     try {
-      const [repos, settings, notifications, orphans] = await Promise.all([
+      const [repos, settings, notifications, orphans, info] = await Promise.all([
         api.get<Repository[]>('/api/repos'),
         api.get<GlobalSettings>('/api/settings'),
         api
           .get<Record<string, BranchNotificationState>>('/api/notifications')
           .catch(() => ({}) as Record<string, BranchNotificationState>),
         api.get<OrphanSession[]>('/api/orphan-sessions').catch(() => [] as OrphanSession[]),
+        api.get<ServerInfo>('/api/health').catch(() => ({}) as ServerInfo),
       ])
       set({
         repos,
         globalSettings: settings,
         notifications,
         orphanSessions: orphans ?? [],
+        serverInfo: info ?? {},
         bootstrapped: true,
         loading: false,
       })
