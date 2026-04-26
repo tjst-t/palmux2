@@ -1,0 +1,19 @@
+{
+  "name": "Palmux v2",
+  "short_name": "Palmux",
+  "description": "Web tmux client for running Claude Code in parallel",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f1117",
+  "theme_color": "#0f1117",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

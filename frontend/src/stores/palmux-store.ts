@@ -103,6 +103,7 @@ interface PalmuxStoreState {
   connectionStatus: ConnectionStatus
 
   focusedPanel: FocusedPanel
+  mobileDrawerOpen: boolean
 
   // Actions ────────────────────────────────────────────────────────────────
   bootstrap: () => Promise<void>
@@ -112,6 +113,7 @@ interface PalmuxStoreState {
   applyEvent: (ev: RemoteEvent) => void
   setConnectionStatus: (status: ConnectionStatus) => void
   setFocusedPanel: (panel: FocusedPanel) => void
+  setMobileDrawerOpen: (open: boolean) => void
 
   setDeviceSetting: <K extends keyof DeviceSettings>(key: K, value: DeviceSettings[K]) => void
 
@@ -138,6 +140,7 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
   deviceSettings: loadDeviceSettings(),
   connectionStatus: 'connecting',
   focusedPanel: 'left',
+  mobileDrawerOpen: false,
 
   bootstrap: async () => {
     if (get().bootstrapped || get().loading) return
@@ -198,6 +201,7 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
 
   setConnectionStatus: (status) => set({ connectionStatus: status }),
   setFocusedPanel: (panel) => set({ focusedPanel: panel }),
+  setMobileDrawerOpen: (open) => set({ mobileDrawerOpen: open }),
 
   setDeviceSetting: (key, value) => {
     persistDeviceSetting(key, value)

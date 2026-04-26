@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"mime"
 	"net/http"
 	"os"
 	"os/exec"
@@ -32,6 +33,10 @@ import (
 )
 
 func main() {
+	// Some Linux distros ship a slim mime DB that doesn't know about
+	// .webmanifest. Register the canonical type so PWAs install cleanly.
+	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
+
 	addr := pflag.String("addr", "0.0.0.0:8080", "listen address (host:port)")
 	configDir := pflag.String("config-dir", defaultConfigDir(), "config directory (repos.json / settings.json)")
 	token := pflag.String("token", "", "auth token. empty = open access")

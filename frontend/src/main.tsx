@@ -15,3 +15,13 @@ createRoot(document.getElementById('root')!).render(
     </BrowserRouter>
   </StrictMode>,
 )
+
+// Register the service worker only on a real (non-dev) host. Vite's HMR
+// pages serve from a different origin which makes SW registration noisy.
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      // SW failures are non-fatal — the app still works.
+    })
+  })
+}

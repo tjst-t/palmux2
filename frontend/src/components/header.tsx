@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
+import { useViewport } from '../hooks/use-viewport'
 import { selectBranchById, selectRepoById, usePalmuxStore } from '../stores/palmux-store'
 
 import styles from './header.module.css'
@@ -17,15 +18,27 @@ export function Header() {
   const drawerPinned = usePalmuxStore((s) => s.deviceSettings.drawerPinned)
   const splitEnabled = usePalmuxStore((s) => s.deviceSettings.splitEnabled)
   const setDeviceSetting = usePalmuxStore((s) => s.setDeviceSetting)
+  const mobileDrawerOpen = usePalmuxStore((s) => s.mobileDrawerOpen)
+  const setMobileDrawerOpen = usePalmuxStore((s) => s.setMobileDrawerOpen)
   const navigate = useNavigate()
   const wide = useWideViewport(SPLIT_MIN_WIDTH)
+  const viewport = useViewport()
+  const mobile = viewport === 'mobile'
+
+  const onToggleDrawer = () => {
+    if (mobile) {
+      setMobileDrawerOpen(!mobileDrawerOpen)
+    } else {
+      setDeviceSetting('drawerPinned', !drawerPinned)
+    }
+  }
 
   return (
     <header className={styles.header}>
       <div className={styles.left}>
         <button
           className={styles.iconBtn}
-          onClick={() => setDeviceSetting('drawerPinned', !drawerPinned)}
+          onClick={onToggleDrawer}
           title="Toggle drawer"
           aria-label="Toggle drawer"
         >
