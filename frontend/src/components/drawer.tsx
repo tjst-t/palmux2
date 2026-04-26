@@ -100,72 +100,94 @@ function OrphanSection({
   onAttach: (sessionName: string, idx: number, windowName: string) => void
   onRefresh: () => void
 }) {
-  const [open, setOpen] = useState<Set<string>>(new Set())
-  if (sessions.length === 0) {
-    return (
-      <section className={styles.section}>
-        <header className={styles.sectionHeader} title="Tmux sessions Palmux did not create">
-          Orphans
-          <button
-            className={styles.addBranchBtn}
-            onClick={onRefresh}
-            title="Refresh orphan list"
-            aria-label="Refresh"
-            style={{ width: 'auto', padding: '0 8px', marginLeft: 8 }}
-          >
-            ↻
-          </button>
-        </header>
-      </section>
-    )
-  }
+  // The Orphans section is collapsed by default — most users don't have any
+  // and the noise of a permanently-visible empty header is annoying.
+  const [sectionOpen, setSectionOpen] = useState(false)
+  const [openSessions, setOpenSessions] = useState<Set<string>>(new Set())
+
   return (
     <section className={styles.section}>
-      <header className={styles.sectionHeader}>Orphans</header>
-      <ul className={styles.repoList}>
-        {sessions.map((s) => {
-          const expanded = open.has(s.name)
-          return (
-            <li key={s.name} className={styles.repo}>
-              <div className={styles.repoRow}>
-                <button
-                  className={styles.repoToggle}
-                  onClick={() =>
-                    setOpen((prev) => {
-                      const next = new Set(prev)
-                      if (next.has(s.name)) next.delete(s.name)
-                      else next.add(s.name)
-                      return next
-                    })
-                  }
-                  aria-expanded={expanded}
-                >
-                  <span className={styles.repoChevron}>{expanded ? '▼' : '▶'}</span>
-                  <span className={styles.repoName} title={s.name}>
-                    {s.name}
-                  </span>
-                </button>
-              </div>
-              {expanded && (
-                <ul className={styles.branchList}>
-                  {s.windows.map((w) => (
-                    <li key={w.index}>
-                      <button
-                        className={styles.branch}
-                        onClick={() => onAttach(s.name, w.index, w.name)}
-                      >
-                        <span className={styles.branchName}>
-                          {w.index}: {w.name}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </li>
-          )
-        })}
-      </ul>
+      <header
+        className={styles.sectionHeader}
+        title="Tmux sessions Palmux did not create"
+        style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+        onClick={() => setSectionOpen((v) => !v)}
+      >
+        <span className={styles.repoChevron} style={{ marginRight: 6 }}>
+          {sectionOpen ? '▼' : '▶'}
+        </span>
+        <span style={{ flex: 1 }}>Orphans{sessions.length > 0 ? ` (${sessions.length})` : ''}</span>
+        <button
+          className={styles.addBranchBtn}
+          onClick={(e) => {
+            e.stopPropagation()
+            onRefresh()
+          }}
+          title="Refresh orphan list"
+          aria-label="Refresh"
+          style={{ width: 'auto', padding: '0 8px' }}
+        >
+          ↻
+        </button>
+      </header>
+      {sectionOpen && sessions.length === 0 && (
+        <p
+          style={{
+            margin: 0,
+            padding: '4px 14px 8px',
+            fontSize: 11,
+            color: 'var(--color-fg-muted)',
+          }}
+        >
+          No non-Palmux tmux sessions.
+        </p>
+      )}
+      {sectionOpen && sessions.length > 0 && (
+        <ul className={styles.repoList}>
+          {sessions.map((s) => {
+            const expanded = openSessions.has(s.name)
+            return (
+              <li key={s.name} className={styles.repo}>
+                <div className={styles.repoRow}>
+                  <button
+                    className={styles.repoToggle}
+                    onClick={() =>
+                      setOpenSessions((prev) => {
+                        const next = new Set(prev)
+                        if (next.has(s.name)) next.delete(s.name)
+                        else next.add(s.name)
+                        return next
+                      })
+                    }
+                    aria-expanded={expanded}
+                  >
+                    <span className={styles.repoChevron}>{expanded ? '▼' : '▶'}</span>
+                    <span className={styles.repoName} title={s.name}>
+                      {s.name}
+                    </span>
+                  </button>
+                </div>
+                {expanded && (
+                  <ul className={styles.branchList}>
+                    {s.windows.map((w) => (
+                      <li key={w.index}>
+                        <button
+                          className={styles.branch}
+                          onClick={() => onAttach(s.name, w.index, w.name)}
+                        >
+                          <span className={styles.branchName}>
+                            {w.index}: {w.name}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </section>
   )
 }

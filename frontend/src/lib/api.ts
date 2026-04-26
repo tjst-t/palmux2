@@ -109,3 +109,14 @@ export interface OrphanSession {
   createdAt?: number
   windows: OrphanWindow[]
 }
+
+export interface PortmanLease {
+  name: string
+  project: string
+  worktree: string
+  port: number
+  hostname: string
+  expose: boolean
+  status: string
+  url: string
+}

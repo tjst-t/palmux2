@@ -45,8 +45,13 @@
   color: var(--color-fg);
   border-radius: var(--radius-sm);
 }
-.row:hover {
+.row:hover,
+.rowActive {
   background-color: var(--color-bg);
+}
+.rowActive {
+  border-left: 2px solid var(--color-accent);
+  padding-left: calc(var(--space-3) - 2px);
 }
 .row:disabled {
   opacity: 0.5;

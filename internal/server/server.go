@@ -16,6 +16,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/auth"
 	"github.com/tjst-t/palmux2/internal/commands"
 	"github.com/tjst-t/palmux2/internal/notify"
+	"github.com/tjst-t/palmux2/internal/portman"
 	"github.com/tjst-t/palmux2/internal/store"
 	"github.com/tjst-t/palmux2/internal/tmux"
 )
@@ -27,6 +28,7 @@ type Deps struct {
 	Tmux         tmux.Client
 	Commands     *commands.Detector
 	Notify       *notify.Hub
+	Portman      *portman.Client
 	FrontendFS   fs.FS // embedded SPA bundle
 	BasePath     string
 	Logger       *slog.Logger
@@ -72,6 +74,7 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 		healthDetail: deps.HealthDetail,
 		commands:     deps.Commands,
 		notify:       deps.Notify,
+		portman:      deps.Portman,
 	}
 
 	mux.HandleFunc("GET /api/health", h.health)
@@ -89,6 +92,7 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("DELETE /api/repos/{repoId}/branches/{branchId}", h.closeBranch)
 
 	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/commands", h.listCommands)
+	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/portman", h.listRepoPortman)
 
 	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/tabs", h.listTabs)
 	mux.HandleFunc("POST /api/repos/{repoId}/branches/{branchId}/tabs", h.addTab)
@@ -115,6 +119,7 @@ type handlers struct {
 	healthDetail map[string]any
 	commands     *commands.Detector
 	notify       *notify.Hub
+	portman      *portman.Client
 }
 
 // helpers ────────────────────────────────────────────────────────────────────

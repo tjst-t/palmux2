@@ -24,6 +24,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/ghq"
 	"github.com/tjst-t/palmux2/internal/gwq"
 	"github.com/tjst-t/palmux2/internal/notify"
+	"github.com/tjst-t/palmux2/internal/portman"
 	"github.com/tjst-t/palmux2/internal/server"
 	"github.com/tjst-t/palmux2/internal/store"
 	"github.com/tjst-t/palmux2/internal/tab"
@@ -143,6 +144,7 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		Tmux:       tmuxClient,
 		Commands:   commands.New(),
 		Notify:     notifyHub,
+		Portman:    portman.New(""),
 		FrontendFS: frontendFS,
 		BasePath:   basePath,
 		Logger:     slog.Default(),
