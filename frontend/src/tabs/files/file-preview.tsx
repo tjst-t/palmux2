@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -10,12 +10,15 @@ import type { FileBody } from './types'
 interface Props {
   apiBase: string
   path: string
+  /** 1-based line to scroll to and briefly highlight (for grep results). */
+  lineNum?: number
 }
 
-export function FilePreview({ apiBase, path }: Props) {
+export function FilePreview({ apiBase, path, lineNum }: Props) {
   const [body, setBody] = useState<FileBody | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const codeRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -36,6 +39,17 @@ export function FilePreview({ apiBase, path }: Props) {
       cancelled = true
     }
   }, [apiBase, path])
+
+  const lines = useMemo(() => (body?.content != null ? body.content.split('\n') : []), [body])
+
+  // Scroll to lineNum once the body is in the DOM. Re-runs when lineNum
+  // changes too so a user clicking another grep result re-targets the same
+  // file's preview.
+  useEffect(() => {
+    if (!body || !lineNum || lineNum <= 0) return
+    const target = codeRef.current?.querySelector<HTMLElement>(`[data-line="${lineNum}"]`)
+    if (target) target.scrollIntoView({ block: 'center', behavior: 'auto' })
+  }, [body, lineNum])
 
   if (loading) return <p className={styles.placeholder}>Loading…</p>
   if (error) return <p className={styles.error}>{error}</p>
@@ -60,7 +74,22 @@ export function FilePreview({ apiBase, path }: Props) {
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{body.content}</ReactMarkdown>
         </div>
       ) : (
-        <pre className={styles.code}>{body.content}</pre>
+        <div className={styles.code} ref={codeRef}>
+          {lines.map((ln, i) => {
+            const num = i + 1
+            const hl = num === lineNum
+            return (
+              <div
+                key={num}
+                data-line={num}
+                className={hl ? `${styles.line} ${styles.lineHl}` : styles.line}
+              >
+                <span className={styles.lineNum}>{num}</span>
+                <span className={styles.lineCode}>{ln === '' ? ' ' : ln}</span>
+              </div>
+            )
+          })}
+        </div>
       )}
       {body.truncated && (
         <p className={styles.truncated}>

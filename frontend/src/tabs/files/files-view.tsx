@@ -31,12 +31,19 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
 
   const splat = (params['*'] ?? '').replace(/^\/+|\/+$/g, '')
   const fileQuery = searchParams.get('file') ?? ''
+  const lineQuery = parseInt(searchParams.get('line') ?? '', 10)
 
   const [localPath, setLocalPath] = useState('')
   const [localSelected, setLocalSelected] = useState<string | null>(null)
+  const [localLine, setLocalLine] = useState<number | undefined>(undefined)
 
   const path = isUrlPanel ? splat : localPath
   const selected = isUrlPanel ? (fileQuery ? fileQuery : null) : localSelected
+  const selectedLine = isUrlPanel
+    ? Number.isFinite(lineQuery) && lineQuery > 0
+      ? lineQuery
+      : undefined
+    : localLine
 
   const [entries, setEntries] = useState<Entry[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -64,6 +71,7 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
       const tail = cleaned ? `/${cleaned.split('/').map(encodeURIComponent).join('/')}` : ''
       const sp = new URLSearchParams(location.search)
       sp.delete('file')
+      sp.delete('line')
       const search = sp.toString()
       navigate(`${base}${tail}${search ? '?' + search : ''}`)
     },
@@ -71,9 +79,10 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
   )
 
   const selectFile = useCallback(
-    (filePath: string | null) => {
+    (filePath: string | null, lineNum?: number) => {
       if (!isUrlPanel) {
         setLocalSelected(filePath)
+        setLocalLine(lineNum)
         return
       }
       setSearchParams(
@@ -81,6 +90,8 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
           const next = new URLSearchParams(prev)
           if (filePath) next.set('file', filePath)
           else next.delete('file')
+          if (lineNum && lineNum > 0) next.set('line', String(lineNum))
+          else next.delete('line')
           return next
         },
         { replace: false },
@@ -136,7 +147,7 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
             if (target.isDir) {
               goToDir(target.path)
             } else {
-              selectFile(target.path)
+              selectFile(target.path, target.lineNum)
             }
             setSearchOpen(false)
           }}
@@ -158,7 +169,7 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
         </div>
         <div className={styles.previewPane}>
           {selected ? (
-            <FilePreview apiBase={apiBase} path={selected} />
+            <FilePreview apiBase={apiBase} path={selected} lineNum={selectedLine} />
           ) : (
             <p className={styles.empty}>Pick a file to preview.</p>
           )}

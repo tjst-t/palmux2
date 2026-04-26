@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
+import { useLongPress } from '../hooks/use-long-press'
 import type { Branch, Tab } from '../lib/api'
 import { selectBranchNotifications, usePalmuxStore } from '../stores/palmux-store'
 
@@ -46,8 +47,27 @@ export function TabBar({ branch }: Props) {
     }
   }
 
-  const onContext = (e: React.MouseEvent, t: Tab) => {
-    e.preventDefault()
+  return (
+    <div className={styles.bar} role="tablist">
+      <div className={styles.scroll}>
+        {branch.tabSet.tabs.map((t) => (
+          <TabRow
+            key={t.id}
+            tab={t}
+            active={t.id === decodeURIComponent(tabId ?? '')}
+            unreadBadge={t.type === 'claude' && claudeUnread > 0 ? claudeUnread : 0}
+            onSelect={() => onSelect(t.id)}
+            onContext={(x, y) => openContext(t, x, y)}
+          />
+        ))}
+      </div>
+      <button className={styles.addBtn} onClick={onAddBash} disabled={adding} title="New Bash tab">
+        +
+      </button>
+    </div>
+  )
+
+  function openContext(t: Tab, x: number, y: number) {
     showContextMenu(
       [
         { type: 'heading', label: t.name },
@@ -70,7 +90,7 @@ export function TabBar({ branch }: Props) {
             if (next == null) return
             const trimmed = next.trim()
             if (trimmed && trimmed !== current) {
-              await renameTab(repoId, branch.id, t.id, trimmed)
+              await renameTab(repoId!, branch.id, t.id, trimmed)
             }
           },
         },
@@ -86,43 +106,47 @@ export function TabBar({ branch }: Props) {
               confirmLabel: 'Close',
               danger: true,
             })
-            if (ok) await removeTab(repoId, branch.id, t.id)
+            if (ok) await removeTab(repoId!, branch.id, t.id)
           },
         },
       ],
-      e.clientX,
-      e.clientY,
+      x,
+      y,
     )
   }
+}
 
+function TabRow({
+  tab,
+  active,
+  unreadBadge,
+  onSelect,
+  onContext,
+}: {
+  tab: Tab
+  active: boolean
+  unreadBadge: number
+  onSelect: () => void
+  onContext: (x: number, y: number) => void
+}) {
+  const longPress = useLongPress((x, y) => onContext(x, y))
   return (
-    <div className={styles.bar} role="tablist">
-      <div className={styles.scroll}>
-        {branch.tabSet.tabs.map((t) => {
-          const active = t.id === decodeURIComponent(tabId ?? '')
-          return (
-            <button
-              key={t.id}
-              role="tab"
-              aria-selected={active}
-              className={active ? `${styles.tab} ${styles.tabActive}` : styles.tab}
-              onClick={() => onSelect(t.id)}
-              onContextMenu={(e) => onContext(e, t)}
-              title={t.protected ? `${t.name} (protected)` : `${t.name} — Right-click for actions`}
-            >
-              <span className={styles.tabIcon}>{iconFor(t.type)}</span>
-              <span className={styles.tabLabel}>{t.name}</span>
-              {t.type === 'claude' && claudeUnread > 0 && (
-                <span className={styles.tabBadge}>{claudeUnread}</span>
-              )}
-            </button>
-          )
-        })}
-      </div>
-      <button className={styles.addBtn} onClick={onAddBash} disabled={adding} title="New Bash tab">
-        +
-      </button>
-    </div>
+    <button
+      role="tab"
+      aria-selected={active}
+      className={active ? `${styles.tab} ${styles.tabActive}` : styles.tab}
+      onClick={onSelect}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        onContext(e.clientX, e.clientY)
+      }}
+      title={tab.protected ? `${tab.name} (protected)` : `${tab.name} — Right-click / long-press for actions`}
+      {...longPress}
+    >
+      <span className={styles.tabIcon}>{iconFor(tab.type)}</span>
+      <span className={styles.tabLabel}>{tab.name}</span>
+      {unreadBadge > 0 && <span className={styles.tabBadge}>{unreadBadge}</span>}
+    </button>
   )
 }
 

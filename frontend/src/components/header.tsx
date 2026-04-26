@@ -4,6 +4,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useViewport } from '../hooks/use-viewport'
 import { selectBranchById, selectRepoById, usePalmuxStore } from '../stores/palmux-store'
 
+import { useCommandPaletteStore } from './command-palette/store'
+import { ActivityInbox } from './inbox/activity-inbox'
 import styles from './header.module.css'
 
 const SPLIT_MIN_WIDTH = 900
@@ -17,9 +19,11 @@ export function Header() {
   const status = usePalmuxStore((s) => s.connectionStatus)
   const drawerPinned = usePalmuxStore((s) => s.deviceSettings.drawerPinned)
   const splitEnabled = usePalmuxStore((s) => s.deviceSettings.splitEnabled)
+  const theme = usePalmuxStore((s) => s.deviceSettings.theme)
   const setDeviceSetting = usePalmuxStore((s) => s.setDeviceSetting)
   const mobileDrawerOpen = usePalmuxStore((s) => s.mobileDrawerOpen)
   const setMobileDrawerOpen = usePalmuxStore((s) => s.setMobileDrawerOpen)
+  const showPalette = useCommandPaletteStore((s) => s.show)
   const navigate = useNavigate()
   const wide = useWideViewport(SPLIT_MIN_WIDTH)
   const viewport = useViewport()
@@ -54,6 +58,23 @@ export function Header() {
         )}
       </div>
       <div className={styles.right}>
+        <ActivityInbox />
+        <button
+          className={styles.iconBtn}
+          onClick={() => showPalette()}
+          title="Command palette (⌘K / Ctrl+K)"
+          aria-label="Command palette"
+        >
+          ⌘
+        </button>
+        <button
+          className={styles.iconBtn}
+          onClick={() => setDeviceSetting('theme', theme === 'dark' ? 'light' : 'dark')}
+          title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+          aria-label="Toggle theme"
+        >
+          {theme === 'dark' ? '☾' : '☀'}
+        </button>
         {repo && githubURL(repo.ghqPath, branch?.name) && (
           <a
             className={styles.iconBtn}

@@ -1,0 +1,193 @@
+.bellWrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.bellBtn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: var(--color-fg-muted);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  position: relative;
+}
+.bellBtn:hover {
+  background-color: var(--color-elevated);
+  color: var(--color-fg);
+}
+
+.badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  border-radius: 999px;
+  background-color: var(--color-warning);
+  color: var(--color-bg);
+  text-align: center;
+  pointer-events: none;
+}
+
+.popover {
+  position: fixed;
+  top: calc(var(--header-height) + 4px);
+  right: var(--space-3);
+  width: min(360px, 92vw);
+  max-height: 70vh;
+  background-color: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.5);
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  animation: pop 120ms ease-out;
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-fg);
+}
+
+.clearAll {
+  font-size: 11px;
+  color: var(--color-fg-muted);
+}
+.clearAll:hover {
+  color: var(--color-fg);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--color-fg-muted);
+  font-size: 12px;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 14px;
+  border-left: 2px solid transparent;
+  cursor: pointer;
+}
+.row:hover {
+  background-color: var(--color-bg);
+}
+.unread {
+  border-left-color: var(--color-warning);
+}
+
+.rowHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--color-fg);
+}
+
+.branchName {
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.unreadCount {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background-color: var(--color-warning);
+  color: var(--color-bg);
+}
+
+.message {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-fg-muted);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: 4px;
+}
+
+.action {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-mono);
+}
+.action:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.action[data-kind='yes'] {
+  color: var(--color-success);
+  border-color: var(--color-success);
+}
+.action[data-kind='yes']:hover {
+  background-color: rgba(100, 210, 160, 0.1);
+}
+.action[data-kind='no'] {
+  color: var(--color-error);
+  border-color: var(--color-error);
+}
+.action[data-kind='no']:hover {
+  background-color: rgba(239, 68, 68, 0.1);
+}
+
+.timestamp {
+  font-size: 10px;
+  color: var(--color-fg-faint);
+  font-family: var(--font-mono);
+}

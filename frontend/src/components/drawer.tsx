@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
+import { useLongPress } from '../hooks/use-long-press'
 import type { Branch, Repository } from '../lib/api'
 import { selectBranchNotifications, usePalmuxStore } from '../stores/palmux-store'
 
@@ -143,8 +144,7 @@ function RepoItem({
     return arr
   }, [repo.openBranches, sortOrder])
 
-  const onContext = (e: React.MouseEvent) => {
-    e.preventDefault()
+  const showMenuAt = (x: number, y: number) => {
     showContextMenu(
       [
         { type: 'heading', label: repoDisplayName(repo) },
@@ -167,14 +167,22 @@ function RepoItem({
           },
         },
       ],
-      e.clientX,
-      e.clientY,
+      x,
+      y,
     )
   }
+  const longPress = useLongPress((x, y) => showMenuAt(x, y))
 
   return (
     <li className={styles.repo}>
-      <div className={styles.repoRow} onContextMenu={onContext}>
+      <div
+        className={styles.repoRow}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          showMenuAt(e.clientX, e.clientY)
+        }}
+        {...longPress}
+      >
         <button className={styles.repoToggle} onClick={onToggle} aria-expanded={expanded}>
           <span className={styles.repoChevron}>{expanded ? '▼' : '▶'}</span>
           <span className={styles.repoName}>{repoDisplayName(repo)}</span>
@@ -228,8 +236,7 @@ function BranchItem({
   const notifs = usePalmuxStore(selectBranchNotifications(repoId, branch.id))
   const unread = notifs?.unreadCount ?? 0
   const showContextMenu = useContextMenu()
-  const onContext = (e: React.MouseEvent) => {
-    e.preventDefault()
+  const showMenuAt = (x: number, y: number) => {
     showContextMenu(
       [
         { type: 'heading', label: branch.name },
@@ -249,16 +256,21 @@ function BranchItem({
           },
         },
       ],
-      e.clientX,
-      e.clientY,
+      x,
+      y,
     )
   }
+  const longPress = useLongPress((x, y) => showMenuAt(x, y))
   return (
     <li>
       <button
         className={isActive ? `${styles.branch} ${styles.branchActive}` : styles.branch}
         onClick={() => onSelect()}
-        onContextMenu={onContext}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          showMenuAt(e.clientX, e.clientY)
+        }}
+        {...longPress}
         title={
           notifs?.lastMessage
             ? `${branch.worktreePath}\n${notifs.lastMessage}`

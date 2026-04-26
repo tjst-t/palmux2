@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Route, Routes } from 'react-router-dom'
 
+import { CommandPalette } from './components/command-palette/command-palette'
 import { ConfirmDialogRenderer } from './components/context-menu/confirm-dialog'
 import { ContextMenuRenderer } from './components/context-menu/context-menu'
 import { PromptDialogRenderer } from './components/context-menu/prompt-dialog'
@@ -45,6 +46,7 @@ function App() {
       <ContextMenuRenderer />
       <ConfirmDialogRenderer />
       <PromptDialogRenderer />
+      <CommandPalette />
     </>
   )
 }
