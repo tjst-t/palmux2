@@ -14,6 +14,7 @@ export const DEFAULT_TOOLBAR_CONFIG: ToolbarConfig = {
         { type: 'arrow', direction: 'left' },
         { type: 'arrow', direction: 'right' },
         { type: 'command', label: 'cmd' },
+        { type: 'ime', label: 'IME' },
         { type: 'fontsize', delta: -1, label: 'A−' },
         { type: 'fontsize', delta: 1, label: 'A+' },
       ],

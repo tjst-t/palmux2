@@ -11,6 +11,7 @@ export type ToolbarButton =
   | ArrowButton
   | FontSizeButton
   | CommandButton
+  | ImeButton
 
 export interface ModifierButton {
   type: 'modifier'
@@ -49,6 +50,11 @@ export interface FontSizeButton {
 
 export interface CommandButton {
   type: 'command'
+  label?: string
+}
+
+export interface ImeButton {
+  type: 'ime'
   label?: string
 }
 

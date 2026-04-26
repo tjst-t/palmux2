@@ -2,11 +2,13 @@ import { useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { useLongPress } from '../hooks/use-long-press'
+import { api } from '../lib/api'
 import type { Branch, Tab } from '../lib/api'
 import { selectBranchNotifications, usePalmuxStore } from '../stores/palmux-store'
 
 import { confirmDialog } from './context-menu/confirm-dialog'
 import { promptDialog } from './context-menu/prompt-dialog'
+import { selectDialog } from './context-menu/select-dialog'
 import { useContextMenu } from './context-menu/store'
 import styles from './tab-bar.module.css'
 
@@ -126,9 +128,56 @@ export function TabBar({ branch }: Props) {
   )
 
   function openContext(t: Tab, x: number, y: number) {
+    const claudeItems =
+      t.type === 'claude'
+        ? [
+            {
+              label: 'Restart Claude…',
+              onClick: async () => {
+                const model = await selectDialog.ask({
+                  title: 'Restart Claude',
+                  message: 'Pick a model. Default uses whatever the CLI defaults to.',
+                  options: [
+                    { label: 'Default', value: '' },
+                    {
+                      label: 'Opus 4.7',
+                      value: 'claude-opus-4-7',
+                      detail: 'most capable',
+                    },
+                    {
+                      label: 'Sonnet 4.6',
+                      value: 'claude-sonnet-4-6',
+                      detail: 'balanced',
+                    },
+                    {
+                      label: 'Haiku 4.5',
+                      value: 'claude-haiku-4-5-20251001',
+                      detail: 'fast',
+                    },
+                  ],
+                })
+                if (model == null) return
+                await api.post(
+                  `/api/repos/${encodeURIComponent(repoId!)}/branches/${encodeURIComponent(branch.id)}/claude/restart`,
+                  { model },
+                )
+              },
+            },
+            {
+              label: 'Resume Claude',
+              onClick: async () => {
+                await api.post(
+                  `/api/repos/${encodeURIComponent(repoId!)}/branches/${encodeURIComponent(branch.id)}/claude/resume`,
+                )
+              },
+            },
+            { type: 'separator' as const },
+          ]
+        : []
     showContextMenu(
       [
         { type: 'heading', label: t.name },
+        ...claudeItems,
         {
           label: 'Rename…',
           disabled: t.protected,

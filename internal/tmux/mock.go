@@ -189,6 +189,22 @@ func (m *MockClient) SendKeys(_ context.Context, session, windowName, keys strin
 	return fmt.Errorf("window %s not found in %s", windowName, session)
 }
 
+func (m *MockClient) RespawnWindow(_ context.Context, session, windowName, command string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.record("RespawnWindow %s/%s %q", session, windowName, command)
+	s, ok := m.sessions[session]
+	if !ok {
+		return fmt.Errorf("session %s not found", session)
+	}
+	for _, w := range s.windows {
+		if w.Name == windowName {
+			return nil
+		}
+	}
+	return fmt.Errorf("window %s not found in %s", windowName, session)
+}
+
 func (m *MockClient) Attach(ctx context.Context, session, windowName string, opts AttachOpts) (io.ReadWriteCloser, ResizeFunc, error) {
 	m.mu.Lock()
 	fn := m.AttachFn

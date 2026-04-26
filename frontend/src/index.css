@@ -9,7 +9,9 @@
 html,
 body,
 #root {
-  height: 100%;
+  /* The visualViewport hook updates --app-vv-height when the soft
+     keyboard slides up; otherwise we fall back to 100% / 100vh. */
+  height: var(--app-vv-height, 100%);
   margin: 0;
   padding: 0;
 }

@@ -3,14 +3,23 @@ package store
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"time"
 
 	"github.com/tjst-t/palmux2/internal/domain"
 )
 
+// ErrTooManyConnections is returned by AddConnection when the per-branch
+// cap configured via --max-connections is already reached.
+var ErrTooManyConnections = errors.New("too many connections for this branch")
+
 // AddConnection registers an active terminal client. The returned connection
 // ID is also used as the suffix for the per-client tmux session group.
-func (s *Store) AddConnection(repoID, branchID, tabID string) *domain.Connection {
+//
+// Returns ErrTooManyConnections when MaxConnsPerBranch is set and the branch
+// already has that many live connections — the WS handler turns this into
+// a 429 response.
+func (s *Store) AddConnection(repoID, branchID, tabID string) (*domain.Connection, error) {
 	id := newConnID()
 	c := &domain.Connection{
 		ID:        id,
@@ -20,9 +29,21 @@ func (s *Store) AddConnection(repoID, branchID, tabID string) *domain.Connection
 		StartedAt: time.Now(),
 	}
 	s.mu.Lock()
+	if cap := s.deps.MaxConnsPerBranch; cap > 0 {
+		count := 0
+		for _, existing := range s.conns {
+			if existing.RepoID == repoID && existing.BranchID == branchID {
+				count++
+			}
+		}
+		if count >= cap {
+			s.mu.Unlock()
+			return nil, ErrTooManyConnections
+		}
+	}
 	s.conns[id] = c
 	s.mu.Unlock()
-	return c
+	return c, nil
 }
 
 // RemoveConnection drops a connection from the registry.

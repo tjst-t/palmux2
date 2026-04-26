@@ -220,7 +220,16 @@ func (h *wsHandlers) attachTab(w http.ResponseWriter, r *http.Request) {
 	c.SetReadLimit(wsReadLimit)
 	defer c.CloseNow()
 
-	conn := h.store.AddConnection(repoID, branchID, tabID)
+	conn, err := h.store.AddConnection(repoID, branchID, tabID)
+	if err != nil {
+		if errors.Is(err, store.ErrTooManyConnections) {
+			_ = c.Close(websocket.StatusTryAgainLater, "too many connections")
+			return
+		}
+		h.logger.Warn("AddConnection", "err", err)
+		_ = c.Close(websocket.StatusInternalError, "failed to register connection")
+		return
+	}
 	defer h.store.RemoveConnection(conn.ID)
 
 	groupSession := domain.GroupSessionName(branch.TabSet.TmuxSession, conn.ID)

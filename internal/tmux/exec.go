@@ -199,6 +199,19 @@ func (c *execClient) SendKeys(ctx context.Context, session, windowName, keys str
 	return err
 }
 
+// RespawnWindow kills the current process inside the named window and runs
+// `command` in its place. The window itself stays — clients attached to it
+// get the new program seamlessly.
+func (c *execClient) RespawnWindow(ctx context.Context, session, windowName, command string) error {
+	idx, err := c.WindowIndexByName(ctx, session, windowName)
+	if err != nil {
+		return err
+	}
+	target := fmt.Sprintf("%s:%d", session, idx)
+	_, err = c.run(ctx, "respawn-window", "-t", target, "-k", command)
+	return err
+}
+
 // appendEnv merges extra environment variables on top of the current process
 // environment. tmux inherits these for the new session/window.
 func appendEnv(extra []string) []string {

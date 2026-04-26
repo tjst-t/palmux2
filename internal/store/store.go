@@ -47,6 +47,9 @@ type Deps struct {
 	EventHub  *EventHub // optional; New creates one if nil
 	Logger    *slog.Logger
 	GHQRoot   string // optional override; if empty Store calls ghq.Root() lazily
+	// MaxConnsPerBranch caps simultaneous WS attachments per branch. 0 means
+	// unlimited. Wired from the --max-connections CLI flag.
+	MaxConnsPerBranch int
 }
 
 // Store is concurrency-safe.
@@ -94,6 +97,10 @@ func New(deps Deps) (*Store, error) {
 
 // Hub returns the broadcaster.
 func (s *Store) Hub() *EventHub { return s.hub }
+
+// Tmux returns the tmux client wired into the Store. Tab providers use it
+// to perform live tmux operations from their HTTP handlers.
+func (s *Store) Tmux() tmux.Client { return s.deps.Tmux }
 
 // Settings returns the live SettingsStore.
 func (s *Store) Settings() *config.SettingsStore { return s.deps.Settings }

@@ -29,6 +29,8 @@ export interface BranchNotificationState {
   notifications?: NotificationItem[]
 }
 
+export type ImeMode = 'none' | 'direct' | 'ime'
+
 export interface DeviceSettings {
   theme: 'dark' | 'light'
   fontSize: number
@@ -39,6 +41,7 @@ export interface DeviceSettings {
   splitEnabled: boolean
   splitRatio: number
   filesListRatio: number
+  imeMode: ImeMode
 }
 
 export interface GlobalSettings {
@@ -58,6 +61,7 @@ const DEVICE_DEFAULTS: DeviceSettings = {
   splitEnabled: false,
   splitRatio: 50,
   filesListRatio: 35,
+  imeMode: 'none',
 }
 
 const LS_PREFIX = 'palmux:'
@@ -89,6 +93,10 @@ function loadDeviceSettings(): DeviceSettings {
   tryBool('splitEnabled', 'splitEnabled')
   tryNum('splitRatio', 'splitRatio')
   tryNum('filesListRatio', 'filesListRatio')
+  tryStr('imeMode', 'imeMode')
+  if (out.imeMode !== 'none' && out.imeMode !== 'direct' && out.imeMode !== 'ime') {
+    out.imeMode = 'none'
+  }
   // Clamp persisted ratios to the supported drag range.
   if (out.splitRatio < 20 || out.splitRatio > 80) out.splitRatio = 50
   if (out.filesListRatio < 15 || out.filesListRatio > 75) out.filesListRatio = 35

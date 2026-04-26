@@ -5,6 +5,8 @@ import { applyModifiers, useModifiers } from '../../hooks/use-modifiers'
 import { api } from '../../lib/api'
 import { terminalManager } from '../../lib/terminal-manager'
 import { mergeToolbarConfig } from '../../lib/toolbar-defaults'
+// usePalmuxStore is imported via subcomponents below; keep the explicit
+// import here so tooling sees it referenced.
 import { usePalmuxStore } from '../../stores/palmux-store'
 import type { ToolbarButton, ToolbarConfig } from '../../types/toolbar'
 
@@ -187,6 +189,9 @@ function ButtonView({
       </button>
     )
   }
+  if (btn.type === 'ime') {
+    return <ImeToggle label={btn.label} />
+  }
   if (btn.type === 'arrow') {
     return (
       <ArrowButtonView
@@ -218,6 +223,26 @@ function ButtonView({
       disabled={disabled}
     >
       {btn.label ?? btn.key}
+    </button>
+  )
+}
+
+// ImeToggle cycles deviceSettings.imeMode through none → direct → ime →
+// none. The actual IME bar is rendered in MainArea so it floats above the
+// terminal area independently of the toolbar.
+function ImeToggle({ label }: { label?: string }) {
+  const mode = usePalmuxStore((s) => s.deviceSettings.imeMode)
+  const setDeviceSetting = usePalmuxStore((s) => s.setDeviceSetting)
+  const next = mode === 'none' ? 'direct' : mode === 'direct' ? 'ime' : 'none'
+  return (
+    <button
+      type="button"
+      className={styles.btn}
+      data-mode={mode === 'none' ? 'off' : mode === 'direct' ? 'oneshot' : 'lock'}
+      title={`IME mode (${mode}) → tap for ${next}`}
+      onClick={() => setDeviceSetting('imeMode', next)}
+    >
+      {label ?? 'IME'} <span style={{ marginLeft: 4, fontSize: 10 }}>{mode}</span>
     </button>
   )
 }

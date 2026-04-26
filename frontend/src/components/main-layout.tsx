@@ -6,6 +6,7 @@ import { selectBranchById, usePalmuxStore } from '../stores/palmux-store'
 
 import { Drawer } from './drawer'
 import { Header } from './header'
+import { IMEBar } from './ime-bar'
 import { MainArea } from './main-area'
 import { Toolbar } from './toolbar/toolbar'
 import styles from './main-layout.module.css'
@@ -14,6 +15,7 @@ export function MainLayout() {
   const { repoId, branchId, tabId } = useParams()
   const navigate = useNavigate()
   const drawerPinned = usePalmuxStore((s) => s.deviceSettings.drawerPinned)
+  const imeMode = usePalmuxStore((s) => s.deviceSettings.imeMode)
   const mobileDrawerOpen = usePalmuxStore((s) => s.mobileDrawerOpen)
   const setMobileDrawerOpen = usePalmuxStore((s) => s.setMobileDrawerOpen)
   const branch = usePalmuxStore((s) =>
@@ -71,6 +73,7 @@ export function MainLayout() {
       {showInlineDrawer && <Drawer />}
       <div className={styles.body}>
         <Header />
+        {imeMode !== 'none' && <IMEBar mode={imeMode} />}
         <MainArea />
         <Toolbar />
       </div>

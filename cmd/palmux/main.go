@@ -43,18 +43,19 @@ func main() {
 	configDir := pflag.String("config-dir", defaultConfigDir(), "config directory (repos.json / settings.json)")
 	token := pflag.String("token", "", "auth token. empty = open access")
 	basePath := pflag.String("base-path", "/", "URL base path (e.g. /palmux/)")
+	maxConns := pflag.Int("max-connections", 0, "per-branch WS connection cap (0 = unlimited)")
 	pflag.Parse()
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
-	if err := run(*addr, *configDir, *token, *basePath); err != nil {
+	if err := run(*addr, *configDir, *token, *basePath, *maxConns); err != nil {
 		slog.Error("fatal", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(addr, configDir, token, basePath string) error {
+func run(addr, configDir, token, basePath string, maxConns int) error {
 	if err := requireBins("tmux", "ghq", "gwq", "git"); err != nil {
 		return err
 	}
@@ -72,7 +73,8 @@ func run(addr, configDir, token, basePath string) error {
 	}
 
 	registry := tab.NewRegistry()
-	registry.Register(claude.New(claude.Options{}))
+	claudeProvider := claude.New(claude.Options{})
+	registry.Register(claudeProvider)
 	// Bash before Files? No — TabBar order is: Claude / Files / Git / Bash.
 	// We wire the storeRef after Store.New, so Files Provider is added then.
 	registry.Register(bash.New())
@@ -88,13 +90,14 @@ func run(addr, configDir, token, basePath string) error {
 	}
 
 	st, err := store.New(store.Deps{
-		Tmux:      tmuxClient,
-		GHQ:       ghqClient,
-		Gwq:       gwqClient,
-		RepoStore: repoStore,
-		Settings:  settingsStore,
-		Registry:  registry,
-		Logger:    slog.Default(),
+		Tmux:              tmuxClient,
+		GHQ:               ghqClient,
+		Gwq:               gwqClient,
+		RepoStore:         repoStore,
+		Settings:           settingsStore,
+		Registry:          registry,
+		Logger:            slog.Default(),
+		MaxConnsPerBranch: maxConns,
 	})
 	if err != nil {
 		return err
@@ -103,6 +106,10 @@ func run(addr, configDir, token, basePath string) error {
 	// worktree paths at request time). Register after Store.New.
 	registry.Register(files.New(st))
 	registry.Register(gittab.New(st))
+	// Claude provider is registered earlier (its OnBranchOpen is on the hot
+	// path during hydrate). Now that the store exists, hand it the ref so the
+	// Restart/Resume HTTP handlers can resolve tmux sessions.
+	claudeProvider.SetBackend(st)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

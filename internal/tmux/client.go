@@ -70,6 +70,10 @@ type Client interface {
 	RenameWindow(ctx context.Context, session, oldName, newName string) error
 	WindowIndexByName(ctx context.Context, session, windowName string) (int, error)
 	SendKeys(ctx context.Context, session, windowName, keys string) error
+	// RespawnWindow kills the current process in a window and runs `command`
+	// in its place. Used for `claude --restart` style flows where we want to
+	// preserve the window itself.
+	RespawnWindow(ctx context.Context, session, windowName, command string) error
 
 	// Attach (terminal pty I/O)
 	Attach(ctx context.Context, session, windowName string, opts AttachOpts) (io.ReadWriteCloser, ResizeFunc, error)

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom'
 
+import { useTouchGestures } from '../hooks/use-touch-gestures'
 import { selectBranchById, usePalmuxStore } from '../stores/palmux-store'
 
 import { Divider } from './divider'
@@ -12,8 +13,11 @@ const SPLIT_MIN_WIDTH = 900
 export function MainArea() {
   const { repoId, branchId, tabId } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
+  const location = useLocation()
   const splitEnabled = usePalmuxStore((s) => s.deviceSettings.splitEnabled)
   const splitRatio = usePalmuxStore((s) => s.deviceSettings.splitRatio)
+  const fontSize = usePalmuxStore((s) => s.deviceSettings.fontSize)
   const setDeviceSetting = usePalmuxStore((s) => s.setDeviceSetting)
   const focusedPanel = usePalmuxStore((s) => s.focusedPanel)
   const setFocusedPanel = usePalmuxStore((s) => s.setFocusedPanel)
@@ -118,8 +122,41 @@ export function MainArea() {
     [setDeviceSetting],
   )
 
+  // Two-finger touch gestures: pinch → font size, swipe → tab switch.
+  // We attach them to the whole MainArea so they work over both terminal and
+  // non-terminal tabs; xterm's own single-finger handling is unaffected.
+  const focusedBranch = useFocusedBranch(focusedPanel, leftTarget, rightTarget, repos)
+  const focusedTabId = focusedPanel === 'right' ? rightTarget.tabId : leftTarget.tabId
+  const gestures = useTouchGestures({
+    onPinchStep: (dir) => {
+      const next = Math.max(8, Math.min(28, fontSize + dir))
+      if (next !== fontSize) setDeviceSetting('fontSize', next)
+    },
+    onSwipe: (dir) => {
+      if (!focusedBranch) return
+      const tabs = focusedBranch.tabSet.tabs
+      if (tabs.length < 2) return
+      const decoded = focusedTabId ? decodeURIComponent(focusedTabId) : ''
+      const idx = tabs.findIndex((t) => t.id === decoded)
+      const target = dir === 'left' ? tabs[Math.min(tabs.length - 1, idx + 1)] : tabs[Math.max(0, idx - 1)]
+      if (!target || target.id === decoded) return
+      if (focusedPanel === 'right') {
+        setRightTarget({
+          repoId: rightTarget.repoId,
+          branchId: rightTarget.branchId,
+          tabId: target.id,
+        })
+        return
+      }
+      if (!leftTarget.repoId || !leftTarget.branchId) return
+      navigate(
+        `/${encodeURIComponent(leftTarget.repoId)}/${encodeURIComponent(leftTarget.branchId)}/${encodeURIComponent(target.id)}${location.search}`,
+      )
+    },
+  })
+
   return (
-    <div className={styles.area} ref={containerRef}>
+    <div className={styles.area} ref={containerRef} {...gestures}>
       {showSplit ? (
         <>
           <div style={{ flex: `0 0 ${splitRatio}%`, display: 'flex', minWidth: 0 }}>
@@ -176,6 +213,20 @@ function encodeRightParam(t: PanelTarget): string | null {
   // Trim trailing empties for a tidier URL.
   while (segs.length > 1 && segs[segs.length - 1] === '') segs.pop()
   return segs.join('/')
+}
+
+// useFocusedBranch returns the Branch object for whichever panel currently
+// has focus — used by the gesture handler to pick the next/previous tab.
+function useFocusedBranch(
+  focusedPanel: 'left' | 'right',
+  left: PanelTarget,
+  right: PanelTarget,
+  repos: ReturnType<typeof usePalmuxStore.getState>['repos'],
+) {
+  const target = focusedPanel === 'right' ? right : left
+  if (!target.repoId || !target.branchId) return undefined
+  const repo = repos.find((r) => r.id === target.repoId)
+  return repo?.openBranches.find((b) => b.id === target.branchId)
 }
 
 function useNarrowViewport(threshold: number): boolean {
