@@ -29,18 +29,24 @@
 
 .body {
   flex: 1;
-  display: grid;
-  grid-template-columns: minmax(220px, 320px) 1fr;
+  display: flex;
   min-height: 0;
+  min-width: 0;
 }
 
 .listPane {
-  border-right: 1px solid var(--color-border);
+  min-width: 0;
   overflow: auto;
 }
 
 .previewPane {
+  flex: 1;
+  min-width: 0;
   overflow: auto;
+}
+
+.dividerWrap {
+  display: contents;
 }
 
 .empty {
@@ -57,10 +63,18 @@
 
 @media (max-width: 720px) {
   .body {
-    grid-template-columns: 1fr;
+    flex-direction: column;
   }
   .listPane {
-    border-right: none;
+    flex: 0 0 auto !important;
+    width: 100%;
     border-bottom: 1px solid var(--color-border);
+    max-height: 50%;
+  }
+  .previewPane {
+    flex: 1;
+  }
+  .dividerWrap {
+    display: none;
   }
 }

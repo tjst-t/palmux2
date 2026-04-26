@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
+import { Divider } from '../../components/divider'
 import { api } from '../../lib/api'
 import type { TabViewProps } from '../../lib/tab-registry'
+import { usePalmuxStore } from '../../stores/palmux-store'
 
 import { Breadcrumb } from './breadcrumb'
 import { FileList } from './file-list'
@@ -39,6 +41,9 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
   const [entries, setEntries] = useState<Entry[]>([])
   const [error, setError] = useState<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const listRatio = usePalmuxStore((s) => s.deviceSettings.filesListRatio)
+  const setDeviceSetting = usePalmuxStore((s) => s.setDeviceSetting)
 
   const apiBase = useMemo(
     () => `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/files`,
@@ -133,10 +138,19 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
           }}
         />
       )}
-      <div className={styles.body}>
-        <div className={styles.listPane}>
+      <div className={styles.body} ref={bodyRef}>
+        <div className={styles.listPane} style={{ flex: `0 0 ${listRatio}%` }}>
           {error && <p className={styles.error}>{error}</p>}
           <FileList entries={entries} selected={selected ?? undefined} onPick={onPick} />
+        </div>
+        <div className={styles.dividerWrap}>
+          <Divider
+            ratio={listRatio}
+            onChange={(r) => setDeviceSetting('filesListRatio', r)}
+            containerRef={bodyRef}
+            min={15}
+            max={75}
+          />
         </div>
         <div className={styles.previewPane}>
           {selected ? (

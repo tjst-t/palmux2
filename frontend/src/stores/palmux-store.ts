@@ -37,6 +37,7 @@ export interface DeviceSettings {
   scrollbackLines: number
   splitEnabled: boolean
   splitRatio: number
+  filesListRatio: number
 }
 
 export interface GlobalSettings {
@@ -55,6 +56,7 @@ const DEVICE_DEFAULTS: DeviceSettings = {
   scrollbackLines: 5000,
   splitEnabled: false,
   splitRatio: 50,
+  filesListRatio: 35,
 }
 
 const LS_PREFIX = 'palmux:'
@@ -85,8 +87,10 @@ function loadDeviceSettings(): DeviceSettings {
   tryNum('scrollbackLines', 'scrollbackLines')
   tryBool('splitEnabled', 'splitEnabled')
   tryNum('splitRatio', 'splitRatio')
-  // Clamp the persisted ratio to the supported drag range.
+  tryNum('filesListRatio', 'filesListRatio')
+  // Clamp persisted ratios to the supported drag range.
   if (out.splitRatio < 20 || out.splitRatio > 80) out.splitRatio = 50
+  if (out.filesListRatio < 15 || out.filesListRatio > 75) out.filesListRatio = 35
   return out
 }
 
