@@ -5,6 +5,8 @@ import type { Branch, Repository } from '../lib/api'
 import { selectBranchNotifications, usePalmuxStore } from '../stores/palmux-store'
 
 import { BranchPicker } from './branch-picker'
+import { confirmDialog } from './context-menu/confirm-dialog'
+import { useContextMenu } from './context-menu/store'
 import { RepoPicker } from './repo-picker'
 import styles from './drawer.module.css'
 
@@ -126,6 +128,7 @@ function RepoItem({
   const { repoId: activeRepo, branchId: activeBranch } = useParams()
   const star = usePalmuxStore((s) => s.starRepo)
   const closeRepo = usePalmuxStore((s) => s.closeRepo)
+  const showContextMenu = useContextMenu()
 
   const sortedBranches = useMemo(() => {
     const arr = [...repo.openBranches]
@@ -142,9 +145,31 @@ function RepoItem({
 
   const onContext = (e: React.MouseEvent) => {
     e.preventDefault()
-    if (confirm(`Close repository ${repo.ghqPath}? Linked worktrees will be removed.`)) {
-      void closeRepo(repo.id)
-    }
+    showContextMenu(
+      [
+        { type: 'heading', label: repoDisplayName(repo) },
+        {
+          label: repo.starred ? 'Unstar' : 'Star',
+          onClick: () => star(repo.id, !repo.starred),
+        },
+        { type: 'separator' },
+        {
+          label: 'Close repository',
+          danger: true,
+          onClick: async () => {
+            const ok = await confirmDialog.ask({
+              title: 'Close repository?',
+              message: `${repo.ghqPath} will be removed from Palmux. Linked worktrees stay on disk.`,
+              confirmLabel: 'Close',
+              danger: true,
+            })
+            if (ok) await closeRepo(repo.id)
+          },
+        },
+      ],
+      e.clientX,
+      e.clientY,
+    )
   }
 
   return (
@@ -202,11 +227,31 @@ function BranchItem({
   const closeBranch = usePalmuxStore((s) => s.closeBranch)
   const notifs = usePalmuxStore(selectBranchNotifications(repoId, branch.id))
   const unread = notifs?.unreadCount ?? 0
+  const showContextMenu = useContextMenu()
   const onContext = (e: React.MouseEvent) => {
     e.preventDefault()
-    if (confirm(`Close branch ${branch.name}?`)) {
-      void closeBranch(repoId, branch.id)
-    }
+    showContextMenu(
+      [
+        { type: 'heading', label: branch.name },
+        {
+          label: 'Close branch',
+          danger: true,
+          onClick: async () => {
+            const ok = await confirmDialog.ask({
+              title: 'Close branch?',
+              message: branch.isPrimary
+                ? `${branch.name} is the primary worktree. The tmux session will be killed but the worktree stays on disk.`
+                : `${branch.name}'s tmux session will be killed and its worktree removed.`,
+              confirmLabel: 'Close',
+              danger: true,
+            })
+            if (ok) await closeBranch(repoId, branch.id)
+          },
+        },
+      ],
+      e.clientX,
+      e.clientY,
+    )
   }
   return (
     <li>

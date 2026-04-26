@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import { confirmDialog } from '../../components/context-menu/confirm-dialog'
 import { api } from '../../lib/api'
 
 import styles from './git-status.module.css'
@@ -133,10 +134,14 @@ function Row({
           <button
             className={`${styles.btn} ${styles.danger}`}
             disabled={pending === `discard:${f.path}`}
-            onClick={() => {
-              if (confirm(`Discard changes to ${f.path}? This cannot be undone.`)) {
-                onAct(f.path, 'discard')
-              }
+            onClick={async () => {
+              const ok = await confirmDialog.ask({
+                title: 'Discard changes?',
+                message: `Discard changes to ${f.path}? This cannot be undone.`,
+                confirmLabel: 'Discard',
+                danger: true,
+              })
+              if (ok) onAct(f.path, 'discard')
             }}
           >
             ×

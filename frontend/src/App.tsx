@@ -1,6 +1,8 @@
 import { useEffect } from 'react'
 import { Route, Routes } from 'react-router-dom'
 
+import { ConfirmDialogRenderer } from './components/context-menu/confirm-dialog'
+import { ContextMenuRenderer } from './components/context-menu/context-menu'
 import { HomeRedirect } from './components/redirect'
 import { MainLayout } from './components/main-layout'
 import { useEventStream } from './hooks/use-event-stream'
@@ -34,10 +36,14 @@ function App() {
   }
 
   return (
-    <Routes>
-      <Route path="/" element={<HomeOrLayout />} />
-      <Route path="/:repoId/:branchId/:tabId/*" element={<MainLayout />} />
-    </Routes>
+    <>
+      <Routes>
+        <Route path="/" element={<HomeOrLayout />} />
+        <Route path="/:repoId/:branchId/:tabId/*" element={<MainLayout />} />
+      </Routes>
+      <ContextMenuRenderer />
+      <ConfirmDialogRenderer />
+    </>
   )
 }
 

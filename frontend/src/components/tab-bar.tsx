@@ -4,6 +4,8 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import type { Branch, Tab } from '../lib/api'
 import { selectBranchNotifications, usePalmuxStore } from '../stores/palmux-store'
 
+import { confirmDialog } from './context-menu/confirm-dialog'
+import { useContextMenu } from './context-menu/store'
 import styles from './tab-bar.module.css'
 
 interface Props {
@@ -23,6 +25,7 @@ export function TabBar({ branch }: Props) {
   )
   const claudeUnread = notifs?.unreadCount ?? 0
   const [adding, setAdding] = useState(false)
+  const showContextMenu = useContextMenu()
 
   if (!repoId) return null
 
@@ -44,13 +47,40 @@ export function TabBar({ branch }: Props) {
 
   const onContext = (e: React.MouseEvent, t: Tab) => {
     e.preventDefault()
-    if (t.protected) return
-    if (e.shiftKey) {
-      const newName = prompt('Rename tab', extractName(t))
-      if (newName && newName !== extractName(t)) void renameTab(repoId, branch.id, t.id, newName)
-      return
-    }
-    if (confirm(`Close tab ${t.name}?`)) void removeTab(repoId, branch.id, t.id)
+    showContextMenu(
+      [
+        { type: 'heading', label: t.name },
+        {
+          label: 'Rename…',
+          disabled: t.protected,
+          onClick: async () => {
+            // Inline rename via prompt for now — a proper inline edit can be
+            // added under the same context-menu plumbing later.
+            const newName = window.prompt('Rename tab', extractName(t))
+            if (newName && newName !== extractName(t)) {
+              await renameTab(repoId, branch.id, t.id, newName)
+            }
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'Close tab',
+          danger: true,
+          disabled: t.protected,
+          onClick: async () => {
+            const ok = await confirmDialog.ask({
+              title: 'Close tab?',
+              message: `Close tab "${t.name}"? The tmux window will be killed.`,
+              confirmLabel: 'Close',
+              danger: true,
+            })
+            if (ok) await removeTab(repoId, branch.id, t.id)
+          },
+        },
+      ],
+      e.clientX,
+      e.clientY,
+    )
   }
 
   return (
@@ -66,7 +96,7 @@ export function TabBar({ branch }: Props) {
               className={active ? `${styles.tab} ${styles.tabActive}` : styles.tab}
               onClick={() => onSelect(t.id)}
               onContextMenu={(e) => onContext(e, t)}
-              title={t.protected ? `${t.name} (protected)` : `${t.name} — Right-click: close • Shift+Right-click: rename`}
+              title={t.protected ? `${t.name} (protected)` : `${t.name} — Right-click for actions`}
             >
               <span className={styles.tabIcon}>{iconFor(t.type)}</span>
               <span className={styles.tabLabel}>{t.name}</span>

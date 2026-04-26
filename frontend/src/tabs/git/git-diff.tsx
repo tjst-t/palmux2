@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import { confirmDialog } from '../../components/context-menu/confirm-dialog'
 import { api } from '../../lib/api'
 
 import styles from './git-diff.module.css'
@@ -32,7 +33,15 @@ export function GitDiff({ apiBase }: Props) {
   }, [apiBase, mode])
 
   const onHunkAction = async (file: DiffFile, hunk: DiffHunk, op: 'stage-hunk' | 'unstage-hunk' | 'discard-hunk') => {
-    if (op === 'discard-hunk' && !confirm('Discard this hunk? This cannot be undone.')) return
+    if (op === 'discard-hunk') {
+      const ok = await confirmDialog.ask({
+        title: 'Discard hunk?',
+        message: 'This change will be removed from the working tree and cannot be undone.',
+        confirmLabel: 'Discard',
+        danger: true,
+      })
+      if (!ok) return
+    }
     const key = `${op}:${file.newPath}:${hunk.header}`
     setPending(key)
     try {
