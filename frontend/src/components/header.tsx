@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 
 import { useViewport } from '../hooks/use-viewport'
 import { api, type PortmanLease } from '../lib/api'
@@ -27,7 +27,6 @@ export function Header() {
   const portmanURL = usePalmuxStore((s) => s.serverInfo.portmanURL)
   const portmanLeases = useRepoPortmanLeases(repoId, branchId)
   const showPalette = useCommandPaletteStore((s) => s.show)
-  const navigate = useNavigate()
   const wide = useWideViewport(SPLIT_MIN_WIDTH)
   const viewport = useViewport()
   const mobile = viewport === 'mobile'
@@ -116,14 +115,6 @@ export function Header() {
             ▥
           </button>
         )}
-        <button
-          className={styles.iconBtn}
-          onClick={() => navigate('/')}
-          title="Home"
-          aria-label="Home"
-        >
-          ⌂
-        </button>
         <span className={`${styles.dot} ${styles[status]}`} title={status} />
       </div>
     </header>
@@ -180,31 +171,24 @@ function useRepoPortmanLeases(repoId: string | undefined, branchId: string | und
   return leases
 }
 
-// PortmanLinks shows a single button with a count badge; clicking opens a
-// popover listing each portman-exposed service for the current branch. Only
-// listening leases get a clickable link so dead services don't redirect to
-// 404s.
+// PortmanLinks shows a single button; clicking opens a popover listing
+// each LIVE portman-exposed service for the current branch. Stale leases
+// are dropped so we never link to a dead service.
 function PortmanLinks({ leases }: { leases: PortmanLease[] }) {
   const [open, setOpen] = useState(false)
-  const exposed = leases.filter((l) => l.expose)
-  const live = exposed.filter((l) => l.status === 'listening')
-  if (exposed.length === 0) return null
+  const live = leases.filter((l) => l.expose && l.status === 'listening')
+  if (live.length === 0) return null
   return (
     <div style={{ position: 'relative', display: 'inline-flex' }}>
       <button
         className={styles.iconBtn}
         onClick={() => setOpen((v) => !v)}
-        title={`${live.length}/${exposed.length} portman services live`}
+        title={`${live.length} portman service${live.length === 1 ? '' : 's'} live`}
         aria-label="Portman services"
       >
         🌐
       </button>
-      {open && (
-        <PortmanPopover
-          leases={exposed}
-          onClose={() => setOpen(false)}
-        />
-      )}
+      {open && <PortmanPopover leases={live} onClose={() => setOpen(false)} />}
     </div>
   )
 }

@@ -50,6 +50,13 @@
   flex-shrink: 0;
 }
 
+/* Mobile: drop the "Palmux v2" wordmark to give the branch path room. */
+@media (max-width: 599px) {
+  .brand {
+    display: none;
+  }
+}
+
 .branch {
   display: flex;
   align-items: center;
