@@ -12,8 +12,10 @@
 | [02-CLAUDE-rules.md](docs/original-specs/02-CLAUDE-rules.md) | 本ルールの原典 | このCLAUDE.mdで不足したとき |
 | [03-implementation-plan.md](docs/original-specs/03-implementation-plan.md) | Phase 0〜10 の実装計画 | フェーズ着手時 |
 | [04-ui-requirements.md](docs/original-specs/04-ui-requirements.md) | UI 詳細（Activity Inbox、⌘K パレット、Toolbar 2モード） | UI 実装時 |
+| [05-claude-agent-tab.md](docs/original-specs/05-claude-agent-tab.md) | Claude タブ (stream-json + MCP) Phase 1 設計書 | Claude タブ実装時 |
+| [06-claude-tab-roadmap.md](docs/original-specs/06-claude-tab-roadmap.md) | Claude タブ Phase 2+ ロードマップとコア共通化計画 | 機能拡張時 |
 
-**仕様の優先度**: `04-ui-requirements.md` は v2.1 で `02-CLAUDE-rules.md` より新しい記述（Toolbar 2モード化、Activity Inbox、⌘K パレット追加）を含む。UI 実装時は 04 を優先。
+**仕様の優先度**: `04-ui-requirements.md` は v2.1 で `02-CLAUDE-rules.md` より新しい記述（Toolbar 2モード化、Activity Inbox、⌘K パレット追加）を含む。UI 実装時は 04 を優先。Phase 2 以降の Claude タブ拡張は 06 を主、04 を補助参照。
 
 ## 実装ステータス
 
