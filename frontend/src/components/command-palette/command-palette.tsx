@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { useFocusedTerminal } from '../../hooks/use-focused-terminal'
 import { api } from '../../lib/api'
@@ -47,9 +47,23 @@ function detectMode(raw: string): { mode: Mode; needle: string } {
   return { mode: 'all', needle: raw }
 }
 
+// parseRouteParams reads {repoId, branchId, tabId} from a pathname like
+// "/repo/branch/tab/...". Empty when on "/" or any other route.
+function parseRouteParams(pathname: string): { repoId?: string; branchId?: string; tabId?: string } {
+  const [, repoId, branchId, tabId] = pathname.split('/').map((p) => (p ? decodeURIComponent(p) : p))
+  return { repoId: repoId || undefined, branchId: branchId || undefined, tabId: tabId || undefined }
+}
+
+// Token-AND match: splits the needle on whitespace and requires every
+// non-empty token to appear somewhere in the haystack. This lets users
+// narrow across the " / " separators in workspace labels — e.g.
+// "@gpu main" matches "tjst-t/ansible-bio-gpu / main / Claude".
 function fuzzyContains(haystack: string, needle: string): boolean {
   if (!needle) return true
-  return haystack.toLowerCase().includes(needle.toLowerCase())
+  const lh = haystack.toLowerCase()
+  const tokens = needle.toLowerCase().split(/\s+/).filter(Boolean)
+  if (tokens.length === 0) return true
+  return tokens.every((t) => lh.includes(t))
 }
 
 export function CommandPalette() {
@@ -89,10 +103,14 @@ function PaletteInner({
   const listRef = useRef<HTMLUListElement | null>(null)
 
   const navigate = useNavigate()
-  const params = useParams()
+  const location = useLocation()
   const [searchParams] = useSearchParams()
   const repos = usePalmuxStore((s) => s.repos)
   const focused = useFocusedTerminal()
+  // The palette is mounted at app root (outside <Routes>) so useParams()
+  // always returns empty here. Parse the active repo/branch out of
+  // location.pathname instead.
+  const params = parseRouteParams(location.pathname)
   const activeRepo = usePalmuxStore((s) =>
     params.repoId ? selectRepoById(params.repoId)(s) : undefined,
   )
@@ -120,12 +138,16 @@ function PaletteInner({
   }, [activeRepo, activeBranch])
 
   // Files: lazy search using the file-search endpoint. Only fires when in
-  // ":" mode and there's a query.
+  // ":" mode and there's a query. The server takes a single substring, so
+  // we send the first token and let the client-side fuzzyContains narrow
+  // by any remaining tokens (so ":foo bar" works the same as ":foo bar"
+  // in workspace mode).
   const { mode, needle } = detectMode(query)
+  const firstToken = needle.split(/\s+/).filter(Boolean)[0] ?? ''
   useEffect(() => {
     if (!activeRepo || !activeBranch) return
     if (mode !== 'file' && mode !== 'all') return
-    if (!needle) {
+    if (!firstToken) {
       setFiles([])
       return
     }
@@ -133,7 +155,7 @@ function PaletteInner({
     const t = window.setTimeout(() => {
       void api
         .get<{ results: { path: string; isDir: boolean }[] | null }>(
-          `/api/repos/${encodeURIComponent(activeRepo.id)}/branches/${encodeURIComponent(activeBranch.id)}/files/search?path=&query=${encodeURIComponent(needle)}&case=0`,
+          `/api/repos/${encodeURIComponent(activeRepo.id)}/branches/${encodeURIComponent(activeBranch.id)}/files/search?path=&query=${encodeURIComponent(firstToken)}&case=0`,
         )
         .then((res) => {
           if (!cancelled) setFiles(res.results ?? [])
@@ -144,7 +166,7 @@ function PaletteInner({
       cancelled = true
       window.clearTimeout(t)
     }
-  }, [activeRepo, activeBranch, mode, needle])
+  }, [activeRepo, activeBranch, mode, firstToken])
 
   const items = useMemo<PaletteItem[]>(() => {
     const out: PaletteItem[] = []
@@ -297,13 +319,21 @@ function PaletteInner({
     inputRef.current?.focus()
   }, [])
 
-  const prefixHint = mode === 'all' ? '' : prefixCharFor(mode)
+  const modeLabel =
+    mode === 'workspace'
+      ? 'workspaces'
+      : mode === 'slash'
+        ? 'slash'
+        : mode === 'command'
+          ? 'commands'
+          : mode === 'file'
+            ? 'files'
+            : ''
 
   return (
     <div className={styles.overlay} onClick={onClose}>
       <div className={styles.card} onClick={(e) => e.stopPropagation()}>
         <div className={styles.inputRow}>
-          {prefixHint && <span className={styles.prefix}>{prefixHint}</span>}
           <input
             ref={inputRef}
             className={styles.input}
@@ -311,6 +341,7 @@ function PaletteInner({
             placeholder="Type to search… use @workspace, /slash, >command, :file"
             onChange={(e) => setQuery(e.target.value)}
           />
+          {modeLabel && <span className={styles.prefix}>filter: {modeLabel}</span>}
         </div>
         <div className={styles.hintRow}>
           <span><span className={styles.hint}>@</span> workspaces</span>
@@ -349,20 +380,6 @@ function PaletteInner({
   )
 }
 
-function prefixCharFor(mode: Mode): string {
-  switch (mode) {
-    case 'workspace':
-      return '@'
-    case 'slash':
-      return '/'
-    case 'command':
-      return '>'
-    case 'file':
-      return ':'
-    default:
-      return ''
-  }
-}
 
 function repoDisplay(ghqPath: string): string {
   const parts = ghqPath.split('/')
