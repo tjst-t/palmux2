@@ -131,12 +131,19 @@ export function useInlineCompletion(triggers: CompletionTrigger[]): UseInlineCom
     (text: string, cursor: number, option?: CompletionOption) => {
       const opt = option ?? state.options[state.selected]
       if (!opt || !state.activeTrigger || state.triggerIndex < 0) return null
-      // Replace from trigger index up to current cursor with the inserted
-      // text (excluding the trigger char itself — we keep that in place
-      // unless the option's insertText starts with the trigger).
+      // Replace from the trigger character (inclusive) up to the current
+      // cursor. If insertText starts with the trigger char, it provides
+      // its own copy; otherwise we keep the original trigger before the
+      // insertion. This handles both
+      //   '/' typed → option.insertText='/clear '   (replaces the '/')
+      //   '@' typed → option.insertText='@path '    (replaces the '@')
+      // without doubling the trigger character.
+      const trigger = state.activeTrigger.char
       const insert = opt.insertText ?? opt.label
-      const queryStart = state.triggerIndex + 1 // skip trigger char
-      const before = text.slice(0, queryStart)
+      const triggerIndex = state.triggerIndex
+      const insertStartsWithTrigger = insert.startsWith(trigger)
+      const replaceFrom = insertStartsWithTrigger ? triggerIndex : triggerIndex + 1
+      const before = text.slice(0, replaceFrom)
       const after = text.slice(cursor)
       const newText = before + insert + after
       const newCursor = before.length + insert.length
