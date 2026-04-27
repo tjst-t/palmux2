@@ -36,10 +36,13 @@ export function MainLayout() {
   }, [bootstrapped, repoId, branchId, branch, navigate])
 
   // Persist last-active so /redirect can pick it back up next visit.
+  // Also store the per-branch last-active tab so the ⌘K @workspace switcher
+  // can return the user to the tab they were on, not always claude.
   useEffect(() => {
     if (!repoId || !branchId || !tabId) return
     try {
       localStorage.setItem('palmux:lastActive', `${repoId}/${branchId}/${tabId}`)
+      localStorage.setItem(`palmux:lastTab:${repoId}/${branchId}`, tabId)
     } catch {
       // ignore
     }

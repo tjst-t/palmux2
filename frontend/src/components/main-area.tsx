@@ -117,6 +117,49 @@ export function MainArea() {
     return () => window.removeEventListener('keydown', onKey)
   }, [showSplit, setFocusedPanel])
 
+  // Alt+1..9 / Option+1..9 jumps to the Nth tab of the focused panel's
+  // branch. Single-modifier so it's quick; xterm doesn't capture Alt+digit
+  // for any standard escape sequence. Most browsers let JS preventDefault
+  // these so they don't double as their own tab-focus shortcuts.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+      if (!/^[1-9]$/.test(e.key)) return
+      const panel = focusedPanel
+      const target = panel === 'right' ? rightTarget : leftTarget
+      const branch = panel === 'right' ? rightBranch : leftBranch
+      if (!target.repoId || !target.branchId || !branch) return
+      const idx = parseInt(e.key, 10) - 1
+      const tab = branch.tabSet.tabs[idx]
+      if (!tab) return
+      e.preventDefault()
+      if (panel === 'right') {
+        setRightTarget({
+          repoId: target.repoId,
+          branchId: target.branchId,
+          tabId: tab.id,
+        })
+        return
+      }
+      navigate(
+        `/${encodeURIComponent(target.repoId)}/${encodeURIComponent(target.branchId)}/${encodeURIComponent(tab.id)}${location.search}`,
+      )
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [
+    focusedPanel,
+    leftTarget.repoId,
+    leftTarget.branchId,
+    rightTarget.repoId,
+    rightTarget.branchId,
+    leftBranch,
+    rightBranch,
+    navigate,
+    location.search,
+    setRightTarget,
+  ])
+
   const setRatio = useCallback(
     (r: number) => setDeviceSetting('splitRatio', r),
     [setDeviceSetting],

@@ -9,7 +9,7 @@ import { selectBranchById, selectRepoById, usePalmuxStore } from '../../stores/p
 import styles from './palette.module.css'
 import { useCommandPaletteStore } from './store'
 
-type Mode = 'all' | 'workspace' | 'slash' | 'command' | 'file'
+type Mode = 'all' | 'workspace' | 'tab' | 'slash' | 'command' | 'file'
 
 interface PaletteItem {
   id: string
@@ -41,10 +41,19 @@ interface DetectedCommand {
 
 function detectMode(raw: string): { mode: Mode; needle: string } {
   if (raw.startsWith('@')) return { mode: 'workspace', needle: raw.slice(1) }
+  if (raw.startsWith('#')) return { mode: 'tab', needle: raw.slice(1) }
   if (raw.startsWith('/')) return { mode: 'slash', needle: raw.slice(1) }
   if (raw.startsWith('>')) return { mode: 'command', needle: raw.slice(1) }
   if (raw.startsWith(':')) return { mode: 'file', needle: raw.slice(1) }
   return { mode: 'all', needle: raw }
+}
+
+function lastTabFor(repoId: string, branchId: string): string | null {
+  try {
+    return localStorage.getItem(`palmux:lastTab:${repoId}/${branchId}`)
+  } catch {
+    return null
+  }
 }
 
 // parseRouteParams reads {repoId, branchId, tabId} from a pathname like
@@ -172,29 +181,56 @@ function PaletteInner({
     const out: PaletteItem[] = []
 
     const includeWorkspace = mode === 'all' || mode === 'workspace'
+    const includeTab = mode === 'tab'
     const includeSlash = mode === 'all' || mode === 'slash'
     const includeCommand = mode === 'all' || mode === 'command'
     const includeFile = mode === 'file'
 
     if (includeWorkspace) {
+      // One row per (repo, branch). Selecting it navigates to the branch's
+      // last-active tab — falling back to the Claude tab, then the first
+      // tab — so the user lands where they were last working.
       for (const repo of repos) {
         for (const branch of repo.openBranches) {
-          for (const tab of branch.tabSet.tabs) {
-            const label = `${repoDisplay(repo.ghqPath)} / ${branch.name} / ${tab.name}`
-            if (!fuzzyContains(label, needle)) continue
-            const search = searchParams.toString() ? `?${searchParams.toString()}` : ''
-            const url = `/${encodeURIComponent(repo.id)}/${encodeURIComponent(branch.id)}/${encodeURIComponent(tab.id)}${search}`
-            out.push({
-              id: `ws:${repo.id}/${branch.id}/${tab.id}`,
-              kind: 'workspace',
-              icon: tabIcon(tab.type),
-              label,
-              detail: 'workspace',
-              searchable: label,
-              perform: () => navigate(url),
-            })
-          }
+          const label = `${repoDisplay(repo.ghqPath)} / ${branch.name}`
+          if (!fuzzyContains(label, needle)) continue
+          const remembered = lastTabFor(repo.id, branch.id)
+          const target =
+            (remembered && branch.tabSet.tabs.find((t) => t.id === remembered)) ||
+            branch.tabSet.tabs.find((t) => t.type === 'claude') ||
+            branch.tabSet.tabs[0]
+          if (!target) continue
+          const search = searchParams.toString() ? `?${searchParams.toString()}` : ''
+          const url = `/${encodeURIComponent(repo.id)}/${encodeURIComponent(branch.id)}/${encodeURIComponent(target.id)}${search}`
+          out.push({
+            id: `ws:${repo.id}/${branch.id}`,
+            kind: 'workspace',
+            icon: '⌂',
+            label,
+            detail: `→ ${target.name}`,
+            searchable: label,
+            perform: () => navigate(url),
+          })
         }
+      }
+    }
+
+    if (includeTab && activeRepo && activeBranch) {
+      // Tabs of the *currently focused* workspace. Useful as a quick switch
+      // without leaving the palette.
+      for (const tab of activeBranch.tabSet.tabs) {
+        if (!fuzzyContains(`${tab.name} ${tab.type}`, needle)) continue
+        const search = searchParams.toString() ? `?${searchParams.toString()}` : ''
+        const url = `/${encodeURIComponent(activeRepo.id)}/${encodeURIComponent(activeBranch.id)}/${encodeURIComponent(tab.id)}${search}`
+        out.push({
+          id: `tab:${activeRepo.id}/${activeBranch.id}/${tab.id}`,
+          kind: 'tab',
+          icon: tabIcon(tab.type),
+          label: tab.name,
+          detail: tab.type,
+          searchable: `${tab.name} ${tab.type}`,
+          perform: () => navigate(url),
+        })
       }
     }
 
@@ -322,13 +358,15 @@ function PaletteInner({
   const modeLabel =
     mode === 'workspace'
       ? 'workspaces'
-      : mode === 'slash'
-        ? 'slash'
-        : mode === 'command'
-          ? 'commands'
-          : mode === 'file'
-            ? 'files'
-            : ''
+      : mode === 'tab'
+        ? 'tabs'
+        : mode === 'slash'
+          ? 'slash'
+          : mode === 'command'
+            ? 'commands'
+            : mode === 'file'
+              ? 'files'
+              : ''
 
   return (
     <div className={styles.overlay} onClick={onClose}>
@@ -345,6 +383,7 @@ function PaletteInner({
         </div>
         <div className={styles.hintRow}>
           <span><span className={styles.hint}>@</span> workspaces</span>
+          <span><span className={styles.hint}>#</span> tabs</span>
           <span><span className={styles.hint}>/</span> slash</span>
           <span><span className={styles.hint}>&gt;</span> commands</span>
           <span><span className={styles.hint}>:</span> files</span>
@@ -405,6 +444,7 @@ function capByKind(items: PaletteItem[], n: number): PaletteItem[] {
   const buckets: Record<Mode, PaletteItem[]> = {
     all: [],
     workspace: [],
+    tab: [],
     slash: [],
     command: [],
     file: [],
@@ -412,6 +452,7 @@ function capByKind(items: PaletteItem[], n: number): PaletteItem[] {
   for (const it of items) buckets[it.kind].push(it)
   return [
     ...buckets.workspace.slice(0, n),
+    ...buckets.tab.slice(0, n),
     ...buckets.slash.slice(0, n),
     ...buckets.command.slice(0, n),
     ...buckets.file.slice(0, n),
