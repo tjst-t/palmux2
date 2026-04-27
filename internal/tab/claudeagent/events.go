@@ -31,6 +31,10 @@ const (
 	EvStatusChange      EventType = "status.change"
 	EvUserMessage       EventType = "user.message"
 	EvError             EventType = "error"
+	// Pushed when the CLI's initialize control_response lands, so the
+	// frontend can refresh its slash-command popup / model list / MCP
+	// server view without re-fetching the snapshot.
+	EvInitInfo EventType = "init.info"
 )
 
 // AgentStatus is the high-level UI state pip.

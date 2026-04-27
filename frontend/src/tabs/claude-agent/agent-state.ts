@@ -97,6 +97,10 @@ function applyEvent(state: AgentState, ev: { type: string; ts: string; payload?:
       const p = ev.payload as SessionInit
       return reduce(initialState, { kind: 'init', payload: p })
     }
+    case 'init.info': {
+      next.initInfo = ev.payload as InitInfo
+      return next
+    }
     case 'session.replaced': {
       next.turns = []
       next.sessionId = ((ev.payload as { newSessionId?: string }).newSessionId) ?? ''

@@ -30,6 +30,10 @@ type SessionMeta struct {
 type PersistedShape struct {
 	Sessions map[string]SessionMeta `json:"sessions"`
 	Active   map[string]string      `json:"active"` // "{repoId}/{branchId}" → session_id
+	// LastInit is the most recent CLI initialize response we observed.
+	// Cached here so the slash-command popup, model list, and agent list
+	// are populated even before the first lazy spawn on a fresh server.
+	LastInit *InitInfo `json:"lastInit,omitempty"`
 }
 
 // Store wraps sessions.json with the same atomic-write discipline as the
@@ -168,6 +172,26 @@ func (s *Store) List(repoID, branchID string) []SessionMeta {
 	}
 	sortByActivity(out)
 	return out
+}
+
+// SetLastInit caches the most recent CLI initialize payload so the next
+// agent (after a server restart, before its CLI spawns) can hand it back
+// to the UI for the slash-command popup, model list, etc.
+func (s *Store) SetLastInit(info InitInfo) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data.LastInit = &info
+	return s.save()
+}
+
+// LastInit returns the cached init info, or zero-value if none yet.
+func (s *Store) LastInit() InitInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.data.LastInit == nil {
+		return InitInfo{}
+	}
+	return *s.data.LastInit
 }
 
 // Delete drops the session record and any active pointer that referenced it.

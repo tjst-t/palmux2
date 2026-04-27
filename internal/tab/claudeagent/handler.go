@@ -59,7 +59,20 @@ func (h *httpHandler) handleWS(w http.ResponseWriter, r *http.Request) {
 	// 2) Pump server→client.
 	go pumpAgentToWS(ctx, c, events, cancel)
 
-	// 3) Pump client→server. Blocks on the request goroutine.
+	// 3) Eager-spawn the CLI in the background so the slash-command popup,
+	// model list, and MCP server states populate without waiting for the
+	// user's first message. The CLI doesn't burn API quota until a user
+	// turn happens, so this is cheap. A failure here just delays the
+	// init payload — the UI still works on the cached lastInit.
+	if auth.OK {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			_ = agent.EnsureClient(ctx)
+		}()
+	}
+
+	// 4) Pump client→server. Blocks on the request goroutine.
 	pumpWSToAgent(ctx, c, agent, h.mgr)
 }
 

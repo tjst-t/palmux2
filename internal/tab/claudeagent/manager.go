@@ -138,6 +138,12 @@ func (m *Manager) EnsureAgent(repoID, branchID string) (*Agent, error) {
 		manager:       m,
 		logger:        m.logger,
 	})
+	// Seed the session with whatever init payload we cached from the
+	// previous run — gives us the slash-command popup / model list / agent
+	// list on first paint, before this agent's CLI has been spawned.
+	if cached := m.store.LastInit(); len(cached.Commands) > 0 || len(cached.Models) > 0 {
+		a.session.SetInitInfo(cached)
+	}
 	m.agents[k] = a
 	return a, nil
 }
@@ -343,7 +349,18 @@ func (a *Agent) EnsureClient(ctx context.Context) error {
 	if err != nil {
 		a.deps.logger.Warn("claudeagent: initialize failed", "err", err)
 	} else if len(resp) > 0 {
-		a.session.SetInitInfo(parseInitInfo(resp))
+		info := parseInitInfo(resp)
+		a.session.SetInitInfo(info)
+		// Push to any connected WS client so the slash popup updates
+		// without waiting for a fresh snapshot.
+		if ev, e := makeEvent(EvInitInfo, info); e == nil {
+			a.broadcast(ev)
+		}
+		// Persist for the next agent (potentially across restarts) so
+		// the slash menu is non-empty before the lazy spawn.
+		if err := a.deps.manager.store.SetLastInit(info); err != nil {
+			a.deps.logger.Warn("claudeagent: SetLastInit failed", "err", err)
+		}
 	}
 	return nil
 }
