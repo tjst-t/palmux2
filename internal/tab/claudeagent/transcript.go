@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // transcriptDir maps a worktree to the directory the CLI writes its
@@ -62,6 +63,73 @@ type transcriptEntry struct {
 }
 
 const summaryReadCap = 100 // chars
+
+// DiscoveredSession is a transcript file we found on disk that may or
+// may not have a corresponding entry in Palmux's sessions.json. The CLI
+// names its files <session_id>.jsonl so the id is recoverable from
+// listing alone.
+type DiscoveredSession struct {
+	SessionID      string
+	LastActivityAt time.Time
+	SizeBytes      int64
+}
+
+// DiscoverTranscripts lists every .jsonl under the worktree's transcript
+// directory, returning one entry per file. Used to surface sessions
+// started via raw `claude` CLI (outside Palmux) in the History popup.
+// On any path error returns nil — discovery is best-effort.
+func DiscoverTranscripts(worktree string) []DiscoveredSession {
+	dir, err := transcriptDir(worktree)
+	if err != nil {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	out := make([]DiscoveredSession, 0, len(entries))
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".jsonl") {
+			continue
+		}
+		id := strings.TrimSuffix(name, ".jsonl")
+		if !looksLikeSessionID(id) {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		out = append(out, DiscoveredSession{
+			SessionID:      id,
+			LastActivityAt: info.ModTime().UTC(),
+			SizeBytes:      info.Size(),
+		})
+	}
+	return out
+}
+
+// looksLikeSessionID guards against random non-uuid files in the
+// projects dir. Claude Code session ids are RFC4122 UUIDs.
+func looksLikeSessionID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i, r := range s {
+		switch i {
+		case 8, 13, 18, 23:
+			if r != '-' {
+				return false
+			}
+		default:
+			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+				return false
+			}
+		}
+	}
+	return true
+}
 
 // SummariseTranscript reads the .jsonl and pulls a one-line preview each
 // for first user, last user, and last assistant. Skips meta / system

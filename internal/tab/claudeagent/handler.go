@@ -317,7 +317,7 @@ func (h *httpHandler) handleModes(w http.ResponseWriter, _ *http.Request) {
 func (h *httpHandler) handleListBranchSessions(w http.ResponseWriter, r *http.Request) {
 	repoID := r.PathValue("repoId")
 	branchID := r.PathValue("branchId")
-	sessions := h.mgr.Store().List(repoID, branchID)
+	sessions := h.listMergedSessions(repoID, branchID)
 	h.enrichWithTranscriptSummary(sessions)
 	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
 }
@@ -325,14 +325,67 @@ func (h *httpHandler) handleListBranchSessions(w http.ResponseWriter, r *http.Re
 func (h *httpHandler) handleListAllSessions(w http.ResponseWriter, r *http.Request) {
 	repoID := r.URL.Query().Get("repo")
 	branchID := r.URL.Query().Get("branch")
-	sessions := h.mgr.Store().List(repoID, branchID)
+	sessions := h.listMergedSessions(repoID, branchID)
 	h.enrichWithTranscriptSummary(sessions)
 	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
 }
 
+// listMergedSessions returns the union of:
+//   - sessions Palmux booked into sessions.json (have title/cost/turn count)
+//   - .jsonl transcripts found on disk under the worktree's projects dir
+//     (so sessions started via raw `claude` CLI also show up)
+//
+// Disk-discovered entries don't have cost / turn count from us, but we
+// fill LastActivityAt from the file mtime so they sort sensibly. Entries
+// found in both sources are merged with the Palmux record taking
+// precedence. Disk discovery only fires when a single (repoID,branchID)
+// is targeted — the global "all" case skips it because we'd have to
+// walk every worktree.
+func (h *httpHandler) listMergedSessions(repoID, branchID string) []SessionMeta {
+	out := h.mgr.Store().List(repoID, branchID)
+	if repoID == "" || branchID == "" {
+		return out
+	}
+	worktree, err := h.mgr.Branches().WorktreePath(repoID, branchID)
+	if err != nil || worktree == "" {
+		return out
+	}
+	known := make(map[string]int, len(out))
+	for i, s := range out {
+		known[s.ID] = i
+	}
+	for _, d := range DiscoverTranscripts(worktree) {
+		if _, ok := known[d.SessionID]; ok {
+			// Refresh the activity timestamp if the transcript is newer
+			// than what sessions.json recorded — common when the user
+			// resumed the session outside Palmux.
+			i := known[d.SessionID]
+			if d.LastActivityAt.After(out[i].LastActivityAt) {
+				out[i].LastActivityAt = d.LastActivityAt
+			}
+			continue
+		}
+		out = append(out, SessionMeta{
+			ID:             d.SessionID,
+			RepoID:         repoID,
+			BranchID:       branchID,
+			LastActivityAt: d.LastActivityAt,
+		})
+	}
+	// Re-sort most-recent first since we may have appended.
+	for i := 1; i < len(out); i++ {
+		j := i
+		for j > 0 && out[j].LastActivityAt.After(out[j-1].LastActivityAt) {
+			out[j], out[j-1] = out[j-1], out[j]
+			j--
+		}
+	}
+	return out
+}
+
 // enrichWithTranscriptSummary reads each session's transcript file (if
 // any) and fills the preview fields in place. Bounded to the most-recent
-// 50 entries so a huge sessions.json doesn't blow the budget.
+// 50 entries so a huge directory doesn't blow the budget.
 func (h *httpHandler) enrichWithTranscriptSummary(sessions []SessionMeta) {
 	const maxToEnrich = 50
 	for i := range sessions {
