@@ -18,6 +18,9 @@ interface SessionMeta {
   lastActivityAt?: string
   turnCount?: number
   totalCostUsd?: number
+  firstUserMessage?: string
+  lastUserMessage?: string
+  lastAssistantSnippet?: string
 }
 
 interface Props {
@@ -85,7 +88,10 @@ export function HistoryPopup({ repoId, branchId, currentSessionId, open, onClose
       (s) =>
         s.id.toLowerCase().includes(ql) ||
         (s.title ?? '').toLowerCase().includes(ql) ||
-        (s.model ?? '').toLowerCase().includes(ql),
+        (s.model ?? '').toLowerCase().includes(ql) ||
+        (s.firstUserMessage ?? '').toLowerCase().includes(ql) ||
+        (s.lastUserMessage ?? '').toLowerCase().includes(ql) ||
+        (s.lastAssistantSnippet ?? '').toLowerCase().includes(ql),
     )
   }, [sessions, query])
 
@@ -125,7 +131,21 @@ export function HistoryPopup({ repoId, branchId, currentSessionId, open, onClose
             return (
               <li key={s.id} className={`${styles.item} ${active ? styles.active : ''}`.trim()}>
                 <div className={styles.itemMain}>
-                  <div className={styles.itemTitle}>{s.title || s.id.slice(0, 12)}</div>
+                  <div className={styles.itemTitle}>
+                    {s.title || s.firstUserMessage || s.id.slice(0, 12)}
+                  </div>
+                  {s.lastUserMessage && (
+                    <div className={styles.itemPreview} title={s.lastUserMessage}>
+                      <span className={styles.itemPreviewSpeaker}>You:</span>{' '}
+                      {s.lastUserMessage}
+                    </div>
+                  )}
+                  {s.lastAssistantSnippet && (
+                    <div className={styles.itemPreview} title={s.lastAssistantSnippet}>
+                      <span className={styles.itemPreviewSpeaker}>Claude:</span>{' '}
+                      {s.lastAssistantSnippet}
+                    </div>
+                  )}
                   <div className={styles.itemMeta}>
                     {s.model ? <span>{s.model}</span> : null}
                     {typeof s.turnCount === 'number' ? <span>{s.turnCount} turns</span> : null}

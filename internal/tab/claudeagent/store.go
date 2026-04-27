@@ -24,6 +24,12 @@ type SessionMeta struct {
 	TurnCount       int       `json:"turnCount"`
 	TotalCostUSD    float64   `json:"totalCostUsd"`
 	ParentSessionID string    `json:"parentSessionId,omitempty"`
+	// Optional, only filled by enriched-list endpoints — read on demand
+	// from the CLI's transcript so the History popup can show what each
+	// session was about without persisting redundant copies.
+	FirstUserMessage     string `json:"firstUserMessage,omitempty"`
+	LastUserMessage      string `json:"lastUserMessage,omitempty"`
+	LastAssistantSnippet string `json:"lastAssistantSnippet,omitempty"`
 }
 
 // PersistedShape is the on-disk JSON layout for sessions.json.

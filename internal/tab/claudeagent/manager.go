@@ -180,6 +180,10 @@ func (m *Manager) Store() *Store { return m.store }
 // Config exposes the runtime config (binary path, defaults).
 func (m *Manager) Config() Config { return m.cfg }
 
+// Branches exposes the BranchResolver so REST handlers can resolve
+// {repoID, branchID} → worktree path (e.g. for transcript lookup).
+func (m *Manager) Branches() BranchResolver { return m.branches }
+
 // ──────────── Agent ────────────────────────────────────────────────────────
 
 type agentDeps struct {
@@ -830,14 +834,10 @@ func (a *Agent) ForkSession(ctx context.Context, baseSessionID string) error {
 	return a.respawnClient(ctx)
 }
 
-// ResumeSession swaps the active session_id to the given id, kills the
-// current CLI (if any) and respawns. The CLI's `--resume <id>` reloads
-// the transcript from disk so the conversation continues seamlessly.
-//
-// In-memory turns are wiped before respawn — they're re-emitted via
-// stream events as the resumed CLI replays history; the snapshot the
-// new client gets via session.init won't have local turns until the CLI
-// catches up. (CLI replays differ between versions; we trust the disk.)
+// ResumeSession swaps the active session_id to the given id, replays the
+// disk transcript into the in-memory session so the user sees the past
+// turns immediately, then kills + respawns the CLI with `--resume <id>`
+// so subsequent input goes to that conversation.
 func (a *Agent) ResumeSession(ctx context.Context, sessionID string) error {
 	if sessionID == "" {
 		return errors.New("claudeagent: empty session id")
@@ -847,7 +847,22 @@ func (a *Agent) ResumeSession(ctx context.Context, sessionID string) error {
 	if err := a.deps.manager.store.SetActive(a.deps.repoID, a.deps.branchID, sessionID, a.session.Model()); err != nil {
 		a.deps.logger.Warn("claudeagent: SetActive on resume failed", "err", err)
 	}
-	if ev, err := makeEvent(EvSessionReplaced, SessionReplacedPayload{OldSessionID: old, NewSessionID: sessionID}); err == nil {
+	// Replay the on-disk transcript into the live session before any UI
+	// renders, so the snapshot we ship reflects the resumed history.
+	if path, err := transcriptPath(a.deps.worktree, sessionID); err == nil {
+		if turns, err := LoadTranscriptTurns(path); err == nil && len(turns) > 0 {
+			a.session.SetTurns(turns)
+		} else if err != nil {
+			a.deps.logger.Warn("claudeagent: LoadTranscriptTurns failed", "err", err, "session", sessionID)
+		}
+	}
+	// Push a fresh init snapshot so the active client repaints with the
+	// loaded turns. We deliberately skip the per-WS session.replaced
+	// frame: its reducer wipes turns (correct for /clear, wrong for
+	// resume) and would undo what session.init just established. The
+	// global EventHub publish below still keeps Drawer / Inbox in sync.
+	snap := a.Snapshot()
+	if ev, err := makeEvent(EvSessionInit, snap); err == nil {
 		a.broadcast(ev)
 	}
 	a.publishEvent(EventClaudeSessionReplaced, map[string]any{

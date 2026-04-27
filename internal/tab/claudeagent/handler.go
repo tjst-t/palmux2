@@ -317,17 +317,42 @@ func (h *httpHandler) handleModes(w http.ResponseWriter, _ *http.Request) {
 func (h *httpHandler) handleListBranchSessions(w http.ResponseWriter, r *http.Request) {
 	repoID := r.PathValue("repoId")
 	branchID := r.PathValue("branchId")
-	writeJSON(w, http.StatusOK, map[string]any{
-		"sessions": h.mgr.Store().List(repoID, branchID),
-	})
+	sessions := h.mgr.Store().List(repoID, branchID)
+	h.enrichWithTranscriptSummary(sessions)
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
 }
 
 func (h *httpHandler) handleListAllSessions(w http.ResponseWriter, r *http.Request) {
 	repoID := r.URL.Query().Get("repo")
 	branchID := r.URL.Query().Get("branch")
-	writeJSON(w, http.StatusOK, map[string]any{
-		"sessions": h.mgr.Store().List(repoID, branchID),
-	})
+	sessions := h.mgr.Store().List(repoID, branchID)
+	h.enrichWithTranscriptSummary(sessions)
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
+}
+
+// enrichWithTranscriptSummary reads each session's transcript file (if
+// any) and fills the preview fields in place. Bounded to the most-recent
+// 50 entries so a huge sessions.json doesn't blow the budget.
+func (h *httpHandler) enrichWithTranscriptSummary(sessions []SessionMeta) {
+	const maxToEnrich = 50
+	for i := range sessions {
+		if i >= maxToEnrich {
+			break
+		}
+		s := &sessions[i]
+		worktree, err := h.mgr.Branches().WorktreePath(s.RepoID, s.BranchID)
+		if err != nil || worktree == "" {
+			continue
+		}
+		path, err := transcriptPath(worktree, s.ID)
+		if err != nil {
+			continue
+		}
+		sum := SummariseTranscript(path)
+		s.FirstUserMessage = sum.FirstUserMessage
+		s.LastUserMessage = sum.LastUserMessage
+		s.LastAssistantSnippet = sum.LastAssistantSnippet
+	}
 }
 
 func (h *httpHandler) handleGetSession(w http.ResponseWriter, r *http.Request) {

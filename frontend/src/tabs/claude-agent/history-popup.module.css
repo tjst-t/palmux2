@@ -1,6 +1,6 @@
 .popup {
   position: absolute;
-  top: 36px;
+  top: 4px;
   right: 8px;
   z-index: 60;
   background: var(--color-elevated);
@@ -89,12 +89,26 @@
 }
 
 .itemTitle {
-  font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--color-fg);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 500;
+}
+
+.itemPreview {
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.itemPreviewSpeaker {
+  color: var(--color-fg-dim);
+  font-weight: 500;
 }
 
 .itemMeta {

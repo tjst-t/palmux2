@@ -576,6 +576,23 @@ func (s *Session) IsAllowedThisSession(toolName string) bool {
 	return ok
 }
 
+// SetTurns wholesale-replaces the turn list. Used when replaying a
+// transcript on resume so the UI immediately shows the past
+// conversation. Any open block / partial state is wiped because the
+// replay produces only fully-completed turns.
+func (s *Session) SetTurns(turns []Turn) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]*Turn, len(turns))
+	for i := range turns {
+		t := turns[i]
+		out[i] = &t
+	}
+	s.turns = out
+	s.currentTurn = nil
+	s.openBlocks = map[int]*Block{}
+}
+
 // Reset clears the in-memory state for /clear semantics. The caller is
 // responsible for spawning a fresh Client afterwards.
 func (s *Session) Reset() string {
