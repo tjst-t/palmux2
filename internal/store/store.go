@@ -95,6 +95,25 @@ func New(deps Deps) (*Store, error) {
 	return s, nil
 }
 
+// PopulateTabs walks every Open branch and runs recomputeTabs against it.
+// This must be called AFTER every Provider has been registered (otherwise
+// REST-only tabs like Files / Git would be missing) and BEFORE the sync
+// loops start (so the first GET /api/repos sees a populated tab list).
+//
+// The fallback was previously: SyncTmux's recovery path called recomputeTabs
+// for branches whose tmux session was missing, but if the previous palmux
+// died and left its sessions alive, recovery is a no-op and Tabs stays
+// empty. main.go calls this before Run() to close that gap.
+func (s *Store) PopulateTabs(ctx context.Context) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, repo := range s.repos {
+		for _, b := range repo.OpenBranches {
+			s.recomputeTabs(ctx, b)
+		}
+	}
+}
+
 // Hub returns the broadcaster.
 func (s *Store) Hub() *EventHub { return s.hub }
 
@@ -213,10 +232,12 @@ func (s *Store) buildBranchFromWorktree(repo *domain.Repository, wt worktree.Wor
 		RepoID:       repo.ID,
 		IsPrimary:    wt.IsPrimary,
 		LastActivity: time.Now(),
-		TabSet:       domain.TabSet{TmuxSession: sessionName},
+		// Empty (non-nil) slice so JSON serialises as `[]` rather than `null`
+		// even before recomputeTabs has run. The frontend's `tabs.find(...)`
+		// blows up on null, and on a server restart with already-live tmux
+		// sessions the SyncTmux recovery path skips recomputeTabs entirely.
+		TabSet: domain.TabSet{TmuxSession: sessionName, Tabs: []domain.Tab{}},
 	}
-	// Tabs are derived from current tmux state on-the-fly; populated by
-	// recomputeTabs below (called in OpenBranch and sync paths).
 	return branch
 }
 
