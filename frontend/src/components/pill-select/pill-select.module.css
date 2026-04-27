@@ -1,0 +1,104 @@
+.wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--color-fg-muted);
+  font-family: inherit;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  outline: none;
+}
+.trigger:hover {
+  background: var(--color-elevated);
+  color: var(--color-fg);
+  border-color: var(--color-border);
+}
+.trigger:focus-visible {
+  border-color: var(--color-accent);
+  color: var(--color-fg);
+}
+
+.prefix {
+  color: var(--color-fg-dim);
+}
+
+.value {
+  color: var(--color-fg);
+}
+
+.caret {
+  color: var(--color-fg-dim);
+  font-size: 9px;
+  line-height: 1;
+}
+
+/* Popup floats above the trigger. The composer footer hugs the bottom
+   of the viewport so we always open upward. */
+.popup {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  z-index: 60;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  min-width: 160px;
+  max-width: 320px;
+  max-height: 280px;
+  overflow-y: auto;
+  outline: none;
+  font-size: 12px;
+}
+
+.option {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--color-fg);
+}
+
+.option.active {
+  background: var(--color-accent-dark);
+  color: #fff;
+}
+
+.option.active .optionDetail {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.option.current:not(.active)::before {
+  content: '✔';
+  position: absolute;
+  margin-left: -14px;
+  color: var(--color-accent-light);
+  font-size: 10px;
+}
+
+.optionLabel {
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.optionDetail {
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

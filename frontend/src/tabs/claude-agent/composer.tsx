@@ -16,6 +16,7 @@ import {
   type CompletionOption,
   type CompletionTrigger,
 } from '../../components/inline-completion'
+import { PillSelect, type PillSelectOption } from '../../components/pill-select'
 
 import styles from './claude-agent-view.module.css'
 import type { InitInfo, ModelDescriptor } from './types'
@@ -293,44 +294,37 @@ export function Composer(props: ComposerProps) {
           disabled={disabled}
         />
         <div className={styles.composerFooter}>
-          <span className={styles.modePill}>
-            <select
-              aria-label="Model"
-              value={model}
-              onChange={(e) => onModelChange(e.target.value)}
-            >
-              {models.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.displayName ?? o.value ?? 'default'}
-                </option>
-              ))}
-            </select>
-          </span>
+          <PillSelect
+            ariaLabel="Model"
+            value={model}
+            onChange={onModelChange}
+            options={models.map<PillSelectOption>((m) => ({
+              value: m.value,
+              label: m.displayName ?? m.value ?? 'default',
+              detail: m.description,
+            }))}
+          />
           {showEffort && (
-            <span className={styles.modePill}>
-              <select
-                aria-label="Effort"
-                value={effort}
-                onChange={(e) => onEffortChange(e.target.value)}
-              >
-                <option value="">effort: default</option>
-                {effortLevels.map((lvl) => (
-                  <option key={lvl} value={lvl}>{lvl}</option>
-                ))}
-              </select>
-            </span>
+            <PillSelect
+              ariaLabel="Effort"
+              prefix="effort"
+              value={effort}
+              onChange={onEffortChange}
+              options={[
+                { value: '', label: 'default' },
+                ...effortLevels.map<PillSelectOption>((lvl) => ({ value: lvl, label: lvl })),
+              ]}
+            />
           )}
-          <span className={styles.modePill}>
-            <select
-              aria-label="Permission mode"
-              value={permissionMode}
-              onChange={(e) => onPermissionModeChange(e.target.value)}
-            >
-              {permissionModes.map((m) => (
-                <option key={m} value={m}>{modeLabel(m)}</option>
-              ))}
-            </select>
-          </span>
+          <PillSelect
+            ariaLabel="Permission mode"
+            value={permissionMode}
+            onChange={onPermissionModeChange}
+            options={permissionModes.map<PillSelectOption>((m) => ({
+              value: m,
+              label: modeLabel(m),
+            }))}
+          />
 
           <span className={styles.composerFooterSpacer} />
 
