@@ -8,7 +8,7 @@
 //   - Image paste/drag-drop posts to /api/upload, then injects the
 //     returned absolute path so Claude can read the file.
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   InlineCompletionPopup,
@@ -86,6 +86,34 @@ export function Composer(props: ComposerProps) {
   const [composing, setComposing] = useState(false)
   const [uploading, setUploading] = useState(false)
   const taRef = useRef<HTMLTextAreaElement | null>(null)
+
+  // Optimistic state for the three pill selectors. The parent passes the
+  // server-confirmed value via props, but model.set / effort.set /
+  // permission_mode.set go out as fire-and-forget WS frames — there's no
+  // round-trip event that updates state.model on success. So the
+  // selector would visually snap back to the old value the moment the
+  // user picked one. We mirror the prop into local state and let the
+  // user see their choice immediately; the prop updates whenever a
+  // session.init carries a new value, which we sync via effect.
+  const [localModel, setLocalModel] = useState(model)
+  const [localEffort, setLocalEffort] = useState(effort)
+  const [localPermissionMode, setLocalPermissionMode] = useState(permissionMode)
+  useEffect(() => setLocalModel(model), [model])
+  useEffect(() => setLocalEffort(effort), [effort])
+  useEffect(() => setLocalPermissionMode(permissionMode), [permissionMode])
+
+  const handleModelChange = (m: string) => {
+    setLocalModel(m)
+    onModelChange(m)
+  }
+  const handleEffortChange = (e: string) => {
+    setLocalEffort(e)
+    onEffortChange(e)
+  }
+  const handlePermissionModeChange = (m: string) => {
+    setLocalPermissionMode(m)
+    onPermissionModeChange(m)
+  }
 
   // Build completion triggers — recreated only when the underlying data
   // (commands list, repo/branch) changes, otherwise the inline-completion
@@ -266,7 +294,7 @@ export function Composer(props: ComposerProps) {
 
   // Models — prefer CLI-reported list with effort/thinking metadata.
   const models = initInfo?.models?.length ? initInfo.models : FALLBACK_MODELS
-  const currentModelDescriptor = models.find((m) => m.value === model)
+  const currentModelDescriptor = models.find((m) => m.value === localModel)
   const effortLevels = currentModelDescriptor?.supportedEffortLevels ?? []
   const showEffort = !!currentModelDescriptor?.supportsEffort && effortLevels.length > 0
 
@@ -296,8 +324,8 @@ export function Composer(props: ComposerProps) {
         <div className={styles.composerFooter}>
           <PillSelect
             ariaLabel="Model"
-            value={model}
-            onChange={onModelChange}
+            value={localModel}
+            onChange={handleModelChange}
             options={models.map<PillSelectOption>((m) => ({
               value: m.value,
               label: m.displayName ?? m.value ?? 'default',
@@ -308,8 +336,8 @@ export function Composer(props: ComposerProps) {
             <PillSelect
               ariaLabel="Effort"
               prefix="effort"
-              value={effort}
-              onChange={onEffortChange}
+              value={localEffort}
+              onChange={handleEffortChange}
               options={[
                 { value: '', label: 'default' },
                 ...effortLevels.map<PillSelectOption>((lvl) => ({ value: lvl, label: lvl })),
@@ -318,8 +346,8 @@ export function Composer(props: ComposerProps) {
           )}
           <PillSelect
             ariaLabel="Permission mode"
-            value={permissionMode}
-            onChange={onPermissionModeChange}
+            value={localPermissionMode}
+            onChange={handlePermissionModeChange}
             options={permissionModes.map<PillSelectOption>((m) => ({
               value: m,
               label: modeLabel(m),
