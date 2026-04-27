@@ -362,6 +362,15 @@ func (a *Agent) EnsureClient(ctx context.Context) error {
 			a.deps.logger.Warn("claudeagent: SetLastInit failed", "err", err)
 		}
 	}
+	// Flip out of "starting" — the CLI is now ready for input. (Stream
+	// events from a real turn will subsequently set thinking / tool_running
+	// / etc.) If the user is mid-turn we don't clobber the status, but in
+	// practice EnsureClient is only entered when no client existed so
+	// idle is the right resting state.
+	if a.session.Status() == StatusStarting {
+		a.session.SetStatus(StatusIdle)
+		a.broadcastStatus(StatusIdle)
+	}
 	return nil
 }
 
