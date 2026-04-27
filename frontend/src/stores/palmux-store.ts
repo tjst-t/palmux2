@@ -312,12 +312,20 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
     ) {
       const key = `${ev.repoId}/${ev.branchId}`
       const state = ev.payload as BranchNotificationState
+      // Detect "actually-new message" by comparing the timestamp against
+      // what we last saw for this branch. ClearByRequestID also publishes
+      // a notification frame (just to flip Resolved on the matched entry)
+      // and we don't want that to re-fire the OS banner.
+      const prev = get().notifications[key]
+      const isNewMessage =
+        ev.type === 'notification' &&
+        !!state.lastMessage &&
+        (!prev?.lastAt || state.lastAt !== prev.lastAt)
       set((s) => ({
         notifications: { ...s.notifications, [key]: state },
       }))
-      // Browser-level notification on a new message (not a clear).
-      if (ev.type === 'notification' && state.lastMessage) {
-        maybePostNotification(state.lastMessage)
+      if (isNewMessage) {
+        maybePostNotification(state.lastMessage!)
       }
     }
 
@@ -489,8 +497,15 @@ export const selectAgentState =
 // maybePostNotification asks for permission once, then surfaces a system
 // notification on subsequent events. Vibrates if the API is supported. All
 // optional — a denied permission silently degrades to badges-only UX.
+//
+// Skipped when the palmux tab is currently focused: the user is here, the
+// in-app Inbox badge is enough; surfacing an OS banner on top would be
+// noise. (Most browsers also auto-suppress notifications for the focused
+// document, but we double-up the check so headless / unfocused-window
+// cases work consistently.)
 function maybePostNotification(message: string) {
   if (typeof window === 'undefined' || typeof Notification === 'undefined') return
+  if (typeof document !== 'undefined' && document.hasFocus?.()) return
   const fire = () => {
     try {
       new Notification('Palmux', { body: message })

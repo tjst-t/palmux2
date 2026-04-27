@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 )
@@ -424,7 +425,49 @@ func (a *Agent) handleStreamMsg(msg streamMsg) {
 			"totalCostUsd": msg.TotalCostUSD,
 			"durationMs":   msg.DurationMs,
 		})
+		// Activity-Inbox notification — "Claude is ready". Lets the user
+		// switch tabs / contexts during a long turn and come back when
+		// it's done. The Inbox auto-clears as soon as the Claude tab is
+		// focused, so users actively reading the conversation don't see
+		// stale entries pile up.
+		if !msg.IsError {
+			a.publishNotification(InternalNotification{
+				Type:    "info",
+				Title:   "Claude is ready",
+				Message: turnEndPreview(msg.Result),
+			})
+		}
 	}
+}
+
+// turnEndPreview compresses the assistant's final reply into a short
+// one-line preview for the Activity Inbox / browser notification.
+func turnEndPreview(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	// Collapse whitespace.
+	out := make([]rune, 0, len(s))
+	prevSpace := false
+	for _, r := range s {
+		if r == '\n' || r == '\r' || r == '\t' {
+			r = ' '
+		}
+		if r == ' ' {
+			if prevSpace {
+				continue
+			}
+			prevSpace = true
+		} else {
+			prevSpace = false
+		}
+		out = append(out, r)
+	}
+	if len(out) > 100 {
+		return string(out[:99]) + "…"
+	}
+	return string(out)
 }
 
 func (a *Agent) handleCanUseTool(_ context.Context, req canUseToolRequest, cliRequestID string) (canUseToolResponse, error) {
