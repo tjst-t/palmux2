@@ -145,6 +145,23 @@ func (m *Manager) EnsureAgent(repoID, branchID string) (*Agent, error) {
 	if cached := m.store.LastInit(); len(cached.Commands) > 0 || len(cached.Models) > 0 {
 		a.session.SetInitInfo(cached)
 	}
+	// Auto-resume: if the branch has an active session_id, replay its
+	// on-disk transcript into the live session so the snapshot we ship to
+	// the browser already shows the previous turns. The CLI is then
+	// spawned with --resume so subsequent input continues that
+	// conversation. If the transcript file is missing we leave turns
+	// empty; watchClient handles the eventual stale-id error and clears
+	// the active pointer.
+	if resumeID != "" {
+		if path, err := transcriptPath(worktree, resumeID); err == nil {
+			if turns, err := LoadTranscriptTurns(path); err == nil && len(turns) > 0 {
+				a.session.SetTurns(turns)
+				a.session.SetSessionID(resumeID)
+			} else if err != nil {
+				m.logger.Warn("claudeagent: LoadTranscriptTurns failed", "err", err, "session", resumeID)
+			}
+		}
+	}
 	m.agents[k] = a
 	return a, nil
 }
