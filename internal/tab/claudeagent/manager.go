@@ -395,8 +395,20 @@ func (a *Agent) handleStreamMsg(msg streamMsg) {
 		// Persist the new session id for resume.
 		_ = a.deps.manager.store.SetActive(a.deps.repoID, a.deps.branchID, msg.SessionID, a.session.Model())
 	}
+	beforeStatus := a.session.Status()
 	evs := processStreamMessage(a.session, msg)
 	a.broadcastMany(evs)
+	// processStreamMessage flips status via session.SetStatus directly
+	// (e.g. message_start → thinking, content_block_start tool_use →
+	// tool_running, result → idle). Per-WS subscribers see those via the
+	// EvStatusChange events returned above, but the global EventHub
+	// (Drawer pip / Activity Inbox) needs an explicit publish — without
+	// it, branches stay stuck on "thinking" after a turn completes.
+	if afterStatus := a.session.Status(); afterStatus != beforeStatus {
+		a.publishEvent(string(EventClaudeStatus), map[string]any{
+			"status": string(afterStatus),
+		})
+	}
 
 	if msg.Type == "result" {
 		_ = a.deps.manager.store.UpdateMeta(a.session.SessionID(), func(m *SessionMeta) {

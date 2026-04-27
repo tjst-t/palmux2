@@ -359,6 +359,12 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
             }
             next.lastTurnEndAt = new Date().toISOString()
             next.lastError = undefined
+            // turn_end strongly implies the agent is back to idle — even if
+            // a stale 'thinking' status.change got dropped on the wire,
+            // this guarantees the Drawer pip clears.
+            if (cur.status !== 'awaiting_permission') {
+              next.status = 'idle'
+            }
             break
           }
           case 'claude.error': {
