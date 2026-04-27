@@ -103,29 +103,10 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		return err
 	}
 
-	// Register providers in TabBar order: Claude / Bash / Files / Git.
-	// Claude is the SDK-style stream-json tab; the previous tmux-backed
-	// `claude` tab has been removed. Manager needs the Store for worktree
-	// path lookups, so all providers are registered after store.New.
-	agentManager := claudeagent.NewManager(claudeagent.Config{
-		Binary:                "claude",
-		DefaultPermissionMode: "acceptEdits",
-	}, agentStore, branchResolver{store: st}, slog.Default())
-	registry.Register(claudeagent.NewProvider(agentManager))
-	registry.Register(bash.New())
-	registry.Register(files.New(st))
-	registry.Register(gittab.New(st))
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	// Build each branch's tab list now that every Provider is registered.
-	// Without this the first GET /api/repos can return tabs:null for
-	// branches whose tmux session was already alive at startup.
-	st.PopulateTabs(ctx)
-
-	st.Run(ctx)
-
+	// Notify Hub is shared between the legacy `/api/notify` POST endpoint
+	// (Claude Code Stop hook etc.) and the new in-process Claude-tab
+	// publishers (permission requests, errors). Creating it here so the
+	// Claude-tab Manager can hold a reference.
 	notifyHub := notify.New(
 		// Resolve a tmux session name back to a (repoID, branchID) the store knows.
 		func(sessionName string) (string, string, bool) {
@@ -140,6 +121,35 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		},
 		eventPublisher{hub: st.Hub()},
 	)
+
+	// Register providers in TabBar order: Claude / Bash / Files / Git.
+	// Claude is the SDK-style stream-json tab; the previous tmux-backed
+	// `claude` tab has been removed. Manager needs the Store for worktree
+	// path lookups, so all providers are registered after store.New.
+	agentManager := claudeagent.NewManager(claudeagent.Config{
+		Binary:                "claude",
+		DefaultPermissionMode: "acceptEdits",
+	},
+		agentStore,
+		branchResolver{store: st},
+		agentEventPublisher{hub: st.Hub()},
+		agentNotificationSink{hub: notifyHub},
+		slog.Default(),
+	)
+	registry.Register(claudeagent.NewProvider(agentManager))
+	registry.Register(bash.New())
+	registry.Register(files.New(st))
+	registry.Register(gittab.New(st))
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// Build each branch's tab list now that every Provider is registered.
+	// Without this the first GET /api/repos can return tabs:null for
+	// branches whose tmux session was already alive at startup.
+	st.PopulateTabs(ctx)
+
+	st.Run(ctx)
 
 	frontendFS, err := fs.Sub(palmux2.FrontendFS, "frontend/dist")
 	if err != nil {
@@ -259,6 +269,44 @@ func (b branchResolver) WorktreePath(repoID, branchID string) (string, error) {
 		return "", err
 	}
 	return br.WorktreePath, nil
+}
+
+// agentEventPublisher adapts *store.EventHub to claudeagent.EventPublisher
+// so per-branch agent state changes fan out to every connected browser
+// (Drawer pip, Activity Inbox, etc.) via the existing /api/events WS.
+type agentEventPublisher struct{ hub *store.EventHub }
+
+func (p agentEventPublisher) Publish(eventType, repoID, branchID string, payload any) {
+	p.hub.Publish(store.Event{
+		Type:     store.EventType(eventType),
+		RepoID:   repoID,
+		BranchID: branchID,
+		Payload:  payload,
+	})
+}
+
+// agentNotificationSink adapts *notify.Hub to claudeagent.NotificationSink
+// so the Claude tab can surface permission requests / errors in the global
+// Activity Inbox.
+type agentNotificationSink struct{ hub *notify.Hub }
+
+func (s agentNotificationSink) IngestInternal(repoID, branchID string, n claudeagent.InternalNotification) {
+	actions := make([]notify.NotificationAction, 0, len(n.Actions))
+	for _, a := range n.Actions {
+		actions = append(actions, notify.NotificationAction{Label: a.Label, Action: a.Action})
+	}
+	s.hub.IngestInternal(repoID, branchID, notify.InternalRequest{
+		RequestID: n.RequestID,
+		Type:      n.Type,
+		Title:     n.Title,
+		Message:   n.Message,
+		Detail:    n.Detail,
+		Actions:   actions,
+	})
+}
+
+func (s agentNotificationSink) ClearByRequestID(repoID, branchID, requestID string) {
+	s.hub.ClearByRequestID(repoID, branchID, requestID)
 }
 
 // eventPublisher adapts *store.EventHub to notify.Publisher so the Hub can

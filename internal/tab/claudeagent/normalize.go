@@ -19,6 +19,9 @@ func processStreamMessage(s *Session, msg streamMsg) []AgentEvent {
 			if msg.PermissionMode != "" {
 				s.SetPermissionMode(msg.PermissionMode)
 			}
+			if len(msg.MCPServers) > 0 {
+				s.SetMCPServers(msg.MCPServers)
+			}
 			if replaced {
 				ev, err := makeEvent(EvSessionReplaced, SessionReplacedPayload{OldSessionID: old, NewSessionID: msg.SessionID})
 				if err == nil {

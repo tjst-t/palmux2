@@ -5,15 +5,10 @@ import type { TabViewProps } from '../../lib/tab-registry'
 
 import { BlockView } from './blocks'
 import styles from './claude-agent-view.module.css'
+import { Composer } from './composer'
+import { HistoryPopup } from './history-popup'
 import type { AgentStatus, Turn } from './types'
 import { useAgent } from './use-agent'
-
-const MODEL_OPTIONS = [
-  { value: '', label: 'default' },
-  { value: 'sonnet', label: 'sonnet' },
-  { value: 'opus', label: 'opus' },
-  { value: 'haiku', label: 'haiku' },
-]
 
 // Fallback list — only used until /api/claude/modes responds. The labels
 // mirror the order we ask the server for: safest → most permissive.
@@ -29,23 +24,27 @@ interface PermissionModesResp {
   source: 'cli' | 'fallback'
 }
 
-function modeLabel(mode: string): string {
-  switch (mode) {
-    case 'default':           return 'default'
-    case 'acceptEdits':       return 'accept edits'
-    case 'plan':              return 'plan'
-    case 'auto':              return 'auto'
-    case 'dontAsk':           return "don't ask"
-    case 'bypassPermissions': return 'bypass'
-    default:                  return mode
-  }
-}
-
 export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
   const { state, connState, send } = useAgent(repoId, branchId)
   const conversationRef = useRef<HTMLDivElement>(null)
   const [modes, setModes] = useState<PermissionModesResp>(FALLBACK_PERMISSION_MODES)
   const [autoFollow, setAutoFollow] = useState(true)
+  const [historyOpen, setHistoryOpen] = useState(false)
+
+  // ⌘H / Ctrl+H opens the session history popup.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'h' || e.key === 'H')) {
+        // Only intercept when not typing in a text field.
+        const target = e.target as HTMLElement | null
+        if (target?.tagName === 'TEXTAREA' || target?.tagName === 'INPUT') return
+        e.preventDefault()
+        setHistoryOpen((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // Fetch CLI-supported permission modes once on mount.
   useEffect(() => {
@@ -104,10 +103,11 @@ export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
     () => (
       permissionId: string,
       decision: 'allow' | 'deny',
-      scope: 'once' | 'session',
+      scope: 'once' | 'session' | 'always',
       reason?: string,
+      updatedInput?: unknown,
     ) => {
-      send.permissionRespond(permissionId, decision, scope, undefined, reason)
+      send.permissionRespond(permissionId, decision, scope, updatedInput, reason)
     },
     [send],
   )
@@ -117,11 +117,27 @@ export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
       <TopBar
         status={state.status}
         totalCostUsd={state.totalCostUsd}
+        contextPct={contextPercent(state.lastUsage)}
+        mcpServers={[]}
         connState={connState}
         onClear={() => send.sessionClear()}
         canInterrupt={isStreaming}
         onInterrupt={() => send.interrupt()}
+        onOpenHistory={() => setHistoryOpen((v) => !v)}
       />
+      {historyOpen && (
+        <div style={{ position: 'relative' }}>
+          <HistoryPopup
+            repoId={repoId}
+            branchId={branchId}
+            currentSessionId={state.sessionId}
+            open={historyOpen}
+            onClose={() => setHistoryOpen(false)}
+            onResume={(id) => send.sessionResume(id)}
+            onFork={(id) => send.sessionFork(id)}
+          />
+        </div>
+      )}
 
       {!state.authOk && state.authMessage && (
         <pre className={styles.authError}>{state.authMessage}</pre>
@@ -167,16 +183,21 @@ export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
       )}
 
       <Composer
+        repoId={repoId}
+        branchId={branchId}
         onSend={(c) => send.userMessage(c)}
         onInterrupt={() => send.interrupt()}
         isStreaming={isStreaming}
         disabled={!state.authOk}
         connState={connState}
         model={state.model}
+        effort={state.effort}
         permissionMode={state.permissionMode}
         permissionModes={modes.modes}
         onModelChange={(m) => send.setModel(m)}
+        onEffortChange={(e) => send.setEffort(e)}
         onPermissionModeChange={(m) => send.setPermissionMode(m)}
+        initInfo={state.initInfo}
       />
     </div>
   )
@@ -185,8 +206,9 @@ export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
 type RespondPermissionFn = (
   permissionId: string,
   decision: 'allow' | 'deny',
-  scope: 'once' | 'session',
+  scope: 'once' | 'session' | 'always',
   reason?: string,
+  updatedInput?: unknown,
 ) => void
 
 function TurnView({
@@ -215,8 +237,8 @@ function TurnView({
         const handlers =
           b.kind === 'permission' && !b.decision && b.permissionId
             ? {
-                onAllow: (scope: 'once' | 'session') =>
-                  onRespondPermission(b.permissionId!, 'allow', scope),
+                onAllow: (scope: 'once' | 'session' | 'always', updatedInput?: unknown) =>
+                  onRespondPermission(b.permissionId!, 'allow', scope, undefined, updatedInput),
                 onDeny: (reason?: string) =>
                   onRespondPermission(b.permissionId!, 'deny', 'once', reason),
               }
@@ -230,10 +252,13 @@ function TurnView({
 interface TopBarProps {
   status: AgentStatus
   totalCostUsd: number
+  contextPct?: number
+  mcpServers: { name: string; status: string }[]
   connState: 'connecting' | 'open' | 'closed' | 'closing'
   canInterrupt: boolean
   onInterrupt: () => void
   onClear: () => void
+  onOpenHistory: () => void
 }
 
 function TopBar(props: TopBarProps) {
@@ -243,6 +268,12 @@ function TopBar(props: TopBarProps) {
       <span className={styles.statusText}>{labelForStatus(props.status)}</span>
 
       <span className={styles.spacer} />
+
+      {props.contextPct != null && (
+        <span className={styles.topBarItem} title="context window used">
+          {props.contextPct.toFixed(0)}% ctx
+        </span>
+      )}
 
       {props.totalCostUsd > 0 && (
         <span className={styles.topBarItem} title="total session cost (USD)">
@@ -264,6 +295,15 @@ function TopBar(props: TopBarProps) {
       <button
         type="button"
         className={styles.iconBtn}
+        onClick={props.onOpenHistory}
+        title="History (⌘H)"
+      >
+        history
+      </button>
+
+      <button
+        type="button"
+        className={styles.iconBtn}
         onClick={props.onClear}
         title="/clear — start a fresh session"
       >
@@ -273,128 +313,6 @@ function TopBar(props: TopBarProps) {
       {props.connState !== 'open' && (
         <span className={styles.connBanner}>{props.connState}…</span>
       )}
-    </div>
-  )
-}
-
-interface ComposerProps {
-  onSend: (content: string) => void
-  onInterrupt: () => void
-  isStreaming: boolean
-  disabled: boolean
-  connState: 'connecting' | 'open' | 'closed' | 'closing'
-  model: string
-  permissionMode: string
-  permissionModes: string[]
-  onModelChange: (model: string) => void
-  onPermissionModeChange: (mode: string) => void
-}
-
-function Composer({
-  onSend,
-  onInterrupt,
-  isStreaming,
-  disabled,
-  connState,
-  model,
-  permissionMode,
-  permissionModes,
-  onModelChange,
-  onPermissionModeChange,
-}: ComposerProps) {
-  const [value, setValue] = useState('')
-  const [composing, setComposing] = useState(false)
-
-  const submit = () => {
-    if (!value.trim() || isStreaming || disabled) return
-    onSend(value)
-    setValue('')
-  }
-
-  const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (composing) return
-    if (e.key === 'Escape' && isStreaming) {
-      e.preventDefault()
-      onInterrupt()
-      return
-    }
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      submit()
-    }
-  }
-
-  const placeholder = disabled
-    ? 'Authenticate Claude Code first'
-    : 'Message Claude…  (Enter to send, Shift+Enter for newline)'
-
-  return (
-    <div className={styles.composer}>
-      <div className={styles.composerInner}>
-        <textarea
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onCompositionStart={() => setComposing(true)}
-          onCompositionEnd={() => setComposing(false)}
-          onKeyDown={handleKey}
-          placeholder={placeholder}
-          rows={1}
-          disabled={disabled}
-        />
-        <div className={styles.composerFooter}>
-          <span className={styles.modePill}>
-            <select
-              aria-label="Model"
-              value={model}
-              onChange={(e) => onModelChange(e.target.value)}
-            >
-              {MODEL_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </span>
-          <span className={styles.modePill}>
-            <select
-              aria-label="Permission mode"
-              value={permissionMode}
-              onChange={(e) => onPermissionModeChange(e.target.value)}
-            >
-              {permissionModes.map((m) => (
-                <option key={m} value={m}>{modeLabel(m)}</option>
-              ))}
-            </select>
-          </span>
-
-          <span className={styles.composerFooterSpacer} />
-
-          {connState !== 'open' && (
-            <span className={styles.connBanner}>{connState}…</span>
-          )}
-
-          {isStreaming ? (
-            <button
-              type="button"
-              className={`${styles.sendBtn} ${styles.interrupt}`}
-              onClick={onInterrupt}
-              title="Esc to interrupt"
-              aria-label="Interrupt"
-            >
-              ■
-            </button>
-          ) : (
-            <button
-              type="button"
-              className={styles.sendBtn}
-              onClick={submit}
-              disabled={!value.trim() || disabled}
-              title="Send (Enter)"
-              aria-label="Send"
-            >
-              ↑
-            </button>
-          )}
-        </div>
-      </div>
     </div>
   )
 }
@@ -420,4 +338,14 @@ function labelForStatus(s: AgentStatus): string {
     case 'awaiting_permission': return 'awaiting permission'
     case 'error':               return 'error'
   }
+}
+
+function contextPercent(usage?: import('./agent-state').AgentUsage): number | undefined {
+  if (!usage || !usage.contextWindow) return undefined
+  const consumed =
+    (usage.inputTokens ?? 0) +
+    (usage.cacheReadInputTokens ?? 0) +
+    (usage.cacheCreationInputTokens ?? 0)
+  if (consumed <= 0) return undefined
+  return Math.min(100, (consumed / usage.contextWindow) * 100)
 }

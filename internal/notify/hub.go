@@ -13,10 +13,24 @@ import (
 
 // Notification is one inbox entry.
 type Notification struct {
-	Type      string    `json:"type"`
-	Message   string    `json:"message,omitempty"`
-	Title     string    `json:"title,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
+	Type      string               `json:"type"`
+	Message   string               `json:"message,omitempty"`
+	Title     string               `json:"title,omitempty"`
+	Detail    string               `json:"detail,omitempty"`
+	CreatedAt time.Time            `json:"createdAt"`
+	// RequestID is set by IngestInternal so the Inbox can dedupe on
+	// republish and so ClearByRequestID can target a specific entry.
+	RequestID string               `json:"requestId,omitempty"`
+	Actions   []NotificationAction `json:"actions,omitempty"`
+	// Resolved flips true when ClearByRequestID is called. The Inbox
+	// hides resolved entries by default but can show them on demand.
+	Resolved bool `json:"resolved,omitempty"`
+}
+
+// NotificationAction is one inline button on a notification.
+type NotificationAction struct {
+	Label  string `json:"label"`
+	Action string `json:"action"`
 }
 
 // BranchState aggregates the last-N notifications + an unread count for a
@@ -123,6 +137,114 @@ func (h *Hub) Ingest(req IngestRequest) (string, string, error) {
 		h.publisher.Publish("notification", repoID, branchID, snapshot)
 	}
 	return repoID, branchID, nil
+}
+
+// InternalRequest is the in-process publish path used by Claude tab
+// (permission requests, errors, turn-end summaries). Skips the
+// session-resolver step since the caller already knows {repoID, branchID}.
+type InternalRequest struct {
+	RequestID string
+	Type      string // "urgent" | "warning" | "info"
+	Title     string
+	Message   string
+	Detail    string
+	Actions   []NotificationAction
+}
+
+// IngestInternal records a notification that originates from inside the
+// process (rather than via /api/notify POST). If RequestID matches an
+// existing notification on the same branch, that entry is updated in place
+// rather than duplicated — useful when permission requests get re-emitted
+// during reconnects.
+func (h *Hub) IngestInternal(repoID, branchID string, req InternalRequest) {
+	if repoID == "" || branchID == "" {
+		return
+	}
+	t := strings.TrimSpace(req.Type)
+	if t == "" {
+		t = "info"
+	}
+	n := Notification{
+		Type:      t,
+		Message:   req.Message,
+		Title:     req.Title,
+		Detail:    req.Detail,
+		CreatedAt: time.Now().UTC(),
+		RequestID: req.RequestID,
+		Actions:   req.Actions,
+	}
+
+	key := repoID + "/" + branchID
+	h.mu.Lock()
+	state, ok := h.byBranch[key]
+	if !ok {
+		state = &BranchState{}
+		h.byBranch[key] = state
+	}
+	if req.RequestID != "" {
+		// Dedupe / replace by requestID.
+		for i := range state.Notifications {
+			if state.Notifications[i].RequestID == req.RequestID && !state.Notifications[i].Resolved {
+				state.Notifications[i] = n
+				state.LastMessage = n.Message
+				state.LastType = n.Type
+				state.LastAt = n.CreatedAt
+				snapshot := *state
+				h.mu.Unlock()
+				if h.publisher != nil {
+					h.publisher.Publish("notification", repoID, branchID, snapshot)
+				}
+				return
+			}
+		}
+	}
+	state.Notifications = append(state.Notifications, n)
+	if len(state.Notifications) > maxPerBranch {
+		state.Notifications = state.Notifications[len(state.Notifications)-maxPerBranch:]
+	}
+	state.UnreadCount++
+	state.LastMessage = n.Message
+	state.LastType = n.Type
+	state.LastAt = n.CreatedAt
+	snapshot := *state
+	h.mu.Unlock()
+
+	if h.publisher != nil {
+		h.publisher.Publish("notification", repoID, branchID, snapshot)
+	}
+}
+
+// ClearByRequestID flips the matching notification's Resolved flag and
+// re-broadcasts. Used when a permission request gets answered (from any
+// path) so the Inbox stops showing the prompt.
+func (h *Hub) ClearByRequestID(repoID, branchID, requestID string) {
+	if requestID == "" {
+		return
+	}
+	key := repoID + "/" + branchID
+	h.mu.Lock()
+	state, ok := h.byBranch[key]
+	if !ok {
+		h.mu.Unlock()
+		return
+	}
+	changed := false
+	for i := range state.Notifications {
+		if state.Notifications[i].RequestID == requestID && !state.Notifications[i].Resolved {
+			state.Notifications[i].Resolved = true
+			state.Notifications[i].Actions = nil
+			changed = true
+		}
+	}
+	if !changed {
+		h.mu.Unlock()
+		return
+	}
+	snapshot := *state
+	h.mu.Unlock()
+	if h.publisher != nil {
+		h.publisher.Publish("notification", repoID, branchID, snapshot)
+	}
 }
 
 // Clear resets the unread count for a branch. Returns the post-clear state.

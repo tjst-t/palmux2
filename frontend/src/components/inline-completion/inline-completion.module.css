@@ -1,0 +1,65 @@
+.popup {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 6px;
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  min-width: 280px;
+  max-width: 480px;
+  max-height: 280px;
+  overflow-y: auto;
+  z-index: 50;
+  font-size: 12px;
+  padding: 4px;
+}
+
+.head {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-fg-dim);
+  padding: 4px 8px;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  gap: 2px;
+}
+
+.item:hover,
+.item.active {
+  background: var(--color-bg);
+}
+
+.itemTitle {
+  color: var(--color-fg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.itemDetail {
+  color: var(--color-fg-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.empty {
+  padding: 12px 8px;
+  color: var(--color-fg-muted);
+  font-size: 12px;
+}

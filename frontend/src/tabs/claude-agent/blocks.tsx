@@ -1,12 +1,25 @@
-import { useState } from 'react'
+import AnsiToHtml from 'ansi-to-html'
+import { useMemo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
+import { useNavigate, useParams } from 'react-router-dom'
 import remarkGfm from 'remark-gfm'
+
+import { DiffView, buildSyntheticDiff } from '../../components/diff/diff-view'
+import { urlForFiles } from '../../lib/tab-nav'
 
 import type { Block } from './types'
 import styles from './blocks.module.css'
 
+const ansiConverter = new AnsiToHtml({
+  fg: '#d4d4d8',
+  bg: '#0c0e14',
+  newline: false,
+  escapeXML: true,
+  stream: false,
+})
+
 interface PermissionHandlers {
-  onAllow: (scope: 'once' | 'session') => void
+  onAllow: (scope: 'once' | 'session' | 'always', updatedInput?: unknown) => void
   onDeny: (reason?: string) => void
 }
 
@@ -84,11 +97,78 @@ function ToolUseBlock({ block }: { block: Block }) {
       </div>
       {expanded && (
         <div className={styles.toolBody}>
-          <div className={styles.toolLabel}>input</div>
-          <pre className={styles.toolPre}>{formatToolInput(block)}</pre>
+          <ToolInputRich block={block} />
         </div>
       )}
     </div>
+  )
+}
+
+// ToolInputRich renders the tool input panel with a tool-specific layout
+// when we recognise the tool, otherwise falls back to a JSON dump.
+function ToolInputRich({ block }: { block: Block }) {
+  const params = useParams()
+  const navigate = useNavigate()
+  const repoId = params.repoId
+  const branchId = params.branchId
+  const input = parseInputObject(block) ?? {}
+  const name = (block.name || '').toLowerCase()
+  const filePath = (input.file_path as string) ?? ''
+  const openInFiles = filePath && repoId && branchId
+    ? () => navigate(urlForFiles(repoId, branchId, filePath))
+    : undefined
+
+  if (name === 'edit') {
+    const oldStr = (input.old_string as string) ?? ''
+    const newStr = (input.new_string as string) ?? ''
+    if (filePath) {
+      const file = buildSyntheticDiff(filePath, oldStr, newStr)
+      return (
+        <>
+          {openInFiles && (
+            <button type="button" className={styles.openInFilesBtn} onClick={openInFiles}>
+              Open in Files →
+            </button>
+          )}
+          <DiffView files={[file]} />
+        </>
+      )
+    }
+  }
+  if (name === 'write') {
+    const content = (input.content as string) ?? ''
+    if (filePath) {
+      const file = buildSyntheticDiff(filePath, '', content)
+      return (
+        <>
+          {openInFiles && (
+            <button type="button" className={styles.openInFilesBtn} onClick={openInFiles}>
+              Open in Files →
+            </button>
+          )}
+          <DiffView files={[file]} />
+        </>
+      )
+    }
+  }
+  if (name === 'read' && filePath && openInFiles) {
+    const offset = input.offset as number | undefined
+    const limit = input.limit as number | undefined
+    return (
+      <>
+        <div className={styles.toolLabel}>read</div>
+        <button type="button" className={styles.openInFilesBtn} onClick={openInFiles}>
+          {filePath}{offset ? `:${offset}` : ''}{limit ? `+${limit}` : ''} →
+        </button>
+      </>
+    )
+  }
+  // Generic fallback.
+  return (
+    <>
+      <div className={styles.toolLabel}>input</div>
+      <pre className={styles.toolPre}>{formatToolInput(block)}</pre>
+    </>
   )
 }
 
@@ -122,11 +202,80 @@ function ToolResultBlock({ block }: { block: Block }) {
           <span className={styles.toolSummary}>{preview}</span>
         )}
       </div>
-      {(expanded || !showToggle) && output && (
-        <pre className={styles.toolResultPre}>{output}</pre>
-      )}
+      {(expanded || !showToggle) && output && <ToolResultBody output={output} />}
     </div>
   )
+}
+
+// ToolResultBody picks a renderer for the output:
+//   - looks like a list of files (every non-empty line is a path) → clickable
+//   - contains ANSI escapes → ANSI-rendered
+//   - everything else → plain pre
+function ToolResultBody({ output }: { output: string }) {
+  const params = useParams()
+  const navigate = useNavigate()
+  const repoId = params.repoId
+  const branchId = params.branchId
+
+  const lines = useMemo(() => output.split('\n'), [output])
+  const lookLikePaths = useMemo(() => {
+    if (lines.length < 2) return false
+    let pathish = 0
+    let total = 0
+    for (const ln of lines) {
+      const s = ln.trim()
+      if (!s) continue
+      total++
+      // Path-like: contains / or starts with a typical filename, no
+      // shell punctuation that would suggest free-form text.
+      if (/^[\w./_-]+(:[0-9]+)?$/.test(s)) pathish++
+    }
+    return total > 0 && pathish / total > 0.85
+  }, [lines])
+
+  const ansiHtml = useMemo(() => {
+    if (!output.includes('[')) return null
+    try {
+      return ansiConverter.toHtml(output)
+    } catch {
+      return null
+    }
+  }, [output])
+
+  if (lookLikePaths && repoId && branchId) {
+    return (
+      <ul className={styles.pathList}>
+        {lines.filter((l) => l.trim()).map((line, i) => {
+          const trimmed = line.trim()
+          // Strip trailing line:N if present so urlForFiles gets a clean path.
+          const m = trimmed.match(/^(.*?)(?::(\d+))?$/)
+          const cleanPath = m?.[1] ?? trimmed
+          return (
+            <li key={i} className={styles.pathListItem}>
+              <button
+                type="button"
+                className={styles.pathLink}
+                onClick={() => navigate(urlForFiles(repoId, branchId, cleanPath))}
+              >
+                {trimmed}
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+    )
+  }
+
+  if (ansiHtml !== null) {
+    return (
+      <pre
+        className={styles.toolResultPre}
+        // Safe-ish: ansi-to-html escapes XML; we've set escapeXML:true.
+        dangerouslySetInnerHTML={{ __html: ansiHtml }}
+      />
+    )
+  }
+  return <pre className={styles.toolResultPre}>{output}</pre>
 }
 
 function TodoBlock({ block }: { block: Block }) {
@@ -152,25 +301,76 @@ function TodoBlock({ block }: { block: Block }) {
 function PermissionBlock({ block, handlers }: { block: Block; handlers?: PermissionHandlers }) {
   const inputStr = block.input == null ? '' : safeStringify(block.input)
   const decided = !!block.decision
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [editError, setEditError] = useState<string | null>(null)
+
+  const startEdit = () => {
+    setDraft(inputStr)
+    setEditError(null)
+    setEditing(true)
+  }
+
+  const submitEdit = () => {
+    if (!handlers) return
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(draft)
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : String(e))
+      return
+    }
+    handlers.onAllow('once', parsed)
+    setEditing(false)
+  }
+
   return (
     <div className={styles.permission}>
       <div className={styles.permissionHeader}>
         <span>Tool permission requested:</span>
         <span className={styles.permissionToolName}>{block.toolName}</span>
       </div>
-      {inputStr && <div className={styles.permissionInput}>{inputStr}</div>}
+      {!editing && inputStr && <div className={styles.permissionInput}>{inputStr}</div>}
+      {editing && (
+        <div className={styles.permissionEdit}>
+          <textarea
+            className={styles.permissionEditArea}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            spellCheck={false}
+            rows={Math.min(12, draft.split('\n').length + 1)}
+          />
+          {editError && <div className={styles.permissionEditError}>JSON parse error: {editError}</div>}
+        </div>
+      )}
       {decided ? (
         <div className={styles.permissionDecision}>Decision: {block.decision}</div>
       ) : handlers ? (
-        <div className={styles.permissionActions}>
-          <button className={styles.allow} onClick={() => handlers.onAllow('once')}>
-            Allow (y)
-          </button>
-          <button onClick={() => handlers.onAllow('session')}>Allow for session</button>
-          <button className={styles.deny} onClick={() => handlers.onDeny()}>
-            Deny (n)
-          </button>
-        </div>
+        editing ? (
+          <div className={styles.permissionActions}>
+            <button className={styles.allow} onClick={submitEdit}>
+              Allow with edits
+            </button>
+            <button onClick={() => setEditing(false)}>Cancel</button>
+          </div>
+        ) : (
+          <div className={styles.permissionActions}>
+            <button className={styles.allow} onClick={() => handlers.onAllow('once')}>
+              Allow (y)
+            </button>
+            <button onClick={() => handlers.onAllow('session')}>Allow for session</button>
+            <button
+              onClick={() => handlers.onAllow('always')}
+              title="Add this tool to .claude/settings.json permissions.allow"
+            >
+              Always allow
+            </button>
+            <button onClick={startEdit}>Edit…</button>
+            <button className={styles.deny} onClick={() => handlers.onDeny()}>
+              Deny (n)
+            </button>
+          </div>
+        )
       ) : null}
     </div>
   )

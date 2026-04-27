@@ -20,6 +20,8 @@ type ClientOptions struct {
 	SessionID      string   // resume target ("" = new session)
 	Model          string   // --model
 	PermissionMode string   // --permission-mode
+	Effort         string   // --effort (low | medium | high | xhigh | max)
+	Fork           bool     // when true, --fork-session: use session_id as base but start a fresh id
 	ExtraArgs      []string // user-supplied flags from settings.json
 	Logger         *slog.Logger
 }
@@ -87,12 +89,18 @@ func NewClient(ctx context.Context, opts ClientOptions, onMessage MessageHandler
 	}
 	if opts.SessionID != "" {
 		args = append(args, "--resume", opts.SessionID)
+		if opts.Fork {
+			args = append(args, "--fork-session")
+		}
 	}
 	if opts.Model != "" {
 		args = append(args, "--model", opts.Model)
 	}
 	if opts.PermissionMode != "" {
 		args = append(args, "--permission-mode", opts.PermissionMode)
+	}
+	if opts.Effort != "" {
+		args = append(args, "--effort", opts.Effort)
 	}
 	args = append(args, opts.ExtraArgs...)
 
@@ -382,16 +390,15 @@ func (c *Client) SendUserMessage(content string) error {
 
 // Initialize sends the initialize control request. Declares the SDK-typed
 // MCP servers up-front (just `palmux` for now). The CLI responds with a
-// big payload describing its commands / agents / models / account; we don't
-// inspect it — successful round-trip is the signal that the channel is
-// healthy and that subsequent permission-prompt-tool resolution will work.
-func (c *Client) Initialize(ctx context.Context) error {
+// big payload describing its commands / agents / models / account; we
+// hand the raw response back to the caller so the manager can extract the
+// pieces the UI needs (commands list, model menu, etc).
+func (c *Client) Initialize(ctx context.Context) (json.RawMessage, error) {
 	req := initializeRequest{Subtype: "initialize"}
 	if c.mcp != nil {
 		req.SDKMCPServers = []string{MCPServerName}
 	}
-	_, err := c.controlCall(ctx, req)
-	return err
+	return c.controlCall(ctx, req)
 }
 
 // Interrupt aborts the in-flight assistant turn.

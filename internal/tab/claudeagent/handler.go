@@ -150,8 +150,16 @@ func pumpWSToAgent(ctx context.Context, c *websocket.Conn, agent *Agent, mgr *Ma
 			if err := json.Unmarshal(frame.Payload, &p); err != nil {
 				continue
 			}
-			if err := agent.AnswerPermission(p); err != nil {
-				if ev, e := makeEvent(EvError, ErrorPayload{Message: "Permission failed", Detail: err.Error()}); e == nil {
+			// Scope "always" persists the rule to .claude/settings.json
+			// (worktree scope) before answering.
+			var perr error
+			if p.Scope == "always" {
+				perr = agent.AlwaysAllowTool(p)
+			} else {
+				perr = agent.AnswerPermission(p)
+			}
+			if perr != nil {
+				if ev, e := makeEvent(EvError, ErrorPayload{Message: "Permission failed", Detail: perr.Error()}); e == nil {
 					agent.broadcast(ev)
 				}
 			}
@@ -162,6 +170,22 @@ func pumpWSToAgent(ctx context.Context, c *websocket.Conn, agent *Agent, mgr *Ma
 				continue
 			}
 			go func() { _ = agent.SetModel(ctx, p.Model) }()
+
+		case "effort.set":
+			var p SetEffortFrame
+			if err := json.Unmarshal(frame.Payload, &p); err != nil {
+				continue
+			}
+			go func() {
+				if err := agent.SetEffort(ctx, p.Effort); err != nil {
+					if ev, e := makeEvent(EvError, ErrorPayload{
+						Message: "Failed to set effort",
+						Detail:  err.Error(),
+					}); e == nil {
+						agent.broadcast(ev)
+					}
+				}
+			}()
 
 		case "permission_mode.set":
 			var p SetPermissionModeFrame
@@ -181,6 +205,38 @@ func pumpWSToAgent(ctx context.Context, c *websocket.Conn, agent *Agent, mgr *Ma
 
 		case "session.clear":
 			agent.Clear()
+
+		case "session.resume":
+			var p SessionResumeFrame
+			if err := json.Unmarshal(frame.Payload, &p); err != nil {
+				continue
+			}
+			go func() {
+				if err := agent.ResumeSession(ctx, p.SessionID); err != nil {
+					if ev, e := makeEvent(EvError, ErrorPayload{
+						Message: "Failed to resume session",
+						Detail:  err.Error(),
+					}); e == nil {
+						agent.broadcast(ev)
+					}
+				}
+			}()
+
+		case "session.fork":
+			var p SessionForkFrame
+			if err := json.Unmarshal(frame.Payload, &p); err != nil {
+				continue
+			}
+			go func() {
+				if err := agent.ForkSession(ctx, p.BaseSessionID); err != nil {
+					if ev, e := makeEvent(EvError, ErrorPayload{
+						Message: "Failed to fork session",
+						Detail:  err.Error(),
+					}); e == nil {
+						agent.broadcast(ev)
+					}
+				}
+			}()
 		}
 	}
 }
@@ -275,6 +331,54 @@ func (h *httpHandler) handleDeleteSession(w http.ResponseWriter, r *http.Request
 	id := r.PathValue("sessionId")
 	if err := h.mgr.Store().Delete(id); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// permissionAnswerRequest is the body for the out-of-band Inbox-driven
+// answer endpoint. Lets a non-active tab (or an Inbox row) resolve a
+// pending permission without opening the Claude WS.
+type permissionAnswerRequest struct {
+	Decision     string          `json:"decision"`              // "allow" | "deny"
+	Scope        string          `json:"scope,omitempty"`       // "once" | "session"
+	UpdatedInput json.RawMessage `json:"updatedInput,omitempty"`
+	Reason       string          `json:"reason,omitempty"`
+}
+
+func (h *httpHandler) handleAnswerPermission(w http.ResponseWriter, r *http.Request) {
+	repoID := r.PathValue("repoId")
+	branchID := r.PathValue("branchId")
+	permID := r.PathValue("permissionId")
+	if permID == "" {
+		http.Error(w, "missing permissionId", http.StatusBadRequest)
+		return
+	}
+	agent := h.mgr.Get(repoID, branchID)
+	if agent == nil {
+		http.Error(w, "agent not running for this branch", http.StatusNotFound)
+		return
+	}
+	var body permissionAnswerRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+	}
+	if body.Decision != "allow" && body.Decision != "deny" {
+		http.Error(w, "decision must be allow or deny", http.StatusBadRequest)
+		return
+	}
+	scope := body.Scope
+	if scope == "" {
+		scope = "once"
+	}
+	if err := agent.AnswerPermission(PermissionRespondFrame{
+		PermissionID: permID,
+		Decision:     body.Decision,
+		Scope:        scope,
+		UpdatedInput: body.UpdatedInput,
+		Reason:       body.Reason,
+	}); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

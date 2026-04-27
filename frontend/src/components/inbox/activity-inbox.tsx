@@ -2,14 +2,22 @@
 // agent notifications with inline actions.
 //
 // The store already aggregates per-branch state via /api/notifications and
-// the events WS; this component just renders that and adds the y/n/Resume
-// shortcuts.
+// the events WS; this component renders that and adds inline action
+// buttons. Claude permission requests use the dedicated REST endpoint to
+// answer without opening the Claude WS, so the user can allow/deny from
+// any tab.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
+import { api } from '../../lib/api'
 import { terminalManager } from '../../lib/terminal-manager'
-import { usePalmuxStore } from '../../stores/palmux-store'
+import { urlForTab } from '../../lib/tab-nav'
+import {
+  type NotificationItem,
+  selectBranchNotifications,
+  usePalmuxStore,
+} from '../../stores/palmux-store'
 
 import styles from './inbox.module.css'
 
@@ -24,6 +32,10 @@ interface InboxRow {
   lastAt?: string
   hasClaudeTab: boolean
   claudeTabId?: string
+  claudeTabIsTerminal: boolean
+  /** Most-recent unresolved notification from this branch (e.g. a pending
+   *  permission). Drives the Allow / Deny inline buttons. */
+  pendingItem?: NotificationItem
 }
 
 export function ActivityInbox() {
@@ -44,6 +56,11 @@ export function ActivityInbox() {
         const state = notifications[key]
         if (!state || (!state.lastMessage && state.unreadCount === 0)) continue
         const claudeTab = branch.tabSet.tabs.find((t) => t.type === 'claude')
+        const items = state.notifications ?? []
+        const pendingItem = items
+          .slice()
+          .reverse()
+          .find((n) => !n.resolved && (n.actions?.length ?? 0) > 0)
         out.push({
           repoId: repo.id,
           branchId: branch.id,
@@ -55,10 +72,14 @@ export function ActivityInbox() {
           lastAt: state.lastAt,
           hasClaudeTab: !!claudeTab,
           claudeTabId: claudeTab?.id,
+          claudeTabIsTerminal: !!claudeTab?.windowName,
+          pendingItem,
         })
       }
     }
     out.sort((a, b) => {
+      // Pending actionable items first.
+      if (!!a.pendingItem !== !!b.pendingItem) return a.pendingItem ? -1 : 1
       if (a.unreadCount !== b.unreadCount) return b.unreadCount - a.unreadCount
       return (b.lastAt ?? '').localeCompare(a.lastAt ?? '')
     })
@@ -66,6 +87,7 @@ export function ActivityInbox() {
   }, [repos, notifications])
 
   const totalUnread = rows.reduce((sum, r) => sum + r.unreadCount, 0)
+  const totalPending = rows.filter((r) => r.pendingItem).length
 
   // Click-outside / Esc closes the popover.
   useEffect(() => {
@@ -88,23 +110,8 @@ export function ActivityInbox() {
   const goTo = (row: InboxRow) => {
     if (!row.claudeTabId) return
     const search = location.search
-    navigate(
-      `/${encodeURIComponent(row.repoId)}/${encodeURIComponent(row.branchId)}/${encodeURIComponent(row.claudeTabId)}${search}`,
-    )
+    navigate(urlForTab(row.repoId, row.branchId, row.claudeTabId) + search)
     setOpen(false)
-  }
-
-  const sendKey = (row: InboxRow, data: string) => {
-    if (!row.claudeTabId) return
-    const key = `${row.repoId}/${row.branchId}/${row.claudeTabId}`
-    if (!terminalManager.sendInput(key, data)) {
-      // The terminal isn't mounted; navigate there first so it mounts, then
-      // resend on next tick. Best-effort.
-      goTo(row)
-      window.setTimeout(() => terminalManager.sendInput(key, data), 200)
-      return
-    }
-    void clearBranchNotifications(row.repoId, row.branchId)
   }
 
   return (
@@ -112,11 +119,21 @@ export function ActivityInbox() {
       <button
         className={styles.bellBtn}
         onClick={() => setOpen((v) => !v)}
-        title={totalUnread ? `${totalUnread} unread notifications` : 'Activity inbox'}
+        title={
+          totalPending
+            ? `${totalPending} pending request${totalPending > 1 ? 's' : ''}`
+            : totalUnread
+              ? `${totalUnread} unread notifications`
+              : 'Activity inbox'
+        }
         aria-label="Activity inbox"
       >
         🔔
-        {totalUnread > 0 && <span className={styles.badge}>{totalUnread > 99 ? '99+' : totalUnread}</span>}
+        {(totalPending > 0 || totalUnread > 0) && (
+          <span className={styles.badge}>
+            {totalPending > 0 ? totalPending : totalUnread > 99 ? '99+' : totalUnread}
+          </span>
+        )}
       </button>
       {open && (
         <div className={styles.popover} role="dialog" aria-label="Activity inbox">
@@ -140,59 +157,140 @@ export function ActivityInbox() {
           ) : (
             <ul className={styles.list}>
               {rows.map((row) => (
-                <li
+                <InboxRowView
                   key={`${row.repoId}/${row.branchId}`}
-                  className={row.unreadCount > 0 ? `${styles.row} ${styles.unread}` : styles.row}
-                >
-                  <div className={styles.rowHead} onClick={() => goTo(row)}>
-                    <span className={styles.branchName}>
-                      {row.repoLabel} / {row.branchName}
-                    </span>
-                    {row.unreadCount > 0 && (
-                      <span className={styles.unreadCount}>{row.unreadCount}</span>
-                    )}
-                  </div>
-                  {row.lastMessage && (
-                    <p className={styles.message} onClick={() => goTo(row)}>
-                      {row.lastMessage}
-                    </p>
-                  )}
-                  <div className={styles.rowHead}>
-                    <span className={styles.timestamp}>
-                      {row.lastAt ? formatRelative(row.lastAt) : ''}
-                    </span>
-                  </div>
-                  {row.hasClaudeTab && (
-                    <div className={styles.actions}>
-                      <button
-                        className={styles.action}
-                        data-kind="yes"
-                        onClick={() => sendKey(row, 'y\r')}
-                      >
-                        y
-                      </button>
-                      <button
-                        className={styles.action}
-                        data-kind="no"
-                        onClick={() => sendKey(row, 'n\r')}
-                      >
-                        n
-                      </button>
-                      <button className={styles.action} onClick={() => sendKey(row, '/resume\r')}>
-                        Resume
-                      </button>
-                      <button className={styles.action} onClick={() => goTo(row)}>
-                        Open
-                      </button>
-                    </div>
-                  )}
-                </li>
+                  row={row}
+                  onOpen={() => goTo(row)}
+                  onClose={() => setOpen(false)}
+                />
               ))}
             </ul>
           )}
         </div>
       )}
     </div>
+  )
+}
+
+function InboxRowView({
+  row,
+  onOpen,
+  onClose,
+}: {
+  row: InboxRow
+  onOpen: () => void
+  onClose: () => void
+}) {
+  const clearBranchNotifications = usePalmuxStore((s) => s.clearBranchNotifications)
+
+  // Live read so the row updates without remounting when the underlying
+  // notification flips to resolved.
+  const live = usePalmuxStore(selectBranchNotifications(row.repoId, row.branchId))
+  const pendingItem = useMemo(() => {
+    const items = live?.notifications ?? []
+    return items
+      .slice()
+      .reverse()
+      .find((n) => !n.resolved && (n.actions?.length ?? 0) > 0)
+  }, [live])
+
+  const respondPermission = async (decision: 'allow' | 'deny') => {
+    if (!pendingItem?.requestId) return
+    try {
+      await api.post(
+        `/api/repos/${encodeURIComponent(row.repoId)}/branches/${encodeURIComponent(row.branchId)}/tabs/claude/permission/${encodeURIComponent(pendingItem.requestId)}`,
+        { decision, scope: 'once' },
+      )
+    } catch {
+      // best-effort; the store will resync on the next event
+    }
+  }
+
+  // Legacy tmux-tab fallback: send keystrokes through terminalManager.
+  const sendKey = (data: string) => {
+    if (!row.claudeTabId || !row.claudeTabIsTerminal) return
+    const key = `${row.repoId}/${row.branchId}/${row.claudeTabId}`
+    if (!terminalManager.sendInput(key, data)) {
+      onOpen()
+      window.setTimeout(() => terminalManager.sendInput(key, data), 200)
+      return
+    }
+    void clearBranchNotifications(row.repoId, row.branchId)
+  }
+
+  const isMcpPermission = !!pendingItem?.actions?.some((a) =>
+    a.action.startsWith('claude.permission.'),
+  )
+
+  return (
+    <li className={row.unreadCount > 0 ? `${styles.row} ${styles.unread}` : styles.row}>
+      <div className={styles.rowHead} onClick={onOpen}>
+        <span className={styles.branchName}>
+          {row.repoLabel} / {row.branchName}
+        </span>
+        {pendingItem && <span className={styles.unreadCount}>!</span>}
+        {!pendingItem && row.unreadCount > 0 && (
+          <span className={styles.unreadCount}>{row.unreadCount}</span>
+        )}
+      </div>
+      {(pendingItem?.message ?? row.lastMessage) && (
+        <p className={styles.message} onClick={onOpen}>
+          {pendingItem?.title ? <strong>{pendingItem.title}: </strong> : null}
+          {pendingItem?.message ?? row.lastMessage}
+        </p>
+      )}
+      <div className={styles.rowHead}>
+        <span className={styles.timestamp}>{row.lastAt ? formatRelative(row.lastAt) : ''}</span>
+      </div>
+      {isMcpPermission && pendingItem ? (
+        <div className={styles.actions}>
+          <button
+            className={styles.action}
+            data-kind="yes"
+            onClick={() => {
+              void respondPermission('allow')
+              onClose()
+            }}
+          >
+            Allow
+          </button>
+          <button
+            className={styles.action}
+            data-kind="no"
+            onClick={() => {
+              void respondPermission('deny')
+              onClose()
+            }}
+          >
+            Deny
+          </button>
+          <button className={styles.action} onClick={onOpen}>
+            Open
+          </button>
+        </div>
+      ) : row.claudeTabIsTerminal ? (
+        <div className={styles.actions}>
+          <button className={styles.action} data-kind="yes" onClick={() => sendKey('y\r')}>
+            y
+          </button>
+          <button className={styles.action} data-kind="no" onClick={() => sendKey('n\r')}>
+            n
+          </button>
+          <button className={styles.action} onClick={() => sendKey('/resume\r')}>
+            Resume
+          </button>
+          <button className={styles.action} onClick={onOpen}>
+            Open
+          </button>
+        </div>
+      ) : row.hasClaudeTab ? (
+        <div className={styles.actions}>
+          <button className={styles.action} onClick={onOpen}>
+            Open
+          </button>
+        </div>
+      ) : null}
+    </li>
   )
 }
 
@@ -210,4 +308,3 @@ function formatRelative(iso: string): string {
   if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)}h ago`
   return new Date(iso).toLocaleDateString()
 }
-

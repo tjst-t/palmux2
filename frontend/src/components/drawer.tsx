@@ -3,7 +3,12 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { useLongPress } from '../hooks/use-long-press'
 import type { Branch, Repository } from '../lib/api'
-import { selectBranchNotifications, usePalmuxStore } from '../stores/palmux-store'
+import {
+  selectAgentState,
+  selectBranchNotifications,
+  usePalmuxStore,
+  type AgentStatus,
+} from '../stores/palmux-store'
 
 import { BranchPicker } from './branch-picker'
 import { confirmDialog } from './context-menu/confirm-dialog'
@@ -356,7 +361,9 @@ function BranchItem({
 }) {
   const closeBranch = usePalmuxStore((s) => s.closeBranch)
   const notifs = usePalmuxStore(selectBranchNotifications(repoId, branch.id))
+  const agent = usePalmuxStore(selectAgentState(repoId, branch.id))
   const unread = notifs?.unreadCount ?? 0
+  const agentPipClass = agentPipClassFor(agent?.status)
   const showContextMenu = useContextMenu()
   const showMenuAt = (x: number, y: number) => {
     showContextMenu(
@@ -401,11 +408,32 @@ function BranchItem({
       >
         <span className={styles.branchName}>{branch.name}</span>
         {branch.isPrimary && <span className={styles.primaryTag}>main</span>}
+        {agentPipClass && (
+          <span
+            className={`${styles.agentPip} ${agentPipClass}`}
+            title={`Claude: ${agent?.status ?? 'idle'}`}
+            aria-hidden
+          />
+        )}
         {unread > 0 && <span className={styles.notifyDot} aria-label={`${unread} unread`} />}
         {isActive && <span className={styles.activeDot}>●</span>}
       </button>
     </li>
   )
+}
+
+// agentPipClassFor maps agent status to a CSS class name, or '' if no
+// pip should render. Idle isn't visually noisy — only "doing something"
+// states light up.
+function agentPipClassFor(s?: AgentStatus): string {
+  switch (s) {
+    case 'thinking':            return styles.agentPipThinking
+    case 'tool_running':        return styles.agentPipTool
+    case 'awaiting_permission': return styles.agentPipPerm
+    case 'starting':            return styles.agentPipStart
+    case 'error':               return styles.agentPipErr
+    default:                    return ''
+  }
 }
 
 function repoDisplayName(repo: { ghqPath: string }): string {

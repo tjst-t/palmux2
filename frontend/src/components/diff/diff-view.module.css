@@ -1,0 +1,96 @@
+.file {
+  margin-bottom: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background-color: var(--color-surface);
+}
+
+.file:last-child { margin-bottom: 0; }
+
+.fileHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-fg);
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-elevated);
+}
+
+.fileHeaderActions {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.binTag {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--color-warning);
+}
+
+.hunk + .hunk {
+  border-top: 1px solid var(--color-border);
+}
+
+.hunkHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  background-color: rgba(124, 138, 255, 0.05);
+}
+
+.hunkActions {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.btn {
+  padding: 2px var(--space-2);
+  font-size: 11px;
+  color: var(--color-fg);
+  background-color: var(--color-elevated);
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-family: inherit;
+}
+.btn:hover {
+  background-color: var(--color-bg);
+  border-color: var(--color-border);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.danger {
+  color: var(--color-error);
+}
+.danger:hover {
+  background-color: rgba(239, 68, 68, 0.1);
+}
+
+.lines {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-fg);
+  white-space: pre;
+  overflow-x: auto;
+  background-color: var(--color-bg);
+}
+
+.add     { color: var(--color-success);  display: block; }
+.del     { color: var(--color-error);    display: block; }
+.context { color: var(--color-fg-muted); display: block; }
+.meta    { color: var(--color-fg-faint); display: block; font-style: italic; }

@@ -11,13 +11,16 @@ interface SendFn {
   permissionRespond: (
     permissionId: string,
     decision: 'allow' | 'deny',
-    scope: 'once' | 'session',
+    scope: 'once' | 'session' | 'always',
     updatedInput?: unknown,
     reason?: string,
   ) => void
   setModel: (model: string) => void
+  setEffort: (effort: string) => void
   setPermissionMode: (mode: string) => void
   sessionClear: () => void
+  sessionResume: (sessionId: string) => void
+  sessionFork: (baseSessionId: string) => void
 }
 
 type ConnState = 'connecting' | 'open' | 'closed' | 'closing'
@@ -81,12 +84,28 @@ export function useAgent(repoId: string, branchId: string): UseAgentResult {
     wsRef.current?.send(JSON.stringify({ type: 'model.set', payload: { model } }))
   }, [])
 
+  const setEffort = useCallback((effort: string) => {
+    wsRef.current?.send(JSON.stringify({ type: 'effort.set', payload: { effort } }))
+  }, [])
+
   const setPermissionMode = useCallback((mode: string) => {
     wsRef.current?.send(JSON.stringify({ type: 'permission_mode.set', payload: { mode } }))
   }, [])
 
   const sessionClear = useCallback(() => {
     wsRef.current?.send(JSON.stringify({ type: 'session.clear' }))
+  }, [])
+
+  const sessionResume = useCallback((sessionId: string) => {
+    wsRef.current?.send(
+      JSON.stringify({ type: 'session.resume', payload: { sessionId } }),
+    )
+  }, [])
+
+  const sessionFork = useCallback((baseSessionId: string) => {
+    wsRef.current?.send(
+      JSON.stringify({ type: 'session.fork', payload: { baseSessionId } }),
+    )
   }, [])
 
   return {
@@ -97,8 +116,11 @@ export function useAgent(repoId: string, branchId: string): UseAgentResult {
       interrupt,
       permissionRespond,
       setModel,
+      setEffort,
       setPermissionMode,
       sessionClear,
+      sessionResume,
+      sessionFork,
     },
   }
 }

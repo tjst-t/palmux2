@@ -16,6 +16,13 @@ type BranchResolver interface {
 	WorktreePath(repoID, branchID string) (string, error)
 }
 
+// EventPublisher is the subset of *store.EventHub claudeagent needs to
+// fan branch-scoped state changes out to Drawer / Activity Inbox / etc.
+// Implemented by main.go via a small adapter so we don't import store.
+type EventPublisher interface {
+	Publish(eventType, repoID, branchID string, payload any)
+}
+
 // Config bundles long-lived settings the Manager needs.
 type Config struct {
 	Binary             string
@@ -24,12 +31,40 @@ type Config struct {
 	ExtraArgs          []string
 }
 
+// NotificationSink is the subset of notify.Hub claudeagent uses to surface
+// permission requests / errors in the global Activity Inbox. Implemented
+// by main.go's adapter; nil-safe.
+type NotificationSink interface {
+	IngestInternal(repoID, branchID string, n InternalNotification)
+	ClearByRequestID(repoID, branchID, requestID string)
+}
+
+// InternalNotification is the shape claudeagent publishes to NotificationSink.
+// Mirrors notify.IngestRequest + a stable request_id so the sink can
+// dedupe/clear when the underlying request resolves.
+type InternalNotification struct {
+	RequestID string                       `json:"requestId,omitempty"`
+	Type      string                       `json:"type"`              // "urgent" | "warning" | "info"
+	Title     string                       `json:"title,omitempty"`
+	Message   string                       `json:"message,omitempty"`
+	Detail    string                       `json:"detail,omitempty"`
+	Actions   []InternalNotificationAction `json:"actions,omitempty"`
+}
+
+// InternalNotificationAction is one inline button on a notification.
+type InternalNotificationAction struct {
+	Label  string `json:"label"`
+	Action string `json:"action"`
+}
+
 // Manager owns one Agent per (repoID, branchID). It is the single entry
 // point used by the WS handler and the REST handlers.
 type Manager struct {
 	cfg     Config
 	store   *Store
 	branches BranchResolver
+	events  EventPublisher
+	notify  NotificationSink
 	logger  *slog.Logger
 
 	mu     sync.Mutex
@@ -37,7 +72,9 @@ type Manager struct {
 }
 
 // NewManager constructs a Manager. `cfg.Binary == ""` falls back to "claude".
-func NewManager(cfg Config, store *Store, branches BranchResolver, logger *slog.Logger) *Manager {
+// `events` and `notify` are optional — Manager falls back to per-WS-only
+// broadcast when nil (handy for tests).
+func NewManager(cfg Config, store *Store, branches BranchResolver, events EventPublisher, notify NotificationSink, logger *slog.Logger) *Manager {
 	if cfg.Binary == "" {
 		cfg.Binary = "claude"
 	}
@@ -54,6 +91,8 @@ func NewManager(cfg Config, store *Store, branches BranchResolver, logger *slog.
 		cfg:     cfg,
 		store:   store,
 		branches: branches,
+		events:  events,
+		notify:  notify,
 		logger:  logger,
 		agents:  map[string]*Agent{},
 	}
@@ -170,6 +209,10 @@ type Agent struct {
 	// current Client. watchClient checks it to suppress the "Claude CLI
 	// exited" error event that would otherwise alarm the user.
 	intentionalRespawn bool
+
+	// pendingFork is set by ForkSession; consumed by the next EnsureClient
+	// to spawn the CLI with --fork-session.
+	pendingFork bool
 }
 
 func newAgent(deps agentDeps) *Agent {
@@ -262,12 +305,18 @@ func (a *Agent) EnsureClient(ctx context.Context) error {
 		model = a.deps.manager.cfg.DefaultModel
 	}
 
+	a.mu.Lock()
+	fork := a.pendingFork
+	a.pendingFork = false
+	a.mu.Unlock()
 	cli, err := NewClient(ctx, ClientOptions{
 		Binary:         a.deps.manager.cfg.Binary,
 		Cwd:            a.deps.worktree,
 		SessionID:      resumeID,
 		Model:          model,
 		PermissionMode: a.session.PermissionMode(),
+		Effort:         a.session.Effort(),
+		Fork:           fork,
 		ExtraArgs:      a.deps.manager.cfg.ExtraArgs,
 		Logger:         a.deps.logger,
 	}, a.handleStreamMsg, a.handleCanUseTool, a)
@@ -290,8 +339,11 @@ func (a *Agent) EnsureClient(ctx context.Context) error {
 
 	initCtx, cancel := context.WithTimeout(ctx, controlRequestTimeout)
 	defer cancel()
-	if err := cli.Initialize(initCtx); err != nil {
+	resp, err := cli.Initialize(initCtx)
+	if err != nil {
 		a.deps.logger.Warn("claudeagent: initialize failed", "err", err)
+	} else if len(resp) > 0 {
+		a.session.SetInitInfo(parseInitInfo(resp))
 	}
 	return nil
 }
@@ -325,6 +377,14 @@ func (a *Agent) handleStreamMsg(msg streamMsg) {
 			m.LastActivityAt = time.Now().UTC()
 			m.TurnCount++
 			m.TotalCostUSD += msg.TotalCostUSD
+		})
+		// Cross-tab notification: turn-end carries cost / duration / error
+		// flag so the Drawer / Inbox can react. The full per-block stream
+		// stays on the WS only.
+		a.publishEvent(EventClaudeTurnEnd, map[string]any{
+			"isError":      msg.IsError,
+			"totalCostUsd": msg.TotalCostUSD,
+			"durationMs":   msg.DurationMs,
 		})
 	}
 }
@@ -367,7 +427,30 @@ func (a *Agent) RequestPermission(_ context.Context, toolName string, input json
 	}); err == nil {
 		a.broadcast(ev)
 	}
+	// Cross-tab fan-out: Drawer / Inbox / etc.
+	a.publishEvent(EventClaudePermissionRequest, map[string]any{
+		"permissionId": permID,
+		"toolName":     toolName,
+		"input":        json.RawMessage(input),
+	})
+	a.publishNotification(InternalNotification{
+		RequestID: permID,
+		Type:      "urgent",
+		Title:     "Tool permission needed",
+		Message:   summariseToolForNotification(toolName, input),
+		Actions: []InternalNotificationAction{
+			{Label: "Allow", Action: "claude.permission.allow:" + permID},
+			{Label: "Deny", Action: "claude.permission.deny:" + permID},
+		},
+	})
 	resp, err := a.awaitPermission(permID)
+	// The notification (if any) is no longer actionable — clear it so the
+	// Inbox doesn't keep nagging.
+	a.clearNotification(permID)
+	a.publishEvent(EventClaudePermissionResolved, map[string]any{
+		"permissionId": permID,
+		"decision":     resp.Behavior,
+	})
 	// Status flips back when the next stream event arrives; if the user
 	// chose deny the CLI may immediately produce a tool_result and a fresh
 	// thinking pass, so we don't try to predict it here.
@@ -380,6 +463,44 @@ func (a *Agent) RequestPermission(_ context.Context, toolName string, input json
 		out.UpdatedInput = resp.UpdatedInput
 	}
 	return out, nil
+}
+
+// summariseToolForNotification compresses a tool name + input into one
+// readable line for the Inbox. Mirrors toolSummary on the frontend.
+func summariseToolForNotification(toolName string, input json.RawMessage) string {
+	var obj map[string]any
+	if err := json.Unmarshal(input, &obj); err != nil {
+		return toolName
+	}
+	pick := func(keys ...string) string {
+		for _, k := range keys {
+			if v, ok := obj[k]; ok {
+				if s, ok := v.(string); ok && s != "" {
+					return s
+				}
+			}
+		}
+		return ""
+	}
+	switch toolName {
+	case "Bash":
+		s := pick("command")
+		if len(s) > 80 {
+			s = s[:79] + "…"
+		}
+		return "Bash: " + s
+	case "Edit", "Write", "NotebookEdit":
+		return toolName + ": " + pick("file_path")
+	case "Read":
+		return "Read: " + pick("file_path")
+	case "Glob", "Grep":
+		return toolName + ": " + pick("pattern", "glob")
+	case "WebFetch", "WebSearch":
+		return toolName + ": " + pick("url", "query")
+	case "Task":
+		return "Task: " + pick("description", "subagent_type")
+	}
+	return toolName
 }
 
 func (a *Agent) awaitPermission(permID string) (canUseToolResponse, error) {
@@ -450,6 +571,21 @@ func (a *Agent) SetModel(ctx context.Context, model string) error {
 	return cli.SetModel(ctx, model)
 }
 
+// SetEffort swaps the `--effort` level. There's no documented
+// control_request for this, so we always respawn with the new flag. The
+// session_id carries the conversation forward.
+func (a *Agent) SetEffort(ctx context.Context, effort string) error {
+	a.session.SetEffort(effort)
+	a.mu.Lock()
+	cli := a.client
+	a.mu.Unlock()
+	if cli == nil {
+		return nil
+	}
+	a.deps.logger.Info("claudeagent: respawning CLI to apply effort", "effort", effort)
+	return a.respawnClient(ctx)
+}
+
 // SetPermissionMode swaps the permission policy. The CLI's
 // `set_permission_mode` control_request is best-effort — empirically the
 // running CLI doesn't always honour the change for tool execution. To get
@@ -489,6 +625,27 @@ func (a *Agent) respawnClient(ctx context.Context) error {
 	}
 	a.mu.Unlock()
 	return a.EnsureClient(ctx)
+}
+
+// AlwaysAllowTool writes a permission rule for `toolName` into the
+// worktree's `.claude/settings.json` permissions.allow array, then resolves
+// the current pending permission as allow. Future tool calls of the same
+// name will skip our prompt because the CLI honours the rule itself.
+func (a *Agent) AlwaysAllowTool(frame PermissionRespondFrame) error {
+	pattern := a.session.ToolNameForPermission(frame.PermissionID)
+	if pattern == "" {
+		return errors.New("unknown permission_id")
+	}
+	if err := addToProjectAllowList(a.deps.worktree, pattern); err != nil {
+		return err
+	}
+	a.session.AddSessionAllow(pattern) // also short-circuit during this session
+	return a.AnswerPermission(PermissionRespondFrame{
+		PermissionID: frame.PermissionID,
+		Decision:     "allow",
+		Scope:        "session",
+		UpdatedInput: frame.UpdatedInput,
+	})
 }
 
 // AnswerPermission resolves the pending permission and forwards the response
@@ -532,6 +689,62 @@ func (a *Agent) markIntentionalKill() {
 	a.mu.Unlock()
 }
 
+// ForkSession spawns a fresh CLI with `--resume <baseId> --fork-session`
+// so the new conversation starts from baseId's history but writes to a
+// new session_id. UI can call this from the history popup to branch off
+// a past session.
+func (a *Agent) ForkSession(ctx context.Context, baseSessionID string) error {
+	if baseSessionID == "" {
+		return errors.New("claudeagent: empty base session id")
+	}
+	a.session.Reset()
+	a.session.SetSessionID(baseSessionID)
+	// Mark the next spawn as fork. Since EnsureClient picks Resume from
+	// session.SessionID() and Fork from a flag, store the fork bit on the
+	// agent and clear it after one successful spawn.
+	a.mu.Lock()
+	a.pendingFork = true
+	a.mu.Unlock()
+	if err := a.deps.manager.store.SetActive(a.deps.repoID, a.deps.branchID, baseSessionID, a.session.Model()); err != nil {
+		a.deps.logger.Warn("claudeagent: SetActive on fork failed", "err", err)
+	}
+	if ev, err := makeEvent(EvSessionReplaced, SessionReplacedPayload{OldSessionID: baseSessionID, NewSessionID: ""}); err == nil {
+		a.broadcast(ev)
+	}
+	a.publishEvent(EventClaudeSessionReplaced, map[string]any{
+		"oldSessionId": baseSessionID,
+		"newSessionId": "",
+	})
+	return a.respawnClient(ctx)
+}
+
+// ResumeSession swaps the active session_id to the given id, kills the
+// current CLI (if any) and respawns. The CLI's `--resume <id>` reloads
+// the transcript from disk so the conversation continues seamlessly.
+//
+// In-memory turns are wiped before respawn — they're re-emitted via
+// stream events as the resumed CLI replays history; the snapshot the
+// new client gets via session.init won't have local turns until the CLI
+// catches up. (CLI replays differ between versions; we trust the disk.)
+func (a *Agent) ResumeSession(ctx context.Context, sessionID string) error {
+	if sessionID == "" {
+		return errors.New("claudeagent: empty session id")
+	}
+	old := a.session.Reset()
+	a.session.SetSessionID(sessionID)
+	if err := a.deps.manager.store.SetActive(a.deps.repoID, a.deps.branchID, sessionID, a.session.Model()); err != nil {
+		a.deps.logger.Warn("claudeagent: SetActive on resume failed", "err", err)
+	}
+	if ev, err := makeEvent(EvSessionReplaced, SessionReplacedPayload{OldSessionID: old, NewSessionID: sessionID}); err == nil {
+		a.broadcast(ev)
+	}
+	a.publishEvent(EventClaudeSessionReplaced, map[string]any{
+		"oldSessionId": old,
+		"newSessionId": sessionID,
+	})
+	return a.respawnClient(ctx)
+}
+
 // Clear is /clear: kill the current CLI, drop the active session pointer,
 // reset in-memory state, and notify subscribers. The transcript on disk
 // remains.
@@ -548,6 +761,10 @@ func (a *Agent) Clear() {
 	if ev, err := makeEvent(EvSessionReplaced, SessionReplacedPayload{OldSessionID: old}); err == nil {
 		a.broadcast(ev)
 	}
+	a.publishEvent(EventClaudeSessionReplaced, map[string]any{
+		"oldSessionId": old,
+		"newSessionId": "",
+	})
 	a.broadcastStatus(StatusIdle)
 }
 
@@ -565,10 +782,56 @@ func (a *Agent) broadcastStatus(s AgentStatus) {
 	if ev, err := makeEvent(EvStatusChange, StatusChangePayload{Status: s}); err == nil {
 		a.broadcast(ev)
 	}
+	a.publishEvent(string(EventClaudeStatus), map[string]any{
+		"status": string(s),
+	})
 }
 
 func (a *Agent) broadcastError(msg, detail string) {
 	if ev, err := makeEvent(EvError, ErrorPayload{Message: msg, Detail: detail}); err == nil {
 		a.broadcast(ev)
 	}
+	a.publishEvent(string(EventClaudeError), map[string]any{
+		"message": msg,
+		"detail":  detail,
+	})
 }
+
+// publishEvent fans a branch-scoped state change out to the global
+// EventHub so non-active UI (Drawer pip / Activity Inbox) can react.
+func (a *Agent) publishEvent(eventType string, payload any) {
+	if a.deps.manager == nil || a.deps.manager.events == nil {
+		return
+	}
+	a.deps.manager.events.Publish(eventType, a.deps.repoID, a.deps.branchID, payload)
+}
+
+// publishNotification surfaces an actionable item in the Notify Hub for
+// the Activity Inbox. Idempotent on RequestID — sink decides dedupe.
+func (a *Agent) publishNotification(n InternalNotification) {
+	if a.deps.manager == nil || a.deps.manager.notify == nil {
+		return
+	}
+	a.deps.manager.notify.IngestInternal(a.deps.repoID, a.deps.branchID, n)
+}
+
+// clearNotification tells the sink to remove (or mark resolved) a
+// previously-published notification. Used when a permission gets answered
+// from any path so the Inbox stops showing the prompt.
+func (a *Agent) clearNotification(requestID string) {
+	if a.deps.manager == nil || a.deps.manager.notify == nil {
+		return
+	}
+	a.deps.manager.notify.ClearByRequestID(a.deps.repoID, a.deps.branchID, requestID)
+}
+
+// EventType constants from the store package, redeclared here to avoid the
+// import cycle. Keep in lockstep with internal/store/events.go.
+const (
+	EventClaudeStatus             = "claude.status"
+	EventClaudePermissionRequest  = "claude.permission_request"
+	EventClaudePermissionResolved = "claude.permission_resolved"
+	EventClaudeError              = "claude.error"
+	EventClaudeTurnEnd            = "claude.turn_end"
+	EventClaudeSessionReplaced    = "claude.session_replaced"
+)

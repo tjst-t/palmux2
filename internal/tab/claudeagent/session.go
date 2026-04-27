@@ -6,6 +6,61 @@ import (
 	"time"
 )
 
+// InitInfo is the subset of the initialize control_response we surface to
+// the frontend. The CLI returns a much larger payload (account, plugins,
+// available skills, etc.) — we keep only what the UI actually consumes.
+type InitInfo struct {
+	Commands []SlashCommand `json:"commands,omitempty"`
+	Agents   []NamedItem    `json:"agents,omitempty"`
+	Models   []ModelDescriptor `json:"models,omitempty"`
+	OutputStyle           string   `json:"outputStyle,omitempty"`
+	AvailableOutputStyles []string `json:"availableOutputStyles,omitempty"`
+}
+
+// SlashCommand describes one CLI-provided slash command.
+type SlashCommand struct {
+	Name         string   `json:"name"`
+	Description  string   `json:"description,omitempty"`
+	ArgumentHint string   `json:"argumentHint,omitempty"`
+	Aliases      []string `json:"aliases,omitempty"`
+}
+
+type NamedItem struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Model       string `json:"model,omitempty"`
+}
+
+type ModelDescriptor struct {
+	Value                  string   `json:"value"`
+	DisplayName            string   `json:"displayName,omitempty"`
+	Description            string   `json:"description,omitempty"`
+	SupportsEffort         bool     `json:"supportsEffort,omitempty"`
+	SupportedEffortLevels  []string `json:"supportedEffortLevels,omitempty"`
+	SupportsAdaptiveThinking bool   `json:"supportsAdaptiveThinking,omitempty"`
+	SupportsAutoMode       bool     `json:"supportsAutoMode,omitempty"`
+}
+
+// parseInitInfo extracts the bits we care about from the CLI's initialize
+// response. Unknown / future fields are ignored.
+func parseInitInfo(raw json.RawMessage) InitInfo {
+	var v struct {
+		Commands              []SlashCommand    `json:"commands"`
+		Agents                []NamedItem       `json:"agents"`
+		Models                []ModelDescriptor `json:"models"`
+		OutputStyle           string            `json:"output_style"`
+		AvailableOutputStyles []string          `json:"available_output_styles"`
+	}
+	_ = json.Unmarshal(raw, &v)
+	return InitInfo{
+		Commands:              v.Commands,
+		Agents:                v.Agents,
+		Models:                v.Models,
+		OutputStyle:           v.OutputStyle,
+		AvailableOutputStyles: v.AvailableOutputStyles,
+	}
+}
+
 // Session is the in-memory snapshot for one Agent. It holds the cached turns
 // (replayed to clients on connect) and tracks all in-flight work — partial
 // blocks during streaming, pending permission requests, and current status.
@@ -18,6 +73,7 @@ type Session struct {
 	sessionID        string
 	model            string
 	permissionMode   string
+	effort           string
 
 	status        AgentStatus
 	totalCostUSD  float64
@@ -34,6 +90,13 @@ type Session struct {
 	// Permissions answered via UI close the loop on the corresponding request.
 	pendingPermissions map[string]string
 	allowList          map[string]struct{} // tool_name → allowed for this session
+
+	// CLI-reported capabilities (commands, agents, models). Populated from
+	// the initialize control_response.
+	initInfo InitInfo
+
+	// MCP server statuses, populated from system/init.
+	mcpServers []MCPServerInfo
 
 	createdAt time.Time
 }
@@ -68,12 +131,15 @@ func (s *Session) Snapshot() SessionInitPayload {
 		BranchID:       s.branchID,
 		RepoID:         s.repoID,
 		Model:          s.model,
+		Effort:         s.effort,
 		PermissionMode: s.permissionMode,
 		Status:         s.status,
 		Turns:          turns,
 		TotalCostUSD:   s.totalCostUSD,
 		AuthOK:         s.authStatus.OK,
 		AuthMessage:    s.authStatus.Message,
+		InitInfo:       s.initInfo,
+		MCPServers:     append([]MCPServerInfo(nil), s.mcpServers...),
 	}
 }
 
@@ -99,6 +165,27 @@ func (s *Session) SetAuthStatus(a AuthStatus) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.authStatus = a
+}
+
+// SetInitInfo records CLI capabilities (commands list, models, etc.).
+func (s *Session) SetInitInfo(i InitInfo) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.initInfo = i
+}
+
+// InitInfo returns a copy of the cached CLI capabilities.
+func (s *Session) InitInfo() InitInfo {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.initInfo
+}
+
+// SetMCPServers records the MCP server statuses from system/init.
+func (s *Session) SetMCPServers(servers []MCPServerInfo) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.mcpServers = append(s.mcpServers[:0], servers...)
 }
 
 // SetStatus updates the high-level status pip and returns the new value.
@@ -142,6 +229,20 @@ func (s *Session) PermissionMode() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.permissionMode
+}
+
+// Effort returns the current --effort value (or "" if unset).
+func (s *Session) Effort() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.effort
+}
+
+// SetEffort updates the effort level.
+func (s *Session) SetEffort(e string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.effort = e
 }
 
 // AppendUserTurn records a user message turn and returns the new turn ID.

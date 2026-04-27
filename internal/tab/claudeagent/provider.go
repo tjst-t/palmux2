@@ -74,6 +74,9 @@ func (p *Provider) RegisterRoutes(mux *http.ServeMux, _ string) {
 	const branchPrefix = "/api/repos/{repoId}/branches/{branchId}/tabs/claude"
 	mux.HandleFunc("GET "+branchPrefix+"/agent", h.handleWS)
 	mux.HandleFunc("GET "+branchPrefix+"/sessions", h.handleListBranchSessions)
+	// Out-of-band permission answer (used by Activity Inbox so it can
+	// resolve a request without opening the Claude WS).
+	mux.HandleFunc("POST "+branchPrefix+"/permission/{permissionId}", h.handleAnswerPermission)
 
 	mux.HandleFunc("GET /api/claude/auth-status", h.handleAuthStatus)
 	mux.HandleFunc("GET /api/claude/modes", h.handleModes)

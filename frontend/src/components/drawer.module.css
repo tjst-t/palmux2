@@ -137,6 +137,22 @@
   animation: notifyPulse 1.4s ease-in-out infinite;
 }
 
+/* Per-branch agent activity pip. Only renders for non-idle status; the
+   colour mirrors the status pip in the Claude tab StatusBar so the user
+   builds a single mental model. */
+.agentPip {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background-color: var(--color-fg-faint);
+}
+.agentPipThinking { background-color: var(--color-warning); animation: notifyPulse 1.6s ease-in-out infinite; }
+.agentPipTool     { background-color: var(--color-accent);  animation: notifyPulse 1.6s ease-in-out infinite; }
+.agentPipPerm     { background-color: var(--color-warning); animation: notifyPulse 0.9s ease-in-out infinite; }
+.agentPipStart    { background-color: var(--color-fg-dim);  animation: notifyPulse 1.6s ease-in-out infinite; }
+.agentPipErr      { background-color: var(--color-error); }
+
 @keyframes notifyPulse {
   50% {
     opacity: 0.4;

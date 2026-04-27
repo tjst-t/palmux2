@@ -4,7 +4,7 @@
 // Kept deliberately self-contained (no Zustand) — one Agent tab = one
 // instance of this state, lifetime equal to the React component.
 
-import type { AgentStatus, Block, SessionInit, Turn } from './types'
+import type { AgentStatus, Block, InitInfo, SessionInit, Turn } from './types'
 
 export interface AgentState {
   ready: boolean
@@ -12,14 +12,28 @@ export interface AgentState {
   authMessage?: string
   sessionId: string
   model: string
+  effort: string
   permissionMode: string
   status: AgentStatus
   totalCostUsd: number
   turns: Turn[]
   pendingPermission?: { permissionId: string; toolName: string; input: unknown }
   errors: { id: number; message: string; detail?: string }[]
+  /** CLI-reported capabilities (commands list, models, agents). */
+  initInfo?: InitInfo
+  /** Latest usage info from a turn.end (input/cache/output tokens). */
+  lastUsage?: AgentUsage
   /** ISO timestamp of the most-recently-applied event — debug only. */
   lastEventTs?: string
+}
+
+export interface AgentUsage {
+  inputTokens?: number
+  outputTokens?: number
+  cacheReadInputTokens?: number
+  cacheCreationInputTokens?: number
+  contextWindow?: number
+  maxOutputTokens?: number
 }
 
 export const initialState: AgentState = {
@@ -27,6 +41,7 @@ export const initialState: AgentState = {
   authOk: false,
   sessionId: '',
   model: '',
+  effort: '',
   permissionMode: 'acceptEdits',
   status: 'idle',
   totalCostUsd: 0,
@@ -59,12 +74,14 @@ export function reduce(state: AgentState, action: AgentAction): AgentState {
         authMessage: p.authMessage,
         sessionId: p.sessionId,
         model: p.model,
+        effort: (p as { effort?: string }).effort ?? '',
         permissionMode: p.permissionMode,
         status: p.status,
         totalCostUsd: p.totalCostUsd,
         turns: p.turns ?? [],
         pendingPermission: pending,
         errors: [],
+        initInfo: p.initInfo,
       }
     }
     case 'event':
@@ -101,9 +118,31 @@ function applyEvent(state: AgentState, ev: { type: string; ts: string; payload?:
       return next
     }
     case 'turn.end': {
-      const p = ev.payload as { turnId: string; totalCostUsd?: number }
+      const p = ev.payload as {
+        turnId: string
+        totalCostUsd?: number
+        usage?: Partial<AgentUsage> & {
+          input_tokens?: number
+          output_tokens?: number
+          cache_read_input_tokens?: number
+          cache_creation_input_tokens?: number
+          contextWindow?: number
+          maxOutputTokens?: number
+        }
+      }
       if (typeof p.totalCostUsd === 'number') {
         next.totalCostUsd = next.totalCostUsd + p.totalCostUsd
+      }
+      if (p.usage) {
+        const u = p.usage
+        next.lastUsage = {
+          inputTokens: u.inputTokens ?? u.input_tokens,
+          outputTokens: u.outputTokens ?? u.output_tokens,
+          cacheReadInputTokens: u.cacheReadInputTokens ?? u.cache_read_input_tokens,
+          cacheCreationInputTokens: u.cacheCreationInputTokens ?? u.cache_creation_input_tokens,
+          contextWindow: u.contextWindow,
+          maxOutputTokens: u.maxOutputTokens,
+        }
       }
       return next
     }

@@ -18,7 +18,19 @@ export interface NotificationItem {
   type: string
   message?: string
   title?: string
+  detail?: string
   createdAt: string
+  /** Stable id for in-process notifications (e.g. claude permission requests). */
+  requestId?: string
+  /** Inline action buttons. The string `action` is interpreted by the UI. */
+  actions?: NotificationAction[]
+  /** True once the underlying request has been answered/cancelled. */
+  resolved?: boolean
+}
+
+export interface NotificationAction {
+  label: string
+  action: string
 }
 
 export interface BranchNotificationState {
@@ -27,6 +39,33 @@ export interface BranchNotificationState {
   lastType?: string
   lastAt?: string
   notifications?: NotificationItem[]
+}
+
+// AgentBranchState mirrors the per-branch claude-tab state surfaced via the
+// global event bus. Drawer pip / Activity Inbox / @-workspace switcher all
+// read from this slice so they don't need their own WS connection.
+export type AgentStatus =
+  | 'idle'
+  | 'starting'
+  | 'thinking'
+  | 'tool_running'
+  | 'awaiting_permission'
+  | 'error'
+
+export interface PendingPermission {
+  permissionId: string
+  toolName: string
+  input?: unknown
+}
+
+export interface AgentBranchState {
+  status: AgentStatus
+  totalCostUsd: number
+  lastTurnEndAt?: string
+  /** Last unresolved permission, if any. Cleared on resolve / clear. */
+  pendingPermission?: PendingPermission
+  /** Last error message (e.g. CLI exited unexpectedly). */
+  lastError?: string
 }
 
 export type ImeMode = 'none' | 'direct' | 'ime'
@@ -142,6 +181,8 @@ interface PalmuxStoreState {
   mobileDrawerOpen: boolean
 
   notifications: Record<string, BranchNotificationState>
+  /** Per-branch ("{repoId}/{branchId}") Claude-tab state. */
+  agents: Record<string, AgentBranchState>
 
   // Actions ────────────────────────────────────────────────────────────────
   bootstrap: () => Promise<void>
@@ -184,6 +225,7 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
   focusedPanel: 'left',
   mobileDrawerOpen: false,
   notifications: {},
+  agents: {},
 
   bootstrap: async () => {
     if (get().bootstrapped || get().loading) return
@@ -277,6 +319,63 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
       if (ev.type === 'notification' && state.lastMessage) {
         maybePostNotification(state.lastMessage)
       }
+    }
+
+    // Claude tab cross-tab events. Each branch maintains a tiny state
+    // record so the Drawer pip / Inbox / @-workspace switcher can show
+    // status without opening their own WS.
+    if (ev.type.startsWith('claude.') && ev.repoId && ev.branchId) {
+      const key = `${ev.repoId}/${ev.branchId}`
+      const payload = (ev.payload ?? {}) as Record<string, unknown>
+      set((s) => {
+        const cur: AgentBranchState = s.agents[key] ?? {
+          status: 'idle',
+          totalCostUsd: 0,
+        }
+        const next: AgentBranchState = { ...cur }
+        switch (ev.type) {
+          case 'claude.status': {
+            const status = payload.status as AgentStatus | undefined
+            if (status) next.status = status
+            break
+          }
+          case 'claude.permission_request': {
+            next.pendingPermission = {
+              permissionId: String(payload.permissionId ?? ''),
+              toolName: String(payload.toolName ?? 'tool'),
+              input: payload.input,
+            }
+            next.status = 'awaiting_permission'
+            break
+          }
+          case 'claude.permission_resolved': {
+            next.pendingPermission = undefined
+            break
+          }
+          case 'claude.turn_end': {
+            const cost = Number(payload.totalCostUsd ?? 0)
+            if (Number.isFinite(cost) && cost > 0) {
+              next.totalCostUsd = cur.totalCostUsd + cost
+            }
+            next.lastTurnEndAt = new Date().toISOString()
+            next.lastError = undefined
+            break
+          }
+          case 'claude.error': {
+            next.lastError = String(payload.message ?? 'error')
+            next.status = 'error'
+            break
+          }
+          case 'claude.session_replaced': {
+            next.totalCostUsd = 0
+            next.pendingPermission = undefined
+            next.lastError = undefined
+            next.status = 'idle'
+            break
+          }
+        }
+        return { agents: { ...s.agents, [key]: next } }
+      })
     }
   },
 
@@ -375,6 +474,11 @@ export const selectBranchNotifications =
   (repoId: string, branchId: string) =>
   (s: PalmuxStoreState): BranchNotificationState | undefined =>
     s.notifications[`${repoId}/${branchId}`]
+
+export const selectAgentState =
+  (repoId: string, branchId: string) =>
+  (s: PalmuxStoreState): AgentBranchState | undefined =>
+    s.agents[`${repoId}/${branchId}`]
 
 // maybePostNotification asks for permission once, then surfaces a system
 // notification on subsequent events. Vibrates if the API is supported. All

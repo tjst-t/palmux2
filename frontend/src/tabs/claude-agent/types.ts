@@ -39,6 +39,37 @@ export interface Turn {
   blocks: Block[]
 }
 
+export interface SlashCommand {
+  name: string
+  description?: string
+  argumentHint?: string
+  aliases?: string[]
+}
+
+export interface NamedItem {
+  name: string
+  description?: string
+  model?: string
+}
+
+export interface ModelDescriptor {
+  value: string
+  displayName?: string
+  description?: string
+  supportsEffort?: boolean
+  supportedEffortLevels?: string[]
+  supportsAdaptiveThinking?: boolean
+  supportsAutoMode?: boolean
+}
+
+export interface InitInfo {
+  commands?: SlashCommand[]
+  agents?: NamedItem[]
+  models?: ModelDescriptor[]
+  outputStyle?: string
+  availableOutputStyles?: string[]
+}
+
 export interface SessionInit {
   sessionId: string
   branchId: string
@@ -50,6 +81,7 @@ export interface SessionInit {
   totalCostUsd: number
   authOk: boolean
   authMessage?: string
+  initInfo?: InitInfo
 }
 
 export interface AgentEvent<T = unknown> {

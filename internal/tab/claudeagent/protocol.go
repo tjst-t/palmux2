@@ -27,6 +27,7 @@ type streamMsg struct {
 	Model           string          `json:"model,omitempty"`
 	Cwd             string          `json:"cwd,omitempty"`
 	Tools           json.RawMessage `json:"tools,omitempty"`
+	MCPServers      []MCPServerInfo `json:"mcp_servers,omitempty"`
 	PermissionMode  string          `json:"permission_mode,omitempty"`
 	APIKeySource    string          `json:"apiKeySource,omitempty"`
 
@@ -37,6 +38,12 @@ type streamMsg struct {
 	IsError          bool            `json:"is_error,omitempty"`
 	Result           string          `json:"result,omitempty"`
 	Usage            json.RawMessage `json:"usage,omitempty"`
+}
+
+// MCPServerInfo is the per-server status the CLI reports in system/init.
+type MCPServerInfo struct {
+	Name   string `json:"name"`
+	Status string `json:"status"` // "connected" | "needs-auth" | "failed" | ...
 }
 
 // assistantMessage / userMessage are the bodies inside `message`.

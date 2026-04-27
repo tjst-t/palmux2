@@ -78,12 +78,16 @@ type SessionInitPayload struct {
 	BranchID       string      `json:"branchId"`
 	RepoID         string      `json:"repoId"`
 	Model          string      `json:"model"`
+	Effort         string      `json:"effort,omitempty"`
 	PermissionMode string      `json:"permissionMode"`
 	Status         AgentStatus `json:"status"`
 	Turns          []Turn      `json:"turns"`
 	TotalCostUSD   float64     `json:"totalCostUsd"`
 	AuthOK         bool        `json:"authOk"`
 	AuthMessage    string      `json:"authMessage,omitempty"`
+	/** CLI-reported capabilities (commands list, models, etc). */
+	InitInfo       InitInfo    `json:"initInfo"`
+	MCPServers     []MCPServerInfo `json:"mcpServers,omitempty"`
 }
 
 // TurnStartPayload signals the start of an assistant turn.
@@ -194,6 +198,21 @@ type SetModelFrame struct {
 // SetPermissionModeFrame — switch permission mode.
 type SetPermissionModeFrame struct {
 	Mode string `json:"mode"`
+}
+
+// SetEffortFrame — switch CLI --effort level.
+type SetEffortFrame struct {
+	Effort string `json:"effort"`
+}
+
+// SessionResumeFrame — switch active session_id and respawn.
+type SessionResumeFrame struct {
+	SessionID string `json:"sessionId"`
+}
+
+// SessionForkFrame — fork off baseSessionId into a fresh session.
+type SessionForkFrame struct {
+	BaseSessionID string `json:"baseSessionId"`
 }
 
 // ──────────── helpers ──────────────────────────────────────────────────────
