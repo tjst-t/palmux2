@@ -29,7 +29,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/store"
 	"github.com/tjst-t/palmux2/internal/tab"
 	"github.com/tjst-t/palmux2/internal/tab/bash"
-	"github.com/tjst-t/palmux2/internal/tab/claude"
+	"github.com/tjst-t/palmux2/internal/tab/claudeagent"
 	"github.com/tjst-t/palmux2/internal/tab/files"
 	gittab "github.com/tjst-t/palmux2/internal/tab/git"
 	"github.com/tjst-t/palmux2/internal/tmux"
@@ -74,13 +74,10 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		return err
 	}
 
-	registry := tab.NewRegistry()
-	claudeProvider := claude.New(claude.Options{})
-	registry.Register(claudeProvider)
-	// Bash before Files? No — TabBar order is: Claude / Files / Git / Bash.
-	// We wire the storeRef after Store.New, so Files Provider is added then.
-	registry.Register(bash.New())
-	// Git provider lands in Phase 5.
+	agentStore, err := claudeagent.NewStore(configDir)
+	if err != nil {
+		return err
+	}
 
 	tmuxClient := tmux.NewExecClient()
 	ghqClient := ghq.New()
@@ -91,6 +88,7 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		return err
 	}
 
+	registry := tab.NewRegistry()
 	st, err := store.New(store.Deps{
 		Tmux:              tmuxClient,
 		GHQ:               ghqClient,
@@ -104,17 +102,27 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 	if err != nil {
 		return err
 	}
-	// Files / Git Providers need a Store reference (handlers look up
-	// worktree paths at request time). Register after Store.New.
+
+	// Register providers in TabBar order: Claude / Bash / Files / Git.
+	// Claude is the SDK-style stream-json tab; the previous tmux-backed
+	// `claude` tab has been removed. Manager needs the Store for worktree
+	// path lookups, so all providers are registered after store.New.
+	agentManager := claudeagent.NewManager(claudeagent.Config{
+		Binary:                "claude",
+		DefaultPermissionMode: "acceptEdits",
+	}, agentStore, branchResolver{store: st}, slog.Default())
+	registry.Register(claudeagent.NewProvider(agentManager))
+	registry.Register(bash.New())
 	registry.Register(files.New(st))
 	registry.Register(gittab.New(st))
-	// Claude provider is registered earlier (its OnBranchOpen is on the hot
-	// path during hydrate). Now that the store exists, hand it the ref so the
-	// Restart/Resume HTTP handlers can resolve tmux sessions.
-	claudeProvider.SetBackend(st)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Build each branch's tab list now that every Provider is registered.
+	// Without this the first GET /api/repos can return tabs:null for
+	// branches whose tmux session was already alive at startup.
+	st.PopulateTabs(ctx)
 
 	st.Run(ctx)
 
@@ -185,6 +193,7 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 	slog.Info("shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	agentManager.Shutdown()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown", "err", err)
 	}
@@ -237,6 +246,19 @@ func portFromAddr(addr string) string {
 		}
 	}
 	return ""
+}
+
+// branchResolver adapts *store.Store into the small BranchResolver interface
+// claudeagent.Manager wants. Keeps the agent package free of an import on
+// internal/store.
+type branchResolver struct{ store *store.Store }
+
+func (b branchResolver) WorktreePath(repoID, branchID string) (string, error) {
+	br, err := b.store.Branch(repoID, branchID)
+	if err != nil {
+		return "", err
+	}
+	return br.WorktreePath, nil
 }
 
 // eventPublisher adapts *store.EventHub to notify.Publisher so the Hub can

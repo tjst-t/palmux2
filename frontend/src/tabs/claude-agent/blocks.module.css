@@ -1,0 +1,346 @@
+/* Block-level styles. The visual goal is "Claude Code Desktop": prose-first,
+   tool calls collapsed to a one-line summary by default, no heavy chrome. */
+
+.text {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--color-fg);
+}
+
+.text :is(p, ul, ol) {
+  margin: 0 0 var(--space-2) 0;
+}
+.text :is(p, ul, ol):last-child {
+  margin-bottom: 0;
+}
+
+.text h1, .text h2, .text h3, .text h4 {
+  margin: var(--space-3) 0 var(--space-2);
+  font-weight: 600;
+  line-height: 1.3;
+}
+.text h1 { font-size: 17px; }
+.text h2 { font-size: 15px; }
+.text h3 { font-size: 14px; }
+.text h4 { font-size: 13px; }
+.text :first-child { margin-top: 0; }
+
+.text pre {
+  margin: var(--space-2) 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.text code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--color-surface);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--color-fg);
+}
+
+.text pre code {
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+}
+
+.text a {
+  color: var(--color-accent-light);
+  text-decoration: none;
+}
+.text a:hover { text-decoration: underline; }
+
+.text blockquote {
+  margin: var(--space-2) 0;
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--color-border);
+  color: var(--color-fg-muted);
+}
+
+.text ul, .text ol { padding-left: 22px; }
+
+/* ──────────── Thinking ──────────── */
+
+.thinking {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.thinkingToggle {
+  background: transparent;
+  border: none;
+  color: var(--color-fg-muted);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.thinkingToggle:hover { color: var(--color-fg); }
+
+.thinkingBody {
+  margin-top: 4px;
+  padding-left: 14px;
+  color: var(--color-fg-muted);
+  font-style: italic;
+  white-space: pre-wrap;
+  border-left: 2px solid var(--color-border);
+}
+
+/* ──────────── Tool use ──────────── */
+
+.toolUse {
+  font-size: 12px;
+  color: var(--color-fg-muted);
+}
+
+.toolHeader {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 3px 6px;
+  margin-left: -6px;
+  border-radius: var(--radius-sm);
+  user-select: none;
+}
+.toolHeader:hover {
+  background: var(--color-surface);
+  color: var(--color-fg);
+}
+
+.chevron {
+  display: inline-block;
+  font-size: 9px;
+  width: 8px;
+  color: var(--color-fg-dim);
+  transition: transform 100ms ease;
+}
+.chevron.expanded { transform: rotate(90deg); }
+
+.toolName {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-accent-light);
+  font-weight: 600;
+}
+
+.toolSummary {
+  color: var(--color-fg-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 480px;
+}
+
+.toolBadge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--color-surface);
+  color: var(--color-fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.toolBadge.running { background: rgba(245, 158, 11, 0.15); color: var(--color-warning); }
+.toolBadge.error   { background: rgba(239, 68, 68, 0.15);  color: var(--color-error); }
+
+.toolBody {
+  margin-top: 4px;
+  margin-left: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.toolPre {
+  margin: 0;
+  padding: var(--space-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: var(--color-fg);
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.toolLabel {
+  font-size: 10px;
+  color: var(--color-fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 4px;
+}
+
+/* ──────────── Tool result ──────────── */
+
+.toolResult {
+  font-size: 12px;
+  color: var(--color-fg-muted);
+}
+
+.toolResult.error .toolResultPre {
+  border-left-color: var(--color-error);
+}
+
+.toolResultPre {
+  margin: 0;
+  padding: var(--space-2);
+  background: var(--color-surface);
+  border-left: 2px solid var(--color-success);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: var(--color-fg);
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+/* ──────────── Todo ──────────── */
+
+.todo {
+  margin: var(--space-1) 0;
+  font-size: 13px;
+}
+
+.todoHeader {
+  font-size: 10px;
+  color: var(--color-fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+
+.todoList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.todoItem {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--color-fg);
+  line-height: 1.5;
+}
+
+.todoStatus {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  width: 14px;
+  text-align: center;
+  color: var(--color-fg-dim);
+}
+
+.todoCompleted  { color: var(--color-fg-muted); text-decoration: line-through; }
+.todoInProgress { color: var(--color-warning); font-weight: 500; }
+.todoPending    { color: var(--color-fg-muted); }
+
+/* ──────────── Permission ──────────── */
+
+.permission {
+  background: rgba(245, 158, 11, 0.07);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: 13px;
+}
+
+.permissionHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-fg-muted);
+}
+
+.permissionToolName {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-warning);
+  font-weight: 600;
+}
+
+.permissionInput {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: var(--space-2);
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+  color: var(--color-fg);
+  line-height: 1.5;
+}
+
+.permissionActions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.permissionActions button {
+  background: var(--color-elevated);
+  color: var(--color-fg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 5px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.permissionActions button:hover { border-color: var(--color-border-hover); }
+.permissionActions .allow {
+  background: var(--color-success);
+  color: #0c0e14;
+  border-color: transparent;
+  font-weight: 600;
+}
+.permissionActions .deny {
+  background: transparent;
+  color: var(--color-error);
+  border-color: var(--color-error);
+}
+.permissionActions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.permissionDecision {
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  font-style: italic;
+}

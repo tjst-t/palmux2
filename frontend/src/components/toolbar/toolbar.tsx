@@ -29,8 +29,16 @@ export function Toolbar() {
   const [commands, setCommands] = useState<DetectedCommand[] | null>(null)
 
   const config: ToolbarConfig = useMemo(() => mergeToolbarConfig(userToolbar), [userToolbar])
-  const mode: 'normal' | 'claude' = focused.tabType === 'claude' ? 'claude' : 'normal'
+  // Toolbar mode used to flip to "claude" when the legacy tmux-backed
+  // Claude tab was focused. That tab has been removed — the new Claude
+  // chat tab has its own Composer and hides the toolbar entirely. So the
+  // remaining terminal-backed tabs (Bash) always get the normal layout.
+  const mode: 'normal' | 'claude' = 'normal'
   const buttons = config[mode].rows
+
+  // Hide the bottom terminal toolbar on the Claude (chat) tab — it has
+  // its own Composer.
+  const hideToolbar = focused.tabType === 'claude'
 
   // When the focused tab changes, reset modifiers + close popover.
   useEffect(() => {
@@ -80,12 +88,12 @@ export function Toolbar() {
     if (next !== fontSize) setDeviceSetting('fontSize', next)
   }
 
+  if (hideToolbar) return null
+
   return (
     <div className={styles.toolbar} role="toolbar" aria-label="Terminal toolbar">
-      <div
-        className={`${styles.modeIndicator} ${mode === 'claude' ? styles.modeClaude : ''}`}
-      >
-        {mode === 'claude' ? 'Claude' : 'Normal'}
+      <div className={styles.modeIndicator}>
+        Normal
         {focused.termKey ? '' : ' (no terminal focused)'}
       </div>
       {buttons.map((row, i) => (

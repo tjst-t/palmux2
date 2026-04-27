@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
@@ -10,9 +11,38 @@ import (
 	"github.com/tjst-t/palmux2/internal/domain"
 	"github.com/tjst-t/palmux2/internal/tab"
 	"github.com/tjst-t/palmux2/internal/tab/bash"
-	"github.com/tjst-t/palmux2/internal/tab/claude"
 	"github.com/tjst-t/palmux2/internal/tmux"
 )
+
+// fakeTerminalProvider is a stand-in for the legacy tmux-backed Claude tab
+// that store_test relies on for "create the per-branch tmux window" coverage.
+// The production Claude tab is now WebSocket-only (no tmux window) so we
+// can't drive these scenarios off it; a minimal terminal-backed provider
+// keeps the existing tests meaningful.
+type fakeTerminalProvider struct{}
+
+const fakeTerminalType = "fake-term"
+const fakeTerminalWindow = "palmux:fake-term:fake-term"
+
+func (fakeTerminalProvider) Type() string         { return fakeTerminalType }
+func (fakeTerminalProvider) DisplayName() string  { return "Fake Term" }
+func (fakeTerminalProvider) Protected() bool      { return true }
+func (fakeTerminalProvider) Multiple() bool       { return false }
+func (fakeTerminalProvider) NeedsTmuxWindow() bool { return true }
+func (fakeTerminalProvider) OnBranchOpen(_ context.Context, _ tab.OpenParams) (tab.ProviderResult, error) {
+	return tab.ProviderResult{
+		Tabs: []domain.Tab{{
+			ID:         fakeTerminalType,
+			Type:       fakeTerminalType,
+			Name:       "Fake Term",
+			Protected:  true,
+			WindowName: fakeTerminalWindow,
+		}},
+		Windows: []tab.WindowSpec{{Name: fakeTerminalWindow, Command: "sh"}},
+	}, nil
+}
+func (fakeTerminalProvider) OnBranchClose(_ context.Context, _ tab.CloseParams) error { return nil }
+func (fakeTerminalProvider) RegisterRoutes(_ *http.ServeMux, _ string)                {}
 
 func newStoreFixture(t *testing.T) (*Store, *tmux.MockClient) {
 	t.Helper()
@@ -26,7 +56,7 @@ func newStoreFixture(t *testing.T) (*Store, *tmux.MockClient) {
 		t.Fatalf("NewSettingsStore: %v", err)
 	}
 	registry := tab.NewRegistry()
-	registry.Register(claude.New(claude.Options{}))
+	registry.Register(fakeTerminalProvider{})
 	registry.Register(bash.New())
 
 	mockTmux := tmux.NewMockClient()
@@ -85,7 +115,7 @@ func TestSyncTmux_RecreatesMissingSession(t *testing.T) {
 	}
 	// Should have created at least the claude window.
 	windows, _ := mockTmux.ListWindows(context.Background(), sessionName)
-	wantWindow := claude.WindowName
+	wantWindow := fakeTerminalWindow
 	found := false
 	for _, w := range windows {
 		if w.Name == wantWindow {
@@ -106,7 +136,7 @@ func TestSyncTmux_KillsZombieSessions(t *testing.T) {
 	repoID := "tjst-t--demo--abcd"
 	branchID := injectBranch(t, s, repoID, "/tmp/repo-demo", "main", true)
 	sessionName := domain.SessionName(repoID, branchID)
-	mockTmux.SeedSession(sessionName, tmux.Window{Index: 0, Name: claude.WindowName})
+	mockTmux.SeedSession(sessionName, tmux.Window{Index: 0, Name: fakeTerminalWindow})
 
 	if err := s.SyncTmux(context.Background()); err != nil {
 		t.Fatalf("SyncTmux: %v", err)
@@ -140,11 +170,11 @@ func TestSyncTmux_KillsOrphanGroupSessions(t *testing.T) {
 	repoID := "tjst-t--demo--abcd"
 	branchID := injectBranch(t, s, repoID, "/tmp/repo-demo", "main", true)
 	sessionName := domain.SessionName(repoID, branchID)
-	mockTmux.SeedSession(sessionName, tmux.Window{Index: 0, Name: claude.WindowName})
+	mockTmux.SeedSession(sessionName, tmux.Window{Index: 0, Name: fakeTerminalWindow})
 
 	// A group session whose connection has gone away.
 	groupName := domain.GroupSessionName(sessionName, "stale")
-	mockTmux.SeedSession(groupName, tmux.Window{Index: 0, Name: claude.WindowName})
+	mockTmux.SeedSession(groupName, tmux.Window{Index: 0, Name: fakeTerminalWindow})
 
 	if err := s.SyncTmux(context.Background()); err != nil {
 		t.Fatalf("SyncTmux: %v", err)
