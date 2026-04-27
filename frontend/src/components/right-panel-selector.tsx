@@ -1,6 +1,7 @@
 import type { Branch, Repository } from '../lib/api'
 import { usePalmuxStore } from '../stores/palmux-store'
 import type { PanelTarget } from './panel'
+import { WorkspaceActions } from './workspace-actions'
 
 import styles from './right-panel-selector.module.css'
 
@@ -98,6 +99,14 @@ export function RightPanelSelector({ target, repo, branch, onChange }: Props) {
           )
         })}
       </div>
+      {target.repoId && target.branchId && (
+        <WorkspaceActions
+          repoId={target.repoId}
+          branchId={target.branchId}
+          repo={repo}
+          branch={branch}
+        />
+      )}
     </div>
   )
 }

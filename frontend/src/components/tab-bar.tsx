@@ -4,12 +4,13 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useLongPress } from '../hooks/use-long-press'
 import { api } from '../lib/api'
 import type { Branch, Tab } from '../lib/api'
-import { selectBranchNotifications, usePalmuxStore } from '../stores/palmux-store'
+import { selectBranchNotifications, selectRepoById, usePalmuxStore } from '../stores/palmux-store'
 
 import { confirmDialog } from './context-menu/confirm-dialog'
 import { promptDialog } from './context-menu/prompt-dialog'
 import { selectDialog } from './context-menu/select-dialog'
 import { useContextMenu } from './context-menu/store'
+import { WorkspaceActions } from './workspace-actions'
 import styles from './tab-bar.module.css'
 
 interface Props {
@@ -30,6 +31,7 @@ export function TabBar({ branch }: Props) {
   const claudeUnread = notifs?.unreadCount ?? 0
   const [adding, setAdding] = useState(false)
   const showContextMenu = useContextMenu()
+  const repo = usePalmuxStore((s) => (repoId ? selectRepoById(repoId)(s) : undefined))
 
   if (!repoId) return null
 
@@ -124,6 +126,7 @@ export function TabBar({ branch }: Props) {
       <button className={styles.addBtn} onClick={onAddBash} disabled={adding} title="New Bash tab">
         +
       </button>
+      <WorkspaceActions repoId={repoId} branchId={branch.id} repo={repo} branch={branch} />
     </div>
   )
 
