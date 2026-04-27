@@ -386,6 +386,37 @@ func (a *Agent) watchClient(cli *Client) {
 	a.mu.Unlock()
 	a.session.SetStatus(StatusIdle)
 	a.broadcastStatus(StatusIdle)
+
+	// Stale --resume session_id: the CLI emitted "No conversation found
+	// with session ID" and exited 1. Drop the active pointer so the next
+	// EnsureClient starts fresh (no --resume), surface a less-alarming
+	// notice, and kick off the respawn ourselves so the user doesn't have
+	// to type a message just to recover.
+	if cli.InvalidResume() {
+		oldID := a.session.SessionID()
+		a.session.Reset()
+		_ = a.deps.manager.store.ClearActive(a.deps.repoID, a.deps.branchID)
+		a.deps.logger.Info("claudeagent: stored session_id is stale, dropping active pointer",
+			"branch", a.deps.branchID, "stale_session", oldID)
+		if ev, err := makeEvent(EvSessionReplaced, SessionReplacedPayload{OldSessionID: oldID, NewSessionID: ""}); err == nil {
+			a.broadcast(ev)
+		}
+		a.publishEvent(EventClaudeSessionReplaced, map[string]any{
+			"oldSessionId": oldID,
+			"newSessionId": "",
+		})
+		// Kick a fresh spawn. If this also fails (e.g. auth issue) the
+		// regular error path takes over.
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			if err := a.EnsureClient(ctx); err != nil {
+				a.deps.logger.Warn("claudeagent: fresh spawn after stale resume failed", "err", err)
+			}
+		}()
+		return
+	}
+
 	if err := cli.ExitErr(); err != nil && !intentional {
 		a.broadcastError("Claude CLI exited", err.Error())
 	}

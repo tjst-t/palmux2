@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
@@ -56,6 +57,12 @@ type Client struct {
 
 	doneCh chan struct{} // closed when the subprocess exits
 	exitErr error
+
+	// invalidResume is set by pumpStderr when the CLI emits the
+	// "No conversation found with session ID" line — a sign that the
+	// --resume target is stale and the Agent should retry without it.
+	invalidResumeMu sync.Mutex
+	invalidResume   bool
 }
 
 // NewClient spawns the CLI and starts pumping its stdout in a goroutine.
@@ -220,11 +227,36 @@ func (c *Client) pumpStderr(stderr io.Reader) {
 		line, err := r.ReadString('\n')
 		if line != "" {
 			c.logger.Info("claude.stderr", "line", line)
+			// Surface known fatal patterns to anyone watching. These are
+			// hints for the Manager — e.g. a stale --resume session_id
+			// makes the CLI exit immediately, so we want to clear the
+			// active pointer before respawning.
+			if strings.Contains(line, "No conversation found with session ID") {
+				c.flagInvalidResume()
+			}
 		}
 		if err != nil {
 			return
 		}
 	}
+}
+
+// flagInvalidResume marks this client as having tried to resume a session
+// that no longer exists on disk. The Agent's watchClient checks the flag
+// after the process exits and clears the persisted active session_id so
+// the next spawn starts fresh.
+func (c *Client) flagInvalidResume() {
+	c.invalidResumeMu.Lock()
+	c.invalidResume = true
+	c.invalidResumeMu.Unlock()
+}
+
+// InvalidResume reports whether stderr matched the "no conversation found"
+// pattern at any point during this client's lifetime.
+func (c *Client) InvalidResume() bool {
+	c.invalidResumeMu.Lock()
+	defer c.invalidResumeMu.Unlock()
+	return c.invalidResume
 }
 
 // handleControlRequest processes CLI-initiated control_requests. Runs on
