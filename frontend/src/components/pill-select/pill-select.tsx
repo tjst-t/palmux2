@@ -140,9 +140,7 @@ export function PillSelect({ options, value, onChange, ariaLabel, prefix }: Prop
                     : styles.option
               }
               onMouseEnter={() => setHoverIndex(i)}
-              onMouseDown={(e) => {
-                // Prevent the trigger from losing focus before onClick.
-                e.preventDefault()
+              onClick={() => {
                 onChange(opt.value)
                 setOpen(false)
               }}
