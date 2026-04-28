@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { useLongPress } from '../hooks/use-long-press'
@@ -10,6 +10,7 @@ import { confirmDialog } from './context-menu/confirm-dialog'
 import { promptDialog } from './context-menu/prompt-dialog'
 import { selectDialog } from './context-menu/select-dialog'
 import { useContextMenu } from './context-menu/store'
+import { ClaudeIcon } from './icons/claude-icon'
 import { WorkspaceActions } from './workspace-actions'
 import styles from './tab-bar.module.css'
 
@@ -265,10 +266,10 @@ function extractName(t: Tab): string {
   return t.id.split(':')[1] ?? t.name
 }
 
-function iconFor(type: string): string {
+function iconFor(type: string): ReactNode {
   switch (type) {
     case 'claude':
-      return '🧠'
+      return <ClaudeIcon style={{ color: 'var(--color-accent-light)' }} />
     case 'bash':
       return '$'
     case 'files':

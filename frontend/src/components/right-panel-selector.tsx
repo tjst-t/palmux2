@@ -1,5 +1,8 @@
+import type { ReactNode } from 'react'
+
 import type { Branch, Repository } from '../lib/api'
 import { usePalmuxStore } from '../stores/palmux-store'
+import { ClaudeIcon } from './icons/claude-icon'
 import type { PanelTarget } from './panel'
 import { WorkspaceActions } from './workspace-actions'
 
@@ -116,10 +119,10 @@ function repoLabel(ghqPath: string): string {
   return parts.slice(1).join('/') || ghqPath
 }
 
-function iconFor(type: string): string {
+function iconFor(type: string): ReactNode {
   switch (type) {
     case 'claude':
-      return '🧠'
+      return <ClaudeIcon style={{ color: 'var(--color-accent-light)' }} />
     case 'bash':
       return '$'
     case 'files':

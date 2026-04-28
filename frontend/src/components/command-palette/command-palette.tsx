@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { useFocusedTerminal } from '../../hooks/use-focused-terminal'
 import { api } from '../../lib/api'
 import { terminalManager } from '../../lib/terminal-manager'
 import { selectBranchById, selectRepoById, usePalmuxStore } from '../../stores/palmux-store'
+import { ClaudeIcon } from '../icons/claude-icon'
 
 import styles from './palette.module.css'
 import { useCommandPaletteStore } from './store'
@@ -14,7 +15,7 @@ type Mode = 'all' | 'workspace' | 'tab' | 'slash' | 'command' | 'file'
 interface PaletteItem {
   id: string
   kind: Mode
-  icon: string
+  icon: ReactNode
   label: string
   detail?: string
   /** Free-text used for client-side filtering. */
@@ -425,10 +426,10 @@ function repoDisplay(ghqPath: string): string {
   return parts.slice(1).join('/') || ghqPath
 }
 
-function tabIcon(type: string): string {
+function tabIcon(type: string): ReactNode {
   switch (type) {
     case 'claude':
-      return '🧠'
+      return <ClaudeIcon style={{ color: 'var(--color-accent-light)' }} />
     case 'bash':
       return '$'
     case 'files':

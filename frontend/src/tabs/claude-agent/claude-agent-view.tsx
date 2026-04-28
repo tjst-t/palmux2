@@ -172,6 +172,33 @@ export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
             ))
           )}
         </div>
+        {!autoFollow && state.turns.length > 0 && (
+          <button
+            type="button"
+            className={styles.scrollToBottomBtn}
+            aria-label="Scroll to latest"
+            title="Scroll to latest"
+            onClick={() => {
+              const el = conversationRef.current
+              if (el) el.scrollTop = el.scrollHeight
+            }}
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M12 5v14" />
+              <path d="m6 13 6 6 6-6" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {isStreaming && (
