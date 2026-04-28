@@ -24,12 +24,15 @@ type EventPublisher interface {
 	Publish(eventType, repoID, branchID string, payload any)
 }
 
-// Config bundles long-lived settings the Manager needs.
+// Config bundles long-lived settings the Manager needs. Values are
+// fall-through defaults — when the user has set per-branch prefs in
+// sessions.json, those win.
 type Config struct {
-	Binary             string
-	DefaultModel       string
+	Binary                string
+	DefaultModel          string
+	DefaultEffort         string
 	DefaultPermissionMode string
-	ExtraArgs          []string
+	ExtraArgs             []string
 }
 
 // NotificationSink is the subset of notify.Hub claudeagent uses to surface
@@ -79,11 +82,14 @@ func NewManager(cfg Config, store *Store, branches BranchResolver, events EventP
 	if cfg.Binary == "" {
 		cfg.Binary = "claude"
 	}
-	if cfg.DefaultModel == "" {
-		cfg.DefaultModel = ""
-	}
+	// DefaultModel "" lets the CLI pick its own default (Opus 4.7 1M ctx
+	// at the time of writing). Pinning a string here would risk drift
+	// when the CLI updates.
 	if cfg.DefaultPermissionMode == "" {
-		cfg.DefaultPermissionMode = "acceptEdits"
+		cfg.DefaultPermissionMode = "auto"
+	}
+	if cfg.DefaultEffort == "" {
+		cfg.DefaultEffort = "xhigh"
 	}
 	if logger == nil {
 		logger = slog.Default()
@@ -122,22 +128,34 @@ func (m *Manager) EnsureAgent(repoID, branchID string) (*Agent, error) {
 		return nil, err
 	}
 	resumeID := m.store.ActiveFor(repoID, branchID)
-	model := ""
-	if meta, ok := m.store.Get(resumeID); ok {
-		model = meta.Model
+	prefs := m.store.BranchPrefs(repoID, branchID)
+	model := prefs.Model
+	if model == "" {
+		if meta, ok := m.store.Get(resumeID); ok {
+			model = meta.Model
+		}
 	}
 	if model == "" {
 		model = m.cfg.DefaultModel
 	}
+	effort := prefs.Effort
+	if effort == "" {
+		effort = m.cfg.DefaultEffort
+	}
+	permMode := prefs.PermissionMode
+	if permMode == "" {
+		permMode = m.cfg.DefaultPermissionMode
+	}
 	a := newAgent(agentDeps{
-		repoID:        repoID,
-		branchID:      branchID,
-		worktree:      worktree,
-		model:         model,
-		permissionMode: m.cfg.DefaultPermissionMode,
-		resumeID:      resumeID,
-		manager:       m,
-		logger:        m.logger,
+		repoID:         repoID,
+		branchID:       branchID,
+		worktree:       worktree,
+		model:          model,
+		effort:         effort,
+		permissionMode: permMode,
+		resumeID:       resumeID,
+		manager:        m,
+		logger:         m.logger,
 	})
 	// Seed the session with whatever init payload we cached from the
 	// previous run — gives us the slash-command popup / model list / agent
@@ -207,6 +225,7 @@ type agentDeps struct {
 	repoID, branchID string
 	worktree         string
 	model            string
+	effort           string
 	permissionMode   string
 	resumeID         string
 	manager          *Manager
@@ -244,10 +263,14 @@ type Agent struct {
 }
 
 func newAgent(deps agentDeps) *Agent {
+	sess := NewSession(deps.repoID, deps.branchID, deps.resumeID, deps.model, deps.permissionMode)
+	if deps.effort != "" {
+		sess.SetEffort(deps.effort)
+	}
 	return &Agent{
-		deps: deps,
-		session: NewSession(deps.repoID, deps.branchID, deps.resumeID, deps.model, deps.permissionMode),
-		subs: map[chan AgentEvent]struct{}{},
+		deps:    deps,
+		session: sess,
+		subs:    map[chan AgentEvent]struct{}{},
 	}
 }
 
@@ -698,6 +721,7 @@ func (a *Agent) SetModel(ctx context.Context, model string) error {
 	cli := a.client
 	a.mu.Unlock()
 	a.session.SetModel(model)
+	a.persistPrefs()
 	if cli == nil {
 		return nil
 	}
@@ -709,6 +733,7 @@ func (a *Agent) SetModel(ctx context.Context, model string) error {
 // session_id carries the conversation forward.
 func (a *Agent) SetEffort(ctx context.Context, effort string) error {
 	a.session.SetEffort(effort)
+	a.persistPrefs()
 	a.mu.Lock()
 	cli := a.client
 	a.mu.Unlock()
@@ -726,6 +751,7 @@ func (a *Agent) SetEffort(ctx context.Context, effort string) error {
 // and `--resume <session_id>` so the conversation survives the swap.
 func (a *Agent) SetPermissionMode(ctx context.Context, mode string) error {
 	a.session.SetPermissionMode(mode)
+	a.persistPrefs()
 	a.mu.Lock()
 	cli := a.client
 	a.mu.Unlock()
@@ -939,6 +965,23 @@ func (a *Agent) broadcastError(msg, detail string) {
 		"message": msg,
 		"detail":  detail,
 	})
+}
+
+// persistPrefs snapshots the current model / effort / permission mode and
+// writes them to the per-branch overrides in sessions.json. Called after
+// any user-driven change so a fresh tab on the same branch picks them up.
+func (a *Agent) persistPrefs() {
+	if a.deps.manager == nil || a.deps.manager.store == nil {
+		return
+	}
+	prefs := BranchPrefs{
+		Model:          a.session.Model(),
+		Effort:         a.session.Effort(),
+		PermissionMode: a.session.PermissionMode(),
+	}
+	if err := a.deps.manager.store.SetBranchPrefs(a.deps.repoID, a.deps.branchID, prefs); err != nil {
+		a.deps.logger.Warn("claudeagent: SetBranchPrefs failed", "err", err)
+	}
 }
 
 // publishEvent fans a branch-scoped state change out to the global

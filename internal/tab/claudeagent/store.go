@@ -40,6 +40,18 @@ type PersistedShape struct {
 	// Cached here so the slash-command popup, model list, and agent list
 	// are populated even before the first lazy spawn on a fresh server.
 	LastInit *InitInfo `json:"lastInit,omitempty"`
+	// BranchPrefs persists user-tweaked model / effort / permission mode
+	// per branch. Read on EnsureAgent; written every time the user picks
+	// a different value in the composer.
+	BranchPrefs map[string]BranchPrefs `json:"branchPrefs,omitempty"`
+}
+
+// BranchPrefs is the per-branch overrides for the Claude tab. Empty
+// strings fall through to Manager.Config defaults.
+type BranchPrefs struct {
+	Model          string `json:"model,omitempty"`
+	Effort         string `json:"effort,omitempty"`
+	PermissionMode string `json:"permissionMode,omitempty"`
 }
 
 // Store wraps sessions.json with the same atomic-write discipline as the
@@ -178,6 +190,27 @@ func (s *Store) List(repoID, branchID string) []SessionMeta {
 	}
 	sortByActivity(out)
 	return out
+}
+
+// BranchPrefs returns the persisted overrides for a branch. Missing
+// entry yields the zero-value (all empty strings → use defaults).
+func (s *Store) BranchPrefs(repoID, branchID string) BranchPrefs {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.data.BranchPrefs[branchKey(repoID, branchID)]
+}
+
+// SetBranchPrefs upserts the per-branch overrides. Empty fields are
+// preserved as empty (= "follow defaults"), so callers should pass the
+// full intended state — partial merges aren't done here.
+func (s *Store) SetBranchPrefs(repoID, branchID string, prefs BranchPrefs) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data.BranchPrefs == nil {
+		s.data.BranchPrefs = map[string]BranchPrefs{}
+	}
+	s.data.BranchPrefs[branchKey(repoID, branchID)] = prefs
+	return s.save()
 }
 
 // SetLastInit caches the most recent CLI initialize payload so the next

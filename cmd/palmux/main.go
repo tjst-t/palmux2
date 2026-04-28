@@ -127,8 +127,7 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 	// `claude` tab has been removed. Manager needs the Store for worktree
 	// path lookups, so all providers are registered after store.New.
 	agentManager := claudeagent.NewManager(claudeagent.Config{
-		Binary:                "claude",
-		DefaultPermissionMode: "acceptEdits",
+		Binary: "claude",
 	},
 		agentStore,
 		branchResolver{store: st},
