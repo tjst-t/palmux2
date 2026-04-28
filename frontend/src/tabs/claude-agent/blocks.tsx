@@ -125,9 +125,18 @@ function ToolUseBlock({ block }: { block: Block }) {
   // Default-collapsed once the tool finishes; expanded while running so the
   // user can see the input forming live (mirrors Claude Code Desktop where
   // the latest in-flight tool stays visible until completion).
-  const [expanded, setExpanded] = useState(!block.done)
+  // …with one exception: a block whose input is still empty (Anthropic
+  // emits content_block_start with `input: {}` before any input_json_delta)
+  // should stay collapsed until at least one delta lands, otherwise we
+  // render a useless `INPUT {}` panel and — worse — leave that panel
+  // visible forever if the turn was interrupted before any delta arrived.
+  const hasContent = blockHasContent(block)
+  const [expanded, setExpanded] = useState(!block.done && hasContent)
   const summaryText = toolSummary(block)
   const badge = !block.done ? 'running' : ''
+  // Drop entirely if the block finalised with no payload at all — that's
+  // an orphan from an interrupted turn / dropped delta and only adds noise.
+  if (block.done && !hasContent) return null
   return (
     <div className={styles.toolUse}>
       <div
@@ -149,13 +158,24 @@ function ToolUseBlock({ block }: { block: Block }) {
         )}
         {badge && <span className={`${styles.toolBadge} ${styles.running}`}>{badge}</span>}
       </div>
-      {expanded && (
+      {expanded && hasContent && (
         <div className={styles.toolBody}>
           <ToolInputRich block={block} />
         </div>
       )}
     </div>
   )
+}
+
+// blockHasContent decides whether a tool_use block has anything worth
+// rendering. Returns false for the brief window between content_block_start
+// and the first input_json_delta (Anthropic ships start with input={}),
+// and for orphans left over from interrupted turns.
+function blockHasContent(block: Block): boolean {
+  const obj = parseInputObject(block)
+  if (obj && Object.keys(obj).length > 0) return true
+  if (block.text && block.text.trim()) return true
+  return false
 }
 
 // ToolInputRich renders the tool input panel with a tool-specific layout
@@ -511,7 +531,11 @@ function parseInputObject(block: Block): Record<string, unknown> | null {
 }
 
 function formatToolInput(block: Block): string {
-  if (block.input != null) return safeStringify(block.input)
+  const obj = parseInputObject(block)
+  if (obj && Object.keys(obj).length > 0) return safeStringify(obj)
+  // Either no input yet, or input is the start-of-stream `{}` placeholder.
+  // Fall back to the partial-JSON delta accumulator so streaming tools
+  // show the input building up rather than a misleading "{}".
   return block.text ?? ''
 }
 
