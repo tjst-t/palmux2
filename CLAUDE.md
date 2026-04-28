@@ -33,8 +33,13 @@
 
 - `make dev` — Vite dev + Go サーバー（hot reload）。portman 経由
 - `make serve` — Go サーバー単体（embed 済みフロント）。portman 経由
+- `make {dev,serve} INSTANCE=<name>` — portman 名にサフィックスを付け、ホスト用 instance と並走させる。詳細は [docs/development.md](docs/development.md)
 - サーバー起動スクリプトを作成・変更する場合は portman ガイドを参照: https://raw.githubusercontent.com/tjst-t/port-manager/main/docs/CLAUDE_INTEGRATION.md
 - `.env` ファイルは `.gitignore` に追加（git commit しない）
+
+### palmux2 自身の中で palmux2 を開発するときの注意
+
+ホスト用 palmux2（普段 Claude CLI を動かしている方）の `make serve` は **その palmux2 が管理している tmux セッション ＝ 自分が今操作している Claude CLI** を巻き込んで死ぬ。bootstrap 問題なので、開発は `gwq add -b dev` で別ブランチの worktree を切り、`INSTANCE=dev` で別 portman 名・別ポートで起動する。具体的な手順は [docs/development.md](docs/development.md) を参照。
 
 実装が進んだら、本 CLAUDE.md を必要に応じて更新する（ディレクトリ構成の実態反映、確定した規約の追記、仕様変更の反映など）。
 

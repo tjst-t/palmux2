@@ -5,10 +5,21 @@ ENV_FILE := $(TMP_DIR)/portman.env
 BIN_DIR := bin
 GO_PKG := ./cmd/palmux
 
+# Optional instance suffix so a second palmux2 (e.g. in a `dev` worktree)
+# can run side-by-side with the host instance without sharing portman
+# names — and therefore without sharing ports. Default: blank → host
+# instance ("palmux2", "palmux2-api", "palmux2-frontend"). Override with
+# `make serve INSTANCE=dev` etc.
+INSTANCE ?=
+INSTANCE_SUFFIX := $(if $(INSTANCE),-$(INSTANCE),)
+SERVE_NAME    := palmux2$(INSTANCE_SUFFIX)
+API_NAME      := palmux2$(INSTANCE_SUFFIX)-api
+FRONTEND_NAME := palmux2$(INSTANCE_SUFFIX)-frontend
+
 # Re-lease ports each invocation. portman returns the same port for the same
 # project/branch/name combo, so this is stable across runs.
 ports: tmp
-	@portman env --expose --name palmux2-api --name palmux2-frontend --output $(ENV_FILE)
+	@portman env --expose --name $(API_NAME) --name $(FRONTEND_NAME) --output $(ENV_FILE)
 	@cat $(ENV_FILE)
 
 tmp:
@@ -17,16 +28,22 @@ tmp:
 dev: ports
 	@$(MAKE) -j2 dev-api dev-frontend
 
+# portman env writes ports as PALMUX2_<NAME>_PORT, where <NAME> is the
+# uppercased portman name with hyphens turned into underscores. We compute
+# the variable names here so they track INSTANCE.
+API_PORT_VAR      := PALMUX2$(shell echo $(INSTANCE_SUFFIX) | tr 'a-z-' 'A-Z_')_API_PORT
+FRONTEND_PORT_VAR := PALMUX2$(shell echo $(INSTANCE_SUFFIX) | tr 'a-z-' 'A-Z_')_FRONTEND_PORT
+
 dev-api: ports
 	@. $(ENV_FILE) && \
 		go run $(GO_PKG) \
-			--addr "0.0.0.0:$$PALMUX2_API_PORT" \
+			--addr "0.0.0.0:$${$(API_PORT_VAR)}" \
 			--config-dir ./$(TMP_DIR)
 
 dev-frontend: ports
 	@. $(ENV_FILE) && cd frontend && \
-		PALMUX2_API_PORT=$$PALMUX2_API_PORT \
-		npm run dev -- --port $$PALMUX2_FRONTEND_PORT --host 0.0.0.0 --strictPort
+		PALMUX2_API_PORT=$${$(API_PORT_VAR)} \
+		npm run dev -- --port $${$(FRONTEND_PORT_VAR)} --host 0.0.0.0 --strictPort
 
 # Production: embed-built frontend, single binary
 build: build-frontend
@@ -55,7 +72,7 @@ build-arm: build-frontend
 
 # Run the production binary via portman (single port)
 serve: build tmp
-	portman exec --name palmux2 --expose -- ./$(BIN_DIR)/palmux \
+	portman exec --name $(SERVE_NAME) --expose -- ./$(BIN_DIR)/palmux \
 		--addr "0.0.0.0:{}" \
 		--config-dir ./$(TMP_DIR)
 
