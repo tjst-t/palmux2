@@ -63,6 +63,26 @@ const INTERNAL_COMMANDS: { name: string; description: string }[] = [
   { name: 'model', description: 'Switch model: /model <name>' },
 ]
 
+// Attachment is one image (or file) the user has added to their pending
+// message. previewUrl is a blob:/data: URL kept in memory for the
+// thumbnail; path is the absolute server-side path returned by the
+// upload endpoint, which is what the agent receives when the message
+// is sent. We hold the chip in the composer rather than dump the path
+// into the textarea so the message reads cleanly.
+interface Attachment {
+  id: string
+  name: string
+  path: string
+  previewUrl: string
+  kind: 'image' | 'file'
+}
+
+let attachmentCounter = 0
+function newAttachmentId(): string {
+  attachmentCounter += 1
+  return `a${attachmentCounter}-${Date.now().toString(36)}`
+}
+
 export function Composer(props: ComposerProps) {
   const {
     repoId,
@@ -85,7 +105,24 @@ export function Composer(props: ComposerProps) {
   const [value, setValue] = useState('')
   const [composing, setComposing] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [attachments, setAttachments] = useState<Attachment[]>([])
   const taRef = useRef<HTMLTextAreaElement | null>(null)
+
+  // Auto-grow the textarea up to a third of the viewport height; beyond
+  // that, switch to internal scrolling. Re-runs whenever the content
+  // (or the viewport) changes.
+  useEffect(() => {
+    const ta = taRef.current
+    if (!ta) return
+    const grow = () => {
+      ta.style.height = 'auto'
+      const cap = Math.max(120, Math.floor(window.innerHeight / 3))
+      ta.style.height = `${Math.min(ta.scrollHeight, cap)}px`
+    }
+    grow()
+    window.addEventListener('resize', grow)
+    return () => window.removeEventListener('resize', grow)
+  }, [value])
 
   // Optimistic state for the three pill selectors. The parent passes the
   // server-confirmed value via props, but model.set / effort.set /
@@ -199,9 +236,23 @@ export function Composer(props: ComposerProps) {
   }, [completion])
 
   const submit = () => {
-    if (!value.trim() || isStreaming || disabled) return
-    onSend(value)
+    if (isStreaming || disabled) return
+    const text = value.trim()
+    if (!text && attachments.length === 0) return
+    // Append attachment paths after the user's prose so the CLI can
+    // Read them. We use a `[image: <path>]` line per attachment — that
+    // form survived empirical testing better than the bare path.
+    const attachLines = attachments.map(
+      (a) => `[${a.kind === 'image' ? 'image' : 'file'}: ${a.path}]`,
+    )
+    const body = [text, ...attachLines].filter((s) => s).join('\n')
+    onSend(body)
     setValue('')
+    // Free the preview URLs we created with URL.createObjectURL.
+    for (const a of attachments) {
+      if (a.previewUrl.startsWith('blob:')) URL.revokeObjectURL(a.previewUrl)
+    }
+    setAttachments([])
     completion.cancel()
   }
 
@@ -243,7 +294,18 @@ export function Composer(props: ComposerProps) {
   }
 
   const uploadFile = async (file: File) => {
-    if (uploading || !file.type.startsWith('image/')) return
+    if (uploading) return
+    const isImage = file.type.startsWith('image/')
+    if (!isImage) return
+    // Show the chip optimistically with a local blob preview while the
+    // upload is in flight. Replace nothing on failure — just remove the
+    // pending chip.
+    const previewUrl = URL.createObjectURL(file)
+    const tempId = newAttachmentId()
+    setAttachments((prev) => [
+      ...prev,
+      { id: tempId, name: file.name || 'image', path: '', previewUrl, kind: 'image' },
+    ])
     setUploading(true)
     try {
       const fd = new FormData()
@@ -253,22 +315,31 @@ export function Composer(props: ComposerProps) {
         credentials: 'include',
         body: fd,
       })
-      if (!res.ok) return
+      if (!res.ok) {
+        URL.revokeObjectURL(previewUrl)
+        setAttachments((prev) => prev.filter((a) => a.id !== tempId))
+        return
+      }
       const data = (await res.json()) as { path?: string }
-      if (!data.path) return
-      // Insert the absolute path into the message so Claude can Read it.
-      const insertion = (value && !value.endsWith(' ') ? ' ' : '') + data.path + ' '
-      const next = value + insertion
-      setValue(next)
-      requestAnimationFrame(() => {
-        if (taRef.current) {
-          taRef.current.focus()
-          taRef.current.setSelectionRange(next.length, next.length)
-        }
-      })
+      if (!data.path) {
+        URL.revokeObjectURL(previewUrl)
+        setAttachments((prev) => prev.filter((a) => a.id !== tempId))
+        return
+      }
+      setAttachments((prev) =>
+        prev.map((a) => (a.id === tempId ? { ...a, path: data.path! } : a)),
+      )
     } finally {
       setUploading(false)
     }
+  }
+
+  const removeAttachment = (id: string) => {
+    setAttachments((prev) => {
+      const dropped = prev.find((a) => a.id === id)
+      if (dropped?.previewUrl.startsWith('blob:')) URL.revokeObjectURL(dropped.previewUrl)
+      return prev.filter((a) => a.id !== id)
+    })
   }
 
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -305,6 +376,30 @@ export function Composer(props: ComposerProps) {
           state={completion.state}
           onPick={(opt) => applyCompletion(opt)}
         />
+        {attachments.length > 0 && (
+          <div className={styles.attachments}>
+            {attachments.map((a) => (
+              <div key={a.id} className={styles.attachment} title={a.name}>
+                {a.kind === 'image' ? (
+                  <img src={a.previewUrl} alt={a.name} className={styles.attachmentThumb} />
+                ) : (
+                  <span className={styles.attachmentFileIcon}>📎</span>
+                )}
+                <span className={styles.attachmentName}>{a.name}</span>
+                {!a.path && <span className={styles.attachmentSpinner}>…</span>}
+                <button
+                  type="button"
+                  className={styles.attachmentRemove}
+                  onClick={() => removeAttachment(a.id)}
+                  aria-label={`Remove ${a.name}`}
+                  title="Remove"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <textarea
           ref={taRef}
           value={value}
@@ -376,7 +471,7 @@ export function Composer(props: ComposerProps) {
               type="button"
               className={styles.sendBtn}
               onClick={submit}
-              disabled={!value.trim() || disabled}
+              disabled={(!value.trim() && attachments.length === 0) || disabled}
               title="Send (Enter)"
               aria-label="Send"
             >

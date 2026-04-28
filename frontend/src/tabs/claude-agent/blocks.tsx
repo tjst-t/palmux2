@@ -40,11 +40,65 @@ export function BlockView({ block, permissionHandlers }: BlockProps) {
   }
 }
 
+// splitTextWithAttachments strips `[image: /abs/path]` lines (the format
+// Composer inlines when the user attaches images) out of the prose and
+// returns the matched paths separately so we can render thumbnails.
+function splitTextWithAttachments(text: string): { text: string; images: string[] } {
+  const images: string[] = []
+  // Repeatedly match per-line image tags and strip them out.
+  const cleaned = text.replace(/^\s*\[image:\s+(\S.*?)\]\s*$/gim, (_, p) => {
+    if (typeof p === 'string') images.push(p.trim())
+    return ''
+  }).replace(/\n{3,}/g, '\n\n').trim()
+  return { text: cleaned, images }
+}
+
+// uploadURLForPath turns an absolute path served by the upload endpoint
+// (canonically `/tmp/palmux-uploads/<name>` but the user can configure
+// `imageUploadDir`) into a fetchable HTTP URL. We only proxy images that
+// live under the configured upload dir; the basename is what the route
+// keys on, so any path whose basename matches a real upload resolves.
+function uploadURLForPath(path: string): string | null {
+  if (!path) return null
+  // Take the last path segment (POSIX or Windows-ish). filename only.
+  const idx = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+  const name = idx >= 0 ? path.slice(idx + 1) : path
+  if (!name) return null
+  return `/api/upload/${encodeURIComponent(name)}`
+}
+
 function TextBlock({ text }: { text: string }) {
   if (!text) return null
+  const { text: prose, images } = splitTextWithAttachments(text)
   return (
     <div className={styles.text}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+      {prose && <ReactMarkdown remarkPlugins={[remarkGfm]}>{prose}</ReactMarkdown>}
+      {images.length > 0 && (
+        <div className={styles.inlineAttachments}>
+          {images.map((p, i) => {
+            const url = uploadURLForPath(p)
+            if (!url) {
+              return (
+                <span key={i} className={styles.inlineAttachmentMissing}>
+                  [image: {p}]
+                </span>
+              )
+            }
+            return (
+              <a
+                key={i}
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                className={styles.inlineAttachment}
+                title={p}
+              >
+                <img src={url} alt={p} className={styles.inlineAttachmentImg} />
+              </a>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

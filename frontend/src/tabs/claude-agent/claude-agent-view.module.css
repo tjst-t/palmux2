@@ -261,7 +261,10 @@
   outline: none;
   padding: 10px 12px;
   min-height: 24px;
-  max-height: 240px;
+  /* Hard cap is also set imperatively (window.innerHeight / 3) by
+     Composer's auto-grow effect; keep this as a sane fallback. */
+  max-height: 33vh;
+  overflow-y: auto;
 }
 
 .composerInner textarea:disabled {
@@ -275,6 +278,74 @@
   gap: 4px;
   padding: 4px 8px 6px;
   border-top: 1px solid transparent;
+}
+
+/* Attachment chip strip — sits above the textarea inside the composer
+   bubble. Each chip shows a thumbnail (image) or icon (other), the
+   filename, and a × to drop. */
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 8px 0;
+}
+
+.attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 4px 6px 4px 4px;
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  max-width: 220px;
+}
+
+.attachmentThumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 3px;
+  object-fit: cover;
+  background: var(--color-surface);
+  flex: 0 0 auto;
+}
+
+.attachmentFileIcon {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.attachmentName {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-fg);
+}
+
+.attachmentSpinner {
+  font-size: 11px;
+  color: var(--color-fg-muted);
+}
+
+.attachmentRemove {
+  background: transparent;
+  border: none;
+  color: var(--color-fg-muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+  border-radius: 50%;
+}
+.attachmentRemove:hover {
+  background: var(--color-elevated);
+  color: var(--color-fg);
 }
 
 .modePill {

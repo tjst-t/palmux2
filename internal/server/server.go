@@ -110,6 +110,7 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("POST /api/notify/clear", h.clearNotifications)
 
 	mux.HandleFunc("POST /api/upload", h.uploadImage)
+	mux.HandleFunc("GET /api/upload/{name}", h.fetchUpload)
 }
 
 // handlers groups every handler that needs Store access.

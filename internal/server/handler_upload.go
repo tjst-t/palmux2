@@ -78,6 +78,49 @@ func (h *handlers) uploadImage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, uploadResult{Path: full, Size: info.Size()})
 }
 
+// fetchUpload serves a previously-uploaded file by basename. The path
+// MUST stay inside the configured upload dir — we reject anything that
+// resolves outside via filepath.Clean / EvalSymlinks comparison so a
+// crafted basename can't punch into the rest of the filesystem.
+//
+//	GET /api/upload/{name}
+func (h *handlers) fetchUpload(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" || strings.ContainsAny(name, "/\\") || name == "." || name == ".." {
+		http.Error(w, "invalid name", http.StatusBadRequest)
+		return
+	}
+	settings := h.store.Settings().Get()
+	dir := settings.ImageUploadDir
+	if dir == "" {
+		dir = "/tmp/palmux-uploads"
+	}
+	full := filepath.Join(dir, name)
+	// Defence in depth: ensure the resolved path is still under dir.
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		http.Error(w, "bad upload dir", http.StatusInternalServerError)
+		return
+	}
+	absFile, err := filepath.Abs(full)
+	if err != nil || !strings.HasPrefix(absFile, absDir+string(os.PathSeparator)) {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	info, err := os.Stat(absFile)
+	if err != nil || info.IsDir() {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	// Reasonable cache lifetime — these blobs are content-addressed by
+	// random suffix so they never change.
+	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	if ct := mime.TypeByExtension(filepath.Ext(absFile)); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	http.ServeFile(w, r, absFile)
+}
+
 func pickExtension(name, contentType string) string {
 	if name != "" {
 		ext := filepath.Ext(name)

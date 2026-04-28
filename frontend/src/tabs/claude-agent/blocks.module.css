@@ -60,6 +60,40 @@
 }
 .text a:hover { text-decoration: underline; }
 
+/* Inline image attachments inside a chat bubble. The Composer sends
+   image paths as `[image: …]` markers; TextBlock pulls those out and
+   renders them as thumbnails after the prose. Click → opens fullsize
+   in a new tab. */
+.inlineAttachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.inlineAttachment {
+  display: inline-block;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--color-bg);
+  line-height: 0;
+}
+.inlineAttachment:hover { border-color: var(--color-accent-light); }
+
+.inlineAttachmentImg {
+  display: block;
+  max-width: 220px;
+  max-height: 160px;
+  object-fit: cover;
+}
+
+.inlineAttachmentMissing {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-fg-dim);
+}
+
 .text blockquote {
   margin: var(--space-2) 0;
   padding-left: var(--space-3);
