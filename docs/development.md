@@ -42,7 +42,7 @@ make dev INSTANCE=dev
 make serve INSTANCE=dev
 ```
 
-`INSTANCE=dev` は `Makefile` の portman 名サフィックスを切り替える:
+`INSTANCE=dev` は `Makefile` の portman 名 / PID ファイル / ログファイルにサフィックスを付ける:
 
 | ターゲット                | 通常の portman 名         | `INSTANCE=dev` 時             |
 | ------------------------- | ------------------------- | ----------------------------- |
@@ -50,7 +50,15 @@ make serve INSTANCE=dev
 | `make dev` (api)          | `palmux2-api`             | `palmux2-dev-api`             |
 | `make dev` (frontend)     | `palmux2-frontend`        | `palmux2-dev-frontend`        |
 
+| ファイル                | 通常                          | `INSTANCE=dev` 時                  |
+| ----------------------- | ----------------------------- | ---------------------------------- |
+| serve PID               | `tmp/palmux.pid`              | `tmp/palmux-dev.pid`               |
+| serve ログ              | `tmp/palmux.log`              | `tmp/palmux-dev.log`               |
+| serve portman env       | `tmp/palmux.portman.env`      | `tmp/palmux-dev.portman.env`       |
+
 portman が同名に対しては毎回同じポートを返すので、開発用ポートも安定する。
+
+`make serve` はバックグラウンド起動。再度 `make serve` を打つと PID ファイルから古いプロセスを kill してから新しく立ち上げる。停止だけしたいときは `make serve-stop`、ログを見たいときは `make serve-logs`。
 
 ### ブラウザで開く
 

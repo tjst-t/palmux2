@@ -31,9 +31,11 @@
 
 ### サーバー起動
 
-- `make dev` — Vite dev + Go サーバー（hot reload）。portman 経由
-- `make serve` — Go サーバー単体（embed 済みフロント）。portman 経由
-- `make {dev,serve} INSTANCE=<name>` — portman 名にサフィックスを付け、ホスト用 instance と並走させる。詳細は [docs/development.md](docs/development.md)
+- `make dev` — Vite dev + Go サーバー（hot reload）。portman 経由、フォアグラウンド実行
+- `make serve` — Go サーバー単体（embed 済みフロント）を **バックグラウンド** で起動して即シェルに戻る。再実行すると前のプロセスを kill してから起動しなおす。PID: `tmp/palmux.pid`、ログ: `tmp/palmux.log`
+- `make serve-stop` — バックグラウンド instance を停止
+- `make serve-logs` — `tmp/palmux.log` を tail
+- `make {dev,serve,serve-stop,serve-logs} INSTANCE=<name>` — portman 名・PID/ログファイルにサフィックスを付け、ホスト用 instance と並走させる。詳細は [docs/development.md](docs/development.md)
 - サーバー起動スクリプトを作成・変更する場合は portman ガイドを参照: https://raw.githubusercontent.com/tjst-t/port-manager/main/docs/CLAUDE_INTEGRATION.md
 - `.env` ファイルは `.gitignore` に追加（git commit しない）
 

@@ -1,4 +1,4 @@
-.PHONY: dev dev-api dev-frontend ports tmp serve build build-linux build-arm test lint clean
+.PHONY: dev dev-api dev-frontend ports tmp serve serve-stop serve-logs build build-linux build-arm test lint clean
 
 TMP_DIR := tmp
 ENV_FILE := $(TMP_DIR)/portman.env
@@ -70,11 +70,57 @@ build-arm: build-frontend
 	@mkdir -p $(BIN_DIR)
 	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o $(BIN_DIR)/palmux-linux-arm64 $(GO_PKG)
 
-# Run the production binary via portman (single port)
+# Background-run the production binary, keep its PID in $(SERVE_PID), kill
+# the previous process on re-run. Mirrors pattern 6 of port-manager's
+# CLAUDE_INTEGRATION.md so `make serve` returns to the shell promptly.
+SERVE_PID    := $(TMP_DIR)/palmux$(INSTANCE_SUFFIX).pid
+SERVE_LOG    := $(TMP_DIR)/palmux$(INSTANCE_SUFFIX).log
+SERVE_ENV    := $(TMP_DIR)/palmux$(INSTANCE_SUFFIX).portman.env
+SERVE_PORT_VAR := PALMUX2$(shell echo $(INSTANCE_SUFFIX) | tr 'a-z-' 'A-Z_')_PORT
+
 serve: build tmp
-	portman exec --name $(SERVE_NAME) --expose -- ./$(BIN_DIR)/palmux \
-		--addr "0.0.0.0:{}" \
-		--config-dir ./$(TMP_DIR)
+	@if [ -f $(SERVE_PID) ]; then \
+	  OLD_PID=$$(cat $(SERVE_PID)); \
+	  if kill -0 $$OLD_PID 2>/dev/null; then \
+	    echo "==> Killing previous palmux2 (PID: $$OLD_PID)..."; \
+	    kill $$OLD_PID; \
+	    for i in $$(seq 1 50); do kill -0 $$OLD_PID 2>/dev/null || break; sleep 0.1; done; \
+	    kill -0 $$OLD_PID 2>/dev/null && kill -9 $$OLD_PID 2>/dev/null || true; \
+	  fi; \
+	  rm -f $(SERVE_PID); \
+	fi
+	@portman env --name $(SERVE_NAME) --expose --output $(SERVE_ENV)
+	@. $(SERVE_ENV) && \
+	  PORT=$${$(SERVE_PORT_VAR)} && \
+	  echo "==> Starting palmux2 on port $$PORT (log: $(SERVE_LOG))" && \
+	  nohup ./$(BIN_DIR)/palmux \
+	    --addr "0.0.0.0:$$PORT" \
+	    --config-dir ./$(TMP_DIR) \
+	    > $(SERVE_LOG) 2>&1 & \
+	  echo $$! > $(SERVE_PID) && \
+	  echo "    PID: $$(cat $(SERVE_PID))"
+
+# Stop the background instance (no restart). Idempotent.
+serve-stop:
+	@if [ -f $(SERVE_PID) ]; then \
+	  OLD_PID=$$(cat $(SERVE_PID)); \
+	  if kill -0 $$OLD_PID 2>/dev/null; then \
+	    echo "==> Stopping palmux2 (PID: $$OLD_PID)..."; \
+	    kill $$OLD_PID; \
+	    for i in $$(seq 1 50); do kill -0 $$OLD_PID 2>/dev/null || break; sleep 0.1; done; \
+	    kill -0 $$OLD_PID 2>/dev/null && kill -9 $$OLD_PID 2>/dev/null || true; \
+	  else \
+	    echo "==> Stale pid file; cleaning up."; \
+	  fi; \
+	  rm -f $(SERVE_PID); \
+	else \
+	  echo "==> Nothing to stop."; \
+	fi
+
+# Tail the latest server log.
+serve-logs:
+	@test -f $(SERVE_LOG) || { echo "no log at $(SERVE_LOG)"; exit 1; }
+	@tail -f $(SERVE_LOG)
 
 GO_PKGS := $(shell go list ./... 2>/dev/null | grep -v '/frontend/')
 
