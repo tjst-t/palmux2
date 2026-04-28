@@ -27,6 +27,7 @@ interface PermissionModesResp {
 export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
   const { state, connState, send } = useAgent(repoId, branchId)
   const conversationRef = useRef<HTMLDivElement>(null)
+  const historyButtonRef = useRef<HTMLButtonElement | null>(null)
   const [modes, setModes] = useState<PermissionModesResp>(FALLBACK_PERMISSION_MODES)
   const [autoFollow, setAutoFollow] = useState(true)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -124,6 +125,7 @@ export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
         canInterrupt={isStreaming}
         onInterrupt={() => send.interrupt()}
         onOpenHistory={() => setHistoryOpen((v) => !v)}
+        historyButtonRef={historyButtonRef}
       />
       {historyOpen && (
         <div style={{ position: 'relative' }}>
@@ -135,6 +137,7 @@ export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
             onClose={() => setHistoryOpen(false)}
             onResume={(id) => send.sessionResume(id)}
             onFork={(id) => send.sessionFork(id)}
+            anchorRef={historyButtonRef}
           />
         </div>
       )}
@@ -259,6 +262,7 @@ interface TopBarProps {
   onInterrupt: () => void
   onClear: () => void
   onOpenHistory: () => void
+  historyButtonRef?: React.RefObject<HTMLButtonElement | null>
 }
 
 function TopBar(props: TopBarProps) {
@@ -293,6 +297,7 @@ function TopBar(props: TopBarProps) {
       )}
 
       <button
+        ref={props.historyButtonRef}
         type="button"
         className={styles.iconBtn}
         onClick={props.onOpenHistory}

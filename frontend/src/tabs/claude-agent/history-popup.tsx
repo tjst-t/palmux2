@@ -31,9 +31,15 @@ interface Props {
   onClose: () => void
   onResume: (sessionId: string) => void
   onFork: (sessionId: string) => void
+  /**
+   * The element that toggles this popup. Click-outside detection ignores
+   * pointerdowns inside this element so the trigger button can implement
+   * its own toggle without colliding with our auto-close path.
+   */
+  anchorRef?: React.RefObject<HTMLElement | null>
 }
 
-export function HistoryPopup({ repoId, branchId, currentSessionId, open, onClose, onResume, onFork }: Props) {
+export function HistoryPopup({ repoId, branchId, currentSessionId, open, onClose, onResume, onFork, anchorRef }: Props) {
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [filterAll, setFilterAll] = useState(false)
   const [query, setQuery] = useState('')
@@ -63,12 +69,18 @@ export function HistoryPopup({ repoId, branchId, currentSessionId, open, onClose
     }
   }, [open, repoId, branchId, filterAll])
 
-  // Click-outside / Esc closes.
+  // Click-outside / Esc closes. Skip pointerdowns on the trigger element
+  // so it can toggle the popup itself — without this exclusion the
+  // click-outside handler closes the popup, then the trigger's onClick
+  // re-opens it.
   useEffect(() => {
     if (!open) return
     const onPointer = (e: PointerEvent) => {
       if (!ref.current) return
-      if (!ref.current.contains(e.target as Node)) onClose()
+      const target = e.target as Node
+      if (ref.current.contains(target)) return
+      if (anchorRef?.current?.contains(target)) return
+      onClose()
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -79,7 +91,7 @@ export function HistoryPopup({ repoId, branchId, currentSessionId, open, onClose
       window.removeEventListener('pointerdown', onPointer, true)
       window.removeEventListener('keydown', onKey)
     }
-  }, [open, onClose])
+  }, [open, onClose, anchorRef])
 
   const filtered = useMemo(() => {
     const ql = query.trim().toLowerCase()
