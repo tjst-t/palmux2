@@ -3,6 +3,8 @@
 > 仕様書 05 (`Claude Agent タブ — 設計書`) の Phase 1 (stream-json + MCP 最小実装) 完了後の続編。
 > 「Claude Code Desktop と同等以上の体験」をゴールに、機能ギャップを段階的に埋める計画。
 > **コア部分の汎用機構を先に整備してから Claude タブ側で利用する**方針。
+>
+> **進行状況** (2026-04-29 時点): Phase 1 完了 → Phase 2 ほぼ完了（以下「§5 進捗サマリ」参照）→ 次は Phase 3 着手。
 
 ## 1. 背景
 
@@ -14,6 +16,15 @@ Phase 1 で以下が稼働:
 - Lazy spawn・`--resume` による会話継続
 - `claude --help` から権限モード自動検出
 - Claude Code Desktop ライクなビジュアル (アバター無し・ツール 1 行サマリ折りたたみ・コンパクト Composer)
+
+Phase 2 で以下も追加:
+
+- Core 5 機構（A〜E、§4）すべて実装済み
+- 入力補完: slash / @-mention / 画像ペースト + チップ列
+- ツール出力: Edit/Write 差分 / Bash ANSI / Grep clickable / Open in Files
+- セッション運用: Drawer pip / Inbox 統合 / history popup / Context %
+- チューニング: effort セレクタ / モデル動的取得
+- 安全: always-allow + `.claude/settings.json` 書込 / Permission Edit / Fork
 
 足りないものは大きく分けて 3 種:
 
@@ -45,32 +56,33 @@ Phase 1 で以下が稼働:
 | テキストストリーム (partial) | ✅ |  |
 | Thinking 展開 | ⚠️ | summary 1 行 + クリック展開。全文表示 toggle 詳細は未対応 |
 | Tool use 折りたたみ 1 行 | ✅ |  |
-| Tool result 折りたたみ + プレビュー | ✅ | 改善余地: ANSI 色, 大量行の virtualization |
-| Plan モード ExitPlanMode 連携 | ❌ | 専用ブロック描画 + 計画→実行ボタン |
+| Tool result 折りたたみ + プレビュー | ✅ | virtualization は **Phase 4** で対応予定 |
+| Plan モード ExitPlanMode 連携 | ❌ | **Phase 3**: 専用ブロック描画 + 計画→実行ボタン |
 | Adaptive thinking 予算表示 | ❌ | `system/status` に進捗あり |
-| サブエージェント (Task) 入れ子 | ❌ | `parent_tool_use_id` で親子関係取得可 |
+| サブエージェント (Task) 入れ子 | ❌ | **Phase 3**: `parent_tool_use_id` で親子関係取得可 |
 
 ### 3.2 入力
 
 | 機能 | 状態 | 備考 |
 |---|---|---|
 | テキスト送信 (IME) | ✅ |  |
-| Slash command popup + 補完 | ❌ | `initialize` レスポンスに commands 配列 |
-| @-mention ファイル参照 | ❌ | `/api/repos/.../files/search` 流用可 |
-| 画像ペースト / D&D | ❌ | `/api/upload` 既存 |
-| 添付チップ列 | ❌ |  |
+| Slash command popup + 補完 | ✅ | InlineCompletion + initialize.commands |
+| @-mention ファイル参照 | ✅ | Files API + InlineCompletion |
+| 画像ペースト / D&D | ✅ | `/api/upload` + チップ列 + サムネイル |
+| 添付チップ列 | ✅ | サムネイルプレビュー付き |
 | 音声入力 | ❌ | spec 8 章で skip 確認済 |
-| ユーザー発話編集・巻戻し | ❌ | `rewind_to_user_message` 制御 (要 SDK 確認) |
+| ユーザー発話編集・巻戻し | ❌ | `rewind_to_user_message` 仕様未確定。**保留**（CLI 仕様確定後） |
+| AskUserQuestion モーダル | ❌ | **Phase 4**（CLI 応答経路の調査込み） |
 
 ### 3.3 ツール出力リッチ化
 
 | 機能 | 状態 | 備考 |
 |---|---|---|
-| Edit / Write 差分表示 | ❌ | git タブの diff コンポーネントを共有化 |
-| Read 先頭 N 行プレビュー | ❌ |  |
-| Bash 出力 ANSI 色 + 折りたたみ | ❌ | `ansi-to-html` 等で十分 |
-| Grep / Glob 結果クリッカブル | ❌ |  |
-| "Open in Files tab" deep-link | ❌ | spec 13 章 |
+| Edit / Write 差分表示 | ✅ | DiffView 共有化済み |
+| Read 先頭 N 行プレビュー | ❌ | 現状は "Open in Files" のみ。**Phase 4** |
+| Bash 出力 ANSI 色 + 折りたたみ | ✅ | `ansi-to-html` |
+| Grep / Glob 結果クリッカブル | ✅ | pathList で行クリック → Files |
+| "Open in Files tab" deep-link | ✅ | tab-nav.ts |
 
 ### 3.4 権限・安全
 
@@ -80,8 +92,8 @@ Phase 1 で以下が稼働:
 | Allow / Allow for session / Deny | ✅ |  |
 | Permission mode 6 種自動検出 | ✅ |  |
 | `y` / `n` キーボード | ✅ |  |
-| Edit ダイアログ (input 編集 → updatedInput) | ❌ | spec 8 章で MVP 後 |
-| Always-allow 永続化 (`.claude/settings.json`) | ❌ | 責務越境につき UI 経由で明示同意 |
+| Edit ダイアログ (input 編集 → updatedInput) | ✅ |  |
+| Always-allow 永続化 (`.claude/settings.json`) | ✅ | 書込済み + 同意フロー |
 
 ### 3.5 セッション運用 (複数ブランチ並行)
 
@@ -90,12 +102,12 @@ Phase 1 で以下が稼働:
 | `--resume` 透過再開 | ✅ |  |
 | sessions.json 永続化 | ✅ |  |
 | ブラウザ閉じてもバックグラウンド継続 | ✅ |  |
-| Drawer のブランチ status pip | ❌ | **Core-A 必要** |
-| Activity Inbox 統合 (権限要求 / エラーの集約) | ❌ | **Core-B 必要** |
-| Session history popup (⌘H) | ❌ (REST のみ) | 任意 session_id への resume も必要 |
-| Fork session | ❌ | `--fork-session` フラグ |
-| `/compact` (圧縮) | ❌ | control_request subtype 要調査 |
-| ユーザー発話 edit / 巻戻し | ❌ |  |
+| Drawer のブランチ status pip | ✅ | Core-A 経由 |
+| Activity Inbox 統合 (権限要求 / エラーの集約) | ✅ | Core-B 経由 |
+| Session history popup (⌘H) | ✅ | 任意 session_id resume 込み |
+| Fork session | ✅ | `--fork-session` |
+| `/compact` (圧縮) | ❌ | **保留**（control_request subtype 仕様未確定） |
+| ユーザー発話 edit / 巻戻し | ❌ | **保留**（同上） |
 | Resume by PR (`--from-pr`) | ❌ | 後回し |
 
 ### 3.6 ステータス / 可視化
@@ -104,8 +116,8 @@ Phase 1 で以下が稼働:
 |---|---|---|
 | StatusBar の status pip | ✅ |  |
 | 累計コスト | ✅ |  |
-| コンテキスト % | ❌ | `result.usage.contextWindow` |
-| MCP サーバー接続状態表示 | ❌ | `system.init.mcp_servers` |
+| コンテキスト % | ✅ | `result.usage.contextWindow` |
+| MCP サーバー接続状態表示 | ⚠️ | バックエンドはデータあり、フロント `mcpServers={[]}` 空。**Phase 3** |
 | Rate limit 警告 | ❌ | イベントは受信中 |
 | Streaming インジケータ | ✅ |  |
 
@@ -113,9 +125,9 @@ Phase 1 で以下が稼働:
 
 | 機能 | 状態 | 備考 |
 |---|---|---|
-| モデル選択 (sonnet/opus/haiku) | ✅ | (現状ハードコード — `init.models` から動的取得改善予定) |
-| Effort レベル (low/medium/high/xhigh/max) | ❌ | `--effort` で渡す |
-| Output style (default/Explanatory/Learning) | ❌ |  |
+| モデル選択 (sonnet/opus/haiku) | ✅ | `init.models` から動的取得 |
+| Effort レベル (low/medium/high/xhigh/max) | ✅ | `--effort` (respawn 経由) |
+| Output style (default/Explanatory/Learning) | ❌ | バックエンドはトラック済み、UI 未。**Phase 4 候補**（CLI 応答経路と合わせて） |
 | Adaptive thinking on/off | ❌ |  |
 | Fast mode 切替 | ❌ |  |
 
@@ -123,14 +135,15 @@ Phase 1 で以下が稼働:
 
 | 機能 | 状態 | 備考 |
 |---|---|---|
-| Hook events (`--include-hook-events`) | ❌ |  |
-| Custom agent (`--agents`) | ❌ |  |
+| Hook events (`--include-hook-events`) | ❌ | **Phase 3** |
+| Custom agent (`--agents`) | ❌ | **保留**（slash パススルーで実用上問題なし） |
 | Skill 直接呼出し UI | ❌ (slash パススルーは可) |  |
-| Plugin 対応 | ❌ |  |
-| `--add-dir` | ❌ |  |
-| `--file` 添付 | ❌ |  |
-| `--json-schema` 構造化出力 | ❌ |  |
-| MCP OAuth フロー | ❌ |  |
+| Plugin 対応 | ❌ | **保留**（Claude Code 側の plugin システム待ち） |
+| `--add-dir` | ❌ | **Phase 3** |
+| `--file` 添付 | ❌ | **Phase 3** |
+| `--json-schema` 構造化出力 | ❌ | **保留**（niche） |
+| MCP OAuth フロー | ❌ | **保留**（需要待ち） |
+| `.claude/settings.json` editor | ❌ | **Phase 3**（always-allow と整合） |
 | Workspace trust | ❌ | CLI が `--print` モードで skip するので暫定 OK |
 
 ### 3.9 既存資産マップ
@@ -151,6 +164,8 @@ Phase 1 で以下が稼働:
 ## 4. コアレベル変更が必要な機能 (= "Core-x")
 
 複数のタブ機能が依存する汎用基盤を**先に**整備する。順序は依存関係に従う。
+
+> **進捗**: Core-A〜Core-E すべて Phase 2 で実装完了。以下は当時の設計メモを残してある（参照用）。
 
 ### Core-A: ブランチ別エージェント状態の汎用バス
 
@@ -298,103 +313,87 @@ export function urlForGit(repoId: string, branchId: string, view: 'diff'|'log'|.
 
 ## 5. Phase 別実装計画
 
-### Phase 2.0 — コア基盤整備 (先行)
+### Phase 2 — 進捗サマリ (ほぼ完了)
 
-| # | タスク | 依存 |
+| Phase | 内容 | 状態 |
 |---|---|---|
-| 2.0.1 | Core-C: DiffView 抽出 | なし |
-| 2.0.2 | Core-D: InlineCompletion 抽出 | なし |
-| 2.0.3 | Core-E: tab-nav ヘルパ | なし |
-| 2.0.4 | Core-A: エージェント状態バス | なし |
-| 2.0.5 | Core-B: Notify Hub 統合 | Core-A |
+| 2.0 | Core 基盤 (A〜E) | ✅ 全項目完了 |
+| 2.1 | 入力補完 | ✅ slash / @-mention / 画像ペースト・チップ列 完了。AskUserQuestion は **Phase 4 へ延期**（CLI 応答経路の調査待ち） |
+| 2.2 | ツール出力リッチ化 | ✅ Edit/Write diff / Bash ANSI / Grep clickable / Open in Files 完了。Read プレビュー（先頭 N 行）は **Phase 4 へ** |
+| 2.3 | セッション運用 | ✅ Drawer pip / Inbox 統合 / history popup / Context % 完了。MCP サーバ一覧 UI は **Phase 3 へ**（バックエンド済み・描画のみ残） |
+| 2.4 | チューニング | ✅ effort / models 動的取得 完了。Output style セレクタ / `/compact` は **Phase 4 候補**（CLI 仕様確認込み） |
+| 2.5 | 安全寄り | ✅ always-allow / Permission Edit / Fork 完了。Plan モード UI は **Phase 3 へ**。ユーザ発話 edit / rewind は **保留**（CLI subtype 未確定） |
 
-**完了条件**: コア機能としては動くが、UI 側でまだ使っていない状態でも OK (= 既存挙動を壊さない)。
+> Phase 2.0〜2.5 のうち UI 完成度が確認できたものは ✅。残課題は Phase 3 / Phase 4 へ振り直す。
 
-### Phase 2.1 — 入力系の補完
+### Phase 3 — 拡張機能の本命
 
-| # | タスク | 依存 |
-|---|---|---|
-| 2.1.1 | Slash command popup (commands 配列を init から保持 → InlineCompletion で表示) | Core-D |
-| 2.1.2 | @-mention ファイル補完 (Files API + InlineCompletion) | Core-D |
-| 2.1.3 | 画像ペースト / D&D (`/api/upload` 経由) | なし |
-| 2.1.4 | AskUserQuestion モーダル | なし (既存 dialog 流用) |
+Phase 2 取りこぼし + ロードマップ §3.8 の高価値項目を統合した中核 Phase。
+**ユーザ価値が大きく、実装も妥当な範囲のもの** に絞る。
 
-### Phase 2.2 — ツール出力リッチ化
+| # | タスク | 規模 | 由来 |
+|---|---|---|---|
+| 3.1 | **Plan モード UI** (ExitPlanMode ブロック描画 + 計画→実行ボタン) | M | 旧 2.5.5 |
+| 3.2 | **`.claude/settings.json` editor** (permissions.allow / hooks の GUI 編集。既存 always-allow 書込と整合) | M | 旧 §3.8 |
+| 3.3 | **サブエージェント (Task) 入れ子ツリー** (`parent_tool_use_id` で親子描画) | M | 旧 §3.1 |
+| 3.4 | **MCP サーバ一覧 UI** (バックエンドのデータをステータスバーまたは popup で描画) | XS | 旧 2.3.5 |
+| 3.5 | **Hook events 表示** (`--include-hook-events` + イベントタイプ追加 + 折りたたみブロック) | S-M | 旧 §3.8 |
+| 3.6 | **`--add-dir` / `--file` UI** (Composer の attach メニュー拡張、クロスレポ作業向け) | M | 旧 §3.8 |
 
-| # | タスク | 依存 |
-|---|---|---|
-| 2.2.1 | Edit / Write 差分描画 | Core-C |
-| 2.2.2 | Read 先頭 N 行プレビュー | なし |
-| 2.2.3 | Bash 出力 ANSI 色 + 折りたたみ | なし (`ansi-to-html` 追加) |
-| 2.2.4 | Grep / Glob 結果クリッカブル | Core-E |
-| 2.2.5 | "Open in Files tab" deep-link | Core-E |
+**着手順序の推奨**: 3.1 → 3.2 → 3.3 → 3.4 → 3.5 → 3.6 (上から、価値と独立性が高い順)。
 
-### Phase 2.3 — セッション運用
+### Phase 4 — 磨き込み
 
-| # | タスク | 依存 |
-|---|---|---|
-| 2.3.1 | Drawer のブランチ status pip | Core-A |
-| 2.3.2 | Activity Inbox 統合 (権限要求 inline allow/deny) | Core-A + Core-B |
-| 2.3.3 | Session history popup (⌘H) + 任意 session_id resume | (REST 拡張) |
-| 2.3.4 | コンテキスト % 表示 | なし |
-| 2.3.5 | MCP サーバー一覧表示 | なし |
+Phase 3 までで機能が揃った後の「長く使っても重くならない・読みやすい・探しやすい」磨き込み Phase。
 
-### Phase 2.4 — チューニング
+| # | タスク | 規模 | 価値 |
+|---|---|---|---|
+| 4.1 | Tool 結果 / 会話の virtualization (`react-window` 等) | M | 数千行 grep / 数百ターン履歴で固まらない |
+| 4.2 | Markdown / コードブロック syntax highlighting (shiki 等) | S-M | 読みやすさ。Files プレビューと共通化 |
+| 4.3 | 会話内検索 (Cmd+F でターン横断) | S | 長セッションで「あの一行」を見つける |
+| 4.4 | 会話エクスポート (Markdown / JSON) | S | レビュー・共有・バックアップ |
+| 4.5 | AskUserQuestion モーダル (旧 2.1.4) | S | CLI 応答経路の確認込み |
+| 4.6 | `/compact` (旧 2.4.3) | S | 仕様確定後すぐ |
+| 4.7 | Read 先頭 N 行プレビュー (旧 2.2.2) | XS | tool_use_result から軽く描画 |
+| 4.8 | バンドル分割 (dynamic import で diff / xterm 切出し) | S | 初回ロード時間 |
+| 4.9 | モバイル UX 総点検 (bottom sheet 化したセレクタ / タップ領域) | S | タッチ操作の決定打 |
 
-| # | タスク | 依存 |
-|---|---|---|
-| 2.4.1 | Effort セレクタ (`--effort` で respawn) | なし |
-| 2.4.2 | Output style セレクタ | なし |
-| 2.4.3 | `/compact` | (control_request 仕様確認) |
-| 2.4.4 | `/cost` `/usage` `/status` 等の slash 内蔵 | なし |
-| 2.4.5 | モデル一覧を init.models から動的取得 | なし |
+### Phase 5+ — 需要次第
 
-### Phase 2.5 — 安全寄り機能
+以下は **明示の需要が出てから** 着手する。スコープ確定はその時点で別ドキュメントに分離する。
 
-| # | タスク | 依存 |
-|---|---|---|
-| 2.5.1 | 永続 always-allow (`.claude/settings.json` 書込) + 同意トースト | (settings IO) |
-| 2.5.2 | Permission Edit ダイアログ (input 編集 → updatedInput) | なし |
-| 2.5.3 | ユーザー発話 edit / 巻戻し | (CLI subtype 要調査) |
-| 2.5.4 | Fork session (`--fork-session`) | なし |
-| 2.5.5 | Plan モード UI (ExitPlanMode 連携) | なし |
+- **共有 / 運用系**: OIDC / OAuth ログイン、マルチユーザ namespacing、観戦モード（read-only spectator）、操作監査ログ、ユーザ発話 edit / rewind、update notifier
+- **Claude 以外への拡張**: `agent.Provider` 抽象化、Cursor agent / Aider などの取り込み、Custom agent UI（旧 §3.3）、Plugin 対応（旧 §3.5）、MCP OAuth（旧 §3.6）
+- **ニッチ・実験**: `--json-schema` 構造化出力（旧 §3.8）、Files → Claude reverse direction、セッション差分（複数モデルの結果比較）、palmux v1 → v2 migration、i18n インフラ、PWA / ネイティブラッパ
 
-### Phase 3 — 拡張系 (任意)
-
-| # | タスク |
-|---|---|
-| 3.1 | サブエージェント (Task) 入れ子ツリー |
-| 3.2 | Hook events 表示 |
-| 3.3 | Custom agent / skill 呼出し UI |
-| 3.4 | `--add-dir` / `--file` 添付 UI |
-| 3.5 | Plugin 対応 |
-| 3.6 | MCP OAuth フロー |
-| 3.7 | Settings (`.claude/settings.json`) editor |
-| 3.8 | `--json-schema` 構造化出力 |
+> Phase 5+ はロードマップに残しておくが、実装計画には含めない。需要が出た時点で個別に Phase を切る。
 
 ## 6. 推奨着手順序
 
-ユーザー価値の累積効果を最大化する順:
+Phase 2 が完了している現状からの実行プラン:
 
-1. **Phase 2.0 全部** (コア基盤を先に整備) — UI 変化なしだが土台
-2. **Phase 2.3.1 + 2.3.2** (Drawer pip + Inbox 統合) — 複数ブランチ並行運用が見えるようになる
-3. **Phase 2.1.1 + 2.1.2 + 2.1.3** (slash / @-mention / 画像) — 入力体験が実用ラインに
-4. **Phase 2.2.1 + 2.2.5** (diff + Open in Files) — エージェント出力が読みやすくなる
-5. **Phase 2.5.2 + 2.5.1** (Permission Edit + always-allow) — 権限フローを実運用ラインに
-6. **Phase 2.3.3** (Session history) + **2.5.4** (Fork) — セッション運用が完結
-7. 残り (Phase 2.4 / Phase 2.5 残り / Phase 3) は需要次第
+1. **Phase 3.1** Plan モード UI — Claude Code Desktop の目玉機能。単独完結で価値が見えやすい
+2. **Phase 3.2** `.claude/settings.json` editor — 既存 always-allow と整合。責務越境リスクの軽減策にもなる
+3. **Phase 3.3** Sub-agent ツリー — 描画ロジックが大きいので独立コミット
+4. **Phase 3.4** MCP server UI — 小タスクで仕上げ感
+5. **Phase 3.5** Hook events — オプトインで低リスク
+6. **Phase 3.6** `--add-dir` / `--file` — 最後
+7. **Phase 4.1〜4.9** — Phase 3 完了後、運用してみて重さや読みづらさを感じた箇所から
+8. **Phase 5+** — 需要観測後
 
 ## 7. 主要リスク・未確定点
 
-| リスク | 内容 | 対策 |
+Phase 2 の実装で多くは決着がついた。残るのは Phase 3 / Phase 4 で再度向き合う必要があるもの:
+
+| リスク | 状態 | 対策 |
 |---|---|---|
-| **CLI 制御リクエスト仕様の不安定さ** | `/compact` `/fork` `rewind_to_user_message` の subtype と payload が SDK バイナリ string 解析でしか確認できない | 実機プロービング + バージョンピン (`claude --version` を起動時にログ) |
-| **`mcp_set_servers` 重複登録** | `--mcp-config` と `initialize.sdkMcpServers` で同名サーバーを二重登録すると CLI が異常終了するケースあり (実装中に発見) | `sdkMcpServers` のみで登録する方針を維持 |
-| **Always-allow の責務越境** | `.claude/settings.json` を Palmux が編集すると、CLI / 他ツールとの整合性が崩れる可能性 | UI で書込先 (project / user) を明示 + 確認ダイアログ |
-| **大量ツール出力のレンダリング負荷** | `tool_result` が数千行になることがある (find / grep) | virtualization (react-window) または truncate + "show more" |
-| **AskUserQuestion の応答経路** | 応答を tool_result として返すか user.message として返すか SDK 実装で要確認 | 実機テスト先行 |
-| **Drawer pip の状態欠落** | Palmux サーバー再起動時、tab を一度も開かないと Agent が spawn されず status が "未起動" のまま | EventHub に "agent.shutdown" 含めて整合 |
-| **Inbox からの権限応答** | アクティブなタブ以外で「Allow (y)」されたら → REST で answer → tab 開いた時に session.init で復元される (Core-B 設計通り) | 既存の `findPendingPermissionInTurns` が動く前提で OK |
+| **CLI 制御リクエスト仕様の不安定さ** (`/compact` / `rewind_to_user_message`) | 未確定 — Phase 4.6 / Phase 5+ 着手前に実機プロービング | バージョンピン (`claude --version` を起動時ログ)、subtype 確認できた段階で実装 |
+| **AskUserQuestion の応答経路** | 未確定 — Phase 4.5 着手前に確認 | 実機テスト先行 → モーダル経由で応答するか tool_result で返すか決める |
+| **大量ツール出力のレンダリング負荷** | Phase 2 では truncate / 折りたたみで凌いでいるが本格対応は Phase 4.1 | virtualization (`react-window`) で対応予定 |
+| **Always-allow の責務越境** (`.claude/settings.json` 編集) | Phase 2 で書込済み・project スコープのみ | Phase 3.2 の Settings editor で UI 経由の明示同意フローに昇格 |
+| **`mcp_set_servers` 重複登録** | Phase 1/2 で対処済み | `sdkMcpServers` のみで登録する方針を維持 |
+| **Drawer pip の状態欠落** (palmux 再起動直後) | Phase 2 で部分対応 (initialise 後の status 整合) | サーバ再起動後、未起動 Agent は idle 表示になる挙動で許容 |
+| **Inbox からの権限応答** | Phase 2 で動作確認済み | 既存の `findPendingPermissionInTurns` で session.init 復元が機能 |
 
 ## 8. 既存仕様書との関係
 
@@ -402,17 +401,44 @@ export function urlForGit(repoId: string, branchId: string, view: 'diff'|'log'|.
 - **04-ui-requirements.md** v2.1 の Activity Inbox / Drawer pip / ⌘K パレット との整合は本書 Core-A / Core-B / Phase 2.1.1 で取る。
 - **02-CLAUDE-rules.md** の "spec precedence" に従い、本書と 04 で食い違いがあれば 04 を優先 (UI 詳細)。本書は実装順序の指針として上書きする。
 
-## 9. 完了基準 (= "Phase 2 done")
+## 9. 完了基準
 
-以下が満たされた時点で Phase 2 完了とみなす:
+### Phase 2 done (達成済み)
 
-- [ ] Drawer の各ブランチアイコンに idle / thinking / awaiting_permission の pip が表示される
-- [ ] Activity Inbox に Claude の権限要求が並び、そこから allow/deny できる
-- [ ] Composer で `/` `@` 補完が動く
-- [ ] 画像をペーストして送信できる
-- [ ] Edit / Write の結果が diff として表示される
-- [ ] Read / Bash / Grep のツール結果がリッチに表示される
-- [ ] Tool ブロックから Files タブへジャンプできる
-- [ ] Session history popup から過去セッションを resume できる
-- [ ] always-allow / Permission Edit ダイアログが動く
-- [ ] Phase 1 で動いていたものが全て引き続き動く (回帰なし)
+以下はすべて満たされている:
+
+- [x] Drawer の各ブランチアイコンに idle / thinking / awaiting_permission の pip が表示される
+- [x] Activity Inbox に Claude の権限要求が並び、そこから allow/deny できる
+- [x] Composer で `/` `@` 補完が動く
+- [x] 画像をペーストして送信できる（添付チップ + サムネイル）
+- [x] Edit / Write の結果が diff として表示される
+- [x] Bash (ANSI) / Grep のツール結果がリッチに表示される
+- [x] Tool ブロックから Files タブへジャンプできる（worktree 相対化済み）
+- [x] Session history popup から過去セッションを resume / fork できる
+- [x] always-allow / Permission Edit ダイアログが動く
+- [x] Phase 1 で動いていたものが全て引き続き動く
+
+### Phase 3 done
+
+以下が満たされた時点で Phase 3 完了:
+
+- [ ] Plan モードに入ると ExitPlanMode を専用ブロックで描画し、ユーザの「Approve & Run」操作で実行に移れる
+- [ ] `.claude/settings.json` の permissions.allow / hooks を GUI から編集 / 削除でき、書込先 (project / user) を明示できる
+- [ ] Task ツール経由のサブエージェントが親ターンの下にネストして表示される
+- [ ] MCP サーバ一覧と接続状態がステータスバーまたは popup で確認できる
+- [ ] `--include-hook-events` を有効化し、PreToolUse / PostToolUse などが折りたたみブロックで可視化される
+- [ ] Composer の attach メニューから `--add-dir` / `--file` を指定して送信できる
+
+### Phase 4 done
+
+以下が満たされた時点で Phase 4 完了:
+
+- [ ] 数千行のツール出力 / 数百ターンの履歴でもスクロール / 描画が固まらない (virtualization)
+- [ ] コードブロックが言語シンタックスでハイライトされる
+- [ ] 会話内 Cmd+F 検索でターン横断ヒットが出る
+- [ ] 会話を Markdown / JSON でエクスポートできる
+- [ ] AskUserQuestion 応答経路が確定し、モーダル経由で応答できる
+- [ ] `/compact` が動く（CLI 仕様確定後）
+- [ ] Read ツールが先頭 N 行をインラインプレビューする
+- [ ] 初回ロードのバンドルサイズが体感で改善（dynamic import）
+- [ ] モバイルでセレクタが bottom sheet 化、主要タップ領域が 44px 以上
