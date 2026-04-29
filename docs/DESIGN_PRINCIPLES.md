@@ -82,3 +82,37 @@
 - `~/.claude/` 配下を勝手に書き換えない（UI 経由の明示同意フロー必須）
 - ホスト用 palmux2 をフォアグラウンドで再起動して Claude セッションを巻き込まない（host は `make serve` バックグラウンド、開発は別 worktree + `INSTANCE=`）
 - マルチユーザ前提のコード（ユーザ別 namespace、共有制御）を入れない（VISION でスコープ外宣言済み）
+
+## 自律実行 (autopilot / sprint auto) の検証ルール
+
+`autopilot` や `sprint auto` がサブエージェントに実装を委譲するとき、**コンパイルと unit test だけで「完了」と判定しない**。フロントエンドとバックエンドの統合まで実機検証する。
+
+### 必須検証ステップ
+
+1. **dev インスタンスを立てる**
+   `make serve INSTANCE=dev` で別ポート（portman 経由で割当）の独立 palmux2 を起動。ホスト用 palmux2 (`tmp/palmux.pid`) は絶対に触らない（再起動するとこのセッションが死ぬ）
+2. **E2E (Playwright headless) で検証**
+   実装した機能を `http://localhost:<dev-port>/...` 経由で叩く Playwright 試験を書き、最低限以下を確認:
+   - UI が描画される（DOM クラスや要素を実機で確認）
+   - クリック / 入力 → WebSocket フレーム送信 → バックエンド処理 → UI 反映 が通る
+   - 関連 REST API エンドポイントが実際に呼ばれて期待値を返す
+3. **dev インスタンスの後始末**
+   - dev で起こした副作用（`sessions.json` の prefs 変更等）は最小限に
+   - dev インスタンスの停止 (`make serve-stop INSTANCE=dev`) はサブエージェント終了時にやらなくてよい（次のサブエージェントが再利用）
+4. **検証ログの提出**
+   `decisions.md` に「実施した E2E 試験スクリプトの場所」「失敗ケースと再試行で得られた結果」「観測された副次バグ」を残す
+
+### スキップが許される条件
+
+以下のいずれかに該当する場合は E2E をスキップしてよい。**スキップ理由は `decisions.md` に明記する**:
+- 機能が純粋に内部実装（ログ整形、型定義のみ、ビルドターゲット等）で UI / API 経路に出ない
+- 試験に必要な外部サービスが利用不可（要料金 API、認証必須の外部 OAuth 等）で、unit / integration test で十分カバーされる
+- E2E 環境の整備自体が別 sprint のスコープ（その場合は backlog に追加）
+
+### 過去事例 (S001-S003 マイルストーンより)
+
+最初は unit test のみで「完了」報告したが、後追い E2E で:
+- `bypassPermissions` 動的切替時の CLI クラッシュ
+- mode 切替時の WS / context lifecycle race
+
+など複数の追加課題が判明。**ビルドが通ること = 動くこと、ではない**。autopilot で 3 sprint 連続実装するときは、各 sprint 完了時に dev インスタンスを叩いて確認する手順を必須にする。
