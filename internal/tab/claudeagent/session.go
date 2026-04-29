@@ -105,6 +105,13 @@ type Session struct {
 	// up on Reset / when the corresponding tool_result is consumed.
 	planToolUseIDs map[string]struct{}
 
+	// currentParentToolUseID is the parent_tool_use_id field carried by
+	// the envelope currently being processed. Set by the normalize layer
+	// at the top of each processStreamMessage call and copied onto any new
+	// Turn the message creates. Empty when the message belongs to the
+	// top-level conversation. See protocol.go for wire details.
+	currentParentToolUseID string
+
 	createdAt time.Time
 }
 
@@ -253,6 +260,27 @@ func (s *Session) SetEffort(e string) {
 	s.effort = e
 }
 
+// SetCurrentParentToolUseID stamps the parent_tool_use_id of the envelope
+// currently being processed. Subsequent calls that create new Turns will
+// copy this value onto the new Turn. Pass "" to clear (top-level message).
+//
+// Called by processStreamMessage at the top of every envelope.
+func (s *Session) SetCurrentParentToolUseID(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.currentParentToolUseID = id
+}
+
+// CurrentParentToolUseID returns the parent_tool_use_id stamped by
+// SetCurrentParentToolUseID. Used by the normalize layer to populate
+// turn.start payloads so the frontend can attach new mid-stream turns
+// to the correct sub-agent ancestor.
+func (s *Session) CurrentParentToolUseID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.currentParentToolUseID
+}
+
 // AppendUserTurn records a user message turn and returns the new turn ID.
 func (s *Session) AppendUserTurn(content string) string {
 	s.mu.Lock()
@@ -262,7 +290,7 @@ func (s *Session) AppendUserTurn(content string) string {
 		Kind: "text",
 		Text: content,
 		Done: true,
-	}}}
+	}}, ParentToolUseID: s.currentParentToolUseID}
 	s.turns = append(s.turns, t)
 	return t.ID
 }
@@ -271,7 +299,7 @@ func (s *Session) AppendUserTurn(content string) string {
 func (s *Session) StartAssistantTurn() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	t := &Turn{Role: "assistant", ID: newID("turn"), Blocks: []Block{}}
+	t := &Turn{Role: "assistant", ID: newID("turn"), Blocks: []Block{}, ParentToolUseID: s.currentParentToolUseID}
 	s.turns = append(s.turns, t)
 	s.currentTurn = t
 	s.openBlocks = map[int]*Block{}
@@ -300,7 +328,7 @@ func (s *Session) OpenBlock(index int, kind string) (turnID, blockID string, ope
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.currentTurn == nil {
-		t := &Turn{Role: "assistant", ID: newID("turn"), Blocks: []Block{}}
+		t := &Turn{Role: "assistant", ID: newID("turn"), Blocks: []Block{}, ParentToolUseID: s.currentParentToolUseID}
 		s.turns = append(s.turns, t)
 		s.currentTurn = t
 		openedTurn = true
@@ -341,7 +369,10 @@ func (s *Session) AppendBlockText(index int, kind, text string) (turnID, blockID
 // envelope). The block's existing Kind is preserved when it has been
 // re-tagged (e.g. "plan" for ExitPlanMode); otherwise we set it to
 // "tool_use".
-func (s *Session) SetBlockToolUse(index int, name string, input json.RawMessage) (turnID, blockID string) {
+//
+// toolUseID is the upstream Anthropic tool_use_id; recorded so sub-agent
+// turns can match against it via parent_tool_use_id.
+func (s *Session) SetBlockToolUse(index int, name, toolUseID string, input json.RawMessage) (turnID, blockID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.currentTurn == nil {
@@ -356,6 +387,9 @@ func (s *Session) SetBlockToolUse(index int, name string, input json.RawMessage)
 	}
 	b.Name = name
 	b.Input = input
+	if toolUseID != "" {
+		b.ToolUseID = toolUseID
+	}
 	if b.Kind == "" {
 		b.Kind = "tool_use"
 	}
@@ -366,6 +400,9 @@ func (s *Session) SetBlockToolUse(index int, name string, input json.RawMessage)
 			}
 			s.currentTurn.Blocks[i].Name = name
 			s.currentTurn.Blocks[i].Input = input
+			if toolUseID != "" {
+				s.currentTurn.Blocks[i].ToolUseID = toolUseID
+			}
 			break
 		}
 	}
@@ -437,7 +474,7 @@ func (s *Session) ApplyAssistantMessage(blocks []contentBlock) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.currentTurn == nil {
-		t := &Turn{Role: "assistant", ID: newID("turn"), Blocks: []Block{}}
+		t := &Turn{Role: "assistant", ID: newID("turn"), Blocks: []Block{}, ParentToolUseID: s.currentParentToolUseID}
 		s.turns = append(s.turns, t)
 		s.currentTurn = t
 	}
@@ -458,7 +495,7 @@ func (s *Session) ApplyAssistantMessage(blocks []contentBlock) string {
 					s.planToolUseIDs[cb.ID] = struct{}{}
 				}
 			}
-			s.upsertCompleteBlock(i, Block{ID: newID("block"), Kind: kind, Index: i, Name: cb.Name, Input: cb.Input, Done: true})
+			s.upsertCompleteBlock(i, Block{ID: newID("block"), Kind: kind, Index: i, Name: cb.Name, Input: cb.Input, Done: true, ToolUseID: cb.ID})
 		}
 	}
 	return s.currentTurn.ID
@@ -495,7 +532,7 @@ func (s *Session) AppendToolResult(toolUseID, output string, isError bool) (turn
 		Output:  output,
 		IsError: isError,
 		Done:    true,
-	}}}
+	}}, ParentToolUseID: s.currentParentToolUseID}
 	s.turns = append(s.turns, t)
 	_ = toolUseID
 	return t.ID, t.Blocks[0].ID
@@ -507,7 +544,7 @@ func (s *Session) AddTodoBlock(todos json.RawMessage) (turnID, blockID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.currentTurn == nil {
-		t := &Turn{Role: "assistant", ID: newID("turn"), Blocks: []Block{}}
+		t := &Turn{Role: "assistant", ID: newID("turn"), Blocks: []Block{}, ParentToolUseID: s.currentParentToolUseID}
 		s.turns = append(s.turns, t)
 		s.currentTurn = t
 	}
@@ -531,7 +568,7 @@ func (s *Session) AddPermissionRequest(cliRequestID, toolName string, input json
 	permissionID = newID("perm")
 	s.pendingPermissions[permissionID] = cliRequestID
 	if s.currentTurn == nil {
-		t := &Turn{Role: "assistant", ID: newID("turn"), Blocks: []Block{}}
+		t := &Turn{Role: "assistant", ID: newID("turn"), Blocks: []Block{}, ParentToolUseID: s.currentParentToolUseID}
 		s.turns = append(s.turns, t)
 		s.currentTurn = t
 	}
@@ -664,6 +701,7 @@ func (s *Session) Reset() string {
 	s.pendingPermissions = map[string]string{}
 	s.allowList = map[string]struct{}{}
 	s.planToolUseIDs = map[string]struct{}{}
+	s.currentParentToolUseID = ""
 	s.totalCostUSD = 0
 	s.status = StatusIdle
 	return old
@@ -672,7 +710,7 @@ func (s *Session) Reset() string {
 // deepCopy returns a value copy of the turn safe for emission outside the
 // session lock.
 func (t *Turn) deepCopy() *Turn {
-	out := &Turn{Role: t.Role, ID: t.ID, Blocks: make([]Block, len(t.Blocks))}
+	out := &Turn{Role: t.Role, ID: t.ID, ParentToolUseID: t.ParentToolUseID, Blocks: make([]Block, len(t.Blocks))}
 	for i, b := range t.Blocks {
 		out.Blocks[i] = b
 		if len(b.Input) > 0 {

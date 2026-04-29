@@ -60,6 +60,12 @@ type transcriptEntry struct {
 	IsSidechain bool          `json:"isSidechain,omitempty"`
 	UUID      string          `json:"uuid,omitempty"`
 	Timestamp string          `json:"timestamp,omitempty"`
+	// ParentToolUseID, when set, marks this entry as a sub-agent envelope
+	// produced under the named Task tool_use. Future-proof: today's CLI
+	// keeps ancestor linkage in `parentUuid` instead, but the field is
+	// declared in the SDK's wire schema and may start landing in
+	// transcripts in a future version.
+	ParentToolUseID string `json:"parent_tool_use_id,omitempty"`
 }
 
 const summaryReadCap = 100 // chars
@@ -212,11 +218,13 @@ func LoadTranscriptTurns(path string) ([]Turn, error) {
 		case "user":
 			turn, ok := userTurnFromTranscript(e.Message, planToolUseIDs)
 			if ok {
+				turn.ParentToolUseID = e.ParentToolUseID
 				turns = append(turns, turn)
 			}
 		case "assistant":
 			turn, ok := assistantTurnFromTranscript(e.Message, planToolUseIDs)
 			if ok {
+				turn.ParentToolUseID = e.ParentToolUseID
 				turns = append(turns, turn)
 			}
 		}
@@ -328,6 +336,7 @@ func assistantTurnFromTranscript(raw json.RawMessage, planToolUseIDs map[string]
 			blocks = append(blocks, Block{
 				ID: newID("block"), Kind: kind,
 				Name: cb.Name, Input: cb.Input, Index: i, Done: true,
+				ToolUseID: cb.ID,
 			})
 		}
 	}

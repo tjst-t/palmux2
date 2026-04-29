@@ -1,5 +1,5 @@
 import AnsiToHtml from 'ansi-to-html'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { useNavigate, useParams } from 'react-router-dom'
 import remarkGfm from 'remark-gfm'
@@ -8,7 +8,7 @@ import { DiffView, buildSyntheticDiff } from '../../components/diff/diff-view'
 import { relativeToWorktree, urlForFiles } from '../../lib/tab-nav'
 import { selectBranchById, usePalmuxStore } from '../../stores/palmux-store'
 
-import type { Block } from './types'
+import type { Block, Turn } from './types'
 import styles from './blocks.module.css'
 
 const ansiConverter = new AnsiToHtml({
@@ -39,13 +39,23 @@ interface BlockProps {
   block: Block
   permissionHandlers?: PermissionHandlers
   planHandlers?: PlanHandlers
+  /** When the block is a `Task` tool_use that spawned a sub-agent, the
+   *  caller passes in a render function that produces the nested child
+   *  turn list. The Task block then expands into a tree (header on top,
+   *  children indented underneath). Undefined ⇒ render the block flat
+   *  as before. */
+  renderTaskChildren?: () => React.ReactNode
 }
 
-export function BlockView({ block, permissionHandlers, planHandlers }: BlockProps) {
+export function BlockView({ block, permissionHandlers, planHandlers, renderTaskChildren }: BlockProps) {
   switch (block.kind) {
     case 'text':        return <TextBlock text={block.text ?? ''} />
     case 'thinking':    return <ThinkingBlock text={block.text ?? ''} />
-    case 'tool_use':    return <ToolUseBlock block={block} />
+    case 'tool_use':
+      if (renderTaskChildren) {
+        return <TaskTreeBlock block={block} renderChildren={renderTaskChildren} />
+      }
+      return <ToolUseBlock block={block} />
     case 'tool_result': return <ToolResultBlock block={block} />
     case 'todo':        return <TodoBlock block={block} />
     case 'permission':  return <PermissionBlock block={block} handlers={permissionHandlers} />
@@ -53,6 +63,62 @@ export function BlockView({ block, permissionHandlers, planHandlers }: BlockProp
     default:            return null
   }
 }
+
+/** TaskTreeBlock wraps the regular ToolUseBlock with a children panel
+ *  housing the sub-agent's turn transcript. Behaviour:
+ *    - while the Task tool_use is still running (`!block.done`), the
+ *      children panel is rendered expanded so the user watches the
+ *      sub-agent's progress live;
+ *    - once `block.done` flips true, the children collapse to a one-
+ *      liner with a "show sub-agent transcript" toggle;
+ *    - the regular ToolUseBlock chevron continues to govern the parent
+ *      block's input panel (independent of the children panel). */
+function TaskTreeBlock({
+  block,
+  renderChildren,
+}: {
+  block: Block
+  renderChildren: () => React.ReactNode
+}) {
+  // Default state: expanded while running, auto-collapsed once done.
+  // We track the previous `done` value so we only auto-toggle on the
+  // false→true transition — a user who manually re-expanded a finished
+  // task on reload shouldn't have it slammed shut.
+  const running = !block.done
+  const [showChildren, setShowChildren] = useState(running)
+  const prevDone = useRef(block.done)
+  useEffect(() => {
+    if (!prevDone.current && block.done) {
+      // task just finished — auto-collapse the sub-agent transcript
+      setShowChildren(false)
+    }
+    prevDone.current = block.done
+  }, [block.done])
+  return (
+    <div className={styles.taskTree}>
+      <ToolUseBlock block={block} />
+      {!running && (
+        <button
+          type="button"
+          className={styles.taskToggle}
+          onClick={() => setShowChildren((v) => !v)}
+          title={showChildren ? 'Hide sub-agent transcript' : 'Show sub-agent transcript'}
+        >
+          <span className={`${styles.chevron} ${showChildren ? styles.expanded : ''}`}>›</span>
+          {showChildren ? 'Hide sub-agent transcript' : (
+            <span className={styles.taskToggleSummary}>Sub-agent transcript</span>
+          )}
+        </button>
+      )}
+      {showChildren && (
+        <div className={styles.taskChildren}>{renderChildren()}</div>
+      )}
+    </div>
+  )
+}
+
+// Re-export Turn for downstream callers that do tree assembly.
+export type { Turn }
 
 // splitTextWithAttachments strips `[image: /abs/path]` lines (the format
 // Composer inlines when the user attaches images) out of the prose and

@@ -32,12 +32,20 @@ export interface Block {
   permissionId?: string
   toolName?: string
   decision?: 'allow' | 'deny' | ''
+  /** Upstream Anthropic tool_use_id for tool_use blocks. Distinct from
+   *  `id` (the Palmux-minted local identifier). Sub-agent turns spawned
+   *  by a Task tool block point to this via `parentToolUseId`. */
+  toolUseId?: string
 }
 
 export interface Turn {
   role: 'user' | 'assistant' | 'tool'
   id: string
   blocks: Block[]
+  /** Set when this turn was produced by a sub-agent the CLI spawned via
+   *  the Task tool. Value = the parent Task block's toolUseId. Used by
+   *  the renderer to nest sub-agent turns underneath their parent. */
+  parentToolUseId?: string
 }
 
 export interface SlashCommand {

@@ -9,6 +9,15 @@ import (
 // here; the caller is responsible for actually broadcasting the returned
 // events.
 func processStreamMessage(s *Session, msg streamMsg) []AgentEvent {
+	// Stamp the parent_tool_use_id on the session so any new Turn this
+	// envelope creates inherits it. The Task tool spawns sub-agents whose
+	// envelopes carry the parent Task tool_use_id; the frontend uses this
+	// to render those sub-agent turns nested under their parent block.
+	// Empty ⇒ top-level conversation; clear after dispatch so unrelated
+	// background events don't leak the previous parent.
+	s.SetCurrentParentToolUseID(msg.ParentToolUseID)
+	defer s.SetCurrentParentToolUseID("")
+
 	switch msg.Type {
 	case "system":
 		if msg.Subtype == "init" && msg.SessionID != "" {
@@ -74,7 +83,11 @@ func processStreamEvent(s *Session, raw json.RawMessage) []AgentEvent {
 		s.SetStatus(StatusThinking)
 		turnID := s.StartAssistantTurn()
 		out := []AgentEvent{}
-		if e, err := makeEvent(EvTurnStart, TurnStartPayload{TurnID: turnID, Role: "assistant"}); err == nil {
+		if e, err := makeEvent(EvTurnStart, TurnStartPayload{
+			TurnID:          turnID,
+			Role:            "assistant",
+			ParentToolUseID: s.CurrentParentToolUseID(),
+		}); err == nil {
 			out = append(out, e)
 		}
 		if e, err := makeEvent(EvStatusChange, StatusChangePayload{Status: StatusThinking}); err == nil {
@@ -109,16 +122,18 @@ func processStreamEvent(s *Session, raw json.RawMessage) []AgentEvent {
 		turnID, blockID, _ := s.OpenBlock(ev.Index, kind)
 		switch bs.Type {
 		case "tool_use":
-			s.SetBlockToolUse(ev.Index, bs.Name, bs.Input)
+			s.SetBlockToolUse(ev.Index, bs.Name, bs.ID, bs.Input)
 		}
 		out, err := makeEvent(EvBlockStart, BlockStartPayload{
 			TurnID: turnID,
 			Block: Block{
 				ID: blockID, Kind: kind, Index: ev.Index,
-				Name:  bs.Name,
-				Input: bs.Input,
-				Text:  bs.Text + bs.Thinking,
+				Name:      bs.Name,
+				Input:     bs.Input,
+				Text:      bs.Text + bs.Thinking,
+				ToolUseID: bs.ID,
 			},
+			ParentToolUseID: s.CurrentParentToolUseID(),
 		})
 		if err != nil {
 			return nil
@@ -245,8 +260,9 @@ func processAssistantMessage(s *Session, raw json.RawMessage) []AgentEvent {
 			ev, err := makeEvent(EvBlockStart, BlockStartPayload{
 				TurnID: turnID,
 				Block: Block{
-					Kind: kind, Index: i, Name: b.Name, Input: b.Input, Done: true,
+					Kind: kind, Index: i, Name: b.Name, Input: b.Input, Done: true, ToolUseID: b.ID,
 				},
+				ParentToolUseID: s.CurrentParentToolUseID(),
 			})
 			if err == nil {
 				out = append(out, ev)

@@ -63,6 +63,13 @@ type Block struct {
 	Done     bool            `json:"done,omitempty"`
 	Todos    json.RawMessage `json:"todos,omitempty"`    // TodoWrite payload (latest replaces)
 
+	// ToolUseID is the upstream Anthropic tool_use_id for tool_use blocks.
+	// Distinct from Block.ID, which is the Palmux-minted local identifier.
+	// Needed so the frontend can match sub-agent turns (whose envelopes
+	// carry parent_tool_use_id) to the parent Task block that spawned
+	// them. Empty for non-tool blocks.
+	ToolUseID string `json:"toolUseId,omitempty"`
+
 	// Permission-block fields
 	PermissionID string          `json:"permissionId,omitempty"`
 	ToolName     string          `json:"toolName,omitempty"`
@@ -71,9 +78,15 @@ type Block struct {
 
 // Turn is one user→assistant exchange in the cached snapshot.
 type Turn struct {
-	Role   string  `json:"role"` // "user" | "assistant"
+	Role   string  `json:"role"` // "user" | "assistant" | "tool"
 	ID     string  `json:"id"`
 	Blocks []Block `json:"blocks"`
+	// ParentToolUseID is non-empty when this turn was produced by a
+	// sub-agent the CLI spawned via the Task tool. Its value is the
+	// tool_use_id of the parent Task block in the calling conversation.
+	// The frontend uses this to render sub-agent turns nested underneath
+	// their parent Task block instead of flat in the timeline.
+	ParentToolUseID string `json:"parentToolUseId,omitempty"`
 }
 
 // SessionInitPayload is what the server writes immediately on WS connect.
@@ -96,8 +109,9 @@ type SessionInitPayload struct {
 
 // TurnStartPayload signals the start of an assistant turn.
 type TurnStartPayload struct {
-	TurnID string `json:"turnId"`
-	Role   string `json:"role"`
+	TurnID          string `json:"turnId"`
+	Role            string `json:"role"`
+	ParentToolUseID string `json:"parentToolUseId,omitempty"`
 }
 
 // TurnEndPayload signals turn completion.
@@ -113,6 +127,11 @@ type TurnEndPayload struct {
 type BlockStartPayload struct {
 	TurnID string `json:"turnId"`
 	Block  Block  `json:"block"`
+	// ParentToolUseID is the parent_tool_use_id of the envelope this
+	// block came from. The frontend uses it to attach the implicit turn
+	// (the one block.start created when no message_start preceded it)
+	// to the correct sub-agent ancestor.
+	ParentToolUseID string `json:"parentToolUseId,omitempty"`
 }
 
 // BlockDeltaPayload appends to an in-progress block.

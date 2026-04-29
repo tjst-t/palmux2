@@ -220,14 +220,7 @@ export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
               </p>
             </div>
           ) : (
-            state.turns.map((turn) => (
-              <TurnView
-                key={turn.id}
-                turn={turn}
-                onRespondPermission={respondPermission}
-                planHandlersFor={planHandlersFor}
-              />
-            ))
+            renderTurnsTree(state.turns, respondPermission, planHandlersFor)
           )}
         </div>
         {!autoFollow && state.turns.length > 0 && (
@@ -310,10 +303,16 @@ function TurnView({
   turn,
   onRespondPermission,
   planHandlersFor,
+  childrenByParent,
 }: {
   turn: Turn
   onRespondPermission: RespondPermissionFn
   planHandlersFor: (blockId: string | undefined) => PlanHandlersForView | undefined
+  /** Map of toolUseId → child turns produced by sub-agents the CLI
+   *  spawned via that Task tool block. When a block in this turn has
+   *  a non-empty entry in this map, it is rendered as a TaskTree with
+   *  the children inlined underneath. */
+  childrenByParent?: Map<string, Turn[]>
 }) {
   if (turn.role === 'user') {
     return (
@@ -341,17 +340,70 @@ function TurnView({
               }
             : undefined
         const planHandlers = b.kind === 'plan' ? planHandlersFor(b.id) : undefined
+        // Sub-agent child turns: only relevant for tool_use blocks
+        // (today only `Task` spawns sub-agents, but the linkage is
+        // generic so any future tool that emits sub-agents nests too).
+        const childTurns =
+          b.kind === 'tool_use' && b.toolUseId
+            ? childrenByParent?.get(b.toolUseId)
+            : undefined
+        const renderTaskChildren =
+          childTurns && childTurns.length > 0
+            ? () =>
+                childTurns.map((child) => (
+                  <TurnView
+                    key={child.id}
+                    turn={child}
+                    onRespondPermission={onRespondPermission}
+                    planHandlersFor={planHandlersFor}
+                    childrenByParent={childrenByParent}
+                  />
+                ))
+            : undefined
         return (
           <BlockView
             key={b.id}
             block={b}
             permissionHandlers={handlers}
             planHandlers={planHandlers}
+            renderTaskChildren={renderTaskChildren}
           />
         )
       })}
     </div>
   )
+}
+
+// renderTurnsTree assembles the flat turns list into a parent/child
+// tree using each turn's parentToolUseId, then renders only the
+// top-level turns (children get rendered recursively from inside
+// TaskTreeBlock). This keeps reducer state flat and turn ordering
+// canonical — the tree is purely a presentational view.
+function renderTurnsTree(
+  turns: Turn[],
+  onRespondPermission: RespondPermissionFn,
+  planHandlersFor: (blockId: string | undefined) => PlanHandlersForView | undefined,
+) {
+  const childrenByParent = new Map<string, Turn[]>()
+  const topLevel: Turn[] = []
+  for (const t of turns) {
+    if (t.parentToolUseId) {
+      const arr = childrenByParent.get(t.parentToolUseId) ?? []
+      arr.push(t)
+      childrenByParent.set(t.parentToolUseId, arr)
+    } else {
+      topLevel.push(t)
+    }
+  }
+  return topLevel.map((turn) => (
+    <TurnView
+      key={turn.id}
+      turn={turn}
+      onRespondPermission={onRespondPermission}
+      planHandlersFor={planHandlersFor}
+      childrenByParent={childrenByParent}
+    />
+  ))
 }
 
 // findLatestPlanBlockId walks turns newest-first and returns the id of

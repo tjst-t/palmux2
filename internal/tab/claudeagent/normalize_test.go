@@ -191,6 +191,116 @@ func TestExitPlanMode_AssistantFallback(t *testing.T) {
 	}
 }
 
+func TestStreamEvents_ParentToolUseIDPropagatesToTurn(t *testing.T) {
+	// When the CLI ships an envelope with parent_tool_use_id (sub-agent
+	// spawned via the Task tool), every Turn the message creates must
+	// carry that ID so the frontend can render it nested under the
+	// parent Task block.
+	s := NewSession("repo", "branch", "", "sonnet", "default")
+
+	// First, a normal top-level message_start should produce a turn
+	// with no parent linkage.
+	processStreamMessage(s, parse(t, `{"type":"stream_event","event":{"type":"message_start"}}`))
+	processStreamMessage(s, parse(t, `{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_task_1","name":"Task","input":{"description":"audit codebase"}}}}`))
+	processStreamMessage(s, parse(t, `{"type":"stream_event","event":{"type":"content_block_stop","index":0}}`))
+	processStreamMessage(s, parse(t, `{"type":"result","subtype":"success"}`))
+
+	// Now a sub-agent message_start arrives carrying the parent
+	// tool_use_id of the Task block above.
+	subBody := `{"type":"stream_event","parent_tool_use_id":"toolu_task_1","event":{"type":"message_start"}}`
+	evs := processStreamMessage(s, parse(t, subBody))
+	if len(evs) < 1 || evs[0].Type != string(EvTurnStart) {
+		t.Fatalf("sub-agent message_start should emit turn.start, got %v", evs)
+	}
+	var ts TurnStartPayload
+	if err := json.Unmarshal(evs[0].Payload, &ts); err != nil {
+		t.Fatalf("decode turn.start payload: %v", err)
+	}
+	if ts.ParentToolUseID != "toolu_task_1" {
+		t.Fatalf("turn.start parentToolUseId = %q, want toolu_task_1", ts.ParentToolUseID)
+	}
+
+	// Snapshot: parent ID is also preserved on the cached Turn so a
+	// reconnecting client sees the nesting.
+	snap := s.Snapshot()
+	if len(snap.Turns) < 2 {
+		t.Fatalf("expected at least 2 turns, got %d", len(snap.Turns))
+	}
+	subTurn := snap.Turns[len(snap.Turns)-1]
+	if subTurn.ParentToolUseID != "toolu_task_1" {
+		t.Fatalf("sub-agent snapshot turn parentToolUseId = %q, want toolu_task_1", subTurn.ParentToolUseID)
+	}
+	// And the parent Task block carries its tool_use_id so the FE can
+	// match the sub-agent turn back to it.
+	parentTurn := snap.Turns[0]
+	if parentTurn.ParentToolUseID != "" {
+		t.Fatalf("top-level turn parentToolUseId = %q, want empty", parentTurn.ParentToolUseID)
+	}
+	if len(parentTurn.Blocks) == 0 || parentTurn.Blocks[0].ToolUseID != "toolu_task_1" {
+		t.Fatalf("parent Task block tool_use_id = %q, want toolu_task_1; turn=%+v", parentTurn.Blocks[0].ToolUseID, parentTurn)
+	}
+}
+
+func TestProcessStreamMessage_ParentClearedAfterDispatch(t *testing.T) {
+	// After processing a sub-agent envelope, the session's stamped
+	// parent_tool_use_id must be cleared so unrelated background
+	// activity (e.g. system messages) doesn't accidentally inherit it.
+	s := NewSession("repo", "branch", "", "sonnet", "default")
+	body := `{"type":"stream_event","parent_tool_use_id":"toolu_task_2","event":{"type":"message_start"}}`
+	processStreamMessage(s, parse(t, body))
+	if got := s.CurrentParentToolUseID(); got != "" {
+		t.Fatalf("CurrentParentToolUseID after dispatch = %q, want empty (cleared by deferred reset)", got)
+	}
+}
+
+func TestLoadTranscriptTurns_PreservesParentToolUseID(t *testing.T) {
+	// Future-proofing: when the CLI starts persisting parent_tool_use_id
+	// in transcripts (or if the SDK SDK route writes it directly), the
+	// loader has to carry the field onto the resulting Turn so resumed
+	// sessions show the same nesting as live sessions.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.jsonl")
+	lines := []string{
+		`{"type":"user","message":{"role":"user","content":"do the thing"}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_task_99","name":"Task","input":{"description":"investigate"}}]}}`,
+		`{"type":"assistant","parent_tool_use_id":"toolu_task_99","message":{"role":"assistant","content":[{"type":"text","text":"sub-agent says hello"}]}}`,
+		`{"type":"user","parent_tool_use_id":"toolu_task_99","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_inner_x","content":"sub-agent tool output"}]}}`,
+	}
+	body := []byte("")
+	for _, ln := range lines {
+		body = append(body, []byte(ln+"\n")...)
+	}
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+	turns, err := LoadTranscriptTurns(path)
+	if err != nil {
+		t.Fatalf("LoadTranscriptTurns: %v", err)
+	}
+	if len(turns) != 4 {
+		t.Fatalf("expected 4 turns, got %d: %+v", len(turns), turns)
+	}
+	// turns[0]: top-level user — no parent
+	if turns[0].ParentToolUseID != "" {
+		t.Fatalf("top-level user turn parentToolUseId = %q, want empty", turns[0].ParentToolUseID)
+	}
+	// turns[1]: parent assistant Task — no parent itself, but its
+	// tool_use block records the tool_use_id so children can match.
+	if turns[1].ParentToolUseID != "" {
+		t.Fatalf("parent assistant turn parentToolUseId = %q, want empty", turns[1].ParentToolUseID)
+	}
+	if turns[1].Blocks[0].ToolUseID != "toolu_task_99" {
+		t.Fatalf("parent Task block tool_use_id = %q, want toolu_task_99", turns[1].Blocks[0].ToolUseID)
+	}
+	// turns[2] and turns[3]: sub-agent envelopes — parent stamped.
+	if turns[2].ParentToolUseID != "toolu_task_99" {
+		t.Fatalf("sub-agent assistant turn parent = %q, want toolu_task_99", turns[2].ParentToolUseID)
+	}
+	if turns[3].ParentToolUseID != "toolu_task_99" {
+		t.Fatalf("sub-agent tool turn parent = %q, want toolu_task_99", turns[3].ParentToolUseID)
+	}
+}
+
 func TestLoadTranscriptTurns_RetagsExitPlanModeAndDropsToolResult(t *testing.T) {
 	// Synthesize a tiny transcript: user prompt → assistant ExitPlanMode
 	// tool_use → user-side tool_result echoing the approval. The

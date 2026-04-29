@@ -120,8 +120,16 @@ function applyEvent(state: AgentState, ev: { type: string; ts: string; payload?:
       return next
     }
     case 'turn.start': {
-      const p = ev.payload as { turnId: string; role: 'user' | 'assistant' }
-      next.turns = [...next.turns, { id: p.turnId, role: p.role, blocks: [] }]
+      const p = ev.payload as { turnId: string; role: 'user' | 'assistant'; parentToolUseId?: string }
+      next.turns = [
+        ...next.turns,
+        {
+          id: p.turnId,
+          role: p.role,
+          blocks: [],
+          ...(p.parentToolUseId ? { parentToolUseId: p.parentToolUseId } : {}),
+        },
+      ]
       return next
     }
     case 'turn.end': {
@@ -154,11 +162,24 @@ function applyEvent(state: AgentState, ev: { type: string; ts: string; payload?:
       return next
     }
     case 'block.start': {
-      const p = ev.payload as { turnId: string; block: Block }
-      next.turns = upsertTurn(next.turns, p.turnId, 'assistant', (turn) => ({
-        ...turn,
-        blocks: [...turn.blocks, { ...p.block }],
-      }))
+      const p = ev.payload as { turnId: string; block: Block; parentToolUseId?: string }
+      next.turns = upsertTurn(
+        next.turns,
+        p.turnId,
+        'assistant',
+        (turn) => ({
+          ...turn,
+          // If a turn already exists, do not clobber its parent linkage
+          // — turn.start is the canonical source. But if block.start
+          // creates the turn implicitly (no preceding message_start),
+          // capture the parent here.
+          ...(p.parentToolUseId && !turn.parentToolUseId
+            ? { parentToolUseId: p.parentToolUseId }
+            : {}),
+          blocks: [...turn.blocks, { ...p.block }],
+        }),
+        p.parentToolUseId,
+      )
       return next
     }
     case 'block.delta': {
@@ -254,6 +275,7 @@ function upsertTurn(
   turnId: string,
   role: 'user' | 'assistant' | 'tool',
   mutate: (t: Turn) => Turn,
+  parentToolUseId?: string,
 ): Turn[] {
   let found = false
   const out = turns.map((t) => {
@@ -264,7 +286,14 @@ function upsertTurn(
     return t
   })
   if (!found) {
-    out.push(mutate({ id: turnId, role, blocks: [] }))
+    out.push(
+      mutate({
+        id: turnId,
+        role,
+        blocks: [],
+        ...(parentToolUseId ? { parentToolUseId } : {}),
+      }),
+    )
   }
   return out
 }

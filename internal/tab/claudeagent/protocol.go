@@ -18,6 +18,16 @@ type streamMsg struct {
 
 	SessionID string `json:"session_id,omitempty"`
 
+	// ParentToolUseID is non-empty (and not "null") when this envelope was
+	// emitted by a sub-agent the CLI spawned via the Task tool. Its value
+	// is the tool_use_id of the Task block in the parent conversation.
+	// Top-level (user-driven) envelopes leave this empty / null.
+	//
+	// Wire-confirmed against claude CLI 2.1.123: the SDK schema declares
+	// this field on `user`, `assistant`, `stream_event`, and `tool_progress`
+	// messages.
+	ParentToolUseID string `json:"parent_tool_use_id,omitempty"`
+
 	// control_request / control_response
 	RequestID string          `json:"request_id,omitempty"`
 	Request   json.RawMessage `json:"request,omitempty"`
