@@ -1,5 +1,7 @@
 # Palmux v2
 
+> 日本語版は [本ファイル後半](#palmux-v2-日本語) を参照。
+
 Web-based terminal client built around tmux. Run multiple Claude Code agents
 in parallel, browse files, and review git diffs from one browser tab — desktop
 or mobile.
@@ -371,3 +373,374 @@ git push origin v0.2.0
 ## License
 
 MIT — see [LICENSE](LICENSE) once included. Until then, copyright tjst-t.
+
+---
+
+# Palmux v2 (日本語)
+
+tmux をベースにした Web ターミナルクライアント。1つのブラウザタブから
+Claude Code エージェントを並行運用したり、ファイルを閲覧したり、git diff
+をレビューしたりできる。PC とモバイル両対応。
+
+Palmux はフロントエンドを embed した単一の Go バイナリ。tmux は実装の詳細
+として扱われ、ブラウザのセッションごとに `_palmux_{repoId}_{branchId}`
+という tmux セッションへ attach し、各タブが tmux ウィンドウ
+(`palmux:…`) に対応する。
+
+- **バックエンド**: Go 1.25, `net/http`, `nhooyr.io/websocket`
+- **フロントエンド**: React 19, TypeScript, Vite, React Router 7, xterm.js, `embed.FS` 経由で同梱
+- **配布形態**: アーキテクチャごとの単一スタティックバイナリ
+
+---
+
+## 目次
+
+- [必須の依存ツール](#必須の依存ツール)
+- [任意の依存ツール](#任意の依存ツール)
+- [インストール](#インストール)
+- [起動](#起動)
+- [認証と `--token`](#認証と---token)
+- [通知フック](#通知フック)
+- [設定ファイル](#設定ファイル)
+- [tmux の設定](#tmux-の設定)
+- [URL スキーム](#url-スキーム)
+- [アップデート](#アップデート)
+- [サービス化 (systemd)](#サービス化-systemd)
+- [リバースプロキシ](#リバースプロキシ)
+- [開発](#開発)
+- [リリース](#リリース)
+- [ライセンス](#ライセンス)
+
+---
+
+## 必須の依存ツール
+
+下記が `PATH` 上に存在しないと Palmux は起動を拒否する。
+
+| ツール | 用途 |
+| --- | --- |
+| [`tmux`](https://github.com/tmux/tmux) ≥ 3.2 | 実体としてのターミナルセッションを所持 |
+| [`git`](https://git-scm.com/) | worktree 一覧、diff、ブランチメタデータ |
+| [`ghq`](https://github.com/x-motemen/ghq) | Open 済みリポジトリの真実の所在 |
+| [`gwq`](https://github.com/d-kuro/gwq) | worktree 作成/削除 (`git worktree add` を直接呼ばない) |
+
+## 任意の依存ツール
+
+| ツール | 必要になるケース |
+| --- | --- |
+| [`claude`](https://docs.anthropic.com/en/docs/claude-code) (Anthropic Claude Code CLI) | Claude タブが stream-json IPC でこのバイナリを spawn する。`claude auth login` で一度認証しておく |
+| Node.js 22+ と npm | 開発時 (`make dev`) もしくはソースビルド (`make build`) 時のみ。リリース版バイナリにはビルド済みフロントエンドが embed されている |
+| [`portman`](https://github.com/tjst-t/port-manager) | 同梱の `make serve` / `make dev` を使うときのみ。portman 経由でポートをリースし、Caddy への登録もする |
+| [Caddy](https://caddyserver.com/) | HTTPS と分かりやすいホスト名がほしいとき。Palmux 自体は HTTP のみ提供し、TLS 終端はしない |
+
+---
+
+## インストール
+
+### リリース版から（推奨）
+
+タグごとに Linux バイナリ (`linux/amd64`, `linux/arm64`) を添付している。
+フロントエンドが同梱されているので、ランタイムで必要なのは
+[必須の依存ツール](#必須の依存ツール) のみ。
+
+```bash
+# 最新リリース: https://github.com/tjst-t/palmux2/releases
+ARCH=amd64   # または arm64
+VER=v0.1.0
+curl -fSL -o ~/.local/bin/palmux \
+  "https://github.com/tjst-t/palmux2/releases/download/${VER}/palmux-linux-${ARCH}"
+chmod +x ~/.local/bin/palmux
+palmux --help
+```
+
+### ソースから
+
+```bash
+git clone https://github.com/tjst-t/palmux2 ~/ghq/github.com/tjst-t/palmux2
+cd ~/ghq/github.com/tjst-t/palmux2
+make build              # ./bin/palmux (ホストアーキテクチャ)
+# または:
+make build-linux        # ./bin/palmux-linux-amd64
+make build-arm          # ./bin/palmux-linux-arm64
+```
+
+---
+
+## 起動
+
+```bash
+palmux                                # 0.0.0.0:8080 で待ち受け
+palmux --addr 127.0.0.1:8088          # 特定ポートにバインド
+palmux --token <secret>               # 認証必須にする
+palmux --config-dir ~/.config/palmux  # 設定ディレクトリの上書き
+```
+
+表示された URL をブラウザで開く。Drawer から最初に Open するリポジトリは
+`ghq root` 配下にすでに clone されている必要がある。Palmux はリポジトリの
+clone はせず、clone 済みリポジトリの worktree を管理する。
+
+### CLI フラグ
+
+| フラグ | デフォルト | 備考 |
+| --- | --- | --- |
+| `--addr` | `0.0.0.0:8080` | リッスンアドレス |
+| `--config-dir` | `~/.config/palmux` | `repos.json`, `settings.json`, `sessions.json` の置き場 |
+| `--token` | (空) | ブラウザ + フック認証用のトークン (下記参照) |
+| `--base-path` | `/` | サブパス配下にマウント (例: `/palmux/`) |
+| `--max-connections` | `0` | ブランチごとの WS 上限。`0` は無制限 |
+| `--portman-url` | (空) | 設定すると、ヘッダに portman ダッシュボードへのリンクが出る |
+
+---
+
+## 認証と `--token`
+
+Palmux の認証モードは2通り:
+
+- **オープン** (`--token` 空)。ネットワーク到達できる人なら誰でも使える。
+  通知のために署名付き Cookie はセットされるが、トークン要求はしない。
+- **トークンモード** (`--token <secret>` 指定)。ブラウザは一度だけ
+  `/auth?token=<secret>` を踏み、HMAC-SHA256 署名付き Cookie
+  (`palmux_session`, HttpOnly, SameSite=Strict, 有効期限 90 日) を受け取って
+  `/` にリダイレクトされる。CLI 呼び出しや通知フックは
+  `Authorization: Bearer <token>` を付ける。
+
+ネットワーク越しに到達できる場合は `--token` を必ず付ける。Cookie は 90 日
+有効、トークンを変えたいときはサーバー再起動でローテーションできる。
+
+---
+
+## 通知フック
+
+起動時に Palmux は `${configDir}/env.${port}` に必要な環境変数を書き出す。
+フックスクリプトはこのファイルを source して `/api/notify` に POST する:
+
+```bash
+# ~/.config/palmux/env.8080
+PALMUX_URL="http://127.0.0.1:8080"
+PALMUX_TOKEN="..."          # --token を指定したときのみセットされる
+PALMUX_PORT="8080"
+```
+
+```bash
+source ~/.config/palmux/env.8080
+curl -fsS "$PALMUX_URL/api/notify" \
+  -H "Authorization: Bearer $PALMUX_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"tmuxSession":"_palmux_repo_branch","type":"stop","message":"build done"}'
+```
+
+`tmuxSession` から `(repoId, branchId)` が逆引きされる。Drawer の該当
+ブランチに琥珀色のドットが点滅し、Claude タブには未読バッジが付く。
+ユーザーがそのタブにフォーカスすると自動でクリアされる。
+
+---
+
+## 設定ファイル
+
+永続データはすべて `--config-dir`（既定 `~/.config/palmux/`）配下にある。
+プレーンな JSON なので手で編集してもよいが、起動中サーバーが真実の状態を
+持つので手編集後はサーバー再起動を。
+
+| ファイル | 役割 |
+| --- | --- |
+| `repos.json` | Open 済みリポジトリ。ブランチは実行時に `git worktree list` から導出 |
+| `settings.json` | デバイス間で共有されるグローバル設定 (Toolbar, Claude のデフォルト, 画像アップロード先) |
+| `sessions.json` | Claude タブの永続化 — ブランチごとの最終 session_id と、model/effort/permission-mode |
+| `env.${port}` | 通知フック用の env ファイル（起動ごとに再生成） |
+
+### `settings.json` の例
+
+```jsonc
+{
+  "branchSortOrder": "name",
+  "imageUploadDir": "/tmp/palmux-uploads",
+  "toolbar": {
+    "claude": {
+      "rows": [
+        [{ "type": "key", "key": "/clear", "text": "/clear" }]
+      ]
+    }
+  }
+}
+```
+
+デバイス固有設定 (テーマ、フォントサイズ、Drawer 幅、Split 比率、IME
+モード) は `localStorage` の `palmux:` プレフィックス配下にあり、デバイス間
+では同期しない。
+
+### 画像アップロード先
+
+Claude のコンポーザに画像をペーストすると `imageUploadDir`（既定
+`/tmp/palmux-uploads/`）に保存される。初回ペースト時にディレクトリが作られる
+ので、不要なら適宜掃除を。`/api/upload/{name}` でファイルを返すので、
+ページリロード後もチャットのサムネイルが見える。
+
+---
+
+## tmux の設定
+
+Palmux は矢印キー列を `\x1b[A/B/C/D` で送り、Backspace は `\x7f`（xterm
+互換）。フルマウスと 256 色を embed した xterm.js で動かすため、
+`~/.tmux.conf` に以下を入れておく:
+
+```tmux
+set -g default-terminal "tmux-256color"
+set -ag terminal-overrides ",*:Tc,*:RGB"
+set -g mouse on
+set -g focus-events on
+set -g history-limit 50000
+```
+
+macOS で `tmux-256color` がないなら `screen-256color` を使う。
+
+Palmux サーバーは `_palmux_{repoId}_{branchId}` というセッション名と
+`palmux:{type}:{name}` というウィンドウ名を予約する。自分のセッションで
+このプレフィクスを使わないこと。
+
+---
+
+## URL スキーム
+
+```
+/                                                       # ホーム (リポジトリ一覧の Drawer)
+/{repoId}/{branchId}/{tabId}                            # メインパネル
+/{repoId}/{branchId}/files/<path>                       # worktree 内のファイルかディレクトリ
+/{repoId}/{branchId}/git/{status|diff|log|branches}     # git タブのビュー
+/{repoId}/{branchId}/{tabId}?right=<encoded>            # Split 右パネル
+```
+
+- `repoId` = `{owner}--{repo}--{hash4}` 例: `tjst-t--palmux2--2d59`
+- `branchId` = `{branch_safe}--{hash4}` 例: `main--ad3a`
+- `tabId` は `claude` / `files` / `git` / `bash` / `bash:my-server` …
+
+URL はブックマーク可。Open されていないブランチへのリンクを踏むと、
+ホーム画面に着地するだけ。
+
+---
+
+## アップデート
+
+1. 新バイナリを <https://github.com/tjst-t/palmux2/releases> からダウンロード
+2. 同梱の recipe を使っているなら `make serve`、そうでなければ走っている
+   プロセスに `SIGTERM` を送って起動しなおす。再起動を跨いでも tmux
+   セッションと Claude のトランスクリプトは残る — 取り替わるのはサーバー
+   プロセスだけ
+
+Files タブのスキーマ、sessions スキーマ、`settings.json` はパッチバージョン
+間で前方互換。メジャー間の移行はリリースノートに記載する。
+
+---
+
+## サービス化 (systemd)
+
+```ini
+# /etc/systemd/system/palmux.service
+[Unit]
+Description=Palmux v2
+After=network.target
+
+[Service]
+User=palmux
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/palmux/.local/bin/palmux \
+  --addr 127.0.0.1:8080 \
+  --config-dir /home/palmux/.config/palmux \
+  --token %i
+Restart=on-failure
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now palmux@SECRETHERE
+journalctl -u 'palmux@*' -f
+```
+
+`%i` の instance 文字列を使うと、トークンを unit ファイルに書かずに済む。
+ホストごとに別の値にすること。
+
+---
+
+## リバースプロキシ
+
+Palmux は HTTP とブランチごとの WebSocket エンドポイント1本。TLS 終端
+プロキシ越しに使うときは upgrade ヘッダの転送を忘れずに。Caddy 例:
+
+```caddyfile
+palmux.example.com {
+  reverse_proxy 127.0.0.1:8080
+}
+```
+
+nginx は `location /api/` で `Connection: upgrade` / `Upgrade:
+$http_upgrade` を流す必要あり。レスポンスをバッファリングしないこと。
+
+---
+
+## 開発
+
+### Bootstrap 上の注意
+
+Palmux v2 はセルフホストするのが普通。開発するソースを動かしている
+Palmux 自身の中でハックすることが多いため、その palmux を `make serve` で
+再起動すると、attach している Claude CLI ごと殺してしまう。`docs/development.md`
+の worktree パターンで回避する手順あり。
+
+### サーバー
+
+```bash
+make dev                  # vite dev + Go ホットリロード（フォアグラウンド）
+make serve                # 製品ビルドをバックグラウンド起動、旧 PID は自動 kill
+make serve-stop           # バックグラウンド起動を停止
+make serve-logs           # tmp/palmux.log を tail
+make {dev,serve,serve-stop,serve-logs} INSTANCE=<name>
+                          # ホスト用 instance と並走させる（別ポート）
+```
+
+`make serve` の生成物:
+
+- `tmp/palmux.pid` — バックグラウンドプロセスの PID。再度 `make serve`
+  すると SIGTERM（5 秒で SIGKILL）して新プロセスを起動
+- `tmp/palmux.log` — stdout/stderr
+- `tmp/palmux.portman.env` — リースされたポート
+
+### Build / test / lint
+
+```bash
+make build         # ホストアーキ
+make build-linux   # linux amd64
+make build-arm     # linux arm64
+make test          # Go テスト + 必要なら `npm test`
+make lint          # golangci-lint + eslint
+```
+
+### アーキテクチャ / 仕様書
+
+- 最上位ルールと Claude Code 向けの方針: [`CLAUDE.md`](CLAUDE.md)
+- アーキテクチャ詳細: [`docs/original-specs/01-architecture.md`](docs/original-specs/01-architecture.md)
+- フェーズ別実装計画: [`docs/original-specs/03-implementation-plan.md`](docs/original-specs/03-implementation-plan.md)
+- Claude タブ仕様: [`docs/original-specs/05-claude-agent-tab.md`](docs/original-specs/05-claude-agent-tab.md)、Phase 2+ ロードマップは [`06-claude-tab-roadmap.md`](docs/original-specs/06-claude-tab-roadmap.md)
+
+---
+
+## リリース
+
+`v*` タグの push が
+[`.github/workflows/release.yml`](.github/workflows/release.yml) を起動。
+Linux 両アーキテクチャをビルドしてバイナリを添付し、前回タグからの差分で
+リリースノートを自動生成する。
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+# → https://github.com/tjst-t/palmux2/releases/tag/v0.2.0 にリリースが作成される
+```
+
+---
+
+## ライセンス
+
+MIT — `LICENSE` を同梱する形になるまでは copyright tjst-t。
