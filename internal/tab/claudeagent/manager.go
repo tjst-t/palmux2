@@ -828,21 +828,26 @@ func (a *Agent) AnswerPlanResponse(frame PlanRespondFrame) error {
 				resp.UpdatedInput = raw
 			}
 		}
-		// Switch the permission mode in the background. This kills + respawns
-		// the CLI with the new mode, but only AFTER the waiter resolves
-		// (so the CLI's pending tools/call gets its allow first). The
-		// respawn carries the session_id forward so the conversation
-		// continues seamlessly. Persistence to BranchPrefs falls out of
-		// SetPermissionMode → persistPrefs.
+		// Switch the permission mode for subsequent turns. We CANNOT
+		// respawn here — respawning kills the CLI mid tools/call before
+		// it gets the allow we're about to send, and the new CLI never
+		// learns the ExitPlanMode was approved. So:
+		//   1. Record the mode in session + BranchPrefs immediately so the
+		//      next CLI start picks it up.
+		//   2. Re-broadcast a session snapshot so connected browsers
+		//      reflect the new mode in the UI pill (no respawn → no
+		//      natural session.init to ride on).
+		//   3. After the waiter is woken (allow propagates), fire an
+		//      in-band `set_permission_mode` control_request only — no
+		//      respawn. The CLI's ExitPlanMode handler treats the chosen
+		//      mode itself as the post-plan policy, so the in-band call
+		//      is largely belt-and-suspenders.
 		if frame.TargetMode != "" {
-			go func(mode string) {
-				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-				defer cancel()
-				if err := a.SetPermissionMode(ctx, mode); err != nil {
-					a.deps.logger.Warn("claudeagent: plan.respond SetPermissionMode failed",
-						"err", err, "mode", mode)
-				}
-			}(frame.TargetMode)
+			a.session.SetPermissionMode(frame.TargetMode)
+			a.persistPrefs()
+			if ev, e := makeEvent(EvPermissionModeChange, PermissionModeChangePayload{Mode: frame.TargetMode}); e == nil {
+				a.broadcast(ev)
+			}
 		}
 	case "reject":
 		resp.Behavior = "deny"
@@ -854,6 +859,7 @@ func (a *Agent) AnswerPlanResponse(frame PlanRespondFrame) error {
 	if ok {
 		delete(a.permWaiters, frame.PermissionID)
 	}
+	cli := a.client
 	a.mu.Unlock()
 	if ok {
 		ch <- resp
@@ -862,6 +868,21 @@ func (a *Agent) AnswerPlanResponse(frame PlanRespondFrame) error {
 		"permissionId": frame.PermissionID,
 		"decision":     resp.Behavior,
 	})
+	// In-band mode change AFTER the allow has propagated. Best-effort —
+	// the CLI's ExitPlanMode handler already implements the post-plan
+	// policy itself based on the chosen mode in the user-facing UI, so
+	// this is a redundancy that doesn't depend on the CLI cooperating.
+	// We deliberately do NOT respawn (would kill the CLI mid-stream).
+	if frame.Decision == "approve" && frame.TargetMode != "" && cli != nil {
+		go func(mode string) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := cli.SetPermissionMode(ctx, mode); err != nil {
+				a.deps.logger.Info("claudeagent: in-band set_permission_mode after plan approve failed (benign)",
+					"err", err, "mode", mode)
+			}
+		}(frame.TargetMode)
+	}
 	return nil
 }
 

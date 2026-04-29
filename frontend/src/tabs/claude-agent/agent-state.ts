@@ -123,6 +123,14 @@ function applyEvent(state: AgentState, ev: { type: string; ts: string; payload?:
       next.initInfo = ev.payload as InitInfo
       return next
     }
+    case 'permission_mode.change': {
+      // Lightweight update: server changed the permission_mode without
+      // a CLI respawn (plan approve flow). Update the pill, leave
+      // everything else untouched.
+      const p = ev.payload as { mode?: string }
+      if (typeof p?.mode === 'string') next.permissionMode = p.mode
+      return next
+    }
     case 'session.replaced': {
       next.turns = []
       next.sessionId = ((ev.payload as { newSessionId?: string }).newSessionId) ?? ''

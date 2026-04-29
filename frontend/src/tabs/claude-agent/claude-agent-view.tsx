@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { confirmDialog } from '../../components/context-menu/confirm-dialog'
 import { api } from '../../lib/api'
 import type { TabViewProps } from '../../lib/tab-registry'
 
@@ -208,7 +209,18 @@ export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
         contextPct={contextPercent(state.lastUsage)}
         mcpServers={[]}
         connState={connState}
-        onClear={() => send.sessionClear()}
+        onClear={async () => {
+          // Match Claude Code CLI behaviour: /clear wipes the conversation
+          // context, which is destructive — require explicit confirmation.
+          const ok = await confirmDialog.ask({
+            title: 'Clear conversation context?',
+            message: 'This starts a fresh session. The current conversation will not be visible in this tab anymore (the on-disk transcript stays under ~/.claude/projects/ and remains accessible from the History popup).',
+            confirmLabel: 'Clear',
+            cancelLabel: 'Cancel',
+            danger: true,
+          })
+          if (ok) send.sessionClear()
+        }}
         canInterrupt={isStreaming}
         onInterrupt={() => send.interrupt()}
         onOpenHistory={() => setHistoryOpen((v) => !v)}

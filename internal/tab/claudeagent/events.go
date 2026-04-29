@@ -39,7 +39,17 @@ const (
 	// frontend can refresh its slash-command popup / model list / MCP
 	// server view without re-fetching the snapshot.
 	EvInitInfo EventType = "init.info"
+	// Pushed when permission_mode changes server-side without a
+	// CLI respawn (e.g. plan approve flow). Lets the frontend update
+	// its mode pill without requiring a heavy session.init.
+	EvPermissionModeChange EventType = "permission_mode.change"
 )
+
+// PermissionModeChangePayload notifies the frontend of a server-side
+// permission_mode change.
+type PermissionModeChangePayload struct {
+	Mode string `json:"mode"`
+}
 
 // AgentStatus is the high-level UI state pip.
 type AgentStatus string

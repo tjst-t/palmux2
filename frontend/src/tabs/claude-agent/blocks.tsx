@@ -263,7 +263,11 @@ function PlanBlock({ block, handlers }: { block: Block; handlers?: PlanHandlers 
   // from block.planDecision (replayed from the snapshot on reload).
   const decision = handlers?.decided ?? block.planDecision
   const targetMode = handlers?.targetMode ?? block.planTargetMode
-  const showActions = !!handlers && handlers.canActOnPlan && !decision
+  // Hide the action row while the block is still drafting — the plan
+  // body hasn't fully streamed yet, so showing Approve / Edit / Keep
+  // planning would let the user act on a fragment. Once `block.done`,
+  // the natural reading order is: header → body → action row.
+  const showActions = !!handlers && handlers.canActOnPlan && !decision && block.done
 
   const fallbackModes = ['default', 'auto', 'acceptEdits', 'bypassPermissions']
   const allModes = handlers?.modes && handlers.modes.length > 0
@@ -484,10 +488,11 @@ function extractPlanText(block: Block): string {
     if (typeof obj.markdown === 'string') return obj.markdown
     if (typeof obj.content === 'string') return obj.content
   }
-  // Fall back to the partial-JSON accumulator. We try to parse it
-  // optimistically — if the streaming chunk is already a valid JSON
-  // object we grab its `.plan`; otherwise show the partial as-is so
-  // the user sees something rather than nothing.
+  // Streaming partial. The CLI's ExitPlanMode input ships fields in
+  // arbitrary order — `allowedPrompts` is sometimes serialised before
+  // `plan`, so the in-flight `block.text` may not contain the plan key
+  // yet. Try to extract just the plan field; if it's not there yet,
+  // return empty rather than leaking the raw JSON to the user.
   const text = block.text ?? ''
   if (!text) return ''
   const trimmed = text.trim()
@@ -495,6 +500,8 @@ function extractPlanText(block: Block): string {
     try {
       const parsed = JSON.parse(trimmed) as Record<string, unknown>
       if (typeof parsed.plan === 'string') return parsed.plan
+      if (typeof parsed.markdown === 'string') return parsed.markdown
+      if (typeof parsed.content === 'string') return parsed.content
     } catch {
       // Streaming chunk: try to extract the literal plan string body
       // from the partial. Look for `"plan":"..."` and decode it.
@@ -508,6 +515,10 @@ function extractPlanText(block: Block): string {
         }
       }
     }
+    // We have a partial JSON object, but no plan field yet. Show
+    // nothing — leaking allowedPrompts / planFilePath as raw JSON
+    // confuses the user (see screenshots in S001-refine feedback).
+    return ''
   }
   return text
 }
