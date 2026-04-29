@@ -90,6 +90,7 @@ serve: build tmp
 	  rm -f $(SERVE_PID); \
 	fi
 	@portman env --name $(SERVE_NAME) --expose --output $(SERVE_ENV)
+	@portman sync >/dev/null
 	@. $(SERVE_ENV) && \
 	  PORT=$${$(SERVE_PORT_VAR)} && \
 	  echo "==> Starting palmux2 on port $$PORT (log: $(SERVE_LOG))" && \
