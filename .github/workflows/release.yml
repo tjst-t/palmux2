@@ -1,0 +1,54 @@
+name: release
+
+# Triggered by pushing a `v*` tag (e.g. v1.0.0, v0.2.0-rc1). Builds the
+# linux/amd64 and linux/arm64 binaries with the embedded frontend and
+# attaches them to a GitHub Release whose body is auto-generated from
+# the commits since the previous tag.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build linux/amd64 + linux/arm64
+        run: |
+          make build-linux
+          make build-arm
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            bin/palmux-linux-amd64
+            bin/palmux-linux-arm64
