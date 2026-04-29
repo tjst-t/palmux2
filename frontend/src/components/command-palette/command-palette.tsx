@@ -286,21 +286,15 @@ function PaletteInner({
           perform: () => {
             const filesTabId = activeBranch.tabSet.tabs.find((t) => t.type === 'files')?.id
             if (!filesTabId) return
+            // Files routes treat the URL path as the resource — the tab
+            // resolves file vs dir on load, no `?file=` query needed.
+            const tail = f.path
+              ? `/${f.path.split('/').map(encodeURIComponent).join('/')}`
+              : ''
             const search = searchParams.toString() ? `?${searchParams.toString()}` : ''
-            if (f.isDir) {
-              const tail = f.path
-                ? `/${f.path.split('/').map(encodeURIComponent).join('/')}`
-                : ''
-              navigate(
-                `/${encodeURIComponent(activeRepo.id)}/${encodeURIComponent(activeBranch.id)}/${encodeURIComponent(filesTabId)}${tail}${search}`,
-              )
-            } else {
-              const sp = new URLSearchParams(searchParams)
-              sp.set('file', f.path)
-              navigate(
-                `/${encodeURIComponent(activeRepo.id)}/${encodeURIComponent(activeBranch.id)}/${encodeURIComponent(filesTabId)}?${sp.toString()}`,
-              )
-            }
+            navigate(
+              `/${encodeURIComponent(activeRepo.id)}/${encodeURIComponent(activeBranch.id)}/${encodeURIComponent(filesTabId)}${tail}${search}`,
+            )
           },
         })
       }
