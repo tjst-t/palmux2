@@ -77,6 +77,9 @@ func (p *Provider) RegisterRoutes(mux *http.ServeMux, _ string) {
 	// Out-of-band permission answer (used by Activity Inbox so it can
 	// resolve a request without opening the Claude WS).
 	mux.HandleFunc("POST "+branchPrefix+"/permission/{permissionId}", h.handleAnswerPermission)
+	// .claude/settings.json viewer / editor (S002).
+	mux.HandleFunc("GET "+branchPrefix+"/settings", h.handleGetSettings)
+	mux.HandleFunc("DELETE "+branchPrefix+"/settings/permissions/allow", h.handleDeleteSettingsAllow)
 
 	mux.HandleFunc("GET /api/claude/auth-status", h.handleAuthStatus)
 	mux.HandleFunc("GET /api/claude/modes", h.handleModes)

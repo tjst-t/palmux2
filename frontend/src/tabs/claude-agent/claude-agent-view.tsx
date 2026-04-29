@@ -7,6 +7,7 @@ import { BlockView } from './blocks'
 import styles from './claude-agent-view.module.css'
 import { Composer } from './composer'
 import { HistoryPopup } from './history-popup'
+import { SettingsPopup } from './settings-popup'
 import type { AgentStatus, Turn } from './types'
 import { useAgent } from './use-agent'
 
@@ -31,6 +32,7 @@ export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
   const [modes, setModes] = useState<PermissionModesResp>(FALLBACK_PERMISSION_MODES)
   const [autoFollow, setAutoFollow] = useState(true)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   // planDecisions tracks the user's local choice on each plan block by
   // block id. Server doesn't echo a plan-decision event back, and we
   // don't want to re-prompt the user after a reload, so this is purely
@@ -173,7 +175,14 @@ export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
         canInterrupt={isStreaming}
         onInterrupt={() => send.interrupt()}
         onOpenHistory={() => setHistoryOpen((v) => !v)}
+        onOpenSettings={() => setSettingsOpen(true)}
         historyButtonRef={historyButtonRef}
+      />
+      <SettingsPopup
+        repoId={repoId}
+        branchId={branchId}
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
       />
       {historyOpen && (
         <div style={{ position: 'relative' }}>
@@ -368,6 +377,7 @@ interface TopBarProps {
   onInterrupt: () => void
   onClear: () => void
   onOpenHistory: () => void
+  onOpenSettings: () => void
   historyButtonRef?: React.RefObject<HTMLButtonElement | null>
 }
 
@@ -410,6 +420,15 @@ function TopBar(props: TopBarProps) {
         title="History (⌘H)"
       >
         history
+      </button>
+
+      <button
+        type="button"
+        className={styles.iconBtn}
+        onClick={props.onOpenSettings}
+        title="Open .claude/settings.json viewer"
+      >
+        settings
       </button>
 
       <button

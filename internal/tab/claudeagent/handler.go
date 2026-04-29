@@ -475,6 +475,68 @@ func (h *httpHandler) handleAnswerPermission(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ──────────── Settings (.claude/settings.json) endpoints ──────────────────
+
+// handleGetSettings reads the project + user settings.json and returns a
+// structured bundle. Lazy in the sense that nothing is created — a missing
+// file is reported as Exists=false so the UI can render an empty state
+// without provoking a write.
+func (h *httpHandler) handleGetSettings(w http.ResponseWriter, r *http.Request) {
+	repoID := r.PathValue("repoId")
+	branchID := r.PathValue("branchId")
+	worktree, err := h.mgr.Branches().WorktreePath(repoID, branchID)
+	if err != nil || worktree == "" {
+		http.Error(w, "branch not found", http.StatusNotFound)
+		return
+	}
+	bundle, err := loadSettingsBundle(worktree)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, bundle)
+}
+
+// handleDeleteSettingsAllow removes one entry from `permissions.allow` of
+// the requested scope (project or user). Idempotent — deleting a missing
+// entry returns 204.
+//
+//	DELETE …/tabs/claude/settings/permissions/allow?scope=project|user&pattern=Bash(ls)
+//
+// We require the explicit `scope` query parameter so the FE always
+// confirms which file gets touched (DESIGN_PRINCIPLES「責務越境最小」:
+// 触る対象を曖昧にしない).
+func (h *httpHandler) handleDeleteSettingsAllow(w http.ResponseWriter, r *http.Request) {
+	repoID := r.PathValue("repoId")
+	branchID := r.PathValue("branchId")
+	scopeRaw := r.URL.Query().Get("scope")
+	pattern := r.URL.Query().Get("pattern")
+	if pattern == "" {
+		http.Error(w, "missing pattern", http.StatusBadRequest)
+		return
+	}
+	var scope settingsScope
+	switch scopeRaw {
+	case "project":
+		scope = scopeProject
+	case "user":
+		scope = scopeUser
+	default:
+		http.Error(w, "scope must be project or user", http.StatusBadRequest)
+		return
+	}
+	worktree, err := h.mgr.Branches().WorktreePath(repoID, branchID)
+	if err != nil || worktree == "" {
+		http.Error(w, "branch not found", http.StatusNotFound)
+		return
+	}
+	if err := removeFromAllowList(scope, worktree, pattern); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 type sessionPatch struct {
 	Title string `json:"title,omitempty"`
 }
