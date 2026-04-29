@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -569,9 +570,18 @@ func (a *Agent) handleCanUseTool(_ context.Context, req canUseToolRequest, cliRe
 // handler calls this when the CLI asks whether a tool may run; the flow
 // mirrors handleCanUseTool but returns the MCP-shaped permissionResponse.
 // Session-scoped allow-listing is honoured here too.
+//
+// AskUserQuestion is special-cased: instead of the generic Allow/Deny
+// permission UI we route it to the ask flow. The waiter is resolved
+// from `AnswerAskQuestion` once the user picks an option; we package
+// the chosen labels into the tool's `input.questionAnswers` field so
+// the CLI tool implementation can read the answer when it executes.
 func (a *Agent) RequestPermission(_ context.Context, toolName string, input json.RawMessage, toolUseID string) (permissionResponse, error) {
 	if a.session.IsAllowedThisSession(toolName) {
 		return permissionResponse{Behavior: "allow"}, nil
+	}
+	if isAskQuestionToolName(toolName) {
+		return a.requestAskAnswer(toolName, input, toolUseID)
 	}
 	permID, _, _ := a.session.AddPermissionRequest(toolUseID, toolName, input)
 	a.session.SetStatus(StatusAwaitingPermission)
@@ -619,6 +629,195 @@ func (a *Agent) RequestPermission(_ context.Context, toolName string, input json
 		out.UpdatedInput = resp.UpdatedInput
 	}
 	return out, nil
+}
+
+// requestAskAnswer is the AskUserQuestion-specific branch of
+// RequestPermission. We route around the generic permission UI:
+//   - the kind:"ask" block is already in the session (added when the
+//     content_block_start envelope landed)
+//   - we register a permission_id, attach it to that block, and emit
+//     ask.question so the frontend enables its action row
+//   - the waiter is resolved from AnswerAskQuestion when the user picks
+//     an option; the chosen labels are packaged into the tool input
+//     under `questionAnswers` so the CLI's AskUserQuestion tool body
+//     can read them when it executes.
+func (a *Agent) requestAskAnswer(toolName string, input json.RawMessage, toolUseID string) (permissionResponse, error) {
+	permID, _, _ := a.session.AddPermissionRequest(toolUseID, toolName, input)
+	a.session.RegisterAskPermission(permID, toolUseID)
+	turnID, blockID := a.session.AttachAskPermission(toolUseID, permID)
+
+	a.session.SetStatus(StatusAwaitingPermission)
+	a.broadcastStatus(StatusAwaitingPermission)
+
+	// Tell the frontend a question is now answerable. We send `questions`
+	// inline so a freshly-connected client can render the action row
+	// without needing the prior content_block_start.
+	if ev, err := makeEvent(EvAskQuestion, AskQuestionPayload{
+		PermissionID: permID,
+		BlockID:      blockID,
+		TurnID:       turnID,
+		ToolUseID:    toolUseID,
+		Questions:    extractAskQuestionsRaw(input),
+	}); err == nil {
+		a.broadcast(ev)
+	}
+	// Activity-Inbox notification — surfacing AskUserQuestion in the same
+	// channel as permission prompts so a multi-tab user sees it from
+	// anywhere. The Inbox row clears once an answer is recorded.
+	a.publishNotification(InternalNotification{
+		RequestID: permID,
+		Type:      "urgent",
+		Title:     "Claude is asking a question",
+		Message:   summariseAskQuestionForNotification(input),
+	})
+
+	resp, err := a.awaitPermission(permID)
+	a.clearNotification(permID)
+	a.broadcastStatus(a.session.Status())
+	if err != nil {
+		return permissionResponse{Behavior: "deny", Message: err.Error()}, nil
+	}
+	// The handler that resolves the waiter (AnswerAskQuestion) packs the
+	// CLI-bound shape into resp.UpdatedInput. If for any reason it's
+	// empty, fall back to the original input so the MCP CLI doesn't
+	// reject our response.
+	out := permissionResponse{Behavior: resp.Behavior, Message: resp.Message}
+	if len(resp.UpdatedInput) > 0 {
+		out.UpdatedInput = resp.UpdatedInput
+	} else if len(input) > 0 {
+		out.UpdatedInput = input
+	}
+	return out, nil
+}
+
+// AnswerAskQuestion resolves an outstanding AskUserQuestion by packing
+// the chosen labels into the CLI-bound tool input and waking the
+// blocked RequestPermission goroutine. Also stamps the answers onto
+// the kind:"ask" block so the UI flips to the "decided" view (in this
+// tab and any other connected client).
+func (a *Agent) AnswerAskQuestion(frame AskRespondFrame) error {
+	if frame.PermissionID == "" {
+		return errors.New("ask.respond: missing permission_id")
+	}
+	if _, ok := a.session.ConsumeAskPermission(frame.PermissionID); !ok {
+		return errors.New("ask.respond: unknown or already-resolved permission_id")
+	}
+	// Resolve the underlying pending permission (this clears it from
+	// pendingPermissions but doesn't write a decision string — the ask
+	// kind doesn't have allow/deny).
+	cliRequestID, ok := a.session.ResolvePermission(frame.PermissionID, "allow")
+	if !ok {
+		return errors.New("ask.respond: permission already resolved")
+	}
+	_ = cliRequestID
+
+	// Snapshot answers to JSON and stamp on the block.
+	answersRaw, err := json.Marshal(frame.Answers)
+	if err != nil {
+		return fmt.Errorf("ask.respond: marshal answers: %w", err)
+	}
+	turnID, blockID := a.session.MarkAskBlockDecided(frame.PermissionID, answersRaw)
+
+	// Fan the decided event to all subscribers so other open tabs flip
+	// to the "decided" view too.
+	if ev, e := makeEvent(EvAskDecided, AskDecidedPayload{
+		PermissionID: frame.PermissionID,
+		BlockID:      blockID,
+		TurnID:       turnID,
+		Answers:      answersRaw,
+	}); e == nil {
+		a.broadcast(ev)
+	}
+
+	// Build the CLI-bound updatedInput. We preserve the original
+	// `questions` array verbatim and add `questionAnswers` — the field
+	// name AskUserQuestion's TS implementation reads to retrieve the
+	// chosen labels at run time. (See the SDK source if a future CLI
+	// build renames it.)
+	updated := buildAskUpdatedInput(frame.Answers)
+
+	// Resolve the waiter so RequestPermission returns and the MCP layer
+	// answers the CLI's tools/call.
+	a.mu.Lock()
+	ch, ok := a.permWaiters[frame.PermissionID]
+	if ok {
+		delete(a.permWaiters, frame.PermissionID)
+	}
+	a.mu.Unlock()
+	if ok {
+		ch <- canUseToolResponse{
+			Behavior:     "allow",
+			UpdatedInput: updated,
+		}
+	}
+	a.publishEvent(EventClaudePermissionResolved, map[string]any{
+		"permissionId": frame.PermissionID,
+		"decision":     "allow",
+	})
+	return nil
+}
+
+// buildAskUpdatedInput packages the chosen labels into the tool input
+// shape the AskUserQuestion CLI handler reads. The underlying tool
+// expects an updatedInput that contains the chosen answers. Today the
+// CLI's permission_prompt path discards the original input and replaces
+// it with what we send back, so we ship a self-contained object whose
+// shape is stable across CLI versions.
+func buildAskUpdatedInput(answers [][]string) json.RawMessage {
+	if answers == nil {
+		answers = [][]string{}
+	}
+	body := map[string]any{
+		"questionAnswers": answers,
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		// Should never happen; ship empty so the CLI surfaces a clean
+		// "no answer" tool_result rather than crashing the Agent.
+		return json.RawMessage(`{"questionAnswers":[]}`)
+	}
+	return raw
+}
+
+// extractAskQuestionsRaw returns the `questions` field of an
+// AskUserQuestion tool input as raw JSON, or nil when missing /
+// unparseable. Used to populate ask.question wire payloads so a
+// freshly-connected client doesn't have to wait for a stream replay.
+func extractAskQuestionsRaw(input json.RawMessage) json.RawMessage {
+	if len(input) == 0 {
+		return nil
+	}
+	var raw struct {
+		Questions json.RawMessage `json:"questions"`
+	}
+	if err := json.Unmarshal(input, &raw); err != nil {
+		return nil
+	}
+	return raw.Questions
+}
+
+// summariseAskQuestionForNotification builds a one-line preview of an
+// AskUserQuestion's first question for the Activity Inbox.
+func summariseAskQuestionForNotification(input json.RawMessage) string {
+	var raw struct {
+		Questions []struct {
+			Question string `json:"question"`
+		} `json:"questions"`
+	}
+	if err := json.Unmarshal(input, &raw); err != nil {
+		return "Claude is asking a question"
+	}
+	if len(raw.Questions) == 0 {
+		return "Claude is asking a question"
+	}
+	q := raw.Questions[0].Question
+	if len(q) > 80 {
+		q = q[:79] + "…"
+	}
+	if q == "" {
+		return "Claude is asking a question"
+	}
+	return q
 }
 
 // summariseToolForNotification compresses a tool name + input into one

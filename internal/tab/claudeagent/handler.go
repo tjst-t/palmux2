@@ -163,6 +163,22 @@ func pumpWSToAgent(ctx context.Context, c *websocket.Conn, agent *Agent, mgr *Ma
 			if err := json.Unmarshal(frame.Payload, &p); err != nil {
 				continue
 			}
+			// Permission frames addressed at an AskUserQuestion request
+			// would route through the wrong path (allow/deny semantics
+			// don't fit asking). Forwarding to AnswerAskQuestion keeps
+			// older clients working when they accidentally submit
+			// permission.respond instead of ask.respond.
+			if agent.session.IsAskPermission(p.PermissionID) {
+				if perr := agent.AnswerAskQuestion(AskRespondFrame{
+					PermissionID: p.PermissionID,
+					Answers:      [][]string{},
+				}); perr != nil {
+					if ev, e := makeEvent(EvError, ErrorPayload{Message: "Ask permission failed", Detail: perr.Error()}); e == nil {
+						agent.broadcast(ev)
+					}
+				}
+				continue
+			}
 			// Scope "always" persists the rule to .claude/settings.json
 			// (worktree scope) before answering.
 			var perr error
@@ -173,6 +189,17 @@ func pumpWSToAgent(ctx context.Context, c *websocket.Conn, agent *Agent, mgr *Ma
 			}
 			if perr != nil {
 				if ev, e := makeEvent(EvError, ErrorPayload{Message: "Permission failed", Detail: perr.Error()}); e == nil {
+					agent.broadcast(ev)
+				}
+			}
+
+		case "ask.respond":
+			var p AskRespondFrame
+			if err := json.Unmarshal(frame.Payload, &p); err != nil {
+				continue
+			}
+			if perr := agent.AnswerAskQuestion(p); perr != nil {
+				if ev, e := makeEvent(EvError, ErrorPayload{Message: "Ask answer failed", Detail: perr.Error()}); e == nil {
 					agent.broadcast(ev)
 				}
 			}
