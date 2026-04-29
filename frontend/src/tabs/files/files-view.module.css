@@ -77,4 +77,14 @@
   .dividerWrap {
     display: none;
   }
+  /* When a file is open on mobile, give the preview the entire body
+     and hide the list — tapping the breadcrumb (which shows the file's
+     parent directory) goes back to the listing. */
+  .body.previewOpen .listPane {
+    display: none;
+  }
+  .body.previewOpen .previewPane {
+    flex: 1;
+    border-top: none;
+  }
 }

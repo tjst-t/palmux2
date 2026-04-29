@@ -213,7 +213,10 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
           }}
         />
       )}
-      <div className={styles.body} ref={bodyRef}>
+      <div
+        className={`${styles.body} ${selected ? styles.previewOpen : ''}`.trim()}
+        ref={bodyRef}
+      >
         <div className={styles.listPane} style={{ flex: `0 0 ${listRatio}%` }}>
           {error && <p className={styles.error}>{error}</p>}
           <FileList entries={entries} selected={selected ?? undefined} onPick={onPick} />
