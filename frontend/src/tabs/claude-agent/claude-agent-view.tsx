@@ -163,6 +163,23 @@ export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
     }
   }
 
+  // askHandlersFor returns the AskUserQuestion action wiring for one
+  // kind:"ask" block. Looks up the active permission_id by block id and
+  // — if found — exposes onRespond which ships the chosen labels to the
+  // server. Blocks without a registered permission (already answered or
+  // not yet permission_prompt'd) get canRespond:false so the action row
+  // is disabled.
+  const askHandlersFor = (blockId: string | undefined): AskHandlersForView | undefined => {
+    if (!blockId) return undefined
+    const entry = Object.entries(state.pendingAskByBlock).find(([, bid]) => bid === blockId)
+    if (!entry) return { canRespond: false, onRespond: () => {} }
+    const [permissionId] = entry
+    return {
+      canRespond: true,
+      onRespond: (answers) => send.askRespond(permissionId, answers),
+    }
+  }
+
   return (
     <div className={styles.wrap}>
       <TopBar
@@ -220,7 +237,7 @@ export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
               </p>
             </div>
           ) : (
-            renderTurnsTree(state.turns, respondPermission, planHandlersFor)
+            renderTurnsTree(state.turns, respondPermission, planHandlersFor, askHandlersFor)
           )}
         </div>
         {!autoFollow && state.turns.length > 0 && (
@@ -299,15 +316,22 @@ interface PlanHandlersForView {
   onStayInPlan: () => void
 }
 
+interface AskHandlersForView {
+  canRespond: boolean
+  onRespond: (answers: string[][]) => void
+}
+
 function TurnView({
   turn,
   onRespondPermission,
   planHandlersFor,
+  askHandlersFor,
   childrenByParent,
 }: {
   turn: Turn
   onRespondPermission: RespondPermissionFn
   planHandlersFor: (blockId: string | undefined) => PlanHandlersForView | undefined
+  askHandlersFor: (blockId: string | undefined) => AskHandlersForView | undefined
   /** Map of toolUseId → child turns produced by sub-agents the CLI
    *  spawned via that Task tool block. When a block in this turn has
    *  a non-empty entry in this map, it is rendered as a TaskTree with
@@ -340,6 +364,7 @@ function TurnView({
               }
             : undefined
         const planHandlers = b.kind === 'plan' ? planHandlersFor(b.id) : undefined
+        const askHandlers = b.kind === 'ask' ? askHandlersFor(b.id) : undefined
         // Sub-agent child turns: only relevant for tool_use blocks
         // (today only `Task` spawns sub-agents, but the linkage is
         // generic so any future tool that emits sub-agents nests too).
@@ -356,6 +381,7 @@ function TurnView({
                     turn={child}
                     onRespondPermission={onRespondPermission}
                     planHandlersFor={planHandlersFor}
+                    askHandlersFor={askHandlersFor}
                     childrenByParent={childrenByParent}
                   />
                 ))
@@ -366,6 +392,7 @@ function TurnView({
             block={b}
             permissionHandlers={handlers}
             planHandlers={planHandlers}
+            askHandlers={askHandlers}
             renderTaskChildren={renderTaskChildren}
           />
         )
@@ -383,6 +410,7 @@ function renderTurnsTree(
   turns: Turn[],
   onRespondPermission: RespondPermissionFn,
   planHandlersFor: (blockId: string | undefined) => PlanHandlersForView | undefined,
+  askHandlersFor: (blockId: string | undefined) => AskHandlersForView | undefined,
 ) {
   const childrenByParent = new Map<string, Turn[]>()
   const topLevel: Turn[] = []
@@ -401,6 +429,7 @@ function renderTurnsTree(
       turn={turn}
       onRespondPermission={onRespondPermission}
       planHandlersFor={planHandlersFor}
+      askHandlersFor={askHandlersFor}
       childrenByParent={childrenByParent}
     />
   ))

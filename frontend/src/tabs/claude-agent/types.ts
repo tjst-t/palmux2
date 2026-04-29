@@ -17,6 +17,7 @@ export type BlockKind =
   | 'todo'
   | 'permission'
   | 'plan'
+  | 'ask'
 
 export interface Block {
   id: string
@@ -36,6 +37,29 @@ export interface Block {
    *  `id` (the Palmux-minted local identifier). Sub-agent turns spawned
    *  by a Task tool block point to this via `parentToolUseId`. */
   toolUseId?: string
+  /** Set on kind:"ask" blocks once the user has chosen option(s).
+   *  Wire-shape mirrors the Go backend's `[][]string` — one inner array
+   *  per question, holding the chosen option labels. The frontend uses
+   *  this to render the "decided" view on reconnect. */
+  askAnswers?: string[][]
+}
+
+/** Shape of the input payload on a kind:"ask" block. Mirrors the
+ *  AskUserQuestion CLI tool input. */
+export interface AskQuestion {
+  question: string
+  header?: string
+  multiSelect?: boolean
+  options: AskOption[]
+}
+
+export interface AskOption {
+  label: string
+  description?: string
+}
+
+export interface AskInput {
+  questions: AskQuestion[]
 }
 
 export interface Turn {

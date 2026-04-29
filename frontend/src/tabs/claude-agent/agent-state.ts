@@ -18,6 +18,11 @@ export interface AgentState {
   totalCostUsd: number
   turns: Turn[]
   pendingPermission?: { permissionId: string; toolName: string; input: unknown }
+  /** Active AskUserQuestion permission IDs, keyed by permissionId, value =
+   *  the corresponding kind:"ask" block id so the renderer can wire the
+   *  action row. The entry is removed when the user submits an answer
+   *  (or on session.replaced / session.init). */
+  pendingAskByBlock: Record<string, string>
   errors: { id: number; message: string; detail?: string }[]
   /** CLI-reported capabilities (commands list, models, agents). */
   initInfo?: InitInfo
@@ -46,6 +51,7 @@ export const initialState: AgentState = {
   status: 'idle',
   totalCostUsd: 0,
   turns: [],
+  pendingAskByBlock: {},
   errors: [],
 }
 
@@ -70,6 +76,10 @@ export function reduce(state: AgentState, action: AgentAction): AgentState {
       // pendingPermission from it so the Allow/Deny buttons keep working
       // — otherwise they'd disappear and the user couldn't answer.
       const pending = findPendingPermissionInTurns(p.turns ?? [])
+      // Same for AskUserQuestion: walk the turns and re-build the
+      // permissionId → blockId map so the AskQuestionBlock action row
+      // is enabled for any unanswered question that survived a reload.
+      const pendingAskByBlock = findPendingAsksInTurns(p.turns ?? [])
       return {
         ...state,
         ready: true,
@@ -83,6 +93,7 @@ export function reduce(state: AgentState, action: AgentAction): AgentState {
         totalCostUsd: p.totalCostUsd,
         turns: p.turns ?? [],
         pendingPermission: pending,
+        pendingAskByBlock,
         errors: [],
         initInfo: p.initInfo,
       }
@@ -109,6 +120,7 @@ function applyEvent(state: AgentState, ev: { type: string; ts: string; payload?:
       next.sessionId = ((ev.payload as { newSessionId?: string }).newSessionId) ?? ''
       next.totalCostUsd = 0
       next.pendingPermission = undefined
+      next.pendingAskByBlock = {}
       return next
     }
     case 'status.change': {
@@ -235,6 +247,46 @@ function applyEvent(state: AgentState, ev: { type: string; ts: string; payload?:
       const p = ev.payload as { permissionId: string; toolName: string; input: unknown }
       next.pendingPermission = p
       return appendPermissionBlock(next, p)
+    }
+    case 'ask.question': {
+      const p = ev.payload as {
+        permissionId: string
+        blockId?: string
+        turnId?: string
+        toolUseId?: string
+        questions?: unknown
+      }
+      // Stamp permissionId on the matching kind:"ask" block (matching
+      // by toolUseId when it's available, falling back to blockId, and
+      // finally to the most recent ask block) so the renderer can wire
+      // the action row. Also keep `questions` fresh in case the block
+      // arrived only via permission_prompt without a prior content
+      // block_start (some CLI flows skip the stream_event).
+      const turns = stampAskPermission(next.turns, p.permissionId, {
+        blockId: p.blockId,
+        toolUseId: p.toolUseId,
+        questions: p.questions,
+      })
+      const blockId = findAskBlockIdForPermission(turns, p.permissionId)
+      const nextAsk = { ...next.pendingAskByBlock }
+      if (blockId) nextAsk[p.permissionId] = blockId
+      next.turns = turns
+      next.pendingAskByBlock = nextAsk
+      return next
+    }
+    case 'ask.decided': {
+      const p = ev.payload as {
+        permissionId: string
+        blockId?: string
+        turnId?: string
+        answers?: unknown
+      }
+      const answers = parseAnswers(p.answers)
+      next.turns = applyAskAnswers(next.turns, p.permissionId, answers, p.blockId)
+      const nextAsk = { ...next.pendingAskByBlock }
+      delete nextAsk[p.permissionId]
+      next.pendingAskByBlock = nextAsk
+      return next
     }
     case 'user.message': {
       const p = ev.payload as { turnId: string; content: string }
@@ -372,4 +424,129 @@ function findPendingPermissionInTurns(
     }
   }
   return undefined
+}
+
+// findPendingAsksInTurns rebuilds the permissionId → blockId map from a
+// snapshot. Any kind:"ask" block that has a permissionId stamped but no
+// askAnswers is treated as still-pending — the user can answer it after
+// reconnect / reload.
+function findPendingAsksInTurns(turns: Turn[]): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const t of turns) {
+    for (const b of t.blocks) {
+      if (b.kind !== 'ask' || !b.permissionId) continue
+      const decided = Array.isArray(b.askAnswers) && b.askAnswers.length > 0
+      if (decided) continue
+      out[b.permissionId] = b.id
+    }
+  }
+  return out
+}
+
+// stampAskPermission attaches a freshly-issued permissionId to the
+// matching kind:"ask" block. Matching priority: explicit blockId →
+// toolUseId → last ask block in the turns. Also lets us replace the
+// block's `input` if the server shipped fresh `questions` so a client
+// that skipped content_block_start can still render the question.
+function stampAskPermission(
+  turns: Turn[],
+  permissionId: string,
+  match: { blockId?: string; toolUseId?: string; questions?: unknown },
+): Turn[] {
+  let stamped = false
+  const out = turns.map((t) => ({
+    ...t,
+    blocks: t.blocks.map((b) => {
+      if (stamped) return b
+      if (b.kind !== 'ask') return b
+      if (match.blockId && b.id !== match.blockId) return b
+      if (!match.blockId && match.toolUseId && b.toolUseId !== match.toolUseId) return b
+      stamped = true
+      const next: Block = { ...b, permissionId }
+      if (match.questions != null) {
+        // Wrap the questions list in the AskInput shape the renderer
+        // expects. We splice in fresh questions only when the existing
+        // block doesn't already have any (avoid clobbering streamed
+        // question text). Detection is best-effort.
+        const existing = parseAskInputObject(b.input)
+        const hasExisting = !!existing && Array.isArray(existing.questions) && existing.questions.length > 0
+        if (!hasExisting) {
+          next.input = { questions: match.questions }
+        }
+      }
+      return next
+    }),
+  }))
+  if (stamped) return out
+  // Fallback: walk newest-first manually, finding the most recent ask
+  // block irrespective of toolUseId. If none, the event is a no-op
+  // (the block.start envelope hasn't landed yet — should be rare).
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const t = turns[i]
+    for (let j = t.blocks.length - 1; j >= 0; j--) {
+      const b = t.blocks[j]
+      if (b.kind !== 'ask') continue
+      const newBlocks = t.blocks.slice()
+      const next: Block = { ...b, permissionId }
+      if (match.questions != null) {
+        const existing = parseAskInputObject(b.input)
+        const hasExisting = !!existing && Array.isArray(existing.questions) && existing.questions.length > 0
+        if (!hasExisting) next.input = { questions: match.questions }
+      }
+      newBlocks[j] = next
+      const newTurn = { ...t, blocks: newBlocks }
+      const newTurns = turns.slice()
+      newTurns[i] = newTurn
+      return newTurns
+    }
+  }
+  return turns
+}
+
+function findAskBlockIdForPermission(turns: Turn[], permissionId: string): string | undefined {
+  for (let i = turns.length - 1; i >= 0; i--) {
+    for (const b of turns[i].blocks) {
+      if (b.kind === 'ask' && b.permissionId === permissionId) return b.id
+    }
+  }
+  return undefined
+}
+
+function applyAskAnswers(
+  turns: Turn[],
+  permissionId: string,
+  answers: string[][],
+  blockId?: string,
+): Turn[] {
+  return turns.map((t) => ({
+    ...t,
+    blocks: t.blocks.map((b) => {
+      if (b.kind !== 'ask') return b
+      if (blockId && b.id !== blockId) return b
+      if (!blockId && b.permissionId !== permissionId) return b
+      return { ...b, askAnswers: answers, done: true }
+    }),
+  }))
+}
+
+function parseAnswers(raw: unknown): string[][] {
+  if (Array.isArray(raw)) {
+    return raw.map((arr) => Array.isArray(arr) ? arr.filter((s): s is string => typeof s === 'string') : [])
+  }
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw) as unknown
+      return parseAnswers(parsed)
+    } catch { return [] }
+  }
+  return []
+}
+
+function parseAskInputObject(input: unknown): { questions?: unknown[] } | null {
+  if (input == null) return null
+  if (typeof input === 'object') return input as { questions?: unknown[] }
+  if (typeof input === 'string') {
+    try { return JSON.parse(input) as { questions?: unknown[] } } catch { return null }
+  }
+  return null
 }

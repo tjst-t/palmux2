@@ -22,6 +22,12 @@ interface SendFn {
     updatedInput?: unknown,
     reason?: string,
   ) => void
+  /** Submit the user's selected option(s) for an AskUserQuestion. The
+   *  outer array holds one entry per question; the inner array carries
+   *  the chosen option labels (multiple iff the question is
+   *  multiSelect:true). The backend wakes the blocked tool's
+   *  permission_prompt and ships the answers to the CLI. */
+  askRespond: (permissionId: string, answers: string[][]) => void
   setModel: (model: string) => void
   setEffort: (effort: string) => void
   setPermissionMode: (mode: string) => void
@@ -108,6 +114,15 @@ export function useAgent(repoId: string, branchId: string): UseAgentResult {
     )
   }, [])
 
+  const askRespond = useCallback<SendFn['askRespond']>((permissionId, answers) => {
+    wsRef.current?.send(
+      JSON.stringify({
+        type: 'ask.respond',
+        payload: { permissionId, answers },
+      }),
+    )
+  }, [])
+
   const setModel = useCallback((model: string) => {
     wsRef.current?.send(JSON.stringify({ type: 'model.set', payload: { model } }))
   }, [])
@@ -143,6 +158,7 @@ export function useAgent(repoId: string, branchId: string): UseAgentResult {
       userMessage: sendMessage,
       interrupt,
       permissionRespond,
+      askRespond,
       setModel,
       setEffort,
       setPermissionMode,
