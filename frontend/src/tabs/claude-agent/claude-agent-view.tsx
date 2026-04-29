@@ -31,6 +31,14 @@ export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
   const [modes, setModes] = useState<PermissionModesResp>(FALLBACK_PERMISSION_MODES)
   const [autoFollow, setAutoFollow] = useState(true)
   const [historyOpen, setHistoryOpen] = useState(false)
+  // planDecisions tracks the user's local choice on each plan block by
+  // block id. Server doesn't echo a plan-decision event back, and we
+  // don't want to re-prompt the user after a reload, so this is purely
+  // an in-memory FE state. It resets on tab switch (component unmount)
+  // which is fine — once you've left a plan it's history.
+  const [planDecisions, setPlanDecisions] = useState<
+    Record<string, 'approved' | 'rejected'>
+  >({})
 
   // ⌘H / Ctrl+H opens the session history popup.
   useEffect(() => {
@@ -113,6 +121,46 @@ export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
     [send],
   )
 
+  // The "active" plan is the most-recent plan block in the current
+  // turns list. Earlier plans (from previous turns or resumed
+  // transcripts) are read-only. We only show action buttons when the
+  // session is still in plan mode — once the user has approved out,
+  // future plan blocks would be a fresh re-entry.
+  const activePlanBlockId = useMemo(() => findLatestPlanBlockId(state.turns), [state.turns])
+  const inPlanMode = state.permissionMode === 'plan'
+  // resolveExitMode picks the mode to switch to on Approve. Order:
+  //   1. branch's persisted PermissionMode (state.permissionMode would
+  //      already reflect this if non-plan, but we explicitly skip
+  //      "plan" to avoid a no-op),
+  //   2. CLI-detected default (modes.default),
+  //   3. hard-coded "acceptEdits" matching the manager.go fallback.
+  const resolveExitMode = (): string => {
+    if (modes.default && modes.default !== 'plan') return modes.default
+    return 'acceptEdits'
+  }
+
+  const planHandlersFor = (blockId: string | undefined): PlanHandlersForView | undefined => {
+    if (!blockId) return undefined
+    const decided = planDecisions[blockId]
+    const isActive = blockId === activePlanBlockId && inPlanMode
+    return {
+      decided,
+      canActOnPlan: isActive && !decided,
+      onApprove: () => {
+        const target = resolveExitMode()
+        setPlanDecisions((prev) => ({ ...prev, [blockId]: 'approved' }))
+        send.setPermissionMode(target)
+      },
+      onStayInPlan: () => {
+        // No CLI-side action — staying in plan just means we don't
+        // change the permission_mode. Recording the decision hides
+        // the buttons so the agent can draft a follow-up plan
+        // without the user re-clicking the same block.
+        setPlanDecisions((prev) => ({ ...prev, [blockId]: 'rejected' }))
+      },
+    }
+  }
+
   return (
     <div className={styles.wrap}>
       <TopBar
@@ -168,6 +216,7 @@ export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
                 key={turn.id}
                 turn={turn}
                 onRespondPermission={respondPermission}
+                planHandlersFor={planHandlersFor}
               />
             ))
           )}
@@ -241,12 +290,21 @@ type RespondPermissionFn = (
   updatedInput?: unknown,
 ) => void
 
+interface PlanHandlersForView {
+  decided?: 'approved' | 'rejected'
+  canActOnPlan: boolean
+  onApprove: () => void
+  onStayInPlan: () => void
+}
+
 function TurnView({
   turn,
   onRespondPermission,
+  planHandlersFor,
 }: {
   turn: Turn
   onRespondPermission: RespondPermissionFn
+  planHandlersFor: (blockId: string | undefined) => PlanHandlersForView | undefined
 }) {
   if (turn.role === 'user') {
     return (
@@ -273,10 +331,31 @@ function TurnView({
                   onRespondPermission(b.permissionId!, 'deny', 'once', reason),
               }
             : undefined
-        return <BlockView key={b.id} block={b} permissionHandlers={handlers} />
+        const planHandlers = b.kind === 'plan' ? planHandlersFor(b.id) : undefined
+        return (
+          <BlockView
+            key={b.id}
+            block={b}
+            permissionHandlers={handlers}
+            planHandlers={planHandlers}
+          />
+        )
       })}
     </div>
   )
+}
+
+// findLatestPlanBlockId walks turns newest-first and returns the id of
+// the most recent kind:"plan" block. Used to limit the action row to a
+// single plan at a time — earlier plans are read-only history.
+function findLatestPlanBlockId(turns: Turn[]): string | undefined {
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const t = turns[i]
+    for (let j = t.blocks.length - 1; j >= 0; j--) {
+      if (t.blocks[j].kind === 'plan') return t.blocks[j].id
+    }
+  }
+  return undefined
 }
 
 interface TopBarProps {

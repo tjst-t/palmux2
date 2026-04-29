@@ -24,12 +24,24 @@ interface PermissionHandlers {
   onDeny: (reason?: string) => void
 }
 
+interface PlanHandlers {
+  onApprove: () => void
+  onStayInPlan: () => void
+  /** Whether the agent is still in plan mode. When false the buttons
+   *  hide entirely — plan blocks from earlier turns are read-only. */
+  canActOnPlan: boolean
+  /** True once the user has clicked one of the plan actions in this
+   *  session. Used to fade the buttons out after a single use. */
+  decided?: 'approved' | 'rejected'
+}
+
 interface BlockProps {
   block: Block
   permissionHandlers?: PermissionHandlers
+  planHandlers?: PlanHandlers
 }
 
-export function BlockView({ block, permissionHandlers }: BlockProps) {
+export function BlockView({ block, permissionHandlers, planHandlers }: BlockProps) {
   switch (block.kind) {
     case 'text':        return <TextBlock text={block.text ?? ''} />
     case 'thinking':    return <ThinkingBlock text={block.text ?? ''} />
@@ -37,6 +49,7 @@ export function BlockView({ block, permissionHandlers }: BlockProps) {
     case 'tool_result': return <ToolResultBlock block={block} />
     case 'todo':        return <TodoBlock block={block} />
     case 'permission':  return <PermissionBlock block={block} handlers={permissionHandlers} />
+    case 'plan':        return <PlanBlock block={block} handlers={planHandlers} />
     default:            return null
   }
 }
@@ -120,6 +133,136 @@ function ThinkingBlock({ text }: { text: string }) {
       {expanded && <div className={styles.thinkingBody}>{text}</div>}
     </div>
   )
+}
+
+// PlanBlock renders an ExitPlanMode block. The CLI emits the plan via the
+// same `tool_use` envelope it uses for any other tool — Palmux re-tags it
+// to kind:"plan" in normalize.go so the frontend can present the plan as
+// authored content (Markdown) rather than a tool input dump.
+//
+// While the plan is still streaming (`!block.done`) it is rendered
+// expanded so the user can watch it form. Once finalised it collapses to
+// a header preview and the user can expand on demand. The action row
+// (Approve & Run / Stay in plan) appears only when `permission_mode`
+// is still "plan" and the user hasn't yet acted on this block.
+function PlanBlock({ block, handlers }: { block: Block; handlers?: PlanHandlers }) {
+  const planText = useMemo(() => extractPlanText(block), [block])
+  const streaming = !block.done
+  // Default state mirrors ToolUseBlock: expanded while drafting so the
+  // user watches the plan form, default-expanded once done so the
+  // current plan is visible without an extra click — it's the most
+  // recent thing the agent said. The chevron lets the user collapse
+  // long plans on demand.
+  const [expanded, setExpanded] = useState(true)
+  const showActions = !!handlers && handlers.canActOnPlan && !handlers.decided
+  const decisionLabel =
+    handlers?.decided === 'approved'
+      ? 'Approved — switched to execution mode'
+      : handlers?.decided === 'rejected'
+        ? 'Staying in plan mode'
+        : ''
+  // First non-blank line of the plan as a one-line preview when collapsed.
+  const previewLine = useMemo(() => firstNonBlankLine(planText), [planText])
+
+  return (
+    <div className={styles.plan}>
+      <div
+        className={styles.planHeader}
+        role="button"
+        tabIndex={0}
+        onClick={() => setExpanded((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            setExpanded((v) => !v)
+          }
+        }}
+      >
+        <span className={`${styles.chevron} ${expanded ? styles.expanded : ''}`}>›</span>
+        <span className={styles.planLabel}>Plan</span>
+        {streaming && <span className={`${styles.toolBadge} ${styles.running}`}>drafting</span>}
+        {!expanded && previewLine && (
+          <span className={styles.planPreview}>{previewLine}</span>
+        )}
+      </div>
+      {(expanded || streaming) && planText && (
+        <div className={styles.planBody}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{planText}</ReactMarkdown>
+        </div>
+      )}
+      {showActions && (
+        <div className={styles.planActions}>
+          <button
+            type="button"
+            className={`${styles.planActionBtn} ${styles.planApprove}`}
+            onClick={handlers!.onApprove}
+            title="Switch out of plan mode and run the plan"
+          >
+            Approve & Run
+          </button>
+          <button
+            type="button"
+            className={styles.planActionBtn}
+            onClick={handlers!.onStayInPlan}
+            title="Keep working in plan mode — agent will draft another plan"
+          >
+            Stay in plan
+          </button>
+        </div>
+      )}
+      {decisionLabel && <div className={styles.planDecision}>{decisionLabel}</div>}
+    </div>
+  )
+}
+
+// extractPlanText pulls the human-readable plan markdown out of the
+// block's payload. The CLI's ExitPlanMode tool input has the shape
+// `{"plan": "..."}` once finalised; while streaming, the partial JSON
+// accumulates in `block.text`. We tolerate both shapes (and a couple of
+// near-future schema variants) so a CLI version bump doesn't silently
+// regress to an empty plan.
+function extractPlanText(block: Block): string {
+  const obj = parseInputObject(block)
+  if (obj) {
+    if (typeof obj.plan === 'string') return obj.plan
+    if (typeof obj.markdown === 'string') return obj.markdown
+    if (typeof obj.content === 'string') return obj.content
+  }
+  // Fall back to the partial-JSON accumulator. We try to parse it
+  // optimistically — if the streaming chunk is already a valid JSON
+  // object we grab its `.plan`; otherwise show the partial as-is so
+  // the user sees something rather than nothing.
+  const text = block.text ?? ''
+  if (!text) return ''
+  const trimmed = text.trim()
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed) as Record<string, unknown>
+      if (typeof parsed.plan === 'string') return parsed.plan
+    } catch {
+      // Streaming chunk: try to extract the literal plan string body
+      // from the partial. Look for `"plan":"..."` and decode it.
+      const m = trimmed.match(/"plan"\s*:\s*"((?:[^"\\]|\\.)*)/)
+      if (m) {
+        try {
+          // Re-quote so JSON.parse handles escape sequences (\n, \t, …).
+          return JSON.parse(`"${m[1]}"`) as string
+        } catch {
+          return m[1]
+        }
+      }
+    }
+  }
+  return text
+}
+
+function firstNonBlankLine(s: string): string {
+  if (!s) return ''
+  for (const line of s.split('\n')) {
+    const t = line.trim()
+    if (t) return shorten(t.replace(/^#+\s*/, ''), 100)
+  }
+  return ''
 }
 
 function ToolUseBlock({ block }: { block: Block }) {

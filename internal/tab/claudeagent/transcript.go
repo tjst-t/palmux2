@@ -192,6 +192,13 @@ func LoadTranscriptTurns(path string) ([]Turn, error) {
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64<<10), 8<<20)
 
+	// planToolUseIDs collects the CLI tool_use IDs that we re-tagged from
+	// "tool_use" to "plan" while walking the transcript. The matching
+	// tool_result envelope (always written by the CLI even on plan
+	// rejection) is suppressed when we encounter it, mirroring the
+	// live-stream behaviour in normalize.go.
+	planToolUseIDs := map[string]struct{}{}
+
 	var turns []Turn
 	for sc.Scan() {
 		var e transcriptEntry
@@ -203,12 +210,12 @@ func LoadTranscriptTurns(path string) ([]Turn, error) {
 		}
 		switch e.Type {
 		case "user":
-			turn, ok := userTurnFromTranscript(e.Message)
+			turn, ok := userTurnFromTranscript(e.Message, planToolUseIDs)
 			if ok {
 				turns = append(turns, turn)
 			}
 		case "assistant":
-			turn, ok := assistantTurnFromTranscript(e.Message)
+			turn, ok := assistantTurnFromTranscript(e.Message, planToolUseIDs)
 			if ok {
 				turns = append(turns, turn)
 			}
@@ -217,7 +224,7 @@ func LoadTranscriptTurns(path string) ([]Turn, error) {
 	return turns, nil
 }
 
-func userTurnFromTranscript(raw json.RawMessage) (Turn, bool) {
+func userTurnFromTranscript(raw json.RawMessage, planToolUseIDs map[string]struct{}) (Turn, bool) {
 	if len(raw) == 0 {
 		return Turn{}, false
 	}
@@ -246,6 +253,12 @@ func userTurnFromTranscript(raw json.RawMessage) (Turn, bool) {
 				Done: true,
 			})
 		case "tool_result":
+			// Suppress the tool_result for any ExitPlanMode tool_use we
+			// re-tagged in this transcript pass — see LoadTranscriptTurns.
+			if _, ok := planToolUseIDs[cb.ToolUseID]; ok {
+				delete(planToolUseIDs, cb.ToolUseID)
+				continue
+			}
 			out := decodeToolResultContent(cb.Content)
 			blocks = append(blocks, Block{
 				ID:      newID("block"),
@@ -275,7 +288,7 @@ func userTurnFromTranscript(raw json.RawMessage) (Turn, bool) {
 	return Turn{Role: role, ID: newID("turn"), Blocks: blocks}, true
 }
 
-func assistantTurnFromTranscript(raw json.RawMessage) (Turn, bool) {
+func assistantTurnFromTranscript(raw json.RawMessage, planToolUseIDs map[string]struct{}) (Turn, bool) {
 	if len(raw) == 0 {
 		return Turn{}, false
 	}
@@ -305,8 +318,15 @@ func assistantTurnFromTranscript(raw json.RawMessage) (Turn, bool) {
 				ID: newID("block"), Kind: "thinking", Text: cb.Thinking, Index: i, Done: true,
 			})
 		case "tool_use":
+			kind := "tool_use"
+			if isPlanToolName(cb.Name) {
+				kind = "plan"
+				if cb.ID != "" {
+					planToolUseIDs[cb.ID] = struct{}{}
+				}
+			}
 			blocks = append(blocks, Block{
-				ID: newID("block"), Kind: "tool_use",
+				ID: newID("block"), Kind: kind,
 				Name: cb.Name, Input: cb.Input, Index: i, Done: true,
 			})
 		}

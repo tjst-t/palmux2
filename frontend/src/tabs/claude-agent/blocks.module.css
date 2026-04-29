@@ -358,6 +358,154 @@
 .todoInProgress { color: var(--color-warning); font-weight: 500; }
 .todoPending    { color: var(--color-fg-muted); }
 
+/* ──────────── Plan (ExitPlanMode) ──────────── */
+
+/* The plan panel uses an accent left border + faint accent-tinted
+   background so it reads as "the agent is showing you its plan" rather
+   than getting lost as another tool invocation. The chevron + label
+   match the ToolUseBlock idiom so the visual vocabulary is consistent. */
+.plan {
+  margin: var(--space-1) 0;
+  background: rgba(124, 138, 255, 0.06);
+  border: 1px solid var(--color-border);
+  border-left: 2px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.planHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: var(--color-fg-muted);
+  margin: -4px -6px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+}
+.planHeader:hover {
+  background: rgba(124, 138, 255, 0.08);
+  color: var(--color-fg);
+}
+
+.planLabel {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-accent-light);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.planPreview {
+  color: var(--color-fg-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* Plan body uses the same prose styling as TextBlock — same font, line
+   height, and Markdown spacing — so a plan reads like a regular
+   assistant message (acceptance: "可読性は通常の assistant 出力と同等以上"). */
+.planBody {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--color-fg);
+}
+
+.planBody :is(p, ul, ol) {
+  margin: 0 0 var(--space-2) 0;
+}
+.planBody :is(p, ul, ol):last-child {
+  margin-bottom: 0;
+}
+
+.planBody h1, .planBody h2, .planBody h3, .planBody h4 {
+  margin: var(--space-3) 0 var(--space-2);
+  font-weight: 600;
+  line-height: 1.3;
+}
+.planBody h1 { font-size: 17px; }
+.planBody h2 { font-size: 15px; }
+.planBody h3 { font-size: 14px; }
+.planBody h4 { font-size: 13px; }
+.planBody :first-child { margin-top: 0; }
+
+.planBody pre {
+  margin: var(--space-2) 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.planBody code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--color-surface);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--color-fg);
+}
+
+.planBody pre code {
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+}
+
+.planBody ul, .planBody ol { padding-left: 22px; }
+
+.planActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: var(--space-1);
+}
+
+.planActionBtn {
+  background: var(--color-elevated);
+  color: var(--color-fg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 6px 14px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.planActionBtn:hover { border-color: var(--color-accent-light); }
+
+.planApprove {
+  background: var(--color-accent);
+  color: #0c0e14;
+  border-color: transparent;
+  font-weight: 600;
+}
+.planApprove:hover {
+  background: var(--color-accent-light);
+  border-color: transparent;
+}
+
+.planDecision {
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  font-style: italic;
+}
+
 /* ──────────── Permission ──────────── */
 
 .permission {

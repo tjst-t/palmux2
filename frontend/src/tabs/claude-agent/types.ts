@@ -16,6 +16,7 @@ export type BlockKind =
   | 'tool_result'
   | 'todo'
   | 'permission'
+  | 'plan'
 
 export interface Block {
   id: string

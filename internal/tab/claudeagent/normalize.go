@@ -85,6 +85,7 @@ func processStreamEvent(s *Session, raw json.RawMessage) []AgentEvent {
 	case "content_block_start":
 		var bs struct {
 			Type string `json:"type"`
+			ID string `json:"id,omitempty"`
 			Name string `json:"name,omitempty"`
 			Input json.RawMessage `json:"input,omitempty"`
 			Text string `json:"text,omitempty"`
@@ -92,6 +93,19 @@ func processStreamEvent(s *Session, raw json.RawMessage) []AgentEvent {
 		}
 		_ = json.Unmarshal(ev.Block, &bs)
 		kind := blockKindFor(bs.Type)
+		// ExitPlanMode is a tool_use the CLI ships when the agent has
+		// finished drafting a plan in --permission-mode plan. From the
+		// user's perspective it isn't a tool — it's the plan itself —
+		// so we re-tag the block as kind:"plan" and remember the
+		// tool_use_id so the corresponding tool_result envelope (which
+		// the CLI emits whether the user approves or rejects) can be
+		// suppressed instead of showing up as a noise "result" line.
+		if bs.Type == "tool_use" && isPlanToolName(bs.Name) {
+			kind = "plan"
+			if bs.ID != "" {
+				s.MarkPlanToolUse(bs.ID)
+			}
+		}
 		turnID, blockID, _ := s.OpenBlock(ev.Index, kind)
 		switch bs.Type {
 		case "tool_use":
@@ -109,9 +123,12 @@ func processStreamEvent(s *Session, raw json.RawMessage) []AgentEvent {
 		if err != nil {
 			return nil
 		}
-		// Tool start ⇒ status flips to tool_running.
+		// Tool start ⇒ status flips to tool_running. Plan blocks are
+		// authored content, not background work, so we leave the status
+		// in "thinking" — the agent is still drafting until it lands a
+		// result envelope.
 		evs := []AgentEvent{out}
-		if bs.Type == "tool_use" {
+		if bs.Type == "tool_use" && kind != "plan" {
 			s.SetStatus(StatusToolRunning)
 			if st, err := makeEvent(EvStatusChange, StatusChangePayload{Status: StatusToolRunning}); err == nil {
 				evs = append(evs, st)
@@ -218,10 +235,17 @@ func processAssistantMessage(s *Session, raw json.RawMessage) []AgentEvent {
 				out = append(out, ev)
 			}
 		case "tool_use":
+			kind := "tool_use"
+			if isPlanToolName(b.Name) {
+				kind = "plan"
+				if b.ID != "" {
+					s.MarkPlanToolUse(b.ID)
+				}
+			}
 			ev, err := makeEvent(EvBlockStart, BlockStartPayload{
 				TurnID: turnID,
 				Block: Block{
-					Kind: "tool_use", Index: i, Name: b.Name, Input: b.Input, Done: true,
+					Kind: kind, Index: i, Name: b.Name, Input: b.Input, Done: true,
 				},
 			})
 			if err == nil {
@@ -248,6 +272,13 @@ func processUserMessage(s *Session, raw json.RawMessage) []AgentEvent {
 			continue
 		}
 		if cb.Type == "tool_result" {
+			// ExitPlanMode ships a tool_result that simply echoes the
+			// approve/reject decision; the plan block already
+			// communicates that visually, so showing the result row is
+			// just noise. Drop it on the floor when we have a marker.
+			if s.ConsumePlanToolResult(cb.ToolUseID) {
+				continue
+			}
 			text := decodeToolResultContent(cb.Content)
 			turnID, _ := s.AppendToolResult(cb.ToolUseID, text, cb.IsError)
 			if ev, err := makeEvent(EvToolResult, ToolResultPayload{
@@ -261,6 +292,18 @@ func processUserMessage(s *Session, raw json.RawMessage) []AgentEvent {
 		}
 	}
 	return out
+}
+
+// isPlanToolName reports whether the named tool is the CLI's
+// ExitPlanMode tool. The CLI uses the canonical name "ExitPlanMode";
+// we accept a couple of obvious variants so a future minor rename
+// doesn't silently regress us back to the unstyled tool_use rendering.
+func isPlanToolName(name string) bool {
+	switch name {
+	case "ExitPlanMode", "exit_plan_mode", "exitplanmode":
+		return true
+	}
+	return false
 }
 
 // decodeToolResultContent flattens the polymorphic content payload of a

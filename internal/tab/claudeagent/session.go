@@ -98,6 +98,13 @@ type Session struct {
 	// MCP server statuses, populated from system/init.
 	mcpServers []MCPServerInfo
 
+	// planToolUseIDs is the set of tool_use IDs that we've re-tagged from
+	// "tool_use" → "plan" (ExitPlanMode). When the matching tool_result
+	// envelope arrives we suppress it instead of rendering a redundant
+	// "result" block underneath the plan. Bounded — entries are cleaned
+	// up on Reset / when the corresponding tool_result is consumed.
+	planToolUseIDs map[string]struct{}
+
 	createdAt time.Time
 }
 
@@ -113,6 +120,7 @@ func NewSession(repoID, branchID, sessionID, model, permissionMode string) *Sess
 		openBlocks:        map[int]*Block{},
 		pendingPermissions: map[string]string{},
 		allowList:         map[string]struct{}{},
+		planToolUseIDs:    map[string]struct{}{},
 		createdAt:         time.Now().UTC(),
 	}
 }
@@ -330,7 +338,9 @@ func (s *Session) AppendBlockText(index int, kind, text string) (turnID, blockID
 
 // SetBlockToolUse fills in tool_use metadata on an open block (called on
 // content_block_start for tool_use, or directly from a complete assistant
-// envelope).
+// envelope). The block's existing Kind is preserved when it has been
+// re-tagged (e.g. "plan" for ExitPlanMode); otherwise we set it to
+// "tool_use".
 func (s *Session) SetBlockToolUse(index int, name string, input json.RawMessage) (turnID, blockID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -346,9 +356,14 @@ func (s *Session) SetBlockToolUse(index int, name string, input json.RawMessage)
 	}
 	b.Name = name
 	b.Input = input
+	if b.Kind == "" {
+		b.Kind = "tool_use"
+	}
 	for i := range s.currentTurn.Blocks {
 		if s.currentTurn.Blocks[i].ID == b.ID {
-			s.currentTurn.Blocks[i].Kind = "tool_use"
+			if s.currentTurn.Blocks[i].Kind == "" || s.currentTurn.Blocks[i].Kind == "tool_use" {
+				s.currentTurn.Blocks[i].Kind = b.Kind
+			}
 			s.currentTurn.Blocks[i].Name = name
 			s.currentTurn.Blocks[i].Input = input
 			break
@@ -396,7 +411,7 @@ func (s *Session) FinalizeBlock(index int) (turnID, blockID string, finalInput j
 		return s.currentTurn.ID, "", nil
 	}
 	b.Done = true
-	if b.Kind == "tool_use" && len(b.Input) == 0 && b.Text != "" {
+	if (b.Kind == "tool_use" || b.Kind == "plan") && len(b.Input) == 0 && b.Text != "" {
 		if json.Valid([]byte(b.Text)) {
 			b.Input = json.RawMessage(b.Text)
 			b.Text = ""
@@ -409,7 +424,7 @@ func (s *Session) FinalizeBlock(index int) (turnID, blockID string, finalInput j
 		}
 	}
 	delete(s.openBlocks, index)
-	if b.Kind == "tool_use" && len(b.Input) > 0 {
+	if (b.Kind == "tool_use" || b.Kind == "plan") && len(b.Input) > 0 {
 		finalInput = b.Input
 	}
 	return s.currentTurn.ID, b.ID, finalInput
@@ -433,7 +448,17 @@ func (s *Session) ApplyAssistantMessage(blocks []contentBlock) string {
 		case "thinking":
 			s.upsertCompleteBlock(i, Block{ID: newID("block"), Kind: "thinking", Index: i, Text: cb.Thinking, Done: true})
 		case "tool_use":
-			s.upsertCompleteBlock(i, Block{ID: newID("block"), Kind: "tool_use", Index: i, Name: cb.Name, Input: cb.Input, Done: true})
+			kind := "tool_use"
+			if isPlanToolName(cb.Name) {
+				kind = "plan"
+				if cb.ID != "" {
+					if s.planToolUseIDs == nil {
+						s.planToolUseIDs = map[string]struct{}{}
+					}
+					s.planToolUseIDs[cb.ID] = struct{}{}
+				}
+			}
+			s.upsertCompleteBlock(i, Block{ID: newID("block"), Kind: kind, Index: i, Name: cb.Name, Input: cb.Input, Done: true})
 		}
 	}
 	return s.currentTurn.ID
@@ -560,6 +585,39 @@ func (s *Session) ToolNameForPermission(permissionID string) string {
 	return ""
 }
 
+// MarkPlanToolUse remembers a tool_use_id whose block has been re-tagged
+// to kind:"plan". The matching tool_result envelope (which the CLI emits
+// for ExitPlanMode regardless of approve/reject) will be suppressed by
+// ConsumePlanToolResult so the UI doesn't show a stray "result" line
+// underneath the plan block.
+func (s *Session) MarkPlanToolUse(toolUseID string) {
+	if toolUseID == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.planToolUseIDs == nil {
+		s.planToolUseIDs = map[string]struct{}{}
+	}
+	s.planToolUseIDs[toolUseID] = struct{}{}
+}
+
+// ConsumePlanToolResult reports whether the given tool_use_id was
+// previously marked as a plan tool. If so the entry is removed (one-shot)
+// so the caller can suppress its tool_result.
+func (s *Session) ConsumePlanToolResult(toolUseID string) bool {
+	if toolUseID == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.planToolUseIDs[toolUseID]; !ok {
+		return false
+	}
+	delete(s.planToolUseIDs, toolUseID)
+	return true
+}
+
 // AddSessionAllow whitelists a tool for the rest of this session.
 func (s *Session) AddSessionAllow(toolName string) {
 	s.mu.Lock()
@@ -605,6 +663,7 @@ func (s *Session) Reset() string {
 	s.openBlocks = map[int]*Block{}
 	s.pendingPermissions = map[string]string{}
 	s.allowList = map[string]struct{}{}
+	s.planToolUseIDs = map[string]struct{}{}
 	s.totalCostUSD = 0
 	s.status = StatusIdle
 	return old

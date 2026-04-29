@@ -4,9 +4,9 @@
 
 ## 進捗
 
-- **現在のスプリント: S001 — Plan モード UI**
+- **現在のスプリント: S001 — Plan モード UI** (autopilot 実装ほぼ完了 / Playwright タスクのみ未着手)
 - 合計: 6 スプリント | 完了: 0 | 進行中: 1 | 残り: 5
-- [░░░░░░░░░░░░░░░░░░░░] 0%
+- [░░░░░░░░░░░░░░░░░░░░] 0% (S001 の milestone マージ待ち)
 
 ## 実行順序
 
@@ -18,35 +18,37 @@
 
 Claude Code の **Plan モード** (CLI が立てた実行計画をユーザに提示してから実行する流れ) を Palmux 上で受けられるようにする。Phase 2 では `permission_mode = plan` を選択しても専用 UI がなく、ExitPlanMode の出力が普通の text ブロックとして垂れ流されていた。Phase 3 の中で最も Claude Code Desktop 体験に直結する項目。
 
-### ストーリー S001-1: ExitPlanMode を専用ブロックで描画 [ ]
+> **状況 (autopilot/S001)**: 実装完了。S001-2-3 のみ残課題（Playwright 環境未整備）。決定ログ: [`docs/sprint-logs/S001/decisions.md`](sprint-logs/S001/decisions.md)。
+
+### ストーリー S001-1: ExitPlanMode を専用ブロックで描画 [x]
 
 **ユーザーストーリー:**
 Palmux のユーザとして、Claude が立てた計画を専用 UI で読みたい。なぜなら、長文の text ブロックに混ざると見落とすからだ。
 
 **受け入れ条件:**
-- [ ] `permission_mode=plan` で Claude が `ExitPlanMode` を呼ぶと、会話に「計画」として識別できる専用ブロックが描画される
-- [ ] 計画ブロックは Markdown でレンダリングされ、可読性は通常の assistant 出力と同等以上
-- [ ] 計画ブロックは折りたたみ可能で、長い計画でも会話全体を圧迫しない
+- [x] `permission_mode=plan` で Claude が `ExitPlanMode` を呼ぶと、会話に「計画」として識別できる専用ブロックが描画される
+- [x] 計画ブロックは Markdown でレンダリングされ、可読性は通常の assistant 出力と同等以上
+- [x] 計画ブロックは折りたたみ可能で、長い計画でも会話全体を圧迫しない
 
 **タスク:**
-- [ ] **タスク S001-1-1**: stream-json の ExitPlanMode 入力を normalize 段階で `kind: "plan"` ブロックに変換
-- [ ] **タスク S001-1-2**: フロントの `BlockView` に `PlanBlock` を追加し、`blocks.module.css` に専用スタイル追加
-- [ ] **タスク S001-1-3**: 過去ターンに ExitPlanMode が含まれるトランスクリプトを resume したときも正しく表示できることを確認
+- [x] **タスク S001-1-1**: stream-json の ExitPlanMode 入力を normalize 段階で `kind: "plan"` ブロックに変換
+- [x] **タスク S001-1-2**: フロントの `BlockView` に `PlanBlock` を追加し、`blocks.module.css` に専用スタイル追加
+- [x] **タスク S001-1-3**: 過去ターンに ExitPlanMode が含まれるトランスクリプトを resume したときも正しく表示できることを確認 (Go ユニットテスト `TestLoadTranscriptTurns_RetagsExitPlanModeAndDropsToolResult`)
 
-### ストーリー S001-2: 計画→実行ボタンで Permission モードを遷移 [ ]
+### ストーリー S001-2: 計画→実行ボタンで Permission モードを遷移 [x]
 
 **ユーザーストーリー:**
 Palmux のユーザとして、提示された計画を承認したらワンクリックで実行に移したい。なぜなら、計画読了後に手で `permission_mode` を切り替えるのは煩雑だからだ。
 
 **受け入れ条件:**
-- [ ] 計画ブロック内に「Approve & Run」ボタンが表示される
-- [ ] クリックで `permission_mode` が `plan` から既定の実行モード（`acceptEdits` 等、ブランチ prefs に従う）へ自動的に切り替わる
-- [ ] 計画後の手動修正が必要なケースのために「Reject」または「Stay in plan」操作も提供される
+- [x] 計画ブロック内に「Approve & Run」ボタンが表示される
+- [x] クリックで `permission_mode` が `plan` から既定の実行モード（`acceptEdits` 等、ブランチ prefs に従う）へ自動的に切り替わる
+- [x] 計画後の手動修正が必要なケースのために「Reject」または「Stay in plan」操作も提供される
 
 **タスク:**
-- [ ] **タスク S001-2-1**: PlanBlock に承認 / 却下 ボタンを追加し、対応する WS frame (`permission_mode.set` + 任意の `user.message` 補足) を送る
-- [ ] **タスク S001-2-2**: 承認時のモード復帰先を `BranchPrefs.PermissionMode` から決定するロジックを追加
-- [ ] **タスク S001-2-3**: ブラウザで Plan → Approve → 実行が一連でつながることを Playwright で確認
+- [x] **タスク S001-2-1**: PlanBlock に承認 / 却下 ボタンを追加し、対応する WS frame (`permission_mode.set` + 任意の `user.message` 補足) を送る
+- [x] **タスク S001-2-2**: 承認時のモード復帰先を `BranchPrefs.PermissionMode` から決定するロジックを追加（FE 側で `modes.default` (CLI 検出) → `acceptEdits` の優先順で解決）
+- [ ] **タスク S001-2-3**: ブラウザで Plan → Approve → 実行が一連でつながることを Playwright で確認 (Backlog: Playwright harness 未整備のため milestone レビューに先送り)
 
 ---
 
@@ -199,3 +201,7 @@ Phase 4 以降に位置付けられる項目。スコープ確定の段階で個
 - [ ] **Read 先頭 N 行プレビュー** (Phase 4.7)
 - [ ] **バンドル分割 (dynamic import)** (Phase 4.8)
 - [ ] **モバイル UX 総点検 (bottom sheet 化したセレクタ・タップ領域)** (Phase 4.9)
+- [ ] **Playwright headless E2E ハーネス** (S001 から繰り越し)
+  Plan → Approve → 実行の自動シナリオを書きたいが、まずブラウザテスト基盤の整備が必要。サイズ M。
+- [ ] **`/api/claude/modes` レスポンスに `defaultForApprove` フィールドを追加**
+  Plan モード解除後の遷移先を FE が逆算しなくて済むよう、CLI 既定モードを明示的に返す。サイズ S。
