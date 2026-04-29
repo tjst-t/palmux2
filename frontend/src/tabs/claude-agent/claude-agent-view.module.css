@@ -92,15 +92,25 @@
 .conversation {
   flex: 1;
   overflow-y: auto;
+  /* Hard cap on horizontal so a single tool block with long unbreakable
+     content (URL, base64, etc.) can't push the whole chat past the
+     viewport edge. The pre/code blocks below have their own internal
+     overflow-x: auto for that case. */
+  overflow-x: hidden;
   padding: var(--space-4) var(--space-4) var(--space-3);
   display: flex;
   flex-direction: column;
   align-items: center;
+  min-width: 0;
 }
 
 .conversationInner {
   width: 100%;
   max-width: 840px;
+  /* Flex children default to min-width: auto, which is "intrinsic min
+     content size". For a column with embedded code blocks that's wider
+     than mobile viewports — explicit 0 lets us shrink. */
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
@@ -215,6 +225,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  min-width: 0;
 }
 
 /* ──────────── Streaming indicator ──────────── */
