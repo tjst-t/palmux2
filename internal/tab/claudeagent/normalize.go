@@ -119,6 +119,18 @@ func processStreamEvent(s *Session, raw json.RawMessage) []AgentEvent {
 				s.MarkPlanToolUse(bs.ID)
 			}
 		}
+		// AskUserQuestion is a tool_use the CLI ships to ask the user a
+		// question with structured options. From the user's perspective
+		// it's a question, not a tool, so we re-tag it to kind:"ask" and
+		// suppress the matching tool_result (whose textual content just
+		// echoes the chosen answer — the AskQuestionBlock UI already
+		// communicates that visually). Mirrors the plan path.
+		if bs.Type == "tool_use" && isAskQuestionToolName(bs.Name) {
+			kind = "ask"
+			if bs.ID != "" {
+				s.MarkAskToolUse(bs.ID)
+			}
+		}
 		turnID, blockID, _ := s.OpenBlock(ev.Index, kind)
 		switch bs.Type {
 		case "tool_use":
@@ -138,12 +150,12 @@ func processStreamEvent(s *Session, raw json.RawMessage) []AgentEvent {
 		if err != nil {
 			return nil
 		}
-		// Tool start ⇒ status flips to tool_running. Plan blocks are
-		// authored content, not background work, so we leave the status
-		// in "thinking" — the agent is still drafting until it lands a
-		// result envelope.
+		// Tool start ⇒ status flips to tool_running. Plan and ask blocks
+		// are authored content, not background work, so we leave the
+		// status in "thinking" — the agent is still drafting (plan) or
+		// awaiting an answer (ask) until it lands a result envelope.
 		evs := []AgentEvent{out}
-		if bs.Type == "tool_use" && kind != "plan" {
+		if bs.Type == "tool_use" && kind != "plan" && kind != "ask" {
 			s.SetStatus(StatusToolRunning)
 			if st, err := makeEvent(EvStatusChange, StatusChangePayload{Status: StatusToolRunning}); err == nil {
 				evs = append(evs, st)
@@ -256,6 +268,11 @@ func processAssistantMessage(s *Session, raw json.RawMessage) []AgentEvent {
 				if b.ID != "" {
 					s.MarkPlanToolUse(b.ID)
 				}
+			} else if isAskQuestionToolName(b.Name) {
+				kind = "ask"
+				if b.ID != "" {
+					s.MarkAskToolUse(b.ID)
+				}
 			}
 			ev, err := makeEvent(EvBlockStart, BlockStartPayload{
 				TurnID: turnID,
@@ -295,6 +312,12 @@ func processUserMessage(s *Session, raw json.RawMessage) []AgentEvent {
 			if s.ConsumePlanToolResult(cb.ToolUseID) {
 				continue
 			}
+			// AskUserQuestion's tool_result echoes the chosen option(s);
+			// the AskQuestionBlock UI shows the decision already, so we
+			// suppress the redundant "result" line. Same idiom as plan.
+			if s.ConsumeAskToolResult(cb.ToolUseID) {
+				continue
+			}
 			text := decodeToolResultContent(cb.Content)
 			turnID, _ := s.AppendToolResult(cb.ToolUseID, text, cb.IsError)
 			if ev, err := makeEvent(EvToolResult, ToolResultPayload{
@@ -317,6 +340,19 @@ func processUserMessage(s *Session, raw json.RawMessage) []AgentEvent {
 func isPlanToolName(name string) bool {
 	switch name {
 	case "ExitPlanMode", "exit_plan_mode", "exitplanmode":
+		return true
+	}
+	return false
+}
+
+// isAskQuestionToolName reports whether the named tool is the CLI's
+// AskUserQuestion tool. The canonical name is "AskUserQuestion"; we
+// accept a couple of likely variants (snake_case, lowercase) so a
+// minor CLI rename doesn't silently regress to the generic tool_use
+// + permission_prompt rendering.
+func isAskQuestionToolName(name string) bool {
+	switch name {
+	case "AskUserQuestion", "ask_user_question", "askuserquestion":
 		return true
 	}
 	return false

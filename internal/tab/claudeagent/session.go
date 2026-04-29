@@ -105,6 +105,19 @@ type Session struct {
 	// up on Reset / when the corresponding tool_result is consumed.
 	planToolUseIDs map[string]struct{}
 
+	// askToolUseIDs mirrors planToolUseIDs for AskUserQuestion. The CLI
+	// emits a tool_result with the chosen answer text; the AskQuestion
+	// block in the UI already conveys the decision, so we drop it.
+	askToolUseIDs map[string]struct{}
+
+	// askPermissions tracks active AskUserQuestion permission requests
+	// keyed by the canonical permission_id. This indexes back into the
+	// pendingPermissions / permWaiters maps owned by the Agent so the
+	// `ask.respond` handler can short-circuit the generic permission
+	// resolution path. The value is the tool_use_id (= upstream
+	// Anthropic id) whose tool_result we'll suppress.
+	askPermissions map[string]string
+
 	// currentParentToolUseID is the parent_tool_use_id field carried by
 	// the envelope currently being processed. Set by the normalize layer
 	// at the top of each processStreamMessage call and copied onto any new
@@ -128,6 +141,8 @@ func NewSession(repoID, branchID, sessionID, model, permissionMode string) *Sess
 		pendingPermissions: map[string]string{},
 		allowList:         map[string]struct{}{},
 		planToolUseIDs:    map[string]struct{}{},
+		askToolUseIDs:     map[string]struct{}{},
+		askPermissions:    map[string]string{},
 		createdAt:         time.Now().UTC(),
 	}
 }
@@ -448,7 +463,7 @@ func (s *Session) FinalizeBlock(index int) (turnID, blockID string, finalInput j
 		return s.currentTurn.ID, "", nil
 	}
 	b.Done = true
-	if (b.Kind == "tool_use" || b.Kind == "plan") && len(b.Input) == 0 && b.Text != "" {
+	if (b.Kind == "tool_use" || b.Kind == "plan" || b.Kind == "ask") && len(b.Input) == 0 && b.Text != "" {
 		if json.Valid([]byte(b.Text)) {
 			b.Input = json.RawMessage(b.Text)
 			b.Text = ""
@@ -461,7 +476,7 @@ func (s *Session) FinalizeBlock(index int) (turnID, blockID string, finalInput j
 		}
 	}
 	delete(s.openBlocks, index)
-	if (b.Kind == "tool_use" || b.Kind == "plan") && len(b.Input) > 0 {
+	if (b.Kind == "tool_use" || b.Kind == "plan" || b.Kind == "ask") && len(b.Input) > 0 {
 		finalInput = b.Input
 	}
 	return s.currentTurn.ID, b.ID, finalInput
@@ -493,6 +508,14 @@ func (s *Session) ApplyAssistantMessage(blocks []contentBlock) string {
 						s.planToolUseIDs = map[string]struct{}{}
 					}
 					s.planToolUseIDs[cb.ID] = struct{}{}
+				}
+			} else if isAskQuestionToolName(cb.Name) {
+				kind = "ask"
+				if cb.ID != "" {
+					if s.askToolUseIDs == nil {
+						s.askToolUseIDs = map[string]struct{}{}
+					}
+					s.askToolUseIDs[cb.ID] = struct{}{}
 				}
 			}
 			s.upsertCompleteBlock(i, Block{ID: newID("block"), Kind: kind, Index: i, Name: cb.Name, Input: cb.Input, Done: true, ToolUseID: cb.ID})
@@ -655,6 +678,149 @@ func (s *Session) ConsumePlanToolResult(toolUseID string) bool {
 	return true
 }
 
+// MarkAskToolUse remembers a tool_use_id whose block was re-tagged to
+// kind:"ask" (AskUserQuestion). Mirrors MarkPlanToolUse — the matching
+// tool_result will be suppressed by ConsumeAskToolResult so the UI
+// doesn't show a stray result line under the question.
+func (s *Session) MarkAskToolUse(toolUseID string) {
+	if toolUseID == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.askToolUseIDs == nil {
+		s.askToolUseIDs = map[string]struct{}{}
+	}
+	s.askToolUseIDs[toolUseID] = struct{}{}
+}
+
+// ConsumeAskToolResult is the ask-side counterpart of
+// ConsumePlanToolResult: one-shot check + remove.
+func (s *Session) ConsumeAskToolResult(toolUseID string) bool {
+	if toolUseID == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.askToolUseIDs[toolUseID]; !ok {
+		return false
+	}
+	delete(s.askToolUseIDs, toolUseID)
+	return true
+}
+
+// RegisterAskPermission ties a permission_id (issued by the generic
+// PermissionRequester path) to the AskUserQuestion tool_use_id whose
+// answer it carries. The Agent calls this when a permission_prompt
+// MCP request is detected to be for AskUserQuestion, so the
+// `ask.respond` handler can look the right waiter up by permission_id
+// and so the corresponding tool_result is suppressed.
+func (s *Session) RegisterAskPermission(permissionID, toolUseID string) {
+	if permissionID == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.askPermissions == nil {
+		s.askPermissions = map[string]string{}
+	}
+	s.askPermissions[permissionID] = toolUseID
+	// Also remember the tool_use_id for tool_result suppression. (Some
+	// CLI flows take the permission_prompt path *without* having shipped
+	// a prior content_block_start tool_use — e.g. when AskUserQuestion
+	// is the first block in the turn.)
+	if toolUseID != "" {
+		if s.askToolUseIDs == nil {
+			s.askToolUseIDs = map[string]struct{}{}
+		}
+		s.askToolUseIDs[toolUseID] = struct{}{}
+	}
+}
+
+// ConsumeAskPermission reports whether the given permission_id was
+// registered as an AskUserQuestion permission. If so it returns the
+// associated tool_use_id and removes the entry. Used by the
+// `ask.respond` frame handler.
+func (s *Session) ConsumeAskPermission(permissionID string) (toolUseID string, ok bool) {
+	if permissionID == "" {
+		return "", false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	toolUseID, ok = s.askPermissions[permissionID]
+	if !ok {
+		return "", false
+	}
+	delete(s.askPermissions, permissionID)
+	return toolUseID, true
+}
+
+// IsAskPermission reports whether the given permission_id corresponds
+// to an active AskUserQuestion request without consuming it.
+func (s *Session) IsAskPermission(permissionID string) bool {
+	if permissionID == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.askPermissions[permissionID]
+	return ok
+}
+
+// MarkAskBlockDecided stamps the chosen answers onto the ask block
+// keyed by the given permission_id, and flips Done so the UI can
+// switch to the decided view. Returns the turn id + block id of the
+// updated block (empty when not found).
+func (s *Session) MarkAskBlockDecided(permissionID string, answers json.RawMessage) (turnID, blockID string) {
+	if permissionID == "" {
+		return "", ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, t := range s.turns {
+		for i := range t.Blocks {
+			if t.Blocks[i].PermissionID == permissionID && t.Blocks[i].Kind == "ask" {
+				t.Blocks[i].Done = true
+				t.Blocks[i].AskAnswers = answers
+				return t.ID, t.Blocks[i].ID
+			}
+		}
+	}
+	return "", ""
+}
+
+// AttachAskPermission stamps the freshly-issued permission_id onto the
+// most recent kind:"ask" block whose toolUseID matches. This is called
+// when the permission_prompt MCP request arrives — the ask block was
+// usually created moments earlier by content_block_start, but the
+// permission_id wasn't known then. Returns the (turnID, blockID) of
+// the stamped block, or empty strings when not found.
+func (s *Session) AttachAskPermission(toolUseID, permissionID string) (turnID, blockID string) {
+	if permissionID == "" {
+		return "", ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Walk newest-first — the live block we want is at the tail.
+	for i := len(s.turns) - 1; i >= 0; i-- {
+		t := s.turns[i]
+		for j := range t.Blocks {
+			b := &t.Blocks[j]
+			if b.Kind != "ask" {
+				continue
+			}
+			if toolUseID != "" && b.ToolUseID != toolUseID {
+				continue
+			}
+			if b.PermissionID == "" {
+				b.PermissionID = permissionID
+			}
+			return t.ID, b.ID
+		}
+	}
+	return "", ""
+}
+
 // AddSessionAllow whitelists a tool for the rest of this session.
 func (s *Session) AddSessionAllow(toolName string) {
 	s.mu.Lock()
@@ -701,6 +867,8 @@ func (s *Session) Reset() string {
 	s.pendingPermissions = map[string]string{}
 	s.allowList = map[string]struct{}{}
 	s.planToolUseIDs = map[string]struct{}{}
+	s.askToolUseIDs = map[string]struct{}{}
+	s.askPermissions = map[string]string{}
 	s.currentParentToolUseID = ""
 	s.totalCostUSD = 0
 	s.status = StatusIdle

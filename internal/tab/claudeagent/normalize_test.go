@@ -166,6 +166,117 @@ func TestExitPlanMode_NormalizesToPlanBlockAndSuppressesToolResult(t *testing.T)
 	}
 }
 
+func TestAskUserQuestion_NormalizesToAskBlockAndSuppressesToolResult(t *testing.T) {
+	s := NewSession("repo", "branch", "", "sonnet", "default")
+
+	// message_start opens an assistant turn.
+	if evs := processStreamMessage(s, parse(t, `{"type":"stream_event","event":{"type":"message_start"}}`)); len(evs) != 2 {
+		t.Fatalf("message_start emitted %d events, want 2", len(evs))
+	}
+
+	// content_block_start with a tool_use named "AskUserQuestion" should
+	// arrive as kind:"ask", carry the question input, and NOT flip the
+	// status to tool_running (asking is authored content, not background work).
+	startBody := `{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_ask_1","name":"AskUserQuestion","input":{"questions":[{"question":"Pick one","options":[{"label":"A"},{"label":"B"}]}]}}}}`
+	evs := processStreamMessage(s, parse(t, startBody))
+	if len(evs) != 1 || evs[0].Type != string(EvBlockStart) {
+		t.Fatalf("ask content_block_start should emit only block.start, got %v", evs)
+	}
+	var bs BlockStartPayload
+	if err := json.Unmarshal(evs[0].Payload, &bs); err != nil {
+		t.Fatalf("decode block.start payload: %v", err)
+	}
+	if bs.Block.Kind != "ask" {
+		t.Fatalf("ask block kind = %q, want ask", bs.Block.Kind)
+	}
+	if bs.Block.Name != "AskUserQuestion" {
+		t.Fatalf("ask block name = %q, want AskUserQuestion", bs.Block.Name)
+	}
+	if s.Status() != StatusThinking {
+		t.Fatalf("status after ask start = %q, want thinking", s.Status())
+	}
+
+	// Finalize the block with content_block_stop.
+	if evs := processStreamMessage(s, parse(t, `{"type":"stream_event","event":{"type":"content_block_stop","index":0}}`)); len(evs) != 1 || evs[0].Type != string(EvBlockEnd) {
+		t.Fatalf("content_block_stop unexpected: %v", evs)
+	}
+
+	// CLI now ships a tool_result echoing the chosen option — must be
+	// suppressed (the AskQuestionBlock UI conveys the decision visually).
+	resultBody := `{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_ask_1","content":"User selected: A"}]}}`
+	if evs := processStreamMessage(s, parse(t, resultBody)); len(evs) != 0 {
+		t.Fatalf("ask tool_result should be suppressed, got %d events: %v", len(evs), evs)
+	}
+
+	// Snapshot: the assistant turn holds exactly one ask block; no
+	// tool/result turn was added.
+	snap := s.Snapshot()
+	if len(snap.Turns) != 1 {
+		t.Fatalf("snapshot has %d turns, want 1: %+v", len(snap.Turns), snap.Turns)
+	}
+	if got, want := snap.Turns[0].Blocks[0].Kind, "ask"; got != want {
+		t.Fatalf("snapshot block kind = %q, want %q", got, want)
+	}
+	if len(snap.Turns[0].Blocks[0].Input) == 0 {
+		t.Fatalf("ask block input should not be empty: %+v", snap.Turns[0].Blocks[0])
+	}
+}
+
+func TestAskUserQuestion_AssistantFallback(t *testing.T) {
+	// The assistant-envelope-only fallback path (no per-block stream
+	// events) should also re-tag AskUserQuestion to kind:"ask" and
+	// remember the tool_use_id so the tool_result is suppressed.
+	s := NewSession("repo", "branch", "", "sonnet", "default")
+	body := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_ask_2","name":"AskUserQuestion","input":{"questions":[{"question":"Q","options":[{"label":"yes"}]}]}}]}}`
+	processStreamMessage(s, parse(t, body))
+
+	snap := s.Snapshot()
+	if len(snap.Turns) != 1 || len(snap.Turns[0].Blocks) != 1 {
+		t.Fatalf("expected 1 turn / 1 block, got %+v", snap.Turns)
+	}
+	if got := snap.Turns[0].Blocks[0].Kind; got != "ask" {
+		t.Fatalf("assistant-fallback ask block kind = %q, want ask", got)
+	}
+
+	resultBody := `{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_ask_2","content":"ok"}]}}`
+	if evs := processStreamMessage(s, parse(t, resultBody)); len(evs) != 0 {
+		t.Fatalf("assistant-fallback ask tool_result should be suppressed, got %v", evs)
+	}
+}
+
+func TestLoadTranscriptTurns_RetagsAskUserQuestion(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.jsonl")
+	lines := []string{
+		`{"type":"user","message":{"role":"user","content":"ask me"}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_ask_99","name":"AskUserQuestion","input":{"questions":[{"question":"Pick","options":[{"label":"A"},{"label":"B"}]}]}}]}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_ask_99","content":"User selected: A"}]}}`,
+	}
+	body := []byte("")
+	for _, ln := range lines {
+		body = append(body, []byte(ln+"\n")...)
+	}
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+	turns, err := LoadTranscriptTurns(path)
+	if err != nil {
+		t.Fatalf("LoadTranscriptTurns: %v", err)
+	}
+	if len(turns) != 2 {
+		t.Fatalf("expected 2 turns (user prompt + assistant ask), got %d: %+v", len(turns), turns)
+	}
+	if turns[0].Role != "user" {
+		t.Fatalf("turn 0 role = %q, want user", turns[0].Role)
+	}
+	if turns[1].Role != "assistant" {
+		t.Fatalf("turn 1 role = %q, want assistant", turns[1].Role)
+	}
+	if len(turns[1].Blocks) != 1 || turns[1].Blocks[0].Kind != "ask" {
+		t.Fatalf("assistant turn should hold one ask block, got %+v", turns[1].Blocks)
+	}
+}
+
 func TestExitPlanMode_AssistantFallback(t *testing.T) {
 	// Some CLI versions emit a complete `assistant` envelope without
 	// per-block stream_event lines. Make sure the fallback path also

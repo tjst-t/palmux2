@@ -204,6 +204,8 @@ func LoadTranscriptTurns(path string) ([]Turn, error) {
 	// rejection) is suppressed when we encounter it, mirroring the
 	// live-stream behaviour in normalize.go.
 	planToolUseIDs := map[string]struct{}{}
+	// askToolUseIDs is the AskUserQuestion analogue.
+	askToolUseIDs := map[string]struct{}{}
 
 	var turns []Turn
 	for sc.Scan() {
@@ -216,13 +218,13 @@ func LoadTranscriptTurns(path string) ([]Turn, error) {
 		}
 		switch e.Type {
 		case "user":
-			turn, ok := userTurnFromTranscript(e.Message, planToolUseIDs)
+			turn, ok := userTurnFromTranscript(e.Message, planToolUseIDs, askToolUseIDs)
 			if ok {
 				turn.ParentToolUseID = e.ParentToolUseID
 				turns = append(turns, turn)
 			}
 		case "assistant":
-			turn, ok := assistantTurnFromTranscript(e.Message, planToolUseIDs)
+			turn, ok := assistantTurnFromTranscript(e.Message, planToolUseIDs, askToolUseIDs)
 			if ok {
 				turn.ParentToolUseID = e.ParentToolUseID
 				turns = append(turns, turn)
@@ -232,7 +234,7 @@ func LoadTranscriptTurns(path string) ([]Turn, error) {
 	return turns, nil
 }
 
-func userTurnFromTranscript(raw json.RawMessage, planToolUseIDs map[string]struct{}) (Turn, bool) {
+func userTurnFromTranscript(raw json.RawMessage, planToolUseIDs, askToolUseIDs map[string]struct{}) (Turn, bool) {
 	if len(raw) == 0 {
 		return Turn{}, false
 	}
@@ -267,6 +269,12 @@ func userTurnFromTranscript(raw json.RawMessage, planToolUseIDs map[string]struc
 				delete(planToolUseIDs, cb.ToolUseID)
 				continue
 			}
+			// Same idiom for AskUserQuestion: the tool_result echoes the
+			// chosen option(s); the kind:"ask" block already conveys it.
+			if _, ok := askToolUseIDs[cb.ToolUseID]; ok {
+				delete(askToolUseIDs, cb.ToolUseID)
+				continue
+			}
 			out := decodeToolResultContent(cb.Content)
 			blocks = append(blocks, Block{
 				ID:      newID("block"),
@@ -296,7 +304,7 @@ func userTurnFromTranscript(raw json.RawMessage, planToolUseIDs map[string]struc
 	return Turn{Role: role, ID: newID("turn"), Blocks: blocks}, true
 }
 
-func assistantTurnFromTranscript(raw json.RawMessage, planToolUseIDs map[string]struct{}) (Turn, bool) {
+func assistantTurnFromTranscript(raw json.RawMessage, planToolUseIDs, askToolUseIDs map[string]struct{}) (Turn, bool) {
 	if len(raw) == 0 {
 		return Turn{}, false
 	}
@@ -331,6 +339,11 @@ func assistantTurnFromTranscript(raw json.RawMessage, planToolUseIDs map[string]
 				kind = "plan"
 				if cb.ID != "" {
 					planToolUseIDs[cb.ID] = struct{}{}
+				}
+			} else if isAskQuestionToolName(cb.Name) {
+				kind = "ask"
+				if cb.ID != "" {
+					askToolUseIDs[cb.ID] = struct{}{}
 				}
 			}
 			blocks = append(blocks, Block{
