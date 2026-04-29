@@ -16,6 +16,23 @@ export function urlForFiles(repoId: string, branchId: string, path?: string): st
   return `${base}/${path.replace(/^\/+/, '').split('/').map(encodeURIComponent).join('/')}`
 }
 
+// relativeToWorktree converts an absolute filesystem path that lives
+// inside the branch's worktree into a worktree-relative path. Tool
+// inputs from Claude (Read, Edit, etc.) carry absolute paths; the
+// Files tab keys on relative paths, so we have to strip the prefix
+// before navigating. Returns the original input unchanged if it isn't
+// under worktreePath, since the user almost certainly didn't mean to
+// open something outside the workspace.
+export function relativeToWorktree(absPath: string, worktreePath?: string): string {
+  if (!absPath) return absPath
+  if (!worktreePath) return absPath
+  const a = absPath.replace(/\/+$/, '')
+  const w = worktreePath.replace(/\/+$/, '')
+  if (a === w) return ''
+  if (a.startsWith(w + '/')) return a.slice(w.length + 1)
+  return absPath
+}
+
 export function urlForGit(
   repoId: string,
   branchId: string,

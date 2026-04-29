@@ -5,7 +5,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import remarkGfm from 'remark-gfm'
 
 import { DiffView, buildSyntheticDiff } from '../../components/diff/diff-view'
-import { urlForFiles } from '../../lib/tab-nav'
+import { relativeToWorktree, urlForFiles } from '../../lib/tab-nav'
+import { selectBranchById, usePalmuxStore } from '../../stores/palmux-store'
 
 import type { Block } from './types'
 import styles from './blocks.module.css'
@@ -185,11 +186,14 @@ function ToolInputRich({ block }: { block: Block }) {
   const navigate = useNavigate()
   const repoId = params.repoId
   const branchId = params.branchId
+  const worktreePath = usePalmuxStore(
+    repoId && branchId ? selectBranchById(repoId, branchId) : () => undefined,
+  )?.worktreePath
   const input = parseInputObject(block) ?? {}
   const name = (block.name || '').toLowerCase()
   const filePath = (input.file_path as string) ?? ''
   const openInFiles = filePath && repoId && branchId
-    ? () => navigate(urlForFiles(repoId, branchId, filePath))
+    ? () => navigate(urlForFiles(repoId, branchId, relativeToWorktree(filePath, worktreePath)))
     : undefined
 
   if (name === 'edit') {
@@ -290,6 +294,9 @@ function ToolResultBody({ output }: { output: string }) {
   const navigate = useNavigate()
   const repoId = params.repoId
   const branchId = params.branchId
+  const worktreePath = usePalmuxStore(
+    repoId && branchId ? selectBranchById(repoId, branchId) : () => undefined,
+  )?.worktreePath
 
   const lines = useMemo(() => output.split('\n'), [output])
   const lookLikePaths = useMemo(() => {
@@ -329,7 +336,7 @@ function ToolResultBody({ output }: { output: string }) {
               <button
                 type="button"
                 className={styles.pathLink}
-                onClick={() => navigate(urlForFiles(repoId, branchId, cleanPath))}
+                onClick={() => navigate(urlForFiles(repoId, branchId, relativeToWorktree(cleanPath, worktreePath)))}
               >
                 {trimmed}
               </button>
