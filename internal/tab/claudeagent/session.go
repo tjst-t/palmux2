@@ -118,6 +118,14 @@ type Session struct {
 	// Anthropic id) whose tool_result we'll suppress.
 	askPermissions map[string]string
 
+	// planPermissions mirrors askPermissions for ExitPlanMode. The CLI
+	// routes ExitPlanMode through the same MCP permission_prompt path as
+	// any other tool, but its UI is the kind:"plan" block — Allow/Deny
+	// buttons would be misleading. This map lets the `plan.respond`
+	// handler resolve the right waiter and (separately) consume the
+	// tool_result emitted on approve/reject.
+	planPermissions map[string]string
+
 	// currentParentToolUseID is the parent_tool_use_id field carried by
 	// the envelope currently being processed. Set by the normalize layer
 	// at the top of each processStreamMessage call and copied onto any new
@@ -143,6 +151,7 @@ func NewSession(repoID, branchID, sessionID, model, permissionMode string) *Sess
 		planToolUseIDs:    map[string]struct{}{},
 		askToolUseIDs:     map[string]struct{}{},
 		askPermissions:    map[string]string{},
+		planPermissions:   map[string]string{},
 		createdAt:         time.Now().UTC(),
 	}
 }
@@ -582,6 +591,22 @@ func (s *Session) AddTodoBlock(todos json.RawMessage) (turnID, blockID string) {
 	return s.currentTurn.ID, b.ID
 }
 
+// RegisterPendingPermission registers a pending permission and returns the
+// minted permission_id, but does NOT add a kind:"permission" block to the
+// current turn. Used by the bypass paths (ExitPlanMode → kind:"plan",
+// AskUserQuestion → kind:"ask") where the block-of-record is the
+// re-tagged tool block, not a generic permission card. Adding a
+// kind:"permission" block here would render as a duplicate UI underneath
+// the plan/ask block (Allow / Deny buttons next to the proper Approve
+// row) — exactly the bug S001-refine was filed to fix.
+func (s *Session) RegisterPendingPermission(cliRequestID string) (permissionID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	permissionID = newID("perm")
+	s.pendingPermissions[permissionID] = cliRequestID
+	return permissionID
+}
+
 // AddPermissionRequest registers a pending permission and returns the
 // permission_id assigned to it. Both the CLI request_id and the desired UI
 // payload are stored.
@@ -821,6 +846,140 @@ func (s *Session) AttachAskPermission(toolUseID, permissionID string) (turnID, b
 	return "", ""
 }
 
+// RegisterPlanPermission ties a permission_id (issued by the generic
+// PermissionRequester path) to the ExitPlanMode tool_use_id whose
+// approval it gates. Mirrors RegisterAskPermission. The Agent calls
+// this when a permission_prompt MCP request is detected to be for
+// ExitPlanMode, so `plan.respond` handlers can look up the waiter by
+// permission_id and so the corresponding tool_result is suppressed
+// (the kind:"plan" block already conveys the outcome visually).
+func (s *Session) RegisterPlanPermission(permissionID, toolUseID string) {
+	if permissionID == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.planPermissions == nil {
+		s.planPermissions = map[string]string{}
+	}
+	s.planPermissions[permissionID] = toolUseID
+	if toolUseID != "" {
+		if s.planToolUseIDs == nil {
+			s.planToolUseIDs = map[string]struct{}{}
+		}
+		s.planToolUseIDs[toolUseID] = struct{}{}
+	}
+}
+
+// ConsumePlanPermission reports whether the given permission_id was
+// registered as an ExitPlanMode permission. If so it returns the
+// associated tool_use_id and removes the entry. Mirrors
+// ConsumeAskPermission.
+func (s *Session) ConsumePlanPermission(permissionID string) (toolUseID string, ok bool) {
+	if permissionID == "" {
+		return "", false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	toolUseID, ok = s.planPermissions[permissionID]
+	if !ok {
+		return "", false
+	}
+	delete(s.planPermissions, permissionID)
+	return toolUseID, true
+}
+
+// IsPlanPermission reports whether the given permission_id corresponds
+// to an active ExitPlanMode request without consuming it.
+func (s *Session) IsPlanPermission(permissionID string) bool {
+	if permissionID == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.planPermissions[permissionID]
+	return ok
+}
+
+// AttachPlanPermission stamps the freshly-issued permission_id onto the
+// most recent kind:"plan" block whose toolUseID matches. Returns
+// (turnID, blockID) of the stamped block, or empty strings when not
+// found. Mirrors AttachAskPermission.
+func (s *Session) AttachPlanPermission(toolUseID, permissionID string) (turnID, blockID string) {
+	if permissionID == "" {
+		return "", ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := len(s.turns) - 1; i >= 0; i-- {
+		t := s.turns[i]
+		for j := range t.Blocks {
+			b := &t.Blocks[j]
+			if b.Kind != "plan" {
+				continue
+			}
+			if toolUseID != "" && b.ToolUseID != toolUseID {
+				continue
+			}
+			if b.PermissionID == "" {
+				b.PermissionID = permissionID
+			}
+			return t.ID, b.ID
+		}
+	}
+	return "", ""
+}
+
+// MarkPlanBlockDecided stamps the user's decision onto the kind:"plan"
+// block keyed by the given permission_id, and flips Done so the UI
+// switches to the post-decision label. Mirrors MarkAskBlockDecided.
+// `decision` is "approved" or "rejected"; `targetMode` is the new
+// permission mode for an approval (may be "" when the user chose not to
+// switch modes).
+func (s *Session) MarkPlanBlockDecided(permissionID, decision, targetMode string) (turnID, blockID string) {
+	if permissionID == "" {
+		return "", ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, t := range s.turns {
+		for i := range t.Blocks {
+			if t.Blocks[i].PermissionID == permissionID && t.Blocks[i].Kind == "plan" {
+				t.Blocks[i].Done = true
+				t.Blocks[i].PlanDecision = decision
+				t.Blocks[i].PlanTargetMode = targetMode
+				return t.ID, t.Blocks[i].ID
+			}
+		}
+	}
+	return "", ""
+}
+
+// UpdatePlanBlockText replaces the markdown body of the kind:"plan"
+// block keyed by permission_id with the user's edited version. The
+// block's Input is regenerated as `{"plan": editedText}` so re-snapshots
+// (session.init on reconnect) ship the edited text instead of the
+// agent's original draft. No-op when permissionID doesn't match.
+func (s *Session) UpdatePlanBlockText(permissionID, editedPlan string) {
+	if permissionID == "" || editedPlan == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, t := range s.turns {
+		for i := range t.Blocks {
+			if t.Blocks[i].PermissionID == permissionID && t.Blocks[i].Kind == "plan" {
+				body := map[string]any{"plan": editedPlan}
+				if raw, err := json.Marshal(body); err == nil {
+					t.Blocks[i].Input = raw
+					t.Blocks[i].Text = ""
+				}
+				return
+			}
+		}
+	}
+}
+
 // AddSessionAllow whitelists a tool for the rest of this session.
 func (s *Session) AddSessionAllow(toolName string) {
 	s.mu.Lock()
@@ -869,6 +1028,7 @@ func (s *Session) Reset() string {
 	s.planToolUseIDs = map[string]struct{}{}
 	s.askToolUseIDs = map[string]struct{}{}
 	s.askPermissions = map[string]string{}
+	s.planPermissions = map[string]string{}
 	s.currentParentToolUseID = ""
 	s.totalCostUSD = 0
 	s.status = StatusIdle

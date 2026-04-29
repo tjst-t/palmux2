@@ -33,13 +33,13 @@ export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
   const [autoFollow, setAutoFollow] = useState(true)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  // planDecisions tracks the user's local choice on each plan block by
-  // block id. Server doesn't echo a plan-decision event back, and we
-  // don't want to re-prompt the user after a reload, so this is purely
-  // an in-memory FE state. It resets on tab switch (component unmount)
-  // which is fine — once you've left a plan it's history.
+  // planDecisions tracks the optimistic UI flip on click. The server
+  // echoes plan.decided afterwards which makes the decision durable
+  // (block.planDecision) — the optimistic state is only there to hide
+  // the action row immediately on click while the WS round-trip
+  // happens. Reset on unmount; cleared as soon as durable state lands.
   const [planDecisions, setPlanDecisions] = useState<
-    Record<string, 'approved' | 'rejected'>
+    Record<string, { decided: 'approved' | 'rejected'; targetMode?: string }>
   >({})
 
   // ⌘H / Ctrl+H opens the session history popup.
@@ -123,42 +123,62 @@ export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
     [send],
   )
 
-  // The "active" plan is the most-recent plan block in the current
-  // turns list. Earlier plans (from previous turns or resumed
-  // transcripts) are read-only. We only show action buttons when the
-  // session is still in plan mode — once the user has approved out,
-  // future plan blocks would be a fresh re-entry.
-  const activePlanBlockId = useMemo(() => findLatestPlanBlockId(state.turns), [state.turns])
-  const inPlanMode = state.permissionMode === 'plan'
-  // resolveExitMode picks the mode to switch to on Approve. Order:
-  //   1. branch's persisted PermissionMode (state.permissionMode would
-  //      already reflect this if non-plan, but we explicitly skip
-  //      "plan" to avoid a no-op),
-  //   2. CLI-detected default (modes.default),
-  //   3. hard-coded "acceptEdits" matching the manager.go fallback.
-  const resolveExitMode = (): string => {
+  // Resolve the active plan block — the most recent kind:"plan" block
+  // that has a permission_id stamped (from plan.question) and is not
+  // already decided. Earlier plans, plans without a permission_id (CLI
+  // hasn't routed the permission_prompt through to us yet), and plans
+  // already decided are all read-only. We no longer condition on
+  // state.permissionMode == "plan" because the moment the user clicks
+  // Approve we issue a SetPermissionMode and that flips the mode
+  // before the plan.decided event lands — see S001-refine docs.
+  const planAuthority = useMemo(
+    () => findActivePlan(state.turns, state.pendingPlanByBlock),
+    [state.turns, state.pendingPlanByBlock],
+  )
+
+  // resolveDefaultMode picks the dropdown's initial value: "auto" if
+  // the CLI advertises it, otherwise the CLI default (excluding
+  // "plan"), otherwise "auto" as a last resort.
+  const resolveDefaultMode = (): string => {
+    const supports = (m: string) => modes.modes.includes(m)
+    if (supports('auto')) return 'auto'
     if (modes.default && modes.default !== 'plan') return modes.default
-    return 'acceptEdits'
+    return 'auto'
   }
 
   const planHandlersFor = (blockId: string | undefined): PlanHandlersForView | undefined => {
     if (!blockId) return undefined
-    const decided = planDecisions[blockId]
-    const isActive = blockId === activePlanBlockId && inPlanMode
+    const optimistic = planDecisions[blockId]
+    const isActive = blockId === planAuthority?.blockId
+    const permissionId = planAuthority?.permissionId
+    const decisionFromBlock = findPlanBlockById(state.turns, blockId)?.planDecision
+    const targetModeFromBlock = findPlanBlockById(state.turns, blockId)?.planTargetMode
+    const decided = optimistic?.decided ?? decisionFromBlock
+    const targetMode = optimistic?.targetMode ?? targetModeFromBlock
     return {
       decided,
-      canActOnPlan: isActive && !decided,
-      onApprove: () => {
-        const target = resolveExitMode()
-        setPlanDecisions((prev) => ({ ...prev, [blockId]: 'approved' }))
-        send.setPermissionMode(target)
+      targetMode,
+      canActOnPlan: isActive && !decided && !!permissionId,
+      modes: modes.modes.filter((m) => m !== 'plan'),
+      defaultMode: resolveDefaultMode(),
+      onApprove: (mode: string, editedPlan?: string) => {
+        if (!permissionId) return
+        setPlanDecisions((prev) => ({
+          ...prev,
+          [blockId]: { decided: 'approved', targetMode: mode },
+        }))
+        send.planRespond(permissionId, 'approve', {
+          targetMode: mode,
+          editedPlan: editedPlan ?? '',
+        })
       },
-      onStayInPlan: () => {
-        // No CLI-side action — staying in plan just means we don't
-        // change the permission_mode. Recording the decision hides
-        // the buttons so the agent can draft a follow-up plan
-        // without the user re-clicking the same block.
-        setPlanDecisions((prev) => ({ ...prev, [blockId]: 'rejected' }))
+      onReject: () => {
+        if (!permissionId) return
+        setPlanDecisions((prev) => ({
+          ...prev,
+          [blockId]: { decided: 'rejected' },
+        }))
+        send.planRespond(permissionId, 'reject')
       },
     }
   }
@@ -311,9 +331,12 @@ type RespondPermissionFn = (
 
 interface PlanHandlersForView {
   decided?: 'approved' | 'rejected'
+  targetMode?: string
   canActOnPlan: boolean
-  onApprove: () => void
-  onStayInPlan: () => void
+  onApprove: (mode: string, editedPlan?: string) => void
+  onReject: () => void
+  modes: string[]
+  defaultMode: string
 }
 
 interface AskHandlersForView {
@@ -435,14 +458,43 @@ function renderTurnsTree(
   ))
 }
 
-// findLatestPlanBlockId walks turns newest-first and returns the id of
-// the most recent kind:"plan" block. Used to limit the action row to a
-// single plan at a time — earlier plans are read-only history.
-function findLatestPlanBlockId(turns: Turn[]): string | undefined {
+// findActivePlan walks the turns newest-first and returns the most
+// recent kind:"plan" block that:
+//   - has a permission_id stamped (= the backend has issued a
+//     plan.question and is awaiting our reply), and
+//   - has not yet been decided.
+// That block — and only that block — is the one whose action row we
+// enable. The map argument is `pendingPlanByBlock` from agent-state.
+function findActivePlan(
+  turns: Turn[],
+  pendingPlanByBlock: Record<string, string>,
+): { blockId: string; permissionId: string } | undefined {
+  // Build a reverse index for O(1) blockId → permissionId lookup.
+  const byBlock = new Map<string, string>()
+  for (const [permId, blockId] of Object.entries(pendingPlanByBlock)) {
+    byBlock.set(blockId, permId)
+  }
   for (let i = turns.length - 1; i >= 0; i--) {
     const t = turns[i]
     for (let j = t.blocks.length - 1; j >= 0; j--) {
-      if (t.blocks[j].kind === 'plan') return t.blocks[j].id
+      const b = t.blocks[j]
+      if (b.kind !== 'plan') continue
+      if (b.planDecision) continue
+      const permId = byBlock.get(b.id) ?? b.permissionId
+      if (!permId) continue
+      return { blockId: b.id, permissionId: permId }
+    }
+  }
+  return undefined
+}
+
+// findPlanBlockById returns the kind:"plan" Block whose id matches, or
+// undefined. Used to read planDecision/planTargetMode for the read-only
+// post-decision label.
+function findPlanBlockById(turns: Turn[], blockId: string) {
+  for (const t of turns) {
+    for (const b of t.blocks) {
+      if (b.id === blockId && b.kind === 'plan') return b
     }
   }
   return undefined

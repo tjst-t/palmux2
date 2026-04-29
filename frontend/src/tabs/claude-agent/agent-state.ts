@@ -23,6 +23,11 @@ export interface AgentState {
    *  action row. The entry is removed when the user submits an answer
    *  (or on session.replaced / session.init). */
   pendingAskByBlock: Record<string, string>
+  /** Active ExitPlanMode permission IDs, keyed by permissionId, value =
+   *  the corresponding kind:"plan" block id. Mirrors pendingAskByBlock —
+   *  used by claude-agent-view's planHandlersFor to decide whether to
+   *  show the action row on a plan block. */
+  pendingPlanByBlock: Record<string, string>
   errors: { id: number; message: string; detail?: string }[]
   /** CLI-reported capabilities (commands list, models, agents). */
   initInfo?: InitInfo
@@ -52,6 +57,7 @@ export const initialState: AgentState = {
   totalCostUsd: 0,
   turns: [],
   pendingAskByBlock: {},
+  pendingPlanByBlock: {},
   errors: [],
 }
 
@@ -80,6 +86,7 @@ export function reduce(state: AgentState, action: AgentAction): AgentState {
       // permissionId → blockId map so the AskQuestionBlock action row
       // is enabled for any unanswered question that survived a reload.
       const pendingAskByBlock = findPendingAsksInTurns(p.turns ?? [])
+      const pendingPlanByBlock = findPendingPlansInTurns(p.turns ?? [])
       return {
         ...state,
         ready: true,
@@ -94,6 +101,7 @@ export function reduce(state: AgentState, action: AgentAction): AgentState {
         turns: p.turns ?? [],
         pendingPermission: pending,
         pendingAskByBlock,
+        pendingPlanByBlock,
         errors: [],
         initInfo: p.initInfo,
       }
@@ -121,6 +129,7 @@ function applyEvent(state: AgentState, ev: { type: string; ts: string; payload?:
       next.totalCostUsd = 0
       next.pendingPermission = undefined
       next.pendingAskByBlock = {}
+      next.pendingPlanByBlock = {}
       return next
     }
     case 'status.change': {
@@ -286,6 +295,42 @@ function applyEvent(state: AgentState, ev: { type: string; ts: string; payload?:
       const nextAsk = { ...next.pendingAskByBlock }
       delete nextAsk[p.permissionId]
       next.pendingAskByBlock = nextAsk
+      return next
+    }
+    case 'plan.question': {
+      const p = ev.payload as {
+        permissionId: string
+        blockId?: string
+        turnId?: string
+        toolUseId?: string
+      }
+      // Stamp permissionId on the matching kind:"plan" block — by
+      // toolUseId when known, falling back to blockId, then to the most
+      // recent plan block. Also rebuilds pendingPlanByBlock so the
+      // renderer can show the action row.
+      const turns = stampPlanPermission(next.turns, p.permissionId, {
+        blockId: p.blockId,
+        toolUseId: p.toolUseId,
+      })
+      const blockId = findPlanBlockIdForPermission(turns, p.permissionId)
+      const nextPlan = { ...next.pendingPlanByBlock }
+      if (blockId) nextPlan[p.permissionId] = blockId
+      next.turns = turns
+      next.pendingPlanByBlock = nextPlan
+      return next
+    }
+    case 'plan.decided': {
+      const p = ev.payload as {
+        permissionId: string
+        blockId?: string
+        turnId?: string
+        decision: 'approved' | 'rejected'
+        targetMode?: string
+      }
+      next.turns = applyPlanDecision(next.turns, p.permissionId, p.decision, p.targetMode, p.blockId)
+      const nextPlan = { ...next.pendingPlanByBlock }
+      delete nextPlan[p.permissionId]
+      next.pendingPlanByBlock = nextPlan
       return next
     }
     case 'user.message': {
@@ -549,4 +594,93 @@ function parseAskInputObject(input: unknown): { questions?: unknown[] } | null {
     try { return JSON.parse(input) as { questions?: unknown[] } } catch { return null }
   }
   return null
+}
+
+// findPendingPlansInTurns mirrors findPendingAsksInTurns: walks the
+// snapshot for any kind:"plan" block that has a permissionId stamped
+// but no planDecision yet. Used to rebuild pendingPlanByBlock on
+// reconnect / page reload so the action row stays live.
+function findPendingPlansInTurns(turns: Turn[]): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const t of turns) {
+    for (const b of t.blocks) {
+      if (b.kind !== 'plan' || !b.permissionId) continue
+      if (b.planDecision) continue
+      out[b.permissionId] = b.id
+    }
+  }
+  return out
+}
+
+// stampPlanPermission attaches a freshly-issued permissionId to the
+// matching kind:"plan" block. Mirrors stampAskPermission. Matching
+// priority: blockId → toolUseId → most recent plan block.
+function stampPlanPermission(
+  turns: Turn[],
+  permissionId: string,
+  match: { blockId?: string; toolUseId?: string },
+): Turn[] {
+  let stamped = false
+  const out = turns.map((t) => ({
+    ...t,
+    blocks: t.blocks.map((b) => {
+      if (stamped) return b
+      if (b.kind !== 'plan') return b
+      if (match.blockId && b.id !== match.blockId) return b
+      if (!match.blockId && match.toolUseId && b.toolUseId !== match.toolUseId) return b
+      stamped = true
+      const next: Block = { ...b, permissionId }
+      return next
+    }),
+  }))
+  if (stamped) return out
+  // Fallback: walk newest-first manually.
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const t = turns[i]
+    for (let j = t.blocks.length - 1; j >= 0; j--) {
+      const b = t.blocks[j]
+      if (b.kind !== 'plan') continue
+      const newBlocks = t.blocks.slice()
+      newBlocks[j] = { ...b, permissionId }
+      const newTurn = { ...t, blocks: newBlocks }
+      const newTurns = turns.slice()
+      newTurns[i] = newTurn
+      return newTurns
+    }
+  }
+  return turns
+}
+
+function findPlanBlockIdForPermission(turns: Turn[], permissionId: string): string | undefined {
+  for (let i = turns.length - 1; i >= 0; i--) {
+    for (const b of turns[i].blocks) {
+      if (b.kind === 'plan' && b.permissionId === permissionId) return b.id
+    }
+  }
+  return undefined
+}
+
+// applyPlanDecision stamps the user's decision (and target mode) onto
+// the kind:"plan" block matching permissionId. Mirrors applyAskAnswers.
+function applyPlanDecision(
+  turns: Turn[],
+  permissionId: string,
+  decision: 'approved' | 'rejected',
+  targetMode: string | undefined,
+  blockId?: string,
+): Turn[] {
+  return turns.map((t) => ({
+    ...t,
+    blocks: t.blocks.map((b) => {
+      if (b.kind !== 'plan') return b
+      if (blockId && b.id !== blockId) return b
+      if (!blockId && b.permissionId !== permissionId) return b
+      return {
+        ...b,
+        planDecision: decision,
+        planTargetMode: targetMode,
+        done: true,
+      }
+    }),
+  }))
 }

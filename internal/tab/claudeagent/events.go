@@ -30,6 +30,8 @@ const (
 	EvPermissionRequest EventType = "permission.request"
 	EvAskQuestion       EventType = "ask.question"
 	EvAskDecided        EventType = "ask.decided"
+	EvPlanQuestion      EventType = "plan.question"
+	EvPlanDecided       EventType = "plan.decided"
 	EvStatusChange      EventType = "status.change"
 	EvUserMessage       EventType = "user.message"
 	EvError             EventType = "error"
@@ -84,6 +86,17 @@ type Block struct {
 	// question, each holding the chosen labels) we ship to the CLI.
 	// Used by the frontend to switch to the "decided" view on reload.
 	AskAnswers json.RawMessage `json:"askAnswers,omitempty"`
+
+	// PlanDecision records the user's answer to a kind:"plan" block once
+	// they've clicked Approve or Keep planning. "approved" / "rejected" /
+	// "" — empty means the plan is still actionable. Replayed on reload
+	// so the action row stays hidden after the user has decided.
+	PlanDecision string `json:"planDecision,omitempty"`
+	// PlanTargetMode is set on kind:"plan" blocks once the user has approved
+	// the plan with a chosen permission mode (e.g. "auto" / "acceptEdits").
+	// The frontend uses this to render the "Approved — switching to mode X"
+	// label after reload.
+	PlanTargetMode string `json:"planTargetMode,omitempty"`
 }
 
 // Turn is one user→assistant exchange in the cached snapshot.
@@ -200,6 +213,29 @@ type AskDecidedPayload struct {
 	Answers      json.RawMessage `json:"answers,omitempty"`
 }
 
+// PlanQuestionPayload announces an active ExitPlanMode permission request to
+// the frontend. The frontend matches the permissionId against the kind:"plan"
+// block to enable its action row (Approve / Edit / Keep planning) — without
+// it, buttons stay hidden because no plan.respond would be answerable.
+type PlanQuestionPayload struct {
+	PermissionID string `json:"permissionId"`
+	BlockID      string `json:"blockId,omitempty"`
+	TurnID       string `json:"turnId,omitempty"`
+	ToolUseID    string `json:"toolUseId,omitempty"`
+}
+
+// PlanDecidedPayload notifies the frontend that a plan permission has been
+// answered. Decision is "approved" or "rejected"; TargetMode is the new
+// permission mode (e.g. "auto") when approved. Mirrors AskDecidedPayload —
+// useful for cross-tab sync so a second tab flips the action row off too.
+type PlanDecidedPayload struct {
+	PermissionID string `json:"permissionId"`
+	BlockID      string `json:"blockId,omitempty"`
+	TurnID       string `json:"turnId,omitempty"`
+	Decision     string `json:"decision"` // "approved" | "rejected"
+	TargetMode   string `json:"targetMode,omitempty"`
+}
+
 // StatusChangePayload is a single AgentStatus update.
 type StatusChangePayload struct {
 	Status AgentStatus `json:"status"`
@@ -254,6 +290,26 @@ type PermissionRespondFrame struct {
 type AskRespondFrame struct {
 	PermissionID string     `json:"permissionId"`
 	Answers      [][]string `json:"answers"`
+}
+
+// PlanRespondFrame — the user's answer to an ExitPlanMode permission. The
+// CLI's ExitPlanMode tool routes through the same MCP permission_prompt
+// path as any other tool, but Palmux re-routes its UI to a kind:"plan"
+// block (see manager.requestPlanResponse). This frame is what the
+// frontend ships back when the user clicks Approve / Keep planning.
+//
+// Decision == "approve" ⇒ behavior:"allow" goes back to the CLI; the
+// agent (optionally) switches to TargetMode and the EditedPlan, if
+// non-empty, is shipped as updatedInput.plan so the executing CLI sees
+// the user's edits.
+//
+// Decision == "reject" ⇒ behavior:"deny" with a "User chose to keep
+// planning" message; the agent stays in plan mode.
+type PlanRespondFrame struct {
+	PermissionID string `json:"permissionId"`
+	Decision     string `json:"decision"`     // "approve" | "reject"
+	TargetMode   string `json:"targetMode,omitempty"`
+	EditedPlan   string `json:"editedPlan,omitempty"`
 }
 
 // SetModelFrame — change models.

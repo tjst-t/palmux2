@@ -42,6 +42,14 @@ export interface Block {
    *  per question, holding the chosen option labels. The frontend uses
    *  this to render the "decided" view on reconnect. */
   askAnswers?: string[][]
+  /** Set on kind:"plan" blocks once the user has clicked Approve or
+   *  Keep planning. "approved" / "rejected" / undefined. Replayed on
+   *  reload so the action row stays hidden. */
+  planDecision?: 'approved' | 'rejected'
+  /** Set on kind:"plan" blocks once the user approved with a chosen
+   *  permission mode (e.g. "auto"). Used to render the post-approval
+   *  status label. */
+  planTargetMode?: string
 }
 
 /** Shape of the input payload on a kind:"ask" block. Mirrors the

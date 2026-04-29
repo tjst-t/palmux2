@@ -179,6 +179,28 @@ func pumpWSToAgent(ctx context.Context, c *websocket.Conn, agent *Agent, mgr *Ma
 				}
 				continue
 			}
+			// Same idea for ExitPlanMode: a plain permission.respond
+			// addressed at a plan permission_id should route through
+			// AnswerPlanResponse so the CLI gets the matching shape
+			// and the kind:"plan" block stamps a decision. Decision
+			// "allow" → approve (no edits, no mode switch); "deny" →
+			// reject. Any UpdatedInput is dropped because the schema
+			// is plan-specific.
+			if agent.session.IsPlanPermission(p.PermissionID) {
+				decision := "approve"
+				if p.Decision == "deny" {
+					decision = "reject"
+				}
+				if perr := agent.AnswerPlanResponse(PlanRespondFrame{
+					PermissionID: p.PermissionID,
+					Decision:     decision,
+				}); perr != nil {
+					if ev, e := makeEvent(EvError, ErrorPayload{Message: "Plan permission failed", Detail: perr.Error()}); e == nil {
+						agent.broadcast(ev)
+					}
+				}
+				continue
+			}
 			// Scope "always" persists the rule to .claude/settings.json
 			// (worktree scope) before answering.
 			var perr error
@@ -200,6 +222,17 @@ func pumpWSToAgent(ctx context.Context, c *websocket.Conn, agent *Agent, mgr *Ma
 			}
 			if perr := agent.AnswerAskQuestion(p); perr != nil {
 				if ev, e := makeEvent(EvError, ErrorPayload{Message: "Ask answer failed", Detail: perr.Error()}); e == nil {
+					agent.broadcast(ev)
+				}
+			}
+
+		case "plan.respond":
+			var p PlanRespondFrame
+			if err := json.Unmarshal(frame.Payload, &p); err != nil {
+				continue
+			}
+			if perr := agent.AnswerPlanResponse(p); perr != nil {
+				if ev, e := makeEvent(EvError, ErrorPayload{Message: "Plan answer failed", Detail: perr.Error()}); e == nil {
 					agent.broadcast(ev)
 				}
 			}

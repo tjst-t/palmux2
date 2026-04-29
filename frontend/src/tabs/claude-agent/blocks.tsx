@@ -25,14 +25,31 @@ interface PermissionHandlers {
 }
 
 interface PlanHandlers {
-  onApprove: () => void
-  onStayInPlan: () => void
-  /** Whether the agent is still in plan mode. When false the buttons
-   *  hide entirely — plan blocks from earlier turns are read-only. */
+  /** Approve the plan, optionally with edits. `targetMode` is the
+   *  permission mode the agent should switch to after the plan is
+   *  approved (default "auto"). `editedPlan` carries the user's edited
+   *  markdown when non-empty — the backend ships it as updatedInput.plan
+   *  so the executing CLI sees the user's changes. */
+  onApprove: (targetMode: string, editedPlan?: string) => void
+  /** Reject — keep the agent in plan mode. */
+  onReject: () => void
+  /** Whether this plan is the live one and not yet decided. When
+   *  false the action row hides entirely (read-only past plans, or
+   *  already-decided plans). */
   canActOnPlan: boolean
-  /** True once the user has clicked one of the plan actions in this
-   *  session. Used to fade the buttons out after a single use. */
+  /** Optimistic decision indicator. Set to "approved"/"rejected" the
+   *  moment the user clicks an action; the server's plan.decided
+   *  echo is what makes it durable. */
   decided?: 'approved' | 'rejected'
+  /** Available permission modes from the CLI probe. Used to populate
+   *  the mode dropdown next to Approve. */
+  modes: string[]
+  /** Default mode (typically "auto") used as the dropdown's initial
+   *  value. Falls back to "auto" if missing. */
+  defaultMode: string
+  /** When the plan is approved, this is the mode that was chosen.
+   *  Used to render the post-approval status text. */
+  targetMode?: string
 }
 
 /** AskHandlers wires the AskQuestionBlock to the WS layer. `onRespond`
@@ -221,29 +238,72 @@ function ThinkingBlock({ text }: { text: string }) {
 // While the plan is still streaming (`!block.done`) it is rendered
 // expanded so the user can watch it form. Once finalised it collapses to
 // a header preview and the user can expand on demand. The action row
-// (Approve & Run / Stay in plan) appears only when `permission_mode`
-// is still "plan" and the user hasn't yet acted on this block.
+// (Approve / mode dropdown / Edit / Keep planning) appears once the
+// backend has issued a permission_id for this plan via plan.question
+// (handlers.canActOnPlan = true) and the user hasn't yet acted.
+//
+// The action row mirrors Claude Code CLI behaviour:
+//   - Approve  — primary, accent. Adjacent dropdown picks the
+//                permission mode to switch to (default "auto").
+//   - Edit     — opens a Markdown editor preloaded with the current
+//                plan; "Save & approve" submits the edited text.
+//   - Keep planning — declines and keeps the agent in plan mode.
+//
+// `bypassPermissions` mode is rendered with warning styling so the
+// user notices the consequence of selecting it.
 function PlanBlock({ block, handlers }: { block: Block; handlers?: PlanHandlers }) {
   const planText = useMemo(() => extractPlanText(block), [block])
   const streaming = !block.done
-  // Default state mirrors ToolUseBlock: expanded while drafting so the
-  // user watches the plan form, default-expanded once done so the
-  // current plan is visible without an extra click — it's the most
-  // recent thing the agent said. The chevron lets the user collapse
-  // long plans on demand.
   const [expanded, setExpanded] = useState(true)
-  const showActions = !!handlers && handlers.canActOnPlan && !handlers.decided
-  const decisionLabel =
-    handlers?.decided === 'approved'
-      ? 'Approved — switched to execution mode'
-      : handlers?.decided === 'rejected'
-        ? 'Staying in plan mode'
-        : ''
-  // First non-blank line of the plan as a one-line preview when collapsed.
+  const [editing, setEditing] = useState(false)
+  const [editDraft, setEditDraft] = useState('')
   const previewLine = useMemo(() => firstNonBlankLine(planText), [planText])
 
+  // Decision state: optimistic UI from handlers.decided, durable state
+  // from block.planDecision (replayed from the snapshot on reload).
+  const decision = handlers?.decided ?? block.planDecision
+  const targetMode = handlers?.targetMode ?? block.planTargetMode
+  const showActions = !!handlers && handlers.canActOnPlan && !decision
+
+  const fallbackModes = ['default', 'auto', 'acceptEdits', 'bypassPermissions']
+  const allModes = handlers?.modes && handlers.modes.length > 0
+    ? handlers.modes.filter((m) => m !== 'plan')
+    : fallbackModes
+  const initialMode = useMemo(() => {
+    if (handlers?.defaultMode && allModes.includes(handlers.defaultMode)) {
+      return handlers.defaultMode
+    }
+    if (allModes.includes('auto')) return 'auto'
+    return allModes[0] ?? 'auto'
+  }, [handlers?.defaultMode, allModes])
+  const [selectedMode, setSelectedMode] = useState<string>(initialMode)
+  // If the modes list arrives after first render (modes API is async),
+  // re-pick the initial mode once.
+  useEffect(() => {
+    if (selectedMode && allModes.includes(selectedMode)) return
+    setSelectedMode(initialMode)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialMode])
+
+  const decisionLabel = decision === 'approved'
+    ? `Approved — switching to ${targetMode || 'execution'} mode`
+    : decision === 'rejected'
+      ? 'Staying in plan mode'
+      : ''
+
+  const openEdit = () => {
+    setEditDraft(planText)
+    setEditing(true)
+  }
+  const cancelEdit = () => setEditing(false)
+  const saveAndApprove = () => {
+    if (!handlers) return
+    handlers.onApprove(selectedMode, editDraft)
+    setEditing(false)
+  }
+
   return (
-    <div className={styles.plan}>
+    <div className={styles.plan} data-testid="plan-block">
       <div
         className={styles.planHeader}
         role="button"
@@ -269,26 +329,144 @@ function PlanBlock({ block, handlers }: { block: Block; handlers?: PlanHandlers 
         </div>
       )}
       {showActions && (
-        <div className={styles.planActions}>
-          <button
-            type="button"
-            className={`${styles.planActionBtn} ${styles.planApprove}`}
-            onClick={handlers!.onApprove}
-            title="Switch out of plan mode and run the plan"
-          >
-            Approve & Run
-          </button>
+        <div className={styles.planActions} data-testid="plan-actions">
+          <div className={styles.planApproveGroup}>
+            <button
+              type="button"
+              className={`${styles.planActionBtn} ${styles.planApprove}`}
+              onClick={() => handlers!.onApprove(selectedMode)}
+              title={`Approve the plan and switch to ${selectedMode}`}
+              data-testid="plan-approve"
+            >
+              Approve
+            </button>
+            <select
+              className={`${styles.planModeSelect} ${selectedMode === 'bypassPermissions' ? styles.planModeWarning : ''}`}
+              value={selectedMode}
+              onChange={(e) => setSelectedMode(e.target.value)}
+              title="Permission mode to switch to after approval"
+              data-testid="plan-mode-select"
+            >
+              {allModes.map((m) => (
+                <option key={m} value={m}>
+                  {m === 'bypassPermissions' ? `! ${m}` : m}
+                </option>
+              ))}
+            </select>
+          </div>
           <button
             type="button"
             className={styles.planActionBtn}
-            onClick={handlers!.onStayInPlan}
-            title="Keep working in plan mode — agent will draft another plan"
+            onClick={openEdit}
+            title="Edit the plan markdown before approving"
+            data-testid="plan-edit"
           >
-            Stay in plan
+            Edit plan…
+          </button>
+          <button
+            type="button"
+            className={`${styles.planActionBtn} ${styles.planReject}`}
+            onClick={handlers!.onReject}
+            title="Decline and keep the agent in plan mode"
+            data-testid="plan-reject"
+          >
+            Keep planning
           </button>
         </div>
       )}
-      {decisionLabel && <div className={styles.planDecision}>{decisionLabel}</div>}
+      {decisionLabel && <div className={styles.planDecision} data-testid="plan-decided">{decisionLabel}</div>}
+      {editing && (
+        <PlanEditDialog
+          initialText={editDraft}
+          mode={selectedMode}
+          modes={allModes}
+          onModeChange={setSelectedMode}
+          onChange={setEditDraft}
+          onCancel={cancelEdit}
+          onSubmit={saveAndApprove}
+        />
+      )}
+    </div>
+  )
+}
+
+// PlanEditDialog is a focused-state Markdown editor for the plan. We
+// expose a mode dropdown here too so a power user can edit the plan
+// AND change the target mode in a single round-trip.
+function PlanEditDialog({
+  initialText,
+  mode,
+  modes,
+  onModeChange,
+  onChange,
+  onCancel,
+  onSubmit,
+}: {
+  initialText: string
+  mode: string
+  modes: string[]
+  onModeChange: (m: string) => void
+  onChange: (s: string) => void
+  onCancel: () => void
+  onSubmit: () => void
+}) {
+  const [draft, setDraft] = useState(initialText)
+  useEffect(() => {
+    onChange(draft)
+  }, [draft, onChange])
+  // Cmd/Ctrl+Enter submits, Esc cancels — keyboard-first behaviour
+  // matches the rest of the Claude tab (Composer + AskQuestion).
+  const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault()
+      onSubmit()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      onCancel()
+    }
+  }
+  return (
+    <div className={styles.planEditOverlay} role="dialog" aria-label="Edit plan" data-testid="plan-edit-dialog">
+      <div className={styles.planEditCard}>
+        <div className={styles.planEditHeader}>
+          <span className={styles.planEditTitle}>Edit plan</span>
+          <select
+            className={`${styles.planModeSelect} ${mode === 'bypassPermissions' ? styles.planModeWarning : ''}`}
+            value={mode}
+            onChange={(e) => onModeChange(e.target.value)}
+            title="Permission mode to switch to after approval"
+            data-testid="plan-edit-mode"
+          >
+            {modes.map((m) => (
+              <option key={m} value={m}>
+                {m === 'bypassPermissions' ? `! ${m}` : m}
+              </option>
+            ))}
+          </select>
+        </div>
+        <textarea
+          className={styles.planEditArea}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={onKey}
+          spellCheck={false}
+          autoFocus
+          data-testid="plan-edit-textarea"
+        />
+        <div className={styles.planEditActions}>
+          <button type="button" className={styles.planActionBtn} onClick={onCancel} data-testid="plan-edit-cancel">
+            Cancel
+          </button>
+          <button
+            type="button"
+            className={`${styles.planActionBtn} ${styles.planApprove}`}
+            onClick={onSubmit}
+            data-testid="plan-edit-submit"
+          >
+            Save & approve
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

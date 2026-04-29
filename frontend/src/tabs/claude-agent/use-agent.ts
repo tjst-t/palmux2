@@ -28,6 +28,17 @@ interface SendFn {
    *  multiSelect:true). The backend wakes the blocked tool's
    *  permission_prompt and ships the answers to the CLI. */
   askRespond: (permissionId: string, answers: string[][]) => void
+  /** Submit the user's response to an ExitPlanMode permission. On
+   *  approve, the backend wakes the CLI with behavior:"allow", optionally
+   *  swaps the permission mode to opts.targetMode (default "auto"), and
+   *  passes opts.editedPlan through as updatedInput.plan when non-empty.
+   *  On reject, the CLI gets behavior:"deny" with a "User chose to keep
+   *  planning" message and the agent stays in plan mode. */
+  planRespond: (
+    permissionId: string,
+    decision: 'approve' | 'reject',
+    opts?: { targetMode?: string; editedPlan?: string },
+  ) => void
   setModel: (model: string) => void
   setEffort: (effort: string) => void
   setPermissionMode: (mode: string) => void
@@ -123,6 +134,20 @@ export function useAgent(repoId: string, branchId: string): UseAgentResult {
     )
   }, [])
 
+  const planRespond = useCallback<SendFn['planRespond']>((permissionId, decision, opts) => {
+    wsRef.current?.send(
+      JSON.stringify({
+        type: 'plan.respond',
+        payload: {
+          permissionId,
+          decision,
+          targetMode: opts?.targetMode ?? '',
+          editedPlan: opts?.editedPlan ?? '',
+        },
+      }),
+    )
+  }, [])
+
   const setModel = useCallback((model: string) => {
     wsRef.current?.send(JSON.stringify({ type: 'model.set', payload: { model } }))
   }, [])
@@ -159,6 +184,7 @@ export function useAgent(repoId: string, branchId: string): UseAgentResult {
       interrupt,
       permissionRespond,
       askRespond,
+      planRespond,
       setModel,
       setEffort,
       setPermissionMode,

@@ -583,6 +583,9 @@ func (a *Agent) RequestPermission(_ context.Context, toolName string, input json
 	if isAskQuestionToolName(toolName) {
 		return a.requestAskAnswer(toolName, input, toolUseID)
 	}
+	if isPlanToolName(toolName) {
+		return a.requestPlanResponse(toolName, input, toolUseID)
+	}
 	permID, _, _ := a.session.AddPermissionRequest(toolUseID, toolName, input)
 	a.session.SetStatus(StatusAwaitingPermission)
 	a.broadcastStatus(StatusAwaitingPermission)
@@ -642,7 +645,12 @@ func (a *Agent) RequestPermission(_ context.Context, toolName string, input json
 //     under `questionAnswers` so the CLI's AskUserQuestion tool body
 //     can read them when it executes.
 func (a *Agent) requestAskAnswer(toolName string, input json.RawMessage, toolUseID string) (permissionResponse, error) {
-	permID, _, _ := a.session.AddPermissionRequest(toolUseID, toolName, input)
+	_ = toolName
+	// Bypass-only: no kind:"permission" block is added — the kind:"ask"
+	// block carries the UI for this request. RegisterPendingPermission
+	// minted permID + records cliRequestID; AttachAskPermission stamps
+	// the id onto the existing ask block created by content_block_start.
+	permID := a.session.RegisterPendingPermission(toolUseID)
 	a.session.RegisterAskPermission(permID, toolUseID)
 	turnID, blockID := a.session.AttachAskPermission(toolUseID, permID)
 
@@ -688,6 +696,218 @@ func (a *Agent) requestAskAnswer(toolName string, input json.RawMessage, toolUse
 		out.UpdatedInput = input
 	}
 	return out, nil
+}
+
+// requestPlanResponse is the ExitPlanMode-specific branch of
+// RequestPermission. Mirrors requestAskAnswer:
+//   - the kind:"plan" block was already added to the session when the
+//     content_block_start envelope landed (normalize.go re-tags
+//     ExitPlanMode tool_use → kind:"plan");
+//   - we register a permission_id (no extra UI block — the plan block IS
+//     the UI), attach it to the plan block, and emit `plan.question` so
+//     the frontend enables its action row;
+//   - the waiter is resolved from `AnswerPlanResponse` when the user
+//     clicks Approve / Keep planning.
+//
+// On approve, the chosen TargetMode (default "auto") is applied via a
+// goroutine-spawned SetPermissionMode call and the EditedPlan (when
+// non-empty) is shipped as updatedInput.plan so the executing CLI sees
+// the user's final markdown — same updatedInput plumbing the ask path
+// uses for questionAnswers.
+//
+// On reject, behavior:"deny" is returned with a "User chose to keep
+// planning" message; permission_mode stays at "plan" so the agent
+// continues drafting.
+func (a *Agent) requestPlanResponse(toolName string, input json.RawMessage, toolUseID string) (permissionResponse, error) {
+	_ = toolName
+	permID := a.session.RegisterPendingPermission(toolUseID)
+	a.session.RegisterPlanPermission(permID, toolUseID)
+	turnID, blockID := a.session.AttachPlanPermission(toolUseID, permID)
+
+	a.session.SetStatus(StatusAwaitingPermission)
+	a.broadcastStatus(StatusAwaitingPermission)
+
+	// Tell the frontend the plan is now actionable. The plan block was
+	// already streamed; this event just hooks up the action row by
+	// stamping permission_id on the FE side too.
+	if ev, err := makeEvent(EvPlanQuestion, PlanQuestionPayload{
+		PermissionID: permID,
+		BlockID:      blockID,
+		TurnID:       turnID,
+		ToolUseID:    toolUseID,
+	}); err == nil {
+		a.broadcast(ev)
+	}
+	a.publishNotification(InternalNotification{
+		RequestID: permID,
+		Type:      "urgent",
+		Title:     "Claude is awaiting plan approval",
+		Message:   summarisePlanForNotification(input),
+		Actions: []InternalNotificationAction{
+			{Label: "Approve", Action: "claude.plan.approve:" + permID},
+			{Label: "Keep planning", Action: "claude.plan.reject:" + permID},
+		},
+	})
+
+	resp, err := a.awaitPermission(permID)
+	a.clearNotification(permID)
+	a.broadcastStatus(a.session.Status())
+	if err != nil {
+		return permissionResponse{Behavior: "deny", Message: err.Error()}, nil
+	}
+	out := permissionResponse{Behavior: resp.Behavior, Message: resp.Message}
+	if len(resp.UpdatedInput) > 0 {
+		out.UpdatedInput = resp.UpdatedInput
+	} else if len(input) > 0 {
+		out.UpdatedInput = input
+	}
+	return out, nil
+}
+
+// AnswerPlanResponse resolves an outstanding ExitPlanMode permission
+// from a `plan.respond` WS frame. Mirrors AnswerAskQuestion:
+//   - on approve, wake the waiter with behavior:"allow" and (when
+//     EditedPlan is non-empty) updatedInput={"plan": editedPlan}; if
+//     TargetMode is set, kick a background SetPermissionMode so the
+//     conversation continues in the requested mode;
+//   - on reject, wake the waiter with behavior:"deny" and a friendly
+//     "User chose to keep planning" message.
+//
+// Also stamps the decision onto the kind:"plan" block so the action
+// row hides on this and any other connected client.
+func (a *Agent) AnswerPlanResponse(frame PlanRespondFrame) error {
+	if frame.PermissionID == "" {
+		return errors.New("plan.respond: missing permission_id")
+	}
+	switch frame.Decision {
+	case "approve", "reject":
+	default:
+		return fmt.Errorf("plan.respond: invalid decision %q", frame.Decision)
+	}
+	if _, ok := a.session.ConsumePlanPermission(frame.PermissionID); !ok {
+		return errors.New("plan.respond: unknown or already-resolved permission_id")
+	}
+	cliDecision := "allow"
+	if frame.Decision == "reject" {
+		cliDecision = "deny"
+	}
+	cliRequestID, ok := a.session.ResolvePermission(frame.PermissionID, cliDecision)
+	if !ok {
+		return errors.New("plan.respond: permission already resolved")
+	}
+	_ = cliRequestID
+
+	// If the user edited the plan, persist that text on the block so
+	// re-snapshots see the edited markdown rather than the agent's
+	// original draft.
+	if frame.Decision == "approve" && frame.EditedPlan != "" {
+		a.session.UpdatePlanBlockText(frame.PermissionID, frame.EditedPlan)
+	}
+
+	// Stamp the decision onto the plan block (Done flips, label flips).
+	turnID, blockID := a.session.MarkPlanBlockDecided(frame.PermissionID, decisionLabelForPlan(frame.Decision), frame.TargetMode)
+
+	if ev, e := makeEvent(EvPlanDecided, PlanDecidedPayload{
+		PermissionID: frame.PermissionID,
+		BlockID:      blockID,
+		TurnID:       turnID,
+		Decision:     decisionLabelForPlan(frame.Decision),
+		TargetMode:   frame.TargetMode,
+	}); e == nil {
+		a.broadcast(ev)
+	}
+
+	// Build the canUseToolResponse to wake the blocked CLI.
+	resp := canUseToolResponse{}
+	switch frame.Decision {
+	case "approve":
+		resp.Behavior = "allow"
+		if frame.EditedPlan != "" {
+			body := map[string]any{"plan": frame.EditedPlan}
+			if raw, err := json.Marshal(body); err == nil {
+				resp.UpdatedInput = raw
+			}
+		}
+		// Switch the permission mode in the background. This kills + respawns
+		// the CLI with the new mode, but only AFTER the waiter resolves
+		// (so the CLI's pending tools/call gets its allow first). The
+		// respawn carries the session_id forward so the conversation
+		// continues seamlessly. Persistence to BranchPrefs falls out of
+		// SetPermissionMode → persistPrefs.
+		if frame.TargetMode != "" {
+			go func(mode string) {
+				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+				defer cancel()
+				if err := a.SetPermissionMode(ctx, mode); err != nil {
+					a.deps.logger.Warn("claudeagent: plan.respond SetPermissionMode failed",
+						"err", err, "mode", mode)
+				}
+			}(frame.TargetMode)
+		}
+	case "reject":
+		resp.Behavior = "deny"
+		resp.Message = "User chose to keep planning"
+	}
+
+	a.mu.Lock()
+	ch, ok := a.permWaiters[frame.PermissionID]
+	if ok {
+		delete(a.permWaiters, frame.PermissionID)
+	}
+	a.mu.Unlock()
+	if ok {
+		ch <- resp
+	}
+	a.publishEvent(EventClaudePermissionResolved, map[string]any{
+		"permissionId": frame.PermissionID,
+		"decision":     resp.Behavior,
+	})
+	return nil
+}
+
+// decisionLabelForPlan converts the wire-level "approve"/"reject" into
+// the labels we stamp onto the plan block (and ship to the FE on
+// plan.decided). Kept as a small helper so any future i18n / drift sits
+// in one place.
+func decisionLabelForPlan(decision string) string {
+	switch decision {
+	case "approve":
+		return "approved"
+	case "reject":
+		return "rejected"
+	}
+	return decision
+}
+
+// summarisePlanForNotification builds a short Inbox preview of the plan
+// awaiting approval. Best-effort: the plan markdown lives in
+// `input.plan` once the CLI finalises the partial JSON.
+func summarisePlanForNotification(input json.RawMessage) string {
+	var raw struct {
+		Plan string `json:"plan"`
+	}
+	if err := json.Unmarshal(input, &raw); err != nil {
+		return "Plan ready for approval"
+	}
+	plan := strings.TrimSpace(raw.Plan)
+	if plan == "" {
+		return "Plan ready for approval"
+	}
+	for _, line := range strings.Split(plan, "\n") {
+		t := strings.TrimSpace(line)
+		if t == "" {
+			continue
+		}
+		// Strip leading markdown header marks for a tighter preview.
+		for len(t) > 0 && t[0] == '#' {
+			t = strings.TrimSpace(t[1:])
+		}
+		if len(t) > 80 {
+			t = t[:79] + "…"
+		}
+		return t
+	}
+	return "Plan ready for approval"
 }
 
 // AnswerAskQuestion resolves an outstanding AskUserQuestion by packing
