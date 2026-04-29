@@ -51,6 +51,7 @@ export const initialState: AgentState = {
 
 export type AgentAction =
   | { kind: 'reset' }
+  | { kind: 'restore'; state: AgentState }
   | { kind: 'init'; payload: SessionInit }
   | { kind: 'event'; ev: { type: string; ts: string; payload?: unknown } }
 
@@ -60,6 +61,8 @@ export function reduce(state: AgentState, action: AgentAction): AgentState {
   switch (action.kind) {
     case 'reset':
       return initialState
+    case 'restore':
+      return action.state
     case 'init': {
       const p = action.payload
       // If the agent is mid-permission when we reconnect, the snapshot

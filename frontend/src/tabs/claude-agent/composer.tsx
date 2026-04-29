@@ -102,7 +102,22 @@ export function Composer(props: ComposerProps) {
     initInfo,
   } = props
 
-  const [value, setValue] = useState('')
+  // Draft persistence: the textarea contents survive tab/branch switches
+  // and full page reloads via localStorage keyed by `${repoId}/${branchId}`.
+  // Only the text is persisted — attachments hold blob URLs that don't
+  // round-trip safely, so they reset to empty on remount.
+  const draftKey = `palmux:claude-draft:${repoId}/${branchId}`
+  const [value, setValue] = useState(() => loadDraft(draftKey))
+  // Re-load when the user switches branches without unmounting (rare, but
+  // happens when the same Composer is reused for a different (repo, branch)).
+  useEffect(() => {
+    setValue(loadDraft(draftKey))
+  }, [draftKey])
+  // Save on every keystroke. localStorage writes are cheap; debouncing
+  // adds complexity for no measurable win at typing speeds.
+  useEffect(() => {
+    saveDraft(draftKey, value)
+  }, [draftKey, value])
   const [composing, setComposing] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [attachments, setAttachments] = useState<Attachment[]>([])
@@ -482,4 +497,26 @@ export function Composer(props: ComposerProps) {
       </div>
     </div>
   )
+}
+
+// Draft persistence — single keystroke read/write per change. Empty
+// strings are removed entirely so localStorage doesn't grow stale keys
+// for branches the user briefly typed in and abandoned.
+function loadDraft(key: string): string {
+  if (typeof localStorage === 'undefined') return ''
+  try {
+    return localStorage.getItem(key) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+function saveDraft(key: string, value: string): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    if (value) localStorage.setItem(key, value)
+    else localStorage.removeItem(key)
+  } catch {
+    // ignore quota / disabled storage
+  }
 }

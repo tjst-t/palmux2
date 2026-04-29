@@ -5,6 +5,13 @@ import { ReconnectingWebSocket } from '../../lib/ws'
 import { initialState, reduce } from './agent-state'
 import type { AgentState } from './agent-state'
 
+// In-memory snapshot cache keyed by `${repoId}/${branchId}`. Survives tab
+// switches inside the SPA so navigating back to a Claude tab shows the
+// previous turns immediately, while the WS reconnects in the background
+// and refreshes from the server's authoritative snapshot.
+const stateCache = new Map<string, AgentState>()
+const cacheKey = (r: string, b: string) => `${r}/${b}`
+
 interface SendFn {
   userMessage: (content: string) => void
   interrupt: () => void
@@ -32,9 +39,22 @@ interface UseAgentResult {
 }
 
 export function useAgent(repoId: string, branchId: string): UseAgentResult {
-  const [state, dispatch] = useReducer(reduce, initialState)
+  // Lazy initialiser hits the snapshot cache so the first paint shows the
+  // previous turns instead of the empty-state placeholder.
+  const [state, dispatch] = useReducer(reduce, undefined, () =>
+    stateCache.get(cacheKey(repoId, branchId)) ?? initialState,
+  )
   const [connState, setConnState] = useState<ConnState>('connecting')
   const wsRef = useRef<ReconnectingWebSocket | null>(null)
+
+  // Mirror every state change into the cache so the next mount has fresh
+  // data. Skipping `ready: false` (initial state) avoids overwriting a
+  // good cache with a transient blank slate during branch switch.
+  useEffect(() => {
+    if (state.ready) {
+      stateCache.set(cacheKey(repoId, branchId), state)
+    }
+  }, [repoId, branchId, state])
 
   useEffect(() => {
     if (!repoId || !branchId) return
@@ -54,7 +74,15 @@ export function useAgent(repoId: string, branchId: string): UseAgentResult {
       },
     })
     wsRef.current = ws
-    dispatch({ kind: 'reset' })
+    // On (re)mount or branch switch, restore from cache when available so
+    // the UI has content to render immediately. The WS will follow up with
+    // a session.init that supersedes whatever we restored.
+    const cached = stateCache.get(cacheKey(repoId, branchId))
+    if (cached) {
+      dispatch({ kind: 'restore', state: cached })
+    } else {
+      dispatch({ kind: 'reset' })
+    }
     ws.connect()
     return () => {
       ws.close(1000, 'unmount')
