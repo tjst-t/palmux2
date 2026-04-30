@@ -301,6 +301,60 @@ func TestExitPlanMode_StreamThenAssistantEnvelope_NoDuplicate(t *testing.T) {
 	}
 }
 
+// TestFinalizeBlock_PromotesStreamedInputOverPlaceholder covers the live-CLI
+// flow where content_block_start carries `input: {}` as a placeholder and
+// the real input arrives via input_json_delta partials accumulated in
+// b.Text. FinalizeBlock must promote b.Text into b.Input — otherwise the
+// frontend sees `final: {}` at block.end, the input panel renders nothing,
+// and the orphan check (block.done && !hasContent) hides the block.
+func TestFinalizeBlock_PromotesStreamedInputOverPlaceholder(t *testing.T) {
+	s := NewSession("repo", "branch", "", "sonnet", "default")
+
+	processStreamMessage(s, parse(t, `{"type":"stream_event","event":{"type":"message_start"}}`))
+	// content_block_start with the placeholder {} — typical for tool_use.
+	processStreamMessage(s, parse(t, `{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_agent_1","name":"Agent","input":{}}}}`))
+	// input_json_delta partials build the real input in b.Text.
+	processStreamMessage(s, parse(t, `{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"description\":\"Summarize\","}}}`))
+	processStreamMessage(s, parse(t, `{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\"subagent_type\":\"general-purpose\","}}}`))
+	processStreamMessage(s, parse(t, `{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\"prompt\":\"do the thing\"}"}}}`))
+
+	evs := processStreamMessage(s, parse(t, `{"type":"stream_event","event":{"type":"content_block_stop","index":0}}`))
+	if len(evs) != 1 || evs[0].Type != string(EvBlockEnd) {
+		t.Fatalf("content_block_stop should emit block.end, got %v", evs)
+	}
+	var bp BlockEndPayload
+	if err := json.Unmarshal(evs[0].Payload, &bp); err != nil {
+		t.Fatalf("decode block.end: %v", err)
+	}
+	if len(bp.Final) == 0 {
+		t.Fatalf("Final empty — placeholder {} blocked the promotion")
+	}
+	var got map[string]string
+	if err := json.Unmarshal(bp.Final, &got); err != nil {
+		t.Fatalf("Final not parseable as object: %v (raw=%s)", err, bp.Final)
+	}
+	if got["description"] != "Summarize" || got["subagent_type"] != "general-purpose" {
+		t.Fatalf("Final missing streamed fields: %+v", got)
+	}
+
+	// Snapshot: block.Input is the real input, block.Text is cleared.
+	snap := s.Snapshot()
+	if len(snap.Turns) != 1 || len(snap.Turns[0].Blocks) != 1 {
+		t.Fatalf("expected 1 turn / 1 block, got %+v", snap.Turns)
+	}
+	b := snap.Turns[0].Blocks[0]
+	if b.Text != "" {
+		t.Fatalf("block.Text not cleared: %q", b.Text)
+	}
+	var bin map[string]string
+	if err := json.Unmarshal(b.Input, &bin); err != nil {
+		t.Fatalf("block.Input not parseable: %v (raw=%s)", err, b.Input)
+	}
+	if bin["prompt"] != "do the thing" {
+		t.Fatalf("block.Input missing streamed prompt: %+v", bin)
+	}
+}
+
 func TestLoadTranscriptTurns_RetagsAskUserQuestion(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "session.jsonl")

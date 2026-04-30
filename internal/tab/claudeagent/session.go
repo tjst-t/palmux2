@@ -1,10 +1,19 @@
 package claudeagent
 
 import (
+	"bytes"
 	"encoding/json"
 	"sync"
 	"time"
 )
+
+// isEmptyJSONObject reports whether the given JSON bytes encode an empty
+// object `{}` (allowing surrounding whitespace). Used to detect the CLI's
+// content_block_start placeholder so FinalizeBlock knows to override it
+// with the real input streamed via input_json_delta.
+func isEmptyJSONObject(raw json.RawMessage) bool {
+	return bytes.Equal(bytes.TrimSpace(raw), []byte("{}"))
+}
 
 // InitInfo is the subset of the initialize control_response we surface to
 // the frontend. The CLI returns a much larger payload (account, plugins,
@@ -488,7 +497,14 @@ func (s *Session) FinalizeBlock(index int) (turnID, blockID string, finalInput j
 		return s.currentTurn.ID, "", nil
 	}
 	b.Done = true
-	if (b.Kind == "tool_use" || b.Kind == "plan" || b.Kind == "ask") && len(b.Input) == 0 && b.Text != "" {
+	// Promote streamed input_json_delta text into b.Input. The CLI typically
+	// ships content_block_start with `input: {}` as a placeholder and then
+	// delivers the real input via input_json_delta partials accumulated in
+	// b.Text. The earlier check was `len(b.Input) == 0` which let the `{}`
+	// placeholder block the promotion — the FE then received `final: {}`
+	// at block.end and the orphan check hid the block entirely.
+	inputEmpty := len(b.Input) == 0 || isEmptyJSONObject(b.Input)
+	if (b.Kind == "tool_use" || b.Kind == "plan" || b.Kind == "ask") && inputEmpty && b.Text != "" {
 		if json.Valid([]byte(b.Text)) {
 			b.Input = json.RawMessage(b.Text)
 			b.Text = ""

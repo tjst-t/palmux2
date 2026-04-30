@@ -651,6 +651,57 @@ function ToolInputRich({ block }: { block: Block }) {
       </>
     )
   }
+  // Sub-agent dispatch tool. Older CLIs called this "Task", recent
+  // releases renamed it to "Agent" — accept both, and also fall through
+  // for any tool whose input shape carries the canonical fields. The raw
+  // JSON dump is unreadable for any non-trivial prompt; we break it out
+  // into proper labeled sections with the prompt rendered as markdown.
+  const isSubAgentTool =
+    name === 'task' || name === 'agent' ||
+    (typeof input.subagent_type === 'string' && typeof input.prompt === 'string')
+  if (isSubAgentTool) {
+    // While the input JSON is still streaming, parseInputObject returns
+    // null and `input` is empty {}. Fall back to extracting individual
+    // fields from the partial JSON in block.text so the panel shows
+    // useful content during the stream instead of a raw brace dump.
+    const description =
+      (input.description as string) ??
+      partialField(block.text, 'description') ??
+      ''
+    const subagentType =
+      (input.subagent_type as string) ??
+      partialField(block.text, 'subagent_type') ??
+      ''
+    const prompt =
+      (input.prompt as string) ??
+      partialField(block.text, 'prompt') ??
+      ''
+    return (
+      <div className={styles.taskInputBox}>
+        {(description || subagentType) && (
+          <div className={styles.taskInputHeader}>
+            {description && (
+              <div className={styles.taskInputDescription}>{description}</div>
+            )}
+            {subagentType && (
+              <span className={styles.taskInputAgent}>{subagentType}</span>
+            )}
+          </div>
+        )}
+        {prompt && (
+          <>
+            <div className={styles.toolLabel}>prompt</div>
+            <div className={styles.taskInputPrompt}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{prompt}</ReactMarkdown>
+            </div>
+          </>
+        )}
+        {!description && !subagentType && !prompt && (
+          <pre className={styles.toolPre}>{formatToolInput(block)}</pre>
+        )}
+      </div>
+    )
+  }
   // Generic fallback.
   return (
     <>
@@ -724,6 +775,24 @@ function ToolResultBody({ output }: { output: string }) {
     return total > 0 && pathish / total > 0.85
   }, [lines])
 
+  // Markdown heuristic: ATX headers (`# `, `## `), fenced code blocks, or
+  // a non-trivial mix of bullet lists + bold. Sub-agent (Task) outputs are
+  // the canonical markdown source — they reliably ship `## High` /
+  // `## Medium` style sections, code fences, and link-style file refs.
+  // We skip when the output looks like a path list or has ANSI escapes
+  // (those have dedicated renderers).
+  const looksMarkdown = useMemo(() => {
+    if (lookLikePaths) return false
+    let score = 0
+    if (/^#{1,6}\s/m.test(output)) score += 2
+    if (/^```/m.test(output)) score += 2
+    if (/^\s*[-*+]\s+\S/m.test(output)) score += 1
+    if (/\*\*[^*]+\*\*/.test(output)) score += 1
+    if (/^\s*>\s+/m.test(output)) score += 1
+    if (/\[[^\]]+\]\([^)]+\)/.test(output)) score += 1
+    return score >= 2
+  }, [output, lookLikePaths])
+
   const ansiHtml = useMemo(() => {
     if (!output.includes('[')) return null
     try {
@@ -764,6 +833,13 @@ function ToolResultBody({ output }: { output: string }) {
         // Safe-ish: ansi-to-html escapes XML; we've set escapeXML:true.
         dangerouslySetInnerHTML={{ __html: ansiHtml }}
       />
+    )
+  }
+  if (looksMarkdown) {
+    return (
+      <div className={styles.toolResultMarkdown}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{output}</ReactMarkdown>
+      </div>
     )
   }
   return <pre className={styles.toolResultPre}>{output}</pre>
@@ -1169,7 +1245,7 @@ function toolSummary(block: Block): string {
     const p = (input.pattern as string) ?? (input.glob as string) ?? ''
     return shorten(p, 100)
   }
-  if (name === 'task') {
+  if (name === 'task' || name === 'agent') {
     return shorten((input.description as string) ?? (input.subagent_type as string) ?? '', 100)
   }
   if (name === 'webfetch' || name === 'websearch') {
@@ -1178,6 +1254,23 @@ function toolSummary(block: Block): string {
   if (name === 'todowrite') return ''
   // Fallback: stringify the object compactly.
   return shorten(JSON.stringify(input), 100)
+}
+
+// partialField extracts a single string-valued field from partial-streaming
+// JSON. The agent ships tool input as a sequence of input_json_delta chunks;
+// the accumulated text in `block.text` is valid JSON only after the final
+// delta lands. Until then a regex pull lets us surface the description /
+// subagent_type / prompt the moment each lands, instead of waiting for the
+// whole envelope to close. Returns null when the field is missing or
+// unparseable; callers fall back to '' for display.
+function partialField(text: string | undefined, key: string): string | null {
+  if (!text) return null
+  const trimmed = text.trim()
+  if (!trimmed.startsWith('{')) return null
+  const re = new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)`)
+  const m = trimmed.match(re)
+  if (!m) return null
+  try { return JSON.parse(`"${m[1]}"`) as string } catch { return m[1] }
 }
 
 function parseInputObject(block: Block): Record<string, unknown> | null {
