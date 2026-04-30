@@ -120,6 +120,13 @@ type Turn struct {
 	// The frontend uses this to render sub-agent turns nested underneath
 	// their parent Task block instead of flat in the timeline.
 	ParentToolUseID string `json:"parentToolUseId,omitempty"`
+	// streamCovered is set true when stream_event envelopes (message_start
+	// or content_block_start) populated this turn. The trailing `assistant`
+	// envelope from the CLI then becomes a no-op — its purpose is to be a
+	// fallback when stream events were missing, but firing it on top of an
+	// already-streamed turn duplicates ask/plan blocks. Unexported so it
+	// stays out of the snapshot wire format.
+	streamCovered bool `json:"-"`
 }
 
 // SessionInitPayload is what the server writes immediately on WS connect.

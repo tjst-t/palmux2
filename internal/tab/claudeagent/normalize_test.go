@@ -244,6 +244,63 @@ func TestAskUserQuestion_AssistantFallback(t *testing.T) {
 	}
 }
 
+// TestAskUserQuestion_StreamThenAssistantEnvelope_NoDuplicate covers the
+// real-CLI flow: stream_event content_block_* envelopes build the kind:"ask"
+// block, then the trailing `assistant` envelope arrives carrying the same
+// tool_use. processAssistantMessage must treat the trailing envelope as a
+// no-op (the streamed turn is canonical) — otherwise upsertCompleteBlock
+// can't find the finalised block in openBlocks (FinalizeBlock removed it),
+// falls through to append, and the user sees the AskUserQuestion rendered
+// twice in the UI.
+func TestAskUserQuestion_StreamThenAssistantEnvelope_NoDuplicate(t *testing.T) {
+	s := NewSession("repo", "branch", "", "sonnet", "default")
+
+	processStreamMessage(s, parse(t, `{"type":"stream_event","event":{"type":"message_start"}}`))
+	processStreamMessage(s, parse(t, `{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_ask_dup","name":"AskUserQuestion","input":{"questions":[{"question":"Pick","options":[{"label":"A"}]}]}}}}`))
+	processStreamMessage(s, parse(t, `{"type":"stream_event","event":{"type":"content_block_stop","index":0}}`))
+
+	// The same tool_use lands again as a complete `assistant` envelope.
+	envelope := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_ask_dup","name":"AskUserQuestion","input":{"questions":[{"question":"Pick","options":[{"label":"A"}]}]}}]}}`
+	if evs := processStreamMessage(s, parse(t, envelope)); len(evs) != 0 {
+		t.Fatalf("assistant envelope after streamed turn should emit nothing, got %d events: %v", len(evs), evs)
+	}
+
+	snap := s.Snapshot()
+	if len(snap.Turns) != 1 {
+		t.Fatalf("expected 1 turn, got %d: %+v", len(snap.Turns), snap.Turns)
+	}
+	if got := len(snap.Turns[0].Blocks); got != 1 {
+		t.Fatalf("expected 1 ask block (no duplicate), got %d: %+v", got, snap.Turns[0].Blocks)
+	}
+	if got := snap.Turns[0].Blocks[0].Kind; got != "ask" {
+		t.Fatalf("block kind = %q, want ask", got)
+	}
+}
+
+// TestExitPlanMode_StreamThenAssistantEnvelope_NoDuplicate is the plan-block
+// counterpart to the ask test above. Same root cause, same fix — included
+// so a regression in either path can be caught independently.
+func TestExitPlanMode_StreamThenAssistantEnvelope_NoDuplicate(t *testing.T) {
+	s := NewSession("repo", "branch", "", "sonnet", "plan")
+
+	processStreamMessage(s, parse(t, `{"type":"stream_event","event":{"type":"message_start"}}`))
+	processStreamMessage(s, parse(t, `{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_plan_dup","name":"ExitPlanMode","input":{"plan":"# Plan\n- a"}}}}`))
+	processStreamMessage(s, parse(t, `{"type":"stream_event","event":{"type":"content_block_stop","index":0}}`))
+
+	envelope := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_plan_dup","name":"ExitPlanMode","input":{"plan":"# Plan\n- a"}}]}}`
+	if evs := processStreamMessage(s, parse(t, envelope)); len(evs) != 0 {
+		t.Fatalf("assistant envelope after streamed plan should emit nothing, got %d events: %v", len(evs), evs)
+	}
+
+	snap := s.Snapshot()
+	if len(snap.Turns) != 1 || len(snap.Turns[0].Blocks) != 1 {
+		t.Fatalf("expected 1 turn / 1 plan block, got %+v", snap.Turns)
+	}
+	if got := snap.Turns[0].Blocks[0].Kind; got != "plan" {
+		t.Fatalf("block kind = %q, want plan", got)
+	}
+}
+
 func TestLoadTranscriptTurns_RetagsAskUserQuestion(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "session.jsonl")

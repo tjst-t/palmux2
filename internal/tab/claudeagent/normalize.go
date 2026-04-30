@@ -231,8 +231,18 @@ func processStreamEvent(s *Session, raw json.RawMessage) []AgentEvent {
 // processAssistantMessage is the fallback when partial messages are missing
 // (some CLI builds have spotty stream_event coverage). We merge the
 // completed message into the current turn's block list.
+//
+// When the current turn was already populated by stream_event envelopes
+// (the common case — modern CLIs emit both partials and the trailing
+// `assistant` envelope), this function is a no-op. Running its merge pass
+// on top of streamed blocks duplicates ask/plan blocks because the
+// finalised content_block_stop already removed entries from openBlocks,
+// so the upsert path can't find them and falls through to append.
 func processAssistantMessage(s *Session, raw json.RawMessage) []AgentEvent {
 	if len(raw) == 0 {
+		return nil
+	}
+	if s.IsCurrentTurnStreamCovered() {
 		return nil
 	}
 	var msg chatMessage

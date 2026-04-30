@@ -320,14 +320,28 @@ func (s *Session) AppendUserTurn(content string) string {
 }
 
 // StartAssistantTurn opens a new assistant turn and returns its ID.
+// Called from the stream_event message_start path, so streamCovered is
+// flipped immediately — even if no blocks are emitted, the trailing
+// `assistant` envelope should still be treated as a no-op.
 func (s *Session) StartAssistantTurn() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	t := &Turn{Role: "assistant", ID: newID("turn"), Blocks: []Block{}, ParentToolUseID: s.currentParentToolUseID}
+	t := &Turn{Role: "assistant", ID: newID("turn"), Blocks: []Block{}, ParentToolUseID: s.currentParentToolUseID, streamCovered: true}
 	s.turns = append(s.turns, t)
 	s.currentTurn = t
 	s.openBlocks = map[int]*Block{}
 	return t.ID
+}
+
+// IsCurrentTurnStreamCovered reports whether the current assistant turn was
+// populated by stream_event envelopes. processAssistantMessage uses this to
+// skip its block-merge pass when the streamed path already produced the
+// canonical block list (otherwise the trailing `assistant` envelope appends
+// duplicate blocks).
+func (s *Session) IsCurrentTurnStreamCovered() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.currentTurn != nil && s.currentTurn.streamCovered
 }
 
 // CloseTurn finalizes the current assistant turn, accumulates cost and turn
@@ -352,10 +366,12 @@ func (s *Session) OpenBlock(index int, kind string) (turnID, blockID string, ope
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.currentTurn == nil {
-		t := &Turn{Role: "assistant", ID: newID("turn"), Blocks: []Block{}, ParentToolUseID: s.currentParentToolUseID}
+		t := &Turn{Role: "assistant", ID: newID("turn"), Blocks: []Block{}, ParentToolUseID: s.currentParentToolUseID, streamCovered: true}
 		s.turns = append(s.turns, t)
 		s.currentTurn = t
 		openedTurn = true
+	} else {
+		s.currentTurn.streamCovered = true
 	}
 	b := &Block{ID: newID("block"), Kind: kind, Index: index}
 	s.openBlocks[index] = b
@@ -535,6 +551,13 @@ func (s *Session) ApplyAssistantMessage(blocks []contentBlock) string {
 
 // upsertCompleteBlock either replaces an open block at index, or appends.
 // Caller must hold s.mu.
+//
+// Defense-in-depth dedup: if a finalised block with the same ToolUseID is
+// already in currentTurn.Blocks (the stream-event path got there first
+// and FinalizeBlock removed the openBlocks entry), update in place. We
+// preserve UI-stamped fields (PermissionID, AskAnswers, PlanDecision,
+// PlanTargetMode) so an answer that landed before the assistant envelope
+// isn't clobbered.
 func (s *Session) upsertCompleteBlock(index int, b Block) {
 	if existing, ok := s.openBlocks[index]; ok {
 		// Preserve the existing ID so any UI references stay valid.
@@ -547,6 +570,29 @@ func (s *Session) upsertCompleteBlock(index int, b Block) {
 		}
 		delete(s.openBlocks, index)
 		return
+	}
+	if b.ToolUseID != "" {
+		for i := range s.currentTurn.Blocks {
+			cur := s.currentTurn.Blocks[i]
+			if cur.ToolUseID != b.ToolUseID {
+				continue
+			}
+			b.ID = cur.ID
+			if b.PermissionID == "" {
+				b.PermissionID = cur.PermissionID
+			}
+			if len(b.AskAnswers) == 0 && len(cur.AskAnswers) > 0 {
+				b.AskAnswers = cur.AskAnswers
+			}
+			if b.PlanDecision == "" && cur.PlanDecision != "" {
+				b.PlanDecision = cur.PlanDecision
+			}
+			if b.PlanTargetMode == "" && cur.PlanTargetMode != "" {
+				b.PlanTargetMode = cur.PlanTargetMode
+			}
+			s.currentTurn.Blocks[i] = b
+			return
+		}
 	}
 	s.currentTurn.Blocks = append(s.currentTurn.Blocks, b)
 }
