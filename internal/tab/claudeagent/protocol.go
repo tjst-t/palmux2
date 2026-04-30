@@ -48,6 +48,21 @@ type streamMsg struct {
 	IsError          bool            `json:"is_error,omitempty"`
 	Result           string          `json:"result,omitempty"`
 	Usage            json.RawMessage `json:"usage,omitempty"`
+
+	// ──────────── system/hook_started + hook_response (S005) ────────────
+	// Populated by --include-hook-events. Wire-confirmed against
+	// claude CLI 2.1.123:
+	//   {"type":"system","subtype":"hook_started","hook_id":"<uuid>","hook_name":"PreToolUse:Bash","hook_event":"PreToolUse","uuid":"...","session_id":"..."}
+	//   {"type":"system","subtype":"hook_response","hook_id":"<uuid>","hook_name":"PreToolUse:Bash","hook_event":"PreToolUse","output":"...","stdout":"...","stderr":"...","exit_code":0,"outcome":"success","uuid":"...","session_id":"..."}
+	HookID       string          `json:"hook_id,omitempty"`
+	HookName     string          `json:"hook_name,omitempty"`
+	HookEvent    string          `json:"hook_event,omitempty"`
+	HookOutput   string          `json:"output,omitempty"`
+	HookStdout   string          `json:"stdout,omitempty"`
+	HookStderr   string          `json:"stderr,omitempty"`
+	HookExitCode int             `json:"exit_code,omitempty"`
+	HookOutcome  string          `json:"outcome,omitempty"`
+	HookPayload  json.RawMessage `json:"modified_payload,omitempty"`
 }
 
 // MCPServerInfo is the per-server status the CLI reports in system/init.

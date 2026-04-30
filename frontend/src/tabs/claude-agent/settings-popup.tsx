@@ -48,6 +48,10 @@ interface Props {
   onClose: () => void
 }
 
+interface BranchPrefsView {
+  includeHookEvents: boolean
+}
+
 export function SettingsPopup({ repoId, branchId, open, onClose }: Props) {
   const [bundle, setBundle] = useState<SettingsBundle | null>(null)
   // loading defaults to true so the modal opens with a "Loading…" message
@@ -56,6 +60,8 @@ export function SettingsPopup({ repoId, branchId, open, onClose }: Props) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busyKey, setBusyKey] = useState<string | null>(null)
+  const [prefs, setPrefs] = useState<BranchPrefsView | null>(null)
+  const [prefsBusy, setPrefsBusy] = useState(false)
 
   const fetchBundle = useCallback(() => {
     setLoading(true)
@@ -100,10 +106,51 @@ export function SettingsPopup({ repoId, branchId, open, onClose }: Props) {
           setLoading(false)
         }
       })
+    // Branch prefs (S005 — IncludeHookEvents toggle). Fetch in parallel
+    // so the toggle reflects the persisted value the moment the modal
+    // opens. Failure here is non-fatal — we just hide the toggle
+    // gracefully (defaultPrefsViewMissing → returns null).
+    api
+      .get<BranchPrefsView>(
+        `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(
+          branchId,
+        )}/tabs/claude/prefs`,
+      )
+      .then((data) => {
+        if (!cancelled) {
+          setPrefs({ includeHookEvents: !!data?.includeHookEvents })
+        }
+      })
+      .catch(() => {
+        // Server might be running an older binary without the prefs
+        // endpoint — leave prefs null so the toggle hides itself.
+      })
     return () => {
       cancelled = true
     }
   }, [open, repoId, branchId])
+
+  const onToggleHookEvents = useCallback(
+    async (next: boolean) => {
+      setPrefsBusy(true)
+      setError(null)
+      try {
+        const url =
+          `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}` +
+          `/tabs/claude/prefs`
+        const data = await api.patch<BranchPrefsView>(url, {
+          includeHookEvents: next,
+        })
+        setPrefs({ includeHookEvents: !!data?.includeHookEvents })
+      } catch (e) {
+        const msg = e instanceof ApiError ? e.message : String(e)
+        setError(msg)
+      } finally {
+        setPrefsBusy(false)
+      }
+    },
+    [repoId, branchId],
+  )
 
   const onDeleteAllow = useCallback(
     async (scope: SettingsScope, pattern: string) => {
@@ -151,6 +198,24 @@ export function SettingsPopup({ repoId, branchId, open, onClose }: Props) {
           <code>allow</code> entry will cause Palmux to prompt for permission again
           the next time the matching tool runs.
         </div>
+
+        {prefs && (
+          <label className={styles.toggleRow} data-testid="hook-events-toggle">
+            <input
+              type="checkbox"
+              checked={prefs.includeHookEvents}
+              disabled={prefsBusy}
+              onChange={(e) => void onToggleHookEvents(e.target.checked)}
+            />
+            <span>
+              <strong>Show hook events</strong>{' '}
+              <span className={styles.toggleHint}>
+                (passes <code>--include-hook-events</code> to the CLI). The
+                Claude process will respawn so the new flag takes effect.
+              </span>
+            </span>
+          </label>
+        )}
 
         {error && <div className={styles.errorBanner}>{error}</div>}
 

@@ -18,6 +18,7 @@ export type BlockKind =
   | 'permission'
   | 'plan'
   | 'ask'
+  | 'hook'
 
 export interface Block {
   id: string
@@ -50,6 +51,25 @@ export interface Block {
    *  permission mode (e.g. "auto"). Used to render the post-approval
    *  status label. */
   planTargetMode?: string
+
+  // ──────────── kind:"hook" fields (S005) ────────────
+  // Populated only when --include-hook-events is enabled. Mirrors the
+  // CLI's system/hook_started + system/hook_response envelopes.
+  /** CLI-minted UUID pairing a hook_started with its hook_response. */
+  hookId?: string
+  /** Lifecycle event: "PreToolUse" / "PostToolUse" / "Stop" / etc. */
+  hookEvent?: string
+  /** Matcher-qualified header label, e.g. "PreToolUse:Bash". */
+  hookName?: string
+  hookStdout?: string
+  hookStderr?: string
+  hookOutput?: string
+  hookExitCode?: number
+  hookOutcome?: string
+  /** Optional CLI-modified tool input payload (when the hook rewrote
+   *  the input). Stored as JSON-compatible value so the UI can pretty-
+   *  print. */
+  hookPayload?: unknown
 }
 
 /** Shape of the input payload on a kind:"ask" block. Mirrors the
@@ -71,7 +91,7 @@ export interface AskInput {
 }
 
 export interface Turn {
-  role: 'user' | 'assistant' | 'tool'
+  role: 'user' | 'assistant' | 'tool' | 'hook'
   id: string
   blocks: Block[]
   /** Set when this turn was produced by a sub-agent the CLI spawned via

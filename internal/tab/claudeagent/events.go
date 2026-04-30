@@ -67,7 +67,7 @@ const (
 // reconnect.
 type Block struct {
 	ID       string          `json:"id"`
-	Kind     string          `json:"kind"` // text | thinking | tool_use | tool_result | todo | permission | plan | ask
+	Kind     string          `json:"kind"` // text | thinking | tool_use | tool_result | todo | permission | plan | ask | hook
 	Index    int             `json:"index"`
 	Text     string          `json:"text,omitempty"`
 	Name     string          `json:"name,omitempty"`     // tool_use name
@@ -76,6 +76,41 @@ type Block struct {
 	IsError  bool            `json:"isError,omitempty"`
 	Done     bool            `json:"done,omitempty"`
 	Todos    json.RawMessage `json:"todos,omitempty"`    // TodoWrite payload (latest replaces)
+
+	// ──────────── kind:"hook" fields (S005) ────────────
+	// Populated only when the CLI runs with --include-hook-events. Each
+	// hook fires twice in the stream: a `hook_started` envelope opens the
+	// block, and a `hook_response` envelope closes it with the actual
+	// stdout/stderr/exit_code. Until the response lands we render the
+	// block in a "running" state (Done=false). All fields except HookID
+	// are absent on the started envelope.
+
+	// HookID is the CLI-minted UUID that pairs hook_started with its
+	// hook_response. Used to upsert the block on the response.
+	HookID string `json:"hookId,omitempty"`
+	// HookEvent is the lifecycle event name: "PreToolUse" / "PostToolUse"
+	// / "Stop" / "Notification" etc.
+	HookEvent string `json:"hookEvent,omitempty"`
+	// HookName is the matcher-qualified name from the CLI: e.g.
+	// "PreToolUse:Bash". Used as the block header label.
+	HookName string `json:"hookName,omitempty"`
+	// HookStdout / HookStderr / HookOutput / HookExitCode mirror the
+	// `hook_response` envelope. HookOutput is the combined output the CLI
+	// reports; the split stdout/stderr fields are kept separate so the
+	// UI can colour stderr lines.
+	HookStdout   string `json:"hookStdout,omitempty"`
+	HookStderr   string `json:"hookStderr,omitempty"`
+	HookOutput   string `json:"hookOutput,omitempty"`
+	HookExitCode int    `json:"hookExitCode,omitempty"`
+	// HookOutcome is the CLI's high-level verdict: "success" /
+	// "blocked" / "modified_payload" etc. Surfaced as a tone pip on the
+	// header. Distinct from HookExitCode because a hook can succeed
+	// (exit 0) yet still be reported as having modified the payload.
+	HookOutcome string `json:"hookOutcome,omitempty"`
+	// HookPayload is the (optionally CLI-modified) JSON payload the CLI
+	// reports as the post-hook input. Only populated when the hook
+	// rewrote the input. Stored as raw JSON so the UI can pretty-print.
+	HookPayload json.RawMessage `json:"hookPayload,omitempty"`
 
 	// ToolUseID is the upstream Anthropic tool_use_id for tool_use blocks.
 	// Distinct from Block.ID, which is the Palmux-minted local identifier.

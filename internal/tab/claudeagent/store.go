@@ -52,6 +52,11 @@ type BranchPrefs struct {
 	Model          string `json:"model,omitempty"`
 	Effort         string `json:"effort,omitempty"`
 	PermissionMode string `json:"permissionMode,omitempty"`
+	// IncludeHookEvents toggles --include-hook-events on the CLI for this
+	// branch. Default false (opt-in). When the user flips this in the
+	// Settings popup, the agent respawns with the new flag so the CLI
+	// starts (or stops) emitting hook lifecycle envelopes.
+	IncludeHookEvents bool `json:"includeHookEvents,omitempty"`
 }
 
 // Store wraps sessions.json with the same atomic-write discipline as the

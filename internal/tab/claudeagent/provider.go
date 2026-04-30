@@ -80,6 +80,12 @@ func (p *Provider) RegisterRoutes(mux *http.ServeMux, _ string) {
 	// .claude/settings.json viewer / editor (S002).
 	mux.HandleFunc("GET "+branchPrefix+"/settings", h.handleGetSettings)
 	mux.HandleFunc("DELETE "+branchPrefix+"/settings/permissions/allow", h.handleDeleteSettingsAllow)
+	// Branch prefs — per-branch toggles that require a CLI respawn. Today
+	// just IncludeHookEvents (--include-hook-events opt-in). GET reads the
+	// persisted value off sessions.json; PATCH updates and respawns the
+	// CLI when one is running.
+	mux.HandleFunc("GET "+branchPrefix+"/prefs", h.handleGetBranchPrefs)
+	mux.HandleFunc("PATCH "+branchPrefix+"/prefs", h.handlePatchBranchPrefs)
 
 	mux.HandleFunc("GET /api/claude/auth-status", h.handleAuthStatus)
 	mux.HandleFunc("GET /api/claude/modes", h.handleModes)

@@ -597,6 +597,68 @@ func (h *httpHandler) handleDeleteSettingsAllow(w http.ResponseWriter, r *http.R
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// branchPrefsView is the public shape for GET/PATCH …/tabs/claude/prefs.
+// The persisted BranchPrefs struct includes model/effort/permissionMode
+// — those already have their own send paths (SetModel / SetEffort /
+// SetPermissionMode WS frames). The prefs endpoint exists for the
+// handful of toggles (currently just hook events) that don't fit a
+// session-scoped frame because they require a CLI respawn.
+type branchPrefsView struct {
+	IncludeHookEvents bool `json:"includeHookEvents"`
+}
+
+// handleGetBranchPrefs returns the persisted prefs for a branch. Read
+// straight off sessions.json — never spawns a CLI. Used by the
+// Settings popup to render the "Include hook events" toggle in its
+// current state.
+func (h *httpHandler) handleGetBranchPrefs(w http.ResponseWriter, r *http.Request) {
+	repoID := r.PathValue("repoId")
+	branchID := r.PathValue("branchId")
+	prefs := h.mgr.Store().BranchPrefs(repoID, branchID)
+	writeJSON(w, http.StatusOK, branchPrefsView{
+		IncludeHookEvents: prefs.IncludeHookEvents,
+	})
+}
+
+// handlePatchBranchPrefs updates the per-branch prefs and respawns the
+// CLI if the change requires it (today: only IncludeHookEvents, which is
+// a startup-only flag). When no agent exists yet (lazy spawn pre-first
+// message) the new value is just persisted; the next spawn picks it up.
+func (h *httpHandler) handlePatchBranchPrefs(w http.ResponseWriter, r *http.Request) {
+	repoID := r.PathValue("repoId")
+	branchID := r.PathValue("branchId")
+	var p branchPrefsView
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+			http.Error(w, "bad json: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+	if a := h.mgr.Get(repoID, branchID); a != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+		if err := a.SetIncludeHookEvents(ctx, p.IncludeHookEvents); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, branchPrefsView{
+			IncludeHookEvents: a.IncludeHookEvents(),
+		})
+		return
+	}
+	// No live agent: persist directly to the store so the next EnsureAgent
+	// reads the new value.
+	prefs := h.mgr.Store().BranchPrefs(repoID, branchID)
+	prefs.IncludeHookEvents = p.IncludeHookEvents
+	if err := h.mgr.Store().SetBranchPrefs(repoID, branchID, prefs); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, branchPrefsView{
+		IncludeHookEvents: prefs.IncludeHookEvents,
+	})
+}
+
 type sessionPatch struct {
 	Title string `json:"title,omitempty"`
 }

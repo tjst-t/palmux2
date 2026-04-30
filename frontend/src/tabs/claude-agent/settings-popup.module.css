@@ -217,3 +217,27 @@
   color: var(--color-fg);
   border-color: var(--color-fg-muted);
 }
+
+/* ──────────── Hook events toggle (S005) ──────────────────────────────── */
+.toggleRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--color-fg);
+  line-height: 1.5;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggleRow input[type='checkbox'] {
+  margin-top: 2px;
+}
+
+.toggleHint {
+  color: var(--color-fg-muted);
+}

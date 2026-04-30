@@ -148,15 +148,16 @@ func (m *Manager) EnsureAgent(repoID, branchID string) (*Agent, error) {
 		permMode = m.cfg.DefaultPermissionMode
 	}
 	a := newAgent(agentDeps{
-		repoID:         repoID,
-		branchID:       branchID,
-		worktree:       worktree,
-		model:          model,
-		effort:         effort,
-		permissionMode: permMode,
-		resumeID:       resumeID,
-		manager:        m,
-		logger:         m.logger,
+		repoID:           repoID,
+		branchID:         branchID,
+		worktree:         worktree,
+		model:            model,
+		effort:           effort,
+		permissionMode:   permMode,
+		resumeID:         resumeID,
+		includeHookEvents: prefs.IncludeHookEvents,
+		manager:          m,
+		logger:           m.logger,
 	})
 	// Seed the session with whatever init payload we cached from the
 	// previous run — gives us the slash-command popup / model list / agent
@@ -229,6 +230,11 @@ type agentDeps struct {
 	effort           string
 	permissionMode   string
 	resumeID         string
+	// includeHookEvents seeds the agent with the persisted opt-in for
+	// --include-hook-events. The agent stores the live value in its own
+	// mu-guarded field so toggles take effect on the next respawn without
+	// reaching back into the store every time we spawn a CLI.
+	includeHookEvents bool
 	manager          *Manager
 	logger           *slog.Logger
 }
@@ -261,6 +267,13 @@ type Agent struct {
 	// pendingFork is set by ForkSession; consumed by the next EnsureClient
 	// to spawn the CLI with --fork-session.
 	pendingFork bool
+
+	// includeHookEvents is the live opt-in flag for the --include-hook-events
+	// CLI argument. Mirrors agentDeps.includeHookEvents at construction;
+	// updated at runtime when the user flips the toggle in the Settings
+	// popup. The next CLI spawn (respawn or first lazy spawn) reads this
+	// under a.mu — see EnsureClient.
+	includeHookEvents bool
 }
 
 func newAgent(deps agentDeps) *Agent {
@@ -269,9 +282,10 @@ func newAgent(deps agentDeps) *Agent {
 		sess.SetEffort(deps.effort)
 	}
 	return &Agent{
-		deps:    deps,
-		session: sess,
-		subs:    map[chan AgentEvent]struct{}{},
+		deps:              deps,
+		session:           sess,
+		subs:              map[chan AgentEvent]struct{}{},
+		includeHookEvents: deps.includeHookEvents,
 	}
 }
 
@@ -360,17 +374,19 @@ func (a *Agent) EnsureClient(ctx context.Context) error {
 	a.mu.Lock()
 	fork := a.pendingFork
 	a.pendingFork = false
+	includeHooks := a.includeHookEvents
 	a.mu.Unlock()
 	cli, err := NewClient(ctx, ClientOptions{
-		Binary:         a.deps.manager.cfg.Binary,
-		Cwd:            a.deps.worktree,
-		SessionID:      resumeID,
-		Model:          model,
-		PermissionMode: a.session.PermissionMode(),
-		Effort:         a.session.Effort(),
-		Fork:           fork,
-		ExtraArgs:      a.deps.manager.cfg.ExtraArgs,
-		Logger:         a.deps.logger,
+		Binary:            a.deps.manager.cfg.Binary,
+		Cwd:               a.deps.worktree,
+		SessionID:         resumeID,
+		Model:             model,
+		PermissionMode:    a.session.PermissionMode(),
+		Effort:            a.session.Effort(),
+		Fork:              fork,
+		IncludeHookEvents: includeHooks,
+		ExtraArgs:         a.deps.manager.cfg.ExtraArgs,
+		Logger:            a.deps.logger,
 	}, a.handleStreamMsg, a.handleCanUseTool, a)
 	if err != nil {
 		a.mu.Lock()
@@ -1208,6 +1224,37 @@ func (a *Agent) SetPermissionMode(ctx context.Context, mode string) error {
 	return a.respawnClient(ctx)
 }
 
+// IncludeHookEvents reports the live opt-in flag.
+func (a *Agent) IncludeHookEvents() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.includeHookEvents
+}
+
+// SetIncludeHookEvents flips the per-branch opt-in for --include-hook-events
+// and persists it. When the flag value actually changes, the CLI is
+// respawned so the new --include-hook-events presence/absence takes effect
+// (the flag can't be toggled mid-session — it's a CLI startup arg). When
+// no client is running yet (lazy spawn pre-first-message), the next spawn
+// just picks up the new value automatically.
+func (a *Agent) SetIncludeHookEvents(ctx context.Context, enabled bool) error {
+	a.mu.Lock()
+	if a.includeHookEvents == enabled {
+		a.mu.Unlock()
+		// Idempotent — still persist in case sessions.json drifted.
+		a.persistPrefs()
+		return nil
+	}
+	a.includeHookEvents = enabled
+	hasClient := a.client != nil
+	a.mu.Unlock()
+	a.persistPrefs()
+	if !hasClient {
+		return nil
+	}
+	return a.respawnClient(ctx)
+}
+
 // respawnClient kills the current claude process (if any) and starts a new
 // one. The new process resumes the existing session_id so the conversation
 // continues seamlessly. Subscribers stay connected — broadcast goes through
@@ -1414,10 +1461,14 @@ func (a *Agent) persistPrefs() {
 	if a.deps.manager == nil || a.deps.manager.store == nil {
 		return
 	}
+	a.mu.Lock()
+	hooks := a.includeHookEvents
+	a.mu.Unlock()
 	prefs := BranchPrefs{
-		Model:          a.session.Model(),
-		Effort:         a.session.Effort(),
-		PermissionMode: a.session.PermissionMode(),
+		Model:             a.session.Model(),
+		Effort:            a.session.Effort(),
+		PermissionMode:    a.session.PermissionMode(),
+		IncludeHookEvents: hooks,
 	}
 	if err := a.deps.manager.store.SetBranchPrefs(a.deps.repoID, a.deps.branchID, prefs); err != nil {
 		a.deps.logger.Warn("claudeagent: SetBranchPrefs failed", "err", err)

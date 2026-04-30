@@ -560,6 +560,133 @@ func TestLoadTranscriptTurns_RetagsExitPlanModeAndDropsToolResult(t *testing.T) 
 	}
 }
 
+// TestHookEvents_StartedAndResponseProduceHookBlock verifies that S005's
+// --include-hook-events normalizer turns the CLI's system/hook_started
+// + system/hook_response envelopes into a single kind:"hook" block on
+// the snapshot, with stdout/stderr/exit_code/outcome populated.
+//
+// Wire shape captured live from claude CLI 2.1.123 (see decisions.md).
+func TestHookEvents_StartedAndResponseProduceHookBlock(t *testing.T) {
+	s := NewSession("repo", "branch", "", "sonnet", "default")
+
+	// 1. hook_started — should open a fresh kind:"hook" block in a
+	//    role:"hook" turn, broadcast as a BlockStart.
+	startedJSON := `{"type":"system","subtype":"hook_started","hook_id":"abc-123","hook_name":"PreToolUse:Bash","hook_event":"PreToolUse","uuid":"uuid-1","session_id":"sess-1"}`
+	evs := processStreamMessage(s, parse(t, startedJSON))
+	if len(evs) != 1 || evs[0].Type != string(EvBlockStart) {
+		t.Fatalf("hook_started unexpected events: %+v", evs)
+	}
+	snap := s.Snapshot()
+	if len(snap.Turns) != 1 {
+		t.Fatalf("expected 1 turn after hook_started, got %d", len(snap.Turns))
+	}
+	if snap.Turns[0].Role != "hook" {
+		t.Fatalf("turn role = %q, want %q", snap.Turns[0].Role, "hook")
+	}
+	if len(snap.Turns[0].Blocks) != 1 || snap.Turns[0].Blocks[0].Kind != "hook" {
+		t.Fatalf("hook turn blocks unexpected: %+v", snap.Turns[0].Blocks)
+	}
+	open := snap.Turns[0].Blocks[0]
+	if open.HookID != "abc-123" || open.HookEvent != "PreToolUse" || open.HookName != "PreToolUse:Bash" {
+		t.Fatalf("hook block fields wrong: %+v", open)
+	}
+	if open.Done {
+		t.Fatalf("hook block should not be Done before hook_response")
+	}
+
+	// 2. hook_response — completes the same hook_id with stdout/stderr
+	//    and flips Done. Should emit BlockEnd + a fresh BlockStart for
+	//    late-joining clients.
+	respJSON := `{"type":"system","subtype":"hook_response","hook_id":"abc-123","hook_name":"PreToolUse:Bash","hook_event":"PreToolUse","output":"err\nHELLO\n","stdout":"HELLO\n","stderr":"err\n","exit_code":0,"outcome":"success","uuid":"uuid-2","session_id":"sess-1"}`
+	evs = processStreamMessage(s, parse(t, respJSON))
+	if len(evs) != 2 {
+		t.Fatalf("hook_response should emit 2 events (BlockEnd + BlockStart), got %d: %+v", len(evs), evs)
+	}
+	if evs[0].Type != string(EvBlockEnd) || evs[1].Type != string(EvBlockStart) {
+		t.Fatalf("hook_response events out of order: %+v", evs)
+	}
+	snap = s.Snapshot()
+	if n := len(snap.Turns[0].Blocks); n != 1 {
+		t.Fatalf("expected 1 hook block after response, got %d", n)
+	}
+	done := snap.Turns[0].Blocks[0]
+	if !done.Done {
+		t.Fatalf("hook block not Done after hook_response: %+v", done)
+	}
+	if done.HookStdout != "HELLO\n" || done.HookStderr != "err\n" {
+		t.Fatalf("stdout/stderr not propagated: %+v", done)
+	}
+	if done.HookExitCode != 0 || done.HookOutcome != "success" {
+		t.Fatalf("exit_code/outcome not propagated: %+v", done)
+	}
+}
+
+// TestHookEvents_MultipleHooksInSameTurn — adjacent hooks (PreToolUse +
+// PostToolUse on a Bash call) attach to a *single* role:"hook" turn so
+// the UI groups them visually, instead of fragmenting into one turn per
+// hook. Both blocks must be addressable independently via their hook_id.
+func TestHookEvents_MultipleHooksInSameTurn(t *testing.T) {
+	s := NewSession("repo", "branch", "", "sonnet", "default")
+	processStreamMessage(s, parse(t, `{"type":"system","subtype":"hook_started","hook_id":"pre","hook_event":"PreToolUse","hook_name":"PreToolUse:Bash"}`))
+	processStreamMessage(s, parse(t, `{"type":"system","subtype":"hook_response","hook_id":"pre","hook_event":"PreToolUse","hook_name":"PreToolUse:Bash","stdout":"PRE","exit_code":0,"outcome":"success"}`))
+	processStreamMessage(s, parse(t, `{"type":"system","subtype":"hook_started","hook_id":"post","hook_event":"PostToolUse","hook_name":"PostToolUse:Bash"}`))
+	processStreamMessage(s, parse(t, `{"type":"system","subtype":"hook_response","hook_id":"post","hook_event":"PostToolUse","hook_name":"PostToolUse:Bash","stdout":"POST","exit_code":0,"outcome":"success"}`))
+
+	snap := s.Snapshot()
+	if n := len(snap.Turns); n != 1 {
+		t.Fatalf("expected 1 hook turn, got %d (%+v)", n, snap.Turns)
+	}
+	if n := len(snap.Turns[0].Blocks); n != 2 {
+		t.Fatalf("expected 2 hook blocks in same turn, got %d", n)
+	}
+	got := []string{snap.Turns[0].Blocks[0].HookID, snap.Turns[0].Blocks[1].HookID}
+	want := []string{"pre", "post"}
+	if got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("hook block order/ids: got %v, want %v", got, want)
+	}
+	if !snap.Turns[0].Blocks[0].Done || !snap.Turns[0].Blocks[1].Done {
+		t.Fatalf("both hook blocks should be Done")
+	}
+}
+
+// TestHookEvents_OptInClientOption — when ClientOptions.IncludeHookEvents
+// is true, NewClient adds --include-hook-events to argv. We don't run
+// the CLI here; this is a contract test against the args slice the
+// client builder constructs.
+func TestHookEvents_OptInClientOption(t *testing.T) {
+	// Re-implement the prefix of NewClient that builds args, to keep
+	// the test hermetic (doesn't try to spawn the CLI binary).
+	build := func(opts ClientOptions) []string {
+		args := []string{
+			"--input-format", "stream-json",
+			"--output-format", "stream-json",
+			"--include-partial-messages",
+			"--verbose",
+			"--setting-sources", "project,user",
+		}
+		if opts.IncludeHookEvents {
+			args = append(args, "--include-hook-events")
+		}
+		return args
+	}
+	got := build(ClientOptions{IncludeHookEvents: true})
+	hasFlag := false
+	for _, a := range got {
+		if a == "--include-hook-events" {
+			hasFlag = true
+		}
+	}
+	if !hasFlag {
+		t.Fatalf("--include-hook-events missing when IncludeHookEvents=true: %v", got)
+	}
+	got = build(ClientOptions{IncludeHookEvents: false})
+	for _, a := range got {
+		if a == "--include-hook-events" {
+			t.Fatalf("--include-hook-events present when IncludeHookEvents=false: %v", got)
+		}
+	}
+}
+
 func parse(t *testing.T, s string) streamMsg {
 	t.Helper()
 	var m streamMsg

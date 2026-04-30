@@ -15,6 +15,14 @@ func isEmptyJSONObject(raw json.RawMessage) bool {
 	return bytes.Equal(bytes.TrimSpace(raw), []byte("{}"))
 }
 
+// hookBlockRef points back to a kind:"hook" block by (turn, block) ID
+// so a later `hook_response` envelope can update it without re-scanning
+// every turn. Stored in Session.hookBlocks keyed by the CLI's hook_id.
+type hookBlockRef struct {
+	TurnID  string
+	BlockID string
+}
+
 // InitInfo is the subset of the initialize control_response we surface to
 // the frontend. The CLI returns a much larger payload (account, plugins,
 // available skills, etc.) — we keep only what the UI actually consumes.
@@ -135,6 +143,12 @@ type Session struct {
 	// tool_result emitted on approve/reject.
 	planPermissions map[string]string
 
+	// hookBlocks indexes kind:"hook" blocks by their CLI-minted hook_id
+	// so `hook_response` envelopes can find and complete the block opened
+	// earlier by `hook_started`. Value points to the (turnID, blockID)
+	// pair so we can mutate in place without re-walking every turn.
+	hookBlocks map[string]hookBlockRef
+
 	// currentParentToolUseID is the parent_tool_use_id field carried by
 	// the envelope currently being processed. Set by the normalize layer
 	// at the top of each processStreamMessage call and copied onto any new
@@ -161,6 +175,7 @@ func NewSession(repoID, branchID, sessionID, model, permissionMode string) *Sess
 		askToolUseIDs:     map[string]struct{}{},
 		askPermissions:    map[string]string{},
 		planPermissions:   map[string]string{},
+		hookBlocks:        map[string]hookBlockRef{},
 		createdAt:         time.Now().UTC(),
 	}
 }
@@ -1091,10 +1106,137 @@ func (s *Session) Reset() string {
 	s.askToolUseIDs = map[string]struct{}{}
 	s.askPermissions = map[string]string{}
 	s.planPermissions = map[string]string{}
+	s.hookBlocks = map[string]hookBlockRef{}
 	s.currentParentToolUseID = ""
 	s.totalCostUSD = 0
 	s.status = StatusIdle
 	return old
+}
+
+// OpenHookBlock creates a kind:"hook" block keyed by hookID. Hook blocks
+// don't belong to the assistant turn — the CLI fires them around tool
+// invocations, often after the turn that triggered them already ended
+// (PostToolUse). To keep them visually adjacent to the surrounding
+// activity we attach them to the most recent turn (any role); if no
+// turn exists yet, a fresh role:"hook" turn is created.
+//
+// The returned Block is the as-stored value (deep copy not required:
+// the caller marshals it into a BlockStartPayload immediately and the
+// stored copy is mutated in place by CompleteHookBlock later).
+func (s *Session) OpenHookBlock(hookID, hookEvent, hookName string) (turnID, blockID string, block Block) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.hookBlocks == nil {
+		s.hookBlocks = map[string]hookBlockRef{}
+	}
+	// Idempotent: if hook_started lands twice for the same hook_id we
+	// return the existing block rather than appending a duplicate.
+	if ref, ok := s.hookBlocks[hookID]; ok {
+		for _, t := range s.turns {
+			if t.ID != ref.TurnID {
+				continue
+			}
+			for i := range t.Blocks {
+				if t.Blocks[i].ID == ref.BlockID {
+					return t.ID, t.Blocks[i].ID, t.Blocks[i]
+				}
+			}
+		}
+	}
+	// Find or create a role:"hook" turn at the tail. A *single* hook turn
+	// can carry multiple hook blocks back-to-back (PreToolUse + PostToolUse
+	// + Stop fire in close sequence) which keeps the UI compact.
+	var turn *Turn
+	if len(s.turns) > 0 {
+		last := s.turns[len(s.turns)-1]
+		if last.Role == "hook" {
+			turn = last
+		}
+	}
+	if turn == nil {
+		turn = &Turn{Role: "hook", ID: newID("turn"), Blocks: []Block{}, ParentToolUseID: s.currentParentToolUseID}
+		s.turns = append(s.turns, turn)
+	}
+	b := Block{
+		ID:        newID("block"),
+		Kind:      "hook",
+		Index:     len(turn.Blocks),
+		HookID:    hookID,
+		HookEvent: hookEvent,
+		HookName:  hookName,
+		Done:      false,
+	}
+	turn.Blocks = append(turn.Blocks, b)
+	s.hookBlocks[hookID] = hookBlockRef{TurnID: turn.ID, BlockID: b.ID}
+	return turn.ID, b.ID, b
+}
+
+// CompleteHookBlock stamps stdout/stderr/exit_code/outcome onto the
+// kind:"hook" block opened earlier by OpenHookBlock and flips Done.
+// When no matching open block is found (hook_response without a prior
+// hook_started), a synthetic complete block is created so the UI still
+// surfaces the activity. Returns ok=false only when both lookup
+// strategies fail — which currently can't happen — but kept as a
+// defensive escape hatch.
+func (s *Session) CompleteHookBlock(hookID string, c hookCompletion) (turnID, blockID string, block Block, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.hookBlocks == nil {
+		s.hookBlocks = map[string]hookBlockRef{}
+	}
+	apply := func(b *Block) {
+		// Preserve event / name from the started envelope when the
+		// response omits them (CLI 2.1.123 always sends them, but we
+		// don't want the UI to lose label data on a future minor change).
+		if c.Event != "" {
+			b.HookEvent = c.Event
+		}
+		if c.Name != "" {
+			b.HookName = c.Name
+		}
+		b.HookOutput = c.Output
+		b.HookStdout = c.Stdout
+		b.HookStderr = c.Stderr
+		b.HookExitCode = c.ExitCode
+		b.HookOutcome = c.Outcome
+		if len(c.Payload) > 0 {
+			b.HookPayload = append(json.RawMessage(nil), c.Payload...)
+		}
+		b.Done = true
+	}
+	if ref, exists := s.hookBlocks[hookID]; exists {
+		for _, t := range s.turns {
+			if t.ID != ref.TurnID {
+				continue
+			}
+			for i := range t.Blocks {
+				if t.Blocks[i].ID == ref.BlockID {
+					apply(&t.Blocks[i])
+					delete(s.hookBlocks, hookID)
+					return t.ID, t.Blocks[i].ID, t.Blocks[i], true
+				}
+			}
+		}
+	}
+	// Synthetic path: hook_response landed without a matching started
+	// (e.g. the WS client connected mid-hook). Build a one-shot block
+	// in a fresh hook turn.
+	var turn *Turn
+	if len(s.turns) > 0 && s.turns[len(s.turns)-1].Role == "hook" {
+		turn = s.turns[len(s.turns)-1]
+	} else {
+		turn = &Turn{Role: "hook", ID: newID("turn"), Blocks: []Block{}, ParentToolUseID: s.currentParentToolUseID}
+		s.turns = append(s.turns, turn)
+	}
+	b := Block{
+		ID:     newID("block"),
+		Kind:   "hook",
+		Index:  len(turn.Blocks),
+		HookID: hookID,
+	}
+	apply(&b)
+	turn.Blocks = append(turn.Blocks, b)
+	return turn.ID, b.ID, b, true
 }
 
 // deepCopy returns a value copy of the turn safe for emission outside the
@@ -1108,6 +1250,9 @@ func (t *Turn) deepCopy() *Turn {
 		}
 		if len(b.Todos) > 0 {
 			out.Blocks[i].Todos = append(json.RawMessage(nil), b.Todos...)
+		}
+		if len(b.HookPayload) > 0 {
+			out.Blocks[i].HookPayload = append(json.RawMessage(nil), b.HookPayload...)
 		}
 	}
 	return out

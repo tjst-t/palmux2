@@ -20,6 +20,18 @@ func processStreamMessage(s *Session, msg streamMsg) []AgentEvent {
 
 	switch msg.Type {
 	case "system":
+		// Hook lifecycle envelopes (only emitted when the CLI was started
+		// with --include-hook-events). We render each hook as a single
+		// kind:"hook" block that is opened by `hook_started` and closed
+		// by the matching `hook_response`. Block lifecycle (start →
+		// running → end) mirrors a normal tool_use so the existing
+		// turn machinery handles ordering and stamping.
+		if msg.Subtype == "hook_started" {
+			return processHookStarted(s, msg)
+		}
+		if msg.Subtype == "hook_response" {
+			return processHookResponse(s, msg)
+		}
 		if msg.Subtype == "init" && msg.SessionID != "" {
 			replaced, old := s.SetSessionID(msg.SessionID)
 			if msg.Model != "" {
@@ -341,6 +353,86 @@ func processUserMessage(s *Session, raw json.RawMessage) []AgentEvent {
 		}
 	}
 	return out
+}
+
+// processHookStarted opens (or upserts) a kind:"hook" block for the given
+// hook_id. Hook lifecycle events are independent of the assistant turn
+// — they fire from the CLI's own machinery — so we stash them as their
+// own pseudo-turn ("role":"hook") attached after whatever turn was
+// in flight at the time. The frontend renders them inline with the
+// surrounding tool_use blocks via simple turn ordering.
+//
+// hook_started carries only the hook_id / hook_name / hook_event. The
+// matching hook_response will fill in stdout/stderr/exit_code.
+func processHookStarted(s *Session, msg streamMsg) []AgentEvent {
+	if msg.HookID == "" {
+		return nil
+	}
+	turnID, blockID, block := s.OpenHookBlock(msg.HookID, msg.HookEvent, msg.HookName)
+	out := []AgentEvent{}
+	if ev, err := makeEvent(EvBlockStart, BlockStartPayload{
+		TurnID: turnID,
+		Block:  block,
+	}); err == nil {
+		out = append(out, ev)
+	}
+	_ = blockID
+	return out
+}
+
+// processHookResponse closes a previously-opened kind:"hook" block by
+// stamping its stdout/stderr/exit_code/outcome and flipping Done. If
+// the matching `hook_started` was missed (e.g. WS reconnect during
+// hook execution) we still render a fully-formed block — better to
+// surface a one-shot "completed" block than drop the event.
+func processHookResponse(s *Session, msg streamMsg) []AgentEvent {
+	if msg.HookID == "" {
+		return nil
+	}
+	turnID, blockID, block, ok := s.CompleteHookBlock(msg.HookID, hookCompletion{
+		Event:    msg.HookEvent,
+		Name:     msg.HookName,
+		Output:   msg.HookOutput,
+		Stdout:   msg.HookStdout,
+		Stderr:   msg.HookStderr,
+		ExitCode: msg.HookExitCode,
+		Outcome:  msg.HookOutcome,
+		Payload:  msg.HookPayload,
+	})
+	if !ok {
+		return nil
+	}
+	out := []AgentEvent{}
+	if ev, err := makeEvent(EvBlockEnd, BlockEndPayload{
+		TurnID:  turnID,
+		BlockID: blockID,
+	}); err == nil {
+		out = append(out, ev)
+	}
+	// Re-emit a fresh BlockStart so any client that missed the original
+	// `hook_started` (e.g. reconnected after the hook fired) still sees
+	// the fully-completed hook block. The frontend dedupes by id.
+	if ev, err := makeEvent(EvBlockStart, BlockStartPayload{
+		TurnID: turnID,
+		Block:  block,
+	}); err == nil {
+		out = append(out, ev)
+	}
+	return out
+}
+
+// hookCompletion bundles the fields we copy off a `hook_response` envelope
+// onto the matching kind:"hook" block. Kept private to normalize.go so
+// the public Session API doesn't get a parameter explosion.
+type hookCompletion struct {
+	Event    string
+	Name     string
+	Output   string
+	Stdout   string
+	Stderr   string
+	ExitCode int
+	Outcome  string
+	Payload  json.RawMessage
 }
 
 // isPlanToolName reports whether the named tool is the CLI's

@@ -198,21 +198,42 @@ function applyEvent(state: AgentState, ev: { type: string; ts: string; payload?:
     }
     case 'block.start': {
       const p = ev.payload as { turnId: string; block: Block; parentToolUseId?: string }
+      // Hook blocks (S005) dedupe by id: the backend re-emits a fresh
+      // block.start when hook_response lands so late-joining clients
+      // see the full block, but for clients that already saw the
+      // hook_started open we must update in place rather than append.
+      // The default role is "assistant" but a turn for a hook block
+      // should be a "hook" turn — that's what the backend ships.
+      const turnRole: Turn['role'] = p.block.kind === 'hook' ? 'hook' : 'assistant'
       next.turns = upsertTurn(
         next.turns,
         p.turnId,
-        'assistant',
-        (turn) => ({
-          ...turn,
-          // If a turn already exists, do not clobber its parent linkage
-          // — turn.start is the canonical source. But if block.start
-          // creates the turn implicitly (no preceding message_start),
-          // capture the parent here.
-          ...(p.parentToolUseId && !turn.parentToolUseId
-            ? { parentToolUseId: p.parentToolUseId }
-            : {}),
-          blocks: [...turn.blocks, { ...p.block }],
-        }),
+        turnRole,
+        (turn) => {
+          const existingIdx = turn.blocks.findIndex((b) => b.id === p.block.id)
+          if (existingIdx !== -1) {
+            const newBlocks = turn.blocks.slice()
+            newBlocks[existingIdx] = { ...p.block }
+            return {
+              ...turn,
+              ...(p.parentToolUseId && !turn.parentToolUseId
+                ? { parentToolUseId: p.parentToolUseId }
+                : {}),
+              blocks: newBlocks,
+            }
+          }
+          return {
+            ...turn,
+            // If a turn already exists, do not clobber its parent linkage
+            // — turn.start is the canonical source. But if block.start
+            // creates the turn implicitly (no preceding message_start),
+            // capture the parent here.
+            ...(p.parentToolUseId && !turn.parentToolUseId
+              ? { parentToolUseId: p.parentToolUseId }
+              : {}),
+            blocks: [...turn.blocks, { ...p.block }],
+          }
+        },
         p.parentToolUseId,
       )
       return next
@@ -384,7 +405,7 @@ function applyEvent(state: AgentState, ev: { type: string; ts: string; payload?:
 function upsertTurn(
   turns: Turn[],
   turnId: string,
-  role: 'user' | 'assistant' | 'tool',
+  role: 'user' | 'assistant' | 'tool' | 'hook',
   mutate: (t: Turn) => Turn,
   parentToolUseId?: string,
 ): Turn[] {

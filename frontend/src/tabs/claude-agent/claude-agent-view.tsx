@@ -399,8 +399,14 @@ function TurnView({
       </div>
     )
   }
-  // tool turns and assistant turns share the same prose-flow layout.
-  const cls = turn.role === 'tool' ? styles.turnTool : styles.turnAssistant
+  // tool / hook / assistant turns share the same prose-flow layout — hook
+  // turns are visually similar enough to tool result groups that we
+  // reuse the same chrome rather than introducing a third style. The
+  // HookBlock itself is what gives the row its distinct identity.
+  const cls =
+    turn.role === 'tool' || turn.role === 'hook'
+      ? styles.turnTool
+      : styles.turnAssistant
   return (
     <div className={cls}>
       {turn.blocks.map((b) => {

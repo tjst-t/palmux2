@@ -23,6 +23,13 @@ type ClientOptions struct {
 	PermissionMode string   // --permission-mode
 	Effort         string   // --effort (low | medium | high | xhigh | max)
 	Fork           bool     // when true, --fork-session: use session_id as base but start a fresh id
+	// IncludeHookEvents adds --include-hook-events to the CLI invocation so
+	// PreToolUse / PostToolUse / Stop / etc. hooks emit lifecycle envelopes
+	// (system/hook_started + system/hook_response) on stdout. Opt-in: the
+	// flag is omitted by default to keep stream volume low and to honour
+	// "CLI is truth" — Palmux never invents hook activity, only mirrors
+	// what the CLI emits.
+	IncludeHookEvents bool
 	ExtraArgs      []string // user-supplied flags from settings.json
 	Logger         *slog.Logger
 }
@@ -108,6 +115,13 @@ func NewClient(ctx context.Context, opts ClientOptions, onMessage MessageHandler
 	}
 	if opts.Effort != "" {
 		args = append(args, "--effort", opts.Effort)
+	}
+	if opts.IncludeHookEvents {
+		// Wire-confirmed against claude CLI 2.1.123: emits
+		// `{"type":"system","subtype":"hook_started",...}` followed by
+		// `{"type":"system","subtype":"hook_response","output":"...","stdout":"...","stderr":"...","exit_code":N,"outcome":"success|...","hook_event":"PreToolUse|PostToolUse|...","hook_id":"...","hook_name":"PreToolUse:Bash"}`
+		// — handled by normalize.go's handleHookEvent path.
+		args = append(args, "--include-hook-events")
 	}
 	args = append(args, opts.ExtraArgs...)
 
