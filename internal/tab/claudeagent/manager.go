@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -221,6 +222,78 @@ func (m *Manager) Config() Config { return m.cfg }
 // {repoID, branchID} → worktree path (e.g. for transcript lookup).
 func (m *Manager) Branches() BranchResolver { return m.branches }
 
+// validateAddDirs verifies that every entry in dirs resolves inside the
+// branch's worktree (using the same EvalSymlinks-based check the Files
+// tab runs). Returns the cleaned, absolute, deduped paths in input
+// order, or an error naming the first offending entry.
+//
+// The caller (WS handler / future REST handler) is the auth surface;
+// auth itself is enforced one layer higher in the HTTP middleware. We
+// only check that the path is *within* the worktree — the user already
+// has shell access on the host (single-user assumption from VISION),
+// so the goal is to prevent accidental traversal, not to lock the user
+// out of their own filesystem. See decision D-3 in the S006 log.
+func (m *Manager) validateAddDirs(repoID, branchID string, dirs []string) ([]string, error) {
+	if len(dirs) == 0 {
+		return nil, nil
+	}
+	worktree, err := m.branches.WorktreePath(repoID, branchID)
+	if err != nil {
+		return nil, err
+	}
+	rootResolved, err := evalSymlinksOrSelf(worktree)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(dirs))
+	seen := map[string]struct{}{}
+	for _, d := range dirs {
+		if d == "" {
+			continue
+		}
+		// Reject obviously-traversal forms before EvalSymlinks decides.
+		if strings.Contains(d, "/../") || strings.HasSuffix(d, "/..") || d == ".." || strings.HasPrefix(d, "../") {
+			return nil, fmt.Errorf("claudeagent: parent traversal in %q", d)
+		}
+		var abs string
+		if filepath.IsAbs(d) {
+			abs = filepath.Clean(d)
+		} else {
+			abs = filepath.Clean(filepath.Join(worktree, d))
+		}
+		// Confirm the path stays inside the worktree after symlink
+		// resolution. Non-existent paths are accepted (CLI may create
+		// them later); we still apply the prefix check on the
+		// pre-resolve absolute path.
+		resolved, _ := filepath.EvalSymlinks(abs)
+		if resolved == "" {
+			resolved = abs
+		}
+		if !strings.HasPrefix(resolved+string(filepath.Separator), rootResolved+string(filepath.Separator)) && resolved != rootResolved {
+			return nil, fmt.Errorf("claudeagent: %q is outside worktree %q", d, worktree)
+		}
+		if _, dup := seen[abs]; dup {
+			continue
+		}
+		seen[abs] = struct{}{}
+		out = append(out, abs)
+	}
+	return out, nil
+}
+
+// evalSymlinksOrSelf returns the symlink-resolved absolute path or the
+// input unchanged if resolution fails (e.g. dir doesn't exist yet).
+func evalSymlinksOrSelf(p string) (string, error) {
+	if p == "" {
+		return "", errors.New("empty path")
+	}
+	resolved, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		return p, nil
+	}
+	return resolved, nil
+}
+
 // ──────────── Agent ────────────────────────────────────────────────────────
 
 type agentDeps struct {
@@ -274,6 +347,15 @@ type Agent struct {
 	// popup. The next CLI spawn (respawn or first lazy spawn) reads this
 	// under a.mu — see EnsureClient.
 	includeHookEvents bool
+
+	// addDirs is the set of absolute filesystem paths the CLI was last
+	// spawned with as `--add-dir <path>`. Used by SendUserMessage to
+	// decide whether to respawn: if the next user.message ships a wider
+	// addDirs set, we respawn so the new dirs become accessible. We
+	// only ever grow the set within an Agent's lifetime — shrinking
+	// requires a fresh /clear or branch switch (rationale in
+	// docs/sprint-logs/S006/decisions.md, decision D-7).
+	addDirs []string
 }
 
 func newAgent(deps agentDeps) *Agent {
@@ -375,6 +457,10 @@ func (a *Agent) EnsureClient(ctx context.Context) error {
 	fork := a.pendingFork
 	a.pendingFork = false
 	includeHooks := a.includeHookEvents
+	// Snapshot a copy of addDirs so we don't hand the live slice to
+	// NewClient (which would race with the next SendUserMessage). The
+	// CLI startup path is a one-shot read.
+	addDirsSnapshot := append([]string(nil), a.addDirs...)
 	a.mu.Unlock()
 	cli, err := NewClient(ctx, ClientOptions{
 		Binary:            a.deps.manager.cfg.Binary,
@@ -385,6 +471,7 @@ func (a *Agent) EnsureClient(ctx context.Context) error {
 		Effort:            a.session.Effort(),
 		Fork:              fork,
 		IncludeHookEvents: includeHooks,
+		AddDirs:           addDirsSnapshot,
 		ExtraArgs:         a.deps.manager.cfg.ExtraArgs,
 		Logger:            a.deps.logger,
 	}, a.handleStreamMsg, a.handleCanUseTool, a)
@@ -1142,6 +1229,37 @@ func (a *Agent) awaitPermission(permID string) (canUseToolResponse, error) {
 
 // SendUserMessage relays text to the CLI, after lazily spawning if needed.
 func (a *Agent) SendUserMessage(ctx context.Context, content string) error {
+	return a.SendUserMessageWithDirs(ctx, content, nil)
+}
+
+// SendUserMessageWithDirs relays text to the CLI and also ensures the CLI
+// has been started with `--add-dir <path>` for every entry in addDirs.
+// When the user attaches a directory chip in the composer the new path
+// must reach the CLI as a startup arg (the flag is not addable mid-
+// session). We grow the Agent's persistent addDirs set and respawn the
+// CLI when the set actually expanded; if the new dirs are already a
+// subset of what the running CLI was launched with, no respawn happens.
+//
+// addDirs entries should be absolute, already-validated paths (the
+// composer's REST-side picker uses Files-tab `resolveSafePath` and we
+// normalise to abs in the WS frame handler).
+func (a *Agent) SendUserMessageWithDirs(ctx context.Context, content string, addDirs []string) error {
+	// 1) Decide whether the new dirs require a respawn. The check has to
+	// happen before EnsureClient so we don't spawn-then-immediately-kill.
+	needRespawn, mergedDirs := a.mergeAddDirs(addDirs)
+	if needRespawn {
+		a.mu.Lock()
+		a.addDirs = mergedDirs
+		hasClient := a.client != nil
+		a.mu.Unlock()
+		if hasClient {
+			a.deps.logger.Info("claudeagent: respawning CLI to apply --add-dir",
+				"newDirs", addDirs, "merged", mergedDirs)
+			if err := a.respawnClient(ctx); err != nil {
+				return err
+			}
+		}
+	}
 	if err := a.EnsureClient(ctx); err != nil {
 		return err
 	}
@@ -1229,6 +1347,60 @@ func (a *Agent) IncludeHookEvents() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.includeHookEvents
+}
+
+// RepoID returns the repository ID this agent is bound to.
+func (a *Agent) RepoID() string { return a.deps.repoID }
+
+// BranchID returns the branch ID this agent is bound to.
+func (a *Agent) BranchID() string { return a.deps.branchID }
+
+// AddDirs returns a copy of the absolute paths the running CLI was last
+// spawned with as `--add-dir`. Used by tests / debugging.
+func (a *Agent) AddDirs() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := make([]string, len(a.addDirs))
+	copy(out, a.addDirs)
+	return out
+}
+
+// mergeAddDirs decides whether new is wider than the live a.addDirs and
+// returns (needRespawn, merged). A respawn is needed iff `new` contains
+// an entry that's not already in `a.addDirs`. Empty paths in `new` are
+// dropped. We compare by exact string match — callers are responsible
+// for normalising (filepath.Clean / abs) before passing in.
+//
+// The function only reads a.addDirs while a.mu is held; the caller is
+// expected to apply the returned `merged` slice under the same lock to
+// avoid TOCTOU between two concurrent SendUserMessageWithDirs calls.
+func (a *Agent) mergeAddDirs(newDirs []string) (bool, []string) {
+	if len(newDirs) == 0 {
+		return false, nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	existing := map[string]struct{}{}
+	for _, d := range a.addDirs {
+		existing[d] = struct{}{}
+	}
+	merged := append([]string(nil), a.addDirs...)
+	added := false
+	for _, d := range newDirs {
+		if d == "" {
+			continue
+		}
+		if _, ok := existing[d]; ok {
+			continue
+		}
+		existing[d] = struct{}{}
+		merged = append(merged, d)
+		added = true
+	}
+	if !added {
+		return false, nil
+	}
+	return true, merged
 }
 
 // SetIncludeHookEvents flips the per-branch opt-in for --include-hook-events

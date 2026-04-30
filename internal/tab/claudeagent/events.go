@@ -321,8 +321,15 @@ type ClientFrame struct {
 }
 
 // UserMessageFrame — a new message to send to the agent.
+//
+// AddDirs is a per-message list of absolute filesystem paths the CLI
+// should be granted tool access to via `--add-dir <path>` (S006). Paths
+// must already be normalised to absolute form by the frontend; the
+// server validates them against the worktree boundary before passing
+// to the CLI. Empty / nil → no change in CLI scope.
 type UserMessageFrame struct {
-	Content string `json:"content"`
+	Content string   `json:"content"`
+	AddDirs []string `json:"addDirs,omitempty"`
 }
 
 // PermissionRespondFrame — the user's answer to a permission.request.

@@ -330,7 +330,7 @@ export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
       <Composer
         repoId={repoId}
         branchId={branchId}
-        onSend={(c) => send.userMessage(c)}
+        onSend={(c, addDirs) => send.userMessage(c, addDirs)}
         onInterrupt={() => send.interrupt()}
         isStreaming={isStreaming}
         disabled={!state.authOk}

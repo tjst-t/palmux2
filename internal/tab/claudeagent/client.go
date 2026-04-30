@@ -30,6 +30,18 @@ type ClientOptions struct {
 	// "CLI is truth" — Palmux never invents hook activity, only mirrors
 	// what the CLI emits.
 	IncludeHookEvents bool
+	// AddDirs are absolute filesystem paths passed to the CLI as
+	// `--add-dir <path>` (repeatable). The flag teaches Claude that
+	// these directories are within its allowed scope so tools
+	// (Read/Edit/etc.) don't bounce on the worktree boundary.
+	// Wire-confirmed against claude CLI 2.1.123: the help text reads
+	//   --add-dir <directories...>  Additional directories to allow tool access to
+	// and the flag is repeatable / space-separated. Like
+	// --include-hook-events, this is a startup-only flag — adding a new
+	// dir mid-session requires a respawn (handled in agent.go via
+	// respawnClient when the AddDirs set grows between user.message
+	// frames).
+	AddDirs        []string
 	ExtraArgs      []string // user-supplied flags from settings.json
 	Logger         *slog.Logger
 }
@@ -122,6 +134,16 @@ func NewClient(ctx context.Context, opts ClientOptions, onMessage MessageHandler
 		// `{"type":"system","subtype":"hook_response","output":"...","stdout":"...","stderr":"...","exit_code":N,"outcome":"success|...","hook_event":"PreToolUse|PostToolUse|...","hook_id":"...","hook_name":"PreToolUse:Bash"}`
 		// — handled by normalize.go's handleHookEvent path.
 		args = append(args, "--include-hook-events")
+	}
+	for _, d := range opts.AddDirs {
+		if d == "" {
+			continue
+		}
+		// CLI 2.1.123 wire-confirmed: `--add-dir <directories...>` accepts
+		// repeated flag occurrences. We pass them as separate `--add-dir`
+		// invocations rather than space-separated to avoid shell-quoting
+		// surprises if a path contains a space.
+		args = append(args, "--add-dir", d)
 	}
 	args = append(args, opts.ExtraArgs...)
 

@@ -4,13 +4,13 @@
 
 ## 進捗
 
-- **直近完了: S005 — Hook events 表示** (autopilot 完了 / autopilot/S005 ブランチ)
-- 合計: 7 スプリント | 完了: 5 | 進行中: 0 | 残り: 2
-- [██████████████░░░░░░] 71%
+- **直近完了: S006 — `--add-dir` / `--file` UI** (autopilot 完了 / autopilot/S006 ブランチ)
+- 合計: 7 スプリント | 完了: 7 | 進行中: 0 | 残り: 0
+- [████████████████████] 100%
 
 ## 実行順序
 
-S001 ✅ → S002 ✅ → S003 ✅ → S007 ✅ → S004 ✅ → S005 ✅ → **S006**
+S001 ✅ → S002 ✅ → S003 ✅ → S007 ✅ → S004 ✅ → S005 ✅ → S006 ✅
 
 ---
 
@@ -204,26 +204,28 @@ Palmux のユーザとして、自分の hooks が走ったタイミングを会
 
 ---
 
-## スプリント S006: `--add-dir` / `--file` UI [ ]
+## スプリント S006: `--add-dir` / `--file` UI [DONE]
 
 Composer の attach メニューを拡張して、**会話に追加コンテキスト（ディレクトリ・ファイル）を渡せる** ようにする。クロスレポ作業や、worktree 外の参照ドキュメントを同時に渡したい場面で使う。
 
-### ストーリー S006-1: 追加ディレクトリ / ファイルを Composer から選んで送る [ ]
+> **状況 (autopilot/S006)**: 実装完了。決定ログ: [`docs/sprint-logs/S006/decisions.md`](sprint-logs/S006/decisions.md)。**CLI 検証結果に基づき設計を一部変更**: `claude --help` で確認したところ `--file` は `file_id:relative_path` 形式 (Anthropic File API 用) でローカルファイルパスを取らない。よってロードマップ原案の「`--file <path>` でローカルファイルを渡す」は CLI 2.1.123 では不可能と判明。代替として **ファイル添付は `@<relpath>` を user message 本文に注入する** (Claude Code idiomatic)。ディレクトリ添付は `--add-dir <abspath>` で respawn。Go ユニット試験 (`add_dirs_test.go`、8/8 PASS、 traversal/symlink-escape/dedupe をカバー) と Playwright E2E (`tests/e2e/s006_add_dir_file.py`、14/14 PASS、最後の 1 件は実 CLI の argv に `--add-dir` が含まれることを `ps` で観察) で検証済み。Picker スコープは worktree 内 (Files API search の流用) に決定 — host filesystem picker は backlog。
+
+### ストーリー S006-1: 追加ディレクトリ / ファイルを Composer から選んで送る [x]
 
 **ユーザーストーリー:**
 Palmux のユーザとして、現在の worktree に含まれていないコードや仕様書を Claude に参照させたい。なぜなら、複数リポジトリ横断の作業や設計仕様書を見ながらの実装で必要だからだ。
 
 **受け入れ条件:**
-- [ ] Composer の `+` メニューから「Add directory」「Add file」が選べる
-- [ ] 選択したパスは送信時に `--add-dir <path>` または `--file <path>` として CLI に渡る
-- [ ] 添付済みのパスはチップ列に「📁 path/」「📄 file」のように表示される
-- [ ] チップ削除で対応する CLI 引数も外れる
+- [x] Composer の `+` メニューから「Add directory」「Add file」が選べる (3 つ目に「Upload image…」も統合) — `data-testid="composer-attach-menu"` で確認可
+- [x] 選択したパスは送信時に CLI に渡る — directory は `--add-dir <abspath>` (実 CLI argv で確認済み)、file は user message 本文に `@<relpath>` として展開 (CLI が `--file` でローカルパスを受けないため; decisions.md D-1 参照)
+- [x] 添付済みのパスはチップ列に「📁 path/」「📄 file」のように表示される — `attachment-chip-dir` / `attachment-chip-file` data-testid で識別
+- [x] チップ削除で対応する CLI 引数も外れる — チップを削除して送信すると `addDirs` フィールドが WS frame ペイロードから omit される (E2E で確認済み)
 
 **タスク:**
-- [ ] **タスク S006-1-1**: バックエンドで `--add-dir` / `--file` を `ClientOptions` 経由で渡せるようにし、必要に応じて respawn
-- [ ] **タスク S006-1-2**: Composer の Attachment 型を拡張（kind を `image` | `dir` | `file` に）し、UI でファイル選択ピッカーを追加
-- [ ] **タスク S006-1-3**: 添付チップの見た目をディレクトリ・ファイルでも統一感のあるスタイルに揃える
-- [ ] **タスク S006-1-4**: ホスト機の `~/` 配下のファイルが選択できるか、サーバ側のセキュリティ範囲を `imageUploadDir` の方針に合わせて確認
+- [x] **タスク S006-1-1**: バックエンドで `--add-dir` / `--file` を `ClientOptions` 経由で渡せるようにし、必要に応じて respawn — `ClientOptions.AddDirs []string` と `Agent.SendUserMessageWithDirs(ctx, content, addDirs)` を追加。`addDirs` の集合が増えた時のみ respawn (decisions.md D-7)。`--file` は実装しない (D-1)
+- [x] **タスク S006-1-2**: Composer の Attachment 型を拡張（kind を `image` | `dir` | `file` に）し、UI でファイル選択ピッカーを追加 — Composer に `+` ボタン → `AttachMenu` → `PathPicker` を追加。Files API search を流用、kind に応じて `isDir` でフィルタ
+- [x] **タスク S006-1-3**: 添付チップの見た目をディレクトリ・ファイルでも統一感のあるスタイルに揃える — 既存 `attachment` / `attachmentFileIcon` クラスを活用、kind に応じて 📁 / 📄 / image thumbnail を出し分け。`attachBtn` / `attachMenu` / `pathPicker` 系のスタイルは Fog palette の `--color-elevated` / `--color-border` / `--color-fg-muted` を踏襲
+- [x] **タスク S006-1-4**: ホスト機の `~/` 配下のファイルが選択できるか、サーバ側のセキュリティ範囲を `imageUploadDir` の方針に合わせて確認 — **decision D-3 でワークツリー内のみと決定**。Files API の `resolveSafePath` で traversal + symlink escape を弾く。`Manager.validateAddDirs` で 2 重に検証 (E2E で `path=../../etc` が 400 になることを確認、Go unit test も 6 シナリオ網羅)。Host picker は backlog 行きを明記
 
 ---
 
@@ -259,3 +261,9 @@ Phase 4 以降に位置付けられる項目。スコープ確定の段階で個
   Plan モード解除後の遷移先を FE が逆算しなくて済むよう、CLI 既定モードを明示的に返す。サイズ S。
 - [ ] **`suppressedToolUseIDs` 汎化リファクタ** (S007 由来)
   現在 `planToolUseIDs` / `askToolUseIDs` の 2 マップが mirror 実装で並んでいる。新しい "kind に re-tag + tool_result 抑制" 系のツールが増えるなら共通化を検討。サイズ S。
+- [ ] **Host-filesystem picker** (S006 由来)
+  S006 で worktree 内ピッカーを実装したが、ロードマップ S006-1-4 の問い「ホスト機の `~/` 配下のファイルが選択できるか」は **D-3 で意図的に worktree-only にした**。VISION 上はシングルユーザ・自前ホスティングなので host 公開は権限昇格にならないが、別 affordance (例: 「Browse host…」) + 別エンドポイント + 異なる視覚状態にして「責務越境最小 > 便利さ」を保ったうえで実装する必要あり。サイズ M。
+- [ ] **Per-branch persisted attachments** (S006 由来)
+  現状 dir/file チップは UI state のみで、ページリロード / ブランチ切替で消える。`@CLAUDE.md` のような毎回付けたい参照を「このブランチには常にこの dir/file を含める」設定として永続化する。サイズ S/M。
+- [ ] **Composer Enter キー submit の inline-completion 挙動調査** (S006 E2E 由来)
+  S006 の E2E で `textarea.press("Enter")` が稀に submit を発火しないケースを観測 (回避策として Send ボタン click を使った)。inline-completion handler が Enter を吸ったまま completion が cancel されない経路がある可能性。サイズ S。

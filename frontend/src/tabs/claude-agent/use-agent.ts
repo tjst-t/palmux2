@@ -13,7 +13,11 @@ const stateCache = new Map<string, AgentState>()
 const cacheKey = (r: string, b: string) => `${r}/${b}`
 
 interface SendFn {
-  userMessage: (content: string) => void
+  /** Send a user message. addDirs is the absolute filesystem paths the
+   *  CLI should be granted tool access to via `--add-dir <path>` (S006).
+   *  Empty / omitted → no change in CLI scope. The backend validates
+   *  every path against the worktree boundary before forwarding. */
+  userMessage: (content: string, addDirs?: string[]) => void
   interrupt: () => void
   permissionRespond: (
     permissionId: string,
@@ -107,9 +111,11 @@ export function useAgent(repoId: string, branchId: string): UseAgentResult {
     }
   }, [repoId, branchId])
 
-  const sendMessage = useCallback((content: string) => {
+  const sendMessage = useCallback((content: string, addDirs?: string[]) => {
     if (!content) return
-    wsRef.current?.send(JSON.stringify({ type: 'user.message', payload: { content } }))
+    const payload: { content: string; addDirs?: string[] } = { content }
+    if (addDirs && addDirs.length > 0) payload.addDirs = addDirs
+    wsRef.current?.send(JSON.stringify({ type: 'user.message', payload }))
   }, [])
 
   const interrupt = useCallback(() => {

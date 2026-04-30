@@ -147,13 +147,29 @@ func pumpWSToAgent(ctx context.Context, c *websocket.Conn, agent *Agent, mgr *Ma
 				go handleSlashCommand(ctx, agent, mgr, p.Content)
 				continue
 			}
-			go func(content string) {
-				if err := agent.SendUserMessage(ctx, content); err != nil {
+			// Validate every dir against the branch worktree boundary.
+			// Frontend already runs the choice through the Files API
+			// picker, but the WS path is a separate auth surface — we
+			// re-check here so a malicious client can't smuggle in
+			// `/etc` or `..` traversal. Validated absolute paths feed
+			// directly into the CLI argv.
+			validatedDirs, addDirsErr := mgr.validateAddDirs(agent.RepoID(), agent.BranchID(), p.AddDirs)
+			if addDirsErr != nil {
+				if ev, e := makeEvent(EvError, ErrorPayload{
+					Message: "Invalid attached directory",
+					Detail:  addDirsErr.Error(),
+				}); e == nil {
+					agent.broadcast(ev)
+				}
+				continue
+			}
+			go func(content string, dirs []string) {
+				if err := agent.SendUserMessageWithDirs(ctx, content, dirs); err != nil {
 					if ev, e := makeEvent(EvError, ErrorPayload{Message: "Send failed", Detail: err.Error()}); e == nil {
 						agent.broadcast(ev)
 					}
 				}
-			}(p.Content)
+			}(p.Content, validatedDirs)
 
 		case "interrupt":
 			go func() { _ = agent.Interrupt(ctx) }()
