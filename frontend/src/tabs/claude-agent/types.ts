@@ -111,6 +111,17 @@ export interface InitInfo {
   availableOutputStyles?: string[]
 }
 
+/** Per-server MCP connection status, mirrored from the CLI's
+ *  `system/init` payload (`mcp_servers[]`). The Status string is left
+ *  as raw text because the CLI's vocabulary has expanded over time
+ *  (`connected`, `connecting`, `failed`, `needs-auth`, ...) — the UI
+ *  classifies it in a single place (statusTone) and degrades unknown
+ *  values to a neutral pill rather than dropping them. */
+export interface MCPServerInfo {
+  name: string
+  status: string
+}
+
 export interface SessionInit {
   sessionId: string
   branchId: string
@@ -123,6 +134,9 @@ export interface SessionInit {
   authOk: boolean
   authMessage?: string
   initInfo?: InitInfo
+  /** MCP server connection statuses populated from system/init. May be
+   *  absent (older snapshots) or empty (no MCP servers configured). */
+  mcpServers?: MCPServerInfo[]
 }
 
 export interface AgentEvent<T = unknown> {

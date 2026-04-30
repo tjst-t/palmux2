@@ -8,8 +8,10 @@ import { BlockView } from './blocks'
 import styles from './claude-agent-view.module.css'
 import { Composer } from './composer'
 import { HistoryPopup } from './history-popup'
+import { MCPPopup } from './mcp-popup'
+import { rollupTone, statusTone, type MCPStatusTone } from './mcp-status'
 import { SettingsPopup } from './settings-popup'
-import type { AgentStatus, Turn } from './types'
+import type { AgentStatus, MCPServerInfo, Turn } from './types'
 import { useAgent } from './use-agent'
 
 // Fallback list — only used until /api/claude/modes responds. The labels
@@ -30,10 +32,12 @@ export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
   const { state, connState, send } = useAgent(repoId, branchId)
   const conversationRef = useRef<HTMLDivElement>(null)
   const historyButtonRef = useRef<HTMLButtonElement | null>(null)
+  const mcpButtonRef = useRef<HTMLButtonElement | null>(null)
   const [modes, setModes] = useState<PermissionModesResp>(FALLBACK_PERMISSION_MODES)
   const [autoFollow, setAutoFollow] = useState(true)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [mcpOpen, setMcpOpen] = useState(false)
   // planDecisions tracks the optimistic UI flip on click. The server
   // echoes plan.decided afterwards which makes the decision durable
   // (block.planDecision) — the optimistic state is only there to hide
@@ -207,7 +211,10 @@ export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
         status={state.status}
         totalCostUsd={state.totalCostUsd}
         contextPct={contextPercent(state.lastUsage)}
-        mcpServers={[]}
+        mcpServers={state.mcpServers}
+        mcpOpen={mcpOpen}
+        onToggleMcp={() => setMcpOpen((v) => !v)}
+        mcpButtonRef={mcpButtonRef}
         connState={connState}
         onClear={async () => {
           // Match Claude Code CLI behaviour: /clear wipes the conversation
@@ -233,6 +240,14 @@ export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
       />
+      <div style={{ position: 'relative' }}>
+        <MCPPopup
+          servers={state.mcpServers}
+          open={mcpOpen}
+          onClose={() => setMcpOpen(false)}
+          anchorRef={mcpButtonRef}
+        />
+      </div>
       {historyOpen && (
         <div style={{ position: 'relative' }}>
           <HistoryPopup
@@ -516,7 +531,14 @@ interface TopBarProps {
   status: AgentStatus
   totalCostUsd: number
   contextPct?: number
-  mcpServers: { name: string; status: string }[]
+  mcpServers: MCPServerInfo[]
+  /** True when the MCP popup is currently open. Used to render the
+   *  trigger button in an active state and announce expansion to AT. */
+  mcpOpen: boolean
+  /** Toggles the MCP popup. Owned by the parent so the popup itself
+   *  doesn't have to track its own visibility. */
+  onToggleMcp: () => void
+  mcpButtonRef?: React.RefObject<HTMLButtonElement | null>
   connState: 'connecting' | 'open' | 'closed' | 'closing'
   canInterrupt: boolean
   onInterrupt: () => void
@@ -527,6 +549,18 @@ interface TopBarProps {
 }
 
 function TopBar(props: TopBarProps) {
+  const tone = rollupTone(props.mcpServers)
+  const okCount = props.mcpServers.filter((s) => statusToneAgree(s.status, 'ok')).length
+  const total = props.mcpServers.length
+  const mcpSummary = total === 0 ? '—' : `${okCount}/${total}`
+  const mcpTitle =
+    total === 0
+      ? 'MCP — no servers configured'
+      : tone === 'err'
+      ? `MCP — ${total - okCount} of ${total} not connected`
+      : tone === 'warn'
+      ? `MCP — ${total - okCount} of ${total} pending`
+      : `MCP — ${okCount}/${total} connected`
   return (
     <div className={styles.topBar}>
       <span className={`${styles.statusPip} ${pipClass(props.status)}`} aria-hidden />
@@ -577,6 +611,25 @@ function TopBar(props: TopBarProps) {
       </button>
 
       <button
+        ref={props.mcpButtonRef}
+        type="button"
+        className={`${styles.iconBtn} ${styles.mcpBtn}`}
+        onClick={props.onToggleMcp}
+        title={mcpTitle}
+        aria-haspopup="dialog"
+        aria-expanded={props.mcpOpen}
+        data-testid="mcp-topbar-btn"
+      >
+        <span
+          className={`${styles.mcpPip} ${mcpPipClass(tone)}`}
+          aria-hidden
+          data-testid="mcp-topbar-pip"
+          data-tone={tone}
+        />
+        <span data-testid="mcp-topbar-summary">mcp {mcpSummary}</span>
+      </button>
+
+      <button
         type="button"
         className={styles.iconBtn}
         onClick={props.onClear}
@@ -613,6 +666,22 @@ function labelForStatus(s: AgentStatus): string {
     case 'awaiting_permission': return 'awaiting permission'
     case 'error':               return 'error'
   }
+}
+
+function mcpPipClass(tone: MCPStatusTone): string {
+  switch (tone) {
+    case 'ok':      return styles.mcpPipOk
+    case 'warn':    return styles.mcpPipWarn
+    case 'err':     return styles.mcpPipErr
+    case 'unknown': return styles.mcpPipUnknown
+  }
+}
+
+// statusToneAgree returns true iff the raw CLI status maps to the same
+// tone as `target`. Thin wrapper over mcp-popup.statusTone so the TopBar
+// can count "connected" servers without re-implementing classification.
+function statusToneAgree(raw: string, target: MCPStatusTone): boolean {
+  return statusTone(raw) === target
 }
 
 function contextPercent(usage?: import('./agent-state').AgentUsage): number | undefined {

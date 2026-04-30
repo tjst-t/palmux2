@@ -87,6 +87,29 @@
   color: var(--color-warning);
 }
 
+/* MCP indicator (TopBar trigger for the MCPPopup). Shares the iconBtn
+   look but adds a small status pip on the leading edge so the rollup
+   health is visible at a glance even when the popup is closed. The pip
+   colours mirror mcp-popup.module.css so the two views agree. */
+.mcpBtn {
+  /* iconBtn already gives us padding / hover. We only adjust gap so
+     the pip sits flush against the label. */
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mcpPip {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-fg-faint);
+  flex: 0 0 auto;
+}
+.mcpPipOk      { background: var(--color-success); }
+.mcpPipWarn    { background: var(--color-warning); animation: pulse 1.6s ease-in-out infinite; }
+.mcpPipErr     { background: var(--color-error); }
+.mcpPipUnknown { background: var(--color-fg-faint); }
+
 /* ──────────── Conversation ──────────── */
 
 .conversation {

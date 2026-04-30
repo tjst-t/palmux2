@@ -4,7 +4,7 @@
 // Kept deliberately self-contained (no Zustand) — one Agent tab = one
 // instance of this state, lifetime equal to the React component.
 
-import type { AgentStatus, Block, InitInfo, SessionInit, Turn } from './types'
+import type { AgentStatus, Block, InitInfo, MCPServerInfo, SessionInit, Turn } from './types'
 
 export interface AgentState {
   ready: boolean
@@ -31,6 +31,10 @@ export interface AgentState {
   errors: { id: number; message: string; detail?: string }[]
   /** CLI-reported capabilities (commands list, models, agents). */
   initInfo?: InitInfo
+  /** MCP server connection statuses, populated from session.init. Phase 3
+   *  is display-only; mid-session updates would land via a future
+   *  `mcp.update` event. */
+  mcpServers: MCPServerInfo[]
   /** Latest usage info from a turn.end (input/cache/output tokens). */
   lastUsage?: AgentUsage
   /** ISO timestamp of the most-recently-applied event — debug only. */
@@ -59,6 +63,7 @@ export const initialState: AgentState = {
   pendingAskByBlock: {},
   pendingPlanByBlock: {},
   errors: [],
+  mcpServers: [],
 }
 
 export type AgentAction =
@@ -104,6 +109,7 @@ export function reduce(state: AgentState, action: AgentAction): AgentState {
         pendingPlanByBlock,
         errors: [],
         initInfo: p.initInfo,
+        mcpServers: p.mcpServers ?? [],
       }
     }
     case 'event':
