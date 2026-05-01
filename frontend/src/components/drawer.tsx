@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { useLongPress } from '../hooks/use-long-press'
-import type { Branch, Repository } from '../lib/api'
+import { useSectionCollapsed } from '../hooks/use-section-collapsed'
+import type { Branch, BranchCategory, Repository } from '../lib/api'
 import {
   selectAgentState,
   selectBranchNotifications,
@@ -16,6 +17,31 @@ import { useContextMenu } from './context-menu/store'
 import { OrphanAttachModal } from './orphan/orphan-modal'
 import { RepoPicker } from './repo-picker'
 import styles from './drawer.module.css'
+
+// S015: drawer category metadata. The order here is the rendering order
+// inside each repo (my → unmanaged → subagent). The FE remaps the
+// server-side `user` value to the user-facing label `my`.
+type CategoryKey = 'my' | 'unmanaged' | 'subagent'
+const CATEGORY_ORDER: CategoryKey[] = ['my', 'unmanaged', 'subagent']
+const CATEGORY_DEFAULT_COLLAPSED: Record<CategoryKey, boolean> = {
+  my: false,
+  unmanaged: false,
+  subagent: true,
+}
+const CATEGORY_LABELS: Record<CategoryKey, string> = {
+  my: 'my',
+  unmanaged: 'unmanaged',
+  subagent: 'subagent / autopilot',
+}
+
+function categoryKey(category: BranchCategory | undefined): CategoryKey {
+  if (category === 'subagent') return 'subagent'
+  if (category === 'unmanaged') return 'unmanaged'
+  // Treat undefined / 'user' alike: a missing category means the server is
+  // pre-S015 (or hasn't applied derivation yet). Bucket as `my` so the
+  // user's own branches still show up in the most prominent section.
+  return 'my'
+}
 
 export function Drawer() {
   const repos = usePalmuxStore((s) => s.repos)
@@ -258,17 +284,23 @@ function RepoItem({
   const closeRepo = usePalmuxStore((s) => s.closeRepo)
   const showContextMenu = useContextMenu()
 
-  const sortedBranches = useMemo(() => {
-    const arr = [...repo.openBranches]
-    if (sortOrder === 'activity') {
-      arr.sort((a, b) => b.lastActivity.localeCompare(a.lastActivity))
-    } else {
-      arr.sort((a, b) => {
-        if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1
-        return a.name.localeCompare(b.name)
-      })
+  // S015: bucket branches by category, then sort within each bucket.
+  const branchesByCategory = useMemo(() => {
+    const buckets: Record<CategoryKey, Branch[]> = {
+      my: [],
+      unmanaged: [],
+      subagent: [],
     }
-    return arr
+    for (const b of repo.openBranches) {
+      buckets[categoryKey(b.category)].push(b)
+    }
+    const sorter = (a: Branch, b: Branch) => {
+      if (sortOrder === 'activity') return b.lastActivity.localeCompare(a.lastActivity)
+      if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1
+      return a.name.localeCompare(b.name)
+    }
+    for (const k of CATEGORY_ORDER) buckets[k].sort(sorter)
+    return buckets
   }, [repo.openBranches, sortOrder])
 
   const showMenuAt = (x: number, y: number) => {
@@ -324,51 +356,162 @@ function RepoItem({
         </button>
       </div>
       {expanded && (
-        <ul className={styles.branchList}>
-          {sortedBranches.map((branch) => (
+        <div className={styles.branchList}>
+          {CATEGORY_ORDER.map((key) => {
+            const branches = branchesByCategory[key]
+            // Hide empty `unmanaged` and `subagent` sub-sections to avoid
+            // visual noise. Always render `my` so the `+ Open Branch…`
+            // affordance has a stable home.
+            if (branches.length === 0 && key !== 'my') return null
+            return (
+              <BranchSubSection
+                key={key}
+                categoryKey={key}
+                branches={branches}
+                repoId={repo.id}
+                activeRepoId={activeRepo ?? null}
+                activeBranchId={activeBranch ?? null}
+                onSelect={(branch, tab) => {
+                  const target = tab ?? branch.tabSet.tabs[0]?.id ?? 'claude'
+                  navigate(
+                    `/${repo.id}/${branch.id}/${encodeURIComponent(target)}${location.search}`,
+                  )
+                }}
+                onAddBranch={onAddBranch}
+              />
+            )
+          })}
+        </div>
+      )}
+    </li>
+  )
+}
+
+// BranchSubSection renders one categorised group (my / unmanaged /
+// subagent) inside a repo. Header is clickable to toggle collapsed state
+// (persisted to localStorage). The `+ Open Branch…` action lives only in
+// the `my` section; promote (`+ Add to my worktrees`) lives on each row of
+// the `unmanaged` section.
+function BranchSubSection({
+  categoryKey: cat,
+  branches,
+  repoId,
+  activeRepoId,
+  activeBranchId,
+  onSelect,
+  onAddBranch,
+}: {
+  categoryKey: CategoryKey
+  branches: Branch[]
+  repoId: string
+  activeRepoId: string | null
+  activeBranchId: string | null
+  onSelect: (branch: Branch, tabId?: string) => void
+  onAddBranch: () => void
+}) {
+  const [collapsed, setCollapsed] = useSectionCollapsed(
+    cat,
+    CATEGORY_DEFAULT_COLLAPSED[cat],
+  )
+  const showCount = cat === 'subagent' || cat === 'unmanaged'
+  return (
+    <section className={styles.branchSection}>
+      <button
+        type="button"
+        className={styles.branchSectionHeader}
+        onClick={() => setCollapsed(!collapsed)}
+        aria-expanded={!collapsed}
+        data-section={cat}
+      >
+        <span className={styles.branchSectionChevron}>{collapsed ? '▶' : '▼'}</span>
+        <span className={styles.branchSectionTitle}>{CATEGORY_LABELS[cat]}</span>
+        {showCount && branches.length > 0 && (
+          <span className={styles.branchSectionBadge}>{branches.length}</span>
+        )}
+      </button>
+      {!collapsed && (
+        <ul className={styles.repoList}>
+          {branches.map((branch) => (
             <BranchItem
               key={branch.id}
               branch={branch}
-              repoId={repo.id}
-              isActive={activeRepo === repo.id && activeBranch === branch.id}
-              onSelect={(tab) => {
-                const target = tab ?? branch.tabSet.tabs[0]?.id ?? 'claude'
-                navigate(`/${repo.id}/${branch.id}/${encodeURIComponent(target)}${location.search}`)
-              }}
+              repoId={repoId}
+              category={cat}
+              isActive={activeRepoId === repoId && activeBranchId === branch.id}
+              onSelect={(tab) => onSelect(branch, tab)}
             />
           ))}
-          <li>
-            <button className={styles.addBranchBtn} onClick={onAddBranch}>
-              + Open Branch…
-            </button>
-          </li>
+          {cat === 'my' && (
+            <li>
+              <button className={styles.addBranchBtn} onClick={onAddBranch}>
+                + Open Branch…
+              </button>
+            </li>
+          )}
         </ul>
       )}
-    </li>
+    </section>
   )
 }
 
 function BranchItem({
   branch,
   repoId,
+  category,
   isActive,
   onSelect,
 }: {
   branch: Branch
   repoId: string
+  category: CategoryKey
   isActive: boolean
   onSelect: (tabId?: string) => void
 }) {
   const closeBranch = usePalmuxStore((s) => s.closeBranch)
+  const promoteBranch = usePalmuxStore((s) => s.promoteBranch)
+  const demoteBranch = usePalmuxStore((s) => s.demoteBranch)
   const notifs = usePalmuxStore(selectBranchNotifications(repoId, branch.id))
   const agent = usePalmuxStore(selectAgentState(repoId, branch.id))
   const unread = notifs?.unreadCount ?? 0
   const agentPipClass = agentPipClassFor(agent?.status)
   const showContextMenu = useContextMenu()
+  const isSubagent = category === 'subagent'
   const showMenuAt = (x: number, y: number) => {
     showContextMenu(
       [
         { type: 'heading', label: branch.name },
+        ...(category === 'unmanaged'
+          ? [
+              {
+                label: '+ Add to my worktrees',
+                onClick: async () => {
+                  try {
+                    await promoteBranch(repoId, branch.id)
+                  } catch (err) {
+                    // The store reverts the optimistic update; surfacing
+                    // the error via console keeps the menu lightweight.
+                    console.error('promote failed', err)
+                  }
+                },
+              },
+              { type: 'separator' as const },
+            ]
+          : []),
+        ...(category === 'my' && !branch.isPrimary
+          ? [
+              {
+                label: 'Remove from my worktrees',
+                onClick: async () => {
+                  try {
+                    await demoteBranch(repoId, branch.id)
+                  } catch (err) {
+                    console.error('demote failed', err)
+                  }
+                },
+              },
+              { type: 'separator' as const },
+            ]
+          : []),
         {
           label: 'Close branch',
           danger: true,
@@ -390,22 +533,37 @@ function BranchItem({
     )
   }
   const longPress = useLongPress((x, y) => showMenuAt(x, y))
+
+  const branchClassNames = [
+    styles.branch,
+    isActive ? styles.branchActive : '',
+    isSubagent ? styles.branchSubagent : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   return (
     <li>
       <button
-        className={isActive ? `${styles.branch} ${styles.branchActive}` : styles.branch}
+        className={branchClassNames}
         onClick={() => onSelect()}
         onContextMenu={(e) => {
           e.preventDefault()
           showMenuAt(e.clientX, e.clientY)
         }}
         {...longPress}
+        data-category={category}
         title={
           notifs?.lastMessage
             ? `${branch.worktreePath}\n${notifs.lastMessage}`
             : branch.worktreePath
         }
       >
+        {isSubagent && (
+          <span className={styles.branchTypeIcon} aria-hidden title="Auto-generated worktree">
+            🤖
+          </span>
+        )}
         <span className={styles.branchName}>{branch.name}</span>
         {branch.isPrimary && <span className={styles.primaryTag}>main</span>}
         {agentPipClass && (
@@ -417,6 +575,25 @@ function BranchItem({
         )}
         {unread > 0 && <span className={styles.notifyDot} aria-label={`${unread} unread`} />}
         {isActive && <span className={styles.activeDot}>●</span>}
+        {category === 'unmanaged' && (
+          <button
+            type="button"
+            className={styles.promoteBtn}
+            onClick={(e) => {
+              // Stop the row click (which would navigate) so the action
+              // is purely "promote, do not switch view".
+              e.stopPropagation()
+              promoteBranch(repoId, branch.id).catch((err) => {
+                console.error('promote failed', err)
+              })
+            }}
+            title="Add this worktree to your `my` section"
+            aria-label={`Add ${branch.name} to my worktrees`}
+            data-action="promote"
+          >
+            +
+          </button>
+        )}
       </button>
     </li>
   )

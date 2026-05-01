@@ -134,35 +134,45 @@ func (s *Store) Registry() *tab.Registry { return s.registry }
 
 // Repos returns a snapshot of every Open repository, sorted by GHQPath.
 func (s *Store) Repos() []*domain.Repository {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	// Categorisation depends on persisted state (RepoStore + Settings) and
+	// must run before we hand out copies. We do it under the write lock so
+	// the in-memory branch records mutate consistently. The cost is a
+	// brief contention spike on hot list endpoints, which is acceptable
+	// given how rarely list calls fire (Drawer only re-fetches on events).
+	s.applyCategoriesAllUnlocked()
 	out := make([]*domain.Repository, 0, len(s.repos))
 	for _, r := range s.repos {
 		out = append(out, cloneRepo(r))
 	}
+	s.mu.Unlock()
 	sort.Slice(out, func(i, j int) bool { return out[i].GHQPath < out[j].GHQPath })
 	return out
 }
 
 // Repo returns a snapshot of one repository.
 func (s *Store) Repo(id string) (*domain.Repository, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
 	r, ok := s.repos[id]
 	if !ok {
+		s.mu.Unlock()
 		return nil, ErrRepoNotFound
 	}
-	return cloneRepo(r), nil
+	s.applyCategoriesUnlocked(r)
+	cp := cloneRepo(r)
+	s.mu.Unlock()
+	return cp, nil
 }
 
 // Branch returns a snapshot of one branch.
 func (s *Store) Branch(repoID, branchID string) (*domain.Branch, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	r, ok := s.repos[repoID]
 	if !ok {
 		return nil, ErrRepoNotFound
 	}
+	s.applyCategoriesUnlocked(r)
 	for _, b := range r.OpenBranches {
 		if b.ID == branchID {
 			return cloneBranch(b), nil

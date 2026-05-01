@@ -201,3 +201,103 @@
   background-color: var(--color-accent);
   opacity: 0.3;
 }
+
+/* S015: per-repo branch sub-sections (my / unmanaged / subagent). The
+   header is a small clickable strip that toggles collapse state and
+   shows a count badge. Tap targets are >=32px for mobile parity. */
+.branchSection {
+  margin-top: 2px;
+}
+.branchSectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 4px 8px;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-fg-dim);
+  cursor: pointer;
+  background: none;
+  border: 0;
+  text-align: left;
+  border-radius: var(--radius-sm);
+  min-height: 24px;
+}
+.branchSectionHeader:hover {
+  background-color: var(--color-elevated);
+  color: var(--color-fg-muted);
+}
+.branchSectionTitle {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.branchSectionBadge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background-color: var(--color-bg);
+  color: var(--color-fg-muted);
+  flex-shrink: 0;
+}
+.branchSectionChevron {
+  font-size: 8px;
+  color: var(--color-fg-faint);
+  width: 9px;
+  flex-shrink: 0;
+}
+
+/* `subagent` rows are de-emphasised so they read as "background noise"
+   relative to the user's branches. */
+.branchSubagent {
+  color: var(--color-fg-muted);
+}
+.branchSubagent .branchName {
+  color: var(--color-fg-muted);
+}
+
+.branchTypeIcon {
+  flex-shrink: 0;
+  font-size: 12px;
+  width: 14px;
+  text-align: center;
+  opacity: 0.85;
+}
+
+/* `+ Add to my worktrees` button on unmanaged rows. Sits flush right
+   inside the branch row; expands to a >=36px tap target on mobile. */
+.promoteBtn {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  min-height: 22px;
+}
+.promoteBtn:hover {
+  background-color: var(--color-elevated);
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+@media (max-width: 600px) {
+  .branchSectionHeader {
+    min-height: 36px;
+    font-size: 12px;
+    padding: 8px 12px;
+  }
+  .promoteBtn {
+    min-height: 36px;
+    min-width: 36px;
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+  .branch {
+    min-height: 36px;
+  }
+}

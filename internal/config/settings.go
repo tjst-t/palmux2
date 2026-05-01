@@ -50,6 +50,18 @@ type Settings struct {
 	// DefaultPreviewMaxBytes.
 	PreviewMaxBytes int64 `json:"previewMaxBytes,omitempty"`
 
+	// AutoWorktreePathPatterns (S015) lists glob patterns that mark a
+	// worktree as auto-generated (subagent / autopilot output). When a
+	// worktree's absolute path matches any of these patterns AND the
+	// branch isn't in `repos.json#userOpenedBranches`, the Drawer
+	// classifies it under the "subagent / autopilot" section so the user's
+	// hand-managed branches stay visible. Default
+	// (`DefaultAutoWorktreePathPatterns`) catches claude-skills sub-agent
+	// output. The field is `omitempty` because an empty slice in JSON
+	// means "no auto patterns" — distinct from "use the default" which is
+	// signalled by the absence of the key.
+	AutoWorktreePathPatterns []string `json:"autoWorktreePathPatterns,omitempty"`
+
 	Toolbar json.RawMessage `json:"toolbar,omitempty"`
 }
 
@@ -77,15 +89,24 @@ const DefaultMaxBashTabsPerBranch = 5
 // `previewMaxBytes` in settings.json.
 const DefaultPreviewMaxBytes int64 = 10 * 1024 * 1024
 
+// DefaultAutoWorktreePathPatterns matches the worktree directory layout
+// claude-skills sub-agents create (`.claude/worktrees/<id>`). Users with
+// custom autopilot tooling can override via `autoWorktreePathPatterns`
+// in settings.json. The literal `*` is interpreted as `[^/]*` and the
+// pattern as a substring of the worktree's absolute path (the matcher
+// itself lives in internal/store).
+var DefaultAutoWorktreePathPatterns = []string{".claude/worktrees/*"}
+
 // DefaultSettings returns a Settings populated with built-in defaults.
 func DefaultSettings() Settings {
 	return Settings{
-		BranchSortOrder:        "name",
-		AttachmentUploadDir:    DefaultAttachmentUploadDir,
-		AttachmentTtlDays:      DefaultAttachmentTtlDays,
-		MaxClaudeTabsPerBranch: DefaultMaxClaudeTabsPerBranch,
-		MaxBashTabsPerBranch:   DefaultMaxBashTabsPerBranch,
-		PreviewMaxBytes:        DefaultPreviewMaxBytes,
+		BranchSortOrder:          "name",
+		AttachmentUploadDir:      DefaultAttachmentUploadDir,
+		AttachmentTtlDays:        DefaultAttachmentTtlDays,
+		MaxClaudeTabsPerBranch:   DefaultMaxClaudeTabsPerBranch,
+		MaxBashTabsPerBranch:     DefaultMaxBashTabsPerBranch,
+		PreviewMaxBytes:          DefaultPreviewMaxBytes,
+		AutoWorktreePathPatterns: append([]string(nil), DefaultAutoWorktreePathPatterns...),
 	}
 }
 
@@ -202,6 +223,23 @@ func (s *SettingsStore) Patch(update Settings) (Settings, error) {
 	if update.PreviewMaxBytes > 0 {
 		s.settings.PreviewMaxBytes = update.PreviewMaxBytes
 	}
+	// S015: a nil slice in the patch means "leave alone"; an explicit
+	// empty slice (provided by the FE as `[]`) clears all patterns;
+	// otherwise overwrite. We can't distinguish nil from `[]` after
+	// json.Unmarshal directly, so PATCH semantics here are "any non-nil
+	// slice replaces". A future FE that wants to reset to defaults
+	// should DELETE the key entirely (which Go decodes as nil — leave
+	// alone) — that's a UI rather than API distinction.
+	if update.AutoWorktreePathPatterns != nil {
+		clean := make([]string, 0, len(update.AutoWorktreePathPatterns))
+		for _, p := range update.AutoWorktreePathPatterns {
+			if p == "" {
+				continue
+			}
+			clean = append(clean, p)
+		}
+		s.settings.AutoWorktreePathPatterns = clean
+	}
 	if update.Toolbar != nil {
 		s.settings.Toolbar = update.Toolbar
 	}
@@ -247,4 +285,22 @@ func mergeWithDefaults(s *Settings, d Settings) {
 	if s.PreviewMaxBytes <= 0 {
 		s.PreviewMaxBytes = d.PreviewMaxBytes
 	}
+	// S015: only inherit defaults when the key is *absent* from the file
+	// (decoded as nil). An explicit empty slice — `"autoWorktreePathPatterns": []`
+	// — is honoured as "user opted out of auto detection".
+	if s.AutoWorktreePathPatterns == nil {
+		s.AutoWorktreePathPatterns = append([]string(nil), d.AutoWorktreePathPatterns...)
+	}
+}
+
+// AutoWorktreePathPatterns implements the SettingsView slice accessor
+// used by category derivation. Always returns a defensive copy so callers
+// can iterate without holding the lock.
+func (s *SettingsStore) AutoWorktreePathPatterns() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.settings.AutoWorktreePathPatterns == nil {
+		return append([]string(nil), DefaultAutoWorktreePathPatterns...)
+	}
+	return append([]string(nil), s.settings.AutoWorktreePathPatterns...)
 }

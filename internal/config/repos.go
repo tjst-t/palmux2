@@ -13,10 +13,19 @@ import (
 )
 
 // RepoEntry is one row in repos.json.
+//
+// UserOpenedBranches (S015) records the branch names the user opened
+// explicitly through Palmux (via Drawer "Open Branch…" or via the
+// `+ Add to my worktrees` promote action). The Drawer reads this to
+// classify branches as `user` (in the slice), `subagent` (path matches
+// `autoWorktreePathPatterns`), or `unmanaged` (otherwise). The field is
+// `omitempty` so pre-S015 `repos.json` files load unchanged and so the
+// JSON stays tidy for repos that have never had branches promoted.
 type RepoEntry struct {
-	ID      string `json:"id"`
-	GHQPath string `json:"ghqPath"`
-	Starred bool   `json:"starred"`
+	ID                 string   `json:"id"`
+	GHQPath            string   `json:"ghqPath"`
+	Starred            bool     `json:"starred"`
+	UserOpenedBranches []string `json:"userOpenedBranches,omitempty"`
 }
 
 // RepoStore is the read/write interface for repos.json. All access goes
@@ -126,6 +135,98 @@ func (s *RepoStore) Remove(id string) (bool, error) {
 	}
 	s.entries = append(s.entries[:idx], s.entries[idx+1:]...)
 	return true, s.save()
+}
+
+// AddUserOpenedBranch (S015) records `branchName` as user-opened for the
+// given repo. Idempotent — duplicates are dropped silently. Returns
+// (added, error): `added` is false when the branch was already in the
+// slice. Caller should treat (false, nil) as success.
+func (s *RepoStore) AddUserOpenedBranch(repoID, branchName string) (bool, error) {
+	if branchName == "" {
+		return false, fmt.Errorf("config: AddUserOpenedBranch: empty branch name")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.entries {
+		if s.entries[i].ID != repoID {
+			continue
+		}
+		for _, existing := range s.entries[i].UserOpenedBranches {
+			if existing == branchName {
+				return false, nil
+			}
+		}
+		s.entries[i].UserOpenedBranches = append(s.entries[i].UserOpenedBranches, branchName)
+		sort.Strings(s.entries[i].UserOpenedBranches)
+		return true, s.save()
+	}
+	return false, fmt.Errorf("config: AddUserOpenedBranch: repo %q not found", repoID)
+}
+
+// RemoveUserOpenedBranch (S015) drops `branchName` from the user-opened
+// list. Idempotent. Returns (removed, error).
+func (s *RepoStore) RemoveUserOpenedBranch(repoID, branchName string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.entries {
+		if s.entries[i].ID != repoID {
+			continue
+		}
+		idx := -1
+		for j, existing := range s.entries[i].UserOpenedBranches {
+			if existing == branchName {
+				idx = j
+				break
+			}
+		}
+		if idx < 0 {
+			return false, nil
+		}
+		s.entries[i].UserOpenedBranches = append(
+			s.entries[i].UserOpenedBranches[:idx],
+			s.entries[i].UserOpenedBranches[idx+1:]...,
+		)
+		return true, s.save()
+	}
+	return false, fmt.Errorf("config: RemoveUserOpenedBranch: repo %q not found", repoID)
+}
+
+// ReplaceUserOpenedBranches (S015) overwrites the user-opened slice for one
+// repo. Used by the startup reconcile to drop entries whose worktree is no
+// longer present. The caller has typically already filtered the slice; this
+// just commits the result. A nil/empty `branches` clears the field.
+func (s *RepoStore) ReplaceUserOpenedBranches(repoID string, branches []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.entries {
+		if s.entries[i].ID != repoID {
+			continue
+		}
+		clean := append([]string(nil), branches...)
+		sort.Strings(clean)
+		s.entries[i].UserOpenedBranches = clean
+		return s.save()
+	}
+	return fmt.Errorf("config: ReplaceUserOpenedBranches: repo %q not found", repoID)
+}
+
+// IsUserOpened (S015) reports whether `branchName` is in the user-opened
+// slice for the given repo. Cheap read for category derivation.
+func (s *RepoStore) IsUserOpened(repoID, branchName string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, e := range s.entries {
+		if e.ID != repoID {
+			continue
+		}
+		for _, b := range e.UserOpenedBranches {
+			if b == branchName {
+				return true
+			}
+		}
+		return false
+	}
+	return false
 }
 
 // SetStarred toggles the starred flag on a repo. Returns false if absent.

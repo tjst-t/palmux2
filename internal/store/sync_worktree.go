@@ -58,8 +58,12 @@ func (s *Store) SyncWorktree(ctx context.Context) error {
 				continue
 			}
 			s.logger.Info("sync_worktree: detected new worktree", "branch", branchName, "path", wt.Path)
-			if _, err := s.OpenBranch(ctx, repo.ID, branchName); err != nil {
-				s.logger.Warn("sync_worktree: OpenBranch", "branch", branchName, "err", err)
+			// S015: auto-detected worktrees should NOT land in
+			// userOpenedBranches — they came from outside Palmux.
+			// Use OpenBranchAuto to keep them in `unmanaged` /
+			// `subagent` until the user promotes them.
+			if _, err := s.OpenBranchAuto(ctx, repo.ID, branchName); err != nil {
+				s.logger.Warn("sync_worktree: OpenBranchAuto", "branch", branchName, "err", err)
 			}
 		}
 

@@ -107,6 +107,9 @@ export interface GlobalSettings {
    *  Above this we render a "too large to preview" placeholder and skip
    *  fetching the body. */
   previewMaxBytes?: number
+  /** S015: glob patterns marking auto-generated worktrees (subagent /
+   *  autopilot output). Default `[".claude/worktrees/*"]`. */
+  autoWorktreePathPatterns?: string[]
   toolbar?: Partial<ToolbarConfig>
 }
 
@@ -228,6 +231,14 @@ interface PalmuxStoreState {
   addTab: (repoId: string, branchId: string, type: string, name?: string) => Promise<Tab>
   removeTab: (repoId: string, branchId: string, tabId: string) => Promise<void>
   renameTab: (repoId: string, branchId: string, tabId: string, name: string) => Promise<void>
+
+  /** S015: move a branch into `my` by appending to
+   *  repos.json#userOpenedBranches. Optimistic — the local Branch's
+   *  `category` flips to "user" immediately; on API failure we revert
+   *  and surface the error. */
+  promoteBranch: (repoId: string, branchId: string) => Promise<void>
+  /** S015: opposite of promoteBranch. */
+  demoteBranch: (repoId: string, branchId: string) => Promise<void>
 }
 
 export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
@@ -320,6 +331,27 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
     ])
     if (domainEvents.has(ev.type)) {
       void get().reloadRepos()
+    }
+    // S015: cross-client promote/demote. Apply locally (cheap) — a
+    // background reloadRepos is unnecessary because category is the
+    // only field that changed and the payload carries the new value.
+    if (ev.type === 'branch.categoryChanged' && ev.repoId && ev.branchId && ev.payload) {
+      const payload = ev.payload as { category?: string }
+      const cat = payload.category as Branch['category']
+      if (cat === 'user' || cat === 'unmanaged' || cat === 'subagent') {
+        set((state) => ({
+          repos: state.repos.map((r) =>
+            r.id !== ev.repoId
+              ? r
+              : {
+                  ...r,
+                  openBranches: r.openBranches.map((b) =>
+                    b.id === ev.branchId ? { ...b, category: cat } : b,
+                  ),
+                },
+          ),
+        }))
+      }
     }
     if (ev.type === 'settings.updated' && ev.payload) {
       set({ globalSettings: ev.payload as GlobalSettings })
@@ -494,6 +526,62 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
       { name },
     )
     await get().reloadRepos()
+  },
+
+  // S015 promote/demote: optimistic local update + REST. The server
+  // also broadcasts `branch.categoryChanged` which the applyEvent path
+  // catches, so multiple browsers stay in sync. We don't need to
+  // re-fetch ourselves on success.
+  promoteBranch: async (repoId, branchId) => {
+    const prev = get().repos
+    set((state) => ({
+      repos: state.repos.map((r) =>
+        r.id !== repoId
+          ? r
+          : {
+              ...r,
+              openBranches: r.openBranches.map((b) =>
+                b.id === branchId ? { ...b, category: 'user' as const } : b,
+              ),
+            },
+      ),
+    }))
+    try {
+      await api.post(
+        `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/promote`,
+      )
+    } catch (err) {
+      // Revert on failure.
+      set({ repos: prev })
+      throw err
+    }
+  },
+  demoteBranch: async (repoId, branchId) => {
+    const prev = get().repos
+    // Compute likely target category from the existing record (path
+    // pattern matching is server-authoritative, so we tentatively pick
+    // "unmanaged" — the WS event will correct us if it's actually
+    // "subagent").
+    set((state) => ({
+      repos: state.repos.map((r) =>
+        r.id !== repoId
+          ? r
+          : {
+              ...r,
+              openBranches: r.openBranches.map((b) =>
+                b.id === branchId ? { ...b, category: 'unmanaged' as const } : b,
+              ),
+            },
+      ),
+    }))
+    try {
+      await api.delete(
+        `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/promote`,
+      )
+    } catch (err) {
+      set({ repos: prev })
+      throw err
+    }
   },
 }))
 

@@ -15,7 +15,25 @@ import (
 
 // OpenBranch creates the worktree (via gwq if necessary), the tmux session,
 // runs every Provider's OnBranchOpen, and registers the branch in the Store.
+//
+// This is the "user explicitly opened this branch through the Drawer"
+// path: in addition to creating tmux state it appends the branch name
+// to repos.json#userOpenedBranches so the Drawer puts the row in `my`.
+// Auto-registration of CLI-created worktrees goes through OpenBranchAuto
+// instead, which does NOT touch userOpenedBranches.
 func (s *Store) OpenBranch(ctx context.Context, repoID, branchName string) (*domain.Branch, error) {
+	return s.openBranchInternal(ctx, repoID, branchName, true)
+}
+
+// OpenBranchAuto registers a branch the same way as OpenBranch but does
+// NOT mark it as user-opened. Call this from the worktree-sync loop so
+// CLI-created worktrees stay in the `unmanaged` (or `subagent`) Drawer
+// section until the user explicitly promotes them.
+func (s *Store) OpenBranchAuto(ctx context.Context, repoID, branchName string) (*domain.Branch, error) {
+	return s.openBranchInternal(ctx, repoID, branchName, false)
+}
+
+func (s *Store) openBranchInternal(ctx context.Context, repoID, branchName string, markUserOpened bool) (*domain.Branch, error) {
 	branchName = strings.TrimSpace(branchName)
 	if branchName == "" {
 		return nil, fmt.Errorf("%w: branchName empty", ErrInvalidArg)
@@ -69,16 +87,41 @@ func (s *Store) OpenBranch(ctx context.Context, repoID, branchName string) (*dom
 	for _, existing := range repo.OpenBranches {
 		if existing.ID == branchID {
 			s.recomputeTabs(ctx, existing)
+			s.applyCategoriesUnlocked(repo)
 			snap := cloneBranch(existing)
 			s.mu.Unlock()
+			// S015-1-6: only the *explicit* drawer path records this as
+			// user-opened. The auto path (sync_worktree) leaves it
+			// alone so CLI-created worktrees stay `unmanaged`.
+			if markUserOpened {
+				if _, err := s.deps.RepoStore.AddUserOpenedBranch(repoID, wt.Branch); err != nil {
+					s.logger.Warn("OpenBranch: AddUserOpenedBranch failed", "repo", repoID, "branch", wt.Branch, "err", err)
+				}
+			}
 			return snap, nil
 		}
 	}
 	repo.OpenBranches = append(repo.OpenBranches, branch)
 	sortBranches(repo.OpenBranches)
 	s.recomputeTabs(ctx, branch)
+	s.applyCategoriesUnlocked(repo)
 	snap := cloneBranch(branch)
 	s.mu.Unlock()
+
+	if markUserOpened {
+		// S015-1-6: persist that the user opened this branch through Palmux
+		// so the Drawer puts it in `my`. Idempotent; failure here is non-
+		// fatal — branch is still open, just lands in `unmanaged` until the
+		// user clicks `+ Add to my worktrees`.
+		if _, err := s.deps.RepoStore.AddUserOpenedBranch(repoID, wt.Branch); err != nil {
+			s.logger.Warn("OpenBranch: AddUserOpenedBranch failed", "repo", repoID, "branch", wt.Branch, "err", err)
+		}
+		s.mu.Lock()
+		if r, ok := s.repos[repoID]; ok {
+			s.applyCategoriesUnlocked(r)
+		}
+		s.mu.Unlock()
+	}
 
 	s.hub.Publish(Event{Type: EventBranchOpened, RepoID: repoID, BranchID: branchID, Payload: snap})
 	return snap, nil

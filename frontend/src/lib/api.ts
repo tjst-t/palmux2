@@ -61,6 +61,8 @@ export interface Repository {
   openBranches: Branch[]
 }
 
+export type BranchCategory = 'user' | 'unmanaged' | 'subagent'
+
 export interface Branch {
   id: string
   name: string
@@ -69,6 +71,11 @@ export interface Branch {
   isPrimary: boolean
   tabSet: TabSet
   lastActivity: string
+  /** S015: drawer category. `user` = recorded in
+   *  repos.json#userOpenedBranches. `subagent` = path matches
+   *  `autoWorktreePathPatterns`. `unmanaged` = otherwise. The FE
+   *  remaps `user → my` for section titles. */
+  category?: BranchCategory
 }
 
 export interface TabSet {

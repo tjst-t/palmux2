@@ -99,6 +99,12 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("GET /api/repos/{repoId}/branch-picker", h.branchPicker)
 	mux.HandleFunc("POST /api/repos/{repoId}/branches/open", h.openBranch)
 	mux.HandleFunc("DELETE /api/repos/{repoId}/branches/{branchId}", h.closeBranch)
+	// S015: promote / demote a branch into / out of `userOpenedBranches`.
+	// Promote is the `+ Add to my worktrees` button in the Drawer; demote
+	// is the symmetric undo (used by the context menu and reserved for
+	// the future subagent → unmanaged demotion flow).
+	mux.HandleFunc("POST /api/repos/{repoId}/branches/{branchId}/promote", h.promoteBranch)
+	mux.HandleFunc("DELETE /api/repos/{repoId}/branches/{branchId}/promote", h.demoteBranch)
 
 	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/commands", h.listCommands)
 	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/portman", h.listRepoPortman)

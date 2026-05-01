@@ -194,6 +194,12 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 	// branches whose tmux session was already alive at startup.
 	st.PopulateTabs(ctx)
 
+	// S015: drop entries in `repos.json#userOpenedBranches` whose
+	// worktree was deleted while palmux2 was offline (e.g. via
+	// `gwq remove` directly). Panic-safe — failures are logged per repo
+	// and do not block startup.
+	st.ReconcileUserOpenedBranches(ctx)
+
 	st.Run(ctx)
 
 	frontendFS, err := fs.Sub(palmux2.FrontendFS, "frontend/dist")

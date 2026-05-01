@@ -85,5 +85,52 @@ func (h *handlers) closeBranch(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// promoteBranch (S015) records the branch in `repos.json#userOpenedBranches`
+// so the Drawer moves it from `unmanaged` (or `subagent`) to `my`. The
+// branch must already be Open. Idempotent — promoting an already-promoted
+// branch returns 200 with the current snapshot.
+func (h *handlers) promoteBranch(w http.ResponseWriter, r *http.Request) {
+	repoID := r.PathValue("repoId")
+	branchID := r.PathValue("branchId")
+	branch, err := h.store.Branch(repoID, branchID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if err := h.store.PromoteBranch(r.Context(), repoID, branch.Name); err != nil {
+		writeErr(w, err)
+		return
+	}
+	updated, err := h.store.Branch(repoID, branchID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+// demoteBranch (S015) removes the branch from `userOpenedBranches`. The
+// resulting Drawer category falls back to `subagent` (path matches an
+// auto pattern) or `unmanaged` (otherwise). Idempotent.
+func (h *handlers) demoteBranch(w http.ResponseWriter, r *http.Request) {
+	repoID := r.PathValue("repoId")
+	branchID := r.PathValue("branchId")
+	branch, err := h.store.Branch(repoID, branchID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if err := h.store.DemoteBranch(r.Context(), repoID, branch.Name); err != nil {
+		writeErr(w, err)
+		return
+	}
+	updated, err := h.store.Branch(repoID, branchID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
 // silence unused import in build configurations
 var _ = domain.RepoSlugID

@@ -14,6 +14,17 @@ type Repository struct {
 
 // Branch represents an open branch — by definition a branch with a worktree
 // inside a Repository that has been Open'd.
+//
+// Category (S015) classifies the branch for the Drawer:
+//   - "user"      — recorded in repos.json#userOpenedBranches (the user
+//                   opened it through Palmux or promoted it explicitly).
+//   - "subagent"  — worktree path matches `autoWorktreePathPatterns`
+//                   (claude-skills sub-agent / autopilot output).
+//   - "unmanaged" — exists on disk (e.g. via `git worktree add` directly)
+//                   but neither user-opened nor pattern-matched.
+//
+// The Drawer reads this to render three sections; the FE re-labels "user"
+// as "my".
 type Branch struct {
 	ID           string    `json:"id"`
 	Name         string    `json:"name"`         // git branch name
@@ -22,6 +33,7 @@ type Branch struct {
 	IsPrimary    bool      `json:"isPrimary"` // holds the .git/ directory
 	TabSet       TabSet    `json:"tabSet"`
 	LastActivity time.Time `json:"lastActivity"`
+	Category     string    `json:"category,omitempty"` // S015
 }
 
 // TabSet is the collection of tabs for one branch.

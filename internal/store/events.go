@@ -17,6 +17,11 @@ const (
 
 	EventBranchOpened EventType = "branch.opened"
 	EventBranchClosed EventType = "branch.closed"
+	// S015: emitted when a branch's drawer category changes (currently
+	// only my ↔ unmanaged via promote/demote; subagent is derived from
+	// path patterns and changes implicitly with settings updates). Payload
+	// is `{ category: "user" | "unmanaged" | "subagent" }`.
+	EventBranchCategoryChanged EventType = "branch.categoryChanged"
 
 	EventTabAdded   EventType = "tab.added"
 	EventTabRemoved EventType = "tab.removed"
