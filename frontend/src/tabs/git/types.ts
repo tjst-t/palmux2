@@ -219,3 +219,101 @@ export interface BlameResponse {
   revision?: string
   lines: BlameLine[] | null
 }
+
+// S014 ─ Conflict / rebase / merge / submodule / reflog / bisect ─────
+
+export interface ConflictHunk {
+  startLine: number
+  endLine: number
+  ours: string[]
+  base?: string[]
+  theirs: string[]
+  oursLabel?: string
+  theirsLabel?: string
+}
+
+export interface ConflictFile {
+  path: string
+  hunks: ConflictHunk[] | null
+  hasBase: boolean
+  binary: boolean
+}
+
+export interface ConflictBody {
+  path: string
+  ours: string
+  base: string
+  theirs: string
+  merged: string
+}
+
+export type RebaseAction =
+  | 'pick'
+  | 'reword'
+  | 'edit'
+  | 'squash'
+  | 'fixup'
+  | 'drop'
+  | 'exec'
+  | string
+
+export interface RebaseTodoEntry {
+  action: RebaseAction
+  sha?: string
+  subject?: string
+  raw: string
+}
+
+export interface RebaseStatus {
+  active: boolean
+  interactive: boolean
+  onto?: string
+  head?: string
+  todo?: RebaseTodoEntry[] | null
+  done?: RebaseTodoEntry[] | null
+}
+
+export interface RebaseStartOptions {
+  onto: string
+  interactive?: boolean
+  todo?: RebaseTodoEntry[]
+  autosquash?: boolean
+  autostash?: boolean
+}
+
+export interface MergeOptions {
+  branch: string
+  noFf?: boolean
+  squash?: boolean
+  ffOnly?: boolean
+  message?: string
+}
+
+export interface Submodule {
+  path: string
+  commit: string
+  status: 'initialized' | 'not-initialized' | 'modified' | 'conflict'
+  describe?: string
+}
+
+export interface ReflogEntry {
+  hash: string
+  ref: string
+  action: string
+  message: string
+  date?: string
+}
+
+export interface BisectStatus {
+  active: boolean
+  currentSha?: string
+  good?: string
+  bad?: string
+  remaining?: number
+  log?: string
+}
+
+export interface BisectStartOptions {
+  good: string
+  bad: string
+}

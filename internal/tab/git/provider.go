@@ -171,6 +171,44 @@ func (p *Provider) RegisterRoutes(mux *http.ServeMux, prefix string) {
 	// File history & blame.
 	mux.HandleFunc("GET "+prefix+"/file-history", h.fileHistory)
 	mux.HandleFunc("GET "+prefix+"/blame", h.blame)
+
+	// === S014: conflict / rebase / merge / submodule / reflog / bisect ====
+	// Conflicts. We use a `?path=` query parameter rather than {path...}
+	// because Go 1.22's mux requires `{...}` wildcards to sit at the very
+	// end of a pattern; `/conflict/{path...}/mark-resolved` would
+	// otherwise collide with `/conflict/{path...}` PUT.
+	mux.HandleFunc("GET "+prefix+"/conflicts", h.conflicts)
+	mux.HandleFunc("GET "+prefix+"/conflict-file", h.conflictFile)
+	mux.HandleFunc("PUT "+prefix+"/conflict-file", h.conflictFilePut)
+	mux.HandleFunc("POST "+prefix+"/conflict-file/mark-resolved", h.conflictMarkResolved)
+
+	// Rebase TODO + ops.
+	mux.HandleFunc("GET "+prefix+"/rebase-todo", h.rebaseTodoGet)
+	mux.HandleFunc("PUT "+prefix+"/rebase-todo", h.rebaseTodoPut)
+	mux.HandleFunc("POST "+prefix+"/rebase", h.rebaseStart)
+	mux.HandleFunc("POST "+prefix+"/rebase/abort", h.rebaseAbort)
+	mux.HandleFunc("POST "+prefix+"/rebase/continue", h.rebaseContinue)
+	mux.HandleFunc("POST "+prefix+"/rebase/skip", h.rebaseSkip)
+
+	// Merge ops.
+	mux.HandleFunc("POST "+prefix+"/merge", h.mergeStart)
+	mux.HandleFunc("POST "+prefix+"/merge/abort", h.mergeAbort)
+
+	// Submodules. Same `?path=` rationale as conflicts.
+	mux.HandleFunc("GET "+prefix+"/submodules", h.submodulesList)
+	mux.HandleFunc("POST "+prefix+"/submodules/init", h.submoduleInit)
+	mux.HandleFunc("POST "+prefix+"/submodules/update", h.submoduleUpdate)
+
+	// Reflog.
+	mux.HandleFunc("GET "+prefix+"/reflog", h.reflog)
+
+	// Bisect.
+	mux.HandleFunc("GET "+prefix+"/bisect/status", h.bisectStatus)
+	mux.HandleFunc("POST "+prefix+"/bisect/start", h.bisectStart)
+	mux.HandleFunc("POST "+prefix+"/bisect/good", h.bisectGood)
+	mux.HandleFunc("POST "+prefix+"/bisect/bad", h.bisectBad)
+	mux.HandleFunc("POST "+prefix+"/bisect/skip", h.bisectSkip)
+	mux.HandleFunc("POST "+prefix+"/bisect/reset", h.bisectReset)
 }
 
 func (p *Provider) startWatcher() {

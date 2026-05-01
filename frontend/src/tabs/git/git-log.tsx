@@ -18,6 +18,7 @@ import { ApiError, api } from '../../lib/api'
 
 import { GitBranchGraph } from './git-branch-graph'
 import { CherryPickModal, ResetModal, RevertModal } from './git-history-modals'
+import { GitRebaseModal } from './git-rebase-modal'
 import styles from './git-log.module.css'
 import type { LogEntryDetail, LogFilteredResponse } from './types'
 
@@ -57,7 +58,9 @@ export function GitLog({ apiBase, path, reloadKey = 0, onSelect }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<LogEntryDetail | null>(null)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; entry: LogEntryDetail } | null>(null)
-  const [activeModal, setActiveModal] = useState<'cherry-pick' | 'revert' | 'reset' | null>(null)
+  const [activeModal, setActiveModal] = useState<
+    'cherry-pick' | 'revert' | 'reset' | 'rebase' | null
+  >(null)
   const [actionTarget, setActionTarget] = useState<LogEntryDetail | null>(null)
 
   const fetchPage = useCallback(
@@ -275,6 +278,24 @@ export function GitLog({ apiBase, path, reloadKey = 0, onSelect }: Props) {
           }}
         />
       )}
+      {activeModal === 'rebase' && actionTarget && (
+        <GitRebaseModal
+          apiBase={apiBase}
+          // Take all commits from index 0 down to the action target
+          // (inclusive). The modal reverses to TODO order.
+          commits={(() => {
+            const idx = entries.findIndex((e) => e.hash === actionTarget.hash)
+            if (idx < 0) return []
+            return entries.slice(0, idx)
+          })()}
+          onto={actionTarget.hash}
+          onClose={() => setActiveModal(null)}
+          onAfter={() => {
+            setActiveModal(null)
+            void fetchPage(0, true)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -288,7 +309,7 @@ function ContextMenu({
   x: number
   y: number
   entry: LogEntryDetail
-  onAction: (action: 'cherry-pick' | 'revert' | 'reset') => void
+  onAction: (action: 'cherry-pick' | 'revert' | 'reset' | 'rebase') => void
 }) {
   return (
     <div
@@ -305,6 +326,9 @@ function ContextMenu({
       </button>
       <button onClick={() => onAction('reset')} data-testid="log-action-reset">
         Reset to here…
+      </button>
+      <button onClick={() => onAction('rebase')} data-testid="log-action-rebase">
+        Rebase from here (interactive)
       </button>
     </div>
   )

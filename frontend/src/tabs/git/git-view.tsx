@@ -16,33 +16,52 @@ import { useSearchParams } from 'react-router-dom'
 
 import type { TabViewProps } from '../../lib/tab-registry'
 
+import { GitBisect } from './git-bisect'
 import { GitBlame } from './git-blame'
 import { GitBranches } from './git-branches'
 import { GitCommit } from './git-commit'
+import { GitConflict } from './git-conflict'
 import { GitDiff } from './git-diff'
 import { GitFileHistory } from './git-file-history'
 import { GitLog } from './git-log'
+import { GitRebaseStatus } from './git-rebase-status'
+import { GitReflog } from './git-reflog'
 import { GitStash } from './git-stash'
 import { GitStatus } from './git-status'
+import { GitSubmodules } from './git-submodules'
 import { GitSync } from './git-sync'
 import { GitTags } from './git-tags'
 import styles from './git-view.module.css'
 import type { StatusReport } from './types'
 
-type View = 'status' | 'diff' | 'log' | 'branches' | 'stash' | 'tags'
+type View =
+  | 'status'
+  | 'diff'
+  | 'log'
+  | 'branches'
+  | 'stash'
+  | 'tags'
+  | 'conflict'
+  | 'submodules'
+  | 'reflog'
+  | 'bisect'
 
 export function GitView({ repoId, branchId }: TabViewProps) {
   const [searchParams, setSearchParams] = useSearchParams()
+  const isView = (v: string | null): v is View =>
+    v === 'status' ||
+    v === 'diff' ||
+    v === 'log' ||
+    v === 'branches' ||
+    v === 'stash' ||
+    v === 'tags' ||
+    v === 'conflict' ||
+    v === 'submodules' ||
+    v === 'reflog' ||
+    v === 'bisect'
   const initialView = ((): View => {
     const v = searchParams.get('view')
-    return v === 'status' ||
-      v === 'diff' ||
-      v === 'log' ||
-      v === 'branches' ||
-      v === 'stash' ||
-      v === 'tags'
-      ? v
-      : 'status'
+    return isView(v) ? v : 'status'
   })()
   const [view, setView] = useState<View>(initialView)
   const [report, setReport] = useState<StatusReport | null>(null)
@@ -56,16 +75,10 @@ export function GitView({ repoId, branchId }: TabViewProps) {
   // even after the tab is already mounted.
   useEffect(() => {
     const v = searchParams.get('view')
-    if (
-      v === 'status' ||
-      v === 'diff' ||
-      v === 'log' ||
-      v === 'branches' ||
-      v === 'stash' ||
-      v === 'tags'
-    ) {
+    if (isView(v)) {
       setView(v)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams])
 
   const apiBase = useMemo(
@@ -149,6 +162,9 @@ export function GitView({ repoId, branchId }: TabViewProps) {
   return (
     <div className={styles.wrap}>
       {!isHistoryOrBlame && <GitSync apiBase={apiBase} onAfter={onAfter} />}
+      {!isHistoryOrBlame && (
+        <GitRebaseStatus apiBase={apiBase} reloadKey={reloadKey} onAfter={onAfter} />
+      )}
       <header className={styles.tabs}>
         <Tab active={view === 'status'} onClick={() => setView('status')}>
           Status
@@ -167,6 +183,34 @@ export function GitView({ repoId, branchId }: TabViewProps) {
         </Tab>
         <Tab active={view === 'tags'} onClick={() => setView('tags')} testId="git-tab-tags">
           Tags
+        </Tab>
+        <Tab
+          active={view === 'conflict'}
+          onClick={() => setView('conflict')}
+          testId="git-tab-conflict"
+        >
+          Conflict
+        </Tab>
+        <Tab
+          active={view === 'submodules'}
+          onClick={() => setView('submodules')}
+          testId="git-tab-submodules"
+        >
+          Submodules
+        </Tab>
+        <Tab
+          active={view === 'reflog'}
+          onClick={() => setView('reflog')}
+          testId="git-tab-reflog"
+        >
+          Reflog
+        </Tab>
+        <Tab
+          active={view === 'bisect'}
+          onClick={() => setView('bisect')}
+          testId="git-tab-bisect"
+        >
+          Bisect
         </Tab>
       </header>
       <div className={styles.body}>
@@ -195,6 +239,16 @@ export function GitView({ repoId, branchId }: TabViewProps) {
         )}
         {view === 'tags' && (
           <GitTags apiBase={apiBase} reloadKey={reloadKey} onChange={onAfter} />
+        )}
+        {view === 'conflict' && (
+          <GitConflict apiBase={apiBase} reloadKey={reloadKey} onResolved={onAfter} />
+        )}
+        {view === 'submodules' && <GitSubmodules apiBase={apiBase} reloadKey={reloadKey} />}
+        {view === 'reflog' && (
+          <GitReflog apiBase={apiBase} reloadKey={reloadKey} onAfter={onAfter} />
+        )}
+        {view === 'bisect' && (
+          <GitBisect apiBase={apiBase} reloadKey={reloadKey} onAfter={onAfter} />
         )}
       </div>
       {(view === 'status' || view === 'diff') && (
