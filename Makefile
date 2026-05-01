@@ -38,7 +38,8 @@ dev-api: ports
 	@. $(ENV_FILE) && \
 		go run $(GO_PKG) \
 			--addr "0.0.0.0:$${$(API_PORT_VAR)}" \
-			--config-dir ./$(TMP_DIR)
+			--config-dir ./$(TMP_DIR) \
+			$(SERVE_TMUX_PREFIX)
 
 dev-frontend: ports
 	@. $(ENV_FILE) && cd frontend && \
@@ -78,6 +79,19 @@ SERVE_LOG    := $(TMP_DIR)/palmux$(INSTANCE_SUFFIX).log
 SERVE_ENV    := $(TMP_DIR)/palmux$(INSTANCE_SUFFIX).portman.env
 SERVE_PORT_VAR := PALMUX2$(shell echo $(INSTANCE_SUFFIX) | tr 'a-z-' 'A-Z_')_PORT
 
+# S009-fix-3: when a non-empty INSTANCE is given, isolate the tmux session
+# namespace so this palmux process can't trample the host palmux2's
+# `_palmux_*` sessions on a shared tmux server. Default INSTANCE='' keeps
+# the canonical `_palmux_` prefix (= every existing install).
+#
+# We use `_pmx_<instance>_` instead of `_palmux_<instance>_` so an
+# unupgraded host palmux running pre-fix-3 code (which only checks
+# `HasPrefix(name, "_palmux_")`) doesn't claim the dev instance's
+# sessions as its own zombies. A fix-3 host with the strict
+# ParseSessionName would already ignore `_palmux_<instance>_*` peers,
+# but the `_pmx_*` prefix makes the isolation hold across versions.
+SERVE_TMUX_PREFIX := $(if $(INSTANCE),--tmux-prefix=_pmx_$(INSTANCE)_,)
+
 serve: build tmp
 	@if [ -f $(SERVE_PID) ]; then \
 	  OLD_PID=$$(cat $(SERVE_PID)); \
@@ -97,6 +111,7 @@ serve: build tmp
 	  nohup ./$(BIN_DIR)/palmux \
 	    --addr "0.0.0.0:$$PORT" \
 	    --config-dir ./$(TMP_DIR) \
+	    $(SERVE_TMUX_PREFIX) \
 	    > $(SERVE_LOG) 2>&1 & \
 	  echo $$! > $(SERVE_PID) && \
 	  echo "    PID: $$(cat $(SERVE_PID))"

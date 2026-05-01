@@ -49,7 +49,19 @@ func main() {
 	basePath := pflag.String("base-path", "/", "URL base path (e.g. /palmux/)")
 	maxConns := pflag.Int("max-connections", 0, "per-branch WS connection cap (0 = unlimited)")
 	portmanURL := pflag.String("portman-url", "", "URL of a portman dashboard; when set, the header shows a link")
+	// S009-fix-3: tmux session prefix. Default `_palmux_` matches every
+	// existing install. Override (e.g. `--tmux-prefix=_palmux_dev_`) to
+	// run a second palmux process side-by-side with the host instance on
+	// the same tmux server without the two `sync_tmux` loops fighting
+	// over each other's sessions.
+	tmuxPrefix := pflag.String("tmux-prefix", domain.DefaultPalmuxSessionPrefix, "tmux session prefix for sessions managed by this palmux process")
 	pflag.Parse()
+
+	// Apply the prefix BEFORE any other code reads from
+	// domain.PalmuxSessionPrefix. After this call, every session name
+	// generated/parsed by domain.{SessionName,ParseSessionName,…}
+	// uses the configured prefix.
+	domain.Configure(*tmuxPrefix)
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
@@ -245,7 +257,7 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		if !authn.Open() {
 			mode = "token"
 		}
-		slog.Info("palmux2 listening", "addr", addr, "configDir", configDir, "auth", mode)
+		slog.Info("palmux2 listening", "addr", addr, "configDir", configDir, "auth", mode, "tmuxPrefix", domain.PalmuxSessionPrefix)
 		if !authn.Open() {
 			slog.Info("authenticate at", "url", fmt.Sprintf("http://localhost%s/auth?token=%s", listenLocalAddr(addr), token))
 		}

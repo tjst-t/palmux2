@@ -134,7 +134,10 @@ func TestSyncTmux_KillsZombieSessions(t *testing.T) {
 	s, mockTmux := newStoreFixture(t)
 
 	// A palmux-prefixed session not tracked by the Store is a zombie.
-	mockTmux.SeedSession("_palmux_orphan_repo_orphan_branch")
+	// Use a slug+hash repoID so the new strict ParseSessionName (S009-
+	// fix-3) recognises it as ours.
+	zombie := "_palmux_orphan-repo--dead_main--1234"
+	mockTmux.SeedSession(zombie)
 	// And one Palmux-managed session that the Store knows about.
 	repoID := "tjst-t--demo--abcd"
 	branchID := injectBranch(t, s, repoID, "/tmp/repo-demo", "main", true)
@@ -145,11 +148,31 @@ func TestSyncTmux_KillsZombieSessions(t *testing.T) {
 		t.Fatalf("SyncTmux: %v", err)
 	}
 
-	if has, _ := mockTmux.HasSession(context.Background(), "_palmux_orphan_repo_orphan_branch"); has {
+	if has, _ := mockTmux.HasSession(context.Background(), zombie); has {
 		t.Error("expected zombie session to be killed")
 	}
 	if has, _ := mockTmux.HasSession(context.Background(), sessionName); !has {
 		t.Error("tracked session should be left alone")
+	}
+}
+
+// TestSyncTmux_LeavesPeerInstanceSessionsAlone verifies the S009-fix-3
+// invariant: a `_palmux_<instance>_<repo>_<branch>` session belongs to
+// another palmux process running with `--tmux-prefix=_palmux_<instance>_`
+// and the default-prefix host MUST NOT touch it. Without this rule the
+// host's sync_tmux loop would treat every peer session as a zombie and
+// kill it on each 5s tick — exactly the periodic reconnect pathology
+// the user reported.
+func TestSyncTmux_LeavesPeerInstanceSessionsAlone(t *testing.T) {
+	s, mockTmux := newStoreFixture(t)
+	peer := "_palmux_dev_tjst-t--demo--abcd_main--1234"
+	mockTmux.SeedSession(peer)
+
+	if err := s.SyncTmux(context.Background()); err != nil {
+		t.Fatalf("SyncTmux: %v", err)
+	}
+	if has, _ := mockTmux.HasSession(context.Background(), peer); !has {
+		t.Error("peer-instance session must not be killed by default-prefix host")
 	}
 }
 

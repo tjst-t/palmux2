@@ -35,7 +35,7 @@
 - `make serve` — Go サーバー単体（embed 済みフロント）を **バックグラウンド** で起動して即シェルに戻る。再実行すると前のプロセスを kill してから起動しなおす。PID: `tmp/palmux.pid`、ログ: `tmp/palmux.log`
 - `make serve-stop` — バックグラウンド instance を停止
 - `make serve-logs` — `tmp/palmux.log` を tail
-- `make {dev,serve,serve-stop,serve-logs} INSTANCE=<name>` — portman 名・PID/ログファイルにサフィックスを付け、ホスト用 instance と並走させる。詳細は [docs/development.md](docs/development.md)
+- `make {dev,serve,serve-stop,serve-logs} INSTANCE=<name>` — portman 名・PID/ログファイルにサフィックスを付け、ホスト用 instance と並走させる。**S009-fix-3 で `--tmux-prefix=_pmx_<name>_` も自動付与**。これでホスト用 palmux2 (`_palmux_*` セッション) と dev 用 palmux2 (`_pmx_dev_*` セッション) は tmux 名前空間が分離され、 双方の `sync_tmux` ループが互いのセッションを zombie として kill しあわない。詳細は [docs/development.md](docs/development.md)
 - サーバー起動スクリプトを作成・変更する場合は portman ガイドを参照: https://raw.githubusercontent.com/tjst-t/port-manager/main/docs/CLAUDE_INTEGRATION.md
 - `.env` ファイルは `.gitignore` に追加（git commit しない）
 
@@ -161,9 +161,10 @@ Tab ID:        claude | files | git | bash:bash | bash:bash-2
   palmux:bash:my-server
 ```
 
-- `_palmux_` プレフィクスで Palmux 管理セッション識別
+- `_palmux_` プレフィクスで Palmux 管理セッション識別 (デフォルト)。 `--tmux-prefix` で上書き可能 (S009-fix-3)
 - ウィンドウは **name でルックアップ**（index に依存しない）
 - Palmux が命名を独占管理しユニーク性を保証
+- `IsPalmuxSession` は **prefix 完全一致 + post-prefix repoID に `--` を含む** ことを要求 (S009-fix-3)。 これにより別 instance の `_palmux_<word>_<repo>_<branch>` を誤って claim しない
 
 ## コーディング規約
 
@@ -311,7 +312,7 @@ make lint         # golangci-lint + eslint
 
 ## 注意事項
 
-- `_palmux_` プレフィクスは変更禁止（Orphan 判定に使用）
+- `_palmux_` プレフィクスはデフォルト値 (Orphan 判定に使用)。 S009-fix-3 で `--tmux-prefix` 経由で per-process に上書き可能になったが、 ユーザ向けの本番デプロイは `_palmux_` のままにする。 `INSTANCE=<name>` の dev rig だけが `_pmx_<name>_` を使う
 - Claude タブ = 常に tmux window name `palmux:claude:claude`
 - リポジトリ本体（IsPrimary）の Close は tmux kill のみ（worktree は消さない）。ブランチ名は main とは限らない
 - IsPrimary の判定: `git worktree list --porcelain` で `.git/` ディレクトリ（ファイルではなく）を持つ worktree
