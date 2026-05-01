@@ -25,6 +25,7 @@ func (p *Provider) DisplayName() string   { return "Bash" }
 func (p *Provider) Protected() bool       { return false }
 func (p *Provider) Multiple() bool        { return true }
 func (p *Provider) NeedsTmuxWindow() bool { return true }
+func (p *Provider) Conditional() bool     { return false }
 
 // Limits — Bash always has at least one tab; the upper bound is
 // settings-driven (maxBashTabsPerBranch). A nil view falls through to a

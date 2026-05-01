@@ -72,6 +72,18 @@ type Provider interface {
 	Multiple() bool      // multiple instances allowed (Bash, Claude post-S009)
 	NeedsTmuxWindow() bool
 
+	// Conditional reports whether this provider's OnBranchOpen may legitimately
+	// return zero tabs based on per-branch state (e.g. Sprint Dashboard hides
+	// itself when `docs/ROADMAP.md` is absent). When false (the default and
+	// the legacy behaviour), the Store assumes singletons always emit one tab
+	// and skips calling OnBranchOpen during recomputeTabs. When true, the
+	// Store calls OnBranchOpen on every recompute and trusts its tab list.
+	// Conditional providers MUST be non-Multiple and non-NeedsTmuxWindow
+	// (mixing conditional visibility with tmux-window lifecycle would
+	// require coordinated session teardown that S016 deliberately keeps
+	// out of scope).
+	Conditional() bool
+
 	// Limits returns the min/max number of instances allowed on a branch.
 	// Singletons return Min=1, Max=1. Multi-instance providers return
 	// Min=1 (so the tab type is always present) and Max from settings.

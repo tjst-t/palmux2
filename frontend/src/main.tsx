@@ -8,6 +8,7 @@ import './index.css'
 import './tabs/files'
 import './tabs/git'
 import './tabs/claude-agent'
+import './tabs/sprint'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

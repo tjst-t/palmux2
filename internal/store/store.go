@@ -104,6 +104,68 @@ func New(deps Deps) (*Store, error) {
 	return s, nil
 }
 
+// RecomputeBranchTabs is the public entry point used by Conditional tab
+// providers (S016 Sprint) when their visibility may have changed without
+// any tmux activity — e.g. ROADMAP.md was created or deleted in the
+// worktree. It re-runs `recomputeTabs` for the given branch and diffs
+// the previous TabSet against the new one, emitting `tab.added` /
+// `tab.removed` events for the differences so subscribed browsers can
+// update their TabBar immediately.
+//
+// The diff is keyed on Tab.ID + Tab.Type so multiple Bash instances
+// (which share Type but differ on ID) are handled correctly.
+//
+// Returns ErrRepoNotFound / ErrBranchNotFound when the IDs don't match.
+func (s *Store) RecomputeBranchTabs(repoID, branchID string) error {
+	ctx := context.Background()
+	s.mu.Lock()
+	repo, ok := s.repos[repoID]
+	if !ok {
+		s.mu.Unlock()
+		return ErrRepoNotFound
+	}
+	var branch *domain.Branch
+	for _, b := range repo.OpenBranches {
+		if b.ID == branchID {
+			branch = b
+			break
+		}
+	}
+	if branch == nil {
+		s.mu.Unlock()
+		return ErrBranchNotFound
+	}
+	prev := append([]domain.Tab(nil), branch.TabSet.Tabs...)
+	s.recomputeTabs(ctx, branch)
+	next := append([]domain.Tab(nil), branch.TabSet.Tabs...)
+	s.mu.Unlock()
+
+	prevSet := map[string]struct{}{}
+	for _, t := range prev {
+		prevSet[t.Type+"\x00"+t.ID] = struct{}{}
+	}
+	nextSet := map[string]struct{}{}
+	for _, t := range next {
+		nextSet[t.Type+"\x00"+t.ID] = struct{}{}
+	}
+	for _, t := range next {
+		if _, was := prevSet[t.Type+"\x00"+t.ID]; !was {
+			s.hub.Publish(Event{
+				Type: EventTabAdded, RepoID: repoID, BranchID: branchID, TabID: t.ID,
+				Payload: map[string]any{"tab": t},
+			})
+		}
+	}
+	for _, t := range prev {
+		if _, still := nextSet[t.Type+"\x00"+t.ID]; !still {
+			s.hub.Publish(Event{
+				Type: EventTabRemoved, RepoID: repoID, BranchID: branchID, TabID: t.ID,
+			})
+		}
+	}
+	return nil
+}
+
 // PopulateTabs walks every Open branch and runs recomputeTabs against it.
 // This must be called AFTER every Provider has been registered (otherwise
 // REST-only tabs like Files / Git would be missing) and BEFORE the sync
@@ -303,8 +365,20 @@ func (s *Store) recomputeTabs(ctx context.Context, branch *domain.Branch) {
 	var tabs []domain.Tab
 	for _, p := range s.registry.Providers() {
 		if !p.NeedsTmuxWindow() {
-			// Non-tmux singletons (Files, Git): one fixed tab.
+			// Non-tmux singletons (Files, Git): one fixed tab unless the
+			// provider is Conditional (S016 Sprint), in which case its
+			// OnBranchOpen result drives visibility per-branch.
 			if !p.Multiple() {
+				if p.Conditional() {
+					res, err := p.OnBranchOpen(ctx, tab.OpenParams{Branch: branch, Resume: false})
+					if err != nil {
+						s.logger.Warn("recomputeTabs: OnBranchOpen for conditional singleton",
+							"type", p.Type(), "err", err)
+						continue
+					}
+					tabs = append(tabs, res.Tabs...)
+					continue
+				}
 				tabs = append(tabs, domain.Tab{
 					ID:        p.Type(),
 					Type:      p.Type(),

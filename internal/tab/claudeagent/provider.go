@@ -34,6 +34,7 @@ func (p *Provider) DisplayName() string   { return "Claude" }
 func (p *Provider) Protected() bool       { return true }
 func (p *Provider) Multiple() bool        { return true } // S009
 func (p *Provider) NeedsTmuxWindow() bool { return false }
+func (p *Provider) Conditional() bool     { return false }
 
 // Limits — at least one Claude tab is always present; the upper bound is
 // settings-driven (maxClaudeTabsPerBranch, default 3). Closing the last

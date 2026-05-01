@@ -29,6 +29,7 @@ func (p *Provider) DisplayName() string   { return "Files" }
 func (p *Provider) Protected() bool       { return true }
 func (p *Provider) Multiple() bool        { return false }
 func (p *Provider) NeedsTmuxWindow() bool { return false }
+func (p *Provider) Conditional() bool     { return false }
 
 // Limits — Files is a singleton (exactly one tab per branch).
 func (p *Provider) Limits(_ tab.SettingsView) tab.InstanceLimits {

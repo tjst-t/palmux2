@@ -45,6 +45,13 @@ const (
 	// switch) so connected browsers refresh the status view in real time.
 	EventGitStatusChanged    EventType = "git.statusChanged"
 	EventGitCredentialPrompt EventType = "git.credentialRequest"
+
+	// Sprint Dashboard events (S016). Fired when the per-branch
+	// worktreewatch sees a change to docs/ROADMAP.md, docs/sprint-logs/*
+	// or .claude/autopilot-*.lock. The payload is
+	// `{ files: [paths], scopes: ["overview"|"sprintDetail"|"dependencies"|"decisions"|"refine"] }`
+	// so the FE can refetch only the affected views.
+	EventSprintChanged EventType = "sprint.changed"
 )
 
 // Event is one broadcastable change.

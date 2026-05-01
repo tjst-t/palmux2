@@ -29,6 +29,7 @@ func (fakeTerminalProvider) DisplayName() string   { return "Fake Term" }
 func (fakeTerminalProvider) Protected() bool       { return true }
 func (fakeTerminalProvider) Multiple() bool        { return false }
 func (fakeTerminalProvider) NeedsTmuxWindow() bool { return true }
+func (fakeTerminalProvider) Conditional() bool     { return false }
 func (fakeTerminalProvider) Limits(_ tab.SettingsView) tab.InstanceLimits {
 	return tab.InstanceLimits{Min: 1, Max: 1}
 }

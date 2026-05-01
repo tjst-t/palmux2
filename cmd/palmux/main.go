@@ -35,6 +35,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/tab/claudeagent"
 	"github.com/tjst-t/palmux2/internal/tab/files"
 	gittab "github.com/tjst-t/palmux2/internal/tab/git"
+	"github.com/tjst-t/palmux2/internal/tab/sprint"
 	"github.com/tjst-t/palmux2/internal/tmux"
 )
 
@@ -186,11 +187,16 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		agentNotificationSink{hub: notifyHub},
 		slog.Default(),
 	)
+	// S016: TabBar order is Claude / Files / Git / Sprint / Bash[].
+	// Sprint is conditional on docs/ROADMAP.md so it slots after the
+	// always-on Git tab and before the multi-instance Bash group.
 	registry.Register(claudeagent.NewProvider(agentManager))
-	registry.Register(bash.New())
 	registry.Register(files.New(st))
 	gitProvider := gittab.New(st)
 	registry.Register(gitProvider)
+	sprintProvider := sprint.New(st)
+	registry.Register(sprintProvider)
+	registry.Register(bash.New())
 
 	// S009: wire the Claude tab as the per-branch multi-tab hook. The
 	// store delegates non-tmux multi-instance AddTab/RemoveTab through
@@ -275,6 +281,7 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 	// S012: stop the per-branch worktree watcher and release its
 	// fsnotify file descriptors before the process exits.
 	gitProvider.Close()
+	sprintProvider.Close()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown", "err", err)
 	}
