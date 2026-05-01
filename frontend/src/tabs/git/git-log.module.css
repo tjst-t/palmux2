@@ -1,20 +1,114 @@
+.layout {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.filterRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+  align-items: center;
+}
+
+.filterInput {
+  background: var(--color-elevated);
+  color: var(--color-fg);
+  border: 1px solid var(--color-border);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  flex: 1 1 140px;
+  min-width: 100px;
+}
+.filterInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.filterCheck {
+  font-size: 12px;
+  color: var(--color-fg-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.filterBtn {
+  background: var(--color-elevated);
+  color: var(--color-fg);
+  border: 1px solid var(--color-border);
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.filterBtn:hover {
+  background: var(--color-bg);
+}
+
+.body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+@media (max-width: 900px) {
+  .body {
+    grid-template-columns: 1fr;
+  }
+  .detailPane {
+    display: none;
+  }
+}
+
+.listPane {
+  overflow-y: auto;
+  border-right: 1px solid var(--color-border);
+}
+
+.detailPane {
+  overflow-y: auto;
+  padding: var(--space-3);
+}
+
 .list {
   list-style: none;
   margin: 0;
   padding: var(--space-2) 0;
+  position: relative;
+}
+
+.graph {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
 }
 
 .row {
   display: grid;
-  grid-template-columns: 80px 1fr auto auto;
+  grid-template-columns: 80px minmax(0, 1fr) auto auto auto;
   gap: var(--space-3);
   padding: var(--space-1) var(--space-3);
   font-size: 12px;
   color: var(--color-fg);
   align-items: center;
+  cursor: pointer;
+  user-select: none;
 }
 .row:hover {
   background-color: var(--color-elevated);
+}
+.rowActive {
+  background-color: var(--color-elevated);
+  border-left: 2px solid var(--color-accent);
 }
 
 .hash {
@@ -26,6 +120,20 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.refs {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.refPill {
+  font-size: 10px;
+  padding: 1px 6px;
+  background: var(--color-accent-dark);
+  color: var(--color-fg);
+  border-radius: 999px;
+  white-space: nowrap;
 }
 
 .author,
@@ -42,4 +150,92 @@
 }
 .error {
   color: var(--color-error);
+}
+
+.loadMore {
+  display: block;
+  margin: var(--space-3) auto;
+  padding: 6px 16px;
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-fg);
+  cursor: pointer;
+  font-size: 12px;
+}
+.loadMore:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.contextMenu {
+  position: fixed;
+  z-index: 1000;
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  box-shadow: var(--shadow-floating, 0 4px 14px rgba(0, 0, 0, 0.4));
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  padding: 4px 0;
+}
+.contextMenu button {
+  background: transparent;
+  border: none;
+  color: var(--color-fg);
+  padding: 8px 14px;
+  text-align: left;
+  font-size: 12px;
+  cursor: pointer;
+}
+.contextMenu button:hover {
+  background: var(--color-bg);
+}
+
+.detail {
+  font-size: 12px;
+}
+
+.detailSubject {
+  font-size: 14px;
+  margin: 0 0 var(--space-3) 0;
+  font-weight: 600;
+}
+
+.detailList {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: 4px var(--space-2);
+  margin: 0 0 var(--space-3) 0;
+}
+.detailList dt {
+  color: var(--color-fg-muted);
+  font-size: 11px;
+}
+.detailList dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.email {
+  color: var(--color-fg-muted);
+}
+
+.parent {
+  background: var(--color-elevated);
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-right: 4px;
+}
+
+.diff {
+  background: var(--color-bg);
+  padding: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow: auto;
+  white-space: pre;
 }

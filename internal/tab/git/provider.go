@@ -141,6 +141,36 @@ func (p *Provider) RegisterRoutes(mux *http.ServeMux, prefix string) {
 
 	// AI commit message.
 	mux.HandleFunc("POST "+prefix+"/ai-commit-message", h.aiCommitMessage)
+
+	// === S013: history & common ops =====================================
+	// Rich log replaces the plain /log GET when the FE sends extra
+	// filter parameters; the unfiltered "limit"-only GET still works
+	// because logFiltered handles missing params gracefully.
+	mux.HandleFunc("GET "+prefix+"/log/filtered", h.logFiltered)
+	mux.HandleFunc("GET "+prefix+"/branch-graph", h.branchGraph)
+
+	// Stash CRUD.
+	mux.HandleFunc("GET "+prefix+"/stash", h.stashList)
+	mux.HandleFunc("POST "+prefix+"/stash", h.stashPush)
+	mux.HandleFunc("POST "+prefix+"/stash/{name}/apply", h.stashApply)
+	mux.HandleFunc("POST "+prefix+"/stash/{name}/pop", h.stashPop)
+	mux.HandleFunc("DELETE "+prefix+"/stash/{name}", h.stashDrop)
+	mux.HandleFunc("GET "+prefix+"/stash/{name}/diff", h.stashDiff)
+
+	// Cherry-pick / Revert / Reset.
+	mux.HandleFunc("POST "+prefix+"/cherry-pick", h.cherryPick)
+	mux.HandleFunc("POST "+prefix+"/revert", h.revert)
+	mux.HandleFunc("POST "+prefix+"/reset", h.reset)
+
+	// Tag CRUD.
+	mux.HandleFunc("GET "+prefix+"/tags", h.tagList)
+	mux.HandleFunc("POST "+prefix+"/tags", h.tagCreate)
+	mux.HandleFunc("DELETE "+prefix+"/tags/{name}", h.tagDelete)
+	mux.HandleFunc("POST "+prefix+"/tags/push", h.tagPush)
+
+	// File history & blame.
+	mux.HandleFunc("GET "+prefix+"/file-history", h.fileHistory)
+	mux.HandleFunc("GET "+prefix+"/blame", h.blame)
 }
 
 func (p *Provider) startWatcher() {

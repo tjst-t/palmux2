@@ -21,8 +21,10 @@
 // drafts and the FileList can render dirty badges.
 
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { ApiError, api } from '../../lib/api'
+import { selectBranchById } from '../../stores/palmux-store'
 import {
   hasAnyDirty,
   isDirty,
@@ -83,6 +85,25 @@ export function FilePreview({ apiBase, repoId, branchId, path, lineNum }: Props)
   const previewMaxBytes = usePalmuxStore(
     (s) => s.globalSettings.previewMaxBytes ?? DEFAULT_PREVIEW_MAX_BYTES,
   )
+
+  // S013: navigate into the Git tab's File History / Blame sub-views.
+  // We resolve the Git tab's id from the open branch's tabSet so the
+  // URL stays correct even if a future patch renames the singleton.
+  const navigate = useNavigate()
+  const gitTabId = usePalmuxStore((s) => {
+    const branch = selectBranchById(repoId, branchId)(s)
+    return branch?.tabSet.tabs.find((t) => t.type === 'git')?.id ?? 'git'
+  })
+  const gotoGitHistory = useCallback(() => {
+    navigate(
+      `/${encodeURIComponent(repoId)}/${encodeURIComponent(branchId)}/${encodeURIComponent(gitTabId)}?fileHistory=${encodeURIComponent(path)}`,
+    )
+  }, [navigate, repoId, branchId, gitTabId, path])
+  const gotoGitBlame = useCallback(() => {
+    navigate(
+      `/${encodeURIComponent(repoId)}/${encodeURIComponent(branchId)}/${encodeURIComponent(gitTabId)}?blame=${encodeURIComponent(path)}`,
+    )
+  }, [navigate, repoId, branchId, gitTabId, path])
 
   const editorKey = useMemo(() => makeEditorKey(repoId, branchId, path), [repoId, branchId, path])
   const entry = useEditorStore((s) => s.entries[editorKey])
@@ -373,6 +394,24 @@ export function FilePreview({ apiBase, repoId, branchId, path, lineNum }: Props)
           <span className={styles.meta}>
             {fmtBytes(stat.size)} · {stat.mime || 'unknown'}
           </span>
+          <button
+            type="button"
+            className={styles.editButton}
+            onClick={gotoGitHistory}
+            data-testid="file-history-button"
+            title="Show this file's git history"
+          >
+            History
+          </button>
+          <button
+            type="button"
+            className={styles.editButton}
+            onClick={gotoGitBlame}
+            data-testid="file-blame-button"
+            title="Show git blame for this file"
+          >
+            Blame
+          </button>
           {editable && (
             <>
               {mode === 'view' ? (

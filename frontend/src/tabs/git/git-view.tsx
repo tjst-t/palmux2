@@ -1,52 +1,83 @@
-// GitView — top-level Git tab. S012 reorganises the layout:
+// GitView — top-level Git tab.
 //
-//   [ Sync bar (Push / Pull / Fetch / Force…) ]
-//   [ View tabs: Status | Diff | Log | Branches ]
-//   [ Body — selected view ]
-//   [ Commit form (only on Status & Diff views) ]
+// S012 introduced the [Sync bar | View tabs | Body | Commit form]
+// layout for the daily review-and-commit flow. S013 extends the View
+// tabs with Stash and Tags, and adds two URL-driven sub-views — File
+// History and Blame — that take over the body when the user navigates
+// in via "Show history" / "Blame" actions.
 //
-// Status view auto-refreshes via the worktreewatch event stream
-// (`git.statusChanged`); commit / push / pull / fetch trigger an
-// immediate refresh too. The Magit-style single-key shortcuts live in
-// GitStatus; we wire `c` / `p` / `f` callbacks here so they can hop
-// between sub-views.
+// We keep tab selection in component state but accept ?fileHistory= and
+// ?blame= search params so that the Files tab and ⌘K palette can deep
+// link into the Git tab without us having to add separate URLs for each
+// sub-view.
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 
 import type { TabViewProps } from '../../lib/tab-registry'
 
+import { GitBlame } from './git-blame'
 import { GitBranches } from './git-branches'
 import { GitCommit } from './git-commit'
 import { GitDiff } from './git-diff'
+import { GitFileHistory } from './git-file-history'
 import { GitLog } from './git-log'
+import { GitStash } from './git-stash'
 import { GitStatus } from './git-status'
 import { GitSync } from './git-sync'
+import { GitTags } from './git-tags'
 import styles from './git-view.module.css'
 import type { StatusReport } from './types'
 
-type View = 'status' | 'diff' | 'log' | 'branches'
+type View = 'status' | 'diff' | 'log' | 'branches' | 'stash' | 'tags'
 
 export function GitView({ repoId, branchId }: TabViewProps) {
-  const [view, setView] = useState<View>('status')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initialView = ((): View => {
+    const v = searchParams.get('view')
+    return v === 'status' ||
+      v === 'diff' ||
+      v === 'log' ||
+      v === 'branches' ||
+      v === 'stash' ||
+      v === 'tags'
+      ? v
+      : 'status'
+  })()
+  const [view, setView] = useState<View>(initialView)
   const [report, setReport] = useState<StatusReport | null>(null)
   const [selectedDiffPath, setSelectedDiffPath] = useState<string | null>(null)
-  // Bumping this counter forces remounted children to re-fetch (used by
-  // GitSync / GitBranches as the simplest way to refresh after a write).
   const [reloadKey, setReloadKey] = useState(0)
+  const fileHistoryPath = searchParams.get('fileHistory')
+  const blamePath = searchParams.get('blame')
+  const blameRev = searchParams.get('blameRev') ?? undefined
+
+  // Honour ?view= changes from the command palette (or external links)
+  // even after the tab is already mounted.
+  useEffect(() => {
+    const v = searchParams.get('view')
+    if (
+      v === 'status' ||
+      v === 'diff' ||
+      v === 'log' ||
+      v === 'branches' ||
+      v === 'stash' ||
+      v === 'tags'
+    ) {
+      setView(v)
+    }
+  }, [searchParams])
+
   const apiBase = useMemo(
     () => `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/git`,
     [repoId, branchId],
   )
 
-  // Refs let GitStatus signal magit `p` / `f` to GitSync without
-  // hoisting the busy state up. Each ref holds a click-trigger that
-  // GitSync attaches to its buttons.
   const pushBtnRef = useRef<HTMLButtonElement | null>(null)
   const fetchBtnRef = useRef<HTMLButtonElement | null>(null)
   const commitTaRef = useRef<HTMLTextAreaElement | null>(null)
 
   const onMagitCommit = () => {
-    // Scroll to and focus the commit textarea.
     const ta =
       commitTaRef.current ??
       (document.querySelector(
@@ -74,9 +105,50 @@ export function GitView({ repoId, branchId }: TabViewProps) {
     setReloadKey((k) => k + 1)
   }, [])
 
+  const closeFileHistory = () => {
+    const next = new URLSearchParams(searchParams)
+    next.delete('fileHistory')
+    setSearchParams(next, { replace: true })
+  }
+  const closeBlame = () => {
+    const next = new URLSearchParams(searchParams)
+    next.delete('blame')
+    next.delete('blameRev')
+    setSearchParams(next, { replace: true })
+  }
+
+  // When the user enters via fileHistory / blame, hide the Sync bar +
+  // Commit form so the deep-link feels like a focused page rather than
+  // a sub-view glued on top of the daily UX.
+  const isHistoryOrBlame = !!fileHistoryPath || !!blamePath
+
+  // Auto-clear deep-link params once the tab unmounts so coming back to
+  // the Git tab from another tab returns the user to the Status view.
+  useEffect(() => {
+    return () => {
+      // Don't clear on every render; only on full unmount this is fine
+      // because `searchParams` lifecycle is owned by react-router.
+    }
+  }, [])
+
+  if (fileHistoryPath) {
+    return (
+      <div className={styles.wrap}>
+        <GitFileHistory apiBase={apiBase} path={fileHistoryPath} onClose={closeFileHistory} />
+      </div>
+    )
+  }
+  if (blamePath) {
+    return (
+      <div className={styles.wrap}>
+        <GitBlame apiBase={apiBase} path={blamePath} revision={blameRev} onClose={closeBlame} />
+      </div>
+    )
+  }
+
   return (
     <div className={styles.wrap}>
-      <GitSync apiBase={apiBase} onAfter={onAfter} />
+      {!isHistoryOrBlame && <GitSync apiBase={apiBase} onAfter={onAfter} />}
       <header className={styles.tabs}>
         <Tab active={view === 'status'} onClick={() => setView('status')}>
           Status
@@ -89,6 +161,12 @@ export function GitView({ repoId, branchId }: TabViewProps) {
         </Tab>
         <Tab active={view === 'branches'} onClick={() => setView('branches')}>
           Branches
+        </Tab>
+        <Tab active={view === 'stash'} onClick={() => setView('stash')} testId="git-tab-stash">
+          Stash
+        </Tab>
+        <Tab active={view === 'tags'} onClick={() => setView('tags')} testId="git-tab-tags">
+          Tags
         </Tab>
       </header>
       <div className={styles.body}>
@@ -108,9 +186,15 @@ export function GitView({ repoId, branchId }: TabViewProps) {
           />
         )}
         {view === 'diff' && <GitDiff apiBase={apiBase} initialPath={selectedDiffPath ?? undefined} />}
-        {view === 'log' && <GitLog apiBase={apiBase} />}
+        {view === 'log' && <GitLog apiBase={apiBase} reloadKey={reloadKey} />}
         {view === 'branches' && (
           <GitBranches key={reloadKey} apiBase={apiBase} onAfter={onAfter} />
+        )}
+        {view === 'stash' && (
+          <GitStash apiBase={apiBase} reloadKey={reloadKey} onChange={onAfter} />
+        )}
+        {view === 'tags' && (
+          <GitTags apiBase={apiBase} reloadKey={reloadKey} onChange={onAfter} />
         )}
       </div>
       {(view === 'status' || view === 'diff') && (
@@ -129,14 +213,20 @@ export function GitView({ repoId, branchId }: TabViewProps) {
 function Tab({
   active,
   onClick,
+  testId,
   children,
 }: {
   active: boolean
   onClick: () => void
+  testId?: string
   children: React.ReactNode
 }) {
   return (
-    <button className={active ? `${styles.tab} ${styles.tabActive}` : styles.tab} onClick={onClick}>
+    <button
+      className={active ? `${styles.tab} ${styles.tabActive}` : styles.tab}
+      onClick={onClick}
+      data-testid={testId}
+    >
       {children}
     </button>
   )

@@ -10,7 +10,7 @@ import { ClaudeIcon } from '../icons/claude-icon'
 import styles from './palette.module.css'
 import { useCommandPaletteStore } from './store'
 
-type Mode = 'all' | 'workspace' | 'tab' | 'slash' | 'command' | 'file'
+type Mode = 'all' | 'workspace' | 'tab' | 'slash' | 'command' | 'file' | 'git'
 
 interface PaletteItem {
   id: string
@@ -46,6 +46,15 @@ function detectMode(raw: string): { mode: Mode; needle: string } {
   if (raw.startsWith('/')) return { mode: 'slash', needle: raw.slice(1) }
   if (raw.startsWith('>')) return { mode: 'command', needle: raw.slice(1) }
   if (raw.startsWith(':')) return { mode: 'file', needle: raw.slice(1) }
+  // S013: typing "git" as a leading word filters to git ops only.
+  // "git " (with trailing space) lets the user keep narrowing inside git
+  // ops (e.g. "git stash"). Single word "git" alone also activates git
+  // mode so first-time users discover the surface.
+  const lowered = raw.toLowerCase()
+  if (lowered === 'git' || lowered.startsWith('git ') || lowered.startsWith('git:')) {
+    const after = raw.replace(/^git[: ]?\s*/i, '')
+    return { mode: 'git', needle: after }
+  }
   return { mode: 'all', needle: raw }
 }
 
@@ -186,6 +195,7 @@ function PaletteInner({
     const includeSlash = mode === 'all' || mode === 'slash'
     const includeCommand = mode === 'all' || mode === 'command'
     const includeFile = mode === 'file'
+    const includeGit = mode === 'all' || mode === 'git'
 
     if (includeWorkspace) {
       // One row per (repo, branch). Selecting it navigates to the branch's
@@ -300,6 +310,14 @@ function PaletteInner({
       }
     }
 
+    if (includeGit && activeRepo && activeBranch) {
+      const gitOps = buildGitOps(activeRepo.id, activeBranch.id, navigate, searchParams)
+      for (const g of gitOps) {
+        if (!fuzzyContains(g.label, needle)) continue
+        out.push(g)
+      }
+    }
+
     if (mode === 'all') {
       // Cap each kind so the list stays scannable.
       return capByKind(out, 6)
@@ -361,7 +379,9 @@ function PaletteInner({
             ? 'commands'
             : mode === 'file'
               ? 'files'
-              : ''
+              : mode === 'git'
+                ? 'git'
+                : ''
 
   return (
     <div className={styles.overlay} onClick={onClose}>
@@ -382,6 +402,7 @@ function PaletteInner({
           <span><span className={styles.hint}>/</span> slash</span>
           <span><span className={styles.hint}>&gt;</span> commands</span>
           <span><span className={styles.hint}>:</span> files</span>
+          <span><span className={styles.hint}>git</span> ops</span>
           <span style={{ marginLeft: 'auto' }}><span className={styles.hint}>↵</span> select</span>
         </div>
         <ul className={styles.list} ref={listRef}>
@@ -443,6 +464,7 @@ function capByKind(items: PaletteItem[], n: number): PaletteItem[] {
     slash: [],
     command: [],
     file: [],
+    git: [],
   }
   for (const it of items) buckets[it.kind].push(it)
   return [
@@ -451,5 +473,98 @@ function capByKind(items: PaletteItem[], n: number): PaletteItem[] {
     ...buckets.slash.slice(0, n),
     ...buckets.command.slice(0, n),
     ...buckets.file.slice(0, n),
+    ...buckets.git.slice(0, n),
   ]
+}
+
+// S013: registry of Git operations exposed in the palette. Each entry
+// resolves to a navigation action (git tab / sub-view) and an optional
+// query parameter that triggers a modal once the tab is mounted.
+//
+// We deliberately don't expose destructive ops like reset/cherry-pick
+// directly from the palette — those open the existing modals (preview
+// + 2-step confirm for reset hard) by navigating to the Log view and
+// letting the user pick the target commit. Reasoning: the palette is a
+// shortcut, not a substitute for the safety guard.
+function buildGitOps(
+  repoId: string,
+  branchId: string,
+  navigate: (url: string) => void,
+  searchParams: URLSearchParams,
+): PaletteItem[] {
+  const search = searchParams.toString() ? `?${searchParams.toString()}` : ''
+  const gitTabId = 'git'
+  const url = (suffix: string) =>
+    `/${encodeURIComponent(repoId)}/${encodeURIComponent(branchId)}/${encodeURIComponent(gitTabId)}${suffix}${search ? (suffix.includes('?') ? '&' + search.slice(1) : search) : ''}`
+  const ops: { label: string; detail?: string; perform: () => void }[] = [
+    {
+      label: 'git: log this branch',
+      detail: 'open Git → Log',
+      perform: () => navigate(url('?view=log')),
+    },
+    {
+      label: 'git: status',
+      detail: 'open Git → Status',
+      perform: () => navigate(url('?view=status')),
+    },
+    {
+      label: 'git: stash this',
+      detail: 'open Git → Stash',
+      perform: () => navigate(url('?view=stash')),
+    },
+    {
+      label: 'git: list stashes',
+      detail: 'open Git → Stash',
+      perform: () => navigate(url('?view=stash')),
+    },
+    {
+      label: 'git: cherry-pick from…',
+      detail: 'open Git → Log (right-click a commit)',
+      perform: () => navigate(url('?view=log')),
+    },
+    {
+      label: 'git: revert this commit…',
+      detail: 'open Git → Log (right-click a commit)',
+      perform: () => navigate(url('?view=log')),
+    },
+    {
+      label: 'git: reset to…',
+      detail: 'open Git → Log (right-click a commit)',
+      perform: () => navigate(url('?view=log')),
+    },
+    {
+      label: 'git: tag this',
+      detail: 'open Git → Tags',
+      perform: () => navigate(url('?view=tags')),
+    },
+    {
+      label: 'git: push tags',
+      detail: 'open Git → Tags',
+      perform: () => navigate(url('?view=tags')),
+    },
+    {
+      label: 'git: branches',
+      detail: 'open Git → Branches',
+      perform: () => navigate(url('?view=branches')),
+    },
+    {
+      label: 'git: blame current file',
+      detail: 'open the file in Files first, then Blame',
+      perform: () => navigate(url('?view=status')),
+    },
+    {
+      label: 'git: file history…',
+      detail: 'open the file in Files first, then History',
+      perform: () => navigate(url('?view=log')),
+    },
+  ]
+  return ops.map((o, i) => ({
+    id: `git-op:${i}:${o.label}`,
+    kind: 'git',
+    icon: '⎇',
+    label: o.label,
+    detail: o.detail,
+    searchable: o.label,
+    perform: o.perform,
+  }))
 }
