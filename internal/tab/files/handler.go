@@ -69,6 +69,27 @@ func (h *handler) readFile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, errors.New("path required"))
 		return
 	}
+	// S010: `stat=1` returns metadata only (path, size, mime) without
+	// reading or shipping the body. The Files-tab viewer dispatcher
+	// uses this to decide whether to skip the preview entirely (file
+	// over the `previewMaxBytes` threshold) before incurring any
+	// bandwidth cost. We deliberately only sniff the first 512 bytes
+	// for MIME — the dispatcher mostly cares about extension anyway,
+	// and a tiny stat call should stay cheap on huge files.
+	if r.URL.Query().Get("stat") == "1" {
+		info, err := StatFile(root, path)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"path":     info.Path,
+			"size":     info.Size,
+			"mime":     info.MIME,
+			"isBinary": info.IsBinary,
+		})
+		return
+	}
 	limit := defaultReadLimit
 	if v := r.URL.Query().Get("limit"); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {

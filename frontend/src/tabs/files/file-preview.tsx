@@ -1,11 +1,45 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+// File-preview dispatcher (S010).
+//
+// Pre-S010 this file was a self-contained Markdown / image / drawio
+// renderer. It now drives the **viewer dispatcher** under
+// `./viewers/`: pick a viewer kind from path + size + MIME, then lazy-
+// load the matching component. The dispatcher does the size gate
+// before fetching, so files above `previewMaxBytes` (default 10 MiB)
+// never round-trip their body — important on mobile.
+
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 
 import { api } from '../../lib/api'
+import { usePalmuxStore } from '../../stores/palmux-store'
 
 import styles from './file-preview.module.css'
 import type { FileBody } from './types'
+import { pickViewer, type ViewerKind } from './viewers/dispatcher'
+import { TooLargeView } from './viewers/too-large-view'
+
+// Lazy-load the heavyweight viewers. Monaco is ~3 MB even after
+// tree-shaking; drawio's iframe is cheaper but still pulls in some
+// CSS. The markdown / image viewers are tiny but lazy-loading them
+// keeps the dispatcher uniform — no special-case branches.
+const MarkdownView = lazy(() =>
+  import('./viewers/markdown-view').then((m) => ({ default: m.MarkdownView })),
+)
+const MonacoView = lazy(() =>
+  import('./viewers/monaco-view').then((m) => ({ default: m.MonacoView })),
+)
+const ImageView = lazy(() =>
+  import('./viewers/image-view').then((m) => ({ default: m.ImageView })),
+)
+const DrawioView = lazy(() =>
+  import('./viewers/drawio-view').then((m) => ({ default: m.DrawioView })),
+)
+
+interface Stat {
+  path: string
+  size: number
+  mime: string
+  isBinary: boolean
+}
 
 interface Props {
   apiBase: string
@@ -14,16 +48,75 @@ interface Props {
   lineNum?: number
 }
 
+const DEFAULT_PREVIEW_MAX_BYTES = 10 * 1024 * 1024
+
 export function FilePreview({ apiBase, path, lineNum }: Props) {
+  const previewMaxBytes = usePalmuxStore(
+    (s) => s.globalSettings.previewMaxBytes ?? DEFAULT_PREVIEW_MAX_BYTES,
+  )
+
+  const [stat, setStat] = useState<Stat | null>(null)
   const [body, setBody] = useState<FileBody | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const codeRef = useRef<HTMLDivElement | null>(null)
 
+  // Step 1: stat the file (size + MIME) without loading the body. This
+  // lets us decide whether to bother fetching at all (the too-large
+  // case skips the body fetch entirely).
   useEffect(() => {
     let cancelled = false
+    setStat(null)
     setBody(null)
     setError(null)
+    setLoading(true)
+    ;(async () => {
+      try {
+        const data = await api.get<Stat>(
+          `${apiBase}/raw?path=${encodeURIComponent(path)}&stat=1`,
+        )
+        if (!cancelled) setStat(data)
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err))
+          setLoading(false)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [apiBase, path])
+
+  // Decide which viewer kind we want, based purely on the stat result.
+  // The decision is stable across re-renders so the lazy-import dance
+  // doesn't toggle between viewers as the body streams in.
+  const viewerKind: ViewerKind | null = useMemo(() => {
+    if (!stat) return null
+    return pickViewer({
+      path: stat.path,
+      size: stat.size,
+      mime: stat.mime,
+      maxBytes: previewMaxBytes,
+    })
+  }, [stat, previewMaxBytes])
+
+  // Step 2: fetch the body — but only when the chosen viewer needs it.
+  // Raster images load via `<img src=…>` directly so we don't waste
+  // bandwidth here; SVG / Markdown / Monaco / Drawio all need the
+  // text body.
+  useEffect(() => {
+    if (!stat || !viewerKind) return
+    if (viewerKind === 'too-large') {
+      setLoading(false)
+      return
+    }
+    // Raster images: viewer fetches via <img>, we don't need body.
+    const isSvg = stat.mime === 'image/svg+xml' || stat.path.toLowerCase().endsWith('.svg')
+    if (viewerKind === 'image' && !isSvg) {
+      setLoading(false)
+      return
+    }
+    let cancelled = false
     setLoading(true)
     ;(async () => {
       try {
@@ -38,64 +131,43 @@ export function FilePreview({ apiBase, path, lineNum }: Props) {
     return () => {
       cancelled = true
     }
-  }, [apiBase, path])
+  }, [apiBase, path, stat, viewerKind])
 
-  const lines = useMemo(() => (body?.content != null ? body.content.split('\n') : []), [body])
-
-  // Scroll to lineNum once the body is in the DOM. Re-runs when lineNum
-  // changes too so a user clicking another grep result re-targets the same
-  // file's preview.
-  useEffect(() => {
-    if (!body || !lineNum || lineNum <= 0) return
-    const target = codeRef.current?.querySelector<HTMLElement>(`[data-line="${lineNum}"]`)
-    if (target) target.scrollIntoView({ block: 'center', behavior: 'auto' })
-  }, [body, lineNum])
-
-  if (loading) return <p className={styles.placeholder}>Loading…</p>
   if (error) return <p className={styles.error}>{error}</p>
-  if (!body) return null
-
-  if (body.mime?.startsWith('image/')) {
-    return (
-      <div className={styles.imageWrap}>
-        <img alt={body.path} src={`${apiBase}/raw?path=${encodeURIComponent(path)}`} />
-      </div>
-    )
+  if (!stat || !viewerKind) {
+    return <p className={styles.placeholder}>{loading ? 'Loading…' : ''}</p>
   }
 
-  if (path.endsWith('.drawio') || path.endsWith('.drawio.svg') || path.endsWith('.drawio.png')) {
-    return <DrawioPreview path={body.path} content={body.content} />
-  }
-
+  // Render the chosen viewer. Each receives the same props envelope so
+  // adding a new viewer is one-liner-cheap from here.
   return (
-    <div className={styles.wrap}>
+    <div className={styles.wrap} data-testid="file-preview" data-viewer={viewerKind}>
       <header className={styles.header}>
-        <span className={styles.path}>{body.path}</span>
-        <span className={styles.meta}>{body.size} bytes • {body.mime}</span>
+        <span className={styles.path}>{stat.path}</span>
+        <span className={styles.meta}>
+          {fmtBytes(stat.size)} · {stat.mime || 'unknown'}
+        </span>
       </header>
-      {body.mime === 'text/markdown' ? (
-        <div className={styles.markdown}>
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{body.content}</ReactMarkdown>
-        </div>
-      ) : (
-        <div className={styles.code} ref={codeRef}>
-          {lines.map((ln, i) => {
-            const num = i + 1
-            const hl = num === lineNum
-            return (
-              <div
-                key={num}
-                data-line={num}
-                className={hl ? `${styles.line} ${styles.lineHl}` : styles.line}
-              >
-                <span className={styles.lineNum}>{num}</span>
-                <span className={styles.lineCode}>{ln === '' ? ' ' : ln}</span>
-              </div>
-            )
-          })}
-        </div>
-      )}
-      {body.truncated && (
+      <div className={styles.body}>
+        <Suspense fallback={<p className={styles.placeholder}>Loading viewer…</p>}>
+          {viewerKind === 'too-large' && (
+            <TooLargeView path={stat.path} size={stat.size} maxBytes={previewMaxBytes} />
+          )}
+          {viewerKind === 'markdown' && (
+            <MarkdownView apiBase={apiBase} path={path} body={body} lineNum={lineNum} />
+          )}
+          {viewerKind === 'image' && (
+            <ImageView apiBase={apiBase} path={path} body={body} />
+          )}
+          {viewerKind === 'monaco' && (
+            <MonacoView apiBase={apiBase} path={path} body={body} lineNum={lineNum} />
+          )}
+          {viewerKind === 'drawio' && (
+            <DrawioView apiBase={apiBase} path={path} body={body} />
+          )}
+        </Suspense>
+      </div>
+      {body?.truncated && (
         <p className={styles.truncated}>
           File truncated. Open in your editor for the full contents.
         </p>
@@ -104,49 +176,8 @@ export function FilePreview({ apiBase, path, lineNum }: Props) {
   )
 }
 
-// DrawioPreview embeds the diagrams.net public viewer in an iframe and pushes
-// the file's XML over postMessage. We don't render mxgraph ourselves — that
-// would be a 1MB+ runtime; the cross-origin viewer is the standard approach.
-function DrawioPreview({ path, content }: { path: string; content: string }) {
-  const iframeRef = useRef<HTMLIFrameElement | null>(null)
-  const [ready, setReady] = useState(false)
-
-  useEffect(() => {
-    function onMessage(e: MessageEvent) {
-      if (typeof e.data !== 'string' || !iframeRef.current) return
-      let msg: { event?: string }
-      try {
-        msg = JSON.parse(e.data)
-      } catch {
-        return
-      }
-      if (msg.event === 'init') {
-        // Viewer is ready; push the XML to render.
-        iframeRef.current.contentWindow?.postMessage(
-          JSON.stringify({ action: 'load', xml: content, autosave: 0 }),
-          '*',
-        )
-        setReady(true)
-      }
-    }
-    window.addEventListener('message', onMessage)
-    return () => window.removeEventListener('message', onMessage)
-  }, [content])
-
-  return (
-    <div className={styles.wrap}>
-      <header className={styles.header}>
-        <span className={styles.path}>{path}</span>
-        <span className={styles.meta}>drawio</span>
-      </header>
-      <iframe
-        ref={iframeRef}
-        title={`drawio: ${path}`}
-        src="https://viewer.diagrams.net/?embed=1&proto=json&spinner=1&chrome=0&toolbar=0"
-        style={{ flex: 1, minHeight: 0, border: 0, background: 'var(--color-elevated)' }}
-        sandbox="allow-scripts allow-same-origin"
-      />
-      {!ready && <p className={styles.placeholder}>Loading drawio viewer…</p>}
-    </div>
-  )
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KiB`
+  return `${(n / 1024 / 1024).toFixed(1)} MiB`
 }

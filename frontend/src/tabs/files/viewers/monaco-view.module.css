@@ -1,0 +1,18 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background-color: var(--color-bg);
+}
+
+.editor {
+  flex: 1;
+  min-height: 0;
+}
+
+.placeholder {
+  margin: var(--space-3);
+  font-size: 12px;
+  color: var(--color-fg-muted);
+}

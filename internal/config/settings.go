@@ -43,6 +43,13 @@ type Settings struct {
 	// Bash tabs are cheap (idle shells).
 	MaxBashTabsPerBranch int `json:"maxBashTabsPerBranch,omitempty"`
 
+	// PreviewMaxBytes is the soft cap on file size for in-browser preview
+	// in the Files tab (S010). Files above this threshold render a "too
+	// large to preview" placeholder instead of being shipped to the
+	// frontend Monaco / image / drawio viewers. 0 → fall through to
+	// DefaultPreviewMaxBytes.
+	PreviewMaxBytes int64 `json:"previewMaxBytes,omitempty"`
+
 	Toolbar json.RawMessage `json:"toolbar,omitempty"`
 }
 
@@ -64,6 +71,12 @@ const DefaultMaxClaudeTabsPerBranch = 3
 // inviting tab-spam.
 const DefaultMaxBashTabsPerBranch = 5
 
+// DefaultPreviewMaxBytes caps Files-tab preview at 10 MiB. Above this we
+// skip the bandwidth round-trip and render a placeholder client-side.
+// 10 MiB matches the S010 acceptance criterion. Configurable via
+// `previewMaxBytes` in settings.json.
+const DefaultPreviewMaxBytes int64 = 10 * 1024 * 1024
+
 // DefaultSettings returns a Settings populated with built-in defaults.
 func DefaultSettings() Settings {
 	return Settings{
@@ -72,6 +85,7 @@ func DefaultSettings() Settings {
 		AttachmentTtlDays:      DefaultAttachmentTtlDays,
 		MaxClaudeTabsPerBranch: DefaultMaxClaudeTabsPerBranch,
 		MaxBashTabsPerBranch:   DefaultMaxBashTabsPerBranch,
+		PreviewMaxBytes:        DefaultPreviewMaxBytes,
 	}
 }
 
@@ -185,6 +199,9 @@ func (s *SettingsStore) Patch(update Settings) (Settings, error) {
 	if update.MaxBashTabsPerBranch > 0 {
 		s.settings.MaxBashTabsPerBranch = update.MaxBashTabsPerBranch
 	}
+	if update.PreviewMaxBytes > 0 {
+		s.settings.PreviewMaxBytes = update.PreviewMaxBytes
+	}
 	if update.Toolbar != nil {
 		s.settings.Toolbar = update.Toolbar
 	}
@@ -226,5 +243,8 @@ func mergeWithDefaults(s *Settings, d Settings) {
 	}
 	if s.MaxBashTabsPerBranch <= 0 {
 		s.MaxBashTabsPerBranch = d.MaxBashTabsPerBranch
+	}
+	if s.PreviewMaxBytes <= 0 {
+		s.PreviewMaxBytes = d.PreviewMaxBytes
 	}
 }

@@ -4,13 +4,13 @@
 
 ## 進捗
 
-- **直近完了: S006 — `--add-dir` / `--file` UI** (autopilot 完了 / autopilot/S006 ブランチ)
-- 合計: 22 スプリント | 完了: 7 | 進行中: 0 | 残り: 15
-- [██████░░░░░░░░░░░░░░] 32%
+- **直近完了: S010 — Files preview 拡張 (Monaco / 画像 / Draw.io)** (autopilot 完了 / `autopilot/main/S010` ブランチ)
+- 合計: 22 スプリント | 完了: 10 | 進行中: 0 | 残り: 12
+- [█████████░░░░░░░░░░░] 45%
 
 ## 実行順序
 
-S001 ✅ → S002 ✅ → S003 ✅ → S007 ✅ → S004 ✅ → S005 ✅ → S006 ✅ → S008 ✅ → S009 ✅ → **S010** → **S011** → **S012** → **S013** → **S014** → **S015** → **S016** → **S017** → **S018** → **S019** → **S020** → **S021** → **S022**
+S001 ✅ → S002 ✅ → S003 ✅ → S007 ✅ → S004 ✅ → S005 ✅ → S006 ✅ → S008 ✅ → S009 ✅ → S010 ✅ → **S011** → **S012** → **S013** → **S014** → **S015** → **S016** → **S017** → **S018** → **S019** → **S020** → **S021** → **S022**
 
 ---
 
@@ -364,7 +364,7 @@ Palmux のユーザとして、Claude タブと Bash タブを同じ操作 (`+` 
 
 ---
 
-## スプリント S010: Files preview 拡張 (source code / 画像 / Draw.io) [ ]
+## スプリント S010: Files preview 拡張 (source code / 画像 / Draw.io) [DONE]
 
 現状の Files タブのプレビューは Markdown のみ対応。ソースコード / 画像 / Draw.io のプレビューを追加し、エディタや別ツールに切り替えずに Palmux 内で内容を確認できるようにする。本 sprint は **read-only**、編集機能は S011 で別途扱う。
 
@@ -375,36 +375,38 @@ Palmux のユーザとして、Claude タブと Bash タブを同じ操作 (`+` 
 - **Draw.io**: drawio webapp を **palmux2 サーバ自身にバンドル** (`internal/static/drawio/` に webapp 一式 + `embed.FS` 配信、サイズ +10MB 程度) — VISION「シングルユーザ・自前ホスティング前提」整合、オフライン動作対応。`<iframe src="/static/drawio/?embed=1&...">` で読み込み、postMessage で read-mode 起動
 - **既存 MD preview は維持** (markdown-it 経路はそのまま)。ファイル拡張子で **viewer 自動分岐**: `.md` → 既存 MD preview、`.drawio` / `.drawio.svg` → DrawioViewer、画像拡張子 → ImageView、それ以外 → MonacoView (read-only)、未知の拡張子 → raw text fallback
 
-### ストーリー S010-1: Files タブで主要ファイル形式をプレビューできる [ ]
+### ストーリー S010-1: Files タブで主要ファイル形式をプレビューできる [x]
 
 **ユーザーストーリー:**
 Palmux のユーザとして、Files タブで開いたソースコード・画像・Draw.io 図をその場でプレビューしたい。なぜなら、内容を確認するたびにエディタや別アプリに切り替えるのは煩雑で、ブラウザだけで完結できれば PC・モバイル両方で同じ体験ができるからだ。
 
 **受け入れ条件:**
-- [ ] Files タブで主要言語のソースコード (Go / TS/JS / Python / Rust / Java / C/C++ / shell / yaml / json / toml / sql / dockerfile 等) を開くとシンタックスハイライト付きで表示される
-- [ ] 行番号、word wrap、find (`Ctrl+F`)、code folding が動作する (Monaco builtin 機能)
-- [ ] 画像ファイル (png / jpg / gif / webp / svg) を開くとインラインで表示される
-- [ ] SVG 画像は `<script>` 等を除去した上で表示される (XSS 防御)
-- [ ] `.drawio` / `.drawio.svg` ファイルを開くと Draw.io ビューア (read-only mode) で図が表示される
-- [ ] Draw.io ビューアは palmux2 サーバ自身が提供する (外部 CDN 不要、オフライン動作)
-- [ ] 既存の MD preview は引き続き同じ見た目で表示される
-- [ ] 未知の拡張子のファイルは raw text として Monaco に表示される (fallback)
-- [ ] ファイルサイズが大きい (例: > 10MB) ときは「ファイルが大きすぎます」のメッセージを出して preview を抑制する
-- [ ] モバイル (< 600px) で全 viewer が表示崩れなく動作する
-- [ ] **VISION スコープ外機能 (autocomplete / LSP / 言語サーバ連携 / Refactor / Debugger) は明示的に OFF** (Monaco の対応 option を無効化)
+- [x] Files タブで主要言語のソースコード (Go / TS/JS / Python / Rust / Java / C/C++ / shell / yaml / json / toml / sql / dockerfile 等) を開くとシンタックスハイライト付きで表示される
+- [x] 行番号、word wrap、find (`Ctrl+F`)、code folding が動作する (Monaco builtin 機能)
+- [x] 画像ファイル (png / jpg / gif / webp / svg) を開くとインラインで表示される
+- [x] SVG 画像は `<script>` 等を除去した上で表示される (XSS 防御)
+- [x] `.drawio` / `.drawio.svg` ファイルを開くと Draw.io ビューア (read-only mode) で図が表示される
+- [x] Draw.io ビューアは palmux2 サーバ自身が提供する (外部 CDN 不要、オフライン動作)
+- [x] 既存の MD preview は引き続き同じ見た目で表示される
+- [x] 未知の拡張子のファイルは raw text として Monaco に表示される (fallback)
+- [x] ファイルサイズが大きい (例: > 10MB) ときは「ファイルが大きすぎます」のメッセージを出して preview を抑制する
+- [x] モバイル (< 600px) で全 viewer が表示崩れなく動作する
+- [x] **VISION スコープ外機能 (autocomplete / LSP / 言語サーバ連携 / Refactor / Debugger) は明示的に OFF** (Monaco の対応 option を無効化)
 
 **タスク:**
-- [ ] **タスク S010-1-1**: Monaco Editor を `npm i monaco-editor` で導入。`@monaco-editor/react` ラッパも同時導入。bundle 分割を検討 (lazy import で Files タブ初回開時のみロード)
-- [ ] **タスク S010-1-2**: フロントに viewer dispatcher (`frontend/src/tabs/files/viewers/index.ts` など) を新設。ファイル拡張子 → component の routing table を持つ
-- [ ] **タスク S010-1-3**: `MonacoView` (read-only) コンポーネントを実装。VISION スコープ外機能を OFF にする (`quickSuggestions: false`, `parameterHints: false`, `suggestOnTriggerCharacters: false`, `wordBasedSuggestions: false`, `acceptSuggestionOnEnter: 'off'`)
-- [ ] **タスク S010-1-4**: `ImageView` コンポーネントを実装。MIME / 拡張子別に処理: png/jpg/gif/webp は `<img>` 直接、SVG は **DOMPurify で sanitize** してから `<img>` の `data:` URL or インライン描画
-- [ ] **タスク S010-1-5**: drawio webapp (https://github.com/jgraph/drawio の `/src/main/webapp/`) をリポジトリの `internal/static/drawio/` に配置。LICENSE 表記もリポジトリに追加 (Apache-2.0)
-- [ ] **タスク S010-1-6**: バックエンドで `internal/static/` を `embed.FS` 化、`/static/drawio/*` ルートで配信。auth 不要 (静的アセット)
-- [ ] **タスク S010-1-7**: `DrawioViewer` コンポーネントを実装。`<iframe src="/static/drawio/?embed=1&modified=unsavedChanges&proto=json&spin=1">` で読み込み、`window.postMessage` で `{action: 'load', xml: <fileContent>}` を送信。read-only mode は drawio embed のオプションで指定
-- [ ] **タスク S010-1-8**: ファイルサイズ制限 — preview 前にサイズチェックして 10MB (設定可能) を超える場合は viewer 表示せず警告メッセージ
-- [ ] **タスク S010-1-9**: 既存 MD preview を新 viewer dispatcher に組み込む (既存挙動を変えずに refactor)
-- [ ] **タスク S010-1-10**: モバイルで各 viewer が破綻しないことをデザイン調整。Files タブの "preview-only" モード (既存) と整合
-- [ ] **タスク S010-1-11**: dev インスタンス + Playwright で実機検証。`tests/e2e/s010_*.py` で (a) Go / TS / Python ファイルがハイライト、(b) PNG / SVG が表示、(c) SVG の `<script>` が除去される、(d) `.drawio` ファイルが Draw.io iframe で読み込まれる、(e) MD は既存挙動、(f) 未知拡張子で raw text fallback、(g) 大ファイル抑制、(h) モバイル表示
+- [x] **タスク S010-1-1**: Monaco Editor を `npm i monaco-editor` で導入。`@monaco-editor/react` ラッパも同時導入。bundle 分割を検討 (lazy import で Files タブ初回開時のみロード)
+- [x] **タスク S010-1-2**: フロントに viewer dispatcher (`frontend/src/tabs/files/viewers/index.ts` など) を新設。ファイル拡張子 → component の routing table を持つ
+- [x] **タスク S010-1-3**: `MonacoView` (read-only) コンポーネントを実装。VISION スコープ外機能を OFF にする (`quickSuggestions: false`, `parameterHints: false`, `suggestOnTriggerCharacters: false`, `wordBasedSuggestions: false`, `acceptSuggestionOnEnter: 'off'`)
+- [x] **タスク S010-1-4**: `ImageView` コンポーネントを実装。MIME / 拡張子別に処理: png/jpg/gif/webp は `<img>` 直接、SVG は **DOMPurify で sanitize** してから `<img>` の `data:` URL or インライン描画
+- [x] **タスク S010-1-5**: drawio webapp (https://github.com/jgraph/drawio の `/src/main/webapp/`) をリポジトリの `internal/static/drawio/` に配置。LICENSE 表記もリポジトリに追加 (Apache-2.0)
+- [x] **タスク S010-1-6**: バックエンドで `internal/static/` を `embed.FS` 化、`/static/drawio/*` ルートで配信。auth 不要 (静的アセット)
+- [x] **タスク S010-1-7**: `DrawioViewer` コンポーネントを実装。`<iframe src="/static/drawio/?embed=1&modified=unsavedChanges&proto=json&spin=1">` で読み込み、`window.postMessage` で `{action: 'load', xml: <fileContent>}` を送信。read-only mode は drawio embed のオプションで指定
+- [x] **タスク S010-1-8**: ファイルサイズ制限 — preview 前にサイズチェックして 10MB (設定可能) を超える場合は viewer 表示せず警告メッセージ
+- [x] **タスク S010-1-9**: 既存 MD preview を新 viewer dispatcher に組み込む (既存挙動を変えずに refactor)
+- [x] **タスク S010-1-10**: モバイルで各 viewer が破綻しないことをデザイン調整。Files タブの "preview-only" モード (既存) と整合
+- [x] **タスク S010-1-11**: dev インスタンス + Playwright で実機検証。`tests/e2e/s010_*.py` で 11 アサーション全 PASS — (a) Go/TS/Python/Rust Monaco ハイライト、 (b) PNG raster、 (c) SVG `<script>` sanitize、 (d) `.drawio` iframe `/static/drawio/?embed=1`、 (e) MD ReactMarkdown 既存挙動、 (f) 未知拡張子 plaintext fallback、 (g) > 10 MiB 抑制 (body fetch なし)、 (h) mobile 414px parity。 詳細は [decisions.md](sprint-logs/S010/decisions.md)
+
+> 完了ログ: [docs/sprint-logs/S010/decisions.md](sprint-logs/S010/decisions.md). E2E: `tests/e2e/s010_files_preview.py` (11 アサーション PASS)。 Monaco lazy-loaded (3.6 MB chunk)、 DOMPurify SVG sanitize、 drawio webapp 21 MB embedded into binary (jgraph/drawio@5dc0133、 Apache-2.0)、 `previewMaxBytes` 設定 (default 10 MiB)、 `stat=1` 軽量 endpoint で size gate を body fetch 前に実施。 VISION スコープ外機能 (autocomplete / LSP / hover / occurrences highlight) を Monaco option で明示的に OFF。
 
 ---
 

@@ -103,6 +103,10 @@ export interface GlobalSettings {
   maxClaudeTabsPerBranch?: number
   /** S009: cap on Bash tabs per branch (default 5). */
   maxBashTabsPerBranch?: number
+  /** S010: max bytes shipped to the Files-tab preview (default 10 MiB).
+   *  Above this we render a "too large to preview" placeholder and skip
+   *  fetching the body. */
+  previewMaxBytes?: number
   toolbar?: Partial<ToolbarConfig>
 }
 

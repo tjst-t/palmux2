@@ -66,6 +66,40 @@ type FileInfo struct {
 	MIME     string `json:"mime,omitempty"`
 }
 
+// StatFile returns metadata (path / size / MIME / isBinary) without reading
+// the full body. Used by the Files-tab viewer dispatcher (S010) to skip the
+// preview round-trip for files above `previewMaxBytes`. We sniff only a
+// 512-byte head for MIME detection — that's enough for `looksBinary` and
+// `detectMIME` to make their decisions.
+func StatFile(worktreeRoot, relPath string) (FileInfo, error) {
+	abs, err := resolveSafePath(worktreeRoot, relPath)
+	if err != nil {
+		return FileInfo{}, err
+	}
+	st, err := os.Stat(abs)
+	if err != nil {
+		return FileInfo{}, err
+	}
+	if st.IsDir() {
+		return FileInfo{}, fmt.Errorf("%w: %s is a directory", ErrInvalidPath, relPath)
+	}
+	info := FileInfo{Path: relPath, Size: st.Size()}
+	f, err := os.Open(abs)
+	if err != nil {
+		return info, err
+	}
+	defer f.Close()
+	head := make([]byte, 512)
+	n, err := f.Read(head)
+	if err != nil && err != io.EOF {
+		return info, err
+	}
+	head = head[:n]
+	info.IsBinary = looksBinary(head)
+	info.MIME = detectMIME(relPath, head)
+	return info, nil
+}
+
 // ReadFile reads up to maxBytes of the file at relPath. Files larger than
 // readLimit are flagged isLarge so the UI can show a placeholder.
 func ReadFile(worktreeRoot, relPath string, maxBytes int64) ([]byte, FileInfo, error) {

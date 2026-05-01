@@ -30,6 +30,7 @@ type Deps struct {
 	Notify       *notify.Hub
 	Portman      *portman.Client
 	FrontendFS   fs.FS // embedded SPA bundle
+	StaticFS     fs.FS // embedded third-party assets (e.g. drawio webapp); served at /static/* (S010)
 	BasePath     string
 	Logger       *slog.Logger
 	HealthDetail map[string]any // optional fields appended to /api/health
@@ -61,6 +62,14 @@ func NewMux(deps Deps) *http.ServeMux {
 	root := http.NewServeMux()
 	root.HandleFunc("/auth", deps.Auth.AuthHandler)
 	root.Handle("/api/", deps.Auth.Middleware(apiMux))
+	// S010: serve bundled OSS assets (currently the drawio webapp used by
+	// the Files-tab `.drawio` viewer) under `/static/`. No auth gate — the
+	// content is public and the SPA needs to reference it from an iframe
+	// before any session cookie negotiation. Strip the `/static/` prefix
+	// so the embed FS sees `internal/static/<rest>`.
+	if deps.StaticFS != nil {
+		root.Handle("/static/", staticHandler(deps.StaticFS))
+	}
 	root.Handle("/", spaHandler(deps.FrontendFS, deps.BasePath))
 	return root
 }
@@ -229,6 +238,41 @@ func hasFile(fsys fs.FS, name string) bool {
 		return true
 	}
 	return false
+}
+
+// staticHandler serves /static/* from the embedded `internal/static` tree.
+// Used by S010 to ship the drawio webapp bundle (~21 MB) without an external
+// CDN. The `internal/static` prefix is preserved inside the embed but
+// stripped from the request path so an `index.html` lookup at `/static/drawio/`
+// hits `internal/static/drawio/index.html`.
+func staticHandler(staticFS fs.FS) http.Handler {
+	// fs.Sub strips the `internal/static/` prefix the embed left in the
+	// FS so request paths line up with the on-disk layout. Errors here
+	// only happen when the directive is wrong; default to a 404 handler
+	// so the server still boots.
+	sub, err := fs.Sub(staticFS, "internal/static")
+	if err != nil {
+		return http.NotFoundHandler()
+	}
+	fileServer := http.FileServer(http.FS(sub))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		// Aggressive caching is fine — the assets are pinned to a known
+		// upstream commit (see internal/static/drawio/README.md).
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		// Allow the SPA to load this in an iframe under the same origin.
+		// The drawio webapp itself sets X-Frame-Options at runtime via
+		// JS; nothing here needs to be done.
+		r2 := r.Clone(r.Context())
+		r2.URL.Path = strings.TrimPrefix(r.URL.Path, "/static")
+		if r2.URL.Path == "" {
+			r2.URL.Path = "/"
+		}
+		fileServer.ServeHTTP(w, r2)
+	})
 }
 
 func serveIndex(w http.ResponseWriter, _ *http.Request, fsys fs.FS) {

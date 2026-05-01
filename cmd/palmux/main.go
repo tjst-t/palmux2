@@ -208,8 +208,13 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		Notify:     notifyHub,
 		Portman:    portman.New(""),
 		FrontendFS: frontendFS,
-		BasePath:   basePath,
-		Logger:     slog.Default(),
+		// S010: serve bundled drawio webapp from internal/static via /static/*.
+		// fs.Sub is applied inside server.staticHandler so the request path
+		// `/static/drawio/...` resolves to `internal/static/drawio/...` in
+		// the embed.
+		StaticFS: palmux2.StaticFS,
+		BasePath: basePath,
+		Logger:   slog.Default(),
 		HealthDetail: map[string]any{
 			"version":    "phase-10",
 			"open":       authn.Open(),
