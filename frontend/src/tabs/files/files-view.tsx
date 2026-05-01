@@ -4,6 +4,7 @@ import { useLocation, useNavigate, useParams, useSearchParams } from 'react-rout
 import { Divider } from '../../components/divider'
 import { api } from '../../lib/api'
 import type { TabViewProps } from '../../lib/tab-registry'
+import { isDirty as isDirtyFn, makeEditorKey, useEditorStore } from '../../stores/editor-store'
 import { usePalmuxStore } from '../../stores/palmux-store'
 
 import { Breadcrumb } from './breadcrumb'
@@ -58,6 +59,26 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
     [repoId, branchId],
   )
 
+  // S011-1-6: dirty paths inside this branch — used by the FileList
+  // to decorate filenames with a `●` badge.
+  // We subscribe to the entries map and derive the array via useMemo
+  // so the selector returns a stable identity (Zustand's default
+  // selector compares with Object.is — returning a fresh array each
+  // tick would loop the renderer).
+  const entriesMap = useEditorStore((s) => s.entries)
+  const dirtyPaths = useMemo(() => {
+    const prefix = `${repoId}/${branchId}/`
+    const out: string[] = []
+    for (const k of Object.keys(entriesMap)) {
+      if (!k.startsWith(prefix)) continue
+      const e = entriesMap[k]
+      if (e.draft != null && e.pristine != null && e.draft !== e.pristine) {
+        out.push(k.slice(prefix.length))
+      }
+    }
+    return out
+  }, [entriesMap, repoId, branchId])
+
   const path = isUrlPanel ? resolvedDir : localPath
   const selected = isUrlPanel ? resolvedSelected : localSelected
   const selectedLine = isUrlPanel
@@ -87,6 +108,21 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
 
   const selectFile = useCallback(
     (filePath: string | null, lineNum?: number) => {
+      // S011-1-8: if the currently-selected file is dirty, confirm
+      // before swapping. Cancel keeps the user on the existing buffer.
+      const cur = isUrlPanel ? resolvedSelected : localSelected
+      if (cur && cur !== filePath) {
+        const key = makeEditorKey(repoId, branchId, cur)
+        if (isDirtyFn(useEditorStore.getState(), key)) {
+          const ok = window.confirm(
+            `You have unsaved changes in ${cur}. Discard them and switch files?`,
+          )
+          if (!ok) return
+          // User accepted — drop the draft so the next visit shows
+          // pristine content.
+          useEditorStore.getState().clearDraft(key)
+        }
+      }
       if (!isUrlPanel) {
         setLocalSelected(filePath)
         setLocalLine(lineNum)
@@ -105,7 +141,7 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
       const search = sp.toString()
       navigate(`${base}${tail}${search ? '?' + search : ''}`)
     },
-    [isUrlPanel, repoId, branchId, tabId, location.search, navigate, goToDir, path],
+    [isUrlPanel, repoId, branchId, tabId, location.search, navigate, goToDir, path, resolvedSelected, localSelected],
   )
 
   // Resolve splat → (listed dir, selected file) and fetch the dir listing.
@@ -219,7 +255,12 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
       >
         <div className={styles.listPane} style={{ flex: `0 0 ${listRatio}%` }}>
           {error && <p className={styles.error}>{error}</p>}
-          <FileList entries={entries} selected={selected ?? undefined} onPick={onPick} />
+          <FileList
+            entries={entries}
+            selected={selected ?? undefined}
+            onPick={onPick}
+            dirtyPaths={dirtyPaths}
+          />
         </div>
         <div className={styles.dividerWrap}>
           <Divider
@@ -232,7 +273,13 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
         </div>
         <div className={styles.previewPane}>
           {selected ? (
-            <FilePreview apiBase={apiBase} path={selected} lineNum={selectedLine} />
+            <FilePreview
+              apiBase={apiBase}
+              repoId={repoId}
+              branchId={branchId}
+              path={selected}
+              lineNum={selectedLine}
+            />
           ) : (
             <p className={styles.empty}>Pick a file to preview.</p>
           )}

@@ -52,6 +52,10 @@ func (p *Provider) RegisterRoutes(mux *http.ServeMux, prefix string) {
 	h := &handler{store: p.store}
 	mux.HandleFunc("GET "+prefix, h.listDir)
 	mux.HandleFunc("GET "+prefix+"/raw", h.readFile)
+	// S011: PUT writes the file back atomically (temp+rename) with
+	// `If-Match: <etag>` optimistic locking. Lives at the same `/raw`
+	// path as the GET so the URL contract is symmetric.
+	mux.HandleFunc("PUT "+prefix+"/raw", h.writeFile)
 	mux.HandleFunc("GET "+prefix+"/search", h.search)
 	mux.HandleFunc("GET "+prefix+"/grep", h.grep)
 }

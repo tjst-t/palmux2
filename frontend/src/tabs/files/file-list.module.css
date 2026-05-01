@@ -48,3 +48,12 @@
   font-size: 12px;
   margin: var(--space-3);
 }
+
+/* S011-1-6: dirty buffer indicator. Sized to read at a glance from the
+   file list without crowding short filenames. */
+.dirtyDot {
+  color: var(--color-warning);
+  font-weight: bold;
+  font-size: 13px;
+  margin-left: 2px;
+}

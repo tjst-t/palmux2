@@ -5,6 +5,10 @@ interface Props {
   entries: Entry[]
   selected?: string
   onPick: (entry: Entry) => void
+  /** S011-1-6: worktree-relative paths that have unsaved buffers in
+   *  the editor store. We render a `●` badge next to the filename so
+   *  the user sees their unsaved drafts at a glance. */
+  dirtyPaths?: string[]
 }
 
 function fmtSize(n: number): string {
@@ -20,26 +24,39 @@ function fmtDate(iso: string): string {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' })
 }
 
-export function FileList({ entries, selected, onPick }: Props) {
+export function FileList({ entries, selected, onPick, dirtyPaths }: Props) {
   if (entries.length === 0) {
     return <p className={styles.empty}>(empty directory)</p>
   }
+  const dirtySet = new Set(dirtyPaths ?? [])
   return (
     <ul className={styles.list}>
-      {entries.map((e) => (
-        <li key={e.path}>
-          <button
-            className={selected === e.path ? `${styles.row} ${styles.active}` : styles.row}
-            onClick={() => onPick(e)}
-            title={e.path}
-          >
-            <span className={styles.icon}>{e.isDir ? '📁' : iconFor(e.name)}</span>
-            <span className={styles.name}>{e.name}</span>
-            <span className={styles.meta}>{e.isDir ? '' : fmtSize(e.size)}</span>
-            <span className={styles.meta}>{fmtDate(e.modTime)}</span>
-          </button>
-        </li>
-      ))}
+      {entries.map((e) => {
+        const dirty = !e.isDir && dirtySet.has(e.path)
+        return (
+          <li key={e.path}>
+            <button
+              className={selected === e.path ? `${styles.row} ${styles.active}` : styles.row}
+              onClick={() => onPick(e)}
+              title={e.path}
+              data-dirty={dirty ? 'true' : undefined}
+            >
+              <span className={styles.icon}>{e.isDir ? '📁' : iconFor(e.name)}</span>
+              <span className={styles.name}>
+                {e.name}
+                {dirty && (
+                  <span className={styles.dirtyDot} data-testid="file-dirty-dot" title="Unsaved changes">
+                    {' '}
+                    ●
+                  </span>
+                )}
+              </span>
+              <span className={styles.meta}>{e.isDir ? '' : fmtSize(e.size)}</span>
+              <span className={styles.meta}>{fmtDate(e.modTime)}</span>
+            </button>
+          </li>
+        )
+      })}
     </ul>
   )
 }

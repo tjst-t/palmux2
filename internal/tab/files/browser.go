@@ -2,6 +2,8 @@ package files
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"io/fs"
@@ -270,6 +272,119 @@ func looksBinary(b []byte) bool {
 		}
 	}
 	return float64(nonprintable)/float64(len(b)) > 0.3
+}
+
+// ComputeETag derives a short, opaque, base64 hash from a file's mtime
+// (UnixNano) + size. We deliberately avoid hashing the full content so
+// that opening a 5 MiB Monaco buffer doesn't pay an extra hash pass —
+// mtime + size is good enough as a freshness fingerprint for the
+// optimistic-locking flow (S011: PUT requires `If-Match: <etag>`).
+//
+// The format is `"<hash>"` (with the surrounding quotes) so it can be
+// dropped straight into the HTTP `ETag` / `If-Match` headers without
+// further escaping. Compares are byte-equal, including the quotes.
+func ComputeETag(modTime time.Time, size int64) string {
+	h := sha256.Sum256([]byte(fmt.Sprintf("%d.%d", modTime.UnixNano(), size)))
+	enc := base64.RawURLEncoding.EncodeToString(h[:8])
+	return `"` + enc + `"`
+}
+
+// EtagFor returns the current ETag for a worktree-relative file. Returns
+// ErrInvalidPath / os errors for anything that can't be stat'd.
+func EtagFor(worktreeRoot, relPath string) (string, error) {
+	abs, err := resolveSafePath(worktreeRoot, relPath)
+	if err != nil {
+		return "", err
+	}
+	st, err := os.Stat(abs)
+	if err != nil {
+		return "", err
+	}
+	if st.IsDir() {
+		return "", fmt.Errorf("%w: %s is a directory", ErrInvalidPath, relPath)
+	}
+	return ComputeETag(st.ModTime(), st.Size()), nil
+}
+
+// WriteFile replaces the file at relPath atomically and returns the new
+// FileInfo + ETag. The write is atomic via a temp-file-then-rename so a
+// crash mid-write can never leave a half-written file in the worktree.
+//
+// The caller is expected to have already validated the `If-Match` ETag
+// against `EtagFor` before calling this — WriteFile doesn't re-check
+// the precondition (the handler does that, with a small race window
+// between EtagFor and rename, which is acceptable for a single-user
+// editor — we surface conflicts on the *next* save).
+//
+// Parent directories are NOT auto-created. Saving must target an
+// existing path that the user previously read; the Files tab is not a
+// "create new file" surface in S011 (that would arrive in a later
+// sprint).
+func WriteFile(worktreeRoot, relPath string, content []byte) (FileInfo, string, error) {
+	abs, err := resolveSafePath(worktreeRoot, relPath)
+	if err != nil {
+		return FileInfo{}, "", err
+	}
+	// Stat existing file to preserve permissions on rename. If the file
+	// doesn't exist we refuse — S011 is "edit existing files only".
+	st, err := os.Stat(abs)
+	if err != nil {
+		return FileInfo{}, "", err
+	}
+	if st.IsDir() {
+		return FileInfo{}, "", fmt.Errorf("%w: %s is a directory", ErrInvalidPath, relPath)
+	}
+
+	dir := filepath.Dir(abs)
+	tmp, err := os.CreateTemp(dir, ".palmux-write-*")
+	if err != nil {
+		return FileInfo{}, "", err
+	}
+	tmpPath := tmp.Name()
+	cleanup := func() {
+		_ = os.Remove(tmpPath)
+	}
+	if _, err := tmp.Write(content); err != nil {
+		_ = tmp.Close()
+		cleanup()
+		return FileInfo{}, "", err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		cleanup()
+		return FileInfo{}, "", err
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return FileInfo{}, "", err
+	}
+	if err := os.Chmod(tmpPath, st.Mode().Perm()); err != nil {
+		cleanup()
+		return FileInfo{}, "", err
+	}
+	if err := os.Rename(tmpPath, abs); err != nil {
+		cleanup()
+		return FileInfo{}, "", err
+	}
+
+	newSt, err := os.Stat(abs)
+	if err != nil {
+		return FileInfo{}, "", err
+	}
+	info := FileInfo{
+		Path: relPath,
+		Size: newSt.Size(),
+	}
+	// MIME / isBinary determination uses a fresh head sniff on the new
+	// content (the user may have changed the content type — e.g. saving
+	// over a `.txt` with binary bytes).
+	head := content
+	if len(head) > 512 {
+		head = head[:512]
+	}
+	info.IsBinary = looksBinary(head)
+	info.MIME = detectMIME(relPath, head)
+	return info, ComputeETag(newSt.ModTime(), newSt.Size()), nil
 }
 
 // detectMIME picks a MIME type by extension, falling back to "text/plain".

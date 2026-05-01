@@ -27,6 +27,67 @@
   white-space: nowrap;
 }
 
+/* S011: cluster meta + Edit/Save buttons on the right side. */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.dirtyDot {
+  color: var(--color-warning);
+  font-weight: bold;
+  font-size: 14px;
+  margin-left: 2px;
+}
+
+.editButton,
+.saveButton,
+.cancelButton {
+  font-size: 11px;
+  font-family: var(--font-ui, inherit);
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background-color: var(--color-surface);
+  color: var(--color-fg);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.editButton:hover:not(:disabled),
+.saveButton:hover:not(:disabled),
+.cancelButton:hover:not(:disabled) {
+  background-color: var(--color-elevated);
+  border-color: var(--color-accent);
+}
+
+.saveButton {
+  background-color: var(--color-accent);
+  color: white;
+  border-color: var(--color-accent);
+}
+
+.saveButton:hover:not(:disabled) {
+  background-color: var(--color-accent-light, var(--color-accent));
+}
+
+.editButton:disabled,
+.saveButton:disabled,
+.cancelButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.saveError {
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  background-color: var(--color-elevated);
+  color: var(--color-error);
+  font-size: 11px;
+  border-bottom: 1px solid var(--color-border);
+}
+
 .body {
   flex: 1;
   min-height: 0;
