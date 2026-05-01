@@ -1,0 +1,24 @@
+{
+  "started": 1777647528.5242655,
+  "ended": 1777647708.6552794,
+  "events": [
+    {
+      "t": 1777647529.3794415,
+      "rel": 0.8551759719848633,
+      "kind": "ws_open",
+      "detail": "ws://localhost:8291/api/events"
+    },
+    {
+      "t": 1777647529.5207677,
+      "rel": 0.996502161026001,
+      "kind": "ws_open",
+      "detail": "ws://localhost:8291/api/repos/tjst-t--palmux2--2d59/branches/autopilot--main--S009-fix-4--dbc1/tabs/bash%3Abash/attach?cols=117&rows=34"
+    },
+    {
+      "t": 1777647530.7849634,
+      "rel": 2.260697841644287,
+      "kind": "nav_done",
+      "detail": "http://localhost:8291/tjst-t--palmux2--2d59/autopilot--main--S009-fix-4--dbc1/bash:bash"
+    }
+  ]
+}

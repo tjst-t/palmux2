@@ -62,6 +62,18 @@ func (s *Store) SyncTmux(ctx context.Context) error {
 	for id := range s.knownConnIDs {
 		knownConns[id] = true
 	}
+	// S009-fix-4: same idea, applied to BASE sessions. Pre-fix, a stale
+	// or empty-repos.json palmux instance C with the default _palmux_
+	// prefix would walk every `_palmux_*` session, find none in its
+	// (empty) tracked set, and kill them all on every 5 s sync cycle —
+	// even sessions belonging to a healthy peer instance D. With the
+	// filter, C only kills sessions it created/recovered itself, so D's
+	// sessions survive even if D and C share the prefix. Symmetric to
+	// the knownConns check on group sessions above.
+	knownBases := make(map[string]bool, len(s.knownBaseSessions))
+	for n := range s.knownBaseSessions {
+		knownBases[n] = true
+	}
 	s.mu.RUnlock()
 
 	// 2. Kill zombie Palmux sessions (and group sessions with missing conn).
@@ -99,9 +111,21 @@ func (s *Store) SyncTmux(ctx context.Context) error {
 			// Doesn't match the format Palmux generates — leave alone.
 			continue
 		}
+		// S009-fix-4: only kill sessions THIS process previously
+		// created/recovered. Foreign `_palmux_*` sessions (a peer
+		// palmux instance with a stale repos.json or that simply runs
+		// without the matching repo) are left alone — otherwise C's
+		// sync_tmux would erase D's sessions every 5 s and the user
+		// observes Bash WS oscillating into "Reconnecting…".
+		if !knownBases[sess.Name] {
+			continue
+		}
 		if !tracked[sess.Name] {
 			s.logger.Info("sync_tmux: killing zombie session", "session", sess.Name)
 			_ = s.deps.Tmux.KillSession(ctx, sess.Name)
+			s.mu.Lock()
+			delete(s.knownBaseSessions, sess.Name)
+			s.mu.Unlock()
 		}
 	}
 

@@ -58,17 +58,18 @@ type Deps struct {
 
 // Store is concurrency-safe.
 type Store struct {
-	deps         Deps
-	mu           sync.RWMutex
-	repos        map[string]*domain.Repository // by RepoID
-	conns        map[string]*domain.Connection
-	knownConnIDs map[string]struct{} // S009-fix-2: ever-seen conn IDs (for cross-instance group session safety)
-	notifs       map[string]domain.Notification
-	logger       *slog.Logger
-	ghqRoot      string
-	hub          *EventHub
-	registry     *tab.Registry
-	multiTabHook MultiTabHook // S009: non-tmux multi providers (Claude)
+	deps              Deps
+	mu                sync.RWMutex
+	repos             map[string]*domain.Repository // by RepoID
+	conns             map[string]*domain.Connection
+	knownConnIDs      map[string]struct{} // S009-fix-2: ever-seen conn IDs (for cross-instance group session safety)
+	knownBaseSessions map[string]struct{} // S009-fix-4: base session names this process has created/recovered
+	notifs            map[string]domain.Notification
+	logger            *slog.Logger
+	ghqRoot           string
+	hub               *EventHub
+	registry          *tab.Registry
+	multiTabHook      MultiTabHook // S009: non-tmux multi providers (Claude)
 }
 
 // New creates a Store and hydrates it from disk. It does NOT start the sync
@@ -86,15 +87,16 @@ func New(deps Deps) (*Store, error) {
 		logger = slog.Default()
 	}
 	s := &Store{
-		deps:         deps,
-		repos:        map[string]*domain.Repository{},
-		conns:        map[string]*domain.Connection{},
-		knownConnIDs: map[string]struct{}{},
-		notifs:       map[string]domain.Notification{},
-		logger:       logger,
-		ghqRoot:      deps.GHQRoot,
-		hub:          hub,
-		registry:     deps.Registry,
+		deps:              deps,
+		repos:             map[string]*domain.Repository{},
+		conns:             map[string]*domain.Connection{},
+		knownConnIDs:      map[string]struct{}{},
+		knownBaseSessions: map[string]struct{}{},
+		notifs:            map[string]domain.Notification{},
+		logger:            logger,
+		ghqRoot:           deps.GHQRoot,
+		hub:               hub,
+		registry:          deps.Registry,
 	}
 	if err := s.hydrate(context.Background()); err != nil {
 		return nil, fmt.Errorf("store: hydrate: %w", err)

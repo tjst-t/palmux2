@@ -150,6 +150,12 @@ func (s *Store) CloseBranch(ctx context.Context, repoID, branchID string) error 
 	branch := repo.OpenBranches[idx]
 	repo.OpenBranches = append(repo.OpenBranches[:idx], repo.OpenBranches[idx+1:]...)
 	repoFullPath := repo.FullPath
+	// S009-fix-4: drop ownership of this base session — sync_tmux will
+	// no longer treat the next observation of this name as ours, so a
+	// reborn-by-peer session of the same name won't be killed.
+	if s.knownBaseSessions != nil {
+		delete(s.knownBaseSessions, branch.TabSet.TmuxSession)
+	}
 	s.mu.Unlock()
 
 	// Kill tmux first so client connections error out cleanly.
@@ -233,12 +239,30 @@ func (s *Store) collectOpenSpecs(ctx context.Context, branch *domain.Branch, res
 // ensureSession creates the tmux session (with the first window inline) and
 // then adds the rest. Idempotent — if the session already exists, only
 // missing windows are created.
+//
+// S009-fix-4: every base-session name we touch (whether we create it or
+// just observe it as already-live) is recorded in knownBaseSessions. The
+// zombie kill pass in SyncTmux uses that map to *only* kill sessions
+// this process previously owned, so a peer palmux instance with a stale
+// or empty repos.json can't make us tear down its base sessions every
+// 5 s. Symmetric to the knownConnIDs filter introduced in fix-2 for
+// __grp_xxx group sessions.
 func (s *Store) ensureSession(ctx context.Context, branch *domain.Branch, windows []tab.WindowSpec) error {
 	cwd := branch.WorktreePath
-	exists, err := s.deps.Tmux.HasSession(ctx, branch.TabSet.TmuxSession)
+	sessionName := branch.TabSet.TmuxSession
+	exists, err := s.deps.Tmux.HasSession(ctx, sessionName)
 	if err != nil {
 		return err
 	}
+	// Record ownership unconditionally. Reaching ensureSession for this
+	// branch means the process intends to manage this session — whether
+	// we created it just now (block below) or it survived from a
+	// previous run with the same name.
+	s.mu.Lock()
+	if s.knownBaseSessions != nil {
+		s.knownBaseSessions[sessionName] = struct{}{}
+	}
+	s.mu.Unlock()
 	if !exists {
 		if len(windows) == 0 {
 			// No terminal-backed providers (e.g. only Files/Git). Create a

@@ -133,11 +133,18 @@ func TestSyncTmux_RecreatesMissingSession(t *testing.T) {
 func TestSyncTmux_KillsZombieSessions(t *testing.T) {
 	s, mockTmux := newStoreFixture(t)
 
-	// A palmux-prefixed session not tracked by the Store is a zombie.
-	// Use a slug+hash repoID so the new strict ParseSessionName (S009-
+	// A palmux-prefixed session that THIS process previously created but
+	// is no longer tracked (branch closed, but the kill SIGNAL got lost
+	// somewhere) is a zombie.
+	// Use a slug+hash repoID so the strict ParseSessionName (S009-
 	// fix-3) recognises it as ours.
 	zombie := "_palmux_orphan-repo--dead_main--1234"
 	mockTmux.SeedSession(zombie)
+	// S009-fix-4: only sessions THIS process previously owned are
+	// killed as zombies. Mark `zombie` as ours.
+	s.mu.Lock()
+	s.knownBaseSessions[zombie] = struct{}{}
+	s.mu.Unlock()
 	// And one Palmux-managed session that the Store knows about.
 	repoID := "tjst-t--demo--abcd"
 	branchID := injectBranch(t, s, repoID, "/tmp/repo-demo", "main", true)
@@ -153,6 +160,25 @@ func TestSyncTmux_KillsZombieSessions(t *testing.T) {
 	}
 	if has, _ := mockTmux.HasSession(context.Background(), sessionName); !has {
 		t.Error("tracked session should be left alone")
+	}
+}
+
+// TestSyncTmux_LeavesForeignBaseSessionAlone — S009-fix-4: if a
+// `_palmux_*`-shaped session exists that THIS process never created or
+// recovered, it must be left alone (it's owned by a peer palmux process
+// or a stale prior instance with empty repos.json). Without this filter
+// the peer's sessions get killed every 5 s and the user observes their
+// Bash WS oscillating into "Reconnecting…" forever.
+func TestSyncTmux_LeavesForeignBaseSessionAlone(t *testing.T) {
+	s, mockTmux := newStoreFixture(t)
+	foreign := "_palmux_some-peer-repo--dead_main--1234"
+	mockTmux.SeedSession(foreign)
+	// Note: NOT registered in s.knownBaseSessions — that's the point.
+	if err := s.SyncTmux(context.Background()); err != nil {
+		t.Fatalf("SyncTmux: %v", err)
+	}
+	if has, _ := mockTmux.HasSession(context.Background(), foreign); !has {
+		t.Error("foreign-instance base session must not be killed")
 	}
 }
 
