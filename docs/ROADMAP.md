@@ -5,12 +5,12 @@
 ## 進捗
 
 - **直近完了: S006 — `--add-dir` / `--file` UI** (autopilot 完了 / autopilot/S006 ブランチ)
-- 合計: 7 スプリント | 完了: 7 | 進行中: 0 | 残り: 0
-- [████████████████████] 100%
+- 合計: 8 スプリント | 完了: 7 | 進行中: 0 | 残り: 1
+- [█████████████████░░░] 88%
 
 ## 実行順序
 
-S001 ✅ → S002 ✅ → S003 ✅ → S007 ✅ → S004 ✅ → S005 ✅ → S006 ✅
+S001 ✅ → S002 ✅ → S003 ✅ → S007 ✅ → S004 ✅ → S005 ✅ → S006 ✅ → **S008**
 
 ---
 
@@ -227,6 +227,49 @@ Palmux のユーザとして、現在の worktree に含まれていないコー
 - [x] **タスク S006-1-3**: 添付チップの見た目をディレクトリ・ファイルでも統一感のあるスタイルに揃える — 既存 `attachment` / `attachmentFileIcon` クラスを活用、kind に応じて 📁 / 📄 / image thumbnail を出し分け。`attachBtn` / `attachMenu` / `pathPicker` 系のスタイルは Fog palette の `--color-elevated` / `--color-border` / `--color-fg-muted` を踏襲
 - [x] **タスク S006-1-4**: ホスト機の `~/` 配下のファイルが選択できるか、サーバ側のセキュリティ範囲を `imageUploadDir` の方針に合わせて確認 — **decision D-3 でワークツリー内のみと決定**。Files API の `resolveSafePath` で traversal + symlink escape を弾く。`Manager.validateAddDirs` で 2 重に検証 (E2E で `path=../../etc` が 400 になることを確認、Go unit test も 6 シナリオ網羅)。Host picker は backlog 行きを明記
 
+> **追補 (S008 で再設計)**: ユーザレビューの結果、サーバ側のディレクトリ/ファイル参照は **`@` autocomplete に集約** する方針となり、本 sprint で追加した「Add directory」「Add file」ピッカー UI (`AttachMenu` の dir/file 項目および `PathPicker` コンポーネント) は **S008 で削除** する。代わりに「ローカルデバイスからのファイルアップロード」(画像以外も含む) を Upload Image 経路の汎化として実装する。`--add-dir` の BE プラミングは **アップロード先ディレクトリの自動登録** に流用される。
+
+---
+
+## スプリント S008: 任意ファイルのアップロード添付 (Upload Image 拡張) [ ]
+
+ユーザのデバイス (PC/スマホ/タブレット) にあるローカルファイルをアップロードして Claude Code に読ませる。S006 のサーバ側ピッカー UI は削除し、代わりに既存の **Upload Image 経路を画像以外のファイル全般に汎用化** する。VISION の「シングルユーザ・自前ホスティング前提」を踏襲し、ファイルは Anthropic File API ではなく palmux2 サーバ自身に保存する (`--file` フラグは使わない、S006 D-1 と同じ判断)。
+
+**設計の中核**:
+- アップロード先: `<attachmentUploadDir>/<repoId>/<branchId>/<sanitized-name>` (per-branch 隔離)
+- CLI 起動時に `--add-dir <attachmentUploadDir>/<repoId>/<branchId>` を **常に追加** → 添付ごとの respawn 不要
+- 送信時の振り分け: 画像 → 既存 `[image: <abspath>]` (vision 入力)、それ以外 → `@<abspath>` (Read される)
+- アップロード経路: GUI ボタン / drag-and-drop / paste の 3 経路すべて
+
+### ストーリー S008-1: ローカルファイルを 3 経路でアップロードして添付できる [ ]
+
+**ユーザーストーリー:**
+Palmux のユーザとして、自分のデバイスにあるファイル (テキスト / PDF / ログ / 画像 / 任意のドキュメント) を Claude に読ませたい。なぜなら、worktree に含まれていない参照資料を会話に持ち込みたいケースが頻繁にあり、サーバに事前配置するのは煩雑で、Anthropic File API への外部アップロードは privacy / quota / 認証経路の点で受け入れがたいからだ。
+
+**受け入れ条件:**
+- [ ] 既存の Upload Image 経路を画像以外のファイル種別にも拡張する (画像も同じ経路で動作継続)
+- [ ] Composer の `+` ボタンから「Attach file」を選択するとローカルのファイル選択ダイアログが開き、任意のファイルを選べる
+- [ ] Composer 領域へのドラッグ＆ドロップでも同じくアップロードされる (ファイル種別を問わない)
+- [ ] クリップボードからのペーストでもアップロードされる (画像クリップボードは既存挙動を維持しつつ、ファイルクリップボード一般もサポート)
+- [ ] アップロード成功後、Composer に添付チップが表示される (画像はサムネイル、それ以外は 📄 アイコン + ファイル名)
+- [ ] 添付チップの × ボタンで添付を取り消せる
+- [ ] 送信時に画像は `[image: <abspath>]`、それ以外は `@<abspath>` として user message 本文末尾に注入される (実 CLI で `Read` が走ることを確認)
+- [ ] S006 で追加したサーバ側ピッカー UI (`+` メニューの "Add directory" / "Add file"、`PathPicker` コンポーネント) は完全に削除される
+- [ ] アップロードファイルは per-branch ディレクトリに隔離され、TTL でクリーンアップされる
+
+**タスク:**
+- [ ] **タスク S008-1-1**: グローバル設定 `imageUploadDir` を `attachmentUploadDir` に汎化 (デフォルト `/tmp/palmux-uploads/`)。後方互換のため `imageUploadDir` キーが残っていれば `attachmentUploadDir` として読み込む
+- [ ] **タスク S008-1-2**: `POST /api/upload` の MIME 制限を解除し任意ファイルを受け付ける。保存先を `<attachmentUploadDir>/<repoId>/<branchId>/<sanitized-name>` (per-branch 隔離) に変更。レスポンスに絶対パス + MIME / 元ファイル名を含める
+- [ ] **タスク S008-1-3**: CLI 起動時の argv に `--add-dir <attachmentUploadDir>/<repoId>/<branchId>` を **常に含める** よう `Manager.EnsureClient` を修正。起動時固定で添付ごとの respawn 不要にする
+- [ ] **タスク S008-1-4**: Composer の `+` メニューを「Attach file」1 項目に簡素化。S006 の "Add directory" / "Add file" / "Upload image…" の 3 項目を統合
+- [ ] **タスク S008-1-5**: Composer に drag-and-drop ハンドラを追加。drop 領域は composer ルート、ファイル種別を問わず受け付ける。multi-file drop もサポート
+- [ ] **タスク S008-1-6**: 既存の paste ハンドラ (画像のみ対応) を画像以外のファイル Blob にも対応させる。`event.clipboardData.files` のすべてを処理
+- [ ] **タスク S008-1-7**: 添付チップの表示を MIME / 拡張子で分岐 (画像 → サムネイル、それ以外 → 📄 + ファイル名)。アップロード進行中の状態 (アップロード中 / 完了 / エラー) も視覚化
+- [ ] **タスク S008-1-8**: 送信時の振り分けロジックを実装: `kind === 'image'` → `[image: <abspath>]`、それ以外 → `@<abspath>` を user message 末尾に注入
+- [ ] **タスク S008-1-9**: S006 の `AttachMenu` の dir/file 項目、`PathPicker` コンポーネント、関連 CSS、WS frame の `addDirs[]` 受信経路 (`SendUserMessageWithDirs` を経由した user-supplied dirs) を削除。`Agent.AddDirs` フィールドと `validateAddDirs` 自体は upload dir の自動登録に流用するため残す
+- [ ] **タスク S008-1-10**: TTL クリーンアップを実装 — 起動時に `<attachmentUploadDir>/<repoId>/<branchId>/` 配下の N 日以上古いファイルを削除 (デフォルト 30 日、設定で変更可能)。ブランチ close 時の per-branch dir 削除も検討
+- [ ] **タスク S008-1-11**: dev インスタンス + Playwright で実機検証。`tests/e2e/s008_*.py` で (a) ファイル選択ダイアログ経由、(b) drag-and-drop、(c) paste の 3 経路を検証。`ps -ef | grep claude` で `--add-dir <attachmentUploadDir>/...` が argv に含まれることと、送信後の user message に `@<abspath>` (テキストファイル) / `[image: <abspath>]` (画像) が含まれることを確認
+
 ---
 
 ## 依存関係
@@ -235,6 +278,7 @@ Palmux のユーザとして、現在の worktree に含まれていないコー
 - S001 完了後に S002（Settings editor）を続けるのは、Plan モード UI で `permissions.allow` への自動追加を促すフローが Settings editor で確認できる流れになるため
 - S003（Sub-agent ツリー）は他のスプリントとデータ依存はないが、描画ロジックが大きいので独立 PR として扱う
 - S007（AskUserQuestion）は S001 と同じ「専用 kind ブロック + tool_result 抑制 + 専用 UI」パターンなので、S001 完了後に挿入することで実装の参照点が揃う。Phase 4 のバックログから昇格
+- S008（任意ファイルのアップロード添付）は **S006 のサーバ側ピッカー UI を削除する破壊的変更を含む**。S006 の `--add-dir` BE プラミングは upload dir の自動登録として残すが、`AttachMenu` の dir/file 項目と `PathPicker` は削除されるため、 S006 の後にしか実装できない
 
 ## バックログ
 
@@ -261,8 +305,8 @@ Phase 4 以降に位置付けられる項目。スコープ確定の段階で個
   Plan モード解除後の遷移先を FE が逆算しなくて済むよう、CLI 既定モードを明示的に返す。サイズ S。
 - [ ] **`suppressedToolUseIDs` 汎化リファクタ** (S007 由来)
   現在 `planToolUseIDs` / `askToolUseIDs` の 2 マップが mirror 実装で並んでいる。新しい "kind に re-tag + tool_result 抑制" 系のツールが増えるなら共通化を検討。サイズ S。
-- [ ] **Host-filesystem picker** (S006 由来)
-  S006 で worktree 内ピッカーを実装したが、ロードマップ S006-1-4 の問い「ホスト機の `~/` 配下のファイルが選択できるか」は **D-3 で意図的に worktree-only にした**。VISION 上はシングルユーザ・自前ホスティングなので host 公開は権限昇格にならないが、別 affordance (例: 「Browse host…」) + 別エンドポイント + 異なる視覚状態にして「責務越境最小 > 便利さ」を保ったうえで実装する必要あり。サイズ M。
+- [x] ~~**Host-filesystem picker** (S006 由来)~~
+  ユーザレビューで方針転換: サーバ側ファイル参照は `@` autocomplete に集約、ローカルデバイス上のファイルは S008 のアップロード経路を使う方針に決定。Host-filesystem picker は実装しない。
 - [ ] **Per-branch persisted attachments** (S006 由来)
   現状 dir/file チップは UI state のみで、ページリロード / ブランチ切替で消える。`@CLAUDE.md` のような毎回付けたい参照を「このブランチには常にこの dir/file を含める」設定として永続化する。サイズ S/M。
 - [ ] **Composer Enter キー submit の inline-completion 挙動調査** (S006 E2E 由来)
