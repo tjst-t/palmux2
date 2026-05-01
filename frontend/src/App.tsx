@@ -11,6 +11,7 @@ import { MainLayout } from './components/main-layout'
 import { useEventStream } from './hooks/use-event-stream'
 import { useVisualViewport } from './hooks/use-visual-viewport'
 import { usePalmuxStore } from './stores/palmux-store'
+import { TestHarness } from './tabs/claude-agent/test-harness'
 
 function App() {
   const bootstrap = usePalmuxStore((s) => s.bootstrap)
@@ -44,6 +45,10 @@ function App() {
     <>
       <Routes>
         <Route path="/" element={<HomeOrLayout />} />
+        {/* S017: hidden test harness route. Drives the virtualised
+            ConversationList + Read-preview surface from synthetic data
+            so E2E doesn't need a live claude CLI. */}
+        <Route path="/__test/claude" element={<TestHarness />} />
         <Route path="/:repoId/:branchId/:tabId/*" element={<MainLayout />} />
       </Routes>
       <ContextMenuRenderer />

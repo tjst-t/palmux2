@@ -7,6 +7,7 @@ import remarkGfm from 'remark-gfm'
 import { DiffView, buildSyntheticDiff } from '../../components/diff/diff-view'
 import { relativeToWorktree, urlForFiles } from '../../lib/tab-nav'
 import { selectBranchById, usePalmuxStore } from '../../stores/palmux-store'
+import { DEFAULT_READ_PREVIEW_LINE_COUNT } from './read-preview'
 
 import type { AskOption, AskQuestion, Block, Turn } from './types'
 import styles from './blocks.module.css'
@@ -715,9 +716,35 @@ function ToolInputRich({ block }: { block: Block }) {
 
 function ToolResultBlock({ block }: { block: Block }) {
   const [expanded, setExpanded] = useState(false)
+  // S017: when expanded, large outputs default to a leading-N-lines
+  // preview with a "Show all (X lines)" affordance. The preview cap
+  // comes from globalSettings.readPreviewLineCount (default 50). This
+  // applies to ANY tool_result — Read is the canonical case but Bash
+  // / Grep / etc. all benefit from the same throttle.
+  const previewLineCount = usePalmuxStore(
+    (s) => s.globalSettings.readPreviewLineCount ?? DEFAULT_READ_PREVIEW_LINE_COUNT,
+  )
+  const [showAll, setShowAll] = useState(false)
   const output = block.output ?? ''
   const preview = firstLine(output)
   const showToggle = output.includes('\n') || output.length > preview.length
+  // Compute total lines once. `output.split('\n')` keeps a trailing
+  // empty cell for a trailing newline; we strip that for display so
+  // "Show all (51 lines)" doesn't become "52 lines" because of one
+  // trailing \n in the CLI output.
+  const totalLines = useMemo(() => {
+    if (!output) return 0
+    const n = output.split('\n').length
+    return output.endsWith('\n') ? n - 1 : n
+  }, [output])
+  const isLong = totalLines > previewLineCount
+  const previewBody = useMemo(() => {
+    if (!isLong || showAll) return output
+    // Slice on \n so we don't break in the middle of a line, and don't
+    // include a trailing newline that produces a phantom blank row.
+    const parts = output.split('\n')
+    return parts.slice(0, previewLineCount).join('\n')
+  }, [output, isLong, showAll, previewLineCount])
   return (
     <div className={`${styles.toolResult} ${block.isError ? styles.error : ''}`.trim()}>
       <div
@@ -742,8 +769,31 @@ function ToolResultBlock({ block }: { block: Block }) {
         {!expanded && preview && (
           <span className={styles.toolSummary}>{preview}</span>
         )}
+        {!expanded && isLong && (
+          <span className={styles.toolLines}>{totalLines} lines</span>
+        )}
       </div>
-      {(expanded || !showToggle) && output && <ToolResultBody output={output} />}
+      {(expanded || !showToggle) && output && (
+        <>
+          <ToolResultBody output={previewBody} />
+          {(expanded || !showToggle) && isLong && (
+            <button
+              type="button"
+              className={styles.showAllBtn}
+              data-testid="tool-result-toggle"
+              data-mode={showAll ? 'expanded' : 'preview'}
+              onClick={(e) => {
+                e.stopPropagation()
+                setShowAll((v) => !v)
+              }}
+            >
+              {showAll
+                ? `Show preview (first ${previewLineCount} lines)`
+                : `Show all (${totalLines} lines)`}
+            </button>
+          )}
+        </>
+      )}
     </div>
   )
 }

@@ -110,6 +110,9 @@ export interface GlobalSettings {
   /** S015: glob patterns marking auto-generated worktrees (subagent /
    *  autopilot output). Default `[".claude/worktrees/*"]`. */
   autoWorktreePathPatterns?: string[]
+  /** S017: number of leading lines of a Read tool result rendered
+   *  before the "Show all (X lines)" toggle is offered (default 50). */
+  readPreviewLineCount?: number
   toolbar?: Partial<ToolbarConfig>
 }
 

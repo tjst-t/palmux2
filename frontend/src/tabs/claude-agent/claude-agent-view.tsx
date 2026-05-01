@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { confirmDialog } from '../../components/context-menu/confirm-dialog'
 import { api } from '../../lib/api'
@@ -7,6 +7,13 @@ import type { TabViewProps } from '../../lib/tab-registry'
 import { BlockView } from './blocks'
 import styles from './claude-agent-view.module.css'
 import { Composer } from './composer'
+import {
+  ConversationList,
+  type ConversationListHandle,
+  scrollStorageKey,
+  usePersistScroll,
+  useScrollRestore,
+} from './conversation-list'
 import { HistoryPopup } from './history-popup'
 import { MCPPopup } from './mcp-popup'
 import { rollupTone, statusTone, type MCPStatusTone } from './mcp-status'
@@ -33,7 +40,7 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
   // each get their own WS / state cache. Empty / legacy `claude` folds
   // to the canonical id inside useAgent.
   const { state, connState, send } = useAgent(repoId, branchId, tabId)
-  const conversationRef = useRef<HTMLDivElement>(null)
+  const listHandleRef = useRef<ConversationListHandle | null>(null)
   const historyButtonRef = useRef<HTMLButtonElement | null>(null)
   const mcpButtonRef = useRef<HTMLButtonElement | null>(null)
   const [modes, setModes] = useState<PermissionModesResp>(FALLBACK_PERMISSION_MODES)
@@ -41,6 +48,21 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [mcpOpen, setMcpOpen] = useState(false)
+
+  // S017: virtualisation. Resolve the inner scroll container from the
+  // List's imperative API so scroll-restore / persist hooks can hang
+  // listeners off it. The element only exists after the first render
+  // of List, so we re-resolve on every render — cheap.
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  // Top-level turns + parent→children map. Sub-agent (Task) turns
+  // aren't virtualised separately; they nest inline via TaskTreeBlock.
+  const { topLevelTurns, childrenByParent } = useMemo(
+    () => splitTurnTree(state.turns),
+    [state.turns],
+  )
+  // Stable storage key for scroll restoration. tabId can be empty in
+  // legacy URLs — fold to a constant so the key shape is stable.
+  const storageKey = scrollStorageKey(repoId, branchId, tabId || 'claude')
   // planDecisions tracks the optimistic UI flip on click. The server
   // echoes plan.decided afterwards which makes the decision durable
   // (block.planDecision) — the optimistic state is only there to hide
@@ -77,23 +99,50 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
     return () => { cancelled = true }
   }, [])
 
-  // Auto-scroll to bottom unless the user scrolled up.
+  // S017: auto-scroll routes through the ConversationList imperative
+  // API. We can't just bump scrollTop on the wrapper because the
+  // wrapper isn't the scroll container any more — react-window owns
+  // the scroller and only it knows the precomputed total height.
   useEffect(() => {
     if (!autoFollow) return
-    const el = conversationRef.current
-    if (el) el.scrollTop = el.scrollHeight
+    const handle = listHandleRef.current
+    if (handle) handle.scrollToBottom('instant')
   }, [state.turns, state.status, autoFollow])
 
-  useEffect(() => {
-    const el = conversationRef.current
-    if (!el) return
-    const onScroll = () => {
-      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 24
+  // Bridge scroll events from List → autoFollow flag.
+  const onListScroll = useCallback(
+    (scrollTop: number, scrollHeight: number, clientHeight: number) => {
+      const atBottom = scrollHeight - scrollTop - clientHeight < 32
       setAutoFollow(atBottom)
-    }
-    el.addEventListener('scroll', onScroll)
-    return () => el.removeEventListener('scroll', onScroll)
-  }, [])
+      // Also keep containerRef in sync so the persist/restore hooks
+      // resolve the live element each render.
+      const el = listHandleRef.current?.element() ?? null
+      containerRef.current = el
+    },
+    [],
+  )
+
+  // Resolve containerRef on mount (List's element() lazy returns null
+  // until the first paint).
+  useEffect(() => {
+    const el = listHandleRef.current?.element() ?? null
+    containerRef.current = el
+  }, [state.sessionId])
+
+  // S017: scroll position persistence. Reload-resilient via
+  // localStorage keyed by sessionId so a session swap doesn't
+  // accidentally restore the wrong offset.
+  useScrollRestore({
+    sessionId: state.sessionId,
+    storageKey,
+    containerRef,
+    hasTurns: topLevelTurns.length > 0,
+  })
+  usePersistScroll({
+    sessionId: state.sessionId,
+    storageKey,
+    containerRef,
+  })
 
   // y / n shortcut for pending permission, only when composer doesn't have focus.
   useEffect(() => {
@@ -270,35 +319,54 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
         <pre className={styles.authError}>{state.authMessage}</pre>
       )}
 
-      <div className={styles.conversation} ref={conversationRef}>
-        <div className={styles.conversationInner}>
-          {state.errors.slice(-3).map((e) => (
-            <div key={e.id} className={styles.errorBanner}>
-              {e.message}
-              {e.detail && <small>{e.detail}</small>}
-            </div>
-          ))}
+      <div className={styles.conversation} data-testid="claude-conversation">
+        {state.errors.slice(-3).length > 0 && (
+          <div className={styles.errorBannerStack}>
+            {state.errors.slice(-3).map((e) => (
+              <div key={e.id} className={styles.errorBanner}>
+                {e.message}
+                {e.detail && <small>{e.detail}</small>}
+              </div>
+            ))}
+          </div>
+        )}
 
-          {state.turns.length === 0 ? (
-            <div className={styles.empty}>
-              <p>Start a conversation. Try “Summarise this repo” or “Open package.json”.</p>
-              <p style={{ marginTop: 12, fontSize: 11, color: 'var(--color-fg-dim)' }}>
-                Slash commands: <code>/clear</code> for a fresh session, <code>/model &lt;name&gt;</code> to switch.
-              </p>
-            </div>
-          ) : (
-            renderTurnsTree(state.turns, respondPermission, planHandlersFor, askHandlersFor)
-          )}
-        </div>
+        {state.turns.length === 0 ? (
+          <div className={styles.empty}>
+            <p>Start a conversation. Try “Summarise this repo” or “Open package.json”.</p>
+            <p style={{ marginTop: 12, fontSize: 11, color: 'var(--color-fg-dim)' }}>
+              Slash commands: <code>/clear</code> for a fresh session, <code>/model &lt;name&gt;</code> to switch.
+            </p>
+          </div>
+        ) : (
+          <ConversationList
+            ref={listHandleRef}
+            turns={topLevelTurns}
+            sessionKey={state.sessionId}
+            onScroll={onListScroll}
+            renderTurn={(turn) => (
+              <div className={styles.virtualTurnRow}>
+                <TurnView
+                  turn={turn}
+                  onRespondPermission={respondPermission}
+                  planHandlersFor={planHandlersFor}
+                  askHandlersFor={askHandlersFor}
+                  childrenByParent={childrenByParent}
+                />
+              </div>
+            )}
+          />
+        )}
         {!autoFollow && state.turns.length > 0 && (
           <button
             type="button"
             className={styles.scrollToBottomBtn}
+            data-testid="scroll-to-bottom"
             aria-label="Scroll to latest"
             title="Scroll to latest"
             onClick={() => {
-              const el = conversationRef.current
-              if (el) el.scrollTop = el.scrollHeight
+              listHandleRef.current?.scrollToBottom('smooth')
+              setAutoFollow(true)
             }}
           >
             <svg
@@ -460,38 +528,29 @@ function TurnView({
   )
 }
 
-// renderTurnsTree assembles the flat turns list into a parent/child
-// tree using each turn's parentToolUseId, then renders only the
-// top-level turns (children get rendered recursively from inside
-// TaskTreeBlock). This keeps reducer state flat and turn ordering
-// canonical — the tree is purely a presentational view.
-function renderTurnsTree(
-  turns: Turn[],
-  onRespondPermission: RespondPermissionFn,
-  planHandlersFor: (blockId: string | undefined) => PlanHandlersForView | undefined,
-  askHandlersFor: (blockId: string | undefined) => AskHandlersForView | undefined,
-) {
+// splitTurnTree partitions the flat turns list into top-level turns
+// (the units of virtualisation) and a parent→children map for
+// sub-agent (Task) turns. Children render inline inside TaskTreeBlock
+// rather than as their own virtual rows because the parent Task
+// block already owns the collapsing chrome and child transcripts are
+// typically short — splitting them across rows would couple row
+// heights in a way that defeats clean ResizeObserver measurement.
+function splitTurnTree(turns: Turn[]): {
+  topLevelTurns: Turn[]
+  childrenByParent: Map<string, Turn[]>
+} {
   const childrenByParent = new Map<string, Turn[]>()
-  const topLevel: Turn[] = []
+  const topLevelTurns: Turn[] = []
   for (const t of turns) {
     if (t.parentToolUseId) {
       const arr = childrenByParent.get(t.parentToolUseId) ?? []
       arr.push(t)
       childrenByParent.set(t.parentToolUseId, arr)
     } else {
-      topLevel.push(t)
+      topLevelTurns.push(t)
     }
   }
-  return topLevel.map((turn) => (
-    <TurnView
-      key={turn.id}
-      turn={turn}
-      onRespondPermission={onRespondPermission}
-      planHandlersFor={planHandlersFor}
-      askHandlersFor={askHandlersFor}
-      childrenByParent={childrenByParent}
-    />
-  ))
+  return { topLevelTurns, childrenByParent }
 }
 
 // findActivePlan walks the turns newest-first and returns the most

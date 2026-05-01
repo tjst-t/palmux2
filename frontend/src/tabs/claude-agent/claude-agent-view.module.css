@@ -112,43 +112,72 @@
 
 /* ──────────── Conversation ──────────── */
 
+/* S017: the conversation outer is a positioned flex column whose only
+   children are (a) a stack of error banners, (b) the empty-state
+   placeholder, (c) the virtualised list, and (d) the floating "scroll
+   to latest" button. The list owns its own internal scroll container
+   (react-window's `List`) so we no longer set overflow-y here — the
+   wrapper just hands its remaining height down to the List. */
 .conversation {
   flex: 1;
-  overflow-y: auto;
-  /* Hard cap on horizontal so a single tool block with long unbreakable
-     content (URL, base64, etc.) can't push the whole chat past the
-     viewport edge. The pre/code blocks below have their own internal
-     overflow-x: auto for that case. */
-  overflow-x: hidden;
-  padding: var(--space-4) var(--space-4) var(--space-3);
+  position: relative;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  min-height: 0;
   min-width: 0;
 }
 
-.conversationInner {
+/* S017: each virtualised row is itself a centered max-840 column so
+   prose doesn't sprawl on wide monitors. The padding sits inside the
+   row (not outside the list) so the scroll container's width matches
+   the viewport — otherwise the scrollbar appears off-center. */
+.virtualTurnRow {
   width: 100%;
   max-width: 840px;
-  /* Flex children default to min-width: auto, which is "intrinsic min
-     content size". For a column with embedded code blocks that's wider
-     than mobile viewports — explicit 0 lets us shrink. */
+  margin: 0 auto;
+  padding: 0 var(--space-4);
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-2);
 }
 
-/* Floating "scroll to latest" button — sticks to the bottom of the
-   conversation viewport while the user is scrolled up, and is hidden
-   (via conditional render) once they've returned to the bottom.
-   `flex: 0 0 auto` + `aspect-ratio: 1` keep it circular even though the
-   parent is a flex column with align-items: center (which would
-   otherwise let auto-width creep in). */
+/* S017: on mobile the side padding shrinks so we get more reading
+   width. The 600px breakpoint matches the rest of the codebase
+   (see CLAUDE.md "レスポンシブブレークポイント"). */
+@media (max-width: 600px) {
+  .virtualTurnRow {
+    padding: 0 var(--space-2);
+  }
+  .errorBannerStack {
+    padding: 0 var(--space-2);
+  }
+}
+
+/* S017: error banners stack above the virtualised list. Centered
+   to mirror the conversation column. */
+.errorBannerStack {
+  width: 100%;
+  max-width: 840px;
+  margin: var(--space-2) auto 0;
+  padding: 0 var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex: 0 0 auto;
+}
+
+/* S017: floating "scroll to latest" button — overlays the bottom of
+   the virtualised list. Position-absolute against the conversation
+   wrapper (which is position:relative) so it sits over the content.
+   Visible only when the user is not at the bottom (conditional
+   render in the React layer). */
 .scrollToBottomBtn {
-  position: sticky;
+  position: absolute;
   bottom: 16px;
-  align-self: center;
+  left: 50%;
+  transform: translateX(-50%);
   flex: 0 0 auto;
   width: 44px;
   height: 44px;
@@ -163,6 +192,7 @@
   cursor: pointer;
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
   transition: color 100ms ease, border-color 100ms ease, background 100ms ease;
+  z-index: 5;
 }
 .scrollToBottomBtn:hover {
   color: var(--color-fg);

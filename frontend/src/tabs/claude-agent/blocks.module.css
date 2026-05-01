@@ -189,6 +189,43 @@
   min-width: 0;
 }
 
+/* S017: line-count badge shown next to the collapsed tool_result
+   header when the output exceeds readPreviewLineCount. Distinct from
+   the per-line summary (.toolSummary) — this one always reads
+   "X lines". */
+.toolLines {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-fg-dim);
+  background: var(--color-surface);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  flex: 0 0 auto;
+}
+
+/* S017: "Show all (N lines)" / "Show preview" toggle that appears
+   under a long tool_result body. Distinct affordance from the
+   collapse chevron — preview means "you can see the head", expand
+   means "everything is rendered". */
+.showAllBtn {
+  align-self: flex-start;
+  margin-top: var(--space-1);
+  background: transparent;
+  border: 1px dashed var(--color-border);
+  color: var(--color-fg-muted);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  transition: color 100ms ease, border-color 100ms ease, background 100ms ease;
+}
+.showAllBtn:hover {
+  color: var(--color-fg);
+  border-color: var(--color-accent-light);
+  background: var(--color-surface);
+}
+
 .toolBadge {
   font-size: 10px;
   padding: 1px 5px;

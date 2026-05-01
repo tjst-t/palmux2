@@ -62,6 +62,14 @@ type Settings struct {
 	// signalled by the absence of the key.
 	AutoWorktreePathPatterns []string `json:"autoWorktreePathPatterns,omitempty"`
 
+	// ReadPreviewLineCount (S017) controls how many leading lines of a
+	// Read tool result are rendered before the "Show all (X lines)"
+	// toggle is offered. The FE consults this on each tool_result block
+	// and slices the body to `[:N]`. 0 → fall through to
+	// DefaultReadPreviewLineCount. Negative values are coerced to the
+	// default at PATCH time.
+	ReadPreviewLineCount int `json:"readPreviewLineCount,omitempty"`
+
 	Toolbar json.RawMessage `json:"toolbar,omitempty"`
 }
 
@@ -97,6 +105,11 @@ const DefaultPreviewMaxBytes int64 = 10 * 1024 * 1024
 // itself lives in internal/store).
 var DefaultAutoWorktreePathPatterns = []string{".claude/worktrees/*"}
 
+// DefaultReadPreviewLineCount caps Read tool result preview at 50
+// leading lines. Above this we render a "Show all (X lines)" toggle
+// (S017). Configurable via `readPreviewLineCount` in settings.json.
+const DefaultReadPreviewLineCount = 50
+
 // DefaultSettings returns a Settings populated with built-in defaults.
 func DefaultSettings() Settings {
 	return Settings{
@@ -107,6 +120,7 @@ func DefaultSettings() Settings {
 		MaxBashTabsPerBranch:     DefaultMaxBashTabsPerBranch,
 		PreviewMaxBytes:          DefaultPreviewMaxBytes,
 		AutoWorktreePathPatterns: append([]string(nil), DefaultAutoWorktreePathPatterns...),
+		ReadPreviewLineCount:     DefaultReadPreviewLineCount,
 	}
 }
 
@@ -223,6 +237,9 @@ func (s *SettingsStore) Patch(update Settings) (Settings, error) {
 	if update.PreviewMaxBytes > 0 {
 		s.settings.PreviewMaxBytes = update.PreviewMaxBytes
 	}
+	if update.ReadPreviewLineCount > 0 {
+		s.settings.ReadPreviewLineCount = update.ReadPreviewLineCount
+	}
 	// S015: a nil slice in the patch means "leave alone"; an explicit
 	// empty slice (provided by the FE as `[]`) clears all patterns;
 	// otherwise overwrite. We can't distinguish nil from `[]` after
@@ -284,6 +301,9 @@ func mergeWithDefaults(s *Settings, d Settings) {
 	}
 	if s.PreviewMaxBytes <= 0 {
 		s.PreviewMaxBytes = d.PreviewMaxBytes
+	}
+	if s.ReadPreviewLineCount <= 0 {
+		s.ReadPreviewLineCount = d.ReadPreviewLineCount
 	}
 	// S015: only inherit defaults when the key is *absent* from the file
 	// (decoded as nil). An explicit empty slice — `"autoWorktreePathPatterns": []`
