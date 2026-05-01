@@ -51,6 +51,17 @@ func (s *Store) SyncTmux(ctx context.Context) error {
 	for _, c := range s.conns {
 		connsAlive[c.ID] = true
 	}
+	// S009-fix-2: snapshot the set of conn IDs THIS process has ever
+	// issued. The zombie-kill pass below uses it to leave group sessions
+	// owned by other palmux instances alone (e.g. host + dev side-by-
+	// side, both pointed at the same tmux server). Pre-fix, instance B
+	// happily killed instance A's `__grp_xxx` because A's conn IDs were
+	// never in B's `connsAlive` map — exactly the user-reported 3-second
+	// WS reconnect loop on Bash tabs.
+	knownConns := make(map[string]bool, len(s.knownConnIDs))
+	for id := range s.knownConnIDs {
+		knownConns[id] = true
+	}
 	s.mu.RUnlock()
 
 	// 2. Kill zombie Palmux sessions (and group sessions with missing conn).
@@ -71,6 +82,14 @@ func (s *Store) SyncTmux(ctx context.Context) error {
 				continue
 			}
 			connID := sess.Name[idx+len(domain.SessionGroupSeparator):]
+			// S009-fix-2: only kill groups whose conn ID THIS process
+			// has previously issued. An unknown conn ID means the
+			// group belongs to another palmux instance sharing the
+			// same tmux server (host + dev co-located) — leave it
+			// alone or we'll trample its WS clients.
+			if !knownConns[connID] {
+				continue
+			}
 			if !connsAlive[connID] {
 				_ = s.deps.Tmux.KillSession(ctx, sess.Name)
 			}
@@ -94,6 +113,17 @@ func (s *Store) SyncTmux(ctx context.Context) error {
 			s.logger.Warn("sync_tmux: collect specs", "branch", r.branch.Name, "err", err)
 			continue
 		}
+		// S009-fix-2: enrich the spec list with every additional
+		// multi-instance window (e.g. `palmux:bash:bash-2`,
+		// `palmux:bash:bash-3`) that the in-memory tab list already
+		// knows about. Without this, `ensureSession` recreating a
+		// killed-and-recovered session would only reinstate the
+		// canonical `palmux:bash:bash` and silently lose every other
+		// Bash tab — exactly what the user reported as "the new Bash
+		// tab is gone after a few seconds / Reconnecting forever". The
+		// canonical Bash window is already in `windows` from the
+		// provider, so we de-duplicate by name.
+		windows = s.enrichRecoverySpecs(r.branch, windows)
 		if err := s.ensureSession(ctx, r.branch, windows); err != nil {
 			s.logger.Warn("sync_tmux: ensureSession", "branch", r.branch.Name, "err", err)
 			continue
@@ -111,6 +141,69 @@ func (s *Store) SyncTmux(ctx context.Context) error {
 		s.mu.Unlock()
 	}
 	return nil
+}
+
+// enrichRecoverySpecs adds back any extra multi-instance, tmux-backed
+// windows that the in-memory tab list knows about but the registered
+// Provider's OnBranchOpen wouldn't include. The Bash provider, for
+// example, only ever returns `palmux:bash:bash`; a recovery without this
+// step would forget every `bash-2`, `bash-3` the user added since the
+// session came up.
+//
+// IMPORTANT: this re-reads `s.repos` under the read lock instead of
+// relying on the snapshot the recovery loop captured earlier. Without
+// that, a RemoveTab that lands between toRecover construction and
+// ensureSession execution would have its deletion silently undone — we
+// would faithfully recreate a window the user just removed. (The pre-
+// fix S009-fix-2 bug: deleting `bash:bash-2`, then sync_tmux's mid-
+// flight cycle would resurrect it.)
+//
+// Singleton (Files/Git etc.) and non-tmux multi providers (Claude post-
+// S009) are skipped — they own their own state via OnBranchOpen / the
+// MultiTabHook.
+func (s *Store) enrichRecoverySpecs(branch *domain.Branch, base []tab.WindowSpec) []tab.WindowSpec {
+	if branch == nil {
+		return base
+	}
+	// Re-read the live branch state. If the branch was closed between
+	// the recovery snapshot and now, fall back to whatever specs the
+	// providers gave us — recreating the canonical Bash is harmless and
+	// the next recompute will bring everything in line.
+	s.mu.RLock()
+	var live *domain.Branch
+	if repo, ok := s.repos[branch.RepoID]; ok {
+		for _, b := range repo.OpenBranches {
+			if b.ID == branch.ID {
+				live = cloneBranch(b)
+				break
+			}
+		}
+	}
+	s.mu.RUnlock()
+	if live == nil || len(live.TabSet.Tabs) == 0 {
+		return base
+	}
+	have := map[string]bool{}
+	for _, w := range base {
+		have[w.Name] = true
+	}
+	cwd := live.WorktreePath
+	out := append([]tab.WindowSpec(nil), base...)
+	for _, t := range live.TabSet.Tabs {
+		if t.WindowName == "" || !t.Multiple {
+			continue
+		}
+		provider := s.registry.Get(t.Type)
+		if provider == nil || !provider.NeedsTmuxWindow() {
+			continue
+		}
+		if have[t.WindowName] {
+			continue
+		}
+		out = append(out, tab.WindowSpec{Name: t.WindowName, Cwd: cwd})
+		have[t.WindowName] = true
+	}
+	return out
 }
 
 // runSyncTmux is the goroutine driving SyncTmux on an interval.

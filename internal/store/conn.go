@@ -42,6 +42,14 @@ func (s *Store) AddConnection(repoID, branchID, tabID string) (*domain.Connectio
 		}
 	}
 	s.conns[id] = c
+	// S009-fix-2: remember every conn ID we've ever issued so sync_tmux's
+	// zombie-kill pass leaves group sessions belonging to OTHER palmux
+	// instances (sharing the same tmux server) alone. Without this guard,
+	// running a host + dev instance side-by-side trampled each other's
+	// `__grp_xxx` sessions, causing the user-reported 3-second WS
+	// reconnect loop. Capacity is bounded — group sessions are short-
+	// lived, so this set stays small in practice.
+	s.knownConnIDs[id] = struct{}{}
 	s.mu.Unlock()
 	return c, nil
 }

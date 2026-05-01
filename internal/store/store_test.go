@@ -175,7 +175,13 @@ func TestSyncTmux_KillsOrphanGroupSessions(t *testing.T) {
 	sessionName := domain.SessionName(repoID, branchID)
 	mockTmux.SeedSession(sessionName, tmux.Window{Index: 0, Name: fakeTerminalWindow})
 
-	// A group session whose connection has gone away.
+	// A group session whose connection has gone away. S009-fix-2:
+	// the conn ID must have been issued by THIS Store at some point;
+	// otherwise sync_tmux assumes it belongs to another palmux
+	// instance sharing the tmux server and leaves it alone.
+	s.mu.Lock()
+	s.knownConnIDs["stale"] = struct{}{}
+	s.mu.Unlock()
 	groupName := domain.GroupSessionName(sessionName, "stale")
 	mockTmux.SeedSession(groupName, tmux.Window{Index: 0, Name: fakeTerminalWindow})
 
@@ -184,6 +190,17 @@ func TestSyncTmux_KillsOrphanGroupSessions(t *testing.T) {
 	}
 	if has, _ := mockTmux.HasSession(context.Background(), groupName); has {
 		t.Error("orphan group session should be killed")
+	}
+
+	// Conversely: a group session whose conn ID we have never seen
+	// must NOT be killed (cross-instance safety).
+	foreignGroup := domain.GroupSessionName(sessionName, "from-other-instance")
+	mockTmux.SeedSession(foreignGroup, tmux.Window{Index: 0, Name: fakeTerminalWindow})
+	if err := s.SyncTmux(context.Background()); err != nil {
+		t.Fatalf("SyncTmux: %v", err)
+	}
+	if has, _ := mockTmux.HasSession(context.Background(), foreignGroup); !has {
+		t.Error("group session belonging to another palmux instance must be left alone")
 	}
 }
 

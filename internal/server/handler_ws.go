@@ -235,6 +235,17 @@ func (h *wsHandlers) attachTab(w http.ResponseWriter, r *http.Request) {
 	groupSession := domain.GroupSessionName(branch.TabSet.TmuxSession, conn.ID)
 	ctx := r.Context()
 
+	// S009-fix-2: a tmux session can be missing the target window if it
+	// was recreated by another palmux instance / sync_tmux cycle without
+	// the user-added Bash extras. Reconcile here so the next NewGroup +
+	// Attach succeed instead of bouncing the WS into a 3-second
+	// "Reconnecting…" loop.
+	if err := h.store.EnsureTabWindow(ctx, repoID, branchID, tabID); err != nil {
+		h.logger.Warn("EnsureTabWindow", "session", branch.TabSet.TmuxSession, "window", target.WindowName, "err", err.Error())
+		_ = c.Close(websocket.StatusInternalError, "failed to ensure tab window")
+		return
+	}
+
 	if err := h.tmux.NewGroupSession(ctx, branch.TabSet.TmuxSession, groupSession); err != nil {
 		h.logger.Warn("NewGroupSession", "err", err)
 		_ = c.Close(websocket.StatusInternalError, "failed to create session group")
@@ -252,7 +263,10 @@ func (h *wsHandlers) attachTab(w http.ResponseWriter, r *http.Request) {
 
 	pty, resize, err := h.tmux.Attach(ctx, groupSession, target.WindowName, attachOpts)
 	if err != nil {
-		h.logger.Warn("Attach", "err", err)
+		// S009-fix-2: surface the failure path so operators can grep for
+		// it. attachTab failures here are the user-facing "Reconnecting…"
+		// hotspot.
+		h.logger.Warn("attachTab Attach failed", "session", groupSession, "window", target.WindowName, "err", err.Error())
 		_ = c.Close(websocket.StatusInternalError, "failed to attach")
 		return
 	}

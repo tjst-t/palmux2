@@ -204,7 +204,20 @@ func (s *Store) RemoveTab(ctx context.Context, repoID, branchID, tabID string) e
 
 	if target.WindowName != "" {
 		if err := s.deps.Tmux.KillWindowByName(ctx, sessionName, target.WindowName); err != nil {
-			return err
+			// S009-fix-2: the user's intent is "this tab should be
+			// gone". If tmux says the window is already gone (race
+			// against sync_tmux recovery, external `kill-window`, or
+			// a previous failed RemoveTab whose recompute hadn't
+			// caught up), treat the call as success rather than a
+			// 500 — pre-fix this 500 left the FE state stuck because
+			// `removeTab` skips its `reloadRepos()` on throw, and
+			// the user reported the deleted Bash tab "stays in the
+			// TabBar until I add or remove a Claude tab".
+			if !isWindowGoneErr(err) {
+				return err
+			}
+			s.logger.Info("RemoveTab: window already gone, treating as success",
+				"session", sessionName, "window", target.WindowName)
 		}
 	} else if s.multiTabHook != nil {
 		// Non-tmux multi tab (Claude): hand off to the hook so per-tab
@@ -218,6 +231,27 @@ func (s *Store) RemoveTab(ctx context.Context, repoID, branchID, tabID string) e
 	s.mu.Unlock()
 	s.hub.Publish(Event{Type: EventTabRemoved, RepoID: repoID, BranchID: branchID, TabID: tabID})
 	return nil
+}
+
+// isWindowGoneErr matches tmux's various "the window/session is already
+// gone" error strings so RemoveTab can swallow them and still publish
+// `tab.removed`. Conservative — we only swallow the specific strings
+// tmux is known to produce; anything else propagates as a 500.
+func isWindowGoneErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "can't find window") {
+		return true
+	}
+	if strings.Contains(msg, "can't find session") {
+		return true
+	}
+	if strings.Contains(msg, "window") && strings.Contains(msg, "not found") {
+		return true
+	}
+	return false
 }
 
 // RenameTab renames a multi-instance tab's window. The tab ID changes
@@ -304,6 +338,78 @@ func (s *Store) ensureBranchSession(ctx context.Context, repoID, branchID string
 		return err
 	}
 	return s.ensureSession(ctx, b, specs)
+}
+
+// EnsureTabWindow guarantees that the tmux session AND the named window
+// for the given tab exist. Used by the terminal WS attach handler — pre-
+// fix the session/window could be GC'd between AddTab and the user's WS
+// attach (especially in the dual-instance dev/host setup). Without this
+// guard the attach handler creates the conn-group session on top of a
+// base that's missing the window, then `attach-session -t group:idx`
+// errors with "window not found" and the FE flips into "Reconnecting…"
+// forever. Idempotent: if the session is already alive and the window
+// is already there, this is just a couple of cheap tmux round-trips.
+//
+// Returns ErrRepoNotFound / ErrBranchNotFound / ErrTabNotFound when the
+// caller has stale state. Wraps any tmux-side error verbatim.
+func (s *Store) EnsureTabWindow(ctx context.Context, repoID, branchID, tabID string) error {
+	s.mu.RLock()
+	repo, ok := s.repos[repoID]
+	if !ok {
+		s.mu.RUnlock()
+		return ErrRepoNotFound
+	}
+	var branchSnap *domain.Branch
+	for _, br := range repo.OpenBranches {
+		if br.ID == branchID {
+			branchSnap = cloneBranch(br)
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if branchSnap == nil {
+		return ErrBranchNotFound
+	}
+	var target domain.Tab
+	for _, t := range branchSnap.TabSet.Tabs {
+		if t.ID == tabID {
+			target = t
+			break
+		}
+	}
+	if target.ID == "" || target.WindowName == "" {
+		return ErrTabNotFound
+	}
+	// 1. Make sure the base session exists (and was rebuilt with all
+	//    user-added bash windows where applicable — see
+	//    enrichRecoverySpecs in sync_tmux.go).
+	if err := s.ensureBranchSession(ctx, repoID, branchID); err != nil {
+		return fmt.Errorf("ensure branch session: %w", err)
+	}
+	// 2. Make sure the specific window we're about to attach to is in
+	//    the session. If it isn't (host-instance recovery recreated the
+	//    base without enrichment, external tmux kill, etc.) recreate it.
+	have, err := s.deps.Tmux.ListWindows(ctx, branchSnap.TabSet.TmuxSession)
+	if err != nil {
+		return fmt.Errorf("list windows: %w", err)
+	}
+	for _, w := range have {
+		if w.Name == target.WindowName {
+			return nil
+		}
+	}
+	// Missing — recreate. For Bash the cwd is the worktree path; the
+	// default shell starts automatically.
+	cwd := branchSnap.WorktreePath
+	if err := s.deps.Tmux.NewWindow(ctx, branchSnap.TabSet.TmuxSession, tmux.NewWindowOpts{
+		Name: target.WindowName,
+		Cwd:  cwd,
+	}); err != nil {
+		return fmt.Errorf("recreate window %q: %w", target.WindowName, err)
+	}
+	s.logger.Info("EnsureTabWindow: recreated missing window",
+		"session", branchSnap.TabSet.TmuxSession, "window", target.WindowName)
+	return nil
 }
 
 // pickNextWindowName chooses an available `palmux:{type}:{name}` for the
