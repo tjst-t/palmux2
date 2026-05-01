@@ -34,6 +34,12 @@ const (
 	EventClaudeError              EventType = "claude.error"
 	EventClaudeTurnEnd            EventType = "claude.turn_end"
 	EventClaudeSessionReplaced    EventType = "claude.session_replaced"
+
+	// Git tab events (S012). Fired by the per-branch worktree watcher
+	// (debounced 1s) and by direct write endpoints (commit, pull, branch
+	// switch) so connected browsers refresh the status view in real time.
+	EventGitStatusChanged    EventType = "git.statusChanged"
+	EventGitCredentialPrompt EventType = "git.credentialRequest"
 )
 
 // Event is one broadcastable change.

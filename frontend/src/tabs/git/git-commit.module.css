@@ -1,0 +1,98 @@
+.commit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12px;
+}
+.label {
+  color: var(--color-fg-muted);
+  font-weight: 600;
+}
+.staged {
+  color: var(--color-fg-dim);
+}
+
+.textarea {
+  font-family: var(--font-terminal, ui-monospace, monospace);
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 6px 8px;
+  background: var(--color-elevated);
+  color: var(--color-fg);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  resize: vertical;
+  min-height: 80px;
+  outline: none;
+}
+.textarea:focus {
+  border-color: var(--color-accent);
+}
+
+.options {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--color-fg-muted);
+  flex-wrap: wrap;
+}
+.opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.opt input {
+  cursor: pointer;
+}
+
+.error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-error, #ef4444);
+}
+.success {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-success, #64d2a0);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.aiBtn,
+.commitBtn {
+  border: 1px solid var(--color-border);
+  background: var(--color-elevated);
+  color: var(--color-fg);
+  padding: 5px 12px;
+  font-size: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.commitBtn {
+  background: var(--color-accent);
+  color: #fff;
+  border-color: var(--color-accent);
+  font-weight: 600;
+}
+.commitBtn:disabled,
+.aiBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.aiBtn:not(:disabled):hover,
+.commitBtn:not(:disabled):hover {
+  filter: brightness(1.1);
+}

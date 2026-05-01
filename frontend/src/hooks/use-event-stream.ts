@@ -35,6 +35,10 @@ export function useEventStream() {
         try {
           const msg = JSON.parse(ev.data) as RemoteEvent
           applyEvent(msg)
+          // S012: also re-broadcast as a DOM CustomEvent so component-
+          // local hooks (e.g. useGitStatusEvents) can subscribe to
+          // narrow event types without round-tripping through Zustand.
+          window.dispatchEvent(new CustomEvent('palmux:event', { detail: msg }))
         } catch {
           // ignore
         }

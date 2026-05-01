@@ -1,0 +1,47 @@
+.bar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  flex-wrap: wrap;
+}
+.btn {
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  color: var(--color-fg);
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn:not(:disabled):hover {
+  filter: brightness(1.1);
+}
+.danger {
+  color: var(--color-error, #ef4444);
+  border-color: var(--color-error, #ef4444);
+}
+.toast {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  padding: 3px 8px;
+  border-radius: 3px;
+  background: var(--color-bg);
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.toastError {
+  color: var(--color-error, #ef4444);
+}
+.toastSuccess {
+  color: var(--color-success, #64d2a0);
+}

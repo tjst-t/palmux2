@@ -4,8 +4,69 @@
 
 .toolbar {
   display: flex;
-  gap: var(--space-1);
+  gap: var(--space-3);
   margin-bottom: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.modeGroup {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.monacoLayout {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: var(--space-3);
+  height: calc(100% - 60px);
+  min-height: 320px;
+}
+
+.fileList {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.fileBtn {
+  text-align: left;
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fileBtn:hover {
+  background: var(--color-elevated);
+}
+.fileBtnActive {
+  color: var(--color-accent);
+  background: var(--color-elevated);
+}
+
+.monacoBody {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  display: flex;
+}
+
+@media (max-width: 899px) {
+  .monacoLayout {
+    grid-template-columns: 1fr;
+  }
+  .fileList {
+    max-height: 140px;
+  }
 }
 
 .modeBtn {

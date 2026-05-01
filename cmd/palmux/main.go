@@ -177,7 +177,8 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 	registry.Register(claudeagent.NewProvider(agentManager))
 	registry.Register(bash.New())
 	registry.Register(files.New(st))
-	registry.Register(gittab.New(st))
+	gitProvider := gittab.New(st)
+	registry.Register(gitProvider)
 
 	// S009: wire the Claude tab as the per-branch multi-tab hook. The
 	// store delegates non-tmux multi-instance AddTab/RemoveTab through
@@ -253,6 +254,9 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	agentManager.Shutdown()
+	// S012: stop the per-branch worktree watcher and release its
+	// fsnotify file descriptors before the process exits.
+	gitProvider.Close()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown", "err", err)
 	}

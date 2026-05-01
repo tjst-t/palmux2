@@ -6,6 +6,7 @@ package git
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -167,6 +168,36 @@ const (
 	DiffStaged  DiffMode = "staged"  // staged   (index vs HEAD)
 )
 
+// Show returns the contents of <ref>:<path> via `git show`. Used by the
+// Monaco diff viewer to fetch HEAD-side blob bodies (S012-1-10). For
+// missing or newly-added files git returns a non-zero exit; we surface
+// that as an empty string + nil error so the diff viewer renders the
+// added file as "all-new".
+func Show(ctx context.Context, repoDir, ref, path string) (string, error) {
+	if path == "" {
+		return "", errors.New("show: path required")
+	}
+	if ref == "" {
+		ref = "HEAD"
+	}
+	out, err := runGit(ctx, repoDir, "show", ref+":"+path)
+	if err != nil {
+		// `git show HEAD:newfile.txt` errors when the file doesn't
+		// exist at that ref. Treat that as empty so the diff editor
+		// can render the addition. We use a string match because
+		// runGit collapses stderr into the error.
+		s := strings.ToLower(err.Error())
+		if strings.Contains(s, "exists on disk, but not in") ||
+			strings.Contains(s, "does not exist in") ||
+			strings.Contains(s, "path '") && strings.Contains(s, "exists") ||
+			strings.Contains(s, "ambiguous argument") {
+			return "", nil
+		}
+		return "", err
+	}
+	return string(out), nil
+}
+
 // RawDiff returns the raw unified diff text.
 func RawDiff(ctx context.Context, repoDir string, mode DiffMode, path string) (string, error) {
 	args := []string{"diff", "--no-color", "--no-ext-diff"}
@@ -205,7 +236,7 @@ func Unstage(ctx context.Context, repoDir, path string) error {
 // them outright.
 func Discard(ctx context.Context, repoDir, path string) error {
 	if path == "" {
-		return fmt.Errorf("discard: path required")
+		return errors.New("discard: path required")
 	}
 	// `git restore` works for tracked files; for untracked, `git clean -f`.
 	if _, err := runGit(ctx, repoDir, "restore", "--", path); err != nil {
@@ -224,7 +255,7 @@ func Discard(ctx context.Context, repoDir, path string) error {
 // headers plus the chosen hunk). The caller is responsible for assembling
 // the patch.
 func ApplyHunk(ctx context.Context, repoDir, hunkPatch string, cached, reverse bool) error {
-	args := []string{"apply", "--unidiff-zero=false", "--whitespace=nowarn"}
+	args := []string{"apply", "--whitespace=nowarn"}
 	if cached {
 		args = append(args, "--cached", "--index")
 	}

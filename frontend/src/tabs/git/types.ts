@@ -54,3 +54,67 @@ export interface DiffResponse {
   raw: string
   files: DiffFile[] | null
 }
+
+// S012 ─ Commit / push / pull / branch types ─────────────────────────
+
+export interface CommitOptions {
+  message: string
+  amend?: boolean
+  signoff?: boolean
+  noVerify?: boolean
+  allowEmpty?: boolean
+}
+
+export interface CommitResult {
+  hash: string
+  subject: string
+}
+
+export interface PushOptions {
+  remote?: string
+  branch?: string
+  setUpstream?: boolean
+  force?: boolean
+  forceWithLease?: boolean
+  tags?: boolean
+}
+
+export interface PullOptions {
+  remote?: string
+  branch?: string
+  rebase?: boolean
+  ffOnly?: boolean
+  noCommit?: boolean
+}
+
+export interface FetchOptions {
+  remote?: string
+  prune?: boolean
+  all?: boolean
+}
+
+export interface CreateBranchOptions {
+  name: string
+  startFrom?: string
+  checkout?: boolean
+}
+
+export interface DeleteBranchOptions {
+  name: string
+  force?: boolean
+}
+
+export interface SetUpstreamOptions {
+  branch: string
+  upstream: string
+}
+
+export interface LineRange {
+  start: number
+  end: number
+}
+
+export interface StageLinesRequest {
+  path: string
+  lineRanges: LineRange[]
+}
