@@ -74,11 +74,19 @@ interface Props {
 
 const DEFAULT_PREVIEW_MAX_BYTES = 10 * 1024 * 1024
 
-/** Editable viewer kinds (S011). Image / Markdown stay read-only in
- *  S011; the Backlog has follow-ups for inline image edit / Markdown
- *  source-mode editing. */
+/** Editable viewer kinds (S011 + S011-fix-1).
+ *
+ *  - `monaco` / `drawio`: inline editors — original S011 scope.
+ *  - `markdown`: rendered preview by default; toggling Edit swaps in
+ *    MonacoView with `language=markdown` so users can edit the raw
+ *    source. The save path (PUT /files/raw + If-Match) is shared
+ *    with monaco/drawio. (S011-fix-1, regression discovered after
+ *    the original S011 implementation hard-coded markdown to
+ *    read-only — see docs/sprint-logs/S011-fix-1/decisions.md.)
+ *  - `image`: read-only; inline image editing stays in the backlog.
+ */
 function isEditable(kind: ViewerKind): boolean {
-  return kind === 'monaco' || kind === 'drawio'
+  return kind === 'monaco' || kind === 'drawio' || kind === 'markdown'
 }
 
 export function FilePreview({ apiBase, repoId, branchId, path, lineNum }: Props) {
@@ -278,6 +286,12 @@ export function FilePreview({ apiBase, repoId, branchId, path, lineNum }: Props)
         setPristine(editorKey, content, data.etag)
         clearDraft(editorKey)
         setConflict(editorKey, undefined)
+        // S011-fix-1: keep the local `body` (used by MarkdownView /
+        // ImageView re-render paths) in sync with what we just wrote
+        // to disk. Without this, toggling MD back to view-mode after
+        // a save shows the *pre-save* rendered content because
+        // MarkdownView consumes `body.content` directly.
+        setBody((prev) => (prev ? { ...prev, content, size: data.size } : prev))
       } catch (err) {
         if (err instanceof ApiError && err.status === 412) {
           // Already routed to the conflict dialog above.
@@ -465,8 +479,29 @@ export function FilePreview({ apiBase, repoId, branchId, path, lineNum }: Props)
           {viewerKind === 'too-large' && (
             <TooLargeView path={stat.path} size={stat.size} maxBytes={previewMaxBytes} />
           )}
-          {viewerKind === 'markdown' && (
+          {viewerKind === 'markdown' && mode === 'view' && (
             <MarkdownView apiBase={apiBase} path={path} body={body} lineNum={lineNum} />
+          )}
+          {viewerKind === 'markdown' && mode === 'edit' && (
+            // S011-fix-1: editing markdown source uses Monaco with the
+            // `markdown` language (not the rendered preview). Save
+            // path (PUT /files/raw + If-Match) is identical to
+            // monaco/drawio.
+            <MonacoView
+              key={`${editorKey}::md::${mode}`}
+              apiBase={apiBase}
+              path={path}
+              body={
+                entry?.draft != null && body
+                  ? { ...body, content: entry.draft }
+                  : body
+              }
+              lineNum={lineNum}
+              language="markdown"
+              mode={mode}
+              onChange={(v) => setDraft(editorKey, v)}
+              onSave={() => onMonacoSaveRef.current?.()}
+            />
           )}
           {viewerKind === 'image' && (
             <ImageView apiBase={apiBase} path={path} body={body} />
