@@ -76,8 +76,11 @@ func TestSettingsStore_Defaults(t *testing.T) {
 	if got.BranchSortOrder != "name" {
 		t.Errorf("default BranchSortOrder = %q", got.BranchSortOrder)
 	}
-	if got.ImageUploadDir != "/tmp/palmux-uploads/" {
-		t.Errorf("default ImageUploadDir = %q", got.ImageUploadDir)
+	if got.AttachmentUploadDir != "/tmp/palmux-uploads/" {
+		t.Errorf("default AttachmentUploadDir = %q", got.AttachmentUploadDir)
+	}
+	if got.AttachmentTtlDays != 30 {
+		t.Errorf("default AttachmentTtlDays = %d, want 30", got.AttachmentTtlDays)
 	}
 }
 

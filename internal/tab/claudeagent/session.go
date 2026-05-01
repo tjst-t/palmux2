@@ -27,11 +27,11 @@ type hookBlockRef struct {
 // the frontend. The CLI returns a much larger payload (account, plugins,
 // available skills, etc.) — we keep only what the UI actually consumes.
 type InitInfo struct {
-	Commands []SlashCommand `json:"commands,omitempty"`
-	Agents   []NamedItem    `json:"agents,omitempty"`
-	Models   []ModelDescriptor `json:"models,omitempty"`
-	OutputStyle           string   `json:"outputStyle,omitempty"`
-	AvailableOutputStyles []string `json:"availableOutputStyles,omitempty"`
+	Commands              []SlashCommand    `json:"commands,omitempty"`
+	Agents                []NamedItem       `json:"agents,omitempty"`
+	Models                []ModelDescriptor `json:"models,omitempty"`
+	OutputStyle           string            `json:"outputStyle,omitempty"`
+	AvailableOutputStyles []string          `json:"availableOutputStyles,omitempty"`
 }
 
 // SlashCommand describes one CLI-provided slash command.
@@ -49,13 +49,13 @@ type NamedItem struct {
 }
 
 type ModelDescriptor struct {
-	Value                  string   `json:"value"`
-	DisplayName            string   `json:"displayName,omitempty"`
-	Description            string   `json:"description,omitempty"`
-	SupportsEffort         bool     `json:"supportsEffort,omitempty"`
-	SupportedEffortLevels  []string `json:"supportedEffortLevels,omitempty"`
-	SupportsAdaptiveThinking bool   `json:"supportsAdaptiveThinking,omitempty"`
-	SupportsAutoMode       bool     `json:"supportsAutoMode,omitempty"`
+	Value                    string   `json:"value"`
+	DisplayName              string   `json:"displayName,omitempty"`
+	Description              string   `json:"description,omitempty"`
+	SupportsEffort           bool     `json:"supportsEffort,omitempty"`
+	SupportedEffortLevels    []string `json:"supportedEffortLevels,omitempty"`
+	SupportsAdaptiveThinking bool     `json:"supportsAdaptiveThinking,omitempty"`
+	SupportsAutoMode         bool     `json:"supportsAutoMode,omitempty"`
 }
 
 // parseInitInfo extracts the bits we care about from the CLI's initialize
@@ -92,9 +92,9 @@ type Session struct {
 	permissionMode   string
 	effort           string
 
-	status        AgentStatus
-	totalCostUSD  float64
-	authStatus    AuthStatus
+	status       AgentStatus
+	totalCostUSD float64
+	authStatus   AuthStatus
 
 	turns []*Turn
 
@@ -161,22 +161,22 @@ type Session struct {
 
 func NewSession(repoID, branchID, sessionID, model, permissionMode string) *Session {
 	return &Session{
-		repoID:            repoID,
-		branchID:          branchID,
-		sessionID:         sessionID,
-		model:             model,
-		permissionMode:    permissionMode,
-		status:            StatusIdle,
-		turns:             []*Turn{},
-		openBlocks:        map[int]*Block{},
+		repoID:             repoID,
+		branchID:           branchID,
+		sessionID:          sessionID,
+		model:              model,
+		permissionMode:     permissionMode,
+		status:             StatusIdle,
+		turns:              []*Turn{},
+		openBlocks:         map[int]*Block{},
 		pendingPermissions: map[string]string{},
-		allowList:         map[string]struct{}{},
-		planToolUseIDs:    map[string]struct{}{},
-		askToolUseIDs:     map[string]struct{}{},
-		askPermissions:    map[string]string{},
-		planPermissions:   map[string]string{},
-		hookBlocks:        map[string]hookBlockRef{},
-		createdAt:         time.Now().UTC(),
+		allowList:          map[string]struct{}{},
+		planToolUseIDs:     map[string]struct{}{},
+		askToolUseIDs:      map[string]struct{}{},
+		askPermissions:     map[string]string{},
+		planPermissions:    map[string]string{},
+		hookBlocks:         map[string]hookBlockRef{},
+		createdAt:          time.Now().UTC(),
 	}
 }
 

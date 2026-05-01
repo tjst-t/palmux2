@@ -109,12 +109,12 @@ func processStreamEvent(s *Session, raw json.RawMessage) []AgentEvent {
 
 	case "content_block_start":
 		var bs struct {
-			Type string `json:"type"`
-			ID string `json:"id,omitempty"`
-			Name string `json:"name,omitempty"`
-			Input json.RawMessage `json:"input,omitempty"`
-			Text string `json:"text,omitempty"`
-			Thinking string `json:"thinking,omitempty"`
+			Type     string          `json:"type"`
+			ID       string          `json:"id,omitempty"`
+			Name     string          `json:"name,omitempty"`
+			Input    json.RawMessage `json:"input,omitempty"`
+			Text     string          `json:"text,omitempty"`
+			Thinking string          `json:"thinking,omitempty"`
 		}
 		_ = json.Unmarshal(ev.Block, &bs)
 		kind := blockKindFor(bs.Type)

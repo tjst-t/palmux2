@@ -86,6 +86,12 @@ export interface DeviceSettings {
 export interface GlobalSettings {
   branchSortOrder?: 'name' | 'activity'
   lastActiveBranch?: string
+  /** S008 renamed `imageUploadDir` → `attachmentUploadDir`. The
+   *  legacy key is still tolerated by the server (loader migrates).
+   *  Kept on the type for one release so existing patches still
+   *  compile. */
+  attachmentUploadDir?: string
+  attachmentTtlDays?: number
   imageUploadDir?: string
   toolbar?: Partial<ToolbarConfig>
 }

@@ -15,7 +15,7 @@ import (
 // Entry describes one filesystem entry returned by ListDir.
 type Entry struct {
 	Name    string    `json:"name"`
-	Path    string    `json:"path"`     // worktree-relative
+	Path    string    `json:"path"` // worktree-relative
 	IsDir   bool      `json:"isDir"`
 	Size    int64     `json:"size"`
 	ModTime time.Time `json:"modTime"`

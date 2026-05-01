@@ -6,21 +6,21 @@ import (
 
 // DiffFile represents one file's worth of unified diff.
 type DiffFile struct {
-	OldPath string      `json:"oldPath"`
-	NewPath string      `json:"newPath"`
-	Header  string      `json:"header"` // raw diff --git ... + --- / +++ headers
-	Hunks   []DiffHunk  `json:"hunks"`
+	OldPath  string     `json:"oldPath"`
+	NewPath  string     `json:"newPath"`
+	Header   string     `json:"header"` // raw diff --git ... + --- / +++ headers
+	Hunks    []DiffHunk `json:"hunks"`
 	IsBinary bool       `json:"isBinary,omitempty"`
 }
 
 // DiffHunk represents one @@ ... @@ section.
 type DiffHunk struct {
-	Header string     `json:"header"` // the @@ line
-	Lines  []DiffLine `json:"lines"`
-	OldStart int      `json:"oldStart"`
-	OldCount int      `json:"oldCount"`
-	NewStart int      `json:"newStart"`
-	NewCount int      `json:"newCount"`
+	Header   string     `json:"header"` // the @@ line
+	Lines    []DiffLine `json:"lines"`
+	OldStart int        `json:"oldStart"`
+	OldCount int        `json:"oldCount"`
+	NewStart int        `json:"newStart"`
+	NewCount int        `json:"newCount"`
 }
 
 // DiffLine represents one line inside a hunk.

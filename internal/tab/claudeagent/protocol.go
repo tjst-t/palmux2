@@ -34,20 +34,20 @@ type streamMsg struct {
 	Response  json.RawMessage `json:"response,omitempty"`
 
 	// system / init payload (--verbose)
-	Model           string          `json:"model,omitempty"`
-	Cwd             string          `json:"cwd,omitempty"`
-	Tools           json.RawMessage `json:"tools,omitempty"`
-	MCPServers      []MCPServerInfo `json:"mcp_servers,omitempty"`
-	PermissionMode  string          `json:"permission_mode,omitempty"`
-	APIKeySource    string          `json:"apiKeySource,omitempty"`
+	Model          string          `json:"model,omitempty"`
+	Cwd            string          `json:"cwd,omitempty"`
+	Tools          json.RawMessage `json:"tools,omitempty"`
+	MCPServers     []MCPServerInfo `json:"mcp_servers,omitempty"`
+	PermissionMode string          `json:"permission_mode,omitempty"`
+	APIKeySource   string          `json:"apiKeySource,omitempty"`
 
 	// result / turn-end payload
-	TotalCostUSD     float64         `json:"total_cost_usd,omitempty"`
-	DurationMs       int             `json:"duration_ms,omitempty"`
-	NumTurns         int             `json:"num_turns,omitempty"`
-	IsError          bool            `json:"is_error,omitempty"`
-	Result           string          `json:"result,omitempty"`
-	Usage            json.RawMessage `json:"usage,omitempty"`
+	TotalCostUSD float64         `json:"total_cost_usd,omitempty"`
+	DurationMs   int             `json:"duration_ms,omitempty"`
+	NumTurns     int             `json:"num_turns,omitempty"`
+	IsError      bool            `json:"is_error,omitempty"`
+	Result       string          `json:"result,omitempty"`
+	Usage        json.RawMessage `json:"usage,omitempty"`
 
 	// ──────────── system/hook_started + hook_response (S005) ────────────
 	// Populated by --include-hook-events. Wire-confirmed against
@@ -76,12 +76,12 @@ type MCPServerInfo struct {
 // The Anthropic Messages API content shape (text / thinking / tool_use /
 // tool_result) is what the CLI emits.
 type chatMessage struct {
-	ID      string         `json:"id,omitempty"`
-	Role    string         `json:"role"`
-	Model   string         `json:"model,omitempty"`
-	Content rawContentList `json:"content"`
-	StopReason string      `json:"stop_reason,omitempty"`
-	Usage   json.RawMessage `json:"usage,omitempty"`
+	ID         string          `json:"id,omitempty"`
+	Role       string          `json:"role"`
+	Model      string          `json:"model,omitempty"`
+	Content    rawContentList  `json:"content"`
+	StopReason string          `json:"stop_reason,omitempty"`
+	Usage      json.RawMessage `json:"usage,omitempty"`
 }
 
 // rawContentList accepts both a plain string (user text) and an array of

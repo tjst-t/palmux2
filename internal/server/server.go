@@ -109,7 +109,14 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("POST /api/notify", h.ingestNotification)
 	mux.HandleFunc("POST /api/notify/clear", h.clearNotifications)
 
-	mux.HandleFunc("POST /api/upload", h.uploadImage)
+	// Per-branch attachment upload (S008). Files land in
+	// `<attachmentUploadDir>/<repoId>/<branchId>/`. The fetch route is
+	// per-branch too; the legacy `/api/upload/{name}` GET is retained
+	// for embeds that only carry the basename (older `[image: ...]`
+	// references in transcripts).
+	mux.HandleFunc("POST /api/repos/{repoId}/branches/{branchId}/upload", h.uploadAttachment)
+	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/upload/{name}", h.fetchBranchUpload)
+	mux.HandleFunc("POST /api/upload", h.uploadGlobal)
 	mux.HandleFunc("GET /api/upload/{name}", h.fetchUpload)
 }
 

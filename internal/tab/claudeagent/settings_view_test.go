@@ -54,7 +54,7 @@ func TestLoadSettingsView_AllSections(t *testing.T) {
 				map[string]any{"matcher": "Bash", "hooks": []any{"echo before"}},
 			},
 		},
-		"model":             "claude-opus-4-7",
+		"model":               "claude-opus-4-7",
 		"includeCoAuthoredBy": false,
 	})
 	v, err := loadSettingsView(scopeProject, wt)

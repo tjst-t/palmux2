@@ -17,7 +17,8 @@ import (
 // in the absolute cwd with `-`.
 //
 // Example: /home/ubuntu/ghq/github.com/foo/bar →
-//          -home-ubuntu-ghq-github-com-foo-bar
+//
+//	-home-ubuntu-ghq-github-com-foo-bar
 func transcriptDir(worktree string) (string, error) {
 	if worktree == "" {
 		return "", errors.New("claudeagent: empty worktree")
@@ -53,13 +54,13 @@ type TranscriptSummary struct {
 
 // transcriptEntry mirrors the .jsonl envelope.
 type transcriptEntry struct {
-	Type      string          `json:"type"`
-	Subtype   string          `json:"subtype,omitempty"`
-	Message   json.RawMessage `json:"message,omitempty"`
-	IsMeta    bool            `json:"isMeta,omitempty"`
-	IsSidechain bool          `json:"isSidechain,omitempty"`
-	UUID      string          `json:"uuid,omitempty"`
-	Timestamp string          `json:"timestamp,omitempty"`
+	Type        string          `json:"type"`
+	Subtype     string          `json:"subtype,omitempty"`
+	Message     json.RawMessage `json:"message,omitempty"`
+	IsMeta      bool            `json:"isMeta,omitempty"`
+	IsSidechain bool            `json:"isSidechain,omitempty"`
+	UUID        string          `json:"uuid,omitempty"`
+	Timestamp   string          `json:"timestamp,omitempty"`
 	// ParentToolUseID, when set, marks this entry as a sub-agent envelope
 	// produced under the named Task tool_use. Future-proof: today's CLI
 	// keeps ancestor linkage in `parentUuid` instead, but the field is

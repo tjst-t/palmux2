@@ -20,10 +20,10 @@ type Provider struct{}
 // New returns a Provider.
 func New() *Provider { return &Provider{} }
 
-func (p *Provider) Type() string         { return TabType }
-func (p *Provider) DisplayName() string  { return "Bash" }
-func (p *Provider) Protected() bool      { return false }
-func (p *Provider) Multiple() bool       { return true }
+func (p *Provider) Type() string          { return TabType }
+func (p *Provider) DisplayName() string   { return "Bash" }
+func (p *Provider) Protected() bool       { return false }
+func (p *Provider) Multiple() bool        { return true }
 func (p *Provider) NeedsTmuxWindow() bool { return true }
 
 func (p *Provider) OnBranchOpen(_ context.Context, _ tab.OpenParams) (tab.ProviderResult, error) {

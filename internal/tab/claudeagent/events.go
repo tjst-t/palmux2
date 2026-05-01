@@ -55,27 +55,27 @@ type PermissionModeChangePayload struct {
 type AgentStatus string
 
 const (
-	StatusIdle              AgentStatus = "idle"
-	StatusStarting          AgentStatus = "starting"
-	StatusThinking          AgentStatus = "thinking"
-	StatusToolRunning       AgentStatus = "tool_running"
+	StatusIdle               AgentStatus = "idle"
+	StatusStarting           AgentStatus = "starting"
+	StatusThinking           AgentStatus = "thinking"
+	StatusToolRunning        AgentStatus = "tool_running"
 	StatusAwaitingPermission AgentStatus = "awaiting_permission"
-	StatusError             AgentStatus = "error"
+	StatusError              AgentStatus = "error"
 )
 
 // Block is the cached block shape stored on the session and replayed on
 // reconnect.
 type Block struct {
-	ID       string          `json:"id"`
-	Kind     string          `json:"kind"` // text | thinking | tool_use | tool_result | todo | permission | plan | ask | hook
-	Index    int             `json:"index"`
-	Text     string          `json:"text,omitempty"`
-	Name     string          `json:"name,omitempty"`     // tool_use name
-	Input    json.RawMessage `json:"input,omitempty"`    // tool_use input (may be partial during stream)
-	Output   string          `json:"output,omitempty"`   // tool_result content
-	IsError  bool            `json:"isError,omitempty"`
-	Done     bool            `json:"done,omitempty"`
-	Todos    json.RawMessage `json:"todos,omitempty"`    // TodoWrite payload (latest replaces)
+	ID      string          `json:"id"`
+	Kind    string          `json:"kind"` // text | thinking | tool_use | tool_result | todo | permission | plan | ask | hook
+	Index   int             `json:"index"`
+	Text    string          `json:"text,omitempty"`
+	Name    string          `json:"name,omitempty"`   // tool_use name
+	Input   json.RawMessage `json:"input,omitempty"`  // tool_use input (may be partial during stream)
+	Output  string          `json:"output,omitempty"` // tool_result content
+	IsError bool            `json:"isError,omitempty"`
+	Done    bool            `json:"done,omitempty"`
+	Todos   json.RawMessage `json:"todos,omitempty"` // TodoWrite payload (latest replaces)
 
 	// ──────────── kind:"hook" fields (S005) ────────────
 	// Populated only when the CLI runs with --include-hook-events. Each
@@ -122,9 +122,9 @@ type Block struct {
 	// Permission-block fields. PermissionID is also stamped onto ask
 	// blocks (kind:"ask") once the matching permission_prompt arrives,
 	// so the UI can route ask.respond frames using that id.
-	PermissionID string          `json:"permissionId,omitempty"`
-	ToolName     string          `json:"toolName,omitempty"`
-	Decision     string          `json:"decision,omitempty"` // "allow" | "deny" | ""
+	PermissionID string `json:"permissionId,omitempty"`
+	ToolName     string `json:"toolName,omitempty"`
+	Decision     string `json:"decision,omitempty"` // "allow" | "deny" | ""
 
 	// AskAnswers is set on kind:"ask" blocks once the user has chosen
 	// option(s). The shape is the array of arrays (one inner array per
@@ -178,8 +178,8 @@ type SessionInitPayload struct {
 	AuthOK         bool        `json:"authOk"`
 	AuthMessage    string      `json:"authMessage,omitempty"`
 	/** CLI-reported capabilities (commands list, models, etc). */
-	InitInfo       InitInfo    `json:"initInfo"`
-	MCPServers     []MCPServerInfo `json:"mcpServers,omitempty"`
+	InitInfo   InitInfo        `json:"initInfo"`
+	MCPServers []MCPServerInfo `json:"mcpServers,omitempty"`
 }
 
 // TurnStartPayload signals the start of an assistant turn.
@@ -366,7 +366,7 @@ type AskRespondFrame struct {
 // planning" message; the agent stays in plan mode.
 type PlanRespondFrame struct {
 	PermissionID string `json:"permissionId"`
-	Decision     string `json:"decision"`     // "approve" | "reject"
+	Decision     string `json:"decision"` // "approve" | "reject"
 	TargetMode   string `json:"targetMode,omitempty"`
 	EditedPlan   string `json:"editedPlan,omitempty"`
 }

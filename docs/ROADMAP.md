@@ -231,7 +231,7 @@ Palmux のユーザとして、現在の worktree に含まれていないコー
 
 ---
 
-## スプリント S008: 任意ファイルのアップロード添付 (Upload Image 拡張) [ ]
+## スプリント S008: 任意ファイルのアップロード添付 (Upload Image 拡張) [DONE]
 
 ユーザのデバイス (PC/スマホ/タブレット) にあるローカルファイルをアップロードして Claude Code に読ませる。S006 のサーバ側ピッカー UI は削除し、代わりに既存の **Upload Image 経路を画像以外のファイル全般に汎用化** する。VISION の「シングルユーザ・自前ホスティング前提」を踏襲し、ファイルは Anthropic File API ではなく palmux2 サーバ自身に保存する (`--file` フラグは使わない、S006 D-1 と同じ判断)。
 
@@ -241,34 +241,36 @@ Palmux のユーザとして、現在の worktree に含まれていないコー
 - 送信時の振り分け: 画像 → 既存 `[image: <abspath>]` (vision 入力)、それ以外 → `@<abspath>` (Read される)
 - アップロード経路: GUI ボタン / drag-and-drop / paste の 3 経路すべて
 
-### ストーリー S008-1: ローカルファイルを 3 経路でアップロードして添付できる [ ]
+### ストーリー S008-1: ローカルファイルを 3 経路でアップロードして添付できる [x]
 
 **ユーザーストーリー:**
 Palmux のユーザとして、自分のデバイスにあるファイル (テキスト / PDF / ログ / 画像 / 任意のドキュメント) を Claude に読ませたい。なぜなら、worktree に含まれていない参照資料を会話に持ち込みたいケースが頻繁にあり、サーバに事前配置するのは煩雑で、Anthropic File API への外部アップロードは privacy / quota / 認証経路の点で受け入れがたいからだ。
 
 **受け入れ条件:**
-- [ ] 既存の Upload Image 経路を画像以外のファイル種別にも拡張する (画像も同じ経路で動作継続)
-- [ ] Composer の `+` ボタンから「Attach file」を選択するとローカルのファイル選択ダイアログが開き、任意のファイルを選べる
-- [ ] Composer 領域へのドラッグ＆ドロップでも同じくアップロードされる (ファイル種別を問わない)
-- [ ] クリップボードからのペーストでもアップロードされる (画像クリップボードは既存挙動を維持しつつ、ファイルクリップボード一般もサポート)
-- [ ] アップロード成功後、Composer に添付チップが表示される (画像はサムネイル、それ以外は 📄 アイコン + ファイル名)
-- [ ] 添付チップの × ボタンで添付を取り消せる
-- [ ] 送信時に画像は `[image: <abspath>]`、それ以外は `@<abspath>` として user message 本文末尾に注入される (実 CLI で `Read` が走ることを確認)
-- [ ] S006 で追加したサーバ側ピッカー UI (`+` メニューの "Add directory" / "Add file"、`PathPicker` コンポーネント) は完全に削除される
-- [ ] アップロードファイルは per-branch ディレクトリに隔離され、TTL でクリーンアップされる
+- [x] 既存の Upload Image 経路を画像以外のファイル種別にも拡張する (画像も同じ経路で動作継続)
+- [x] Composer の `+` ボタンから「Attach file」を選択するとローカルのファイル選択ダイアログが開き、任意のファイルを選べる
+- [x] Composer 領域へのドラッグ＆ドロップでも同じくアップロードされる (ファイル種別を問わない)
+- [x] クリップボードからのペーストでもアップロードされる (画像クリップボードは既存挙動を維持しつつ、ファイルクリップボード一般もサポート)
+- [x] アップロード成功後、Composer に添付チップが表示される (画像はサムネイル、それ以外は 📄 アイコン + ファイル名)
+- [x] 添付チップの × ボタンで添付を取り消せる
+- [x] 送信時に画像は `[image: <abspath>]`、それ以外は `@<abspath>` として user message 本文末尾に注入される (実 CLI で `Read` が走ることを確認)
+- [x] S006 で追加したサーバ側ピッカー UI (`+` メニューの "Add directory" / "Add file"、`PathPicker` コンポーネント) は完全に削除される
+- [x] アップロードファイルは per-branch ディレクトリに隔離され、TTL でクリーンアップされる
 
 **タスク:**
-- [ ] **タスク S008-1-1**: グローバル設定 `imageUploadDir` を `attachmentUploadDir` に汎化 (デフォルト `/tmp/palmux-uploads/`)。後方互換のため `imageUploadDir` キーが残っていれば `attachmentUploadDir` として読み込む
-- [ ] **タスク S008-1-2**: `POST /api/upload` の MIME 制限を解除し任意ファイルを受け付ける。保存先を `<attachmentUploadDir>/<repoId>/<branchId>/<sanitized-name>` (per-branch 隔離) に変更。レスポンスに絶対パス + MIME / 元ファイル名を含める
-- [ ] **タスク S008-1-3**: CLI 起動時の argv に `--add-dir <attachmentUploadDir>/<repoId>/<branchId>` を **常に含める** よう `Manager.EnsureClient` を修正。起動時固定で添付ごとの respawn 不要にする
-- [ ] **タスク S008-1-4**: Composer の `+` メニューを「Attach file」1 項目に簡素化。S006 の "Add directory" / "Add file" / "Upload image…" の 3 項目を統合
-- [ ] **タスク S008-1-5**: Composer に drag-and-drop ハンドラを追加。drop 領域は composer ルート、ファイル種別を問わず受け付ける。multi-file drop もサポート
-- [ ] **タスク S008-1-6**: 既存の paste ハンドラ (画像のみ対応) を画像以外のファイル Blob にも対応させる。`event.clipboardData.files` のすべてを処理
-- [ ] **タスク S008-1-7**: 添付チップの表示を MIME / 拡張子で分岐 (画像 → サムネイル、それ以外 → 📄 + ファイル名)。アップロード進行中の状態 (アップロード中 / 完了 / エラー) も視覚化
-- [ ] **タスク S008-1-8**: 送信時の振り分けロジックを実装: `kind === 'image'` → `[image: <abspath>]`、それ以外 → `@<abspath>` を user message 末尾に注入
-- [ ] **タスク S008-1-9**: S006 の `AttachMenu` の dir/file 項目、`PathPicker` コンポーネント、関連 CSS、WS frame の `addDirs[]` 受信経路 (`SendUserMessageWithDirs` を経由した user-supplied dirs) を削除。`Agent.AddDirs` フィールドと `validateAddDirs` 自体は upload dir の自動登録に流用するため残す
-- [ ] **タスク S008-1-10**: TTL クリーンアップを実装 — 起動時に `<attachmentUploadDir>/<repoId>/<branchId>/` 配下の N 日以上古いファイルを削除 (デフォルト 30 日、設定で変更可能)。ブランチ close 時の per-branch dir 削除も検討
-- [ ] **タスク S008-1-11**: dev インスタンス + Playwright で実機検証。`tests/e2e/s008_*.py` で (a) ファイル選択ダイアログ経由、(b) drag-and-drop、(c) paste の 3 経路を検証。`ps -ef | grep claude` で `--add-dir <attachmentUploadDir>/...` が argv に含まれることと、送信後の user message に `@<abspath>` (テキストファイル) / `[image: <abspath>]` (画像) が含まれることを確認
+- [x] **タスク S008-1-1**: グローバル設定 `imageUploadDir` を `attachmentUploadDir` に汎化 (デフォルト `/tmp/palmux-uploads/`)。後方互換のため `imageUploadDir` キーが残っていれば `attachmentUploadDir` として読み込む
+- [x] **タスク S008-1-2**: `POST /api/upload` の MIME 制限を解除し任意ファイルを受け付ける。保存先を `<attachmentUploadDir>/<repoId>/<branchId>/<sanitized-name>` (per-branch 隔離) に変更。レスポンスに絶対パス + MIME / 元ファイル名を含める
+- [x] **タスク S008-1-3**: CLI 起動時の argv に `--add-dir <attachmentUploadDir>/<repoId>/<branchId>` を **常に含める** よう `Manager.EnsureClient` を修正。起動時固定で添付ごとの respawn 不要にする
+- [x] **タスク S008-1-4**: Composer の `+` メニューを「Attach file」1 項目に簡素化。S006 の "Add directory" / "Add file" / "Upload image…" の 3 項目を統合
+- [x] **タスク S008-1-5**: Composer に drag-and-drop ハンドラを追加。drop 領域は composer ルート、ファイル種別を問わず受け付ける。multi-file drop もサポート
+- [x] **タスク S008-1-6**: 既存の paste ハンドラ (画像のみ対応) を画像以外のファイル Blob にも対応させる。`event.clipboardData.files` のすべてを処理
+- [x] **タスク S008-1-7**: 添付チップの表示を MIME / 拡張子で分岐 (画像 → サムネイル、それ以外 → 📄 + ファイル名)。アップロード進行中の状態 (アップロード中 / 完了 / エラー) も視覚化
+- [x] **タスク S008-1-8**: 送信時の振り分けロジックを実装: `kind === 'image'` → `[image: <abspath>]`、それ以外 → `@<abspath>` を user message 末尾に注入
+- [x] **タスク S008-1-9**: S006 の `AttachMenu` の dir/file 項目、`PathPicker` コンポーネント、関連 CSS、WS frame の `addDirs[]` 受信経路 (`SendUserMessageWithDirs` を経由した user-supplied dirs) を削除。`Agent.AddDirs` フィールドと `validateAddDirs` 自体は upload dir の自動登録に流用するため残す
+- [x] **タスク S008-1-10**: TTL クリーンアップを実装 — 起動時に `<attachmentUploadDir>/<repoId>/<branchId>/` 配下の N 日以上古いファイルを削除 (デフォルト 30 日、設定で変更可能)。ブランチ close 時の per-branch dir 削除も検討
+- [x] **タスク S008-1-11**: dev インスタンス + Playwright で実機検証。`tests/e2e/s008_*.py` で (a) ファイル選択ダイアログ経由、(b) drag-and-drop、(c) paste の 3 経路を検証。`ps -ef | grep claude` で `--add-dir <attachmentUploadDir>/...` が argv に含まれることと、送信後の user message に `@<abspath>` (テキストファイル) / `[image: <abspath>]` (画像) が含まれることを確認
+
+> 完了ログ: [docs/sprint-logs/S008/decisions.md](sprint-logs/S008/decisions.md). E2E: `tests/e2e/s008_upload_routes.py` (file picker / drag-and-drop / paste の 3 経路 + ps argv 監視で `--add-dir <attachmentUploadDir>/<repoId>/<branchId>` を確認). 実 CLI が観測可能なケースで PASS。
 
 ---
 

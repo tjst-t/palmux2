@@ -147,29 +147,26 @@ func pumpWSToAgent(ctx context.Context, c *websocket.Conn, agent *Agent, mgr *Ma
 				go handleSlashCommand(ctx, agent, mgr, p.Content)
 				continue
 			}
-			// Validate every dir against the branch worktree boundary.
-			// Frontend already runs the choice through the Files API
-			// picker, but the WS path is a separate auth surface — we
-			// re-check here so a malicious client can't smuggle in
-			// `/etc` or `..` traversal. Validated absolute paths feed
-			// directly into the CLI argv.
-			validatedDirs, addDirsErr := mgr.validateAddDirs(agent.RepoID(), agent.BranchID(), p.AddDirs)
-			if addDirsErr != nil {
-				if ev, e := makeEvent(EvError, ErrorPayload{
-					Message: "Invalid attached directory",
-					Detail:  addDirsErr.Error(),
-				}); e == nil {
-					agent.broadcast(ev)
-				}
-				continue
+			// S008: the user-supplied AddDirs[] path was removed. The
+			// only `--add-dir` the Manager passes the CLI is the
+			// per-branch attachment upload directory, registered on
+			// every spawn — see Manager.cfg.AttachmentDirFn. Worktree
+			// directory references are handled via the `@<path>`
+			// autocomplete in the body (no respawn needed). We still
+			// log a warning if a stale client sends AddDirs so the
+			// frontend regression is visible during the upgrade
+			// window, but the field is intentionally ignored.
+			if len(p.AddDirs) > 0 {
+				agent.deps.logger.Warn("claudeagent: user.message AddDirs ignored (S008)",
+					"count", len(p.AddDirs))
 			}
-			go func(content string, dirs []string) {
-				if err := agent.SendUserMessageWithDirs(ctx, content, dirs); err != nil {
+			go func(content string) {
+				if err := agent.SendUserMessage(ctx, content); err != nil {
 					if ev, e := makeEvent(EvError, ErrorPayload{Message: "Send failed", Detail: err.Error()}); e == nil {
 						agent.broadcast(ev)
 					}
 				}
-			}(p.Content, validatedDirs)
+			}(p.Content)
 
 		case "interrupt":
 			go func() { _ = agent.Interrupt(ctx) }()
@@ -507,8 +504,8 @@ func (h *httpHandler) handleDeleteSession(w http.ResponseWriter, r *http.Request
 // answer endpoint. Lets a non-active tab (or an Inbox row) resolve a
 // pending permission without opening the Claude WS.
 type permissionAnswerRequest struct {
-	Decision     string          `json:"decision"`              // "allow" | "deny"
-	Scope        string          `json:"scope,omitempty"`       // "once" | "session"
+	Decision     string          `json:"decision"`        // "allow" | "deny"
+	Scope        string          `json:"scope,omitempty"` // "once" | "session"
 	UpdatedInput json.RawMessage `json:"updatedInput,omitempty"`
 	Reason       string          `json:"reason,omitempty"`
 }

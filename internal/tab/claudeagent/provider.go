@@ -28,10 +28,10 @@ func NewProvider(mgr *Manager) *Provider {
 	return &Provider{manager: mgr}
 }
 
-func (p *Provider) Type() string         { return TabType }
-func (p *Provider) DisplayName() string  { return "Claude" }
-func (p *Provider) Protected() bool      { return true }
-func (p *Provider) Multiple() bool       { return false }
+func (p *Provider) Type() string          { return TabType }
+func (p *Provider) DisplayName() string   { return "Claude" }
+func (p *Provider) Protected() bool       { return true }
+func (p *Provider) Multiple() bool        { return false }
 func (p *Provider) NeedsTmuxWindow() bool { return false }
 
 // OnBranchOpen is intentionally lazy — we don't spawn a CLI until the user

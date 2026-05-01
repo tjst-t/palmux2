@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -35,6 +36,14 @@ type Config struct {
 	DefaultEffort         string
 	DefaultPermissionMode string
 	ExtraArgs             []string
+	// AttachmentDirFn returns the absolute filesystem path of the
+	// per-branch attachment upload dir
+	// (`<attachmentUploadDir>/<repoId>/<branchId>`). The Manager passes
+	// this path to the CLI as `--add-dir <path>` on every spawn so
+	// uploaded files are inside Claude's tool boundary the moment they
+	// land. Returning empty disables the auto-add (used by tests).
+	// (S008-1-3.)
+	AttachmentDirFn func(repoID, branchID string) string
 }
 
 // NotificationSink is the subset of notify.Hub claudeagent uses to surface
@@ -50,7 +59,7 @@ type NotificationSink interface {
 // dedupe/clear when the underlying request resolves.
 type InternalNotification struct {
 	RequestID string                       `json:"requestId,omitempty"`
-	Type      string                       `json:"type"`              // "urgent" | "warning" | "info"
+	Type      string                       `json:"type"` // "urgent" | "warning" | "info"
 	Title     string                       `json:"title,omitempty"`
 	Message   string                       `json:"message,omitempty"`
 	Detail    string                       `json:"detail,omitempty"`
@@ -66,12 +75,12 @@ type InternalNotificationAction struct {
 // Manager owns one Agent per (repoID, branchID). It is the single entry
 // point used by the WS handler and the REST handlers.
 type Manager struct {
-	cfg     Config
-	store   *Store
+	cfg      Config
+	store    *Store
 	branches BranchResolver
-	events  EventPublisher
-	notify  NotificationSink
-	logger  *slog.Logger
+	events   EventPublisher
+	notify   NotificationSink
+	logger   *slog.Logger
 
 	mu     sync.Mutex
 	agents map[string]*Agent
@@ -97,13 +106,13 @@ func NewManager(cfg Config, store *Store, branches BranchResolver, events EventP
 		logger = slog.Default()
 	}
 	return &Manager{
-		cfg:     cfg,
-		store:   store,
+		cfg:      cfg,
+		store:    store,
 		branches: branches,
-		events:  events,
-		notify:  notify,
-		logger:  logger,
-		agents:  map[string]*Agent{},
+		events:   events,
+		notify:   notify,
+		logger:   logger,
+		agents:   map[string]*Agent{},
 	}
 }
 
@@ -149,16 +158,16 @@ func (m *Manager) EnsureAgent(repoID, branchID string) (*Agent, error) {
 		permMode = m.cfg.DefaultPermissionMode
 	}
 	a := newAgent(agentDeps{
-		repoID:           repoID,
-		branchID:         branchID,
-		worktree:         worktree,
-		model:            model,
-		effort:           effort,
-		permissionMode:   permMode,
-		resumeID:         resumeID,
+		repoID:            repoID,
+		branchID:          branchID,
+		worktree:          worktree,
+		model:             model,
+		effort:            effort,
+		permissionMode:    permMode,
+		resumeID:          resumeID,
 		includeHookEvents: prefs.IncludeHookEvents,
-		manager:          m,
-		logger:           m.logger,
+		manager:           m,
+		logger:            m.logger,
 	})
 	// Seed the session with whatever init payload we cached from the
 	// previous run — gives us the slash-command popup / model list / agent
@@ -188,16 +197,26 @@ func (m *Manager) EnsureAgent(repoID, branchID string) (*Agent, error) {
 }
 
 // KillBranch terminates the branch's Agent, if any. Used from
-// Provider.OnBranchClose.
+// Provider.OnBranchClose. After the agent is shut down we also remove
+// the per-branch attachment upload directory (S008-1-10): once the
+// branch is gone the user has no UI surface to access these files
+// from, so leaving them around just leaks disk.
 func (m *Manager) KillBranch(_ context.Context, repoID, branchID string) error {
 	m.mu.Lock()
 	a, ok := m.agents[m.key(repoID, branchID)]
 	delete(m.agents, m.key(repoID, branchID))
 	m.mu.Unlock()
-	if !ok {
-		return nil
+	if ok {
+		a.Shutdown()
 	}
-	a.Shutdown()
+	if fn := m.cfg.AttachmentDirFn; fn != nil {
+		if dir := fn(repoID, branchID); dir != "" {
+			if err := os.RemoveAll(dir); err != nil && !os.IsNotExist(err) {
+				m.logger.Warn("claudeagent: remove attachment dir failed",
+					"dir", dir, "err", err)
+			}
+		}
+	}
 	return nil
 }
 
@@ -308,8 +327,8 @@ type agentDeps struct {
 	// mu-guarded field so toggles take effect on the next respawn without
 	// reaching back into the store every time we spawn a CLI.
 	includeHookEvents bool
-	manager          *Manager
-	logger           *slog.Logger
+	manager           *Manager
+	logger            *slog.Logger
 }
 
 // Agent is one branch's stateful pairing of (Session, optional Client). The
@@ -318,9 +337,9 @@ type agentDeps struct {
 type Agent struct {
 	deps agentDeps
 
-	mu      sync.Mutex
-	client  *Client
-	session *Session
+	mu       sync.Mutex
+	client   *Client
+	session  *Session
 	starting bool
 
 	// fan-out: each WS connection registers a channel; all events get cloned
@@ -462,6 +481,32 @@ func (a *Agent) EnsureClient(ctx context.Context) error {
 	// CLI startup path is a one-shot read.
 	addDirsSnapshot := append([]string(nil), a.addDirs...)
 	a.mu.Unlock()
+	// S008-1-3: always include the per-branch attachment upload dir
+	// so files dropped via /api/upload are inside Claude's allowed
+	// tool surface from the very first message — no respawn needed
+	// per upload. We mkdir the path if missing; the CLI tolerates a
+	// non-existent --add-dir at startup but Read tools won't see new
+	// files inside it without a directory entry.
+	if fn := a.deps.manager.cfg.AttachmentDirFn; fn != nil {
+		if attDir := fn(a.deps.repoID, a.deps.branchID); attDir != "" {
+			if err := os.MkdirAll(attDir, 0o755); err != nil {
+				a.deps.logger.Warn("claudeagent: mkdir attachment dir failed",
+					"dir", attDir, "err", err)
+			}
+			// Don't push it into a.addDirs — the user-visible respawn
+			// machinery only triggers on user-supplied dirs. We just
+			// hand the merged list to NewClient.
+			merged := append([]string(nil), addDirsSnapshot...)
+			seen := map[string]struct{}{}
+			for _, d := range merged {
+				seen[d] = struct{}{}
+			}
+			if _, dup := seen[attDir]; !dup {
+				merged = append(merged, attDir)
+			}
+			addDirsSnapshot = merged
+		}
+	}
 	cli, err := NewClient(ctx, ClientOptions{
 		Binary:            a.deps.manager.cfg.Binary,
 		Cwd:               a.deps.worktree,

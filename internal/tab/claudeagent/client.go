@@ -16,13 +16,13 @@ import (
 
 // ClientOptions configures one CLI subprocess.
 type ClientOptions struct {
-	Binary         string   // "claude" by default
-	Cwd            string   // worktree path
-	SessionID      string   // resume target ("" = new session)
-	Model          string   // --model
-	PermissionMode string   // --permission-mode
-	Effort         string   // --effort (low | medium | high | xhigh | max)
-	Fork           bool     // when true, --fork-session: use session_id as base but start a fresh id
+	Binary         string // "claude" by default
+	Cwd            string // worktree path
+	SessionID      string // resume target ("" = new session)
+	Model          string // --model
+	PermissionMode string // --permission-mode
+	Effort         string // --effort (low | medium | high | xhigh | max)
+	Fork           bool   // when true, --fork-session: use session_id as base but start a fresh id
 	// IncludeHookEvents adds --include-hook-events to the CLI invocation so
 	// PreToolUse / PostToolUse / Stop / etc. hooks emit lifecycle envelopes
 	// (system/hook_started + system/hook_response) on stdout. Opt-in: the
@@ -41,9 +41,9 @@ type ClientOptions struct {
 	// dir mid-session requires a respawn (handled in agent.go via
 	// respawnClient when the AddDirs set grows between user.message
 	// frames).
-	AddDirs        []string
-	ExtraArgs      []string // user-supplied flags from settings.json
-	Logger         *slog.Logger
+	AddDirs   []string
+	ExtraArgs []string // user-supplied flags from settings.json
+	Logger    *slog.Logger
 }
 
 // CanUseToolHandler is invoked when the CLI asks permission to run a tool
@@ -62,19 +62,19 @@ type MessageHandler func(msg streamMsg)
 // stream-json normalisation and conversation state lives one layer up
 // (manager.go / normalize.go).
 type Client struct {
-	opts        ClientOptions
-	cmd         *exec.Cmd
-	stdin       io.WriteCloser
-	mux         *controlMux
-	onMessage   MessageHandler
+	opts         ClientOptions
+	cmd          *exec.Cmd
+	stdin        io.WriteCloser
+	mux          *controlMux
+	onMessage    MessageHandler
 	onCanUseTool CanUseToolHandler
-	mcp         *mcpServer
-	logger      *slog.Logger
+	mcp          *mcpServer
+	logger       *slog.Logger
 
-	writeMu sync.Mutex
+	writeMu   sync.Mutex
 	closeOnce sync.Once
 
-	doneCh chan struct{} // closed when the subprocess exits
+	doneCh  chan struct{} // closed when the subprocess exits
 	exitErr error
 
 	// invalidResume is set by pumpStderr when the CLI emits the
@@ -171,14 +171,14 @@ func NewClient(ctx context.Context, opts ClientOptions, onMessage MessageHandler
 	}
 
 	c := &Client{
-		opts:        opts,
-		cmd:         cmd,
-		stdin:       stdin,
-		mux:         newControlMux(),
-		onMessage:   onMessage,
+		opts:         opts,
+		cmd:          cmd,
+		stdin:        stdin,
+		mux:          newControlMux(),
+		onMessage:    onMessage,
 		onCanUseTool: onCanUseTool,
-		logger:      opts.Logger,
-		doneCh:      make(chan struct{}),
+		logger:       opts.Logger,
+		doneCh:       make(chan struct{}),
 	}
 	if permission != nil {
 		c.mcp = newMCPServer(permission)

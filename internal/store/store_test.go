@@ -24,10 +24,10 @@ type fakeTerminalProvider struct{}
 const fakeTerminalType = "fake-term"
 const fakeTerminalWindow = "palmux:fake-term:fake-term"
 
-func (fakeTerminalProvider) Type() string         { return fakeTerminalType }
-func (fakeTerminalProvider) DisplayName() string  { return "Fake Term" }
-func (fakeTerminalProvider) Protected() bool      { return true }
-func (fakeTerminalProvider) Multiple() bool       { return false }
+func (fakeTerminalProvider) Type() string          { return fakeTerminalType }
+func (fakeTerminalProvider) DisplayName() string   { return "Fake Term" }
+func (fakeTerminalProvider) Protected() bool       { return true }
+func (fakeTerminalProvider) Multiple() bool        { return false }
 func (fakeTerminalProvider) NeedsTmuxWindow() bool { return true }
 func (fakeTerminalProvider) OnBranchOpen(_ context.Context, _ tab.OpenParams) (tab.ProviderResult, error) {
 	return tab.ProviderResult{

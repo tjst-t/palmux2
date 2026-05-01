@@ -13,11 +13,11 @@ import (
 
 // Notification is one inbox entry.
 type Notification struct {
-	Type      string               `json:"type"`
-	Message   string               `json:"message,omitempty"`
-	Title     string               `json:"title,omitempty"`
-	Detail    string               `json:"detail,omitempty"`
-	CreatedAt time.Time            `json:"createdAt"`
+	Type      string    `json:"type"`
+	Message   string    `json:"message,omitempty"`
+	Title     string    `json:"title,omitempty"`
+	Detail    string    `json:"detail,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
 	// RequestID is set by IngestInternal so the Inbox can dedupe on
 	// republish and so ClearByRequestID can target a specific entry.
 	RequestID string               `json:"requestId,omitempty"`

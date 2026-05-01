@@ -49,7 +49,10 @@ function buildOrphanAttachURL(
   return url
 }
 
-async function handlePaste(sendInput: (data: string) => void): Promise<void> {
+async function handlePaste(
+  sendInput: (data: string) => void,
+  uploadCtx: UploadCtx,
+): Promise<void> {
   // Try the async clipboard `read` (gives both text and blobs); fall back to
   // readText if blob read isn't available or the user has only text.
   if (typeof navigator !== 'undefined' && 'clipboard' in navigator && 'read' in navigator.clipboard) {
@@ -59,7 +62,7 @@ async function handlePaste(sendInput: (data: string) => void): Promise<void> {
         const imgType = item.types.find((t) => t.startsWith('image/'))
         if (imgType) {
           const blob = await item.getType(imgType)
-          await uploadAndSend(blob, sendInput)
+          await uploadAndSend(blob, sendInput, uploadCtx)
           return
         }
       }
@@ -75,14 +78,31 @@ async function handlePaste(sendInput: (data: string) => void): Promise<void> {
   }
 }
 
-async function uploadAndSend(blob: Blob, sendInput: (data: string) => void): Promise<void> {
+// UploadCtx holds the (repoId, branchId) so the per-branch upload
+// endpoint can be addressed. The bash terminal-view sometimes runs in
+// orphan mode (no repo/branch) — we fall back to the legacy global
+// endpoint there because there is no branch dir to scope to.
+interface UploadCtx { repoId?: string; branchId?: string }
+
+function uploadEndpoint(ctx: UploadCtx): string {
+  if (ctx.repoId && ctx.branchId) {
+    return `/api/repos/${encodeURIComponent(ctx.repoId)}/branches/${encodeURIComponent(ctx.branchId)}/upload`
+  }
+  return '/api/upload'
+}
+
+async function uploadAndSend(
+  blob: Blob,
+  sendInput: (data: string) => void,
+  uploadCtx: UploadCtx,
+): Promise<void> {
   const fd = new FormData()
   // Some pickers don't supply a name; provide a fallback so multer-style
   // parsers find the file.
   const file = blob instanceof File ? blob : new File([blob], guessName(blob), { type: blob.type })
   fd.append('file', file)
   try {
-    const res = await fetch('/api/upload', {
+    const res = await fetch(uploadEndpoint(uploadCtx), {
       method: 'POST',
       body: fd,
       credentials: 'include',
@@ -215,13 +235,15 @@ export function TerminalView({
     const onResizeDisp = term.onResize(({ cols, rows }) => sendResize(cols, rows))
 
     // Custom key handler for Ctrl+V / Cmd+V — intercept to read from system
-    // clipboard. Plain text → terminal input. Image (Blob) → POST /api/upload
-    // and send the resulting absolute path so Claude / shells can pick it up.
+    // clipboard. Plain text → terminal input. Image (Blob) → POST upload
+    // (per-branch when we have one, legacy global otherwise) and send the
+    // resulting absolute path so Claude / shells can pick it up.
+    const uploadCtx: UploadCtx = { repoId, branchId }
     term.attachCustomKeyEventHandler((ev) => {
       if (ev.type !== 'keydown') return true
       const isPaste = (ev.ctrlKey || ev.metaKey) && (ev.key === 'v' || ev.key === 'V')
       if (!isPaste) return true
-      void handlePaste(sendInput)
+      void handlePaste(sendInput, uploadCtx)
       return false
     })
 
@@ -235,7 +257,7 @@ export function TerminalView({
       const file = item.getAsFile()
       if (!file) return
       e.preventDefault()
-      void uploadAndSend(file, sendInput)
+      void uploadAndSend(file, sendInput, uploadCtx)
     }
     document.addEventListener('paste', pasteHandler)
 

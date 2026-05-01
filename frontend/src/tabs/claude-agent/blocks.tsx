@@ -165,9 +165,10 @@ function splitTextWithAttachments(text: string): { text: string; images: string[
 
 // uploadURLForPath turns an absolute path served by the upload endpoint
 // (canonically `/tmp/palmux-uploads/<name>` but the user can configure
-// `imageUploadDir`) into a fetchable HTTP URL. We only proxy images that
-// live under the configured upload dir; the basename is what the route
-// keys on, so any path whose basename matches a real upload resolves.
+// `attachmentUploadDir` since S008) into a fetchable HTTP URL. The
+// route keys on the basename and the server's locator walks the per-
+// branch directories under the root, so any uploaded file resolves
+// regardless of which branch it landed in.
 function uploadURLForPath(path: string): string | null {
   if (!path) return null
   // Take the last path segment (POSIX or Windows-ish). filename only.

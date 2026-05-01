@@ -5,8 +5,20 @@
 //     commands list (from initialize) plus our two internal commands
 //     (/clear, /model).
 //   - `@` triggers a file mention popup that hits the Files API search.
-//   - Image paste/drag-drop posts to /api/upload, then injects the
-//     returned absolute path so Claude can read the file.
+//   - Local-file attachment via three routes (S008): the `+` button's
+//     "Attach file" item opens the system file picker; drag-and-drop
+//     onto the composer; clipboard paste. All three POST to the
+//     per-branch /api/repos/{repoId}/branches/{branchId}/upload
+//     endpoint and append the resulting absolute path either as
+//     `[image: <abspath>]` (kind=image) or `@<abspath>` (other) when
+//     the user submits the message.
+//
+// S008 removed the S006 server-side picker UI (`Add directory` /
+// `Add file` items + PathPicker) — that surface has been replaced by
+// the `@` autocomplete which already calls the Files API search and
+// inlines `@<relpath>` in the body. The `--add-dir` plumbing on the
+// backend is preserved (Manager auto-registers the per-branch
+// attachment dir on every CLI spawn).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -24,11 +36,11 @@ import type { InitInfo, ModelDescriptor } from './types'
 interface ComposerProps {
   repoId: string
   branchId: string
-  /** Send the user's message. addDirs holds absolute filesystem paths
-   *  for any directory chips currently attached; the agent uses them
-   *  to spawn / respawn the CLI with `--add-dir <path>`. File chips do
-   *  not appear in addDirs — their paths are inlined into `content`
-   *  as `@<abspath>` references (S006 decision D-1). */
+  /** Send the user's message body. The composer encodes attachments
+   *  inline (`[image: <abspath>]` for images, `@<abspath>` otherwise)
+   *  so the agent only sees text. addDirs is currently unused at the
+   *  call site but kept on the type so a future feature can re-enable
+   *  user-supplied --add-dir without touching every caller. */
   onSend: (content: string, addDirs?: string[]) => void
   onInterrupt: () => void
   isStreaming: boolean
@@ -69,26 +81,30 @@ const INTERNAL_COMMANDS: { name: string; description: string }[] = [
 ]
 
 // Attachment is one piece of context the user has added to their pending
-// message — an image (uploaded to imageUploadDir, paste/drag flow), a
-// host-filesystem directory (S006: passed as `--add-dir <path>`), or a
-// host-filesystem file (S006: inlined as `@<abspath>` in the message
-// body so Claude's Read tool reads it). previewUrl is the blob:/data:
-// URL for the thumbnail (image only). path is the absolute server-side
-// path the agent ultimately receives. relPath is the worktree-relative
-// display string used in the chip label so the user sees a familiar
-// short form rather than a long absolute path. We hold these as chips
-// rather than dumping paths into the textarea so the message reads
-// cleanly and ChiP removal lets the user back out cleanly.
+// message. S008 generalised this to any file kind — the only branch in
+// the rendering and submission paths is `kind === 'image'` (which gets
+// a thumbnail and the `[image: ...]` injection) versus everything else
+// (📄 chip, `@<abspath>` injection). status tracks the upload lifecycle
+// so the chip can show a spinner while the POST is in flight and a
+// muted error state if it failed.
 interface Attachment {
   id: string
+  /** Display name shown in the chip. Server returns the original
+   *  filename in `originalName`; we fall back to the local File.name
+   *  while the POST is pending. */
   name: string
+  /** Absolute server-side filesystem path. Empty until the POST
+   *  resolves. */
   path: string
+  /** blob: URL for image previews; empty for non-image attachments. */
   previewUrl: string
-  kind: 'image' | 'dir' | 'file'
-  /** Worktree-relative display path (S006). Empty for paste-uploaded
-   *  images, which use absolute imageUploadDir paths the user never
-   *  sees as a "location" anyway. */
-  relPath?: string
+  kind: 'image' | 'file'
+  /** Resolved MIME from the server (filled after upload). Empty for
+   *  pre-upload chips. */
+  mime?: string
+  status: 'uploading' | 'ready' | 'error'
+  /** Set when status === 'error' so the chip can show a tooltip. */
+  errorMessage?: string
 }
 
 let attachmentCounter = 0
@@ -133,17 +149,14 @@ export function Composer(props: ComposerProps) {
     saveDraft(draftKey, value)
   }, [draftKey, value])
   const [composing, setComposing] = useState(false)
-  const [uploading, setUploading] = useState(false)
   const [attachments, setAttachments] = useState<Attachment[]>([])
-  // S006: per-message picker for "Add directory" / "Add file".
-  // 'closed' → nothing visible; 'menu' → the `+` button's dropdown
-  // showing the action list; 'dir' / 'file' → the search picker open
-  // for that kind. We keep one state machine because the menu and
-  // picker are mutually exclusive (clicking outside any of them
-  // dismisses).
-  const [pickerMode, setPickerMode] = useState<'closed' | 'menu' | 'dir' | 'file'>('closed')
+  // S008: drag-over indicator. `dragDepth` counts dragenter vs dragleave
+  // to avoid flicker when the cursor crosses inner element boundaries.
+  // We only show the overlay when the depth is positive AND a file is
+  // actually present in the dataTransfer.
+  const [dragDepth, setDragDepth] = useState(0)
   const taRef = useRef<HTMLTextAreaElement | null>(null)
-  const plusBtnRef = useRef<HTMLButtonElement | null>(null)
+  const composerRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   // Auto-grow the textarea up to a third of the viewport height; beyond
@@ -273,54 +286,37 @@ export function Composer(props: ComposerProps) {
     completion.update(taRef.current.value, taRef.current.selectionEnd)
   }, [completion])
 
+  const isUploading = useMemo(
+    () => attachments.some((a) => a.status === 'uploading'),
+    [attachments],
+  )
+
   const submit = () => {
     if (isStreaming || disabled) return
+    if (isUploading) return
     const text = value.trim()
-    if (!text && attachments.length === 0) return
+    const ready = attachments.filter((a) => a.status === 'ready' && a.path)
+    if (!text && ready.length === 0) return
     // Build the submission payload from the chips:
     //   - image  → `[image: <abspath>]` line in the body (existing
-    //              behaviour from paste / drag-drop uploads)
-    //   - file   → `@<relpath>` reference in the body so the CLI's
-    //              Read tool picks it up (S006 decision D-1: --file
-    //              is for Anthropic file API resources, not local
-    //              files; @-mentions are the canonical Claude Code
-    //              idiom for "read this file's contents")
-    //   - dir    → ship as addDirs[] in the WS frame so the agent
-    //              spawns / respawns the CLI with `--add-dir <path>`.
-    //              We also drop a one-line annotation in the message
-    //              so the conversation transcript records that a
-    //              directory was attached (otherwise the user picks
-    //              a dir and Claude has no signal it was added).
+    //              behaviour from paste / drag-drop uploads — Claude
+    //              CLI vision input)
+    //   - file   → `@<abspath>` reference in the body so the CLI's
+    //              Read tool picks it up. The Manager auto-registered
+    //              the per-branch attachment dir as `--add-dir` at
+    //              spawn time, so Claude can read these absolute
+    //              paths even though they live outside the worktree.
     const lines: string[] = []
     if (text) lines.push(text)
-    const addDirs: string[] = []
-    for (const a of attachments) {
-      switch (a.kind) {
-        case 'image':
-          lines.push(`[image: ${a.path}]`)
-          break
-        case 'file':
-          // a.path here is the worktree-relative path returned by
-          // /files/search; the CLI resolves it against its own cwd
-          // (the same worktree). @-mentions tolerate spaces in paths
-          // because Claude Code's parser is tolerant; for safety we
-          // still URI-escape only spaces if they happen to appear,
-          // but in practice paths inside the worktree are mundane.
-          lines.push(`@${a.path}`)
-          break
-        case 'dir':
-          // a.path is the worktree-relative directory path. The
-          // backend's validateAddDirs converts it to abs and bounds
-          // it inside the worktree before passing to argv.
-          addDirs.push(a.path)
-          // Cosmetic marker so the user can later see in their own
-          // history that they attached a dir on this turn.
-          lines.push(`[dir: ${a.path}]`)
-          break
+    for (const a of ready) {
+      if (a.kind === 'image') {
+        lines.push(`[image: ${a.path}]`)
+      } else {
+        lines.push(`@${a.path}`)
       }
     }
     const body = lines.filter((s) => s).join('\n')
-    onSend(body, addDirs.length > 0 ? addDirs : undefined)
+    onSend(body)
     setValue('')
     // Free the preview URLs we created with URL.createObjectURL.
     for (const a of attachments) {
@@ -367,44 +363,91 @@ export function Composer(props: ComposerProps) {
     }
   }
 
+  // uploadFile is the unified upload pipeline (file picker / drop /
+  // paste). Each call creates a chip in `uploading` state, POSTs the
+  // file to the per-branch upload endpoint, and replaces the chip with
+  // the server-confirmed metadata. On failure the chip flips to `error`
+  // so the user can see why and retry by dropping the file again.
   const uploadFile = async (file: File) => {
-    if (uploading) return
-    const isImage = file.type.startsWith('image/')
-    if (!isImage) return
-    // Show the chip optimistically with a local blob preview while the
-    // upload is in flight. Replace nothing on failure — just remove the
-    // pending chip.
-    const previewUrl = URL.createObjectURL(file)
+    const isImage = file.type.startsWith('image/') ||
+      // Some browsers don't infer MIME for clipboard images: fall back
+      // to the file extension. Keeps paste-of-PNG-from-screenshot
+      // working when the OS gives us application/octet-stream.
+      /\.(png|jpe?g|gif|webp|bmp|svg|avif|heic)$/i.test(file.name)
+    const previewUrl = isImage ? URL.createObjectURL(file) : ''
     const tempId = newAttachmentId()
     setAttachments((prev) => [
       ...prev,
-      { id: tempId, name: file.name || 'image', path: '', previewUrl, kind: 'image' },
+      {
+        id: tempId,
+        name: file.name || (isImage ? 'image' : 'file'),
+        path: '',
+        previewUrl,
+        kind: isImage ? 'image' : 'file',
+        status: 'uploading',
+      },
     ])
-    setUploading(true)
     try {
       const fd = new FormData()
       fd.append('file', file)
-      const res = await fetch('/api/upload', {
+      const url =
+        `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/upload`
+      const res = await fetch(url, {
         method: 'POST',
         credentials: 'include',
         body: fd,
       })
       if (!res.ok) {
-        URL.revokeObjectURL(previewUrl)
-        setAttachments((prev) => prev.filter((a) => a.id !== tempId))
+        const detail = await safeReadError(res)
+        setAttachments((prev) =>
+          prev.map((a) =>
+            a.id === tempId
+              ? { ...a, status: 'error' as const, errorMessage: detail || `HTTP ${res.status}` }
+              : a,
+          ),
+        )
         return
       }
-      const data = (await res.json()) as { path?: string }
+      const data = (await res.json()) as {
+        path?: string
+        name?: string
+        originalName?: string
+        mime?: string
+        kind?: 'image' | 'file'
+      }
       if (!data.path) {
-        URL.revokeObjectURL(previewUrl)
-        setAttachments((prev) => prev.filter((a) => a.id !== tempId))
+        setAttachments((prev) =>
+          prev.map((a) =>
+            a.id === tempId ? { ...a, status: 'error' as const, errorMessage: 'no path' } : a,
+          ),
+        )
         return
       }
       setAttachments((prev) =>
-        prev.map((a) => (a.id === tempId ? { ...a, path: data.path! } : a)),
+        prev.map((a) =>
+          a.id === tempId
+            ? {
+                ...a,
+                path: data.path!,
+                name: data.originalName || a.name,
+                mime: data.mime,
+                // Trust the server's classification when available — it
+                // resolves the MIME from the multipart header, which is
+                // more reliable than our file.type sniff for
+                // clipboard-pasted blobs.
+                kind: (data.kind as 'image' | 'file') || a.kind,
+                status: 'ready' as const,
+              }
+            : a,
+        ),
       )
-    } finally {
-      setUploading(false)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'upload failed'
+      setAttachments((prev) =>
+        prev.map((a) =>
+          a.id === tempId ? { ...a, status: 'error' as const, errorMessage: msg } : a,
+        ),
+      )
     }
   }
 
@@ -416,73 +459,54 @@ export function Composer(props: ComposerProps) {
     })
   }
 
-  // ──────────── S006: Add directory / Add file picker ──────────────
-  // Both "Add directory" and "Add file" share one picker UI: a search
-  // box that hits the Files API search and a result list. The kind
-  // controls the filter (`isDir`) and the resulting attachment shape.
-  // Closing the picker discards in-progress query state — that's fine
-  // because the `+` menu will re-open it cleanly next time.
-
-  const openMenu = () => setPickerMode((m) => (m === 'menu' ? 'closed' : 'menu'))
-  const closeAll = () => setPickerMode('closed')
-
-  const addDirAttachment = (relPath: string) => {
-    // De-dupe: if the user picks the same dir twice, no second chip.
-    setAttachments((prev) => {
-      if (prev.some((a) => a.kind === 'dir' && a.path === relPath)) return prev
-      const id = newAttachmentId()
-      return [
-        ...prev,
-        {
-          id,
-          name: relPath || '.',
-          path: relPath || '.',
-          relPath: relPath || '.',
-          previewUrl: '',
-          kind: 'dir',
-        },
-      ]
-    })
-    closeAll()
-  }
-
-  const addFileAttachment = (relPath: string) => {
-    setAttachments((prev) => {
-      if (prev.some((a) => a.kind === 'file' && a.path === relPath)) return prev
-      const id = newAttachmentId()
-      // Display only the basename in the chip if the path is long, but
-      // keep the full relPath in `name` so hover-title and the
-      // injected `@<relPath>` stay accurate.
-      return [
-        ...prev,
-        {
-          id,
-          name: relPath,
-          path: relPath,
-          relPath,
-          previewUrl: '',
-          kind: 'file',
-        },
-      ]
-    })
-    closeAll()
-  }
-
+  // ────────────────── S008: paste handler ───────────────────────────
+  // Process every File in clipboardData (image, text/PDF/etc.). The
+  // textarea gives us first refusal: if the user has copied plain text
+  // we fall through and the browser pastes it as text. If clipboard
+  // contains files (images on most platforms; richer file lists on
+  // Linux file managers), we upload all of them.
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const items = Array.from(e.clipboardData?.items ?? [])
-    const fileItem = items.find((i) => i.kind === 'file')
-    if (!fileItem) return
-    const file = fileItem.getAsFile()
-    if (!file) return
+    const fileList = e.clipboardData?.files
+    if (!fileList || fileList.length === 0) return
+    const files: File[] = []
+    for (let i = 0; i < fileList.length; i++) {
+      const f = fileList.item(i)
+      if (f) files.push(f)
+    }
+    if (files.length === 0) return
     e.preventDefault()
-    void uploadFile(file)
+    for (const f of files) void uploadFile(f)
   }
 
-  const onDrop = (e: React.DragEvent<HTMLTextAreaElement>) => {
-    const file = e.dataTransfer?.files?.[0]
-    if (!file) return
+  // ────────────────── S008: drag-and-drop ───────────────────────────
+  // The drop target is the composer wrapper, not just the textarea, so
+  // dropping anywhere over the input area attaches. We track depth via
+  // dragenter/dragleave because crossing inner elements would otherwise
+  // toggle the overlay rapidly.
+  const onDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!eventCarriesFile(e)) return
     e.preventDefault()
-    void uploadFile(file)
+    setDragDepth((d) => d + 1)
+  }
+  const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!eventCarriesFile(e)) return
+    // preventDefault is required so the drop event fires later.
+    e.preventDefault()
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'copy'
+    }
+  }
+  const onDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!eventCarriesFile(e)) return
+    setDragDepth((d) => Math.max(0, d - 1))
+  }
+  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    setDragDepth(0)
+    if (!eventCarriesFile(e)) return
+    e.preventDefault()
+    const files = Array.from(e.dataTransfer?.files ?? [])
+    if (files.length === 0) return
+    for (const f of files) void uploadFile(f)
   }
 
   const placeholder = disabled
@@ -495,41 +519,69 @@ export function Composer(props: ComposerProps) {
   const effortLevels = currentModelDescriptor?.supportedEffortLevels ?? []
   const showEffort = !!currentModelDescriptor?.supportsEffort && effortLevels.length > 0
 
+  const showDragOverlay = dragDepth > 0
+
   return (
     <div className={styles.composer}>
-      <div className={styles.composerInner} style={{ position: 'relative' }}>
+      <div
+        ref={composerRef}
+        className={styles.composerInner}
+        style={{ position: 'relative' }}
+        onDragEnter={onDragEnter}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+        data-testid="composer-root"
+      >
         <InlineCompletionPopup
           state={completion.state}
           onPick={(opt) => applyCompletion(opt)}
         />
+        {showDragOverlay && (
+          <div className={styles.dropOverlay} aria-hidden data-testid="composer-drop-overlay">
+            <span>Drop to attach</span>
+          </div>
+        )}
         {attachments.length > 0 && (
           <div className={styles.attachments} data-testid="composer-attachments">
             {attachments.map((a) => (
               <div
                 key={a.id}
-                className={styles.attachment}
-                title={a.name}
+                className={
+                  a.status === 'error'
+                    ? `${styles.attachment} ${styles.attachmentError}`
+                    : styles.attachment
+                }
+                title={
+                  a.status === 'error'
+                    ? `${a.name} — ${a.errorMessage || 'upload failed'}`
+                    : a.name
+                }
                 data-testid={`attachment-chip-${a.kind}`}
                 data-attachment-kind={a.kind}
                 data-attachment-path={a.path}
+                data-attachment-status={a.status}
               >
-                {a.kind === 'image' ? (
+                {a.kind === 'image' && a.previewUrl ? (
                   <img src={a.previewUrl} alt={a.name} className={styles.attachmentThumb} />
-                ) : a.kind === 'dir' ? (
-                  <span className={styles.attachmentFileIcon} aria-hidden>
-                    📁
-                  </span>
                 ) : (
                   <span className={styles.attachmentFileIcon} aria-hidden>
-                    📄
+                    {a.kind === 'image' ? '🖼️' : '📄'}
                   </span>
                 )}
-                <span className={styles.attachmentName}>
-                  {a.kind === 'dir'
-                    ? (a.relPath || a.name).replace(/\/?$/, '/')
-                    : a.relPath || a.name}
-                </span>
-                {!a.path && <span className={styles.attachmentSpinner}>…</span>}
+                <span className={styles.attachmentName}>{a.name}</span>
+                {a.status === 'uploading' && (
+                  <span className={styles.attachmentSpinner} aria-label="uploading">…</span>
+                )}
+                {a.status === 'error' && (
+                  <span
+                    className={styles.attachmentSpinner}
+                    aria-label="upload failed"
+                    title={a.errorMessage || 'upload failed'}
+                  >
+                    !
+                  </span>
+                )}
                 <button
                   type="button"
                   className={styles.attachmentRemove}
@@ -553,62 +605,38 @@ export function Composer(props: ComposerProps) {
           onKeyUp={onSelectionMove}
           onClick={onSelectionMove}
           onPaste={onPaste}
-          onDrop={onDrop}
-          onDragOver={(e) => e.preventDefault()}
           placeholder={placeholder}
           rows={1}
           disabled={disabled}
         />
         <div className={styles.composerFooter}>
-          {/* S006: hidden file input the "+" menu's "Upload image…"
-              entry triggers. We keep paste/drag-drop as the primary
-              upload paths; this is the explicit-click affordance for
-              touch devices that don't support drag-drop. */}
+          {/* S008: a single hidden file input handles the "Attach
+              file" item. accept="*" so any file kind is selectable;
+              multiple lets the user pick several at once on platforms
+              that surface that affordance. */}
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            multiple
             style={{ display: 'none' }}
             onChange={(e) => {
-              const f = e.target.files?.[0]
-              if (f) void uploadFile(f)
+              const files = Array.from(e.target.files ?? [])
+              for (const f of files) void uploadFile(f)
               e.target.value = ''
             }}
+            data-testid="composer-file-input"
           />
           <button
-            ref={plusBtnRef}
             type="button"
             className={styles.attachBtn}
-            onClick={openMenu}
-            aria-label="Add attachment"
-            aria-expanded={pickerMode !== 'closed'}
-            title="Add directory, file, or image"
+            onClick={() => fileInputRef.current?.click()}
+            aria-label="Attach file"
+            title="Attach file (also: drag-and-drop or paste)"
             data-testid="composer-plus-btn"
             disabled={disabled}
           >
             +
           </button>
-          {pickerMode === 'menu' && (
-            <AttachMenu
-              onPickDir={() => setPickerMode('dir')}
-              onPickFile={() => setPickerMode('file')}
-              onPickImage={() => {
-                setPickerMode('closed')
-                fileInputRef.current?.click()
-              }}
-              onClose={closeAll}
-              anchorRef={plusBtnRef}
-            />
-          )}
-          {(pickerMode === 'dir' || pickerMode === 'file') && (
-            <PathPicker
-              repoId={repoId}
-              branchId={branchId}
-              kind={pickerMode}
-              onClose={closeAll}
-              onPick={pickerMode === 'dir' ? addDirAttachment : addFileAttachment}
-            />
-          )}
 
           <PillSelect
             ariaLabel="Model"
@@ -644,8 +672,8 @@ export function Composer(props: ComposerProps) {
 
           <span className={styles.composerFooterSpacer} />
 
-          {uploading && <span className={styles.connBanner}>uploading…</span>}
-          {connState !== 'open' && !uploading && (
+          {isUploading && <span className={styles.connBanner}>uploading…</span>}
+          {connState !== 'open' && !isUploading && (
             <span className={styles.connBanner}>{connState}…</span>
           )}
 
@@ -664,7 +692,12 @@ export function Composer(props: ComposerProps) {
               type="button"
               className={styles.sendBtn}
               onClick={submit}
-              disabled={(!value.trim() && attachments.length === 0) || disabled}
+              disabled={
+                isUploading ||
+                (!value.trim() &&
+                  attachments.filter((a) => a.status === 'ready').length === 0) ||
+                disabled
+              }
               title="Send (Enter)"
               aria-label="Send"
             >
@@ -699,250 +732,36 @@ function saveDraft(key: string, value: string): void {
   }
 }
 
-// ──────────── S006: Attach menu (the `+` button's dropdown) ──────────────
-
-interface AttachMenuProps {
-  onPickDir: () => void
-  onPickFile: () => void
-  onPickImage: () => void
-  onClose: () => void
-  anchorRef: React.RefObject<HTMLButtonElement | null>
-}
-
-function AttachMenu(props: AttachMenuProps) {
-  const { onPickDir, onPickFile, onPickImage, onClose, anchorRef } = props
-  const ref = useRef<HTMLDivElement | null>(null)
-
-  // Click-outside / Esc to dismiss. The anchor ref is excluded from the
-  // outside check because clicking the `+` button again is meant to
-  // toggle the menu off via openMenu()'s own state machine — we don't
-  // want both effects firing at once.
-  useEffect(() => {
-    const onDocDown = (e: MouseEvent) => {
-      const target = e.target as Node | null
-      if (!target) return
-      if (ref.current?.contains(target)) return
-      if (anchorRef.current?.contains(target)) return
-      onClose()
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('mousedown', onDocDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDocDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [anchorRef, onClose])
-
-  return (
-    <div
-      ref={ref}
-      className={styles.attachMenu}
-      role="menu"
-      data-testid="composer-attach-menu"
-    >
-      <button
-        type="button"
-        role="menuitem"
-        className={styles.attachMenuItem}
-        onClick={onPickDir}
-        data-testid="attach-menu-dir"
-      >
-        <span aria-hidden>📁</span>
-        <span>Add directory</span>
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        className={styles.attachMenuItem}
-        onClick={onPickFile}
-        data-testid="attach-menu-file"
-      >
-        <span aria-hidden>📄</span>
-        <span>Add file</span>
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        className={styles.attachMenuItem}
-        onClick={onPickImage}
-        data-testid="attach-menu-image"
-      >
-        <span aria-hidden>🖼️</span>
-        <span>Upload image…</span>
-      </button>
-    </div>
-  )
-}
-
-// ──────────── S006: PathPicker (worktree-relative search dialog) ─────────
-
-interface PathPickerProps {
-  repoId: string
-  branchId: string
-  kind: 'dir' | 'file'
-  onPick: (relPath: string) => void
-  onClose: () => void
-}
-
-interface PickerEntry {
-  path: string
-  name: string
-  isDir: boolean
-}
-
-// PathPicker renders a small search dialog. As the user types, it hits
-// the existing Files API search endpoint — the same one the `@`-mention
-// autocomplete uses — and filters by isDir on the client side. We
-// deliberately reuse the Files API instead of rolling a parallel
-// host-filesystem walker (decision D-3): single auth surface, single
-// traversal/symlink hardening (`resolveSafePath`), nothing new to
-// review for security.
-function PathPicker(props: PathPickerProps) {
-  const { repoId, branchId, kind, onPick, onClose } = props
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState<PickerEntry[]>([])
-  const [highlight, setHighlight] = useState(0)
-  const [loading, setLoading] = useState(false)
-  const inputRef = useRef<HTMLInputElement | null>(null)
-  const ref = useRef<HTMLDivElement | null>(null)
-
-  useEffect(() => {
-    inputRef.current?.focus()
-  }, [])
-
-  useEffect(() => {
-    const onDocDown = (e: MouseEvent) => {
-      const target = e.target as Node | null
-      if (!target) return
-      if (ref.current?.contains(target)) return
-      onClose()
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('mousedown', onDocDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDocDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [onClose])
-
-  // Debounced search — the Files API walks the worktree, so spamming it
-  // on every keystroke is wasteful even though responses come back fast.
-  // 120ms is short enough that the user perceives "live" results.
-  useEffect(() => {
-    const q = query.trim()
-    if (!q) {
-      setResults([])
-      setLoading(false)
-      return
-    }
-    setLoading(true)
-    const ctl = new AbortController()
-    const timer = setTimeout(async () => {
-      try {
-        const url =
-          `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}` +
-          `/files/search?query=${encodeURIComponent(q)}`
-        const res = await fetch(url, { credentials: 'include', signal: ctl.signal })
-        if (!res.ok) {
-          setResults([])
-          return
-        }
-        const data = (await res.json()) as { results?: PickerEntry[] }
-        const all = data.results ?? []
-        // Filter to the kind we want. The picker stays sharp: "Add
-        // directory" never offers a file, "Add file" never offers a
-        // directory. The user can flip menus to switch.
-        const filtered = all.filter((e) => (kind === 'dir' ? e.isDir : !e.isDir))
-        setResults(filtered.slice(0, 50))
-        setHighlight(0)
-      } catch {
-        if (!ctl.signal.aborted) setResults([])
-      } finally {
-        if (!ctl.signal.aborted) setLoading(false)
-      }
-    }, 120)
-    return () => {
-      ctl.abort()
-      clearTimeout(timer)
-      setLoading(false)
-    }
-  }, [query, repoId, branchId, kind])
-
-  const onInputKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      setHighlight((h) => Math.min(h + 1, Math.max(0, results.length - 1)))
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      setHighlight((h) => Math.max(0, h - 1))
-    } else if (e.key === 'Enter') {
-      e.preventDefault()
-      const pick = results[highlight]
-      if (pick) onPick(pick.path)
+// eventCarriesFile checks whether the dragged/dropped object is a file
+// (vs. a text selection or an internal DOM drag). Browsers expose this
+// on dataTransfer.types as a "Files" entry; the items collection is
+// the future-proof check but Safari only populates it during drop.
+function eventCarriesFile(e: React.DragEvent): boolean {
+  const dt = e.dataTransfer
+  if (!dt) return false
+  if (dt.types) {
+    for (let i = 0; i < dt.types.length; i++) {
+      if (dt.types[i] === 'Files') return true
     }
   }
+  return false
+}
 
-  return (
-    <div ref={ref} className={styles.pathPicker} data-testid="composer-path-picker">
-      <div className={styles.pathPickerHeader}>
-        <span className={styles.pathPickerKind}>
-          {kind === 'dir' ? '📁 Add directory' : '📄 Add file'}
-        </span>
-        <button
-          type="button"
-          className={styles.pathPickerClose}
-          onClick={onClose}
-          aria-label="Close picker"
-        >
-          ×
-        </button>
-      </div>
-      <input
-        ref={inputRef}
-        type="text"
-        className={styles.pathPickerInput}
-        placeholder={kind === 'dir' ? 'Search directories…' : 'Search files…'}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={onInputKey}
-        data-testid="path-picker-input"
-      />
-      <div className={styles.pathPickerResults} data-testid="path-picker-results">
-        {loading && <div className={styles.pathPickerHint}>searching…</div>}
-        {!loading && query.trim() === '' && (
-          <div className={styles.pathPickerHint}>Type to search inside the worktree.</div>
-        )}
-        {!loading && query.trim() !== '' && results.length === 0 && (
-          <div className={styles.pathPickerHint}>No matches.</div>
-        )}
-        {results.map((r, i) => (
-          <button
-            key={r.path}
-            type="button"
-            className={
-              i === highlight
-                ? `${styles.pathPickerItem} ${styles.pathPickerItemActive}`
-                : styles.pathPickerItem
-            }
-            onMouseEnter={() => setHighlight(i)}
-            onClick={() => onPick(r.path)}
-            data-testid="path-picker-item"
-            data-path={r.path}
-          >
-            <span aria-hidden>{r.isDir ? '📁' : '📄'}</span>
-            <span className={styles.pathPickerItemPath}>{r.path}</span>
-          </button>
-        ))}
-      </div>
-      <div className={styles.pathPickerFooter}>
-        Worktree only · Esc to close
-      </div>
-    </div>
-  )
+// safeReadError extracts a message from a non-2xx response. Server
+// returns `{error: string}` for upload failures; we tolerate empty
+// bodies and fall back to the status text.
+async function safeReadError(res: Response): Promise<string> {
+  try {
+    const text = await res.text()
+    if (!text) return ''
+    try {
+      const data = JSON.parse(text) as { error?: string }
+      if (typeof data.error === 'string') return data.error
+    } catch {
+      // not JSON
+    }
+    return text
+  } catch {
+    return ''
+  }
 }

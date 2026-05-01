@@ -11,12 +11,15 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/spf13/pflag"
 
 	palmux2 "github.com/tjst-t/palmux2"
+	"github.com/tjst-t/palmux2/internal/attachment"
 	"github.com/tjst-t/palmux2/internal/auth"
 	"github.com/tjst-t/palmux2/internal/commands"
 	"github.com/tjst-t/palmux2/internal/config"
@@ -73,6 +76,25 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 	if err != nil {
 		return err
 	}
+	// S008-1-10: TTL cleanup of the attachment upload dir at startup.
+	// Files older than `attachmentTtlDays` are removed and empty
+	// per-branch / per-repo dirs collapse. We log the result so the
+	// behaviour is visible in the standard log stream — the user
+	// shouldn't have to wonder why a 31-day-old file disappeared.
+	{
+		s := settingsStore.Get()
+		root := strings.TrimRight(s.AttachmentUploadDir, "/")
+		ttlDays := s.AttachmentTtlDays
+		if ttlDays > 0 && root != "" {
+			ttl := time.Duration(ttlDays) * 24 * time.Hour
+			files, dirs, err := attachment.CleanupOlderThan(root, ttl, slog.Default())
+			if err != nil {
+				slog.Warn("attachment cleanup failed", "root", root, "err", err)
+			} else if files > 0 || dirs > 0 {
+				slog.Info("attachment cleanup", "root", root, "files", files, "dirs", dirs, "ttlDays", ttlDays)
+			}
+		}
+	}
 
 	agentStore, err := claudeagent.NewStore(configDir)
 	if err != nil {
@@ -94,7 +116,7 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		GHQ:               ghqClient,
 		Gwq:               gwqClient,
 		RepoStore:         repoStore,
-		Settings:           settingsStore,
+		Settings:          settingsStore,
 		Registry:          registry,
 		Logger:            slog.Default(),
 		MaxConnsPerBranch: maxConns,
@@ -126,8 +148,25 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 	// Claude is the SDK-style stream-json tab; the previous tmux-backed
 	// `claude` tab has been removed. Manager needs the Store for worktree
 	// path lookups, so all providers are registered after store.New.
+	// S008: hand the Manager a function that resolves the per-branch
+	// attachment upload dir (`<attachmentUploadDir>/<repoId>/<branchId>`)
+	// from current settings. The Manager passes that path on every CLI
+	// spawn as `--add-dir <path>` so uploaded files are inside Claude's
+	// tool surface without per-attachment respawn.
+	attachmentDirFn := func(repoID, branchID string) string {
+		root := settingsStore.Get().AttachmentUploadDir
+		if root == "" {
+			root = config.DefaultAttachmentUploadDir
+		}
+		root = strings.TrimRight(root, "/")
+		if repoID == "" || branchID == "" {
+			return ""
+		}
+		return filepath.Join(root, repoID, branchID)
+	}
 	agentManager := claudeagent.NewManager(claudeagent.Config{
-		Binary: "claude",
+		Binary:          "claude",
+		AttachmentDirFn: attachmentDirFn,
 	},
 		agentStore,
 		branchResolver{store: st},

@@ -28,12 +28,12 @@ const (
 	// Claude tab events. Carry per-branch state changes so non-active UI
 	// (Drawer pip, Activity Inbox) can react in real time. The payloads
 	// are claude-tab specific; consumers filter by Type.
-	EventClaudeStatus            EventType = "claude.status"
-	EventClaudePermissionRequest EventType = "claude.permission_request"
+	EventClaudeStatus             EventType = "claude.status"
+	EventClaudePermissionRequest  EventType = "claude.permission_request"
 	EventClaudePermissionResolved EventType = "claude.permission_resolved"
-	EventClaudeError             EventType = "claude.error"
-	EventClaudeTurnEnd           EventType = "claude.turn_end"
-	EventClaudeSessionReplaced   EventType = "claude.session_replaced"
+	EventClaudeError              EventType = "claude.error"
+	EventClaudeTurnEnd            EventType = "claude.turn_end"
+	EventClaudeSessionReplaced    EventType = "claude.session_replaced"
 )
 
 // Event is one broadcastable change.

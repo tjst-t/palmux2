@@ -24,10 +24,10 @@ type Provider struct {
 // handlers can resolve {repoId, branchId} → worktree path.
 func New(s *store.Store) *Provider { return &Provider{store: s} }
 
-func (p *Provider) Type() string         { return TabType }
-func (p *Provider) DisplayName() string  { return "Files" }
-func (p *Provider) Protected() bool      { return true }
-func (p *Provider) Multiple() bool       { return false }
+func (p *Provider) Type() string          { return TabType }
+func (p *Provider) DisplayName() string   { return "Files" }
+func (p *Provider) Protected() bool       { return true }
+func (p *Provider) Multiple() bool        { return false }
 func (p *Provider) NeedsTmuxWindow() bool { return false }
 
 func (p *Provider) OnBranchOpen(_ context.Context, _ tab.OpenParams) (tab.ProviderResult, error) {

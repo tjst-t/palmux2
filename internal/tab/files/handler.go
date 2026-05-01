@@ -88,11 +88,11 @@ func (h *handler) readFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"path":     info.Path,
-		"size":     info.Size,
-		"mime":     info.MIME,
-		"isBinary": info.IsBinary,
-		"content":  string(body),
+		"path":      info.Path,
+		"size":      info.Size,
+		"mime":      info.MIME,
+		"isBinary":  info.IsBinary,
+		"content":   string(body),
 		"truncated": int64(len(body)) < info.Size,
 	})
 }

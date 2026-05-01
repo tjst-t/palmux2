@@ -13,18 +13,41 @@ import (
 //
 // Toolbar is left as json.RawMessage in Phase 1 so the schema can evolve in
 // Phase 7 (Toolbar implementation) without churning the rest of the system.
+//
+// S008 renamed `imageUploadDir` to `attachmentUploadDir` and added
+// `attachmentTtlDays` (TTL cleanup window). The legacy key is read on
+// load for backward compatibility and migrated to the new one on the
+// next save. We deliberately keep an `imageUploadDir` Go field too so
+// older client code (if any) that PATCHes that key still works — load()
+// folds it into AttachmentUploadDir.
 type Settings struct {
-	BranchSortOrder  string          `json:"branchSortOrder,omitempty"`  // "name" | "activity"
-	LastActiveBranch string          `json:"lastActiveBranch,omitempty"` // "{repoId}/{branchId}"
-	ImageUploadDir   string          `json:"imageUploadDir,omitempty"`
-	Toolbar          json.RawMessage `json:"toolbar,omitempty"`
+	BranchSortOrder     string `json:"branchSortOrder,omitempty"`  // "name" | "activity"
+	LastActiveBranch    string `json:"lastActiveBranch,omitempty"` // "{repoId}/{branchId}"
+	AttachmentUploadDir string `json:"attachmentUploadDir,omitempty"`
+	AttachmentTtlDays   int    `json:"attachmentTtlDays,omitempty"`
+	// ImageUploadDir is the legacy key (pre-S008). Kept on the struct so
+	// older PATCH payloads still parse; load()/Patch() copy it into
+	// AttachmentUploadDir so the rest of the codebase only reads the new
+	// name. Marshalling skips it once migrated (always written as the
+	// new key on next save).
+	ImageUploadDir string          `json:"imageUploadDir,omitempty"`
+	Toolbar        json.RawMessage `json:"toolbar,omitempty"`
 }
+
+// DefaultAttachmentUploadDir is the fallback when the user has not
+// configured one. Server-side helpers may resolve this at runtime.
+const DefaultAttachmentUploadDir = "/tmp/palmux-uploads/"
+
+// DefaultAttachmentTtlDays is the default cleanup window for files
+// under AttachmentUploadDir.
+const DefaultAttachmentTtlDays = 30
 
 // DefaultSettings returns a Settings populated with built-in defaults.
 func DefaultSettings() Settings {
 	return Settings{
-		BranchSortOrder: "name",
-		ImageUploadDir:  "/tmp/palmux-uploads/",
+		BranchSortOrder:     "name",
+		AttachmentUploadDir: DefaultAttachmentUploadDir,
+		AttachmentTtlDays:   DefaultAttachmentTtlDays,
 	}
 }
 
@@ -63,6 +86,7 @@ func (s *SettingsStore) load() error {
 	if err := json.Unmarshal(b, &settings); err != nil {
 		return fmt.Errorf("config: parse %s: %w", s.path, err)
 	}
+	migrateLegacyAttachmentDir(&settings)
 	mergeWithDefaults(&settings, defaults)
 	s.settings = settings
 	return nil
@@ -98,8 +122,17 @@ func (s *SettingsStore) Patch(update Settings) (Settings, error) {
 	if update.LastActiveBranch != "" {
 		s.settings.LastActiveBranch = update.LastActiveBranch
 	}
-	if update.ImageUploadDir != "" {
-		s.settings.ImageUploadDir = update.ImageUploadDir
+	// Accept either the new key or the legacy one in patches; the new
+	// key wins if both are sent (the migration removes the old key).
+	if update.AttachmentUploadDir != "" {
+		s.settings.AttachmentUploadDir = update.AttachmentUploadDir
+		s.settings.ImageUploadDir = ""
+	} else if update.ImageUploadDir != "" {
+		s.settings.AttachmentUploadDir = update.ImageUploadDir
+		s.settings.ImageUploadDir = ""
+	}
+	if update.AttachmentTtlDays > 0 {
+		s.settings.AttachmentTtlDays = update.AttachmentTtlDays
 	}
 	if update.Toolbar != nil {
 		s.settings.Toolbar = update.Toolbar
@@ -110,6 +143,20 @@ func (s *SettingsStore) Patch(update Settings) (Settings, error) {
 	return s.settings, nil
 }
 
+// migrateLegacyAttachmentDir folds a legacy `imageUploadDir` key into the
+// new `attachmentUploadDir` field when the new field is empty. The old
+// field is then cleared so subsequent saves write the new key only.
+// Settings files written before S008 only have `imageUploadDir`; this
+// keeps them working without forcing the user to edit the file.
+func migrateLegacyAttachmentDir(s *Settings) {
+	if s.AttachmentUploadDir == "" && s.ImageUploadDir != "" {
+		s.AttachmentUploadDir = s.ImageUploadDir
+	}
+	// Always drop the legacy field once read so it doesn't get written
+	// back. Subsequent saves serialise only the canonical key.
+	s.ImageUploadDir = ""
+}
+
 // mergeWithDefaults fills empty fields in s from defaults. Toolbar deep-merge
 // is deferred to Phase 7 — for Phase 1, an absent Toolbar key inherits the
 // default (currently nil) and a present one is left untouched.
@@ -117,7 +164,10 @@ func mergeWithDefaults(s *Settings, d Settings) {
 	if s.BranchSortOrder == "" {
 		s.BranchSortOrder = d.BranchSortOrder
 	}
-	if s.ImageUploadDir == "" {
-		s.ImageUploadDir = d.ImageUploadDir
+	if s.AttachmentUploadDir == "" {
+		s.AttachmentUploadDir = d.AttachmentUploadDir
+	}
+	if s.AttachmentTtlDays <= 0 {
+		s.AttachmentTtlDays = d.AttachmentTtlDays
 	}
 }
