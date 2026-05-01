@@ -5,12 +5,12 @@
 ## 進捗
 
 - **直近完了: S006 — `--add-dir` / `--file` UI** (autopilot 完了 / autopilot/S006 ブランチ)
-- 合計: 15 スプリント | 完了: 7 | 進行中: 0 | 残り: 8
-- [█████████░░░░░░░░░░░] 47%
+- 合計: 16 スプリント | 完了: 7 | 進行中: 0 | 残り: 9
+- [█████████░░░░░░░░░░░] 44%
 
 ## 実行順序
 
-S001 ✅ → S002 ✅ → S003 ✅ → S007 ✅ → S004 ✅ → S005 ✅ → S006 ✅ → **S008** → **S009** → **S010** → **S011** → **S012** → **S013** → **S014** → **S015**
+S001 ✅ → S002 ✅ → S003 ✅ → S007 ✅ → S004 ✅ → S005 ✅ → S006 ✅ → **S008** → **S009** → **S010** → **S011** → **S012** → **S013** → **S014** → **S015** → **S016**
 
 ---
 
@@ -803,6 +803,125 @@ Palmux のユーザとして、 自分が明示的に open したブランチと
 
 ---
 
+## スプリント S016: Sprint Dashboard tab (claude-skills 連携) [ ]
+
+claude-skills (sprint-runner / autopilot) で管理しているプロジェクトを Palmux2 で開いたとき、 開発状況を **専用タブ「Sprint」** で集約表示する。 ROADMAP.md の存在で自動検出し、 5 画面 (Overview / Sprint Detail / Dependency Graph / Decision Timeline / Refine History) を提供。 5 画面の design は claude-skills 側で確定済み (本 sprint では実装に集中)。
+
+**設計の中核**:
+
+- **検出条件**: `docs/ROADMAP.md` の存在で必要十分。 secondary signals (VISION.md / DESIGN_PRINCIPLES.md / docs/sprint-logs/) はタブ中身の充実度に影響するがタブ表示の判定には使わない
+- **動的検出**: filewatch で ROADMAP.md の出現/消失を監視。 `sprint init` で生成されればタブ即出現、 削除されれば消える。 WS event `tab.added` / `tab.removed` で全クライアント同期
+- **共通 filewatch 基盤**: `internal/worktreewatch/` を新設 (`fsnotify` ベース、 `Subscribe(paths, callback)` API)。 S012 (Git filewatch) でも同基盤を再利用 — S016 で先に作る
+- **タブ module**: `internal/tab/sprint/` (BE) + `frontend/src/tabs/sprint/` (FE)。 タブ位置は **Claude / Files / Git / Sprint / Bash[]** の順 (work → browse → commit → status → terminal)
+- **`Multiple()` = false、 `Protected()` = false** (条件付き表示 = 非 protected)
+- **URL routing**: `/<repo>/<branch>/sprint` (Overview)、 `/sprint/sprints/{sprintId}` (Detail)、 `/sprint/dependencies`、 `/sprint/decisions`、 `/sprint/refine`
+- **Mermaid**: フロントに bundle (~500KB)。 VISION 「自前ホスティング」整合、 オフライン対応
+- **Markdown parser**: 既存 MD preview の経路 (markdown-it) に sprint 固有の section parser (sprint header / story / task / decisions log entry) を追加
+- **Active autopilot scope**: 現在ブランチの `.claude/autopilot-*.lock` のみ検出 (cross-branch aggregation は backlog)
+- **Read-only**: 本 sprint は閲覧のみ。 「sprint plan を開始」「sprint auto を実行」等の launcher は backlog
+- **Markdown parse 失敗時**: section 単位で空表示 + 「parse error: 詳細はファイルを直接参照」 fail-safe
+
+### 更新タイミング (4 層構造)
+
+| 層 | トリガ | 動作 | 用途 |
+|---|---|---|---|
+| 1 | タブを開いた瞬間 | REST GET で初回 fetch (画面ごとに独立 endpoint) | 最新スナップショット表示 |
+| 2 (主) | filewatch → WS push | `docs/ROADMAP.md` / `docs/sprint-logs/*` / `.claude/autopilot-*.lock` の変更検知 → 1 秒以内 (debounce 1000ms) で WS event `sprint.changed` emit → 該当 view が部分 refetch | autopilot 中のリアルタイム反映 |
+| 3 | ブラウザフォーカス復帰 | `window.focus` で ETag check (304 なら何もしない) | スマホ ↔ PC 多デバイス併用時の WS 切断保険 |
+| 4 | 手動 Refresh ボタン | 各画面ヘッダ右の refresh アイコン → 強制再 fetch | ユーザの「念のため」 / WS 異常時の手動回復 |
+
+WS 切断時はヘッダに「offline」インジケータ、 再接続で自動再 fetch。 polling は採用しない。
+
+### ストーリー S016-1: claude-skills プロジェクトの開発状況を Palmux 内のタブで一覧できる [ ]
+
+**ユーザーストーリー:**
+Palmux のユーザとして、 sprint-runner / autopilot で管理しているプロジェクトを開いたとき、 開発状況 (進捗 / アクティブ autopilot / 自律判断ログ / 受入条件 / E2E 結果 / refine 履歴) を Palmux 内のタブで一覧したい。 なぜなら、 ROADMAP.md や sprint-logs を都度ファイルで開いて読むのは煩雑で、 マイルストーンレビュー前の判断把握 / 並走中の autopilot 監視には集約 UI が必要だからだ。
+
+**受け入れ条件:**
+
+**検出 & 動的表示:**
+- [ ] `docs/ROADMAP.md` が存在するブランチを開くと TabBar に「Sprint」タブが出現する
+- [ ] 開いている最中に ROADMAP.md が削除されるとタブも消える (WS event `tab.removed` 経由)
+- [ ] ROADMAP.md がない状態で `sprint init` 等で新規生成されると、 ページリロードなしでタブが出現する (WS event `tab.added`)
+- [ ] subagent / unmanaged worktree でも同条件で表示される (S015 のカテゴリと無関係に動作)
+
+**5 画面 (claude-skills design に従う):**
+- [ ] Overview: project name + vision (1 行) + progress bar (`N/M sprints, X%`) + current sprint summary + active autopilot list (現在ブランチのみ) + next milestone + sprint timeline (linear、 現在位置と milestone 強調)
+- [ ] Sprint Detail: sprint header (status / branch) + stories list (✅ / 🔧 / ⚠️ NEEDS_HUMAN) + acceptance matrix (AC ごとの Pass / Fail / No test) + test results summary (Mock / E2E / Acceptance) + recent decisions
+- [ ] Dependency Graph: ROADMAP.md の依存関係セクションから Mermaid graph 生成、 各ノードクリックで Sprint Detail に遷移、 凡例 (Done / In Progress / Pending / Blocked)
+- [ ] Decision Timeline: 全 sprint の decisions.md を時系列、 カテゴリフィルタ (Planning / Implementation / Review / Backlog)、 ⚠️ NEEDS_HUMAN フィルタ
+- [ ] Refine History: 全 sprint の refine.md を sprint 横断で表示、 sprint / 番号 / 内容 / 変更ファイル
+
+**更新タイミング (4 層):**
+- [ ] タブを開いた瞬間に REST GET で初回 fetch
+- [ ] filewatch で ROADMAP.md / sprint-logs/* / .claude/autopilot-*.lock の変更を検知 → 1 秒以内 (debounce 1000ms) に該当画面が更新される
+- [ ] ブラウザフォーカス復帰 (`window.focus`) で ETag check、 変更があれば再 fetch
+- [ ] 各画面ヘッダ右に Refresh アイコン、 クリックで強制再 fetch
+- [ ] WS 切断時は「offline」インジケータ表示、 再接続で自動再 fetch
+
+**Read-only:**
+- [ ] 全画面で書き込みアクションなし (sprint plan / auto launcher は本 sprint スコープ外)
+
+**モバイル:**
+- [ ] 5 画面すべてが < 600px で破綻なく表示
+- [ ] Mermaid graph はモバイルでスクロール / pinch-zoom 可能 (Mermaid の builtin 機能 + container CSS で実現)
+
+**タスク:**
+
+**共通 filewatch 基盤:**
+- [ ] **タスク S016-1-1**: `internal/worktreewatch/` 新設。 `fsnotify` ベースで `Watcher.Subscribe(paths []string, callback func(event))` API。 debounce / coalescing 内蔵。 S012 (Git filewatch) でも再利用可能な抽象度で設計
+
+**バックエンド (tab module):**
+- [ ] **タスク S016-1-2**: `internal/tab/sprint/provider.go` 新設。 `Multiple() = false`、 `Protected() = false`、 `NeedsTmuxWindow() = false`。 `OnBranchOpen` で `docs/ROADMAP.md` 存在チェック、 存在すれば sprint タブを返す
+- [ ] **タスク S016-1-3**: Provider が worktreewatch に subscribe (`docs/ROADMAP.md`)、 出現で `tab.added` / 消失で `tab.removed` を emit
+- [ ] **タスク S016-1-4**: Active autopilot 検出: `.claude/autopilot-*.lock` ファイルの存在と mtime をスキャン、 lock 内容から SprintID / 開始時刻を抽出
+
+**バックエンド (Markdown parsers):**
+- [ ] **タスク S016-1-5**: `internal/tab/sprint/parser/roadmap.go` — ROADMAP.md を構造化パース (sprints, stories, tasks, dependencies, backlog, progress)。 既存の markdown-it 派生か Go 側 (`yuin/goldmark` 等) でパース、 sprint header の正規表現は `## スプリント <ID>: <title> \[<status>\]`
+- [ ] **タスク S016-1-6**: `parser/decisions.go` — decisions.md を時系列エントリにパース (timestamp / category / content)。 既存 decisions.md の format に合わせる
+- [ ] **タスク S016-1-7**: `parser/results.go` — e2e-results.md / acceptance-matrix.md / refine.md をそれぞれ tabular / list 形式にパース
+- [ ] **タスク S016-1-8**: parse 失敗時の fail-safe: section 単位で empty + error 注釈、 全体クラッシュさせない
+
+**バックエンド (REST endpoints):**
+- [ ] **タスク S016-1-9**: 5 endpoint 追加 (各 ETag 付き):
+  - `GET /api/repos/{repoId}/branches/{branchId}/tabs/sprint/overview`
+  - `GET .../tabs/sprint/sprints/{sprintId}`
+  - `GET .../tabs/sprint/dependencies`
+  - `GET .../tabs/sprint/decisions` (`?filter=planning|implementation|review|backlog|needs_human`)
+  - `GET .../tabs/sprint/refine`
+- [ ] **タスク S016-1-10**: filewatch → WS event `sprint.changed` emission。 payload に変更されたファイル / 影響する画面を含めて FE が部分 refetch できるようにする
+
+**フロントエンド (tab module + routing):**
+- [ ] **タスク S016-1-11**: `frontend/src/tabs/sprint/index.ts` でタブ登録 (`registerTab({type: 'sprint', component: SprintView})`)。 `SprintView` 内で React Router の sub-routes (Overview / Sprint Detail / Dependency / Decisions / Refine)
+- [ ] **タスク S016-1-12**: 5 screens それぞれの React コンポーネント (`overview.tsx` / `sprint-detail.tsx` / `dependency-graph.tsx` / `decision-timeline.tsx` / `refine-history.tsx`)。 既存 Fog palette + CSS Modules で実装
+
+**フロントエンド (Mermaid):**
+- [ ] **タスク S016-1-13**: Mermaid をフロント bundle に追加 (`npm i mermaid`)。 lazy import で初回 Dependency Graph 描画時のみロード。 dependency 情報を Mermaid graph syntax に変換するユーティリティ
+
+**フロントエンド (更新メカニズム):**
+- [ ] **タスク S016-1-14**: WS event `sprint.changed` を listen し、 該当画面の SWR / Zustand state を invalidate → 自動再 fetch
+- [ ] **タスク S016-1-15**: `window.focus` listener で ETag check (各画面の last fetched ETag を保存、 304 なら何もしない)
+- [ ] **タスク S016-1-16**: 各画面ヘッダ右に Refresh アイコンボタン、 クリックで強制再 fetch
+- [ ] **タスク S016-1-17**: WS 接続状態を Zustand から読み、 切断中は header に「offline」インジケータ。 再接続で自動再 fetch
+
+**モバイル:**
+- [ ] **タスク S016-1-18**: 5 画面すべて < 600px で動作確認 + デザイン調整。 Mermaid graph は overflow-x で横スクロール、 pinch-zoom は Mermaid の builtin
+
+**E2E:**
+- [ ] **タスク S016-1-19**: dev インスタンス + Playwright で実機検証。 `tests/e2e/s016_*.py` で:
+  - (a) ROADMAP.md ありのブランチで Sprint タブが出現、 5 画面遷移
+  - (b) ROADMAP.md を削除 → タブ消失 (WS event)、 復元 → 再出現
+  - (c) ROADMAP.md を編集 → 1 秒以内に Overview の進捗バーが反映
+  - (d) `.claude/autopilot-S012.lock` を作成 → Active autopilot に表示、 削除で消える
+  - (e) Mermaid graph ノードクリックで Sprint Detail に遷移
+  - (f) Decision Timeline でカテゴリフィルタ動作
+  - (g) WS 切断 → offline 表示、 再接続で自動 fetch
+  - (h) Refresh ボタンで強制再 fetch
+  - (i) 不正フォーマットの ROADMAP.md でも UI クラッシュせず error 表示
+  - (j) モバイル幅で 5 画面すべて表示 + Mermaid pinch-zoom
+
+---
+
 ## 依存関係
 
 - S001 〜 S007 はそれぞれ **独立** に実装可能。実行順序の根拠はユーザ価値の累積効果（Plan モード UI が最も体験に直結する）
@@ -817,6 +936,7 @@ Palmux のユーザとして、 自分が明示的に open したブランチと
 - S013（Git History & Common Ops）は **S012 必須前提** (S012 の commit / push 経路と filewatch を前提に履歴・付け替え系を載せる)
 - S014（Conflict & Interactive Rebase）は **S013 必須前提**ではないが、 S012 + S013 完了後の方が「日常 / 履歴」フローが揃った状態で残る難所として実装する流れが自然。 S014 単独でも論理的には実装可能
 - S015（Worktree categorization）は他の sprint と独立。 Drawer surface のみの改修 + `repos.json` schema 拡張で完結する。 S008-S014 のいずれにも依存せず、 並列実装も可能。 ユーザ価値の観点で「Claude 並列実行が増えた後ほど効く」ので S014 の後に置くが、 早出ししたければ S012 の前に持ってくることもできる
+- S016（Sprint Dashboard tab）は **`internal/worktreewatch/` 共通 filewatch 基盤を新設** する。 S012 (Git filewatch) もこの基盤を再利用するので、 S012 と S016 の **どちらが先でもよい** が、 先に来た方が基盤を作る責務を持つ。 推奨は S012 → S016 の順 (Git の filewatch ニーズが先に発生するため) だが、 S016 → S012 でも実装可能
 
 ## バックログ
 
@@ -869,3 +989,7 @@ Phase 4 以降に位置付けられる項目。スコープ確定の段階で個
   S015 で subagent セクションを分けるが、 Claude のサブエージェント / autopilot が完了後に放置した worktree は手動で `gwq remove` するしかない。 「Clean up completed subagent worktrees」ボタンを subagent セクションのヘッダに置き、 一定期間 stale な worktree を一括削除できるようにする。 サイズ S/M。
 - [ ] **Subagent worktree の Promote action** (S015 由来)
   S015 では unmanaged のみ promote できる。 subagent worktree (例: autopilot/SXXX が良い結果を出して恒久化したいケース) を my に移す action は本 sprint スコープ外なので backlog 行き。 path が `.claude/worktrees/*` 配下のままだと運用しづらいので、 promote と同時に gwq の標準位置に move する選択肢も含めて設計が必要。 サイズ S/M。
+- [ ] **Sprint タブから sprint 操作を起動** (S016 由来)
+  S016 は read-only 完全特化。 「Sprint Detail から sprint plan / sprint auto / sprint refine を起動」「Decision Timeline から該当 sprint の logs にジャンプ」などのアクション launcher は backlog。 Claude タブとの連動 (Claude タブの composer に sprint 操作プロンプトを prefill 等) も検討対象。 サイズ M。
+- [ ] **Cross-branch active autopilot の集約表示** (S016 由来)
+  S016 では現在ブランチの `.claude/autopilot-*.lock` のみ検出。 「main で S012 走行中、 feature/billing で S013 走行中」のように複数ブランチの autopilot を 1 画面で見たい場面がある。 ただし auth / perm 設計が複雑化するため (cross-branch 読み取り権限の扱い)、 別 sprint で慎重に検討。 サイズ M。
