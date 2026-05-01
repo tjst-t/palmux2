@@ -21,6 +21,15 @@
   cursor: grabbing;
 }
 
+/* S009: each consecutive run of same-typed tabs is a "group" so we can
+   dock the per-type + button to the right edge of the group rather than
+   a single end-of-bar +. The wrapper is inline so flexbox keeps the
+   tabs and + flowing left-to-right. */
+.group {
+  display: inline-flex;
+  align-items: center;
+}
+
 .tab {
   display: inline-flex;
   align-items: center;

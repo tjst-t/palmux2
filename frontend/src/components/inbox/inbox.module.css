@@ -191,3 +191,15 @@
   color: var(--color-fg-faint);
   font-family: var(--font-mono);
 }
+
+/* S009: tab name badge prepended to permission notifications so the
+   user can tell which Claude tab fired the request when a branch hosts
+   multiple Claude tabs. Subtle — the title still carries the actionable
+   text. */
+.tabBadge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  margin-right: 2px;
+}
+

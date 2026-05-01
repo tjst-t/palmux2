@@ -22,6 +22,12 @@ type Notification struct {
 	// republish and so ClearByRequestID can target a specific entry.
 	RequestID string               `json:"requestId,omitempty"`
 	Actions   []NotificationAction `json:"actions,omitempty"`
+	// TabID / TabName carry the originating tab when a branch hosts
+	// multiple Claude tabs (S009). The Inbox renders TabName next to
+	// the title so the user knows which Claude is asking. Both are
+	// optional — pre-S009 callers and Bash hooks leave them empty.
+	TabID   string `json:"tabId,omitempty"`
+	TabName string `json:"tabName,omitempty"`
 	// Resolved flips true when ClearByRequestID is called. The Inbox
 	// hides resolved entries by default but can show them on demand.
 	Resolved bool `json:"resolved,omitempty"`
@@ -149,6 +155,11 @@ type InternalRequest struct {
 	Message   string
 	Detail    string
 	Actions   []NotificationAction
+	// TabID / TabName: optional originating tab (S009). Stamped onto
+	// the resulting Notification so the Inbox can show "Claude 2" /
+	// "Claude" when a branch hosts more than one Claude tab.
+	TabID   string
+	TabName string
 }
 
 // IngestInternal records a notification that originates from inside the
@@ -172,6 +183,8 @@ func (h *Hub) IngestInternal(repoID, branchID string, req InternalRequest) {
 		CreatedAt: time.Now().UTC(),
 		RequestID: req.RequestID,
 		Actions:   req.Actions,
+		TabID:     req.TabID,
+		TabName:   req.TabName,
 	}
 
 	key := repoID + "/" + branchID

@@ -18,13 +18,26 @@ type httpHandler struct {
 
 func newHTTPHandler(mgr *Manager) *httpHandler { return &httpHandler{mgr: mgr} }
 
+// tabIDFrom returns the tab id for a request. Routes registered under
+// the legacy `/tabs/claude/...` prefix omit the `tabId` PathValue; in
+// that case we fall back to the canonical first tab so existing clients
+// keep working unchanged. New routes that include `{tabId}` route
+// individual Claude tabs (e.g. claude:claude-2).
+func tabIDFrom(r *http.Request) string {
+	if id := r.PathValue("tabId"); id != "" {
+		return CanonicaliseTabID(id)
+	}
+	return CanonicalTabID
+}
+
 // ──────────── WS endpoint ──────────────────────────────────────────────────
 
 func (h *httpHandler) handleWS(w http.ResponseWriter, r *http.Request) {
 	repoID := r.PathValue("repoId")
 	branchID := r.PathValue("branchId")
+	tabID := tabIDFrom(r)
 
-	agent, err := h.mgr.EnsureAgent(repoID, branchID)
+	agent, err := h.mgr.EnsureAgent(repoID, branchID, tabID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -513,12 +526,13 @@ type permissionAnswerRequest struct {
 func (h *httpHandler) handleAnswerPermission(w http.ResponseWriter, r *http.Request) {
 	repoID := r.PathValue("repoId")
 	branchID := r.PathValue("branchId")
+	tabID := tabIDFrom(r)
 	permID := r.PathValue("permissionId")
 	if permID == "" {
 		http.Error(w, "missing permissionId", http.StatusBadRequest)
 		return
 	}
-	agent := h.mgr.Get(repoID, branchID)
+	agent := h.mgr.Get(repoID, branchID, tabID)
 	if agent == nil {
 		http.Error(w, "agent not running for this branch", http.StatusNotFound)
 		return
@@ -627,7 +641,8 @@ type branchPrefsView struct {
 func (h *httpHandler) handleGetBranchPrefs(w http.ResponseWriter, r *http.Request) {
 	repoID := r.PathValue("repoId")
 	branchID := r.PathValue("branchId")
-	prefs := h.mgr.Store().BranchPrefs(repoID, branchID)
+	tabID := tabIDFrom(r)
+	prefs := h.mgr.Store().BranchPrefs(repoID, branchID, tabID)
 	writeJSON(w, http.StatusOK, branchPrefsView{
 		IncludeHookEvents: prefs.IncludeHookEvents,
 	})
@@ -640,6 +655,7 @@ func (h *httpHandler) handleGetBranchPrefs(w http.ResponseWriter, r *http.Reques
 func (h *httpHandler) handlePatchBranchPrefs(w http.ResponseWriter, r *http.Request) {
 	repoID := r.PathValue("repoId")
 	branchID := r.PathValue("branchId")
+	tabID := tabIDFrom(r)
 	var p branchPrefsView
 	if r.Body != nil {
 		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
@@ -647,7 +663,7 @@ func (h *httpHandler) handlePatchBranchPrefs(w http.ResponseWriter, r *http.Requ
 			return
 		}
 	}
-	if a := h.mgr.Get(repoID, branchID); a != nil {
+	if a := h.mgr.Get(repoID, branchID, tabID); a != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
 		if err := a.SetIncludeHookEvents(ctx, p.IncludeHookEvents); err != nil {
@@ -661,9 +677,9 @@ func (h *httpHandler) handlePatchBranchPrefs(w http.ResponseWriter, r *http.Requ
 	}
 	// No live agent: persist directly to the store so the next EnsureAgent
 	// reads the new value.
-	prefs := h.mgr.Store().BranchPrefs(repoID, branchID)
+	prefs := h.mgr.Store().BranchPrefs(repoID, branchID, tabID)
 	prefs.IncludeHookEvents = p.IncludeHookEvents
-	if err := h.mgr.Store().SetBranchPrefs(repoID, branchID, prefs); err != nil {
+	if err := h.mgr.Store().SetBranchPrefs(repoID, branchID, tabID, prefs); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

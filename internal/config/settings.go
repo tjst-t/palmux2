@@ -30,8 +30,20 @@ type Settings struct {
 	// AttachmentUploadDir so the rest of the codebase only reads the new
 	// name. Marshalling skips it once migrated (always written as the
 	// new key on next save).
-	ImageUploadDir string          `json:"imageUploadDir,omitempty"`
-	Toolbar        json.RawMessage `json:"toolbar,omitempty"`
+	ImageUploadDir string `json:"imageUploadDir,omitempty"`
+
+	// MaxClaudeTabsPerBranch caps how many parallel Claude tabs a branch
+	// may host (S009). Each Claude tab spawns its own claude CLI
+	// subprocess, so the cap protects against runaway resource use. 0 →
+	// fall through to DefaultMaxClaudeTabsPerBranch.
+	MaxClaudeTabsPerBranch int `json:"maxClaudeTabsPerBranch,omitempty"`
+
+	// MaxBashTabsPerBranch caps how many tmux Bash windows a branch may
+	// host (S009). Same shape as the Claude cap; defaults higher because
+	// Bash tabs are cheap (idle shells).
+	MaxBashTabsPerBranch int `json:"maxBashTabsPerBranch,omitempty"`
+
+	Toolbar json.RawMessage `json:"toolbar,omitempty"`
 }
 
 // DefaultAttachmentUploadDir is the fallback when the user has not
@@ -42,12 +54,24 @@ const DefaultAttachmentUploadDir = "/tmp/palmux-uploads/"
 // under AttachmentUploadDir.
 const DefaultAttachmentTtlDays = 30
 
+// DefaultMaxClaudeTabsPerBranch is the default cap on parallel Claude tabs
+// per branch. 3 keeps a single user's API quota from going wild while
+// still permitting "main agent + 2 helpers" patterns.
+const DefaultMaxClaudeTabsPerBranch = 3
+
+// DefaultMaxBashTabsPerBranch is the default cap on Bash tabs per branch.
+// 5 covers typical "build + watcher + scratch + repl + spare" without
+// inviting tab-spam.
+const DefaultMaxBashTabsPerBranch = 5
+
 // DefaultSettings returns a Settings populated with built-in defaults.
 func DefaultSettings() Settings {
 	return Settings{
-		BranchSortOrder:     "name",
-		AttachmentUploadDir: DefaultAttachmentUploadDir,
-		AttachmentTtlDays:   DefaultAttachmentTtlDays,
+		BranchSortOrder:        "name",
+		AttachmentUploadDir:    DefaultAttachmentUploadDir,
+		AttachmentTtlDays:      DefaultAttachmentTtlDays,
+		MaxClaudeTabsPerBranch: DefaultMaxClaudeTabsPerBranch,
+		MaxBashTabsPerBranch:   DefaultMaxBashTabsPerBranch,
 	}
 }
 
@@ -111,6 +135,27 @@ func (s *SettingsStore) Get() Settings {
 	return s.settings
 }
 
+// MaxClaudeTabsPerBranch implements tab.SettingsView. Falls through to
+// the package default when the persisted value is unset/non-positive.
+func (s *SettingsStore) MaxClaudeTabsPerBranch() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.settings.MaxClaudeTabsPerBranch > 0 {
+		return s.settings.MaxClaudeTabsPerBranch
+	}
+	return DefaultMaxClaudeTabsPerBranch
+}
+
+// MaxBashTabsPerBranch implements tab.SettingsView.
+func (s *SettingsStore) MaxBashTabsPerBranch() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.settings.MaxBashTabsPerBranch > 0 {
+		return s.settings.MaxBashTabsPerBranch
+	}
+	return DefaultMaxBashTabsPerBranch
+}
+
 // Patch shallow-merges in fields from `update` (non-zero strings overwrite,
 // non-nil RawMessage overwrites). Returns the resulting settings.
 func (s *SettingsStore) Patch(update Settings) (Settings, error) {
@@ -133,6 +178,12 @@ func (s *SettingsStore) Patch(update Settings) (Settings, error) {
 	}
 	if update.AttachmentTtlDays > 0 {
 		s.settings.AttachmentTtlDays = update.AttachmentTtlDays
+	}
+	if update.MaxClaudeTabsPerBranch > 0 {
+		s.settings.MaxClaudeTabsPerBranch = update.MaxClaudeTabsPerBranch
+	}
+	if update.MaxBashTabsPerBranch > 0 {
+		s.settings.MaxBashTabsPerBranch = update.MaxBashTabsPerBranch
 	}
 	if update.Toolbar != nil {
 		s.settings.Toolbar = update.Toolbar
@@ -169,5 +220,11 @@ func mergeWithDefaults(s *Settings, d Settings) {
 	}
 	if s.AttachmentTtlDays <= 0 {
 		s.AttachmentTtlDays = d.AttachmentTtlDays
+	}
+	if s.MaxClaudeTabsPerBranch <= 0 {
+		s.MaxClaudeTabsPerBranch = d.MaxClaudeTabsPerBranch
+	}
+	if s.MaxBashTabsPerBranch <= 0 {
+		s.MaxBashTabsPerBranch = d.MaxBashTabsPerBranch
 	}
 }

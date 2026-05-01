@@ -33,7 +33,11 @@ var (
 	ErrBranchNotFound = errors.New("branch not found")
 	ErrTabNotFound    = errors.New("tab not found")
 	ErrTabProtected   = errors.New("tab is protected")
-	ErrInvalidArg     = errors.New("invalid argument")
+	// ErrTabLimit is returned when AddTab would exceed Provider.Limits().Max
+	// or RemoveTab would drop below Provider.Limits().Min. Surfaced as 409
+	// Conflict by the HTTP layer.
+	ErrTabLimit   = errors.New("tab limit reached")
+	ErrInvalidArg = errors.New("invalid argument")
 )
 
 // Deps bundles every external dependency Store needs.
@@ -54,15 +58,16 @@ type Deps struct {
 
 // Store is concurrency-safe.
 type Store struct {
-	deps     Deps
-	mu       sync.RWMutex
-	repos    map[string]*domain.Repository // by RepoID
-	conns    map[string]*domain.Connection
-	notifs   map[string]domain.Notification
-	logger   *slog.Logger
-	ghqRoot  string
-	hub      *EventHub
-	registry *tab.Registry
+	deps         Deps
+	mu           sync.RWMutex
+	repos        map[string]*domain.Repository // by RepoID
+	conns        map[string]*domain.Connection
+	notifs       map[string]domain.Notification
+	logger       *slog.Logger
+	ghqRoot      string
+	hub          *EventHub
+	registry     *tab.Registry
+	multiTabHook MultiTabHook // S009: non-tmux multi providers (Claude)
 }
 
 // New creates a Store and hydrates it from disk. It does NOT start the sync
@@ -264,13 +269,27 @@ func (s *Store) recomputeTabs(ctx context.Context, branch *domain.Branch) {
 	var tabs []domain.Tab
 	for _, p := range s.registry.Providers() {
 		if !p.NeedsTmuxWindow() {
-			tabs = append(tabs, domain.Tab{
-				ID:        p.Type(),
-				Type:      p.Type(),
-				Name:      p.DisplayName(),
-				Protected: p.Protected(),
-				Multiple:  p.Multiple(),
-			})
+			// Non-tmux singletons (Files, Git): one fixed tab.
+			if !p.Multiple() {
+				tabs = append(tabs, domain.Tab{
+					ID:        p.Type(),
+					Type:      p.Type(),
+					Name:      p.DisplayName(),
+					Protected: p.Protected(),
+					Multiple:  p.Multiple(),
+				})
+				continue
+			}
+			// Non-tmux multi (Claude post-S009): re-derive from the
+			// provider via OnBranchOpen so the persisted tab list is the
+			// source of truth. recomputeTabs is read-only; it doesn't
+			// re-trigger any side effects.
+			res, err := p.OnBranchOpen(ctx, tab.OpenParams{Branch: branch, Resume: false})
+			if err != nil {
+				s.logger.Warn("recomputeTabs: OnBranchOpen for non-tmux multi", "type", p.Type(), "err", err)
+				continue
+			}
+			tabs = append(tabs, res.Tabs...)
 			continue
 		}
 		names := byType[p.Type()]

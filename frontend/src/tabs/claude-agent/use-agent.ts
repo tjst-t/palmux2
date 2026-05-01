@@ -5,12 +5,20 @@ import { ReconnectingWebSocket } from '../../lib/ws'
 import { initialState, reduce } from './agent-state'
 import type { AgentState } from './agent-state'
 
-// In-memory snapshot cache keyed by `${repoId}/${branchId}`. Survives tab
-// switches inside the SPA so navigating back to a Claude tab shows the
-// previous turns immediately, while the WS reconnects in the background
-// and refreshes from the server's authoritative snapshot.
+// In-memory snapshot cache keyed by `${repoId}/${branchId}/${tabId}` (S009).
+// Survives tab switches inside the SPA so navigating back to a Claude tab
+// shows the previous turns immediately, while the WS reconnects in the
+// background and refreshes from the server's authoritative snapshot.
 const stateCache = new Map<string, AgentState>()
-const cacheKey = (r: string, b: string) => `${r}/${b}`
+const cacheKey = (r: string, b: string, t: string) => `${r}/${b}/${t}`
+
+// Canonical Claude tab id — matches the BE's `claudeagent.CanonicalTabID`.
+const CANONICAL_CLAUDE_TAB = 'claude:claude'
+
+function canonicaliseTabID(tabID: string | undefined): string {
+  if (!tabID || tabID === 'claude') return CANONICAL_CLAUDE_TAB
+  return tabID
+}
 
 interface SendFn {
   /** Send a user message. addDirs is the absolute filesystem paths the
@@ -59,11 +67,16 @@ interface UseAgentResult {
   send: SendFn
 }
 
-export function useAgent(repoId: string, branchId: string): UseAgentResult {
+export function useAgent(
+  repoId: string,
+  branchId: string,
+  tabId?: string,
+): UseAgentResult {
+  const tab = canonicaliseTabID(tabId)
   // Lazy initialiser hits the snapshot cache so the first paint shows the
   // previous turns instead of the empty-state placeholder.
   const [state, dispatch] = useReducer(reduce, undefined, () =>
-    stateCache.get(cacheKey(repoId, branchId)) ?? initialState,
+    stateCache.get(cacheKey(repoId, branchId, tab)) ?? initialState,
   )
   const [connState, setConnState] = useState<ConnState>('connecting')
   const wsRef = useRef<ReconnectingWebSocket | null>(null)
@@ -73,13 +86,13 @@ export function useAgent(repoId: string, branchId: string): UseAgentResult {
   // good cache with a transient blank slate during branch switch.
   useEffect(() => {
     if (state.ready) {
-      stateCache.set(cacheKey(repoId, branchId), state)
+      stateCache.set(cacheKey(repoId, branchId, tab), state)
     }
-  }, [repoId, branchId, state])
+  }, [repoId, branchId, tab, state])
 
   useEffect(() => {
     if (!repoId || !branchId) return
-    const url = buildWSUrl(repoId, branchId)
+    const url = buildWSUrl(repoId, branchId, tab)
     const ws = new ReconnectingWebSocket({
       url,
       binaryType: 'arraybuffer',
@@ -98,7 +111,7 @@ export function useAgent(repoId: string, branchId: string): UseAgentResult {
     // On (re)mount or branch switch, restore from cache when available so
     // the UI has content to render immediately. The WS will follow up with
     // a session.init that supersedes whatever we restored.
-    const cached = stateCache.get(cacheKey(repoId, branchId))
+    const cached = stateCache.get(cacheKey(repoId, branchId, tab))
     if (cached) {
       dispatch({ kind: 'restore', state: cached })
     } else {
@@ -109,7 +122,7 @@ export function useAgent(repoId: string, branchId: string): UseAgentResult {
       ws.close(1000, 'unmount')
       wsRef.current = null
     }
-  }, [repoId, branchId])
+  }, [repoId, branchId, tab])
 
   const sendMessage = useCallback((content: string, addDirs?: string[]) => {
     if (!content) return
@@ -201,8 +214,15 @@ export function useAgent(repoId: string, branchId: string): UseAgentResult {
   }
 }
 
-function buildWSUrl(repoId: string, branchId: string): string {
+function buildWSUrl(repoId: string, branchId: string, tabId: string): string {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const path = `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/tabs/claude/agent`
+  // The canonical tab id keeps using the legacy `/tabs/claude/agent`
+  // path so older bookmarks and external clients (Activity Inbox
+  // permission POST etc.) keep working unchanged. Secondary tabs go
+  // through the S009 `/tabs/{tabId}/agent` route.
+  const path =
+    tabId === CANONICAL_CLAUDE_TAB
+      ? `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/tabs/claude/agent`
+      : `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/tabs/${encodeURIComponent(tabId)}/agent`
   return `${proto}//${window.location.host}${path}`
 }

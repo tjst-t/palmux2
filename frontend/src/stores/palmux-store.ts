@@ -26,6 +26,12 @@ export interface NotificationItem {
   actions?: NotificationAction[]
   /** True once the underlying request has been answered/cancelled. */
   resolved?: boolean
+  /** S009: originating Claude tab id (e.g. "claude:claude-2") so the
+   *  Activity Inbox can address per-tab REST endpoints when the user
+   *  answers a permission from the inbox without opening the WS. */
+  tabId?: string
+  /** S009: Display name of the originating tab (e.g. "Claude", "Claude 2"). */
+  tabName?: string
 }
 
 export interface NotificationAction {
@@ -93,6 +99,10 @@ export interface GlobalSettings {
   attachmentUploadDir?: string
   attachmentTtlDays?: number
   imageUploadDir?: string
+  /** S009: cap on parallel Claude tabs per branch (default 3). */
+  maxClaudeTabsPerBranch?: number
+  /** S009: cap on Bash tabs per branch (default 5). */
+  maxBashTabsPerBranch?: number
   toolbar?: Partial<ToolbarConfig>
 }
 

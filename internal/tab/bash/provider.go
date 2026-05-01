@@ -26,6 +26,19 @@ func (p *Provider) Protected() bool       { return false }
 func (p *Provider) Multiple() bool        { return true }
 func (p *Provider) NeedsTmuxWindow() bool { return true }
 
+// Limits — Bash always has at least one tab; the upper bound is
+// settings-driven (maxBashTabsPerBranch). A nil view falls through to a
+// safe default of 5 so tests / partially-wired setups don't blow up.
+func (p *Provider) Limits(view tab.SettingsView) tab.InstanceLimits {
+	max := 5
+	if view != nil {
+		if n := view.MaxBashTabsPerBranch(); n > 0 {
+			max = n
+		}
+	}
+	return tab.InstanceLimits{Min: 1, Max: max}
+}
+
 func (p *Provider) OnBranchOpen(_ context.Context, _ tab.OpenParams) (tab.ProviderResult, error) {
 	// Initial open creates exactly one Bash tab using the canonical
 	// "palmux:bash:bash" name. Additional Bash tabs are added via

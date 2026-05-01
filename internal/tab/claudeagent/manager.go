@@ -64,6 +64,10 @@ type InternalNotification struct {
 	Message   string                       `json:"message,omitempty"`
 	Detail    string                       `json:"detail,omitempty"`
 	Actions   []InternalNotificationAction `json:"actions,omitempty"`
+	// TabID / TabName identify which Claude tab fired the notification
+	// (S009). Empty when the publish path doesn't have the dimension.
+	TabID   string `json:"tabId,omitempty"`
+	TabName string `json:"tabName,omitempty"`
 }
 
 // InternalNotificationAction is one inline button on a notification.
@@ -116,21 +120,30 @@ func NewManager(cfg Config, store *Store, branches BranchResolver, events EventP
 	}
 }
 
-func (m *Manager) key(repoID, branchID string) string { return repoID + "/" + branchID }
-
-// Get returns the existing Agent for the branch, or nil.
-func (m *Manager) Get(repoID, branchID string) *Agent {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.agents[m.key(repoID, branchID)]
+// key returns the per-tab agent map key. Pre-S009 the dimension was
+// `(repoID, branchID)`; now it's `(repoID, branchID, tabID)` so each
+// Claude tab on the same branch owns a distinct Agent. Empty / legacy
+// "claude" tab ids fold to CanonicalTabID for migration.
+func (m *Manager) key(repoID, branchID, tabID string) string {
+	return tabKey(repoID, branchID, tabID)
 }
 
-// EnsureAgent returns the existing Agent or creates a fresh one. The Client
-// is not spawned yet — the caller decides when (lazy on first message).
-func (m *Manager) EnsureAgent(repoID, branchID string) (*Agent, error) {
+// Get returns the existing Agent for (repo, branch, tab), or nil. Empty
+// tabID resolves to the canonical first tab.
+func (m *Manager) Get(repoID, branchID, tabID string) *Agent {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	k := m.key(repoID, branchID)
+	return m.agents[m.key(repoID, branchID, tabID)]
+}
+
+// EnsureAgent returns the existing Agent for (repo, branch, tab) or
+// creates a fresh one. The Client is not spawned yet — the caller decides
+// when (lazy on first message). Empty / legacy tabID folds to canonical.
+func (m *Manager) EnsureAgent(repoID, branchID, tabID string) (*Agent, error) {
+	tabID = CanonicaliseTabID(tabID)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	k := m.key(repoID, branchID, tabID)
 	if existing, ok := m.agents[k]; ok {
 		return existing, nil
 	}
@@ -138,8 +151,12 @@ func (m *Manager) EnsureAgent(repoID, branchID string) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	resumeID := m.store.ActiveFor(repoID, branchID)
-	prefs := m.store.BranchPrefs(repoID, branchID)
+	// S009: only the canonical (first) Claude tab inherits the
+	// pre-existing per-branch resume pointer. Secondary tabs start
+	// fresh — a brand-new session id will be allocated by the CLI on
+	// first message.
+	resumeID := m.store.ActiveFor(repoID, branchID, tabID)
+	prefs := m.store.BranchPrefs(repoID, branchID, tabID)
 	model := prefs.Model
 	if model == "" {
 		if meta, ok := m.store.Get(resumeID); ok {
@@ -160,6 +177,7 @@ func (m *Manager) EnsureAgent(repoID, branchID string) (*Agent, error) {
 	a := newAgent(agentDeps{
 		repoID:            repoID,
 		branchID:          branchID,
+		tabID:             tabID,
 		worktree:          worktree,
 		model:             model,
 		effort:            effort,
@@ -169,19 +187,9 @@ func (m *Manager) EnsureAgent(repoID, branchID string) (*Agent, error) {
 		manager:           m,
 		logger:            m.logger,
 	})
-	// Seed the session with whatever init payload we cached from the
-	// previous run — gives us the slash-command popup / model list / agent
-	// list on first paint, before this agent's CLI has been spawned.
 	if cached := m.store.LastInit(); len(cached.Commands) > 0 || len(cached.Models) > 0 {
 		a.session.SetInitInfo(cached)
 	}
-	// Auto-resume: if the branch has an active session_id, replay its
-	// on-disk transcript into the live session so the snapshot we ship to
-	// the browser already shows the previous turns. The CLI is then
-	// spawned with --resume so subsequent input continues that
-	// conversation. If the transcript file is missing we leave turns
-	// empty; watchClient handles the eventual stale-id error and clears
-	// the active pointer.
 	if resumeID != "" {
 		if path, err := transcriptPath(worktree, resumeID); err == nil {
 			if turns, err := LoadTranscriptTurns(path); err == nil && len(turns) > 0 {
@@ -193,20 +201,125 @@ func (m *Manager) EnsureAgent(repoID, branchID string) (*Agent, error) {
 		}
 	}
 	m.agents[k] = a
+	// Make sure the persisted tab list contains this tabID — covers the
+	// canonical-tab cold start where OnBranchOpen seeded an in-memory
+	// list but the on-disk record was empty. Silent on errors (the
+	// in-memory state is already correct; persistence is for restart).
+	m.ensurePersistedTab(repoID, branchID, tabID)
 	return a, nil
 }
 
-// KillBranch terminates the branch's Agent, if any. Used from
-// Provider.OnBranchClose. After the agent is shut down we also remove
-// the per-branch attachment upload directory (S008-1-10): once the
-// branch is gone the user has no UI surface to access these files
-// from, so leaving them around just leaks disk.
-func (m *Manager) KillBranch(_ context.Context, repoID, branchID string) error {
+// ensurePersistedTab is idempotent: it appends tabID to the per-branch
+// list if not already present.
+func (m *Manager) ensurePersistedTab(repoID, branchID, tabID string) {
+	tabs := m.store.BranchTabs(repoID, branchID)
+	for _, t := range tabs {
+		if t == tabID {
+			return
+		}
+	}
+	tabs = append(tabs, tabID)
+	if err := m.store.SetBranchTabs(repoID, branchID, tabs); err != nil {
+		m.logger.Warn("claudeagent: SetBranchTabs failed", "err", err)
+	}
+}
+
+// tabsForBranch returns the ordered set of Claude tab ids for this
+// branch. Always non-empty: a fresh branch yields just the canonical
+// id. Used by Provider.OnBranchOpen so recomputeTabs sees the persisted
+// multi-tab layout. Called under no lock (Store is internally
+// synchronised), with a copy returned.
+func (m *Manager) tabsForBranch(repoID, branchID string) []string {
+	tabs := m.store.BranchTabs(repoID, branchID)
+	if len(tabs) == 0 {
+		return []string{CanonicalTabID}
+	}
+	return tabs
+}
+
+// AddTabForBranch appends a new tab to the branch's Claude tab list and
+// returns it. The id is auto-picked (`claude:claude-2`, `claude:claude-3`, …).
+// Used by the store's MultiTabHook implementation.
+func (m *Manager) AddTabForBranch(repoID, branchID string) (string, error) {
+	tabs := m.store.BranchTabs(repoID, branchID)
+	if len(tabs) == 0 {
+		tabs = []string{CanonicalTabID}
+	}
+	existing := map[string]bool{}
+	for _, t := range tabs {
+		existing[t] = true
+	}
+	newID := pickNextClaudeTabID(existing)
+	tabs = append(tabs, newID)
+	if err := m.store.SetBranchTabs(repoID, branchID, tabs); err != nil {
+		return "", err
+	}
+	return newID, nil
+}
+
+// RemoveTabForBranch tears down the agent (if any) for the given tab id
+// and removes it from the persisted list. Errors only on store failure;
+// removing an unknown tab is a no-op.
+func (m *Manager) RemoveTabForBranch(ctx context.Context, repoID, branchID, tabID string) error {
+	tabID = CanonicaliseTabID(tabID)
+	tabs := m.store.BranchTabs(repoID, branchID)
+	out := tabs[:0]
+	for _, t := range tabs {
+		if t != tabID {
+			out = append(out, t)
+		}
+	}
+	if err := m.store.SetBranchTabs(repoID, branchID, out); err != nil {
+		return err
+	}
+	// Drop the agent + active pointer. The transcript on disk stays so
+	// the closed session id remains resumable from the history popup.
 	m.mu.Lock()
-	a, ok := m.agents[m.key(repoID, branchID)]
-	delete(m.agents, m.key(repoID, branchID))
+	a, ok := m.agents[m.key(repoID, branchID, tabID)]
+	delete(m.agents, m.key(repoID, branchID, tabID))
 	m.mu.Unlock()
 	if ok {
+		a.Shutdown()
+	}
+	_ = m.store.ClearActive(repoID, branchID, tabID)
+	_ = ctx // reserved for future cleanup that needs cancellation
+	return nil
+}
+
+// pickNextClaudeTabID returns the next available `claude:claude-N` id.
+// `claude:claude` (the canonical first tab) is reserved for slot 1.
+func pickNextClaudeTabID(existing map[string]bool) string {
+	for i := 2; i < 1_000_000; i++ {
+		candidate := fmt.Sprintf("%s:%s-%d", TabType, TabType, i)
+		if !existing[candidate] {
+			return candidate
+		}
+	}
+	return CanonicalTabID + "-overflow"
+}
+
+// KillBranch terminates every Agent owned by the given branch. Used from
+// Provider.OnBranchClose. After the agents are shut down we also remove
+// the per-branch attachment upload directory (S008-1-10): once the
+// branch is gone the user has no UI surface to access these files from,
+// so leaving them around just leaks disk.
+//
+// S009: each branch may own multiple Claude tabs; we walk the agent map
+// and shut down every entry whose key starts with `repoID/branchID/`.
+// The persisted BranchTabs entry is also dropped so a re-Open of this
+// branch starts from a fresh canonical tab.
+func (m *Manager) KillBranch(_ context.Context, repoID, branchID string) error {
+	prefix := repoID + "/" + branchID + "/"
+	m.mu.Lock()
+	var doomed []*Agent
+	for k, a := range m.agents {
+		if strings.HasPrefix(k, prefix) {
+			doomed = append(doomed, a)
+			delete(m.agents, k)
+		}
+	}
+	m.mu.Unlock()
+	for _, a := range doomed {
 		a.Shutdown()
 	}
 	if fn := m.cfg.AttachmentDirFn; fn != nil {
@@ -216,6 +329,10 @@ func (m *Manager) KillBranch(_ context.Context, repoID, branchID string) error {
 					"dir", dir, "err", err)
 			}
 		}
+	}
+	// Forget the persisted tab list so a re-Open starts clean.
+	if err := m.store.SetBranchTabs(repoID, branchID, nil); err != nil {
+		m.logger.Warn("claudeagent: SetBranchTabs(nil) on KillBranch failed", "err", err)
 	}
 	return nil
 }
@@ -316,12 +433,12 @@ func evalSymlinksOrSelf(p string) (string, error) {
 // ──────────── Agent ────────────────────────────────────────────────────────
 
 type agentDeps struct {
-	repoID, branchID string
-	worktree         string
-	model            string
-	effort           string
-	permissionMode   string
-	resumeID         string
+	repoID, branchID, tabID string
+	worktree                string
+	model                   string
+	effort                  string
+	permissionMode          string
+	resumeID                string
 	// includeHookEvents seeds the agent with the persisted opt-in for
 	// --include-hook-events. The agent stores the live value in its own
 	// mu-guarded field so toggles take effect on the next respawn without
@@ -465,7 +582,7 @@ func (a *Agent) EnsureClient(ctx context.Context) error {
 
 	resumeID := a.session.SessionID()
 	if resumeID == "" {
-		resumeID = a.deps.manager.store.ActiveFor(a.deps.repoID, a.deps.branchID)
+		resumeID = a.deps.manager.store.ActiveFor(a.deps.repoID, a.deps.branchID, a.deps.tabID)
 	}
 	model := a.session.Model()
 	if model == "" {
@@ -588,9 +705,9 @@ func (a *Agent) watchClient(cli *Client) {
 	if cli.InvalidResume() {
 		oldID := a.session.SessionID()
 		a.session.Reset()
-		_ = a.deps.manager.store.ClearActive(a.deps.repoID, a.deps.branchID)
+		_ = a.deps.manager.store.ClearActive(a.deps.repoID, a.deps.branchID, a.deps.tabID)
 		a.deps.logger.Info("claudeagent: stored session_id is stale, dropping active pointer",
-			"branch", a.deps.branchID, "stale_session", oldID)
+			"branch", a.deps.branchID, "tab", a.deps.tabID, "stale_session", oldID)
 		if ev, err := makeEvent(EvSessionReplaced, SessionReplacedPayload{OldSessionID: oldID, NewSessionID: ""}); err == nil {
 			a.broadcast(ev)
 		}
@@ -618,7 +735,7 @@ func (a *Agent) watchClient(cli *Client) {
 func (a *Agent) handleStreamMsg(msg streamMsg) {
 	if msg.Type == "system" && msg.Subtype == "init" && msg.SessionID != "" {
 		// Persist the new session id for resume.
-		_ = a.deps.manager.store.SetActive(a.deps.repoID, a.deps.branchID, msg.SessionID, a.session.Model())
+		_ = a.deps.manager.store.SetActive(a.deps.repoID, a.deps.branchID, a.deps.tabID, msg.SessionID, a.session.Model())
 	}
 	beforeStatus := a.session.Status()
 	evs := processStreamMessage(a.session, msg)
@@ -1568,7 +1685,7 @@ func (a *Agent) ForkSession(ctx context.Context, baseSessionID string) error {
 	a.mu.Lock()
 	a.pendingFork = true
 	a.mu.Unlock()
-	if err := a.deps.manager.store.SetActive(a.deps.repoID, a.deps.branchID, baseSessionID, a.session.Model()); err != nil {
+	if err := a.deps.manager.store.SetActive(a.deps.repoID, a.deps.branchID, a.deps.tabID, baseSessionID, a.session.Model()); err != nil {
 		a.deps.logger.Warn("claudeagent: SetActive on fork failed", "err", err)
 	}
 	if ev, err := makeEvent(EvSessionReplaced, SessionReplacedPayload{OldSessionID: baseSessionID, NewSessionID: ""}); err == nil {
@@ -1591,7 +1708,7 @@ func (a *Agent) ResumeSession(ctx context.Context, sessionID string) error {
 	}
 	old := a.session.Reset()
 	a.session.SetSessionID(sessionID)
-	if err := a.deps.manager.store.SetActive(a.deps.repoID, a.deps.branchID, sessionID, a.session.Model()); err != nil {
+	if err := a.deps.manager.store.SetActive(a.deps.repoID, a.deps.branchID, a.deps.tabID, sessionID, a.session.Model()); err != nil {
 		a.deps.logger.Warn("claudeagent: SetActive on resume failed", "err", err)
 	}
 	// Replay the on-disk transcript into the live session before any UI
@@ -1631,7 +1748,7 @@ func (a *Agent) Clear() {
 	}
 	a.mu.Unlock()
 	old := a.session.Reset()
-	_ = a.deps.manager.store.ClearActive(a.deps.repoID, a.deps.branchID)
+	_ = a.deps.manager.store.ClearActive(a.deps.repoID, a.deps.branchID, a.deps.tabID)
 	if ev, err := makeEvent(EvSessionReplaced, SessionReplacedPayload{OldSessionID: old}); err == nil {
 		a.broadcast(ev)
 	}
@@ -1687,7 +1804,7 @@ func (a *Agent) persistPrefs() {
 		PermissionMode:    a.session.PermissionMode(),
 		IncludeHookEvents: hooks,
 	}
-	if err := a.deps.manager.store.SetBranchPrefs(a.deps.repoID, a.deps.branchID, prefs); err != nil {
+	if err := a.deps.manager.store.SetBranchPrefs(a.deps.repoID, a.deps.branchID, a.deps.tabID, prefs); err != nil {
 		a.deps.logger.Warn("claudeagent: SetBranchPrefs failed", "err", err)
 	}
 }
@@ -1703,9 +1820,17 @@ func (a *Agent) publishEvent(eventType string, payload any) {
 
 // publishNotification surfaces an actionable item in the Notify Hub for
 // the Activity Inbox. Idempotent on RequestID — sink decides dedupe.
+// Stamps the agent's tab id + display name onto the notification so the
+// Inbox can render "Claude 2" / "Claude" labels in multi-tab branches.
 func (a *Agent) publishNotification(n InternalNotification) {
 	if a.deps.manager == nil || a.deps.manager.notify == nil {
 		return
+	}
+	if n.TabID == "" {
+		n.TabID = a.deps.tabID
+	}
+	if n.TabName == "" {
+		n.TabName = DisplayNameForTab(a.deps.tabID)
 	}
 	a.deps.manager.notify.IngestInternal(a.deps.repoID, a.deps.branchID, n)
 }

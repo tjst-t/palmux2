@@ -196,11 +196,14 @@ function InboxRowView({
 
   const respondPermission = async (decision: 'allow' | 'deny') => {
     if (!pendingItem?.requestId) return
+    // S009: route through the per-tab path when the notification carries
+    // a tabId so the answer reaches the right Agent. Pre-S009 entries (no
+    // tabId) keep using the legacy `/tabs/claude/permission/...` alias.
+    const path = pendingItem.tabId
+      ? `/api/repos/${encodeURIComponent(row.repoId)}/branches/${encodeURIComponent(row.branchId)}/tabs/${encodeURIComponent(pendingItem.tabId)}/claude/permission/${encodeURIComponent(pendingItem.requestId)}`
+      : `/api/repos/${encodeURIComponent(row.repoId)}/branches/${encodeURIComponent(row.branchId)}/tabs/claude/permission/${encodeURIComponent(pendingItem.requestId)}`
     try {
-      await api.post(
-        `/api/repos/${encodeURIComponent(row.repoId)}/branches/${encodeURIComponent(row.branchId)}/tabs/claude/permission/${encodeURIComponent(pendingItem.requestId)}`,
-        { decision, scope: 'once' },
-      )
+      await api.post(path, { decision, scope: 'once' })
     } catch {
       // best-effort; the store will resync on the next event
     }
@@ -235,6 +238,14 @@ function InboxRowView({
       </div>
       {(pendingItem?.message ?? row.lastMessage) && (
         <p className={styles.message} onClick={onOpen}>
+          {/* S009: stamp the originating Claude tab name (e.g. "Claude 2")
+              ahead of the title so the user can tell which agent fired
+              the notification when a branch hosts multiple Claude tabs.
+              Falls through silently when the field is empty (single-tab
+              branches and pre-S009 hooks). */}
+          {pendingItem?.tabName ? (
+            <span className={styles.tabBadge}>{pendingItem.tabName} · </span>
+          ) : null}
           {pendingItem?.title ? <strong>{pendingItem.title}: </strong> : null}
           {pendingItem?.message ?? row.lastMessage}
         </p>

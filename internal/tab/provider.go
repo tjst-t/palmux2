@@ -44,13 +44,38 @@ type CloseParams struct {
 	Branch *domain.Branch
 }
 
+// InstanceLimits captures min/max constraints on how many tabs of a given
+// provider may exist on a single branch. The Settings dependency lets the
+// upper bound vary by user config (e.g. maxClaudeTabsPerBranch).
+//
+// Defined as a separate struct rather than two extra interface methods so a
+// future provider can carry richer policy (e.g. "max scales with hardware
+// concurrency") without churning every implementation.
+type InstanceLimits struct {
+	Min int // 1 for protected singletons and Min=1 multi-instance tabs (Claude/Bash)
+	Max int // 1 for singletons; settings-driven for multi-instance tabs
+}
+
+// SettingsView is the read-only slice of global settings that providers need
+// at request time. Exposed as an interface so the tab package stays free of
+// cycle-prone imports of internal/config.
+type SettingsView interface {
+	MaxClaudeTabsPerBranch() int
+	MaxBashTabsPerBranch() int
+}
+
 // Provider is the interface every tab type implements.
 type Provider interface {
 	Type() string        // stable identifier ("claude", "bash", "files", "git", ...)
 	DisplayName() string // UI label
 	Protected() bool     // user cannot delete this tab
-	Multiple() bool      // multiple instances allowed (Bash)
+	Multiple() bool      // multiple instances allowed (Bash, Claude post-S009)
 	NeedsTmuxWindow() bool
+
+	// Limits returns the min/max number of instances allowed on a branch.
+	// Singletons return Min=1, Max=1. Multi-instance providers return
+	// Min=1 (so the tab type is always present) and Max from settings.
+	Limits(view SettingsView) InstanceLimits
 
 	OnBranchOpen(ctx context.Context, params OpenParams) (ProviderResult, error)
 	OnBranchClose(ctx context.Context, params CloseParams) error

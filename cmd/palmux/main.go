@@ -179,6 +179,12 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 	registry.Register(files.New(st))
 	registry.Register(gittab.New(st))
 
+	// S009: wire the Claude tab as the per-branch multi-tab hook. The
+	// store delegates non-tmux multi-instance AddTab/RemoveTab through
+	// this so the bare server doesn't need to know about claudeagent
+	// internals.
+	st.SetMultiTabHook(claudeMultiTabHook{mgr: agentManager, registry: registry})
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -340,11 +346,44 @@ func (s agentNotificationSink) IngestInternal(repoID, branchID string, n claudea
 		Message:   n.Message,
 		Detail:    n.Detail,
 		Actions:   actions,
+		TabID:     n.TabID,
+		TabName:   n.TabName,
 	})
 }
 
 func (s agentNotificationSink) ClearByRequestID(repoID, branchID, requestID string) {
 	s.hub.ClearByRequestID(repoID, branchID, requestID)
+}
+
+// claudeMultiTabHook adapts claudeagent.Manager into store.MultiTabHook
+// so the generic AddTab/RemoveTab path can grow / shrink the per-branch
+// Claude tab list without the store package importing claudeagent. The
+// adapter lives in main.go (the only place that wires both pieces) so
+// neither side has to declare a dependency on the other.
+type claudeMultiTabHook struct {
+	mgr      *claudeagent.Manager
+	registry *tab.Registry
+}
+
+func (h claudeMultiTabHook) CreateTab(_ context.Context, repoID, branchID, providerType string) (domain.Tab, error) {
+	if providerType != claudeagent.TabType {
+		return domain.Tab{}, fmt.Errorf("claudeMultiTabHook: unsupported provider %q", providerType)
+	}
+	tabID, err := h.mgr.AddTabForBranch(repoID, branchID)
+	if err != nil {
+		return domain.Tab{}, err
+	}
+	return domain.Tab{
+		ID:        tabID,
+		Type:      claudeagent.TabType,
+		Name:      claudeagent.DisplayNameForTab(tabID),
+		Protected: true,
+		Multiple:  true,
+	}, nil
+}
+
+func (h claudeMultiTabHook) DeleteTab(ctx context.Context, repoID, branchID, tabID string) error {
+	return h.mgr.RemoveTabForBranch(ctx, repoID, branchID, tabID)
 }
 
 // eventPublisher adapts *store.EventHub to notify.Publisher so the Hub can

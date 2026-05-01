@@ -2,13 +2,15 @@ import { useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { useLongPress } from '../hooks/use-long-press'
-import { api } from '../lib/api'
 import type { Branch, Tab } from '../lib/api'
-import { selectBranchNotifications, selectRepoById, usePalmuxStore } from '../stores/palmux-store'
+import {
+  selectBranchNotifications,
+  selectRepoById,
+  usePalmuxStore,
+} from '../stores/palmux-store'
 
 import { confirmDialog } from './context-menu/confirm-dialog'
 import { promptDialog } from './context-menu/prompt-dialog'
-import { selectDialog } from './context-menu/select-dialog'
 import { useContextMenu } from './context-menu/store'
 import { ClaudeIcon } from './icons/claude-icon'
 import { WorkspaceActions } from './workspace-actions'
@@ -16,6 +18,18 @@ import styles from './tab-bar.module.css'
 
 interface Props {
   branch: Branch
+}
+
+// S009: defaults match the server side (settings.maxClaudeTabsPerBranch /
+// settings.maxBashTabsPerBranch). When the user configures different
+// limits the FE picks them up via the loaded GlobalSettings; if the
+// settings haven't been fetched yet we fall through to these so the `+`
+// button is always available out of the gate.
+const DEFAULT_LIMITS: Record<string, { min: number; max: number }> = {
+  claude: { min: 1, max: 3 },
+  bash: { min: 1, max: 5 },
+  files: { min: 1, max: 1 },
+  git: { min: 1, max: 1 },
 }
 
 export function TabBar({ branch }: Props) {
@@ -26,37 +40,55 @@ export function TabBar({ branch }: Props) {
   const addTab = usePalmuxStore((s) => s.addTab)
   const removeTab = usePalmuxStore((s) => s.removeTab)
   const renameTab = usePalmuxStore((s) => s.renameTab)
+  const settings = usePalmuxStore((s) => s.globalSettings)
   const notifs = usePalmuxStore(
     repoId ? selectBranchNotifications(repoId, branch.id) : () => undefined,
   )
   const claudeUnread = notifs?.unreadCount ?? 0
-  const [adding, setAdding] = useState(false)
+  const [adding, setAdding] = useState<string | null>(null)
   const showContextMenu = useContextMenu()
-  const repo = usePalmuxStore((s) => (repoId ? selectRepoById(repoId)(s) : undefined))
+  const repo = usePalmuxStore((s) =>
+    repoId ? selectRepoById(repoId)(s) : undefined,
+  )
 
   if (!repoId) return null
 
-  const goToTab = (id: string) => {
-    navigate(`/${repoId}/${branch.id}/${encodeURIComponent(id)}${location.search}`)
+  // Per-type max from settings, falling back to built-in defaults so
+  // the UI is functional before the settings round-trip lands.
+  const limitsFor = (type: string): { min: number; max: number } => {
+    const def = DEFAULT_LIMITS[type] ?? { min: 1, max: 1 }
+    if (type === 'claude' && settings.maxClaudeTabsPerBranch) {
+      return { min: def.min, max: settings.maxClaudeTabsPerBranch }
+    }
+    if (type === 'bash' && settings.maxBashTabsPerBranch) {
+      return { min: def.min, max: settings.maxBashTabsPerBranch }
+    }
+    return def
   }
 
-  const onSelect = (id: string) => goToTab(id)
+  const goToTab = (id: string) => {
+    navigate(
+      `/${repoId}/${branch.id}/${encodeURIComponent(id)}${location.search}`,
+    )
+  }
 
-  const onAddBash = async () => {
-    setAdding(true)
+  const onAddOfType = async (type: string) => {
+    setAdding(type)
     try {
-      const t = await addTab(repoId, branch.id, 'bash')
+      const t = await addTab(repoId, branch.id, type)
       goToTab(t.id)
     } finally {
-      setAdding(false)
+      setAdding(null)
     }
   }
 
-  // Drag-to-scroll the tab strip with the pointer. We swallow the synthetic
-  // click that follows a real drag so the tab under the pointer doesn't get
-  // accidentally activated.
+  // Drag-to-scroll the tab strip. Identical to pre-S009 behaviour.
   const scrollRef = useRef<HTMLDivElement | null>(null)
-  const dragRef = useRef<{ startX: number; startScroll: number; moved: boolean } | null>(null)
+  const dragRef = useRef<{
+    startX: number
+    startScroll: number
+    moved: boolean
+  } | null>(null)
   const dragHandlers = {
     onPointerDown(e: React.PointerEvent) {
       if (e.pointerType === 'mouse' && e.button !== 0) return
@@ -81,9 +113,6 @@ export function TabBar({ branch }: Props) {
       dragRef.current = null
     },
     onClickCapture(e: React.MouseEvent) {
-      // If a drag actually moved, kill the click that follows.
-      // dragRef is already null here (pointerup cleared it); we cache the
-      // last-moved state on the element.
       const el = scrollRef.current
       if (el?.dataset.justDragged === '1') {
         e.preventDefault()
@@ -92,7 +121,6 @@ export function TabBar({ branch }: Props) {
       }
     },
   }
-  // Mark "we just dragged" after movement so onClickCapture can suppress.
   const wrappedPointerUp = (e: React.PointerEvent) => {
     const drag = dragRef.current
     if (drag?.moved && scrollRef.current) {
@@ -101,6 +129,21 @@ export function TabBar({ branch }: Props) {
     dragHandlers.onPointerUp()
     e.currentTarget.releasePointerCapture?.(e.pointerId)
   }
+
+  // S009: split the flat tab list into consecutive same-type groups so
+  // we can drop a `+` after each Multiple()=true group (Claude, Bash).
+  const groups = groupTabsByType(branch.tabSet.tabs)
+
+  // Currently-selected tab id (URL-decoded so colon-bearing ids match).
+  const activeId = decodeURIComponent(tabId ?? '')
+
+  // Activity Inbox unread badge belongs to the *first* Claude tab — the
+  // notify hub is per-branch, not per-tab, and the canonical tab is
+  // also where focus-clear fires today. Multi-tab parity comes in S014
+  // when the inbox itself becomes per-tab aware.
+  const claudeBadgeOwnerId = groups
+    .find((g) => g.type === 'claude')
+    ?.tabs[0]?.id
 
   return (
     <div className={styles.bar} role="tablist">
@@ -113,78 +156,87 @@ export function TabBar({ branch }: Props) {
         onPointerCancel={dragHandlers.onPointerUp}
         onClickCapture={dragHandlers.onClickCapture}
       >
-        {branch.tabSet.tabs.map((t) => (
-          <TabRow
-            key={t.id}
-            tab={t}
-            active={t.id === decodeURIComponent(tabId ?? '')}
-            unreadBadge={t.type === 'claude' && claudeUnread > 0 ? claudeUnread : 0}
-            onSelect={() => onSelect(t.id)}
-            onContext={(x, y) => openContext(t, x, y)}
-          />
-        ))}
+        {groups.map((group) => {
+          const lim = limitsFor(group.type)
+          const atMax = group.tabs.length >= lim.max
+          const atMin = group.tabs.length <= lim.min
+          return (
+            <span key={group.type} className={styles.group}>
+              {group.tabs.map((t) => (
+                <TabRow
+                  key={t.id}
+                  tab={t}
+                  active={t.id === activeId}
+                  unreadBadge={
+                    t.id === claudeBadgeOwnerId && claudeUnread > 0
+                      ? claudeUnread
+                      : 0
+                  }
+                  onSelect={() => goToTab(t.id)}
+                  onContext={(x, y) => openContext(t, atMin, x, y)}
+                />
+              ))}
+              {/* S009: per-type + button sits at the right edge of each
+                  Multiple()=true group. Disabled when at the configured
+                  cap; tooltip surfaces the reason. */}
+              {group.canAdd && (
+                <button
+                  data-testid={`tab-add-${group.type}`}
+                  data-tab-type={group.type}
+                  className={styles.addBtn}
+                  onClick={() => onAddOfType(group.type)}
+                  disabled={adding === group.type || atMax}
+                  title={
+                    atMax
+                      ? `${capitalise(group.type)} tabs are at the cap (${lim.max}).`
+                      : `New ${capitalise(group.type)} tab`
+                  }
+                >
+                  +
+                </button>
+              )}
+            </span>
+          )
+        })}
       </div>
-      <button className={styles.addBtn} onClick={onAddBash} disabled={adding} title="New Bash tab">
-        +
-      </button>
-      <WorkspaceActions repoId={repoId} branchId={branch.id} repo={repo} branch={branch} />
+      <WorkspaceActions
+        repoId={repoId}
+        branchId={branch.id}
+        repo={repo}
+        branch={branch}
+      />
     </div>
   )
 
-  function openContext(t: Tab, x: number, y: number) {
-    const claudeItems =
+  function openContext(t: Tab, atMin: boolean, x: number, y: number) {
+    // Old "Restart Claude / Resume Claude" entries pre-date stream-json
+    // mode and rely on REST routes that no longer exist (the S004 wire
+    // doesn't expose them). Removed here so the menu stays accurate;
+    // both behaviours are now reachable from the in-tab Claude UI.
+    const claudeItems: Array<
+      | { label: string; onClick: () => void; danger?: boolean; disabled?: boolean }
+      | { type: 'separator' }
+    > = []
+    const renameDisabled =
+      // Singletons (Files, Git) have nothing to rename.
+      !t.multiple ||
+      // Bash tabs derive their name from the tmux window suffix; rename
+      // works there. Claude tabs are auto-named "Claude" / "Claude 2" /
+      // ... and renaming is deferred to the S020 backlog item, so we
+      // disable it here for now to avoid wedge state.
       t.type === 'claude'
-        ? [
-            {
-              label: 'Restart Claude…',
-              onClick: async () => {
-                const model = await selectDialog.ask({
-                  title: 'Restart Claude',
-                  message: 'Pick a model. Default uses whatever the CLI defaults to.',
-                  options: [
-                    { label: 'Default', value: '' },
-                    {
-                      label: 'Opus 4.7',
-                      value: 'claude-opus-4-7',
-                      detail: 'most capable',
-                    },
-                    {
-                      label: 'Sonnet 4.6',
-                      value: 'claude-sonnet-4-6',
-                      detail: 'balanced',
-                    },
-                    {
-                      label: 'Haiku 4.5',
-                      value: 'claude-haiku-4-5-20251001',
-                      detail: 'fast',
-                    },
-                  ],
-                })
-                if (model == null) return
-                await api.post(
-                  `/api/repos/${encodeURIComponent(repoId!)}/branches/${encodeURIComponent(branch.id)}/claude/restart`,
-                  { model },
-                )
-              },
-            },
-            {
-              label: 'Resume Claude',
-              onClick: async () => {
-                await api.post(
-                  `/api/repos/${encodeURIComponent(repoId!)}/branches/${encodeURIComponent(branch.id)}/claude/resume`,
-                )
-              },
-            },
-            { type: 'separator' as const },
-          ]
-        : []
+    const closeDisabled =
+      // Files/Git can never close — singletons.
+      !t.multiple ||
+      // Last instance of a Multiple()=true group.
+      atMin
     showContextMenu(
       [
         { type: 'heading', label: t.name },
         ...claudeItems,
         {
           label: 'Rename…',
-          disabled: t.protected,
+          disabled: renameDisabled,
           onClick: async () => {
             const current = extractName(t)
             const next = await promptDialog.ask({
@@ -207,13 +259,20 @@ export function TabBar({ branch }: Props) {
         },
         { type: 'separator' },
         {
-          label: 'Close tab',
+          label: closeDisabled
+            ? atMin && t.multiple
+              ? `Close tab (last ${capitalise(t.type)} — protected)`
+              : 'Close tab (protected)'
+            : 'Close tab',
           danger: true,
-          disabled: t.protected,
+          disabled: closeDisabled,
           onClick: async () => {
             const ok = await confirmDialog.ask({
               title: 'Close tab?',
-              message: `Close tab "${t.name}"? The tmux window will be killed.`,
+              message:
+                t.type === 'bash'
+                  ? `Close tab "${t.name}"? The tmux window will be killed.`
+                  : `Close tab "${t.name}"? This Claude conversation will be detached (the session id is preserved and remains resumable from history).`,
               confirmLabel: 'Close',
               danger: true,
             })
@@ -244,6 +303,9 @@ function TabRow({
   return (
     <button
       role="tab"
+      data-testid={`tab-${tab.id}`}
+      data-tab-type={tab.type}
+      data-tab-id={tab.id}
       aria-selected={active}
       className={active ? `${styles.tab} ${styles.tabActive}` : styles.tab}
       onClick={onSelect}
@@ -251,7 +313,11 @@ function TabRow({
         e.preventDefault()
         onContext(e.clientX, e.clientY)
       }}
-      title={tab.protected ? `${tab.name} (protected)` : `${tab.name} — Right-click / long-press for actions`}
+      title={
+        tab.protected
+          ? `${tab.name} — Right-click / long-press for actions`
+          : `${tab.name} — Right-click / long-press for actions`
+      }
       {...longPress}
     >
       <span className={styles.tabIcon}>{iconFor(tab.type)}</span>
@@ -261,9 +327,35 @@ function TabRow({
   )
 }
 
+interface TabGroup {
+  type: string
+  tabs: Tab[]
+  canAdd: boolean // tab.multiple === true (only multi-instance groups get +)
+}
+
+function groupTabsByType(tabs: Tab[]): TabGroup[] {
+  const groups: TabGroup[] = []
+  let cur: TabGroup | null = null
+  for (const t of tabs) {
+    if (!cur || cur.type !== t.type) {
+      cur = { type: t.type, tabs: [], canAdd: t.multiple === true }
+      groups.push(cur)
+    }
+    cur.tabs.push(t)
+    // If any tab in the group claims multiple-allowed, the group can
+    // host a + button. (Should be uniform per type, but be defensive.)
+    if (t.multiple) cur.canAdd = true
+  }
+  return groups
+}
+
 function extractName(t: Tab): string {
   if (!t.id.includes(':')) return t.name
   return t.id.split(':')[1] ?? t.name
+}
+
+function capitalise(s: string): string {
+  return s.length === 0 ? s : s[0].toUpperCase() + s.slice(1)
 }
 
 function iconFor(type: string): ReactNode {

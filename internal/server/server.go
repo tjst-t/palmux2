@@ -157,6 +157,11 @@ func statusForErr(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, store.ErrTabProtected):
 		return http.StatusForbidden
+	// S009: AddTab over the cap and RemoveTab below the floor return
+	// 409 Conflict so the FE can disable the `+` button / suppress the
+	// Close menu item with a precise reason.
+	case errors.Is(err, store.ErrTabLimit):
+		return http.StatusConflict
 	case errors.Is(err, store.ErrInvalidArg):
 		return http.StatusBadRequest
 	default:

@@ -28,8 +28,11 @@ interface PermissionModesResp {
   source: 'cli' | 'fallback'
 }
 
-export function ClaudeAgentView({ repoId, branchId }: TabViewProps) {
-  const { state, connState, send } = useAgent(repoId, branchId)
+export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
+  // S009: pass tabId through so multiple Claude tabs on the same branch
+  // each get their own WS / state cache. Empty / legacy `claude` folds
+  // to the canonical id inside useAgent.
+  const { state, connState, send } = useAgent(repoId, branchId, tabId)
   const conversationRef = useRef<HTMLDivElement>(null)
   const historyButtonRef = useRef<HTMLButtonElement | null>(null)
   const mcpButtonRef = useRef<HTMLButtonElement | null>(null)

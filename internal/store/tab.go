@@ -9,19 +9,43 @@ import (
 	"github.com/tjst-t/palmux2/internal/tmux"
 )
 
+// MultiTabHook is implemented by providers that store the per-branch tab
+// list outside the tmux window registry (Claude, post-S009). The Store
+// delegates AddTab / RemoveTab to this hook so it doesn't need to know
+// about each non-tmux provider's persistence layer. Providers that only
+// produce tmux-backed multi tabs leave this nil.
+type MultiTabHook interface {
+	// CreateTab persists a fresh tab of the given provider for this
+	// branch and returns it. The hook is responsible for assigning a
+	// unique tab ID, deciding the user-visible name, and serialising
+	// state to disk.
+	CreateTab(ctx context.Context, repoID, branchID, providerType string) (domain.Tab, error)
+	// DeleteTab removes a previously-created tab. No-op when the tab is
+	// not owned by this hook.
+	DeleteTab(ctx context.Context, repoID, branchID, tabID string) error
+}
+
+// SetMultiTabHook registers the hook used for non-tmux multi-instance
+// providers. Wired from main.go after the claudeagent.Manager is built.
+func (s *Store) SetMultiTabHook(h MultiTabHook) {
+	s.multiTabHook = h
+}
+
 // AddTab creates a new tab of the given provider type. Only providers with
 // Multiple()==true accept this — singletons return an error if a tab already
 // exists.
 //
-// The optional `name` is the user-friendly suffix; if empty the Store
-// auto-picks the next available `palmux:bash:bash[-N]`.
+// For tmux-backed providers (Bash) we ask tmux for a fresh window name.
+// For non-tmux multi providers (Claude, S009) we route through the
+// MultiTabHook which owns the per-branch tab id list. Both paths
+// enforce Provider.Limits() Max so the user can't blow past the cap.
+//
+// The optional `name` is the user-friendly suffix; for now only the bash
+// path honours it (the Claude hook auto-picks).
 func (s *Store) AddTab(ctx context.Context, repoID, branchID, providerType, name string) (domain.Tab, error) {
 	provider := s.registry.Get(providerType)
 	if provider == nil {
 		return domain.Tab{}, fmt.Errorf("%w: unknown provider type %q", ErrInvalidArg, providerType)
-	}
-	if !provider.NeedsTmuxWindow() {
-		return domain.Tab{}, fmt.Errorf("%w: %q is not terminal-backed", ErrInvalidArg, providerType)
 	}
 	if !provider.Multiple() {
 		return domain.Tab{}, fmt.Errorf("%w: %q is a singleton", ErrInvalidArg, providerType)
@@ -44,9 +68,40 @@ func (s *Store) AddTab(ctx context.Context, repoID, branchID, providerType, name
 		s.mu.RUnlock()
 		return domain.Tab{}, ErrBranchNotFound
 	}
+	// Enforce max instances before mutating anything.
+	limits := provider.Limits(s.deps.Settings)
+	if limits.Max > 0 {
+		count := 0
+		for _, t := range branch.TabSet.Tabs {
+			if t.Type == providerType {
+				count++
+			}
+		}
+		if count >= limits.Max {
+			s.mu.RUnlock()
+			return domain.Tab{}, fmt.Errorf("%w: %q tabs are at the cap of %d for this branch", ErrTabLimit, providerType, limits.Max)
+		}
+	}
 	sessionName := branch.TabSet.TmuxSession
 	cwd := branch.WorktreePath
 	s.mu.RUnlock()
+
+	// Branch on provider kind. Non-tmux multi providers delegate to the
+	// MultiTabHook (Claude); tmux-backed providers create a window.
+	if !provider.NeedsTmuxWindow() {
+		if s.multiTabHook == nil {
+			return domain.Tab{}, fmt.Errorf("%w: no multi-tab hook registered for %q", ErrInvalidArg, providerType)
+		}
+		added, err := s.multiTabHook.CreateTab(ctx, repoID, branchID, providerType)
+		if err != nil {
+			return domain.Tab{}, err
+		}
+		s.mu.Lock()
+		s.recomputeTabs(ctx, branch)
+		s.mu.Unlock()
+		s.hub.Publish(Event{Type: EventTabAdded, RepoID: repoID, BranchID: branchID, TabID: added.ID, Payload: added})
+		return added, nil
+	}
 
 	// Decide window name.
 	windowName, err := s.pickNextWindowName(ctx, sessionName, providerType, name)
@@ -73,9 +128,15 @@ func (s *Store) AddTab(ctx context.Context, repoID, branchID, providerType, name
 	return added, nil
 }
 
-// RemoveTab kills the underlying tmux window if any. Protected tabs (Claude /
-// Files / Git) cannot be removed — that's the user's compass for "this branch
-// always has these".
+// RemoveTab kills the underlying tmux window if any. Protected tabs (Files /
+// Git, plus the lone Claude tab) are guarded by their Provider's Limits Min;
+// the floor protection blocks removal of the last instance of any
+// Multiple()=true type so a branch always has at least one of each.
+//
+// S009: post-Claude-multi the protected flag is no longer the right signal
+// (Claude tabs are protected to lock the type but multiple instances are
+// removable). Removal eligibility is now: tab must belong to a Multiple()
+// type AND removing it must not put the count below Limits.Min.
 func (s *Store) RemoveTab(ctx context.Context, repoID, branchID, tabID string) error {
 	s.mu.RLock()
 	repo, ok := s.repos[repoID]
@@ -105,14 +166,39 @@ func (s *Store) RemoveTab(ctx context.Context, repoID, branchID, tabID string) e
 		s.mu.RUnlock()
 		return ErrTabNotFound
 	}
+	provider := s.registry.Get(target.Type)
+	if provider == nil {
+		s.mu.RUnlock()
+		return fmt.Errorf("%w: provider %q not registered", ErrInvalidArg, target.Type)
+	}
+	// Singleton: refuse outright (Files, Git).
+	if !provider.Multiple() {
+		s.mu.RUnlock()
+		return ErrTabProtected
+	}
+	// Floor protection: would removing this drop the count below Min?
+	limits := provider.Limits(s.deps.Settings)
+	count := 0
+	for _, t := range branch.TabSet.Tabs {
+		if t.Type == target.Type {
+			count++
+		}
+	}
+	if limits.Min > 0 && count <= limits.Min {
+		s.mu.RUnlock()
+		return fmt.Errorf("%w: at least %d %q tab(s) must remain", ErrTabLimit, limits.Min, target.Type)
+	}
 	sessionName := branch.TabSet.TmuxSession
 	s.mu.RUnlock()
 
-	if target.Protected {
-		return ErrTabProtected
-	}
 	if target.WindowName != "" {
 		if err := s.deps.Tmux.KillWindowByName(ctx, sessionName, target.WindowName); err != nil {
+			return err
+		}
+	} else if s.multiTabHook != nil {
+		// Non-tmux multi tab (Claude): hand off to the hook so per-tab
+		// state (agent, sessions.json entries) is torn down too.
+		if err := s.multiTabHook.DeleteTab(ctx, repoID, branchID, tabID); err != nil {
 			return err
 		}
 	}
