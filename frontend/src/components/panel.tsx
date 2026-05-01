@@ -1,4 +1,5 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 import { selectBranchById, selectRepoById, usePalmuxStore } from '../stores/palmux-store'
 import { TabContent } from '../tabs/tab-content'
@@ -34,6 +35,35 @@ export function Panel({ side, target, focused, onFocus, onRightTargetChange, ful
     () => branch?.tabSet.tabs.find((t) => t.id === decodedTabId),
     [branch, decodedTabId],
   )
+
+  // S009-fix-1: legacy URL fold-up. The pre-S009 single Claude tab had id
+  // "claude"; post-S009 the canonical id is "claude:claude". Old links
+  // (bookmarks, server-side notifications, the s008 test) and any caller
+  // that still navigates to `/claude` would land on a "Pick a tab" stub
+  // because no tab in the live list has id="claude". Detect that exact
+  // mismatch on the LEFT panel only (the right panel is selector-driven)
+  // and rewrite the URL to the canonical id.
+  const navigate = useNavigate()
+  const location = useLocation()
+  useEffect(() => {
+    if (side !== 'left') return
+    if (!repoId || !branchId || !decodedTabId || !branch) return
+    if (activeTab) return
+    // Only rewrite when the bare type matches a known multi-instance
+    // type — this is the legacy single-instance shape. Anything else
+    // (typo, deleted tab, etc.) we leave to the existing "Pick a tab"
+    // empty state.
+    const bareTypes = new Set(['claude', 'bash'])
+    if (!bareTypes.has(decodedTabId)) return
+    const canonical = branch.tabSet.tabs.find(
+      (t) => t.id === `${decodedTabId}:${decodedTabId}`,
+    )
+    if (!canonical) return
+    navigate(
+      `/${encodeURIComponent(repoId)}/${encodeURIComponent(branchId)}/${encodeURIComponent(canonical.id)}${location.search}`,
+      { replace: true },
+    )
+  }, [side, repoId, branchId, decodedTabId, branch, activeTab, navigate, location.search])
 
   const className =
     (full ? `${styles.panel} ${styles.panelFull}` : styles.panel) +

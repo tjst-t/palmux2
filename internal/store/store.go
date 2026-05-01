@@ -259,9 +259,22 @@ func (s *Store) buildBranchFromWorktree(repo *domain.Repository, wt worktree.Wor
 // recomputeTabs rebuilds branch.TabSet.Tabs from current tmux window state +
 // the registered providers. Called whenever the underlying state may have
 // changed. Caller MUST hold the write lock.
+//
+// S009-fix-1: ListWindows can fail transiently when sync_tmux is mid-cycle
+// — the old behaviour of treating that as "no windows" caused multi-instance
+// tmux-backed tabs (Bash) to vanish from the snapshot whenever an unrelated
+// non-tmux mutation (e.g. POST /tabs {type:claude}) triggered a recompute,
+// which in turn broke the FE: the user added a Claude tab and watched their
+// Bash tabs disappear (and re-appear after sync_tmux recreated the session
+// 5s later). We now distinguish "ListWindows failed transiently" from
+// "session legitimately has zero windows of this type" and, in the failure
+// case, fall back to the previously-known tab list for tmux-backed multi
+// providers. Singletons stay deterministic; non-tmux providers were
+// already unaffected.
 func (s *Store) recomputeTabs(ctx context.Context, branch *domain.Branch) {
 	windows, err := s.deps.Tmux.ListWindows(ctx, branch.TabSet.TmuxSession)
-	if err != nil {
+	listFailed := err != nil
+	if listFailed {
 		// Session may not exist yet; sync_tmux will recreate it within 5s.
 		windows = nil
 	}
@@ -274,6 +287,13 @@ func (s *Store) recomputeTabs(ctx context.Context, branch *domain.Branch) {
 			continue
 		}
 		byType[typ] = append(byType[typ], name)
+	}
+
+	// Index existing tabs by type so we can preserve them across a failed
+	// ListWindows (S009-fix-1).
+	prevByType := map[string][]domain.Tab{}
+	for _, t := range branch.TabSet.Tabs {
+		prevByType[t.Type] = append(prevByType[t.Type], t)
 	}
 
 	var tabs []domain.Tab
@@ -302,8 +322,8 @@ func (s *Store) recomputeTabs(ctx context.Context, branch *domain.Branch) {
 			tabs = append(tabs, res.Tabs...)
 			continue
 		}
-		names := byType[p.Type()]
-		// Singleton terminal-backed (Claude): exactly one tab.
+		// Singleton terminal-backed: exactly one tab. The Window may not be
+		// up yet (sync_tmux pending) but the tab still exists logically.
 		if !p.Multiple() {
 			tabs = append(tabs, domain.Tab{
 				ID:         p.Type(),
@@ -316,6 +336,20 @@ func (s *Store) recomputeTabs(ctx context.Context, branch *domain.Branch) {
 			continue
 		}
 		// Multi-instance (Bash): one tab per window.
+		names := byType[p.Type()]
+		if listFailed && len(names) == 0 {
+			// Tmux query failed and we have no live data. Fall back to the
+			// previous tab list for this type so we don't transiently drop
+			// the user's Bash tabs while sync_tmux is mid-recovery.
+			tabs = append(tabs, prevByType[p.Type()]...)
+			continue
+		}
+		// If the live session is up but has no windows of this type yet
+		// (e.g. fresh session pre-ensureSession), seed the canonical
+		// instance so the user always sees at least one Bash tab.
+		if !listFailed && len(names) == 0 {
+			names = []string{p.Type()} // canonical "bash"
+		}
 		for _, n := range names {
 			tabs = append(tabs, domain.Tab{
 				ID:         domain.TabID(p.Type(), n),

@@ -103,6 +103,17 @@ func (s *Store) AddTab(ctx context.Context, repoID, branchID, providerType, name
 		return added, nil
 	}
 
+	// S009-fix-1: ensure the tmux session is alive before we ask it for
+	// a fresh window name. Without this, AddTab races sync_tmux: if a
+	// recovery cycle is mid-flight (or the user just closed the only
+	// attached client and tmux GC'd the session) `pickNextWindowName`
+	// fails with "can't find session" and the user's `+` click looks
+	// like a no-op. Calling ensureSession is idempotent — if the session
+	// already exists this is a single `tmux has-session` round-trip.
+	if err := s.ensureBranchSession(ctx, repoID, branchID); err != nil {
+		return domain.Tab{}, fmt.Errorf("ensure branch session: %w", err)
+	}
+
 	// Decide window name.
 	windowName, err := s.pickNextWindowName(ctx, sessionName, providerType, name)
 	if err != nil {
@@ -261,6 +272,38 @@ func (s *Store) RenameTab(ctx context.Context, repoID, branchID, tabID, newName 
 	newTabID := domain.TabID(target.Type, newName)
 	s.hub.Publish(Event{Type: EventTabRenamed, RepoID: repoID, BranchID: branchID, TabID: newTabID, Payload: newName})
 	return nil
+}
+
+// ensureBranchSession is a thin wrapper around ensureSession that resolves
+// the branch by id and re-collects window specs from every Provider before
+// delegating. Returns nil if the branch is gone (the caller path will fail
+// downstream and surface a 404).
+//
+// Used by AddTab so a freshly-created Bash window doesn't fail because the
+// underlying tmux session is between sync_tmux cycles.
+func (s *Store) ensureBranchSession(ctx context.Context, repoID, branchID string) error {
+	s.mu.RLock()
+	repo, ok := s.repos[repoID]
+	if !ok {
+		s.mu.RUnlock()
+		return ErrRepoNotFound
+	}
+	var b *domain.Branch
+	for _, br := range repo.OpenBranches {
+		if br.ID == branchID {
+			b = cloneBranch(br)
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if b == nil {
+		return ErrBranchNotFound
+	}
+	specs, err := s.collectOpenSpecs(ctx, b, true)
+	if err != nil {
+		return err
+	}
+	return s.ensureSession(ctx, b, specs)
 }
 
 // pickNextWindowName chooses an available `palmux:{type}:{name}` for the
