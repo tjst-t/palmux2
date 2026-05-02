@@ -93,43 +93,47 @@ export function SprintDetailView({
           </section>
 
           <section className={styles.section}>
-            <h3 className={styles.sectionTitle}>Stories ({data.sprint.stories.length})</h3>
+            <h3 className={styles.sectionTitle}>Stories ({(data.sprint.stories ?? []).length})</h3>
             <div className={styles.storiesList}>
-              {data.sprint.stories.map((s) => (
-                <div key={s.id} className={styles.storyItem}>
-                  <div className={styles.storyHeader}>
-                    <h4>
-                      {s.id}: {s.title}
-                    </h4>
-                    <span className={statusClass(s.statusKind)} style={{ fontSize: 12 }}>
-                      [{s.statusKind}]
-                    </span>
+              {(data.sprint.stories ?? []).map((s) => {
+                const acs = s.acceptanceCriteria ?? []
+                const tasks = s.tasks ?? []
+                return (
+                  <div key={s.id} className={styles.storyItem}>
+                    <div className={styles.storyHeader}>
+                      <h4>
+                        {s.id}: {s.title}
+                      </h4>
+                      <span className={statusClass(s.statusKind)} style={{ fontSize: 12 }}>
+                        [{s.statusKind}]
+                      </span>
+                    </div>
+                    {s.userStory && (
+                      <p className={styles.storyMeta} style={{ fontStyle: 'italic' }}>
+                        {s.userStory}
+                      </p>
+                    )}
+                    <div className={styles.storyMeta}>
+                      {acs.length} acceptance criteria · {tasks.length} tasks
+                    </div>
+                    {acs.length > 0 && (
+                      <ul className={styles.acList}>
+                        {acs.map((ac, i) => (
+                          <li key={i} className={ac.done ? styles.acDone : ''}>
+                            {ac.done ? '✓' : '○'} {ac.text}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
-                  {s.userStory && (
-                    <p className={styles.storyMeta} style={{ fontStyle: 'italic' }}>
-                      {s.userStory}
-                    </p>
-                  )}
-                  <div className={styles.storyMeta}>
-                    {s.acceptanceCriteria.length} acceptance criteria · {s.tasks.length} tasks
-                  </div>
-                  {s.acceptanceCriteria.length > 0 && (
-                    <ul className={styles.acList}>
-                      {s.acceptanceCriteria.map((ac, i) => (
-                        <li key={i} className={ac.done ? styles.acDone : ''}>
-                          {ac.done ? '✓' : '○'} {ac.text}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              ))}
+                )
+              })}
             </div>
           </section>
 
           <section className={styles.section}>
             <h3 className={styles.sectionTitle}>Acceptance matrix</h3>
-            {data.acceptanceMatrix.length === 0 ? (
+            {(data.acceptanceMatrix ?? []).length === 0 ? (
               <p style={{ margin: 0, color: 'var(--color-fg-muted)', fontSize: 13 }}>
                 No AC-tagged tests detected. Add lines like
                 <code style={{ marginLeft: 4 }}>{'[AC-S016-1-1]'}</code> in your test files
@@ -145,7 +149,7 @@ export function SprintDetailView({
                   </tr>
                 </thead>
                 <tbody>
-                  {data.acceptanceMatrix.map((row, i) => (
+                  {(data.acceptanceMatrix ?? []).map((row, i) => (
                     <tr key={i}>
                       <td>{row.acId}</td>
                       <td>
@@ -188,13 +192,13 @@ export function SprintDetailView({
 
           <section className={styles.section}>
             <h3 className={styles.sectionTitle}>Recent decisions</h3>
-            {data.decisions.length === 0 ? (
+            {(data.decisions ?? []).length === 0 ? (
               <p style={{ margin: 0, color: 'var(--color-fg-muted)', fontSize: 13 }}>
                 No decisions logged for this sprint yet.
               </p>
             ) : (
               <div className={styles.decisionList}>
-                {data.decisions.slice(0, 8).map((d, i) => (
+                {(data.decisions ?? []).slice(0, 8).map((d, i) => (
                   <div key={i} className={styles.decisionItem}>
                     <div className={styles.decisionMeta}>
                       <span style={{ textTransform: 'uppercase', letterSpacing: '0.04em' }}>{d.category}</span>
@@ -204,13 +208,13 @@ export function SprintDetailView({
                     <p className={styles.decisionBody}>{d.body}</p>
                   </div>
                 ))}
-                {data.decisions.length > 8 && (
+                {(data.decisions ?? []).length > 8 && (
                   <button
                     type="button"
                     className={styles.iconButton}
                     onClick={() => onOpenSprint(data.sprint.id)}
                   >
-                    See all {data.decisions.length} decisions in the timeline
+                    See all {(data.decisions ?? []).length} decisions in the timeline
                   </button>
                 )}
               </div>

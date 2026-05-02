@@ -40,13 +40,13 @@ export function RefineHistoryView({ repoId, branchId }: RefineHistoryViewProps) 
 
       {!data && !error && <div className={styles.empty}>Loading…</div>}
 
-      {data && data.entries.length === 0 && (
+      {data && (data.entries ?? []).length === 0 && (
         <div className={styles.empty}>No refine.md files found yet.</div>
       )}
 
-      {data && data.entries.length > 0 && (
+      {data && (data.entries ?? []).length > 0 && (
         <div className={styles.refineList} data-testid="sprint-refine-list">
-          {data.entries.map((e, i) => (
+          {(data.entries ?? []).map((e, i) => (
             <div key={`${e.sprintId}-${i}`} className={styles.refineItem}>
               <div>
                 <span className={styles.refineNumber}>

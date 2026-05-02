@@ -75,13 +75,13 @@ export function DecisionTimelineView({
 
       {!data && !error && <div className={styles.empty}>Loading…</div>}
 
-      {data && data.entries.length === 0 && (
+      {data && (data.entries ?? []).length === 0 && (
         <div className={styles.empty}>No decisions match the current filter.</div>
       )}
 
-      {data && data.entries.length > 0 && (
+      {data && (data.entries ?? []).length > 0 && (
         <div className={styles.decisionList} data-testid="sprint-decisions-list">
-          {data.entries.map((d, i) => (
+          {(data.entries ?? []).map((d, i) => (
             <div key={`${d.sprintId}-${i}`} className={styles.decisionItem}>
               <div className={styles.decisionMeta}>
                 <button

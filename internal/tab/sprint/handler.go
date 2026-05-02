@@ -192,7 +192,9 @@ func (h *handler) overview(w http.ResponseWriter, r *http.Request) {
 	// Active autopilot: scan .claude/autopilot-*.lock.
 	resp.ActiveAutopilot = scanActiveAutopilot(autopilotDir)
 
-	// Timeline: every sprint with status kind.
+	// Timeline: every sprint with status kind. Initialise as empty slice
+	// (not nil) so the FE never has to null-guard `.map()`.
+	resp.Timeline = make([]TimelineEntry, 0, len(rm.Sprints))
 	for _, s := range rm.Sprints {
 		resp.Timeline = append(resp.Timeline, TimelineEntry{
 			ID:         s.ID,
@@ -320,6 +322,7 @@ func (h *handler) dependencies(w http.ResponseWriter, r *http.Request) {
 	resp := DependencyGraphResponse{
 		Dependencies: rm.Dependencies,
 		ParseErrors:  rm.ParseErrors,
+		Sprints:      make([]TimelineEntry, 0, len(rm.Sprints)),
 	}
 	for _, s := range rm.Sprints {
 		resp.Sprints = append(resp.Sprints, TimelineEntry{

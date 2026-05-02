@@ -135,13 +135,13 @@ export function DependencyGraphView({ repoId, branchId, onOpenSprint }: Dependen
               Blocked
             </span>
           </div>
-          {data.dependencies.length > 0 && (
+          {(data.dependencies ?? []).length > 0 && (
             <details style={{ marginTop: 16 }}>
               <summary style={{ cursor: 'pointer', fontSize: 13, color: 'var(--color-fg-muted)' }}>
-                Dependency notes ({data.dependencies.length})
+                Dependency notes ({(data.dependencies ?? []).length})
               </summary>
               <ul style={{ marginTop: 8, paddingLeft: 20, fontSize: 12, color: 'var(--color-fg)' }}>
-                {data.dependencies.map((d, i) => (
+                {(data.dependencies ?? []).map((d, i) => (
                   <li key={i}>{d.text}</li>
                 ))}
               </ul>

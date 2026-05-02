@@ -94,16 +94,37 @@ type ParseError struct {
 }
 
 var (
-	reSprint = regexp.MustCompile(`^## スプリント\s+([A-Za-z0-9-]+)\s*:\s*(.+?)\s*\[(.+)\]\s*$`)
+	// Patterns accept both Japanese and English headings emitted by the
+	// claude-skills `sprint` skill (i18n: "スプリント|Sprint",
+	// "ストーリー|Story", "タスク|Task"). Either language is valid; the
+	// rest of the line shape is identical.
+	reSprint = regexp.MustCompile(`^## (?:スプリント|Sprint)\s+([A-Za-z0-9-]+)\s*:\s*(.+?)\s*\[(.+)\]\s*$`)
 	// Hotfix-style heading "### Hotfix Sxxx-fix-N: title [x]" mirrors the
 	// regular Story line so we surface them under the sprint they belong
 	// to. Matched by reHotfix (Story-only).
 	reHotfix = regexp.MustCompile(`^### Hotfix\s+([A-Za-z0-9-]+)\s*:\s*(.+?)\s*\[(.+)\]\s*$`)
-	reStory  = regexp.MustCompile(`^### ストーリー\s+([A-Za-z0-9-]+)\s*:\s*(.+?)\s*\[(.+)\]\s*$`)
-	reTask   = regexp.MustCompile(`^- \[( |x|X)\]\s+\*\*タスク\s+([A-Za-z0-9-]+)\*\*\s*:\s*(.*)$`)
+	reStory  = regexp.MustCompile(`^### (?:ストーリー|Story)\s+([A-Za-z0-9-]+)\s*:\s*(.+?)\s*\[(.+)\]\s*$`)
+	reTask   = regexp.MustCompile(`^- \[( |x|X)\]\s+\*\*(?:タスク|Task)\s+([A-Za-z0-9-]+)\*\*\s*:\s*(.*)$`)
 	reCheck  = regexp.MustCompile(`^- \[( |x|X)\]\s+(.*)$`)
 	reID     = regexp.MustCompile(`\bS\d{3}(?:-[A-Za-z0-9]+)*\b`)
+
+	// Section title prefixes — accept both Japanese and English variants
+	// for the four headings we recognise.
+	progressPrefixes  = []string{"進捗", "Progress"}
+	executionPrefixes = []string{"実行順序", "Execution Order"}
+	sprintPrefixes    = []string{"スプリント ", "Sprint "}
+	depPrefixes       = []string{"依存関係", "Dependencies"}
+	backlogPrefixes   = []string{"バックログ", "Backlog"}
 )
+
+func hasAnyPrefix(s string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
+}
 
 // ParseRoadmap parses the full ROADMAP.md text. It never returns an error
 // — sections that fail to parse are recorded in Roadmap.ParseErrors and
@@ -147,21 +168,52 @@ func ParseRoadmap(src string) Roadmap {
 
 	for _, s := range sections {
 		switch {
-		case strings.HasPrefix(s.title, "進捗"):
+		case hasAnyPrefix(s.title, progressPrefixes):
 			rm.Progress = parseProgress(lines[s.start:s.end])
-		case strings.HasPrefix(s.title, "実行順序"):
+		case hasAnyPrefix(s.title, executionPrefixes):
 			rm.ExecutionRaw = strings.TrimSpace(strings.Join(lines[s.start+1:s.end], "\n"))
-		case strings.HasPrefix(s.title, "スプリント "):
+		case hasAnyPrefix(s.title, sprintPrefixes):
 			sp, perr := parseSprintSection(s.title, lines[s.start:s.end], s.start+1)
 			if perr != "" {
 				sp.ParseError = perr
 				rm.ParseErrors = append(rm.ParseErrors, ParseError{Section: s.title, Detail: perr})
 			}
 			rm.Sprints = append(rm.Sprints, sp)
-		case strings.HasPrefix(s.title, "依存関係"):
+		case hasAnyPrefix(s.title, depPrefixes):
 			rm.Dependencies = parseDependencies(lines[s.start+1 : s.end])
-		case strings.HasPrefix(s.title, "バックログ"):
+		case hasAnyPrefix(s.title, backlogPrefixes):
 			rm.Backlog = parseBacklog(lines[s.start+1 : s.end])
+		}
+	}
+
+	// Defence in depth: the Sprint Dashboard FE assumes every list field
+	// is an array (it does `.map()` directly without a null guard). If the
+	// roadmap has an unrecognised header variant we'd otherwise emit JSON
+	// `null` and crash the FE. Normalise to empty slices instead, and do
+	// the same recursively for every Sprint / Story.
+	if rm.Sprints == nil {
+		rm.Sprints = []Sprint{}
+	}
+	if rm.Dependencies == nil {
+		rm.Dependencies = []Dependency{}
+	}
+	if rm.Backlog == nil {
+		rm.Backlog = []BacklogEntry{}
+	}
+	if rm.ParseErrors == nil {
+		rm.ParseErrors = []ParseError{}
+	}
+	for i := range rm.Sprints {
+		if rm.Sprints[i].Stories == nil {
+			rm.Sprints[i].Stories = []Story{}
+		}
+		for j := range rm.Sprints[i].Stories {
+			if rm.Sprints[i].Stories[j].AcceptanceCriteria == nil {
+				rm.Sprints[i].Stories[j].AcceptanceCriteria = []Acceptance{}
+			}
+			if rm.Sprints[i].Stories[j].Tasks == nil {
+				rm.Sprints[i].Stories[j].Tasks = []Task{}
+			}
 		}
 	}
 	return rm
@@ -169,10 +221,19 @@ func ParseRoadmap(src string) Roadmap {
 
 func parseProgress(block []string) Progress {
 	var pr Progress
-	reTotals := regexp.MustCompile(`合計\s*:\s*(\d+).*?完了\s*:\s*(\d+).*?進行中\s*:\s*(\d+).*?残り\s*:\s*(\d+)`)
+	// Japanese form: 合計: N | 完了: N | 進行中: N | 残り: N
+	reTotalsJp := regexp.MustCompile(`合計\s*:\s*(\d+).*?完了\s*:\s*(\d+).*?進行中\s*:\s*(\d+).*?残り\s*:\s*(\d+)`)
+	// English form: Total: N Sprints | Done: N | In Progress: N | Remaining: N
+	// (case-insensitive). Allows commentary between fields.
+	reTotalsEn := regexp.MustCompile(`(?i)Total\s*:\s*(\d+).*?Done\s*:\s*(\d+).*?In\s+Progress\s*:\s*(\d+).*?Remaining\s*:\s*(\d+)`)
 	rePercent := regexp.MustCompile(`(\d+(?:\.\d+)?)%`)
 	for _, l := range block {
-		if m := reTotals.FindStringSubmatch(l); m != nil {
+		if m := reTotalsJp.FindStringSubmatch(l); m != nil {
+			pr.Total, _ = strconv.Atoi(m[1])
+			pr.Done, _ = strconv.Atoi(m[2])
+			pr.InProgress, _ = strconv.Atoi(m[3])
+			pr.Remaining, _ = strconv.Atoi(m[4])
+		} else if m := reTotalsEn.FindStringSubmatch(l); m != nil {
 			pr.Total, _ = strconv.Atoi(m[1])
 			pr.Done, _ = strconv.Atoi(m[2])
 			pr.InProgress, _ = strconv.Atoi(m[3])
@@ -264,23 +325,48 @@ func parseStory(heading string, body []string) Story {
 
 	// Walk: pick the user story (between **ユーザーストーリー:** and the
 	// next **bold-bracketed section**), then acceptance criteria lines,
-	// then tasks.
+	// then tasks. Section markers come in JP / EN flavours emitted by
+	// claude-skills `sprint`.
+	//
+	// Some roadmap variants (e.g. hydra) skip the **Tasks:** marker
+	// entirely and write `- [ ] **Task Sxxx-y-z**: ...` directly under
+	// the Story heading. We detect that shape by matching reTask with no
+	// active section.
 	section := ""
 	for _, l := range body {
 		trim := strings.TrimSpace(l)
 		switch {
-		case strings.HasPrefix(trim, "**ユーザーストーリー"):
+		case strings.HasPrefix(trim, "**ユーザーストーリー"),
+			strings.HasPrefix(trim, "**User Story"),
+			strings.HasPrefix(trim, "**User story"):
 			section = "user"
 			continue
-		case strings.HasPrefix(trim, "**受け入れ条件"):
+		case strings.HasPrefix(trim, "**受け入れ条件"),
+			strings.HasPrefix(trim, "**Acceptance"):
 			section = "ac"
 			continue
-		case strings.HasPrefix(trim, "**タスク"):
+		case strings.HasPrefix(trim, "**タスク"),
+			strings.HasPrefix(trim, "**Tasks"),
+			strings.HasPrefix(trim, "**Task:"):
 			section = "tasks"
 			continue
 		case strings.HasPrefix(trim, "**") && strings.HasSuffix(trim, ":**"):
 			section = ""
 			continue
+		}
+
+		// Sectionless task lines (hydra-style ROADMAPs that skip the
+		// **Tasks:** marker). Match the explicit `**Task Sxxx**` form
+		// only — we don't want to gobble random checkboxes as tasks.
+		if section == "" {
+			if m := reTask.FindStringSubmatch(trim); m != nil {
+				st.Tasks = append(st.Tasks, Task{
+					ID:   strings.TrimSpace(m[2]),
+					Done: m[1] != " ",
+					Text: strings.TrimSpace(m[3]),
+				})
+				continue
+			}
 		}
 
 		switch section {

@@ -93,13 +93,13 @@ export function OverviewView({ repoId, branchId, onOpenSprint }: OverviewViewPro
 
           <section className={styles.section} data-testid="sprint-overview-autopilot">
             <h3 className={styles.sectionTitle}>Active autopilot</h3>
-            {data.activeAutopilot.length === 0 ? (
+            {(data.activeAutopilot ?? []).length === 0 ? (
               <p style={{ margin: 0, color: 'var(--color-fg-muted)', fontSize: 13 }}>
                 No autopilot lock detected on this branch.
               </p>
             ) : (
               <div className={styles.autopilotList}>
-                {data.activeAutopilot.map((a) => (
+                {(data.activeAutopilot ?? []).map((a) => (
                   <div key={a.lockPath} className={styles.autopilotItem}>
                     <span className={styles.autopilotPulse} aria-hidden />
                     <button
@@ -122,7 +122,7 @@ export function OverviewView({ repoId, branchId, onOpenSprint }: OverviewViewPro
           <section className={styles.section}>
             <h3 className={styles.sectionTitle}>Sprint timeline</h3>
             <div className={styles.timeline} data-testid="sprint-overview-timeline">
-              {data.timeline.map((t) => (
+              {(data.timeline ?? []).map((t) => (
                 <button
                   key={t.id}
                   type="button"
