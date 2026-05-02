@@ -105,6 +105,10 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 	// the future subagent → unmanaged demotion flow).
 	mux.HandleFunc("POST /api/repos/{repoId}/branches/{branchId}/promote", h.promoteBranch)
 	mux.HandleFunc("DELETE /api/repos/{repoId}/branches/{branchId}/promote", h.demoteBranch)
+	// S023: per-repo last-active-branch persistence. Body `{branch: "<name>"}`
+	// (empty string clears). Idempotent; emits `branch.lastActiveChanged`
+	// on actual change.
+	mux.HandleFunc("PATCH /api/repos/{repoId}/last-active-branch", h.setLastActiveBranch)
 	// S021: subagent lifecycle. cleanup-subagent operates on a repo
 	// (since it spans every branch); promote-subagent is per-branch.
 	mux.HandleFunc("POST /api/repos/{repoId}/worktrees/cleanup-subagent", h.cleanupSubagentWorktrees)

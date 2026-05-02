@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
+import { isMobile, useViewport } from '../../hooks/use-viewport'
 import type { TabViewProps } from '../../lib/tab-registry'
 
 import { GitBisect } from './git-bisect'
@@ -46,7 +47,25 @@ type View =
   | 'reflog'
   | 'bisect'
 
+// S023: tab definitions are shared between the desktop horizontal-tabs
+// renderer and the mobile `<select>` dropdown so the two paths cannot
+// drift. `testId` mirrors the prior horizontal-tab data-testid values.
+const VIEW_DEFS: { value: View; label: string; testId?: string }[] = [
+  { value: 'status', label: 'Status' },
+  { value: 'diff', label: 'Diff' },
+  { value: 'log', label: 'Log' },
+  { value: 'branches', label: 'Branches' },
+  { value: 'stash', label: 'Stash', testId: 'git-tab-stash' },
+  { value: 'tags', label: 'Tags', testId: 'git-tab-tags' },
+  { value: 'conflict', label: 'Conflict', testId: 'git-tab-conflict' },
+  { value: 'submodules', label: 'Submodules', testId: 'git-tab-submodules' },
+  { value: 'reflog', label: 'Reflog', testId: 'git-tab-reflog' },
+  { value: 'bisect', label: 'Bisect', testId: 'git-tab-bisect' },
+]
+
 export function GitView({ repoId, branchId }: TabViewProps) {
+  const viewport = useViewport()
+  const mobile = isMobile(viewport)
   const [searchParams, setSearchParams] = useSearchParams()
   const isView = (v: string | null): v is View =>
     v === 'status' ||
@@ -165,54 +184,41 @@ export function GitView({ repoId, branchId }: TabViewProps) {
       {!isHistoryOrBlame && (
         <GitRebaseStatus apiBase={apiBase} reloadKey={reloadKey} onAfter={onAfter} />
       )}
-      <header className={styles.tabs}>
-        <Tab active={view === 'status'} onClick={() => setView('status')}>
-          Status
-        </Tab>
-        <Tab active={view === 'diff'} onClick={() => setView('diff')}>
-          Diff
-        </Tab>
-        <Tab active={view === 'log'} onClick={() => setView('log')}>
-          Log
-        </Tab>
-        <Tab active={view === 'branches'} onClick={() => setView('branches')}>
-          Branches
-        </Tab>
-        <Tab active={view === 'stash'} onClick={() => setView('stash')} testId="git-tab-stash">
-          Stash
-        </Tab>
-        <Tab active={view === 'tags'} onClick={() => setView('tags')} testId="git-tab-tags">
-          Tags
-        </Tab>
-        <Tab
-          active={view === 'conflict'}
-          onClick={() => setView('conflict')}
-          testId="git-tab-conflict"
-        >
-          Conflict
-        </Tab>
-        <Tab
-          active={view === 'submodules'}
-          onClick={() => setView('submodules')}
-          testId="git-tab-submodules"
-        >
-          Submodules
-        </Tab>
-        <Tab
-          active={view === 'reflog'}
-          onClick={() => setView('reflog')}
-          testId="git-tab-reflog"
-        >
-          Reflog
-        </Tab>
-        <Tab
-          active={view === 'bisect'}
-          onClick={() => setView('bisect')}
-          testId="git-tab-bisect"
-        >
-          Bisect
-        </Tab>
-      </header>
+      {mobile ? (
+        // S023: mobile (< 600px) — the 10-tab horizontal row overflows
+        // and is hard to tap. Switch to a native `<select>` so the OS
+        // can render its own picker (better screen-reader behaviour and
+        // larger tap targets out of the box). The selection mutates the
+        // same `view` state so the body wiring below is unchanged.
+        <header className={styles.tabsMobile} data-component="git-tab-dropdown">
+          <select
+            className={styles.tabSelect}
+            value={view}
+            onChange={(e) => setView(e.target.value as View)}
+            aria-label="Git view"
+            data-testid="git-tab-select"
+          >
+            {VIEW_DEFS.map((def) => (
+              <option key={def.value} value={def.value}>
+                {def.label}
+              </option>
+            ))}
+          </select>
+        </header>
+      ) : (
+        <header className={styles.tabs} data-component="git-tab-list">
+          {VIEW_DEFS.map((def) => (
+            <Tab
+              key={def.value}
+              active={view === def.value}
+              onClick={() => setView(def.value)}
+              testId={def.testId}
+            >
+              {def.label}
+            </Tab>
+          ))}
+        </header>
+      )}
       <div className={styles.body}>
         {view === 'status' && (
           <GitStatus

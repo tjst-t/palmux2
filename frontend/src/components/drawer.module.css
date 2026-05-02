@@ -1,131 +1,265 @@
+/* S023: Drawer v3 (terminal editorial). Numbered repos, status strip,
+   chip pills, expanded panel, "● HERE" label + accent border with
+   2.6s pulse, sub-branch grid (minmax(0, 1fr) auto) for stable
+   layout, and always-visible promote/remove icon buttons. Typography
+   stays on the project's existing Geist Mono — the brutalist feel is
+   carried by size + weight + letter-spacing rather than a new font
+   bundle. */
+
 .drawer {
   position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
-  background-color: var(--color-surface);
+  background-color: var(--color-bg);
   border-right: 1px solid var(--color-border);
   flex-shrink: 0;
+  font-family: var(--font-mono, 'Geist Mono', 'Cascadia Code', 'Fira Code', monospace);
+  font-feature-settings: 'tnum';
 }
 
 .scroll {
   flex: 1;
   overflow: auto;
-  padding: var(--space-2) 0;
 }
 
-.section + .section {
-  margin-top: var(--space-3);
+/* Status strip — brand + active/total counts. The dot is `--color-accent`,
+   active count gets the same accent so it pops, total stays muted. */
+.statusStrip {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--color-border);
 }
-
-.sectionHeader {
-  padding: var(--space-2) var(--space-3);
+.brand {
   font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--color-fg);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--color-fg-dim);
+}
+.statusMeta {
+  display: flex;
+  gap: 14px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--color-fg-muted);
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+.statusMeta b {
+  color: var(--color-accent);
   font-weight: 600;
 }
-
-.repoList {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.statusMeta .dot {
+  color: var(--color-accent);
+  margin-right: 4px;
 }
 
+/* Section header (★ Starred / Repositories) */
+.section {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 14px 18px 6px;
+}
+.sectionTitle {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-fg-muted);
+  font-weight: 600;
+}
+.sectionCount {
+  font-size: 10px;
+  color: var(--color-fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.repos {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 12px;
+}
+
+/* Each repo block. Dotted divider between repos for subtle separation. */
 .repo {
-  margin-bottom: var(--space-1);
+  position: relative;
+  padding: 14px 18px;
+  list-style: none;
+}
+.repo + .repo {
+  border-top: 1px dotted var(--color-border);
 }
 
 .repoRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--space-2);
+  display: grid;
+  grid-template-columns: 22px 1fr auto auto;
+  gap: 10px;
+  align-items: baseline;
+  cursor: pointer;
 }
 
-.repoToggle {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
-  text-align: left;
-  border-radius: var(--radius-sm);
-  color: var(--color-fg);
-  min-width: 0;
-}
-.repoToggle:hover {
-  background-color: var(--color-elevated);
-}
-
-.repoChevron {
-  font-size: 9px;
+.repoNum {
+  font-size: 11px;
   color: var(--color-fg-muted);
-  width: 10px;
-  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.repoCollapsed .repoNum {
+  color: var(--color-fg-dim);
 }
 
 .repoName {
-  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--color-fg);
+  letter-spacing: -0.005em;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 13px;
+  white-space: nowrap;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+}
+.repoName .scope {
+  color: var(--color-fg-muted);
+  font-weight: 400;
+}
+.repoCollapsed .repoName {
+  color: var(--color-fg-muted);
+  font-weight: 400;
 }
 
 .starBtn {
-  padding: 0 var(--space-2);
+  font-size: 11px;
   color: var(--color-fg-faint);
-  font-size: 14px;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  line-height: 1;
 }
 .starBtn:hover {
   color: var(--color-warning);
 }
+.starBtn[data-on='true'] {
+  color: var(--color-warning);
+}
 
-.branchList {
+.addBranchBtn {
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  line-height: 1;
+  font-family: inherit;
+  transition: color 0.12s, background 0.12s;
+}
+.addBranchBtn:hover {
+  color: var(--color-accent-light, var(--color-accent));
+  background: rgba(124, 138, 255, 0.08);
+}
+
+/* My-branches list. Indented past the repo number; accent border-left
+   on the active row. */
+.branches {
+  margin-top: 12px;
+  margin-left: 32px;
   list-style: none;
-  margin: 0;
-  padding: 0 0 0 var(--space-4);
+  padding: 0;
 }
 
 .branch {
-  width: 100%;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 8px;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
+  padding: 4px 0 4px 14px;
+  margin-left: -14px;
+  border-left: 2px solid var(--color-border);
+  color: var(--color-fg-muted);
   font-size: 13px;
-  color: var(--color-fg);
-  border-radius: var(--radius-sm);
+  font-weight: 400;
+  cursor: pointer;
+  background: none;
+  width: 100%;
   text-align: left;
+  font-family: inherit;
+  transition: color 0.12s, border-color 0.12s;
 }
 .branch:hover {
-  background-color: var(--color-elevated);
+  color: var(--color-fg);
+  border-left-color: var(--color-fg-dim);
 }
-
 .branchActive {
-  background-color: var(--color-elevated);
-  color: var(--color-accent);
+  color: var(--color-fg);
+  font-weight: 600;
+  font-size: 14px;
+  border-left: 3px solid var(--color-accent);
+  padding-left: 13px;
+  margin-left: -14px;
+  animation: glowBar 2.6s ease-in-out infinite;
+}
+@keyframes glowBar {
+  0%, 100% {
+    box-shadow: -1px 0 0 0 rgba(124, 138, 255, 0) inset;
+  }
+  50% {
+    box-shadow: -1px 0 8px 0 rgba(124, 138, 255, 0.4) inset;
+  }
 }
 
+.branchInfo {
+  min-width: 0;
+}
 .branchName {
-  flex: 1;
+  display: block;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
-.primaryTag {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background-color: var(--color-bg);
+.branchMeta {
+  font-size: 10.5px;
   color: var(--color-fg-muted);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  margin-top: 2px;
+}
+.hereLabel {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: var(--color-accent);
+  text-transform: uppercase;
+  font-weight: 700;
+  margin-bottom: 3px;
+}
+.hereLabel::before {
+  content: '● ';
 }
 
-.activeDot {
+.primaryTag {
   color: var(--color-accent);
+  background: rgba(124, 138, 255, 0.1);
+  border: 1px solid rgba(124, 138, 255, 0.25);
+  border-radius: 2px;
+  padding: 0 6px;
   font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  line-height: 1.5;
+  text-transform: uppercase;
+  flex-shrink: 0;
 }
 
 .notifyDot {
@@ -136,10 +270,12 @@
   flex-shrink: 0;
   animation: notifyPulse 1.4s ease-in-out infinite;
 }
+@keyframes notifyPulse {
+  50% {
+    opacity: 0.4;
+  }
+}
 
-/* Per-branch agent activity pip. Only renders for non-idle status; the
-   colour mirrors the status pip in the Claude tab StatusBar so the user
-   builds a single mental model. */
 .agentPip {
   width: 6px;
   height: 6px;
@@ -147,47 +283,319 @@
   flex-shrink: 0;
   background-color: var(--color-fg-faint);
 }
-.agentPipThinking { background-color: var(--color-warning); animation: notifyPulse 1.6s ease-in-out infinite; }
-.agentPipTool     { background-color: var(--color-accent);  animation: notifyPulse 1.6s ease-in-out infinite; }
-.agentPipPerm     { background-color: var(--color-warning); animation: notifyPulse 0.9s ease-in-out infinite; }
-.agentPipStart    { background-color: var(--color-fg-dim);  animation: notifyPulse 1.6s ease-in-out infinite; }
-.agentPipErr      { background-color: var(--color-error); }
+.agentPipThinking {
+  background-color: var(--color-warning);
+  animation: notifyPulse 1.6s ease-in-out infinite;
+}
+.agentPipTool {
+  background-color: var(--color-accent);
+  animation: notifyPulse 1.6s ease-in-out infinite;
+}
+.agentPipPerm {
+  background-color: var(--color-warning);
+  animation: notifyPulse 0.9s ease-in-out infinite;
+}
+.agentPipStart {
+  background-color: var(--color-fg-dim);
+  animation: notifyPulse 1.6s ease-in-out infinite;
+}
+.agentPipErr {
+  background-color: var(--color-error);
+}
 
-@keyframes notifyPulse {
-  50% {
-    opacity: 0.4;
+/* Chip row. Pills are tabular-nums + small caps; hover lightens, open
+   state inverts subtly. Unmanaged keeps a warm tint, subagent stays
+   muted gray. */
+.chipRow {
+  margin-top: 8px;
+  margin-left: 32px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chip {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--color-fg-muted);
+  padding: 2px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  background: transparent;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+  min-height: 22px;
+}
+.chip::after {
+  content: ' +';
+  color: var(--color-fg-dim);
+  margin-left: 2px;
+  font-weight: 600;
+}
+.chip:hover {
+  color: var(--color-fg);
+  border-color: var(--color-fg-dim);
+}
+.chipNum {
+  color: inherit;
+  opacity: 0.6;
+  margin-left: 1px;
+}
+.chipNum::before {
+  content: ' · ';
+}
+.chipOpen {
+  color: var(--color-fg);
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+.chipOpen::after {
+  content: ' −';
+  color: var(--color-fg-muted);
+}
+.chipUnmanaged {
+  color: rgba(245, 158, 11, 0.7);
+  border-color: rgba(245, 158, 11, 0.18);
+}
+.chipUnmanaged:hover {
+  color: var(--color-warning);
+  border-color: rgba(245, 158, 11, 0.4);
+}
+.chipUnmanaged.chipOpen {
+  color: var(--color-warning);
+  background: rgba(245, 158, 11, 0.06);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+/* Expanded panel under a chip. Border-left colour follows the category. */
+.expandedPanel {
+  margin-top: 10px;
+  margin-left: 32px;
+  padding: 10px 12px 8px 14px;
+  border-left: 2px solid var(--color-border);
+  animation: panelIn 0.18s ease-out both;
+}
+.expandedPanelUnmanaged {
+  border-left-color: rgba(245, 158, 11, 0.4);
+}
+.expandedPanelSubagent {
+  border-left-color: var(--color-fg-dim);
+}
+@keyframes panelIn {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
-.addBranchBtn {
-  width: 100%;
-  text-align: left;
-  padding: var(--space-1) var(--space-2);
-  font-size: 12px;
+.panelHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
   color: var(--color-fg-muted);
-  border-radius: var(--radius-sm);
+  font-weight: 600;
+  margin-bottom: 6px;
 }
-.addBranchBtn:hover {
-  background-color: var(--color-elevated);
+.expandedPanelUnmanaged .panelHead {
+  color: rgba(245, 158, 11, 0.7);
+}
+.panelAction {
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--color-fg-muted);
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+  text-transform: inherit;
+  transition: color 0.12s;
+}
+.panelAction:hover {
   color: var(--color-fg);
 }
 
+/* Sub-branch grid: minmax(0, 1fr) auto so the title column shrinks
+   gracefully without pushing the action buttons off-screen. */
+.subBranch {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 0;
+  cursor: pointer;
+}
+.subBranch + .subBranch {
+  border-top: 1px dotted var(--color-border);
+}
+.subInfo {
+  min-width: 0;
+}
+.subTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--color-fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 0.12s;
+}
+.subBranch:hover .subTitle {
+  color: var(--color-fg);
+}
+.subStat {
+  font-size: 8px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.subStatFresh {
+  color: var(--color-accent);
+}
+.subStatStale {
+  color: var(--color-warning);
+}
+.subName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.subMeta {
+  font-size: 10.5px;
+  color: var(--color-fg-muted);
+  margin-top: 2px;
+  margin-left: 12px;
+  letter-spacing: 0.02em;
+}
+
+.subActions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.icoBtn {
+  width: 26px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: inherit;
+  line-height: 1;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.icoBtn:hover {
+  color: var(--color-fg);
+  border-color: var(--color-fg-dim);
+  background: rgba(255, 255, 255, 0.03);
+}
+.icoBtnPromote:hover {
+  color: var(--color-accent);
+  border-color: rgba(124, 138, 255, 0.4);
+  background: rgba(124, 138, 255, 0.08);
+}
+.icoBtnRemove:hover {
+  color: var(--color-error);
+  border-color: rgba(255, 100, 100, 0.4);
+  background: rgba(239, 68, 68, 0.05);
+}
+.icoBtnDisabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Compact "other repos" list (Repositories section). Shows just a
+   numbered row + name + star — clicking expands the repo (and
+   navigates to last-active if remembered). */
+.otherList {
+  list-style: none;
+  margin: 0;
+  padding: 0 18px 22px;
+}
+.otherRow {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-top: 1px dotted var(--color-border);
+  cursor: pointer;
+  color: var(--color-fg-muted);
+  font-size: 13px;
+  font-weight: 400;
+  background: transparent;
+  width: 100%;
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 0;
+  font-family: inherit;
+  text-align: left;
+  transition: color 0.12s;
+}
+.otherRow:hover {
+  color: var(--color-fg);
+}
+
+/* Footer hint row */
+.footerHint {
+  padding: 12px 18px 16px;
+  border-top: 1px solid var(--color-border);
+  font-size: 10px;
+  color: var(--color-fg-dim);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: center;
+  background: var(--color-bg);
+}
+.kbd {
+  display: inline-block;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  padding: 0 5px;
+  margin: 0 2px;
+  background: var(--color-surface);
+  color: var(--color-fg-muted);
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+/* Footer (open repository CTA). Sits below the scroll area. */
 .footer {
   padding: var(--space-2) var(--space-3);
   border-top: 1px solid var(--color-border);
 }
-
 .addRepoBtn {
   width: 100%;
   text-align: left;
-  padding: var(--space-2) var(--space-3);
-  font-size: 13px;
+  padding: 8px 12px;
+  font-size: 12px;
   color: var(--color-fg);
   border-radius: var(--radius-sm);
-  background-color: var(--color-elevated);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  font-family: inherit;
+  cursor: pointer;
 }
 .addRepoBtn:hover {
-  background-color: var(--color-bg);
+  background-color: var(--color-elevated);
 }
 
 .resizer {
@@ -202,136 +610,76 @@
   opacity: 0.3;
 }
 
-/* S015: per-repo branch sub-sections (my / unmanaged / subagent). The
-   header is a small clickable strip that toggles collapse state and
-   shows a count badge. Tap targets are >=32px for mobile parity. */
-.branchSection {
-  margin-top: 2px;
+/* Orphan section (legacy from S015). Kept simple — no v3 styling —
+   because it's a niche affordance that should not compete with the
+   primary repo list. */
+.orphanSection {
+  padding: 8px 18px;
+  border-top: 1px dotted var(--color-border);
 }
-/* S021: header row holds the title button + an optional trailing
-   action button (e.g. "Clean up" on the subagent section). */
-.branchSectionHeaderRow {
+.orphanHeader {
   display: flex;
   align-items: center;
-  gap: 4px;
-}
-.branchSectionHeader {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  width: 100%;
-  padding: 4px 8px;
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--color-fg-dim);
-  cursor: pointer;
-  background: none;
-  border: 0;
-  text-align: left;
-  border-radius: var(--radius-sm);
-  min-height: 24px;
-}
-.branchSectionHeader:hover {
-  background-color: var(--color-elevated);
-  color: var(--color-fg-muted);
-}
-.branchSectionTitle {
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.branchSectionBadge {
+  gap: 8px;
   font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background-color: var(--color-bg);
-  color: var(--color-fg-muted);
-  flex-shrink: 0;
-}
-.branchSectionChevron {
-  font-size: 8px;
-  color: var(--color-fg-faint);
-  width: 9px;
-  flex-shrink: 0;
-}
-
-/* `subagent` rows are de-emphasised so they read as "background noise"
-   relative to the user's branches. */
-.branchSubagent {
-  color: var(--color-fg-muted);
-}
-.branchSubagent .branchName {
-  color: var(--color-fg-muted);
-}
-
-.branchTypeIcon {
-  flex-shrink: 0;
-  font-size: 12px;
-  width: 14px;
-  text-align: center;
-  opacity: 0.85;
-}
-
-/* `+ Add to my worktrees` button on unmanaged rows. Sits flush right
-   inside the branch row; expands to a >=36px tap target on mobile. */
-.promoteBtn {
-  flex-shrink: 0;
-  padding: 2px 6px;
-  font-size: 11px;
-  color: var(--color-fg-muted);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  border: 1px solid var(--color-border);
-  min-height: 22px;
-}
-.promoteBtn:hover {
-  background-color: var(--color-elevated);
-  color: var(--color-accent);
-  border-color: var(--color-accent);
-}
-
-/* S021: Clean up button on the subagent section header. Smaller and
-   transparent so it sits unobtrusively to the right of the section
-   title. */
-.cleanupBtn {
-  flex-shrink: 0;
-  margin-right: 6px;
-  padding: 2px 6px;
-  font-size: 12px;
-  background: transparent;
-  border: 1px solid transparent;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
   color: var(--color-fg-muted);
   cursor: pointer;
-  border-radius: var(--radius-sm);
-  min-height: 22px;
+  background: transparent;
+  border: 0;
+  width: 100%;
+  font-family: inherit;
+  padding: 4px 0;
 }
-.cleanupBtn:hover {
-  background-color: var(--color-elevated);
-  color: var(--color-accent);
-  border-color: var(--color-border);
+.orphanHeader:hover {
+  color: var(--color-fg);
+}
+.orphanList {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 12px;
+}
+.orphanItem {
+  padding: 4px 0;
+  color: var(--color-fg-muted);
+}
+.orphanItem button {
+  background: transparent;
+  border: 0;
+  color: var(--color-fg-muted);
+  font-family: inherit;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 6px;
+}
+.orphanItem button:hover {
+  color: var(--color-fg);
 }
 
+/* Mobile parity — bump tap targets to 36px without compromising the
+   compact desktop layout. */
 @media (max-width: 600px) {
-  .branchSectionHeader {
-    min-height: 36px;
-    font-size: 12px;
-    padding: 8px 12px;
-  }
-  .promoteBtn {
-    min-height: 36px;
-    min-width: 36px;
-    padding: 6px 12px;
-    font-size: 13px;
-  }
-  .cleanupBtn {
-    min-height: 36px;
-    min-width: 36px;
-    padding: 6px 12px;
-    font-size: 14px;
-  }
   .branch {
     min-height: 36px;
+  }
+  .icoBtn {
+    width: 36px;
+    height: 36px;
+    font-size: 14px;
+  }
+  .chip {
+    min-height: 36px;
+    padding: 8px 14px;
+    font-size: 12px;
+  }
+  .repoRow {
+    min-height: 36px;
+  }
+  .otherRow {
+    min-height: 36px;
+    padding: 12px 0;
+    font-size: 14px;
   }
 }

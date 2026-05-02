@@ -261,10 +261,11 @@ func (s *Store) hydrate(ctx context.Context) error {
 	for _, e := range entries {
 		full := filepath.Join(root, e.GHQPath)
 		repo := &domain.Repository{
-			ID:       e.ID,
-			GHQPath:  e.GHQPath,
-			FullPath: full,
-			Starred:  e.Starred,
+			ID:               e.ID,
+			GHQPath:          e.GHQPath,
+			FullPath:         full,
+			Starred:          e.Starred,
+			LastActiveBranch: e.LastActiveBranch,
 		}
 		// Best-effort: enumerate worktrees. Failures here just mean the repo
 		// shows up empty and the sync loop will retry.

@@ -250,6 +250,12 @@ interface PalmuxStoreState {
   /** S015: opposite of promoteBranch. */
   demoteBranch: (repoId: string, branchId: string) => Promise<void>
 
+  /** S023: persist the most-recently-navigated branch for a repo. The FE
+   *  fires this in the background on every successful branch nav so a
+   *  collapsed repo can be re-entered with one click. Idempotent and
+   *  silent on failure (the hook discards rejections). */
+  setLastActiveBranch: (repoId: string, branchName: string) => Promise<void>
+
   /** S021: list stale subagent worktrees for a repo (dry-run). */
   listStaleSubagentWorktrees: (
     repoId: string,
@@ -385,6 +391,17 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
     }
     if (ev.type === 'settings.updated' && ev.payload) {
       set({ globalSettings: ev.payload as GlobalSettings })
+    }
+    // S023: cross-client last-active sync. Cheap local update — no
+    // reload needed because only the persisted shortcut changed.
+    if (ev.type === 'branch.lastActiveChanged' && ev.repoId) {
+      const payload = (ev.payload ?? {}) as { branch?: string }
+      const next = payload.branch ?? ''
+      set((state) => ({
+        repos: state.repos.map((r) =>
+          r.id !== ev.repoId ? r : { ...r, lastActiveBranch: next },
+        ),
+      }))
     }
     // S021: cleanup completed elsewhere — drop the removed branches
     // from the local snapshot. (CloseBranch on the server already
@@ -661,6 +678,31 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
     } catch (err) {
       set({ repos: prev })
       throw err
+    }
+  },
+
+  // S023: per-repo last-active-branch memory. Optimistic local update
+  // + fire-and-forget PATCH. The server emits
+  // `branch.lastActiveChanged` which the applyEvent path picks up for
+  // cross-client sync; we only revert local state if the request 404s
+  // (repo gone), otherwise transient errors are swallowed because the
+  // value is purely a UX shortcut.
+  setLastActiveBranch: async (repoId, branchName) => {
+    set((state) => ({
+      repos: state.repos.map((r) =>
+        r.id !== repoId ? r : { ...r, lastActiveBranch: branchName },
+      ),
+    }))
+    try {
+      await api.patch(
+        `/api/repos/${encodeURIComponent(repoId)}/last-active-branch`,
+        { branch: branchName },
+      )
+    } catch (err) {
+      // Don't revert — a transient failure here should not undo the
+      // optimistic UI; the next navigation will retry. We just log so
+      // bugs are visible during dev.
+      console.warn('setLastActiveBranch failed', err)
     }
   },
 

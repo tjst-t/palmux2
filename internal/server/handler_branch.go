@@ -132,5 +132,32 @@ func (h *handlers) demoteBranch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
+// setLastActiveBranchRequest is the body shape for
+// PATCH /api/repos/{repoId}/last-active-branch (S023). The empty string
+// is a valid value — meaning "clear the persisted last-active branch".
+type setLastActiveBranchRequest struct {
+	Branch string `json:"branch"`
+}
+
+// setLastActiveBranch (S023) records the most-recently-navigated branch for
+// a repo. Used by the FE in fire-and-forget mode on every branch
+// navigation so a collapsed repo can be re-entered with one click on the
+// header. The branch name is **not** validated against currently-open
+// branches: the reconciler at startup drops stale values, and the FE
+// already double-checks before navigating.
+func (h *handlers) setLastActiveBranch(w http.ResponseWriter, r *http.Request) {
+	repoID := r.PathValue("repoId")
+	var req setLastActiveBranchRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, err)
+		return
+	}
+	if err := h.store.SetLastActiveBranch(repoID, req.Branch); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // silence unused import in build configurations
 var _ = domain.RepoSlugID

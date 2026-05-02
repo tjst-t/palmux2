@@ -316,20 +316,20 @@ def test_d_subagent_path_pattern(repo_path: Path, repo_id: str) -> None:
 
 
 def test_e_localstorage_collapse_state_via_settings_contract() -> None:
-    """The collapse state lives on the FE in localStorage. We verify the
-    contract here: the localStorage key prefix is documented and the
-    section keys are stable. Live UI verification belongs to a Playwright
-    layer (which the next sprint can layer on top — for now we trust the
-    code review)."""
-    # Smoke-test that the keys are referenced in the bundle.
+    """S023 superseded the per-section collapse-persistence (v2) with
+    chip-pill toggles (v3). We accept either the legacy `drawer.section`
+    localStorage key OR the v3 chip-row marker as evidence the bucketed
+    UX is wired. The category derivation (the actual S015 contract)
+    survives both UIs."""
     js_dir = REPO_ROOT / "frontend" / "dist" / "assets"
-    found_key = False
+    found = False
     for js in js_dir.glob("index-*.js"):
-        if "drawer.section" in js.read_text(errors="ignore"):
-            found_key = True
+        text = js.read_text(errors="ignore")
+        if "drawer.section" in text or "data-chip" in text or "chipRow" in text:
+            found = True
             break
-    assert_(found_key, "drawer.section.* localStorage prefix missing in bundle")
-    print("  [e] localStorage `palmux:drawer.section.<key>.collapsed` key wired in bundle")
+    assert_(found, "drawer category UX (v2 sections OR v3 chips) missing from bundle")
+    print("  [e] drawer category UX (v2 sections OR v3 chip pills) wired in bundle")
 
 
 def test_f_reconcile_drops_missing_path(repo_path: Path, repo_id: str) -> None:
@@ -478,27 +478,38 @@ def test_h2_playwright_drawer_sections(repo_id: str, fixture_branches: dict[str,
             promote_btns = page.locator('button[data-action="promote"]')
             promote_count = promote_btns.count()
             assert_(promote_count >= 1, f"no `+` promote button present (got {promote_count})")
-            # Subagent section is collapsed by default, so its rows
-            # are NOT in the DOM until we expand it. Click the header.
+            # Subagent section is collapsed by default (v2: collapsed
+            # `<section>`; v3: chip pill closed). Click the header /
+            # chip to expand.
             sub_header = page.locator('[data-section="subagent"]').first
             sub_header.click()
             page.wait_for_timeout(500)
             # Subagent rows must be tagged with data-category="subagent".
-            sub_rows = page.locator('button[data-category="subagent"]')
+            # Both v2 (`button[data-category]`) and v3 (`div[data-category]`
+            # in chip panel) carry the attribute on the row element.
+            sub_rows = page.locator('[data-category="subagent"]')
             sub_count = sub_rows.count()
             assert_(sub_count >= 1, f"no subagent row rendered after expand (got {sub_count})")
             # And the count badge in the header reads "1" (one subagent
             # branch in the fixture).
             sub_header_text = page.locator('[data-section="subagent"]').first.inner_text()
             assert_("1" in sub_header_text, f"subagent badge missing 1: {sub_header_text!r}")
-            # Re-collapse and verify localStorage persists this state.
+            # S023: collapse-state localStorage was replaced by chip-pill
+            # local state in the v3 redesign. The test no longer asserts
+            # localStorage persistence — that key was a v2 implementation
+            # detail. The chip pill itself carries the `aria-expanded`
+            # state so accessibility tooling still sees the collapse.
             sub_header.click()
             page.wait_for_timeout(500)
             ls_value = page.evaluate(
                 "() => localStorage.getItem('palmux:drawer.section.subagent.collapsed')"
             )
-            assert_(ls_value == "true",
-                    f"subagent collapsed not persisted to localStorage: {ls_value!r}")
+            # Accept either the legacy key being set to "true" OR the
+            # key being absent (v3 design — chip state is component-local).
+            assert_(
+                ls_value == "true" or ls_value is None,
+                f"subagent collapse state unexpected (legacy or v3 acceptable): {ls_value!r}",
+            )
             # Mobile viewport: section header must remain tappable.
             ctx.close()
             ctx = browser.new_context(viewport={"width": 390, "height": 844})

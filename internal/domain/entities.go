@@ -4,12 +4,19 @@ import "time"
 
 // Repository represents a ghq-managed repository that is currently Open in
 // Palmux (i.e. recorded in repos.json).
+//
+// LastActiveBranch (S023) carries the persisted "remembered branch" that
+// the Drawer uses to navigate-and-expand a collapsed repo on a single
+// click of the header. Empty string means "no remembered branch" (first
+// open, or the previous branch was reconciled away). Stored as a branch
+// **name** (not ID) so the persisted value survives a hash regeneration.
 type Repository struct {
-	ID           string    `json:"id"`
-	GHQPath      string    `json:"ghqPath"`  // "github.com/tjst-t/palmux"
-	FullPath     string    `json:"fullPath"` // absolute path on disk
-	Starred      bool      `json:"starred"`
-	OpenBranches []*Branch `json:"openBranches"`
+	ID               string    `json:"id"`
+	GHQPath          string    `json:"ghqPath"`  // "github.com/tjst-t/palmux"
+	FullPath         string    `json:"fullPath"` // absolute path on disk
+	Starred          bool      `json:"starred"`
+	OpenBranches     []*Branch `json:"openBranches"`
+	LastActiveBranch string    `json:"lastActiveBranch,omitempty"`
 }
 
 // Branch represents an open branch — by definition a branch with a worktree

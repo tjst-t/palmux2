@@ -218,6 +218,11 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 	// and do not block startup.
 	st.ReconcileUserOpenedBranches(ctx)
 
+	// S023: drop `repos.json#last_active_branch` values whose worktree no
+	// longer exists. Same idea as user_opened_branches reconcile but
+	// independent so a failure in one path does not affect the other.
+	st.ReconcileLastActiveBranches(ctx)
+
 	st.Run(ctx)
 
 	frontendFS, err := fs.Sub(palmux2.FrontendFS, "frontend/dist")

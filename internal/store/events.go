@@ -62,6 +62,12 @@ const (
 	// `branch.categoryChanged` already carries the after-promote
 	// category.
 	EventWorktreeCleaned EventType = "worktree.cleaned"
+
+	// S023: emitted when a repo's `last_active_branch` is mutated. The
+	// payload is `{ branch: "<name>" }` (empty string means "cleared").
+	// Other clients use this to refresh their Drawer's collapsed-repo
+	// header click target without forcing a full /api/repos refetch.
+	EventBranchLastActiveChanged EventType = "branch.lastActiveChanged"
 )
 
 // Event is one broadcastable change.

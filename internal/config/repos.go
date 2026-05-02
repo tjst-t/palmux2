@@ -30,12 +30,21 @@ import (
 // (e.g. `bash:dev-server`). `Order` is a per-branch slice of tab IDs
 // expressing the user's preferred ordering within each Multiple()=true
 // group; tabs not listed fall back to default ordering at the end.
+//
+// LastActiveBranch (S023) is the most recent branch the user navigated to
+// inside this repo. Used by the Drawer to navigate-and-expand a collapsed
+// repo on a single click of the header / chevron without forcing the user
+// to drill in. Empty / omitted means "no remembered branch" (first-time
+// open, or the previous branch was reconciled away). Stored as a branch
+// **name** (not ID) so the value survives a hash regeneration of the
+// branch ID and stays human-readable in repos.json.
 type RepoEntry struct {
-	ID                 string                          `json:"id"`
-	GHQPath            string                          `json:"ghqPath"`
-	Starred            bool                            `json:"starred"`
-	UserOpenedBranches []string                        `json:"userOpenedBranches,omitempty"`
-	TabOverrides       map[string]BranchTabOverrides   `json:"tabOverrides,omitempty"`
+	ID                 string                        `json:"id"`
+	GHQPath            string                        `json:"ghqPath"`
+	Starred            bool                          `json:"starred"`
+	UserOpenedBranches []string                      `json:"userOpenedBranches,omitempty"`
+	TabOverrides       map[string]BranchTabOverrides `json:"tabOverrides,omitempty"`
+	LastActiveBranch   string                        `json:"last_active_branch,omitempty"`
 }
 
 // BranchTabOverrides is the per-branch payload of TabOverrides.
@@ -398,6 +407,38 @@ func (s *RepoStore) RenameTabIDInOverrides(repoID, branchName, oldID, newID stri
 		return nil
 	}
 	return nil
+}
+
+// SetLastActiveBranch (S023) records the most-recently-navigated branch for
+// the given repo. Pass empty `branchName` to clear. Idempotent. Returns
+// (changed, error): `changed` is false when the value was already equal.
+func (s *RepoStore) SetLastActiveBranch(repoID, branchName string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.entries {
+		if s.entries[i].ID != repoID {
+			continue
+		}
+		if s.entries[i].LastActiveBranch == branchName {
+			return false, nil
+		}
+		s.entries[i].LastActiveBranch = branchName
+		return true, s.save()
+	}
+	return false, fmt.Errorf("config: SetLastActiveBranch: repo %q not found", repoID)
+}
+
+// LastActiveBranch (S023) returns the persisted last-active branch name for
+// the given repo, or empty string if absent / unknown.
+func (s *RepoStore) LastActiveBranch(repoID string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, e := range s.entries {
+		if e.ID == repoID {
+			return e.LastActiveBranch
+		}
+	}
+	return ""
 }
 
 // SetStarred toggles the starred flag on a repo. Returns false if absent.

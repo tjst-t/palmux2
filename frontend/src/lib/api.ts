@@ -59,6 +59,11 @@ export interface Repository {
   fullPath: string
   starred: boolean
   openBranches: Branch[]
+  /** S023: per-repo memory of the most recent branch the user navigated
+   *  to. Used by the Drawer to navigate-and-expand a collapsed repo on
+   *  one click. Empty / undefined means "no remembered branch" (first
+   *  open, or the previous branch was reconciled away). */
+  lastActiveBranch?: string
 }
 
 export type BranchCategory = 'user' | 'unmanaged' | 'subagent'

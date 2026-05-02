@@ -225,6 +225,79 @@ func (s *Store) DemoteBranch(ctx context.Context, repoID, branchName string) err
 	return nil
 }
 
+// SetLastActiveBranch (S023) records `branchName` as the most-recently-
+// navigated branch for the given repo. Pass empty `branchName` to clear.
+// Idempotent — when the value already equals the request, no event is
+// emitted. The branch name is **not** validated against currently-open
+// branches: callers (typically the implicit nav hook) may want to record
+// a branch that is reachable via worktree but not currently in the
+// in-memory snapshot. Reconcile drops stale values at startup.
+func (s *Store) SetLastActiveBranch(repoID, branchName string) error {
+	changed, err := s.deps.RepoStore.SetLastActiveBranch(repoID, branchName)
+	if err != nil {
+		return err
+	}
+	// Mirror onto the in-memory snapshot so subsequent /api/repos calls
+	// see the new value without waiting for a hydrate cycle.
+	s.mu.Lock()
+	if r, ok := s.repos[repoID]; ok {
+		r.LastActiveBranch = branchName
+	}
+	s.mu.Unlock()
+	if changed {
+		s.hub.Publish(Event{
+			Type:    EventBranchLastActiveChanged,
+			RepoID:  repoID,
+			Payload: map[string]string{"branch": branchName},
+		})
+	}
+	return nil
+}
+
+// ReconcileLastActiveBranches (S023) walks every repo's `last_active_branch`
+// at startup and clears entries whose worktree no longer exists. Runs in
+// the same pass as ReconcileUserOpenedBranches but kept distinct so the
+// two reconcilers can be reasoned about independently. Panic-safe.
+func (s *Store) ReconcileLastActiveBranches(ctx context.Context) {
+	for _, repo := range s.deps.RepoStore.All() {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					s.logger.Warn("reconcile: lastActive panic", "repo", repo.ID, "panic", r)
+				}
+			}()
+			if repo.LastActiveBranch == "" {
+				return
+			}
+			full := repo.GHQPath
+			if s.ghqRoot != "" {
+				full = filepath.Join(s.ghqRoot, repo.GHQPath)
+			}
+			wts, err := worktree.List(ctx, full)
+			if err != nil {
+				s.logger.Warn("reconcile: lastActive worktree.List failed", "repo", repo.ID, "err", err)
+				return
+			}
+			for _, wt := range wts {
+				if wt.Branch == repo.LastActiveBranch {
+					return
+				}
+			}
+			if _, err := s.deps.RepoStore.SetLastActiveBranch(repo.ID, ""); err != nil {
+				s.logger.Warn("reconcile: lastActive save failed", "repo", repo.ID, "err", err)
+				return
+			}
+			s.mu.Lock()
+			if r, ok := s.repos[repo.ID]; ok {
+				r.LastActiveBranch = ""
+			}
+			s.mu.Unlock()
+			s.logger.Info("reconcile: cleared stale last_active_branch",
+				"repo", repo.ID, "was", repo.LastActiveBranch)
+		}()
+	}
+}
+
 // ReconcileUserOpenedBranches walks every repo's `user_opened_branches`
 // slice at startup and drops entries whose worktree no longer exists on
 // disk (e.g. user ran `gwq remove` directly). Panic-safe: a single repo's
