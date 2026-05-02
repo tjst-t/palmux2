@@ -56,6 +56,12 @@
   --header-height: 44px;
   --tabbar-height: 36px;
   --toolbar-height: 48px;
+
+  /* S022: Mobile tap target sizing.
+     36px is the palmux2 baseline (between Apple HIG 44 and density needs).
+     Buttons / icons / clickable rows should set min-height/min-width to this on mobile. */
+  --tap-min-size: 36px;
+  --tap-min-padding: 6px;
 }
 
 [data-theme='light'] {
@@ -241,4 +247,35 @@
 
 @media (max-width: 600px) {
   .palmux-export-dialog { width: 92vw; padding: 14px 16px; }
+}
+
+/* ──────────── S022: Mobile tap target enforcement ────────────
+   On mobile widths (< 600px) every button-like clickable should reach
+   --tap-min-size (36px) on its smallest axis. Prefer min-height for row
+   buttons and both axes for square icon buttons. Selectors are kept
+   narrow so text-density-sensitive UI (Toolbar, TabBar) opt out via
+   their own module CSS.
+
+   The `[data-tap-mobile]` opt-in marker lets components broadcast
+   "I want guaranteed tap sizing on mobile" without hand-editing every
+   CSS module. Use it on close buttons, delete X, and inline action
+   icons that would otherwise be ~20px.
+*/
+@media (max-width: 600px) {
+  [data-tap-mobile],
+  [data-tap-mobile] > button,
+  button[data-tap-mobile],
+  a[data-tap-mobile] {
+    min-height: var(--tap-min-size);
+    min-width: var(--tap-min-size);
+    padding-block: max(var(--tap-min-padding), 0.25em);
+  }
+  /* Body-level hint: every visible <button> without explicit opt-out
+     gets at least 32px of vertical room. We deliberately stay below
+     --tap-min-size here to avoid breaking dense Toolbar / TabBar layouts
+     that already declare their own height. Components that need the full
+     36px should add data-tap-mobile. */
+  button:not([data-tap-mobile-ignore]) {
+    min-height: 32px;
+  }
 }

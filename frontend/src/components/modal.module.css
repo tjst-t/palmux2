@@ -60,3 +60,53 @@
     opacity: 1;
   }
 }
+
+/* S022 — On mobile widths the modal becomes a bottom sheet:
+   anchored to the bottom edge, full-width, slides up. The desktop API stays
+   the same (call sites still use <Modal> with width / title), only the visual
+   container changes. */
+@media (max-width: 600px) {
+  .overlay {
+    align-items: flex-end;
+    justify-content: stretch;
+    /* Slightly less heavy backdrop on mobile so the sheet feels lighter */
+    backdrop-filter: blur(1px);
+  }
+  .card {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 86vh;
+    border-radius: 16px 16px 0 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    animation: sheet-up 200ms ease-out;
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  .card::before {
+    content: '';
+    display: block;
+    width: 36px;
+    height: 4px;
+    margin: 8px auto 4px;
+    background: var(--color-fg-faint);
+    border-radius: 999px;
+    flex: 0 0 auto;
+  }
+  .header {
+    padding: 8px var(--space-4) 10px;
+  }
+  .close {
+    min-width: var(--tap-min-size);
+    min-height: var(--tap-min-size);
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}

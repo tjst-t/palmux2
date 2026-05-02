@@ -33,7 +33,12 @@ export function Modal({ open, onClose, title, children, width = 480 }: Props) {
         {title && (
           <header className={styles.header}>
             <h2 className={styles.title}>{title}</h2>
-            <button className={styles.close} onClick={onClose} aria-label="Close">
+            <button
+              className={styles.close}
+              onClick={onClose}
+              aria-label="Close"
+              data-tap-mobile
+            >
               ×
             </button>
           </header>

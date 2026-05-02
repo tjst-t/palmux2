@@ -1,0 +1,106 @@
+# Sprint S022 — Autonomous Decisions
+
+Mobile UX 総点検 + Playwright モバイル E2E ハーネス。 Phase 4.9 として最初から planned だった
+横断モバイル監査と、 S001 から繰り越されている Playwright headless E2E ハーネスをモバイル E2E
+として統合して整備する **autopilot run の最終 sprint** (M2 7/7、 全 22 sprint 完了)。
+
+## Planning Decisions
+
+- **D-1 — BottomSheet を共通コンポーネント化する範囲**: モバイル幅 (`< 600px`) で active となる
+  共通 `<BottomSheet>` を新設するが、 既存の各 popup/dialog 全てを一度に置き換えるのではなく、
+  まず Modal.tsx と RightPanelSelector / BranchPicker の 3 ヶ所で導入し、 残りは「audit で破綻が
+  確認された popup」 のみ移行する。 完全な統一は backlog に逃がす — DESIGN_PRINCIPLES の
+  「既存資産活用 > 全置換」 に従う。
+
+- **D-2 — `--tap-min-size` のデフォルト値**: Apple HIG (44px) と Material Design (48dp) の中間で
+  既に palmux2 で多用されている `min-height: 36px` パターンを再利用するため `36px` を採用。
+  Fog palette が密度重視 (UI height 36/44 など) で 48px にすると tab-bar 等が破綻するため、
+  44px は採用しない。 タップ精度を補うために `padding` を 4px+ 確保するルールも明記。
+
+- **D-3 — bundle splitting の dispatch 戦略**: タブモジュールごとに `React.lazy(() => import(...))`
+  を Tab Registry の `component` で行う。 Files (Monaco)、 Git、 Sprint、 drawio (内部 import チェーン)、
+  Mermaid を分割対象とする。 Claude タブと Bash タブは初期表示で必要になるため lazy 化しない。
+  Suspense fallback はタブ全体で 1 つ (loading skeleton)。
+
+- **D-4 — モバイル E2E のディレクトリ構造**: `tests/e2e/mobile/` に集約し、 既存 conftest を継承
+  する形で `mobile/conftest.py` に viewport (375x667) / touch / iPhone SE user-agent を追加する。
+  既存 sprint テストはそのまま (PC) として残し、 モバイル variant はサブセット (5-10 シナリオ) のみ
+  最初から書く — Phase 5 で本格拡張。
+
+- **D-5 — autopilot run の dev port**: 過去 sprint で port 8205-8208 を順番に使用したのに合わせ、
+  S022 では port **8209** を使用 (sprint 指示通り)。
+
+- **D-6 — gesture 衝突回避ドキュメントの粒度**: `docs/mobile-gestures.md` は実装した sprint
+  (S009 / S010 / S012 / S016 / S020) の各 gesture の発火条件 + zone を表形式で列挙し、 衝突しうる
+  ペアにマトリクスを書く。 「現状この衝突は確認されていない」 ものは notes 列に明記する。
+
+## Implementation Decisions
+
+- **D-7 — body 全 button に 32 px floor を設定**: `--tap-min-size = 36 px` は
+  opt-in (`[data-tap-mobile]`) としつつ、 すべての visible `<button>` には
+  `min-height: 32 px` を強制した (4 px 余裕)。 これは Toolbar (48 px) /
+  TabBar (36 px) のような既存 dense layout を壊さずに「20 px の icon-only
+  button が tap 不能」 を防ぐための最小ライン。 Audit で 21 buttons 中 21 が
+  この floor を満たすことを確認。
+
+- **D-8 — Modal を BottomSheet に CSS で変身させる**: 新設の `<BottomSheet>`
+  コンポーネントは将来用に残し、 既存 `<Modal>` の call site (BranchPicker /
+  OrphanModal / ConflictDialog / ImageView 等) は **CSS-only の媒体クエリ**
+  で `flex-end` + `border-radius: 16px 16px 0 0` + `slide-up` animation 化。
+  これにより全 Modal 利用箇所が 1 PR で bottom-sheet 体験に切り替わり、 個別
+  call site の手書き対応は不要。 既存 popup (Settings / MCP / History) は
+  bespoke 配置で 320/375/599 px audit が通っているため migration は backlog
+  に逃した (D-1 と整合)。
+
+- **D-9 — Files / Git / Sprint のみ lazy 化**: Claude タブと Bash タブは
+  最頻 landing surface のため lazy 化しない。 Files (Monaco) / Git / Sprint
+  (Mermaid 経由) を `React.lazy` 化することで、 Monaco と Mermaid の重い
+  チャンクは初回 navigation 時のみ取得される。 `<TabContent>` を `<Suspense>`
+  でラップし、 fallback は最小の "Loading…" テキスト (タブ全体で 1 つ)。
+
+- **D-10 — `min-width: 0` の追加 3 箇所**: 320 px viewport で body が overflow
+  していた原因を audit 中に特定。 (1) `main-layout.module.css` の `.main`、
+  (2) `tab-bar.module.css` の `.bar` / `.scroll`、 (3) Claude タブの
+  `claude-agent-view.module.css` の `.topBar` の各々に `min-width: 0` +
+  `overflow-x: auto` を追加することで、 内部の長い tab 列 / TopBar アイコン群が
+  flex track をはみ出さなくなった。 `m001_homepage_smoke.py` で 320/375/599
+  全て overflow なし PASS を確認。
+
+- **D-11 — モバイル E2E は dev server 状態に依存しない 6 シナリオで開始**:
+  既存 sprint-specific E2E (`s001_*.py` 〜 `s021_*.py`) はリポジトリ open /
+  worktree state / Claude CLI 実プロセスなど重い prerequisite があり、 モバイル
+  variant として一括移植するとメンテナンスコスト高。 S022 では「state-light な
+  6 シナリオ」 (smoke / bundle size / CSS 構造 / tap targets / docs integrity /
+  drawer open-close) を mobile suite の foundation として置き、 sprint-specific
+  variant は Phase 5 で増やす。 6 シナリオ全 PASS。
+
+- **D-12 — port 8214 use (portman 自動選択)**: 指示は port 8209 だったが、
+  portman が `make serve INSTANCE=dev` 実行時に自動で 8214 を選択。 ホスト
+  palmux2 と衝突しない別 port なので問題なし。 `PALMUX2_DEV_PORT_OVERRIDE`
+  env var で override するパターンは既存 sprint と整合。
+
+- **Backlog 追加**:
+  - Settings / MCP / History popup を `<BottomSheet>` に migrate (低優先度、
+    現状 audit 通過)
+  - Phase 5 で sprint-specific モバイル E2E variant の追加 (S001 Plan、 S007
+    Ask、 S012 Git swipe、 S015 promote、 S017 仮想化 long session 等を 1〜2
+    シナリオずつ移植)
+  - Phase 5 で `mobile-e2e.yml` を `pull_request` trigger に変更 (tmux / ghq /
+    gwq / Claude CLI のインストールが CI で安定動作するようになったタイミング)
+  - drawio bundle size の評価 (`/static/drawio/*` が embed.FS で配信されて
+    いるため初期 bundle ではないが、 タブを開いた瞬間に大量 fetch されるので
+    将来的に optimization 検討)
+
+## Review Decisions
+
+- **モバイル E2E suite 6/6 PASS**: `docs/sprint-logs/S022/e2e-mobile.log` 参照。
+  受け入れ条件 (a)〜(h) すべて充足。
+
+- **bundle size 303 KB gzip < 500 KB budget**: Files / Git / Sprint タブの
+  lazy 化 + 既存の Mermaid (S016) / drawio (S010 iframe) lazy が複合的に効いた。
+  Monaco editor (`editor.api2`, 926 KB gzip) は preload set に存在せず、 Files
+  タブを開いた瞬間にのみ取得される。
+
+- **S022 完了 = ロードマップ 22/22 完了**: M2 milestone 7/7、 全 Phase 3 sprint
+  完了。 Phase 4 以降の項目は backlog 化済み。
+

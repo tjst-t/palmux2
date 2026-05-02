@@ -28,3 +28,4 @@ Thumbs.db
 # autopilot session state (lock files + transient worktrees)
 .claude/autopilot-*.lock
 .claude/worktrees/
+__pycache__/

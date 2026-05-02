@@ -1,0 +1,89 @@
+# Palmux2 Mobile E2E — manual trigger only (S022 skeleton).
+#
+# This workflow is the Phase 5 spike for running the mobile E2E suite
+# (tests/e2e/mobile/) on every push or PR. For S022 we ship it as a
+# manual `workflow_dispatch` only — Phase 5 will flip the trigger to
+# `pull_request` once the suite stabilises and the dependency surface
+# (tmux, ghq, gwq, claude CLI) is reasonably installable in CI.
+#
+# To run manually:  Actions tab → "Mobile E2E" → "Run workflow"
+name: Mobile E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      port:
+        description: "Dev server port (matches PALMUX2_DEV_PORT_OVERRIDE)"
+        required: false
+        default: "8214"
+
+jobs:
+  mobile-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PALMUX2_DEV_PORT_OVERRIDE: ${{ inputs.port }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Playwright + Chromium
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install playwright
+          playwright install --with-deps chromium
+
+      # NOTE: tmux / ghq / gwq / claude CLI install is a Phase 5 concern.
+      # Until then the suite mostly exercises the static frontend, so the
+      # smoke / bundle / docs tests pass without those tools. The drawer
+      # test does need a running palmux2 binary, which we build below.
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build Go binary
+        run: go build -o bin/palmux ./cmd/palmux
+
+      - name: Start palmux server (background)
+        run: |
+          mkdir -p tmp
+          ./bin/palmux --port "${PALMUX2_DEV_PORT_OVERRIDE}" \
+            --config-dir ./tmp \
+            >tmp/palmux.log 2>&1 &
+          echo "$!" > tmp/palmux.pid
+          # Give it a moment.
+          sleep 2
+
+      - name: Run mobile E2E suite
+        run: ./tests/e2e/mobile/run.sh
+
+      - name: Stop palmux server
+        if: always()
+        run: |
+          if [ -f tmp/palmux.pid ]; then
+            kill "$(cat tmp/palmux.pid)" 2>/dev/null || true
+          fi
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: palmux-logs
+          path: |
+            tmp/palmux.log
+            docs/sprint-logs/S022/

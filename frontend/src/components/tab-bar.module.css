@@ -5,10 +5,17 @@
   background-color: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
+  /* S022: clamp the bar to the parent flex track so overflowing tabs
+     scroll inside .scroll instead of bleeding past the viewport on
+     narrow phones (320px). Without this, the .scroll child takes its
+     intrinsic width and pushes the body wider than 320px. */
+  min-width: 0;
+  max-width: 100%;
 }
 
 .scroll {
   flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   overflow-x: auto;
