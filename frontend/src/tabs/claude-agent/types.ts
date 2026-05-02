@@ -19,6 +19,7 @@ export type BlockKind =
   | 'plan'
   | 'ask'
   | 'hook'
+  | 'compact'
 
 export interface Block {
   id: string
@@ -70,6 +71,18 @@ export interface Block {
    *  the input). Stored as JSON-compatible value so the UI can pretty-
    *  print. */
   hookPayload?: unknown
+
+  // ──────────── kind:"compact" fields (S018) ────────────
+  // Set on the synthetic role:"system" turn that Palmux mints when the
+  // CLI emits a `system/compact_boundary` envelope. The block carries
+  // metadata about the compaction: trigger ("manual" / "auto"), the
+  // pre/post token counts the CLI reported, the wall-clock duration,
+  // and the count of turns that were folded into the summary.
+  compactTrigger?: 'manual' | 'auto' | string
+  compactPreTokens?: number
+  compactPostTokens?: number
+  compactDurationMs?: number
+  compactTurns?: number
 }
 
 /** Shape of the input payload on a kind:"ask" block. Mirrors the
@@ -91,7 +104,10 @@ export interface AskInput {
 }
 
 export interface Turn {
-  role: 'user' | 'assistant' | 'tool' | 'hook'
+  // 'system' is used for synthetic Palmux-side turns (currently the
+  // compact_boundary marker minted by S018). The CLI never emits a
+  // role:"system" turn directly.
+  role: 'user' | 'assistant' | 'tool' | 'hook' | 'system'
   id: string
   blocks: Block[]
   /** Set when this turn was produced by a sub-agent the CLI spawned via

@@ -50,6 +50,20 @@ func processStreamMessage(s *Session, msg streamMsg) []AgentEvent {
 				}
 			}
 		}
+		// system/status — used for /compact lifecycle (S018). The first
+		// envelope (status="compacting") fires while the CLI is
+		// summarising; the matching one (status:null + compact_result)
+		// fires when the summary is folded back into the session.
+		if msg.Subtype == "status" {
+			return processSystemStatus(msg)
+		}
+		// system/compact_boundary — the marker between pre- and post-
+		// compaction history. We mint a synthetic role:"system" turn with
+		// a kind:"compact" block so the UI can render a "Compacted: X
+		// turns into 1 summary" line where the boundary lands.
+		if msg.Subtype == "compact_boundary" {
+			return processCompactBoundary(s, msg)
+		}
 		return nil
 
 	case "stream_event":
@@ -78,6 +92,61 @@ func processStreamMessage(s *Session, msg streamMsg) []AgentEvent {
 		return []AgentEvent{ev, st}
 	}
 	return nil
+}
+
+// processSystemStatus turns a system/status envelope into compact-lifecycle
+// events. We only forward the two compact-related variants — other status
+// updates the CLI may emit (none currently observed) are dropped on the
+// floor rather than risk emitting a stray spinner.
+func processSystemStatus(msg streamMsg) []AgentEvent {
+	switch {
+	case msg.Status == "compacting":
+		ev, err := makeEvent(EvCompactStarted, CompactStartedPayload{})
+		if err != nil {
+			return nil
+		}
+		return []AgentEvent{ev}
+	case msg.CompactResult != "":
+		ev, err := makeEvent(EvCompactFinished, CompactFinishedPayload{Result: msg.CompactResult})
+		if err != nil {
+			return nil
+		}
+		return []AgentEvent{ev}
+	}
+	return nil
+}
+
+// processCompactBoundary mints a synthetic role:"system" turn carrying a
+// kind:"compact" block. The block records the trigger / pre-token /
+// post-token / duration metadata reported by the CLI plus a Palmux-side
+// count of how many turns were folded into the summary (counted off the
+// session snapshot at the time the boundary lands).
+func processCompactBoundary(s *Session, msg streamMsg) []AgentEvent {
+	var meta compactMetadata
+	if len(msg.CompactMeta) > 0 {
+		_ = json.Unmarshal(msg.CompactMeta, &meta)
+	}
+	turnID, blockID, turns := s.AppendCompactBlock(meta)
+	out := []AgentEvent{}
+	if ev, err := makeEvent(EvTurnStart, TurnStartPayload{TurnID: turnID, Role: "system"}); err == nil {
+		out = append(out, ev)
+	}
+	if ev, err := makeEvent(EvBlockStart, BlockStartPayload{
+		TurnID: turnID,
+		Block: Block{
+			ID:                blockID,
+			Kind:              "compact",
+			Done:              true,
+			CompactTrigger:    meta.Trigger,
+			CompactPreTokens:  meta.PreTokens,
+			CompactPostTokens: meta.PostTokens,
+			CompactDurationMs: meta.DurationMs,
+			CompactTurns:      turns,
+		},
+	}); err == nil {
+		out = append(out, ev)
+	}
+	return out
 }
 
 // processStreamEvent handles partial-message events. The Anthropic

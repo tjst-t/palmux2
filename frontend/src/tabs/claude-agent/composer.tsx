@@ -29,6 +29,7 @@ import {
   type CompletionTrigger,
 } from '../../components/inline-completion'
 import { PillSelect, type PillSelectOption } from '../../components/pill-select'
+import { confirmDialog } from '../../components/context-menu/confirm-dialog'
 
 import styles from './claude-agent-view.module.css'
 import type { InitInfo, ModelDescriptor } from './types'
@@ -78,6 +79,11 @@ const FALLBACK_MODELS: ModelDescriptor[] = [
 const INTERNAL_COMMANDS: { name: string; description: string }[] = [
   { name: 'clear', description: 'Start a fresh session (drop the active session_id)' },
   { name: 'model', description: 'Switch model: /model <name>' },
+  // S018 — `/compact` is a CLI-handled slash command (it shows up in
+  // the CLI's slash_commands list once init lands). Listing it here
+  // too makes it discoverable before init completes and ensures the
+  // confirm-on-submit interceptor (see submit) is reachable.
+  { name: 'compact', description: 'Summarise past conversation to free context (destructive)' },
 ]
 
 // Attachment is one piece of context the user has added to their pending
@@ -291,12 +297,28 @@ export function Composer(props: ComposerProps) {
     [attachments],
   )
 
-  const submit = () => {
+  const submit = async () => {
     if (isStreaming || disabled) return
     if (isUploading) return
     const text = value.trim()
     const ready = attachments.filter((a) => a.status === 'ready' && a.path)
     if (!text && ready.length === 0) return
+    // S018: /compact is destructive (the pre-compaction context is
+    // replaced by a summary). Surface a confirm dialog before letting
+    // the message go to the CLI. We test via startsWith so a literal
+    // `/compact` line at the top — whether alone or followed by
+    // arguments — is caught. Other slash commands fall through.
+    if (isCompactCommand(text)) {
+      const ok = await confirmDialog.ask({
+        title: 'Compact conversation?',
+        message:
+          'Past conversation will be summarised and the original turns replaced. Compacted content cannot be restored within this session.',
+        confirmLabel: 'Compact',
+        cancelLabel: 'Cancel',
+        danger: true,
+      })
+      if (!ok) return
+    }
     // Build the submission payload from the chips:
     //   - image  → `[image: <abspath>]` line in the body (existing
     //              behaviour from paste / drag-drop uploads — Claude
@@ -324,6 +346,18 @@ export function Composer(props: ComposerProps) {
     }
     setAttachments([])
     completion.cancel()
+  }
+
+  // isCompactCommand: returns true when the user's message is a
+  // `/compact` invocation (with or without arguments). Stripped so a
+  // future `/compact reason` shape is also caught.
+  function isCompactCommand(s: string): boolean {
+    if (!s.startsWith('/')) return false
+    // Take first line only — the user might have appended attachments
+    // on subsequent lines.
+    const firstLine = s.split('\n', 2)[0]
+    const head = firstLine.split(/\s+/, 2)[0]
+    return head === '/compact'
   }
 
   const applyCompletion = (opt?: CompletionOption) => {

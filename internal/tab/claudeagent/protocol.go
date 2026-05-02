@@ -63,6 +63,30 @@ type streamMsg struct {
 	HookExitCode int             `json:"exit_code,omitempty"`
 	HookOutcome  string          `json:"outcome,omitempty"`
 	HookPayload  json.RawMessage `json:"modified_payload,omitempty"`
+
+	// ──────────── system/status + system/compact_boundary (S018) ────────────
+	// Wire-confirmed against claude CLI 2.1.126 — see
+	// docs/sprint-logs/S018/decisions.md "/compact wire-format spike".
+	//
+	// `system/status` fires twice for /compact:
+	//   {"type":"system","subtype":"status","status":"compacting", …}
+	//   {"type":"system","subtype":"status","status":null,"compact_result":"success", …}
+	// We watch for these to flip the spinner on the agent state.
+	//
+	// `system/compact_boundary` is the marker between pre-compaction and
+	// post-compaction history. Carries metadata about the compaction:
+	//   compact_metadata = { trigger: "manual"|"auto", pre_tokens, post_tokens, duration_ms }
+	Status         string          `json:"status,omitempty"`
+	CompactResult  string          `json:"compact_result,omitempty"`
+	CompactMeta    json.RawMessage `json:"compact_metadata,omitempty"`
+}
+
+// compactMetadata is the body of system/compact_boundary's compact_metadata.
+type compactMetadata struct {
+	Trigger    string `json:"trigger,omitempty"` // "manual" | "auto"
+	PreTokens  int64  `json:"pre_tokens,omitempty"`
+	PostTokens int64  `json:"post_tokens,omitempty"`
+	DurationMs int    `json:"duration_ms,omitempty"`
 }
 
 // MCPServerInfo is the per-server status the CLI reports in system/init.

@@ -8,9 +8,117 @@ import { DiffView, buildSyntheticDiff } from '../../components/diff/diff-view'
 import { relativeToWorktree, urlForFiles } from '../../lib/tab-nav'
 import { selectBranchById, usePalmuxStore } from '../../stores/palmux-store'
 import { DEFAULT_READ_PREVIEW_LINE_COUNT } from './read-preview'
+import { useClaudeSearch } from './search-context'
 
 import type { AskOption, AskQuestion, Block, Turn } from './types'
 import styles from './blocks.module.css'
+
+/** searchMatchProps returns the data-* attributes a renderer should
+ *  splat onto its outermost element when the block participates in
+ *  the active Cmd+F search (S018). Used so E2E and CSS can target
+ *  matched blocks without coupling the search machinery to every
+ *  block component. Empty object when the block doesn't match.
+ */
+function searchMatchProps(blockId: string | undefined, query: string, openedBlocks: Set<string>, activeBlockId: string | undefined) {
+  if (!query || !blockId) return {}
+  if (!openedBlocks.has(blockId)) return {}
+  return {
+    'data-search-match': 'true',
+    'data-search-active': blockId === activeBlockId ? 'true' : 'false',
+  }
+}
+
+/** Recursively walk children and wrap raw string segments in <mark>
+ *  via highlightText. Element children (e.g. <strong>, <em>) are
+ *  preserved as-is — their own children pass through buildHighlight
+ *  on the next render layer because we install the same component
+ *  override on those tags too. */
+function highlightChildren(children: React.ReactNode, query: string, isActive: boolean): React.ReactNode {
+  if (children == null || children === false) return children
+  if (typeof children === 'string') return highlightText(children, query, isActive)
+  if (Array.isArray(children)) {
+    return children.map((c, i) =>
+      typeof c === 'string'
+        ? <span key={i}>{highlightText(c, query, isActive)}</span>
+        : c,
+    )
+  }
+  return children
+}
+
+/** Component overrides that wrap text content in <mark> for the
+ *  active search query. Each entry preserves the original element's
+ *  semantics — only the textual children are rewritten. */
+function buildHighlightComponents(query: string, isActive: boolean) {
+  // Manually enumerate so each `tag` is a literal-typed JSX element name.
+  // Building generically off `keyof JSX.IntrinsicElements` confuses the
+  // strict-TS pipeline (Vite) about whether `tag` is constructible.
+  const wrapP = (props: { children?: React.ReactNode }) => <p>{highlightChildren(props.children, query, isActive)}</p>
+  const wrapLi = (props: { children?: React.ReactNode }) => <li>{highlightChildren(props.children, query, isActive)}</li>
+  const wrapTd = (props: { children?: React.ReactNode }) => <td>{highlightChildren(props.children, query, isActive)}</td>
+  const wrapTh = (props: { children?: React.ReactNode }) => <th>{highlightChildren(props.children, query, isActive)}</th>
+  const wrapEm = (props: { children?: React.ReactNode }) => <em>{highlightChildren(props.children, query, isActive)}</em>
+  const wrapStrong = (props: { children?: React.ReactNode }) => <strong>{highlightChildren(props.children, query, isActive)}</strong>
+  const wrapH1 = (props: { children?: React.ReactNode }) => <h1>{highlightChildren(props.children, query, isActive)}</h1>
+  const wrapH2 = (props: { children?: React.ReactNode }) => <h2>{highlightChildren(props.children, query, isActive)}</h2>
+  const wrapH3 = (props: { children?: React.ReactNode }) => <h3>{highlightChildren(props.children, query, isActive)}</h3>
+  const wrapH4 = (props: { children?: React.ReactNode }) => <h4>{highlightChildren(props.children, query, isActive)}</h4>
+  const wrapH5 = (props: { children?: React.ReactNode }) => <h5>{highlightChildren(props.children, query, isActive)}</h5>
+  const wrapH6 = (props: { children?: React.ReactNode }) => <h6>{highlightChildren(props.children, query, isActive)}</h6>
+  const wrapCode = (props: { children?: React.ReactNode }) => <code>{highlightChildren(props.children, query, isActive)}</code>
+  const wrapA = (props: { children?: React.ReactNode; href?: string }) => <a href={props.href}>{highlightChildren(props.children, query, isActive)}</a>
+  const wrapBq = (props: { children?: React.ReactNode }) => <blockquote>{highlightChildren(props.children, query, isActive)}</blockquote>
+  return {
+    p: wrapP,
+    li: wrapLi,
+    td: wrapTd,
+    th: wrapTh,
+    em: wrapEm,
+    strong: wrapStrong,
+    h1: wrapH1,
+    h2: wrapH2,
+    h3: wrapH3,
+    h4: wrapH4,
+    h5: wrapH5,
+    h6: wrapH6,
+    code: wrapCode,
+    a: wrapA,
+    blockquote: wrapBq,
+  }
+}
+
+/** highlightText splits a string into runs and wraps each match in a
+ *  <mark> with `palmux-search-mark`. Returns the original string when
+ *  the query is empty. Used by TextBlock / ThinkingBlock and the
+ *  tool_result <pre> renderer.
+ */
+function highlightText(text: string, query: string, isActive: boolean): React.ReactNode {
+  if (!query || !text) return text
+  const lower = text.toLowerCase()
+  const needle = query.toLowerCase()
+  const out: React.ReactNode[] = []
+  let i = 0
+  let key = 0
+  while (i < text.length) {
+    const next = lower.indexOf(needle, i)
+    if (next < 0) {
+      out.push(text.slice(i))
+      break
+    }
+    if (next > i) out.push(text.slice(i, next))
+    out.push(
+      <mark
+        key={`m${key++}`}
+        className={`palmux-search-mark${isActive ? ' palmux-search-mark-active' : ''}`}
+        data-testid="search-mark"
+      >
+        {text.slice(next, next + needle.length)}
+      </mark>,
+    )
+    i = next + needle.length
+  }
+  return <>{out}</>
+}
 
 const ansiConverter = new AnsiToHtml({
   fg: '#d4d4d8',
@@ -78,8 +186,8 @@ interface BlockProps {
 
 export function BlockView({ block, permissionHandlers, planHandlers, askHandlers, renderTaskChildren }: BlockProps) {
   switch (block.kind) {
-    case 'text':        return <TextBlock text={block.text ?? ''} />
-    case 'thinking':    return <ThinkingBlock text={block.text ?? ''} />
+    case 'text':        return <TextBlock text={block.text ?? ''} blockId={block.id} />
+    case 'thinking':    return <ThinkingBlock text={block.text ?? ''} blockId={block.id} />
     case 'tool_use':
       if (renderTaskChildren) {
         return <TaskTreeBlock block={block} renderChildren={renderTaskChildren} />
@@ -91,6 +199,7 @@ export function BlockView({ block, permissionHandlers, planHandlers, askHandlers
     case 'plan':        return <PlanBlock block={block} handlers={planHandlers} />
     case 'ask':         return <AskQuestionBlock block={block} handlers={askHandlers} />
     case 'hook':        return <HookBlock block={block} />
+    case 'compact':     return <CompactBlock block={block} />
     default:            return null
   }
 }
@@ -179,12 +288,30 @@ function uploadURLForPath(path: string): string | null {
   return `/api/upload/${encodeURIComponent(name)}`
 }
 
-function TextBlock({ text }: { text: string }) {
+function TextBlock({ text, blockId }: { text: string; blockId?: string }) {
+  const { query, openedBlocks, activeBlockId } = useClaudeSearch()
   if (!text) return null
   const { text: prose, images } = splitTextWithAttachments(text)
+  const match = searchMatchProps(blockId, query, openedBlocks, activeBlockId)
+  const isActiveMatch = !!query && blockId === activeBlockId
+  // ReactMarkdown v10 doesn't surface text-node hooks via `components`,
+  // so we override every common text-bearing element (p, li, td, em,
+  // strong, h1..h6, code-inline) and recursively wrap any string child
+  // through highlightText. Cheap when query is empty — just defaults
+  // to the standard element so formatting is preserved.
+  const components = query
+    ? buildHighlightComponents(query, isActiveMatch)
+    : undefined
   return (
-    <div className={styles.text}>
-      {prose && <ReactMarkdown remarkPlugins={[remarkGfm]}>{prose}</ReactMarkdown>}
+    <div className={styles.text} {...match}>
+      {prose && (
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={components as never}
+        >
+          {prose}
+        </ReactMarkdown>
+      )}
       {images.length > 0 && (
         <div className={styles.inlineAttachments}>
           {images.map((p, i) => {
@@ -215,20 +342,31 @@ function TextBlock({ text }: { text: string }) {
   )
 }
 
-function ThinkingBlock({ text }: { text: string }) {
-  const [expanded, setExpanded] = useState(false)
+function ThinkingBlock({ text, blockId }: { text: string; blockId?: string }) {
+  const [manualExpanded, setManualExpanded] = useState(false)
+  const { query, openedBlocks, activeBlockId } = useClaudeSearch()
+  // Auto-expand when this thinking block carries a search match —
+  // otherwise the user sees a "3/12" count but nothing scrolls into
+  // view since the body is collapsed.
+  const forceExpand = !!query && !!blockId && openedBlocks.has(blockId)
+  const expanded = manualExpanded || forceExpand
+  const isActiveMatch = !!query && blockId === activeBlockId
   if (!text) return null
   return (
-    <div className={styles.thinking}>
+    <div className={styles.thinking} {...searchMatchProps(blockId, query, openedBlocks, activeBlockId)}>
       <button
         type="button"
         className={styles.thinkingToggle}
-        onClick={() => setExpanded((v) => !v)}
+        onClick={() => setManualExpanded((v) => !v)}
       >
         <span className={`${styles.chevron} ${expanded ? styles.expanded : ''}`}>›</span>
         Thought {!expanded && summary(text, 60)}
       </button>
-      {expanded && <div className={styles.thinkingBody}>{text}</div>}
+      {expanded && (
+        <div className={styles.thinkingBody}>
+          {query ? highlightText(text, query, isActiveMatch) : text}
+        </div>
+      )}
     </div>
   )
 }
@@ -545,14 +683,22 @@ function ToolUseBlock({ block }: { block: Block }) {
   // render a useless `INPUT {}` panel and — worse — leave that panel
   // visible forever if the turn was interrupted before any delta arrived.
   const hasContent = blockHasContent(block)
-  const [expanded, setExpanded] = useState(!block.done && hasContent)
+  const [manualExpanded, setManualExpanded] = useState(!block.done && hasContent)
+  // S018 — auto-expand a tool_use that carries a search match.
+  const { query, openedBlocks, activeBlockId } = useClaudeSearch()
+  const forceExpand = !!query && openedBlocks.has(block.id)
+  const expanded = manualExpanded || forceExpand
+  const setExpanded = (next: boolean | ((v: boolean) => boolean)) => {
+    if (typeof next === 'function') setManualExpanded((v) => next(v))
+    else setManualExpanded(next)
+  }
   const summaryText = toolSummary(block)
   const badge = !block.done ? 'running' : ''
   // Drop entirely if the block finalised with no payload at all — that's
   // an orphan from an interrupted turn / dropped delta and only adds noise.
   if (block.done && !hasContent) return null
   return (
-    <div className={styles.toolUse}>
+    <div className={styles.toolUse} {...searchMatchProps(block.id, query, openedBlocks, activeBlockId)}>
       <div
         className={styles.toolHeader}
         role="button"
@@ -715,7 +861,17 @@ function ToolInputRich({ block }: { block: Block }) {
 }
 
 function ToolResultBlock({ block }: { block: Block }) {
-  const [expanded, setExpanded] = useState(false)
+  const [manualExpanded, setManualExpanded] = useState(false)
+  // S018 — auto-expand when this tool_result carries a search match,
+  // and force "show all" so the matched line is actually visible (the
+  // preview slice could otherwise hide it past line N).
+  const { query, openedBlocks, activeBlockId } = useClaudeSearch()
+  const forceExpand = !!query && openedBlocks.has(block.id)
+  const expanded = manualExpanded || forceExpand
+  const setExpanded = (next: boolean | ((v: boolean) => boolean)) => {
+    if (typeof next === 'function') setManualExpanded((v) => next(v))
+    else setManualExpanded(next)
+  }
   // S017: when expanded, large outputs default to a leading-N-lines
   // preview with a "Show all (X lines)" affordance. The preview cap
   // comes from globalSettings.readPreviewLineCount (default 50). This
@@ -724,7 +880,8 @@ function ToolResultBlock({ block }: { block: Block }) {
   const previewLineCount = usePalmuxStore(
     (s) => s.globalSettings.readPreviewLineCount ?? DEFAULT_READ_PREVIEW_LINE_COUNT,
   )
-  const [showAll, setShowAll] = useState(false)
+  const [manualShowAll, setShowAll] = useState(false)
+  const showAll = manualShowAll || forceExpand
   const output = block.output ?? ''
   const preview = firstLine(output)
   const showToggle = output.includes('\n') || output.length > preview.length
@@ -746,7 +903,10 @@ function ToolResultBlock({ block }: { block: Block }) {
     return parts.slice(0, previewLineCount).join('\n')
   }, [output, isLong, showAll, previewLineCount])
   return (
-    <div className={`${styles.toolResult} ${block.isError ? styles.error : ''}`.trim()}>
+    <div
+      className={`${styles.toolResult} ${block.isError ? styles.error : ''}`.trim()}
+      {...searchMatchProps(block.id, query, openedBlocks, activeBlockId)}
+    >
       <div
         className={styles.toolHeader}
         role={showToggle ? 'button' : undefined}
@@ -1515,5 +1675,46 @@ function hookSummaryLine(block: Block): string {
   const stderr = (block.hookStderr ?? '').trim()
   if (stderr) return firstLine(stderr)
   return block.hookOutcome || ''
+}
+
+// CompactBlock — summarises a /compact boundary (S018). The CLI emits a
+// system/compact_boundary envelope between the pre- and post-compaction
+// histories; the BE mints a synthetic role:"system" turn carrying this
+// block. Its content is purely informational — the actual summary text
+// the CLI generates lands as a synthetic user-role turn immediately
+// after, which the user can scroll to and read in full.
+function CompactBlock({ block }: { block: Block }) {
+  const turns = block.compactTurns ?? 0
+  const pre = block.compactPreTokens ?? 0
+  const post = block.compactPostTokens ?? 0
+  const dur = block.compactDurationMs ?? 0
+  const trigger = block.compactTrigger || 'manual'
+  // Concise "Compacted: N turns into 1 summary" line + a dim subline
+  // with token reduction + duration. Ratio is rounded to one decimal.
+  const ratio = pre > 0 ? Math.max(0, ((pre - post) / pre) * 100) : 0
+  const seconds = dur > 0 ? (dur / 1000).toFixed(dur < 10000 ? 1 : 0) : ''
+  const tokenLine =
+    pre > 0 || post > 0
+      ? `${pre.toLocaleString()} → ${post.toLocaleString()} tokens (${ratio.toFixed(0)}% smaller)`
+      : ''
+  return (
+    <div className={styles.compactBoundary} data-testid="compact-boundary">
+      <span className={styles.compactRule} aria-hidden />
+      <div className={styles.compactBody} data-compact-trigger={trigger}>
+        <div className={styles.compactHeadline}>
+          Compacted: {turns} {turns === 1 ? 'turn' : 'turns'} into 1 summary
+          {trigger && trigger !== 'manual' ? ` (${trigger})` : ''}
+        </div>
+        {(tokenLine || seconds) && (
+          <div className={styles.compactDetail}>
+            {tokenLine}
+            {tokenLine && seconds ? ' · ' : ''}
+            {seconds ? `${seconds}s` : ''}
+          </div>
+        )}
+      </div>
+      <span className={styles.compactRule} aria-hidden />
+    </div>
+  )
 }
 

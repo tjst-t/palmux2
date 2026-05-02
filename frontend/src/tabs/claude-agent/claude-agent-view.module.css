@@ -553,3 +553,18 @@
    replaced with the unified Attach file flow + drag-and-drop + paste.
    Worktree-relative `@<path>` references are now provided by the `@`
    autocomplete trigger in the textarea.) */
+
+/* ──────────── S018: compact-in-progress spinner ──────────── */
+.compactSpinner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  margin: 8px 12px;
+  color: var(--color-fg);
+  font-size: 12px;
+  width: fit-content;
+}

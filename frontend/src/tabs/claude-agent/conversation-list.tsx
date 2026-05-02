@@ -38,6 +38,10 @@ interface ConversationListHandle {
    *  visible at the bottom. Called when the user is in auto-follow
    *  mode and a new turn arrives. */
   scrollToBottom: (behavior?: 'auto' | 'instant' | 'smooth') => void
+  /** Scroll the conversation so the row at `index` is centred in the
+   *  viewport. Used by Cmd+F (S018) — when the user navigates to the
+   *  next match we centre the corresponding turn so they see context. */
+  scrollToRow: (index: number, opts?: { align?: 'start' | 'center' | 'end' | 'auto'; behavior?: 'auto' | 'instant' | 'smooth' }) => void
   /** Returns the wrapping HTMLDivElement (the scroll container).
    *  ConversationView needs this to install scroll listeners and to
    *  read/restore scroll position from localStorage. */
@@ -120,6 +124,16 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
           const lastIndex = turns.length - 1
           if (lastIndex < 0) return
           api.scrollToRow({ index: lastIndex, align: 'end', behavior })
+        },
+        scrollToRow: (index, opts) => {
+          const api = listRef.current
+          if (!api) return
+          if (index < 0 || index >= turns.length) return
+          api.scrollToRow({
+            index,
+            align: opts?.align ?? 'center',
+            behavior: opts?.behavior ?? 'smooth',
+          })
         },
         element() {
           return listRef.current?.element ?? null

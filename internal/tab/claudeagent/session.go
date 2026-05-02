@@ -343,6 +343,63 @@ func (s *Session) AppendUserTurn(content string) string {
 	return t.ID
 }
 
+// AppendCompactBlock inserts a synthetic role:"system" turn carrying a
+// kind:"compact" block. Called when a system/compact_boundary envelope
+// lands. Returns turnID/blockID so the caller can broadcast a block.start
+// event for live clients.
+//
+// The block summarises the boundary ("Compacted: X turns into 1
+// summary; pre/post tokens; duration") rather than the actual summary
+// text — the summary text shows up as a synthetic user-role turn from
+// the CLI immediately after the boundary, which goes through the
+// normal user-message path.
+func (s *Session) AppendCompactBlock(meta compactMetadata) (turnID, blockID string, turns int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Count turns since the previous compact_boundary (or session
+	// start if there's never been one). Any turn role counts; we
+	// exclude prior kind:"compact" boundary turns themselves.
+	turns = 0
+	for i := len(s.turns) - 1; i >= 0; i-- {
+		t := s.turns[i]
+		if isCompactBoundaryTurn(t) {
+			break
+		}
+		turns++
+	}
+	block := Block{
+		ID:                newID("block"),
+		Kind:              "compact",
+		Done:              true,
+		CompactTrigger:    meta.Trigger,
+		CompactPreTokens:  meta.PreTokens,
+		CompactPostTokens: meta.PostTokens,
+		CompactDurationMs: meta.DurationMs,
+		CompactTurns:      turns,
+	}
+	t := &Turn{
+		Role:   "system",
+		ID:     newID("turn"),
+		Blocks: []Block{block},
+	}
+	s.turns = append(s.turns, t)
+	return t.ID, block.ID, turns
+}
+
+// isCompactBoundaryTurn reports whether t is a synthetic compact-boundary
+// turn we previously inserted via AppendCompactBlock.
+func isCompactBoundaryTurn(t *Turn) bool {
+	if t == nil || t.Role != "system" {
+		return false
+	}
+	for _, b := range t.Blocks {
+		if b.Kind == "compact" {
+			return true
+		}
+	}
+	return false
+}
+
 // StartAssistantTurn opens a new assistant turn and returns its ID.
 // Called from the stream_event message_start path, so streamCovered is
 // flipped immediately — even if no blocks are emitted, the trailing

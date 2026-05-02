@@ -37,6 +37,13 @@ export interface AgentState {
   mcpServers: MCPServerInfo[]
   /** Latest usage info from a turn.end (input/cache/output tokens). */
   lastUsage?: AgentUsage
+  /** S018: true while the CLI is running /compact. Toggled on by
+   *  `compact.started` and off by `compact.finished`; used to drive the
+   *  conversation-area spinner so the user knows the compaction is
+   *  in flight. Survives session.replaced (compact issues a fresh
+   *  session.init mid-flow) because we only clear it on
+   *  compact.finished. */
+  compacting: boolean
   /** ISO timestamp of the most-recently-applied event — debug only. */
   lastEventTs?: string
 }
@@ -64,6 +71,7 @@ export const initialState: AgentState = {
   pendingPlanByBlock: {},
   errors: [],
   mcpServers: [],
+  compacting: false,
 }
 
 export type AgentAction =
@@ -155,7 +163,7 @@ function applyEvent(state: AgentState, ev: { type: string; ts: string; payload?:
       return next
     }
     case 'turn.start': {
-      const p = ev.payload as { turnId: string; role: 'user' | 'assistant'; parentToolUseId?: string }
+      const p = ev.payload as { turnId: string; role: Turn['role']; parentToolUseId?: string }
       next.turns = [
         ...next.turns,
         {
@@ -395,6 +403,18 @@ function applyEvent(state: AgentState, ev: { type: string; ts: string; payload?:
       const p = ev.payload as { message: string; detail?: string }
       errorCounter += 1
       next.errors = [...next.errors, { id: errorCounter, message: p.message, detail: p.detail }]
+      return next
+    }
+    // S018 compact lifecycle. We don't insert a synthetic block from the
+    // FE — the BE already mints a kind:"compact" block via
+    // block.start when system/compact_boundary lands. These flags only
+    // drive the spinner so the user sees /compact is in flight.
+    case 'compact.started': {
+      next.compacting = true
+      return next
+    }
+    case 'compact.finished': {
+      next.compacting = false
       return next
     }
     default:

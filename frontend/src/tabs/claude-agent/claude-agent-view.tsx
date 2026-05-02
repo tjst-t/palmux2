@@ -7,6 +7,7 @@ import type { TabViewProps } from '../../lib/tab-registry'
 import { BlockView } from './blocks'
 import styles from './claude-agent-view.module.css'
 import { Composer } from './composer'
+import { ConversationExportDialog } from './conversation-export'
 import {
   ConversationList,
   type ConversationListHandle,
@@ -14,6 +15,11 @@ import {
   usePersistScroll,
   useScrollRestore,
 } from './conversation-list'
+import {
+  ConversationSearchBar,
+  useConversationSearch,
+} from './conversation-search'
+import { ClaudeSearchProvider } from './search-context'
 import { HistoryPopup } from './history-popup'
 import { MCPPopup } from './mcp-popup'
 import { rollupTone, statusTone, type MCPStatusTone } from './mcp-status'
@@ -48,6 +54,7 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [mcpOpen, setMcpOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
 
   // S017: virtualisation. Resolve the inner scroll container from the
   // List's imperative API so scroll-restore / persist hooks can hang
@@ -86,6 +93,34 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  // S018: in-conversation search (Cmd+F / Ctrl+F). Scrolls to the
+  // matching row through the imperative List API so virtualisation
+  // (S017) plays nicely — the row is realised before being centred.
+  const search = useConversationSearch(topLevelTurns, (idx) => {
+    listHandleRef.current?.scrollToRow(idx, { align: 'center', behavior: 'smooth' })
+  })
+  // The search captures Cmd+F **before** the browser; we only do this
+  // when the Claude tab's wrapper currently contains the focused
+  // element. Outside, the user's normal browser Find still works.
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return
+      if (e.key !== 'f' && e.key !== 'F') return
+      // Inside the Claude tab? If wrapRef contains the active element,
+      // we own this shortcut.
+      const wrap = wrapRef.current
+      if (!wrap) return
+      const active = document.activeElement
+      const inside = wrap.contains(active) || active === document.body
+      if (!inside) return
+      e.preventDefault()
+      search.open()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [search])
 
   // Fetch CLI-supported permission modes once on mount.
   useEffect(() => {
@@ -257,8 +292,11 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
     }
   }
 
+  const activeBlockId =
+    search.state.matches[search.state.active]?.blockId
+
   return (
-    <div className={styles.wrap}>
+    <div className={styles.wrap} ref={wrapRef}>
       <TopBar
         status={state.status}
         totalCostUsd={state.totalCostUsd}
@@ -284,7 +322,26 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
         onInterrupt={() => send.interrupt()}
         onOpenHistory={() => setHistoryOpen((v) => !v)}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSearch={search.open}
+        onOpenExport={() => setExportOpen(true)}
         historyButtonRef={historyButtonRef}
+      />
+      <ConversationSearchBar
+        state={search.state}
+        setQuery={search.setQuery}
+        onNext={search.next}
+        onPrev={search.prev}
+        onClose={search.close}
+        inputRef={search.inputRef}
+      />
+      <ConversationExportDialog
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        turns={state.turns}
+        branchId={branchId}
+        repoId={repoId}
+        sessionId={state.sessionId}
+        model={state.model}
       />
       <SettingsPopup
         repoId={repoId}
@@ -330,6 +387,12 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
             ))}
           </div>
         )}
+        {state.compacting && (
+          <div className={styles.compactSpinner} data-testid="compacting-spinner">
+            <span className={styles.dots}><span /><span /><span /></span>
+            <span>Compacting conversation…</span>
+          </div>
+        )}
 
         {state.turns.length === 0 ? (
           <div className={styles.empty}>
@@ -339,23 +402,29 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
             </p>
           </div>
         ) : (
-          <ConversationList
-            ref={listHandleRef}
-            turns={topLevelTurns}
-            sessionKey={state.sessionId}
-            onScroll={onListScroll}
-            renderTurn={(turn) => (
-              <div className={styles.virtualTurnRow}>
-                <TurnView
-                  turn={turn}
-                  onRespondPermission={respondPermission}
-                  planHandlersFor={planHandlersFor}
-                  askHandlersFor={askHandlersFor}
-                  childrenByParent={childrenByParent}
-                />
-              </div>
-            )}
-          />
+          <ClaudeSearchProvider
+            query={search.state.query}
+            openedBlocks={search.state.openedBlocks}
+            activeBlockId={activeBlockId}
+          >
+            <ConversationList
+              ref={listHandleRef}
+              turns={topLevelTurns}
+              sessionKey={state.sessionId}
+              onScroll={onListScroll}
+              renderTurn={(turn) => (
+                <div className={styles.virtualTurnRow}>
+                  <TurnView
+                    turn={turn}
+                    onRespondPermission={respondPermission}
+                    planHandlersFor={planHandlersFor}
+                    askHandlersFor={askHandlersFor}
+                    childrenByParent={childrenByParent}
+                  />
+                </div>
+              )}
+            />
+          </ClaudeSearchProvider>
         )}
         {!autoFollow && state.turns.length > 0 && (
           <button
@@ -613,6 +682,11 @@ interface TopBarProps {
   onClear: () => void
   onOpenHistory: () => void
   onOpenSettings: () => void
+  /** S018 — opens the in-conversation Cmd+F search bar. Owned by the
+   *  parent so the search hook lives there. */
+  onOpenSearch: () => void
+  /** S018 — opens the export dialog. */
+  onOpenExport: () => void
   historyButtonRef?: React.RefObject<HTMLButtonElement | null>
 }
 
@@ -658,6 +732,26 @@ function TopBar(props: TopBarProps) {
           stop
         </button>
       )}
+
+      <button
+        type="button"
+        className={styles.iconBtn}
+        onClick={props.onOpenSearch}
+        title="Find in conversation (⌘F)"
+        data-testid="topbar-search-btn"
+      >
+        find
+      </button>
+
+      <button
+        type="button"
+        className={styles.iconBtn}
+        onClick={props.onOpenExport}
+        title="Export conversation"
+        data-testid="topbar-export-btn"
+      >
+        export
+      </button>
 
       <button
         ref={props.historyButtonRef}

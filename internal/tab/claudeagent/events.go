@@ -43,6 +43,13 @@ const (
 	// CLI respawn (e.g. plan approve flow). Lets the frontend update
 	// its mode pill without requiring a heavy session.init.
 	EvPermissionModeChange EventType = "permission_mode.change"
+	// Compaction lifecycle (S018). The CLI emits its own
+	// system/status status="compacting" + system/compact_boundary
+	// envelopes when the user runs /compact; we relay them as
+	// dedicated events so the frontend can drive a spinner without
+	// scraping system messages.
+	EvCompactStarted  EventType = "compact.started"
+	EvCompactFinished EventType = "compact.finished"
 )
 
 // PermissionModeChangePayload notifies the frontend of a server-side
@@ -142,6 +149,21 @@ type Block struct {
 	// The frontend uses this to render the "Approved — switching to mode X"
 	// label after reload.
 	PlanTargetMode string `json:"planTargetMode,omitempty"`
+
+	// ──────────── kind:"compact" fields (S018) ────────────
+	// Synthesised by Palmux on a system/compact_boundary envelope. The
+	// block sits as the last block of a synthetic role:"system" turn
+	// inserted at the boundary, so the UI can render a "Compacted: X
+	// turns into 1 summary" summary line in place of the now-replaced
+	// pre-compaction history. The pre-compaction turns themselves are
+	// **not** removed from the snapshot — the user can still scroll up
+	// to see what was compacted; the boundary line just makes the
+	// transition explicit.
+	CompactTrigger    string `json:"compactTrigger,omitempty"`    // "manual" | "auto"
+	CompactPreTokens  int64  `json:"compactPreTokens,omitempty"`  // tokens consumed before compaction
+	CompactPostTokens int64  `json:"compactPostTokens,omitempty"` // tokens after summary applied
+	CompactDurationMs int    `json:"compactDurationMs,omitempty"` // wall-clock time the CLI took
+	CompactTurns      int    `json:"compactTurns,omitempty"`      // turns folded into the summary
 }
 
 // Turn is one user→assistant exchange in the cached snapshot.
@@ -297,6 +319,19 @@ type StatusChangePayload struct {
 type SessionReplacedPayload struct {
 	OldSessionID string `json:"oldSessionId"`
 	NewSessionID string `json:"newSessionId"`
+}
+
+// CompactStartedPayload — Palmux saw `system/status status=compacting`.
+// Drives a spinner on the conversation; cleared by EvCompactFinished.
+type CompactStartedPayload struct{}
+
+// CompactFinishedPayload — Palmux saw the matching `system/status
+// compact_result` envelope. Result is "success" or "error" (mirrors
+// the CLI's compact_result string). Failed compactions still close the
+// spinner; the UI surfaces the error in the existing error banner via
+// EvError, not here.
+type CompactFinishedPayload struct {
+	Result string `json:"result"`
 }
 
 // UserMessagePayload echoes the user-side message back so all connected
