@@ -5,12 +5,12 @@
 ## 進捗
 
 - **直近完了: S022 — Mobile UX 総点検 + Playwright モバイル E2E ハーネス** (autopilot 完了 / `autopilot/main/S022` ブランチ) — **22 スプリント全完了**
-- 合計: 22 スプリント | 完了: 22 | 進行中: 0 | 残り: 0
+- 合計: 23 スプリント | 完了: 22 | 進行中: 0 | 残り: 1
 - [████████████████████] 100%
 
 ## 実行順序
 
-S001 ✅ → S002 ✅ → S003 ✅ → S007 ✅ → S004 ✅ → S005 ✅ → S006 ✅ → S008 ✅ → S009 ✅ → S010 ✅ → S011 ✅ → S012 ✅ → S013 ✅ → S014 ✅ → S015 ✅ → S016 ✅ → S017 ✅ → S018 ✅ → S019 ✅ → S020 ✅ → S021 ✅ → S022 ✅ — **Phase 3 完了**
+S001 ✅ → S002 ✅ → S003 ✅ → S007 ✅ → S004 ✅ → S005 ✅ → S006 ✅ → S008 ✅ → S009 ✅ → S010 ✅ → S011 ✅ → S012 ✅ → S013 ✅ → S014 ✅ → S015 ✅ → S016 ✅ → S017 ✅ → S018 ✅ → S019 ✅ → S020 ✅ → S021 ✅ → S022 ✅ → **S023**
 
 ---
 
@@ -1255,6 +1255,95 @@ Palmux のユーザとして、 PC で使える機能をすべてスマホ・タ
 - [x] **タスク S022-2-2**: 主要 5-10 シナリオのモバイル variant 化 — 6 シナリオ実装: M001 homepage smoke (3 viewport overflow チェック)、 M002 bundle size (gzip 計測 + lazy chunk 検証)、 M003 BottomSheet CSS (border-radius / translateY / @media)、 M004 tap targets (21 buttons survey)、 M005 gesture docs integrity、 M006 mobile drawer open/close
 - [x] **タスク S022-2-3**: CI 化 spike — GitHub Actions or 自前 cron で実行可能までの skeleton 整備 (本 sprint では本番投入しない、 手動実行可能で完了) — `.github/workflows/mobile-e2e.yml` (workflow_dispatch only) + `tests/e2e/mobile/run.sh` ローカルランナー
 - [x] **タスク S022-2-4**: 全モバイル E2E が PASS する状態で sprint 完了 — `docs/sprint-logs/S022/e2e-mobile.log` で 6/6 PASS 記録
+
+---
+
+## スプリント S023: Drawer redesign (v3) + Mobile UX polish + last-active memory [ ]
+
+M2 完了後の refine フェーズで判明した複数の UI/UX 課題を 1 sprint で解消する polish sprint。 Drawer の視認性を v3 mock (terminal editorial design — `/tmp/drawer-mock-v3.html` の最終版) に従って全面 refactor、 並行して mobile での Git サブタブ overflow と drawer の自動閉じを実装、 加えて collapsed repo を 1 クリックで「いつもの作業場所」 に戻すための last-active-worktree memory を per-repo で永続化する。
+
+**設計の中核**:
+- **Drawer は v3 mock を design source-of-truth** とする (numbered repos `01..NN` / status strip with active count / chip pills (warm = unmanaged、 muted = subagent) / expanded panel に always-visible icon button (`↗ promote` / `✕ remove`、 active subagent は remove disabled) / active branch に `● HERE` label + 3px accent border + 2.6s 脈動 glow / sub-branch meta line (`stale 8d` / `5h ago` / fresh `●`)) 
+- **タイポは既存 `Geist Mono` を維持** (新規フォント bundle 追加なし、 v3 の brutalist 感は size + weight + letter-spacing で表現)
+- **Last-active per repo** は `repos.json` に **`last_active_branch` フィールド** を per-repo に追加 (omitempty、 backward-compat、 migration 不要)。 ナビゲーション時に implicit 更新、 collapsed repo の header / chevron クリックで navigate + 展開
+- **削除済 branch fallback**: 起動時 reconcile (S015 で導入済) で `last_active_branch` を実存チェック、 不在なら null。 navigate 時にも double-check
+- **Mobile drawer auto-hide**: branch / worktree クリック (= URL navigate) のときのみ自動 close、 repo expand のみではトリガしない (展開操作と切替操作を区別)
+- **Mobile Git subtab dropdown**: < 600px で `<select>` ネイティブ要素に切替 (accessible + native feel)、 ≥ 600px は既存 horizontal tabs 維持
+- **`+` ボタン挙動**: 新ブランチ作成 (既存挙動維持)。 last-active navigate 経路には乗せない (UX 区別)
+
+### ストーリー S023-1: Drawer 視認性改善 + last-active 記憶 [ ]
+
+**ユーザーストーリー:**
+Palmux のユーザとして、 ドロワーから自分の作業状況が一瞥でわかり、 collapsed の repo をワンクリックで「いつもの作業場所」 に戻れるようにしたい。 なぜなら、 並列で複数 Claude を運用するなかで「どこに何があったか」 を素早く認識し、 最頻 repo への切替コストを下げたいからだ。
+
+**受け入れ条件:**
+- [ ] Drawer は v3 mock のレイアウトに準拠 (numbered repos、 status strip、 chip pills、 expanded panel、 active "Here" label + 脈動 glow、 sub-branch meta、 ⌘K hint footer)
+- [ ] Status strip は「`● N active · M total`」 形式で active count + total を表示
+- [ ] Repo は `01..NN` の番号付き、 同種別グループ内では `tab_overrides.order` (S020) を尊重
+- [ ] Active branch に `● HERE` label + 3px accent border-left + 2.6s 脈動 glow
+- [ ] Chip pills: `unmanaged·N +` (warm = `#ffa342`)、 `subagent·N +` (muted gray)、 chip 押下で expanded panel が下にフェードイン (debounce不要)
+- [ ] Expanded panel: `panel-head` (カテゴリ名 + 件数 + 一括アクション)、 sub-branch grid (`minmax(0, 1fr) auto`)、 always-visible icon button (`↗` promote / `✕` remove、 26×22px)
+- [ ] Active subagent (タスク実行中) は `✕ remove` が disabled (opacity 0.3、 pointer-events none)
+- [ ] Sub-branch meta は `stale Nd` / `Nh ago · ⌁ active task` / fresh `●` indicator を含む
+- [ ] **`repos.json` schema 拡張**: 各 repo entry に `last_active_branch: string` (omitempty)
+- [ ] **Last-active 自動更新**: ユーザが branch / worktree に navigate したとき、 該当 repo の `last_active_branch` が実装済 endpoint で永続化される
+- [ ] **Collapsed repo クリック**: header (repo name) または chevron をクリックすると、 `last_active_branch` が現存していれば navigate + 展開、 不在なら expand のみ
+- [ ] `+` ボタンは新ブランチ作成 (既存挙動)、 last-active navigate には乗らない
+- [ ] 起動時 reconcile (S015) が `last_active_branch` の実存も check、 消えていれば null に reset
+- [ ] WS event `branch.lastActiveChanged` (or 既存の `branch.categoryChanged` 拡張) で別クライアント同期
+- [ ] モバイル幅で v3 design が破綻しない (タップ領域 36px+、 chip 押下で展開)
+
+**タスク:**
+
+**バックエンド:**
+- [ ] **タスク S023-1-1**: `internal/config/repos.go` schema 拡張 — `Repo` 構造体に `LastActiveBranch string` フィールド追加 (json tag `last_active_branch,omitempty`)、 既存 `repos.json` の読み込みは backward-compat
+- [ ] **タスク S023-1-2**: REST API: `PATCH /api/repos/{repoId}/last-active-branch` (`{branch}` body)。 既存 nav handler にも内部呼び出しを hook し、 ユーザが branch を navigate するたびに implicit 更新
+- [ ] **タスク S023-1-3**: 起動時 reconcile (S015 の `ReconcileUserOpenedBranches` と同パス) で `last_active_branch` の実存も check、 不在なら null へ
+- [ ] **タスク S023-1-4**: WS event emit (`branch.lastActiveChanged` 新設 or `branch.categoryChanged` payload 拡張)、 別クライアント同期
+- [ ] **タスク S023-1-5**: `Repos()` / `Repo()` snapshot に `LastActiveBranch` を含める
+
+**フロントエンド (Drawer redesign):**
+- [ ] **タスク S023-1-6**: `frontend/src/components/drawer.module.css` を v3 mock 準拠に全面 refactor — Fog palette + Geist Mono、 status strip / numbered repos / chip pills / expanded panel / active glow / sub-branch grid のスタイル
+- [ ] **タスク S023-1-7**: `frontend/src/components/drawer.tsx` を v3 構造で書き直し — 各セクション (★ Starred / Repositories) に numbered repos、 各 repo に branches list (my)、 chip row (unmanaged / subagent)、 expanded panel
+- [ ] **タスク S023-1-8**: 新規 `<ChipExpandedPanel>` コンポーネント — sub-branch list + always-visible promote / remove icon buttons (active task 時 remove disabled)
+- [ ] **タスク S023-1-9**: 「Here」 label + 3px accent border + 2.6s 脈動 animation (CSS keyframes glow-bar)
+- [ ] **タスク S023-1-10**: Sub-branch meta 表示 — `stale Nd` / `Nh ago · ⌁ active task` / fresh `●` indicator (BE response の `last_activity_at`、 `is_active` フィールドから生成)
+
+**フロントエンド (last-active 機能):**
+- [ ] **タスク S023-1-11**: Branch navigation hook で `PATCH last-active-branch` を fire-and-forget で呼ぶ (失敗しても UX に影響しない)
+- [ ] **タスク S023-1-12**: Collapsed repo header / chevron クリックで `last_active_branch` を見て、 navigate + expand、 不在なら expand のみ。 `+` ボタンは別経路 (新ブランチ作成)
+
+### ストーリー S023-2: Mobile UX 改善 (Git subtab dropdown + drawer auto-hide) [ ]
+
+**ユーザーストーリー:**
+Palmux のモバイルユーザとして、 Git サブタブの選択と Workspace 選択で画面が破綻せず、 操作後にドロワーが自動で閉じてほしい。 なぜなら、 狭い画面で水平 overflow するタブ列はタッチ操作が困難で、 workspace 選択後にいちいちドロワーを手で閉じるのは煩雑だからだ。
+
+**受け入れ条件:**
+- [ ] モバイル幅 (< 600px) で Git タブのサブタブ列が `<select>` dropdown に切替わる
+- [ ] デスクトップ幅 (≥ 600px) は既存 horizontal tabs 維持
+- [ ] Dropdown 選択で対応するサブビューに遷移 (既存 navigation を流用)
+- [ ] モバイルドロワー (BottomSheet) は branch / worktree クリック後に自動 close
+- [ ] Repo expand のみではドロワー閉じない (展開操作と切替操作を区別)
+- [ ] `+` ボタンクリック (新ブランチ dialog) もドロワー閉じない
+- [ ] タップ領域 36px+ 維持
+
+**タスク:**
+- [ ] **タスク S023-2-1**: `frontend/src/tabs/git/git-view.tsx` (or 該当箇所) で `< 600px` メディアクエリで `<select>` 描画、 ≥ 600px で既存 tabs 描画。 共通 navigation hook を介して URL 更新
+- [ ] **タスク S023-2-2**: モバイルドロワー (S022 BottomSheet) に `onNavigate` callback を追加、 worktree クリック時に dispatch して drawer を auto-close
+- [ ] **タスク S023-2-3**: Repo expand と branch navigate の handler を分離、 expand のみではドロワー閉じない
+
+### E2E (両ストーリー共通)
+
+- [ ] **タスク S023-3-1**: `tests/e2e/s023_*.py` で:
+  - (a) Drawer v3 視覚スモーク (numbered repos、 status strip、 chip pills、 active glow CSS が適用される)
+  - (b) chip 押下で expanded panel が描画、 promote / remove icon button が visible
+  - (c) Last-active: branch A navigate → repo collapse → repo header click → branch A に再 navigate + 展開
+  - (d) Last-active: branch を `gwq remove` で削除 → 次回起動 reconcile で `last_active_branch` が null
+  - (e) Mobile (< 600px): Git タブで `<select>` 表示、 desktop で horizontal tabs 表示
+  - (f) Mobile drawer: worktree クリックで auto-close、 repo expand のみでは閉じない
+  - (g) Mobile drawer: `+` ボタンクリックで閉じない (新ブランチ dialog 経路)
+  - (h) Active subagent の `✕ remove` ボタンが disabled
+  - (i) WS sync: 別ブラウザで navigation → 自クライアントの drawer に last-active 反映
 
 ---
 
