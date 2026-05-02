@@ -1312,5 +1312,78 @@ func (t *Turn) deepCopy() *Turn {
 			out.Blocks[i].HookPayload = append(json.RawMessage(nil), b.HookPayload...)
 		}
 	}
+	if len(t.Versions) > 0 {
+		out.Versions = make([]TurnVersion, len(t.Versions))
+		for i, v := range t.Versions {
+			out.Versions[i] = TurnVersion{
+				Content:           v.Content,
+				CreatedAt:         v.CreatedAt,
+				SubsequentTurnIDs: append([]string(nil), v.SubsequentTurnIDs...),
+			}
+		}
+	}
 	return out
+}
+
+// RewindAtTurn (S019) rewrites the user turn identified by turnID with
+// newContent and archives its prior content + the IDs of all subsequent
+// turns into a fresh TurnVersion. The subsequent turns themselves are
+// removed from s.turns so the FE renders the new (active) thread; they
+// stay accessible via the archived version's SubsequentTurnIDs.
+//
+// Returns the archived version + its index in the resulting versions[]
+// slice; the caller broadcasts session.rewound with that data so all
+// clients (including the one that initiated) reach the same state.
+//
+// Returns ok=false (with an empty TurnVersion) when:
+//   - turnID isn't found
+//   - the turn isn't a "user" role (only user turns can be rewound)
+//   - the turn has no Blocks[0] of kind "text" (can't extract content)
+//
+// Mutates the session state under s.mu. The caller is responsible for
+// calling agent.SendUserMessage afterwards to actually drive the CLI
+// onto the new branch — RewindAtTurn does NOT touch the CLI.
+func (s *Session) RewindAtTurn(turnID, newContent string) (archived TurnVersion, archivedIdx int, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idx := -1
+	for i, t := range s.turns {
+		if t.ID == turnID && t.Role == "user" {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return TurnVersion{}, -1, false
+	}
+	target := s.turns[idx]
+	if len(target.Blocks) == 0 || target.Blocks[0].Kind != "text" {
+		return TurnVersion{}, -1, false
+	}
+	prevContent := target.Blocks[0].Text
+	subsequentIDs := make([]string, 0, len(s.turns)-idx-1)
+	for j := idx + 1; j < len(s.turns); j++ {
+		subsequentIDs = append(subsequentIDs, s.turns[j].ID)
+	}
+	archived = TurnVersion{
+		Content:           prevContent,
+		CreatedAt:         time.Now().UTC(),
+		SubsequentTurnIDs: subsequentIDs,
+	}
+	target.Versions = append(target.Versions, archived)
+	archivedIdx = len(target.Versions) - 1
+	target.Blocks[0].Text = newContent
+	target.Blocks[0].Done = true
+	// Drop the abandoned turns from the live conversation. Their content
+	// was archived above; the FE keeps a parallel cache for navigation.
+	s.turns = s.turns[:idx+1]
+	// Streaming state must be cleared — the abandoned thread may have
+	// included an open block / pending permission, none of which apply
+	// to the new thread.
+	s.currentTurn = nil
+	s.openBlocks = map[int]*Block{}
+	s.pendingPermissions = map[string]string{}
+	s.askPermissions = map[string]string{}
+	s.planPermissions = map[string]string{}
+	return archived, archivedIdx, true
 }

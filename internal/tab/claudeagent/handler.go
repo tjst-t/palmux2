@@ -713,6 +713,83 @@ func (h *httpHandler) handlePatchSession(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ──────────── Rewind (S019) ────────────────────────────────────────────────
+
+// rewindRequest is the body for POST /sessions/rewind. TurnID identifies
+// the user-message turn to be edited (must be a "user" role turn that
+// exists in the current snapshot). NewMessage is the replacement
+// content; it cannot be empty.
+type rewindRequest struct {
+	TurnID     string `json:"turnId"`
+	NewMessage string `json:"newMessage"`
+}
+
+// handleRewindSession archives the active version of `turnId` and
+// replaces its body with `newMessage`. All turns subsequent to the
+// edited one are removed from the live conversation but their IDs are
+// preserved on the archived TurnVersion so the FE can re-display them
+// when the user clicks the version arrow.
+//
+// Calls agent.SendUserMessage(newMessage) so the CLI starts a fresh
+// thread from the rewind boundary. Broadcasts EvSessionRewound so all
+// connected clients converge on the same version state.
+//
+// Path:  POST /api/repos/{repoId}/branches/{branchId}/tabs/{tabId}/sessions/rewind
+// Body:  {"turnId": "turn_xxx", "newMessage": "..."}
+// 204 on success; 400 on bad request; 404 when no agent is running.
+func (h *httpHandler) handleRewindSession(w http.ResponseWriter, r *http.Request) {
+	repoID := r.PathValue("repoId")
+	branchID := r.PathValue("branchId")
+	tabID := tabIDFrom(r)
+	var body rewindRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+	}
+	if body.TurnID == "" {
+		http.Error(w, "turnId required", http.StatusBadRequest)
+		return
+	}
+	if body.NewMessage == "" {
+		http.Error(w, "newMessage required", http.StatusBadRequest)
+		return
+	}
+	agent := h.mgr.Get(repoID, branchID, tabID)
+	if agent == nil {
+		http.Error(w, "agent not running for this branch", http.StatusNotFound)
+		return
+	}
+	archived, idx, ok := agent.session.RewindAtTurn(body.TurnID, body.NewMessage)
+	if !ok {
+		http.Error(w, "turn not found or not a user turn", http.StatusBadRequest)
+		return
+	}
+	// Broadcast to all connected clients (including the initiator —
+	// the reducer is duplicate-safe because the optimistic FE update
+	// already applied identical state).
+	if ev, err := makeEvent(EvSessionRewound, SessionRewoundPayload{
+		TurnID:               body.TurnID,
+		ArchivedVersionIndex: idx,
+		NewContent:           body.NewMessage,
+		ArchivedVersion:      archived,
+	}); err == nil {
+		agent.broadcast(ev)
+	}
+	// Drive the CLI off the new boundary. We do this in a goroutine so
+	// the HTTP request returns immediately — the WS event already
+	// signalled state convergence to the client.
+	go func() {
+		if err := agent.SendUserMessage(r.Context(), body.NewMessage); err != nil {
+			if ev, e := makeEvent(EvError, ErrorPayload{
+				Message: "Rewind: send failed",
+				Detail:  err.Error(),
+			}); e == nil {
+				agent.broadcast(ev)
+			}
+		}
+	}()
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // ──────────── helpers ──────────────────────────────────────────────────────
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

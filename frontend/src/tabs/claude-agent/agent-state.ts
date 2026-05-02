@@ -4,7 +4,7 @@
 // Kept deliberately self-contained (no Zustand) — one Agent tab = one
 // instance of this state, lifetime equal to the React component.
 
-import type { AgentStatus, Block, InitInfo, MCPServerInfo, SessionInit, Turn } from './types'
+import type { AgentStatus, Block, InitInfo, MCPServerInfo, SessionInit, Turn, TurnVersion } from './types'
 
 export interface AgentState {
   ready: boolean
@@ -44,6 +44,20 @@ export interface AgentState {
    *  session.init mid-flow) because we only clear it on
    *  compact.finished. */
   compacting: boolean
+  /** S019: archive cache of turns that were displaced by a rewind.
+   *  Keyed by Turn.id. Stays in memory so the user can click back
+   *  through the version arrows; pruned on session.replaced /
+   *  session.init (rewound turns from a previous session don't apply
+   *  to the new one). The displaced turns are NOT in `state.turns` —
+   *  filtering them out of the active conversation is the whole point
+   *  of rewind. */
+  archivedTurnsById: Record<string, Turn>
+  /** S019: per-user-turn active version pointer. `versionIndex` is an
+   *  index into the matching turn's `versions[]`; the special value
+   *  -1 means "the active (current) version" (i.e. live `blocks[0].text`
+   *  and the live conversation tail). Default: -1 for every user turn
+   *  that has versions. Reset on session change. */
+  activeVersionByTurnId: Record<string, number>
   /** ISO timestamp of the most-recently-applied event — debug only. */
   lastEventTs?: string
 }
@@ -72,6 +86,8 @@ export const initialState: AgentState = {
   errors: [],
   mcpServers: [],
   compacting: false,
+  archivedTurnsById: {},
+  activeVersionByTurnId: {},
 }
 
 export type AgentAction =
@@ -79,6 +95,19 @@ export type AgentAction =
   | { kind: 'restore'; state: AgentState }
   | { kind: 'init'; payload: SessionInit }
   | { kind: 'event'; ev: { type: string; ts: string; payload?: unknown } }
+  /** S019: optimistic rewind apply. Identical to the server-side
+   *  RewindAtTurn semantics — archives current Blocks[0].text +
+   *  subsequent turn ids, replaces with newContent, drops subsequent
+   *  turns from the live conversation. Run on submit before the WS
+   *  echo lands so the UI snaps immediately. The reducer is
+   *  duplicate-safe: re-applying with the same archived index is a
+   *  no-op. */
+  | { kind: 'rewind.apply'; turnId: string; newContent: string }
+  /** S019: switch the displayed version of a user turn. -1 = live
+   *  active version, 0..n = a past archived version. Updates only
+   *  `activeVersionByTurnId`; the actual rendering swap happens in
+   *  the FE selector that reads activeVersionByTurnId + versions[]. */
+  | { kind: 'rewind.setVersion'; turnId: string; versionIndex: number }
 
 let errorCounter = 0
 
@@ -118,10 +147,73 @@ export function reduce(state: AgentState, action: AgentAction): AgentState {
         errors: [],
         initInfo: p.initInfo,
         mcpServers: p.mcpServers ?? [],
+        // S019: snapshot may already include user turns with versions[]
+        // (server retained them across reconnect) — those are authoritative.
+        // archivedTurnsById is FE-only; we can't re-derive it from the
+        // snapshot (server doesn't ship the orphaned subsequent turns), so
+        // it starts empty. The FE works without it: when the user clicks
+        // an arrow we just dim the header and show the archived version's
+        // text without subsequent turns rather than re-displaying them.
+        archivedTurnsById: {},
+        activeVersionByTurnId: {},
       }
     }
     case 'event':
       return applyEvent(state, action.ev)
+    case 'rewind.apply':
+      return applyRewind(state, action.turnId, action.newContent)
+    case 'rewind.setVersion': {
+      const next = { ...state.activeVersionByTurnId }
+      if (action.versionIndex === -1) {
+        delete next[action.turnId]
+      } else {
+        next[action.turnId] = action.versionIndex
+      }
+      return { ...state, activeVersionByTurnId: next }
+    }
+  }
+}
+
+/** Archives the active version of `turnId`, replaces blocks[0].text
+ *  with newContent, and removes subsequent turns from the visible
+ *  conversation (storing them in `archivedTurnsById` so version
+ *  navigation can re-display them). Idempotent: if newContent
+ *  matches the current text we no-op. */
+function applyRewind(state: AgentState, turnId: string, newContent: string): AgentState {
+  const idx = state.turns.findIndex((t) => t.id === turnId && t.role === 'user')
+  if (idx < 0) return state
+  const target = state.turns[idx]
+  const currentText = target.blocks[0]?.text ?? ''
+  if (currentText === newContent && idx === state.turns.length - 1) return state
+  const subsequentTurnIds = state.turns.slice(idx + 1).map((t) => t.id)
+  const archive: TurnVersion = {
+    content: currentText,
+    createdAt: new Date().toISOString(),
+    subsequentTurnIds,
+  }
+  const newVersions = [...(target.versions ?? []), archive]
+  const newBlocks = target.blocks.length > 0
+    ? [{ ...target.blocks[0], text: newContent, done: true }, ...target.blocks.slice(1)]
+    : [{ id: `${turnId}-text`, kind: 'text' as const, text: newContent, done: true }]
+  const newTurns = [
+    ...state.turns.slice(0, idx),
+    { ...target, blocks: newBlocks, versions: newVersions },
+  ]
+  // Keep the displaced turns alive in the archive cache so the
+  // version arrow can re-display them.
+  const newArchive = { ...state.archivedTurnsById }
+  for (let j = idx + 1; j < state.turns.length; j++) {
+    newArchive[state.turns[j].id] = state.turns[j]
+  }
+  // Reset active version pointer back to live (the user just submitted
+  // a fresh edit — they want to see its result, not a past version).
+  const newActiveVer = { ...state.activeVersionByTurnId }
+  delete newActiveVer[turnId]
+  return {
+    ...state,
+    turns: newTurns,
+    archivedTurnsById: newArchive,
+    activeVersionByTurnId: newActiveVer,
   }
 }
 
@@ -152,6 +244,9 @@ function applyEvent(state: AgentState, ev: { type: string; ts: string; payload?:
       next.pendingPermission = undefined
       next.pendingAskByBlock = {}
       next.pendingPlanByBlock = {}
+      // S019: archived turns from the prior session don't apply here.
+      next.archivedTurnsById = {}
+      next.activeVersionByTurnId = {}
       return next
     }
     case 'status.change': {
@@ -416,6 +511,31 @@ function applyEvent(state: AgentState, ev: { type: string; ts: string; payload?:
     case 'compact.finished': {
       next.compacting = false
       return next
+    }
+    // S019: server tells us a rewind succeeded. Re-apply the same
+    // archive/replace logic the optimistic client did. If we're the
+    // initiator, the state is identical and applyRewind no-ops; if
+    // we're a passive client (different browser tab/device), this is
+    // when our turns swap. The archived version supplied by the
+    // server is authoritative when our snapshot drifts from theirs.
+    case 'session.rewound': {
+      const p = ev.payload as {
+        turnId: string
+        archivedVersionIndex: number
+        newContent: string
+        archivedVersion?: TurnVersion
+      }
+      const idx = next.turns.findIndex((t) => t.id === p.turnId && t.role === 'user')
+      if (idx < 0) return next
+      const target = next.turns[idx]
+      const currentText = target.blocks[0]?.text ?? ''
+      // Skip when already converged (we were the initiator and already
+      // applied optimistically).
+      const alreadyArchived =
+        (target.versions ?? []).length > p.archivedVersionIndex &&
+        currentText === p.newContent
+      if (alreadyArchived) return next
+      return applyRewind(next, p.turnId, p.newContent)
     }
     default:
       return next

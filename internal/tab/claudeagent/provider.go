@@ -127,6 +127,10 @@ func (p *Provider) RegisterRoutes(mux *http.ServeMux, _ string) {
 	mux.HandleFunc("DELETE "+legacyPrefix+"/settings/permissions/allow", h.handleDeleteSettingsAllow)
 	mux.HandleFunc("GET "+legacyPrefix+"/prefs", h.handleGetBranchPrefs)
 	mux.HandleFunc("PATCH "+legacyPrefix+"/prefs", h.handlePatchBranchPrefs)
+	// S019: rewind endpoint. The body carries turnId + newMessage; the
+	// server archives the prior version + truncates the live conversation
+	// at the rewind boundary, then SendUserMessages newMessage to the CLI.
+	mux.HandleFunc("POST "+legacyPrefix+"/sessions/rewind", h.handleRewindSession)
 
 	// S009 multi-tab routes — `tabId` is e.g. "claude:claude-2". The
 	// Go ServeMux accepts colons in path segments; the handlers extract
@@ -141,6 +145,7 @@ func (p *Provider) RegisterRoutes(mux *http.ServeMux, _ string) {
 	mux.HandleFunc("DELETE "+tabPrefix+"/claude/settings/permissions/allow", h.handleDeleteSettingsAllow)
 	mux.HandleFunc("GET "+tabPrefix+"/claude/prefs", h.handleGetBranchPrefs)
 	mux.HandleFunc("PATCH "+tabPrefix+"/claude/prefs", h.handlePatchBranchPrefs)
+	mux.HandleFunc("POST "+tabPrefix+"/claude/sessions/rewind", h.handleRewindSession)
 
 	mux.HandleFunc("GET /api/claude/auth-status", h.handleAuthStatus)
 	mux.HandleFunc("GET /api/claude/modes", h.handleModes)

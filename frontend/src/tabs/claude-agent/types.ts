@@ -114,6 +114,24 @@ export interface Turn {
    *  the Task tool. Value = the parent Task block's toolUseId. Used by
    *  the renderer to nest sub-agent turns underneath their parent. */
   parentToolUseId?: string
+  /** S019: rewind history. Each entry is a past version of THIS user
+   *  turn (`role: "user"` only) plus the IDs of the turns that came
+   *  after it before the user abandoned that thread. The CURRENT
+   *  (active) version is always the live `blocks[0].text` + the
+   *  conversation tail; `versions[]` is purely the archive. Empty
+   *  for non-user turns and for user turns that have never been
+   *  rewound. */
+  versions?: TurnVersion[]
+}
+
+/** S019: archived rewind version of a user turn. `subsequentTurnIds`
+ *  references turns by `Turn.id` — those Turn entries stay in the
+ *  global cache (so the FE can show them when the user clicks the
+ *  arrow back), but they're filtered out of the live display. */
+export interface TurnVersion {
+  content: string
+  createdAt: string
+  subsequentTurnIds: string[]
 }
 
 export interface SlashCommand {

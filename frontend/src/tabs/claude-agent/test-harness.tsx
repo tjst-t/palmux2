@@ -1,6 +1,6 @@
-// S017+S018: standalone test harness that mounts ConversationList against
-// a synthetic Turn[] generated from URL search params. The route is
-// `/__test/claude` and is only meaningful during automated E2E runs —
+// S017+S018+S019: standalone test harness that mounts ConversationList
+// against a synthetic Turn[] generated from URL search params. The route
+// is `/__test/claude` and is only meaningful during automated E2E runs —
 // it has no entry in the app's UI.
 //
 // Search params:
@@ -13,12 +13,18 @@
 //   compactBoundary=1 — synthesise a kind:"compact" turn so its rendering can
 //                       be inspected in isolation (S018)
 //   compacting=1   — show the "Compacting…" spinner banner (S018)
+//   rewind=1       — wire up the UserTurnEditor (S019). The first user turn
+//                    has one archived version pre-populated so the
+//                    `< 1/2 >` arrows render. Edit + submit are stubbed
+//                    locally (no real backend) so the optimistic apply
+//                    still exercises through.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { BlockView } from './blocks'
 import { ConversationExportDialog } from './conversation-export'
+import { UserTurnEditor } from './user-turn-editor'
 import {
   ConversationList,
   type ConversationListHandle,
@@ -128,15 +134,72 @@ export function TestHarness() {
   const showExport = params.get('export') === '1'
   const showCompactBoundary = params.get('compactBoundary') === '1'
   const showCompactingSpinner = params.get('compacting') === '1'
+  const showRewind = params.get('rewind') === '1'
 
   const baseTurns = useMemo(
     () => syntheticTurns(turnsCount, readLines, showCompactBoundary),
     [turnsCount, readLines, showCompactBoundary],
   )
+  // S019: when rewind=1, inject a versions[] entry on the first user
+  // turn so the `< 1/2 >` arrows render and an archived version is
+  // queryable in E2E. The optimistic-apply flow (submit) goes through
+  // local state below.
+  const seededTurns = useMemo(() => {
+    if (!showRewind) return baseTurns
+    const out = baseTurns.slice()
+    const idx = out.findIndex((t) => t.role === 'user')
+    if (idx >= 0) {
+      out[idx] = {
+        ...out[idx],
+        blocks: [
+          { id: 'b-user-active', kind: 'text', text: 'Current edited message (active)', done: true },
+        ],
+        versions: [
+          {
+            content: 'Original user message before rewind',
+            createdAt: new Date('2026-04-01T12:00:00Z').toISOString(),
+            subsequentTurnIds: [],
+          },
+        ],
+      }
+    }
+    return out
+  }, [baseTurns, showRewind])
   const turns = useMemo(
-    () => (showSearch ? injectSearchNeedles(baseTurns) : baseTurns),
-    [baseTurns, showSearch],
+    () => (showSearch ? injectSearchNeedles(seededTurns) : seededTurns),
+    [seededTurns, showSearch],
   )
+
+  // S019 harness: local state mirrors claude-agent-view's
+  // activeVersionByTurnId + a stub rewind flow that just calls
+  // applyRewind in-memory (no backend round-trip). E2E exercises the
+  // pencil → editor → submit → arrows path against this harness.
+  const [activeVersionByTurnId, setActiveVersionByTurnId] = useState<Record<string, number>>({})
+  const [overrideTurns, setOverrideTurns] = useState<Turn[] | null>(null)
+  const displayTurns = overrideTurns ?? turns
+  const onRewindLocal = async (turnId: string, newMessage: string): Promise<void> => {
+    // Mirror BE behaviour: archive the active version + truncate
+    // subsequent turns. Then update overrideTurns so the harness
+    // re-renders with the new state.
+    setOverrideTurns((prev) => {
+      const base = prev ?? turns
+      const idx = base.findIndex((t) => t.id === turnId && t.role === 'user')
+      if (idx < 0) return prev
+      const target = base[idx]
+      const archive = {
+        content: target.blocks[0]?.text ?? '',
+        createdAt: new Date().toISOString(),
+        subsequentTurnIds: base.slice(idx + 1).map((t) => t.id),
+      }
+      const newTurn: Turn = {
+        ...target,
+        blocks: [{ ...target.blocks[0], text: newMessage, done: true }],
+        versions: [...(target.versions ?? []), archive],
+      }
+      return [...base.slice(0, idx), newTurn]
+    })
+  }
+  const onRewindApplyLocalNoop = () => { /* harness applies directly via onRewindLocal */ }
 
   const listHandleRef = useRef<ConversationListHandle | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -197,13 +260,37 @@ export function TestHarness() {
     containerRef: containerRef as React.RefObject<HTMLDivElement | null>,
   })
 
-  const renderTurn = (turn: Turn) => (
-    <div className={styles.virtualTurnRow} data-testid={`harness-turn-${turn.id}`}>
-      {turn.blocks.map((b) => (
-        <BlockView key={b.id} block={b} />
-      ))}
-    </div>
-  )
+  const renderTurn = (turn: Turn) => {
+    if (showRewind && turn.role === 'user') {
+      return (
+        <div className={styles.virtualTurnRow} data-testid={`harness-turn-${turn.id}`}>
+          <div className={styles.turnUser}>
+            <UserTurnEditor
+              turn={turn}
+              activeVersionIndex={activeVersionByTurnId[turn.id] ?? -1}
+              onSetVersion={(idx) =>
+                setActiveVersionByTurnId((prev) => {
+                  const next = { ...prev }
+                  if (idx === -1) delete next[turn.id]
+                  else next[turn.id] = idx
+                  return next
+                })
+              }
+              onRewind={onRewindLocal}
+              onRewindApplyLocal={onRewindApplyLocalNoop}
+            />
+          </div>
+        </div>
+      )
+    }
+    return (
+      <div className={styles.virtualTurnRow} data-testid={`harness-turn-${turn.id}`}>
+        {turn.blocks.map((b) => (
+          <BlockView key={b.id} block={b} />
+        ))}
+      </div>
+    )
+  }
 
   const activeBlockId = search.state.matches[search.state.active]?.blockId
 
@@ -282,7 +369,7 @@ export function TestHarness() {
               // Resolve the underlying scroll element so persist/restore hooks fire.
               containerRef.current = h?.element() ?? null
             }}
-            turns={turns}
+            turns={displayTurns}
             sessionKey={sessionId}
             renderTurn={renderTurn}
           />

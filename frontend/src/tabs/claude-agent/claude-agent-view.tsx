@@ -26,6 +26,7 @@ import { rollupTone, statusTone, type MCPStatusTone } from './mcp-status'
 import { SettingsPopup } from './settings-popup'
 import type { AgentStatus, MCPServerInfo, Turn } from './types'
 import { useAgent } from './use-agent'
+import { UserTurnEditor } from './user-turn-editor'
 
 // Fallback list — only used until /api/claude/modes responds. The labels
 // mirror the order we ask the server for: safest → most permissive.
@@ -63,10 +64,21 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   // Top-level turns + parent→children map. Sub-agent (Task) turns
   // aren't virtualised separately; they nest inline via TaskTreeBlock.
-  const { topLevelTurns, childrenByParent } = useMemo(
-    () => splitTurnTree(state.turns),
-    [state.turns],
-  )
+  //
+  // S019: when the user is viewing an archived version of a user turn,
+  // we splice the archived turn's subsequentTurnIds into the list AT
+  // the position of that user turn (replacing the live tail) so the
+  // version arrow effectively scrolls back to the abandoned thread.
+  // The base set of turns (state.turns + archivedTurnsById) goes
+  // through `splitTurnTree` so sub-agent nesting still works.
+  const { topLevelTurns, childrenByParent } = useMemo(() => {
+    const turnsForDisplay = applyVersionView(
+      state.turns,
+      state.archivedTurnsById,
+      state.activeVersionByTurnId,
+    )
+    return splitTurnTree(turnsForDisplay)
+  }, [state.turns, state.archivedTurnsById, state.activeVersionByTurnId])
   // Stable storage key for scroll restoration. tabId can be empty in
   // legacy URLs — fold to a constant so the key shape is stable.
   const storageKey = scrollStorageKey(repoId, branchId, tabId || 'claude')
@@ -416,6 +428,10 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
                 <div className={styles.virtualTurnRow}>
                   <TurnView
                     turn={turn}
+                    activeVersionIndex={state.activeVersionByTurnId[turn.id] ?? -1}
+                    onSetVersion={(idx) => send.rewindSetVersion(turn.id, idx)}
+                    onRewind={send.rewind}
+                    onRewindApplyLocal={send.rewindApplyLocal}
                     onRespondPermission={respondPermission}
                     planHandlersFor={planHandlersFor}
                     askHandlersFor={askHandlersFor}
@@ -513,12 +529,20 @@ interface AskHandlersForView {
 
 function TurnView({
   turn,
+  activeVersionIndex,
+  onSetVersion,
+  onRewind,
+  onRewindApplyLocal,
   onRespondPermission,
   planHandlersFor,
   askHandlersFor,
   childrenByParent,
 }: {
   turn: Turn
+  activeVersionIndex?: number
+  onSetVersion?: (index: number) => void
+  onRewind?: (turnId: string, newMessage: string) => Promise<void>
+  onRewindApplyLocal?: (turnId: string, newContent: string) => void
   onRespondPermission: RespondPermissionFn
   planHandlersFor: (blockId: string | undefined) => PlanHandlersForView | undefined
   askHandlersFor: (blockId: string | undefined) => AskHandlersForView | undefined
@@ -529,6 +553,23 @@ function TurnView({
   childrenByParent?: Map<string, Turn[]>
 }) {
   if (turn.role === 'user') {
+    // S019: hand off to UserTurnEditor when the parent supplied
+    // rewind handlers. Falls back to the simple bubble for callers
+    // (e.g. printing-only views, sub-agent turns) that didn't pass
+    // them through.
+    if (onRewind && onRewindApplyLocal && onSetVersion) {
+      return (
+        <div className={styles.turnUser}>
+          <UserTurnEditor
+            turn={turn}
+            activeVersionIndex={activeVersionIndex ?? -1}
+            onSetVersion={onSetVersion}
+            onRewind={onRewind}
+            onRewindApplyLocal={onRewindApplyLocal}
+          />
+        </div>
+      )
+    }
     return (
       <div className={styles.turnUser}>
         <div className={styles.userBubble}>
@@ -604,6 +645,73 @@ function TurnView({
 // block already owns the collapsing chrome and child transcripts are
 // typically short — splitting them across rows would couple row
 // heights in a way that defeats clean ResizeObserver measurement.
+// applyVersionView (S019) returns a virtual turn list that reflects
+// the user's currently-selected version for each user turn. When all
+// `activeVersionByTurnId` entries are `-1` (or missing), this is
+// just the input. When a user turn has a non-active version selected,
+// we replace its blocks[0].text with the archived version's content,
+// drop the live tail (turns past it), and splice in the archived
+// `subsequentTurnIds` (looked up from `archivedTurnsById`) instead.
+//
+// Idempotent / side-effect-free; does NOT mutate state.turns. Used
+// only for rendering — `state.turns` remains the canonical "live"
+// thread.
+function applyVersionView(
+  turns: Turn[],
+  archivedById: Record<string, Turn>,
+  activeByTurnId: Record<string, number>,
+): Turn[] {
+  // Fast path: no version overrides, return the input verbatim.
+  let needRewrite = false
+  for (const k in activeByTurnId) {
+    if (activeByTurnId[k] >= 0) {
+      needRewrite = true
+      break
+    }
+  }
+  if (!needRewrite) return turns
+
+  // Find the EARLIEST user turn whose version is non-active. That's
+  // where the rewrite begins — every subsequent turn after it is
+  // discarded and replaced by the archived continuation.
+  let pivotIdx = -1
+  let pivotVersion = -1
+  for (let i = 0; i < turns.length; i++) {
+    const t = turns[i]
+    if (t.role !== 'user') continue
+    const ver = activeByTurnId[t.id]
+    if (ver === undefined || ver < 0) continue
+    if (!t.versions || ver >= t.versions.length) continue
+    pivotIdx = i
+    pivotVersion = ver
+    break
+  }
+  if (pivotIdx < 0) return turns
+
+  const pivotTurn = turns[pivotIdx]
+  const archivedVersion = pivotTurn.versions![pivotVersion]
+  const out: Turn[] = turns.slice(0, pivotIdx)
+  // Replace the user turn's text with the archived version's content
+  // and clear its `versions[]` for the rendered copy (the editor uses
+  // the original turn from state.turns to know how many versions exist).
+  const rewrittenPivot: Turn = {
+    ...pivotTurn,
+    blocks:
+      pivotTurn.blocks.length > 0
+        ? [
+            { ...pivotTurn.blocks[0], text: archivedVersion.content, done: true },
+            ...pivotTurn.blocks.slice(1),
+          ]
+        : [],
+  }
+  out.push(rewrittenPivot)
+  for (const id of archivedVersion.subsequentTurnIds) {
+    const t = archivedById[id]
+    if (t) out.push(t)
+  }
+  return out
+}
+
 function splitTurnTree(turns: Turn[]): {
   topLevelTurns: Turn[]
   childrenByParent: Map<string, Turn[]>

@@ -26,6 +26,21 @@ interface SendFn {
    *  Empty / omitted → no change in CLI scope. The backend validates
    *  every path against the worktree boundary before forwarding. */
   userMessage: (content: string, addDirs?: string[]) => void
+  /** S019: edit a past user message and rewind the conversation to
+   *  that turn. Posts to `/sessions/rewind`. The server archives the
+   *  prior version, truncates subsequent turns, broadcasts
+   *  `session.rewound`, and asks the CLI to start from the new
+   *  message. Returns a Promise so the UI can revert its optimistic
+   *  state on failure. */
+  rewind: (turnId: string, newMessage: string) => Promise<void>
+  /** S019: optimistic apply of rewind locally before the WS echo
+   *  arrives. Mirrors the reducer's `rewind.apply` action. The view
+   *  calls this immediately on submit so the displaced turns fade
+   *  out without waiting for the round-trip. */
+  rewindApplyLocal: (turnId: string, newContent: string) => void
+  /** S019: switch the displayed version of a user turn. Pass -1 for
+   *  the live (active) version, 0..n for an archived version. */
+  rewindSetVersion: (turnId: string, versionIndex: number) => void
   interrupt: () => void
   permissionRespond: (
     permissionId: string,
@@ -131,6 +146,30 @@ export function useAgent(
     wsRef.current?.send(JSON.stringify({ type: 'user.message', payload }))
   }, [])
 
+  // S019: rewind via REST. The endpoint mirrors the WS surface so
+  // either could carry it; we picked REST because rewind has a clear
+  // success/failure response (turn might not exist) and a single-shot
+  // verb fits a POST better than a streaming WS frame.
+  const rewindSession = useCallback(
+    async (turnId: string, newMessage: string): Promise<void> => {
+      const path =
+        tab === CANONICAL_CLAUDE_TAB
+          ? `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/tabs/claude/sessions/rewind`
+          : `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/tabs/${encodeURIComponent(tab)}/claude/sessions/rewind`
+      const res = await fetch(path, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ turnId, newMessage }),
+      })
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        throw new Error(`rewind failed: ${res.status} ${body}`)
+      }
+    },
+    [repoId, branchId, tab],
+  )
+
   const interrupt = useCallback(() => {
     wsRef.current?.send(JSON.stringify({ type: 'interrupt' }))
   }, [])
@@ -195,11 +234,22 @@ export function useAgent(
     )
   }, [])
 
+  // S019: local-only dispatchers — both for optimistic UI state.
+  const rewindApplyLocal = useCallback((turnId: string, newContent: string) => {
+    dispatch({ kind: 'rewind.apply', turnId, newContent })
+  }, [])
+  const rewindSetVersion = useCallback((turnId: string, versionIndex: number) => {
+    dispatch({ kind: 'rewind.setVersion', turnId, versionIndex })
+  }, [])
+
   return {
     state,
     connState,
     send: {
       userMessage: sendMessage,
+      rewind: rewindSession,
+      rewindApplyLocal,
+      rewindSetVersion,
       interrupt,
       permissionRespond,
       askRespond,

@@ -1,0 +1,253 @@
+/* S019: rewind UI for past user messages. */
+
+.userTurnWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+}
+
+.versionArrows {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 2px 6px;
+  user-select: none;
+}
+
+.arrowBtn {
+  background: transparent;
+  border: none;
+  color: var(--color-fg-muted);
+  font-size: 14px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  /* mobile: 36px hit area */
+  min-width: 24px;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.arrowBtn:hover:not(:disabled) {
+  background: rgba(124, 138, 255, 0.16);
+  color: var(--color-fg);
+}
+
+.arrowBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.versionLabel {
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  padding: 0 4px;
+}
+
+.userBubbleWrap {
+  position: relative;
+  background: rgba(124, 138, 255, 0.12);
+  color: var(--color-fg);
+  border-radius: 14px;
+  padding: 8px 14px;
+  max-width: 78%;
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+[data-theme='light'] .userBubbleWrap {
+  background: rgba(124, 138, 255, 0.16);
+}
+
+.userBubbleText {
+  flex: 1;
+  min-width: 0;
+}
+
+.editPencil {
+  background: transparent;
+  border: none;
+  color: var(--color-fg-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  border-radius: 6px;
+  /* Tap area for mobile (≥ 36px) — keep the inner SVG smaller via padding. */
+  min-width: 28px;
+  min-height: 28px;
+  padding: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.userBubbleWrap:hover .editPencil,
+.userBubbleWrap:focus-within .editPencil,
+.editPencil:focus-visible {
+  opacity: 1;
+}
+
+.editPencil:hover {
+  background: rgba(124, 138, 255, 0.20);
+  color: var(--color-fg);
+}
+
+/* Mobile: edit pencil always visible (no hover). */
+@media (max-width: 599px) {
+  .editPencil {
+    opacity: 0.6;
+    min-width: 36px;
+    min-height: 36px;
+    padding: 8px;
+  }
+  .arrowBtn {
+    min-width: 36px;
+    min-height: 36px;
+  }
+}
+
+/* ── Editor mode ── */
+
+.editorWrap {
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.editorBubble {
+  width: 78%;
+  border: 2px solid var(--color-accent);
+  border-radius: 14px;
+  background: var(--color-elevated);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+
+@media (max-width: 599px) {
+  .editorBubble {
+    width: 100%;
+    padding: 8px;
+  }
+}
+
+.editorBubble :global(.editor) {
+  min-height: 120px;
+  max-height: 360px;
+  height: 160px;
+}
+
+.editorPlaceholder {
+  font-size: 12px;
+  color: var(--color-fg-muted);
+  padding: 12px;
+}
+
+.editorActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.editorError {
+  flex: 1;
+  font-size: 12px;
+  color: var(--color-error);
+}
+
+.editorBtnGhost,
+.editorBtnPrimary {
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-fg);
+  min-height: 32px;
+}
+
+.editorBtnGhost:hover {
+  background: var(--color-elevated);
+}
+
+.editorBtnPrimary {
+  background: var(--color-accent);
+  color: #fff;
+  border-color: var(--color-accent);
+}
+
+.editorBtnPrimary:hover:not(:disabled) {
+  background: var(--color-accent-dark);
+  border-color: var(--color-accent-dark);
+}
+
+.editorBtnPrimary:disabled,
+.editorBtnGhost:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (max-width: 599px) {
+  .editorBtnGhost,
+  .editorBtnPrimary {
+    min-height: 40px;
+    padding: 8px 16px;
+  }
+}
+
+.archivedHint {
+  font-size: 11px;
+  color: var(--color-fg-dim);
+  font-style: italic;
+  margin-top: 2px;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Fade-out animation for displaced subsequent turns during rewind. */
+:global(.rewind-fading) {
+  animation: rewindFadeOut 200ms ease forwards;
+  pointer-events: none;
+}
+
+@keyframes rewindFadeOut {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}

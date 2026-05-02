@@ -50,7 +50,27 @@ const (
 	// scraping system messages.
 	EvCompactStarted  EventType = "compact.started"
 	EvCompactFinished EventType = "compact.finished"
+	// S019: rewind lifecycle. Server emits this when a user has
+	// edited a past user-message and the session has been re-anchored
+	// at that turn. Carries the archived version index + new content
+	// so all connected clients can update their local cache without
+	// re-fetching the snapshot.
+	EvSessionRewound EventType = "session.rewound"
 )
+
+// SessionRewoundPayload (S019) is broadcast after a successful POST
+// /sessions/rewind. Clients use it to:
+//   1. Append the archived version (Content + SubsequentTurnIDs) onto
+//      the matching turn's `versions[]` slice.
+//   2. Replace the active version's text with NewContent.
+//   3. Filter out the archived turns from the visible conversation.
+//   4. Show the `< N/M >` arrows on the rewritten turn.
+type SessionRewoundPayload struct {
+	TurnID               string      `json:"turnId"`
+	ArchivedVersionIndex int         `json:"archivedVersionIndex"`
+	NewContent           string      `json:"newContent"`
+	ArchivedVersion      TurnVersion `json:"archivedVersion"`
+}
 
 // PermissionModeChangePayload notifies the frontend of a server-side
 // permission_mode change.
@@ -177,6 +197,13 @@ type Turn struct {
 	// The frontend uses this to render sub-agent turns nested underneath
 	// their parent Task block instead of flat in the timeline.
 	ParentToolUseID string `json:"parentToolUseId,omitempty"`
+	// Versions (S019) is the rewind history for kind:"user" turns. Each
+	// entry records a past content + the IDs of subsequent turns that
+	// belonged to that abandoned thread. The CURRENT (active) version is
+	// always Blocks[0].Text + the turns visible in the live conversation;
+	// versions[] is purely an archive. Empty for non-user turns and for
+	// user turns that have never been rewound.
+	Versions []TurnVersion `json:"versions,omitempty"`
 	// streamCovered is set true when stream_event envelopes (message_start
 	// or content_block_start) populated this turn. The trailing `assistant`
 	// envelope from the CLI then becomes a no-op — its purpose is to be a
@@ -184,6 +211,23 @@ type Turn struct {
 	// already-streamed turn duplicates ask/plan blocks. Unexported so it
 	// stays out of the snapshot wire format.
 	streamCovered bool `json:"-"`
+}
+
+// TurnVersion (S019) is one archived version of a user turn after a
+// rewind. Content is the user-message text the user originally sent,
+// SubsequentTurnIDs lists the turns (in original order) that came after
+// this version before the user abandoned them by editing. The frontend
+// uses these IDs together with the global Turns[] cache to re-display
+// the abandoned thread when the user clicks the version arrow.
+//
+// Discarded turns ARE NOT removed from the global Turns[] slice — they
+// stay so version navigation can show them — but they're filtered out
+// of the live (active-version) display. CreatedAt records when the
+// archive was made (i.e. when the user submitted the rewind).
+type TurnVersion struct {
+	Content           string    `json:"content"`
+	CreatedAt         time.Time `json:"createdAt"`
+	SubsequentTurnIDs []string  `json:"subsequentTurnIds"`
 }
 
 // SessionInitPayload is what the server writes immediately on WS connect.
