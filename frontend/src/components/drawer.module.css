@@ -208,6 +208,13 @@
 .branchSection {
   margin-top: 2px;
 }
+/* S021: header row holds the title button + an optional trailing
+   action button (e.g. "Clean up" on the subagent section). */
+.branchSectionHeaderRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
 .branchSectionHeader {
   display: flex;
   align-items: center;
@@ -285,6 +292,27 @@
   border-color: var(--color-accent);
 }
 
+/* S021: Clean up button on the subagent section header. Smaller and
+   transparent so it sits unobtrusively to the right of the section
+   title. */
+.cleanupBtn {
+  flex-shrink: 0;
+  margin-right: 6px;
+  padding: 2px 6px;
+  font-size: 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--color-fg-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  min-height: 22px;
+}
+.cleanupBtn:hover {
+  background-color: var(--color-elevated);
+  color: var(--color-accent);
+  border-color: var(--color-border);
+}
+
 @media (max-width: 600px) {
   .branchSectionHeader {
     min-height: 36px;
@@ -296,6 +324,12 @@
     min-width: 36px;
     padding: 6px 12px;
     font-size: 13px;
+  }
+  .cleanupBtn {
+    min-height: 36px;
+    min-width: 36px;
+    padding: 6px 12px;
+    font-size: 14px;
   }
   .branch {
     min-height: 36px;

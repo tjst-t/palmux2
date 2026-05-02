@@ -1,0 +1,202 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 16px;
+}
+
+.panel {
+  background-color: var(--color-elevated);
+  color: var(--color-fg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg, 8px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  width: min(720px, 100%);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  padding: 14px 18px 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.title {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.subtitle {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--color-fg-muted);
+  line-height: 1.4;
+}
+
+.subtitle code {
+  background: var(--color-bg);
+  padding: 1px 4px;
+  border-radius: var(--radius-sm, 4px);
+  font-size: 10.5px;
+}
+
+.empty {
+  padding: 32px 18px;
+  color: var(--color-fg-muted);
+  text-align: center;
+  font-size: 12px;
+}
+
+.tableWrap {
+  overflow-y: auto;
+  flex: 1;
+  padding: 0 18px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.table thead th {
+  text-align: left;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-fg-dim);
+  font-weight: 500;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  position: sticky;
+  top: 0;
+  background: var(--color-elevated);
+  z-index: 1;
+}
+
+.table tbody td {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+}
+
+.checkboxCol {
+  width: 24px;
+}
+
+.branchName {
+  font-weight: 500;
+  color: var(--color-fg);
+  font-family: var(--font-mono, monospace);
+}
+
+.branchPath {
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: var(--color-fg-muted);
+  font-family: var(--font-mono, monospace);
+  word-break: break-all;
+}
+
+.ageCell {
+  white-space: nowrap;
+  color: var(--color-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.reasonCell {
+  font-size: 11px;
+  color: var(--color-fg-muted);
+}
+
+.rowRemoved td {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.rowFailed td {
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.okMsg {
+  color: var(--color-success, #64d2a0);
+}
+
+.failMsg {
+  color: var(--color-error, #ef4444);
+  font-family: var(--font-mono, monospace);
+  font-size: 10.5px;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--color-border);
+}
+
+.summary {
+  flex: 1;
+  font-size: 11px;
+  color: var(--color-fg-muted);
+}
+
+.btnPrimary,
+.btnSecondary,
+.btnDanger {
+  padding: 6px 14px;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--color-border);
+  font-size: 12px;
+  cursor: pointer;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  min-height: 32px;
+}
+
+.btnPrimary {
+  background: var(--color-accent, #7c8aff);
+  color: white;
+  border-color: var(--color-accent, #7c8aff);
+}
+
+.btnDanger {
+  background: var(--color-error, #ef4444);
+  color: white;
+  border-color: var(--color-error, #ef4444);
+}
+
+.btnDanger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnSecondary:hover:not(:disabled) {
+  background: var(--color-elevated);
+}
+
+@media (max-width: 600px) {
+  .panel {
+    max-height: 95vh;
+  }
+  .btnPrimary,
+  .btnSecondary,
+  .btnDanger {
+    min-height: 40px;
+    padding: 8px 16px;
+  }
+  .branchPath {
+    font-size: 10px;
+  }
+  .table {
+    font-size: 11px;
+  }
+}

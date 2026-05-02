@@ -7,6 +7,8 @@ import {
   type BranchPickerEntry,
   type OrphanSession,
   type Repository,
+  type SubagentCleanupCandidate,
+  type SubagentCleanupResult,
   type Tab,
 } from '../lib/api'
 import type { ToolbarConfig } from '../types/toolbar'
@@ -247,6 +249,25 @@ interface PalmuxStoreState {
   promoteBranch: (repoId: string, branchId: string) => Promise<void>
   /** S015: opposite of promoteBranch. */
   demoteBranch: (repoId: string, branchId: string) => Promise<void>
+
+  /** S021: list stale subagent worktrees for a repo (dry-run). */
+  listStaleSubagentWorktrees: (
+    repoId: string,
+  ) => Promise<{ thresholdDays: number; candidates: SubagentCleanupCandidate[] }>
+
+  /** S021: bulk-remove the selected stale subagent worktrees. Returns the
+   *  per-worktree outcome so the caller can update its dialog. */
+  cleanupSubagentWorktrees: (
+    repoId: string,
+    branchNames?: string[],
+  ) => Promise<SubagentCleanupResult>
+
+  /** S021: move a subagent worktree to gwq's standard path AND record
+   *  it as user-opened. */
+  promoteSubagentBranch: (
+    repoId: string,
+    branchId: string,
+  ) => Promise<{ branch: Branch; destination: string }>
 }
 
 export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
@@ -364,6 +385,30 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
     }
     if (ev.type === 'settings.updated' && ev.payload) {
       set({ globalSettings: ev.payload as GlobalSettings })
+    }
+    // S021: cleanup completed elsewhere — drop the removed branches
+    // from the local snapshot. (CloseBranch on the server already
+    // emits `branch.closed` per-branch but those arrive piecemeal;
+    // the cleaned event is the consolidated signal.)
+    if (ev.type === 'worktree.cleaned' && ev.repoId && ev.payload) {
+      const payload = ev.payload as {
+        removed?: { branchId: string }[]
+      }
+      const removedIds = new Set((payload.removed ?? []).map((r) => r.branchId))
+      if (removedIds.size > 0) {
+        set((state) => ({
+          repos: state.repos.map((r) =>
+            r.id !== ev.repoId
+              ? r
+              : {
+                  ...r,
+                  openBranches: r.openBranches.filter(
+                    (b) => !removedIds.has(b.id),
+                  ),
+                },
+          ),
+        }))
+      }
     }
     if (
       (ev.type === 'notification' || ev.type === 'notification.cleared') &&
@@ -617,6 +662,77 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
       set({ repos: prev })
       throw err
     }
+  },
+
+  // S021: subagent worktree cleanup. Server endpoint accepts both
+  // `dryRun` and `branchNames` body params. We split the call into a
+  // listing helper (used to populate the dialog) and a confirm helper
+  // (used to actually issue removals). Failure surface is per-row in
+  // the response, not the HTTP status.
+  listStaleSubagentWorktrees: async (repoId) => {
+    const res = await api.post<{
+      thresholdDays: number
+      candidates: SubagentCleanupCandidate[]
+    }>(
+      `/api/repos/${encodeURIComponent(repoId)}/worktrees/cleanup-subagent`,
+      { dryRun: true },
+    )
+    return res
+  },
+
+  cleanupSubagentWorktrees: async (repoId, branchNames) => {
+    const body: Record<string, unknown> = { dryRun: false }
+    if (branchNames && branchNames.length > 0) body.branchNames = branchNames
+    const res = await api.post<SubagentCleanupResult>(
+      `/api/repos/${encodeURIComponent(repoId)}/worktrees/cleanup-subagent`,
+      body,
+    )
+    // Drop removed branches from the local snapshot immediately so the
+    // Drawer reflects the change before /api/repos roundtrips. The WS
+    // event will trigger a reloadRepos shortly anyway.
+    if (res.removed && res.removed.length > 0) {
+      const removedIds = new Set(res.removed.map((r) => r.branchId))
+      set((state) => ({
+        repos: state.repos.map((r) =>
+          r.id !== repoId
+            ? r
+            : {
+                ...r,
+                openBranches: r.openBranches.filter(
+                  (b) => !removedIds.has(b.id),
+                ),
+              },
+        ),
+      }))
+    }
+    return res
+  },
+
+  promoteSubagentBranch: async (repoId, branchId) => {
+    const res = await api.post<{ branch: Branch; destination: string }>(
+      `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/promote-subagent`,
+    )
+    // Apply the returned branch snapshot directly so the Drawer flips
+    // to `my` without waiting for `branch.categoryChanged`.
+    set((state) => ({
+      repos: state.repos.map((r) =>
+        r.id !== repoId
+          ? r
+          : {
+              ...r,
+              openBranches: r.openBranches.map((b) =>
+                b.id === branchId
+                  ? {
+                      ...b,
+                      category: res.branch.category,
+                      worktreePath: res.branch.worktreePath,
+                    }
+                  : b,
+              ),
+            },
+      ),
+    }))
+    return res
   },
 }))
 

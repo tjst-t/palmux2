@@ -3,7 +3,12 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { useLongPress } from '../hooks/use-long-press'
 import { useSectionCollapsed } from '../hooks/use-section-collapsed'
-import type { Branch, BranchCategory, Repository } from '../lib/api'
+import type {
+  Branch,
+  BranchCategory,
+  Repository,
+  SubagentCleanupCandidate,
+} from '../lib/api'
 import {
   selectAgentState,
   selectBranchNotifications,
@@ -16,6 +21,7 @@ import { confirmDialog } from './context-menu/confirm-dialog'
 import { useContextMenu } from './context-menu/store'
 import { OrphanAttachModal } from './orphan/orphan-modal'
 import { RepoPicker } from './repo-picker'
+import { SubagentCleanupDialog } from './subagent-cleanup-dialog'
 import styles from './drawer.module.css'
 
 // S015: drawer category metadata. The order here is the rendering order
@@ -282,7 +288,47 @@ function RepoItem({
   const { repoId: activeRepo, branchId: activeBranch } = useParams()
   const star = usePalmuxStore((s) => s.starRepo)
   const closeRepo = usePalmuxStore((s) => s.closeRepo)
+  const listStaleSubagentWorktrees = usePalmuxStore(
+    (s) => s.listStaleSubagentWorktrees,
+  )
+  const cleanupSubagentWorktrees = usePalmuxStore(
+    (s) => s.cleanupSubagentWorktrees,
+  )
   const showContextMenu = useContextMenu()
+
+  // S021: cleanup dialog state — only one repo at a time can have it
+  // open. Loading state covers the dry-run fetch; candidates are the
+  // server's response.
+  const [cleanupOpen, setCleanupOpen] = useState(false)
+  const [cleanupLoading, setCleanupLoading] = useState(false)
+  const [cleanupCandidates, setCleanupCandidates] = useState<
+    SubagentCleanupCandidate[]
+  >([])
+  const [cleanupThreshold, setCleanupThreshold] = useState(7)
+
+  const openCleanupDialog = async () => {
+    setCleanupOpen(true)
+    setCleanupLoading(true)
+    try {
+      const res = await listStaleSubagentWorktrees(repo.id)
+      setCleanupCandidates(res.candidates ?? [])
+      setCleanupThreshold(res.thresholdDays ?? 7)
+    } catch (err) {
+      console.error('cleanup dryRun failed', err)
+      setCleanupCandidates([])
+    } finally {
+      setCleanupLoading(false)
+    }
+  }
+  const handleCleanupConfirm = async (selected: string[]) => {
+    try {
+      const res = await cleanupSubagentWorktrees(repo.id, selected)
+      return res
+    } catch (err) {
+      console.error('cleanup failed', err)
+      return undefined
+    }
+  }
 
   // S015: bucket branches by category, then sort within each bucket.
   const branchesByCategory = useMemo(() => {
@@ -378,11 +424,20 @@ function RepoItem({
                   )
                 }}
                 onAddBranch={onAddBranch}
+                onCleanupSubagent={key === 'subagent' ? openCleanupDialog : undefined}
               />
             )
           })}
         </div>
       )}
+      <SubagentCleanupDialog
+        open={cleanupOpen}
+        thresholdDays={cleanupThreshold}
+        candidates={cleanupCandidates}
+        loading={cleanupLoading}
+        onClose={() => setCleanupOpen(false)}
+        onConfirm={handleCleanupConfirm}
+      />
     </li>
   )
 }
@@ -400,6 +455,7 @@ function BranchSubSection({
   activeBranchId,
   onSelect,
   onAddBranch,
+  onCleanupSubagent,
 }: {
   categoryKey: CategoryKey
   branches: Branch[]
@@ -408,6 +464,7 @@ function BranchSubSection({
   activeBranchId: string | null
   onSelect: (branch: Branch, tabId?: string) => void
   onAddBranch: () => void
+  onCleanupSubagent?: () => void
 }) {
   const [collapsed, setCollapsed] = useSectionCollapsed(
     cat,
@@ -416,19 +473,36 @@ function BranchSubSection({
   const showCount = cat === 'subagent' || cat === 'unmanaged'
   return (
     <section className={styles.branchSection}>
-      <button
-        type="button"
-        className={styles.branchSectionHeader}
-        onClick={() => setCollapsed(!collapsed)}
-        aria-expanded={!collapsed}
-        data-section={cat}
-      >
-        <span className={styles.branchSectionChevron}>{collapsed ? '▶' : '▼'}</span>
-        <span className={styles.branchSectionTitle}>{CATEGORY_LABELS[cat]}</span>
-        {showCount && branches.length > 0 && (
-          <span className={styles.branchSectionBadge}>{branches.length}</span>
+      <div className={styles.branchSectionHeaderRow}>
+        <button
+          type="button"
+          className={styles.branchSectionHeader}
+          onClick={() => setCollapsed(!collapsed)}
+          aria-expanded={!collapsed}
+          data-section={cat}
+        >
+          <span className={styles.branchSectionChevron}>{collapsed ? '▶' : '▼'}</span>
+          <span className={styles.branchSectionTitle}>{CATEGORY_LABELS[cat]}</span>
+          {showCount && branches.length > 0 && (
+            <span className={styles.branchSectionBadge}>{branches.length}</span>
+          )}
+        </button>
+        {/* S021: Clean up button on the subagent section header. Hidden
+            when the section has no rows (nothing to clean) so the
+            affordance only appears when relevant. */}
+        {cat === 'subagent' && branches.length > 0 && onCleanupSubagent && (
+          <button
+            type="button"
+            className={styles.cleanupBtn}
+            onClick={onCleanupSubagent}
+            title="Clean up stale subagent worktrees"
+            aria-label="Clean up subagent worktrees"
+            data-action="cleanup-subagent"
+          >
+            🧹
+          </button>
         )}
-      </button>
+      </div>
       {!collapsed && (
         <ul className={styles.repoList}>
           {branches.map((branch) => (
@@ -470,12 +544,32 @@ function BranchItem({
   const closeBranch = usePalmuxStore((s) => s.closeBranch)
   const promoteBranch = usePalmuxStore((s) => s.promoteBranch)
   const demoteBranch = usePalmuxStore((s) => s.demoteBranch)
+  const promoteSubagentBranch = usePalmuxStore((s) => s.promoteSubagentBranch)
   const notifs = usePalmuxStore(selectBranchNotifications(repoId, branch.id))
   const agent = usePalmuxStore(selectAgentState(repoId, branch.id))
   const unread = notifs?.unreadCount ?? 0
   const agentPipClass = agentPipClassFor(agent?.status)
   const showContextMenu = useContextMenu()
   const isSubagent = category === 'subagent'
+
+  // S021: subagent → my promotion. Confirm the destination before issuing
+  // the move so the user sees where the worktree will end up.
+  const promoteSubagentWithConfirm = async () => {
+    const ok = await confirmDialog.ask({
+      title: 'Promote to my worktrees?',
+      message:
+        `${branch.name} will be moved out of \`${branch.worktreePath}\` ` +
+        `into the standard gwq location and added to your \`my\` section.`,
+      confirmLabel: 'Promote',
+    })
+    if (!ok) return
+    try {
+      await promoteSubagentBranch(repoId, branch.id)
+    } catch (err) {
+      console.error('promote subagent failed', err)
+    }
+  }
+
   const showMenuAt = (x: number, y: number) => {
     showContextMenu(
       [
@@ -493,6 +587,15 @@ function BranchItem({
                     console.error('promote failed', err)
                   }
                 },
+              },
+              { type: 'separator' as const },
+            ]
+          : []),
+        ...(category === 'subagent'
+          ? [
+              {
+                label: 'Promote to my worktrees',
+                onClick: promoteSubagentWithConfirm,
               },
               { type: 'separator' as const },
             ]
@@ -592,6 +695,24 @@ function BranchItem({
             data-action="promote"
           >
             +
+          </button>
+        )}
+        {/* S021: subagent → my promote action. Distinct from the
+            `+ Add to my worktrees` action on `unmanaged` because the
+            subagent flow also moves the worktree on disk (gwq path). */}
+        {category === 'subagent' && (
+          <button
+            type="button"
+            className={styles.promoteBtn}
+            onClick={(e) => {
+              e.stopPropagation()
+              promoteSubagentWithConfirm()
+            }}
+            title="Move this subagent worktree to the standard gwq location and add to `my`"
+            aria-label={`Promote ${branch.name} to my worktrees`}
+            data-action="promote-subagent"
+          >
+            ↗
           </button>
         )}
       </button>

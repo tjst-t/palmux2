@@ -70,6 +70,14 @@ type Settings struct {
 	// default at PATCH time.
 	ReadPreviewLineCount int `json:"readPreviewLineCount,omitempty"`
 
+	// SubagentStaleAfterDays (S021) is the threshold in days used by the
+	// "Clean up subagent worktrees" Drawer action: a subagent worktree is
+	// considered stale when it has no `.claude/autopilot-*.lock` AND its
+	// last commit is older than this many days. 0 → fall through to
+	// DefaultSubagentStaleAfterDays. Negative values are coerced to the
+	// default at PATCH time.
+	SubagentStaleAfterDays int `json:"subagentStaleAfterDays,omitempty"`
+
 	Toolbar json.RawMessage `json:"toolbar,omitempty"`
 }
 
@@ -110,6 +118,13 @@ var DefaultAutoWorktreePathPatterns = []string{".claude/worktrees/*"}
 // (S017). Configurable via `readPreviewLineCount` in settings.json.
 const DefaultReadPreviewLineCount = 50
 
+// DefaultSubagentStaleAfterDays is the default age threshold (in days)
+// for the S021 subagent-cleanup action. 7 days follows the spec
+// guidance: long enough that an in-progress sub-agent run isn't
+// targeted by accident, short enough that orphaned worktrees from
+// completed runs surface promptly.
+const DefaultSubagentStaleAfterDays = 7
+
 // DefaultSettings returns a Settings populated with built-in defaults.
 func DefaultSettings() Settings {
 	return Settings{
@@ -121,6 +136,7 @@ func DefaultSettings() Settings {
 		PreviewMaxBytes:          DefaultPreviewMaxBytes,
 		AutoWorktreePathPatterns: append([]string(nil), DefaultAutoWorktreePathPatterns...),
 		ReadPreviewLineCount:     DefaultReadPreviewLineCount,
+		SubagentStaleAfterDays:   DefaultSubagentStaleAfterDays,
 	}
 }
 
@@ -240,6 +256,9 @@ func (s *SettingsStore) Patch(update Settings) (Settings, error) {
 	if update.ReadPreviewLineCount > 0 {
 		s.settings.ReadPreviewLineCount = update.ReadPreviewLineCount
 	}
+	if update.SubagentStaleAfterDays > 0 {
+		s.settings.SubagentStaleAfterDays = update.SubagentStaleAfterDays
+	}
 	// S015: a nil slice in the patch means "leave alone"; an explicit
 	// empty slice (provided by the FE as `[]`) clears all patterns;
 	// otherwise overwrite. We can't distinguish nil from `[]` after
@@ -305,6 +324,9 @@ func mergeWithDefaults(s *Settings, d Settings) {
 	if s.ReadPreviewLineCount <= 0 {
 		s.ReadPreviewLineCount = d.ReadPreviewLineCount
 	}
+	if s.SubagentStaleAfterDays <= 0 {
+		s.SubagentStaleAfterDays = d.SubagentStaleAfterDays
+	}
 	// S015: only inherit defaults when the key is *absent* from the file
 	// (decoded as nil). An explicit empty slice — `"autoWorktreePathPatterns": []`
 	// — is honoured as "user opted out of auto detection".
@@ -323,4 +345,16 @@ func (s *SettingsStore) AutoWorktreePathPatterns() []string {
 		return append([]string(nil), DefaultAutoWorktreePathPatterns...)
 	}
 	return append([]string(nil), s.settings.AutoWorktreePathPatterns...)
+}
+
+// SubagentStaleAfterDays returns the configured threshold (in days) for
+// the S021 subagent-cleanup action, falling back to the default when
+// unset or non-positive.
+func (s *SettingsStore) SubagentStaleAfterDays() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.settings.SubagentStaleAfterDays > 0 {
+		return s.settings.SubagentStaleAfterDays
+	}
+	return DefaultSubagentStaleAfterDays
 }

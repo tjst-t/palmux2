@@ -53,6 +53,15 @@ const (
 	// `{ files: [paths], scopes: ["overview"|"sprintDetail"|"dependencies"|"decisions"|"refine"] }`
 	// so the FE can refetch only the affected views.
 	EventSprintChanged EventType = "sprint.changed"
+
+	// Worktree lifecycle events (S021). Fired when stale subagent
+	// worktrees are removed via the cleanup endpoint. The payload is the
+	// full `SubagentCleanupResult` so other clients can refresh both
+	// their Drawer and any in-progress cleanup dialogs. There is no
+	// separate `branch.promoted` event because the existing
+	// `branch.categoryChanged` already carries the after-promote
+	// category.
+	EventWorktreeCleaned EventType = "worktree.cleaned"
 )
 
 // Event is one broadcastable change.

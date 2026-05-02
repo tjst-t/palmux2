@@ -128,3 +128,31 @@ export interface PortmanLease {
   status: string
   url: string
 }
+
+// S021: subagent cleanup result shape mirrors Go's
+// `store.SubagentCleanupResult`. Optional `removed`/`failed` arrays appear
+// only on the non-dry-run response (or via the `worktree.cleaned` event).
+export interface SubagentCleanupCandidate {
+  branchId: string
+  branchName: string
+  worktreePath: string
+  lastCommitIso?: string
+  ageDays: number
+  hasLock: boolean
+  isPrimary: boolean
+  reason: string
+}
+
+export interface SubagentCleanupRemoval {
+  branchId: string
+  branchName: string
+  worktreePath: string
+  error?: string
+}
+
+export interface SubagentCleanupResult {
+  thresholdDays: number
+  candidates: SubagentCleanupCandidate[]
+  removed?: SubagentCleanupRemoval[]
+  failed?: SubagentCleanupRemoval[]
+}
