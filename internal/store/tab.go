@@ -254,8 +254,19 @@ func isWindowGoneErr(err error) bool {
 	return false
 }
 
-// RenameTab renames a multi-instance tab's window. The tab ID changes
-// because IDs are derived from window names — callers should re-read state.
+// RenameTab renames a multi-instance tab. Behaviour depends on the tab's
+// underlying provider:
+//
+//   - tmux-backed providers (Bash): renames the tmux window. The tab ID
+//     changes because IDs are derived from window names. We migrate any
+//     existing `tab_overrides` rows to the new ID so user-set display
+//     names ride along across renames.
+//   - non-tmux multi providers (Claude post-S009): tab ID is stable. We
+//     just record `newName` in `repos.json` `tabOverrides[branchName].
+//     names[tabID]` and recompute. The Claude session metadata is
+//     unaffected — rename is a TabBar concern, not an agent concern.
+//
+// Singletons (Files, Git) refuse rename with InvalidArg.
 func (s *Store) RenameTab(ctx context.Context, repoID, branchID, tabID, newName string) error {
 	newName = strings.TrimSpace(newName)
 	if newName == "" {
@@ -285,7 +296,7 @@ func (s *Store) RenameTab(ctx context.Context, repoID, branchID, tabID, newName 
 			break
 		}
 	}
-	if target.ID == "" || target.WindowName == "" {
+	if target.ID == "" {
 		s.mu.RUnlock()
 		return ErrTabNotFound
 	}
@@ -294,17 +305,129 @@ func (s *Store) RenameTab(ctx context.Context, repoID, branchID, tabID, newName 
 		return fmt.Errorf("%w: only multi-instance tabs can be renamed", ErrInvalidArg)
 	}
 	sessionName := branch.TabSet.TmuxSession
+	branchName := branch.Name
 	s.mu.RUnlock()
 
+	// Non-tmux multi (Claude): record the rename as an override.
+	if target.WindowName == "" {
+		if err := s.deps.RepoStore.SetTabName(repoID, branchName, tabID, newName); err != nil {
+			return fmt.Errorf("save tab name override: %w", err)
+		}
+		s.mu.Lock()
+		s.recomputeTabs(ctx, branch)
+		s.mu.Unlock()
+		s.hub.Publish(Event{Type: EventTabRenamed, RepoID: repoID, BranchID: branchID, TabID: tabID, Payload: newName})
+		return nil
+	}
+
+	// tmux-backed (Bash): rename the window AND migrate any existing
+	// override rows so the new ID inherits the previous metadata.
 	newWindowName := domain.WindowName(target.Type, newName)
 	if err := s.deps.Tmux.RenameWindow(ctx, sessionName, target.WindowName, newWindowName); err != nil {
 		return err
 	}
+	newTabID := domain.TabID(target.Type, newName)
+	if err := s.deps.RepoStore.RenameTabIDInOverrides(repoID, branchName, tabID, newTabID); err != nil {
+		s.logger.Warn("RenameTab: migrate overrides failed", "err", err)
+	}
 	s.mu.Lock()
 	s.recomputeTabs(ctx, branch)
 	s.mu.Unlock()
-	newTabID := domain.TabID(target.Type, newName)
 	s.hub.Publish(Event{Type: EventTabRenamed, RepoID: repoID, BranchID: branchID, TabID: newTabID, Payload: newName})
+	return nil
+}
+
+// ReorderTabs (S020) records a new ordering for the given branch's
+// `Multiple()=true` tabs. The payload is a slice of tab IDs from a
+// single Multiple()=true group; cross-group IDs are rejected with
+// InvalidArg. Singleton tabs (Files, Git) are not orderable.
+//
+// We allow callers to send the order for ONE group at a time — the FE
+// drag-and-drop UI only ever moves tabs within one group, so per-call
+// validation enforces that. We merge into the existing per-branch order
+// slice so a Bash reorder doesn't clobber a previous Claude reorder.
+func (s *Store) ReorderTabs(ctx context.Context, repoID, branchID string, order []string) error {
+	if len(order) == 0 {
+		return fmt.Errorf("%w: empty order", ErrInvalidArg)
+	}
+	s.mu.RLock()
+	repo, ok := s.repos[repoID]
+	if !ok {
+		s.mu.RUnlock()
+		return ErrRepoNotFound
+	}
+	var branch *domain.Branch
+	for _, b := range repo.OpenBranches {
+		if b.ID == branchID {
+			branch = b
+			break
+		}
+	}
+	if branch == nil {
+		s.mu.RUnlock()
+		return ErrBranchNotFound
+	}
+	// Map known tabs by ID so we can validate every payload entry exists
+	// and shares one Multiple()=true type.
+	tabsByID := map[string]domain.Tab{}
+	for _, t := range branch.TabSet.Tabs {
+		tabsByID[t.ID] = t
+	}
+	branchName := branch.Name
+	s.mu.RUnlock()
+
+	var groupType string
+	for _, id := range order {
+		t, ok := tabsByID[id]
+		if !ok {
+			return fmt.Errorf("%w: unknown tab id %q", ErrInvalidArg, id)
+		}
+		if !t.Multiple {
+			return fmt.Errorf("%w: tab %q is not orderable (singleton)", ErrInvalidArg, id)
+		}
+		if groupType == "" {
+			groupType = t.Type
+		} else if t.Type != groupType {
+			return fmt.Errorf("%w: cross-group reorder forbidden (saw %q and %q)", ErrInvalidArg, groupType, t.Type)
+		}
+	}
+
+	// Merge with any existing order: keep IDs from other groups in their
+	// previous relative position, replace this group's slice.
+	existing := s.deps.RepoStore.TabOrder(repoID, branchName)
+	merged := make([]string, 0, len(existing)+len(order))
+	seenInPayload := map[string]struct{}{}
+	for _, id := range order {
+		seenInPayload[id] = struct{}{}
+	}
+	// Drop any prior entries that are part of this group; reorder will
+	// reassert them in payload position.
+	for _, id := range existing {
+		t, ok := tabsByID[id]
+		if !ok {
+			// Unknown id from earlier session — keep it; recompute will skip
+			// it but we don't want to lose stale entries silently.
+			merged = append(merged, id)
+			continue
+		}
+		if t.Type == groupType {
+			continue
+		}
+		merged = append(merged, id)
+	}
+	// Append payload at the end of merged so this group's relative
+	// ordering is recorded. Group adjacency in the rendered TabBar is
+	// preserved by `applyTabOverrides`'s walk (it groups consecutive
+	// same-type tabs first, then sorts each group by the saved order).
+	merged = append(merged, order...)
+
+	if err := s.deps.RepoStore.SetTabOrder(repoID, branchName, merged); err != nil {
+		return fmt.Errorf("save tab order: %w", err)
+	}
+	s.mu.Lock()
+	s.recomputeTabs(ctx, branch)
+	s.mu.Unlock()
+	s.hub.Publish(Event{Type: EventTabReordered, RepoID: repoID, BranchID: branchID, Payload: map[string]any{"order": order, "type": groupType}})
 	return nil
 }
 

@@ -21,11 +21,32 @@ import (
 // `autoWorktreePathPatterns`), or `unmanaged` (otherwise). The field is
 // `omitempty` so pre-S015 `repos.json` files load unchanged and so the
 // JSON stays tidy for repos that have never had branches promoted.
+//
+// TabOverrides (S020) records per-branch tab customisation (rename + reorder)
+// for `Multiple()=true` tab types. Outer key is the branch name (not branch
+// ID — branch IDs are slug+hash and stable for a given branch name, but
+// keying on the human-readable name keeps the JSON readable and resilient
+// to hash collisions on rebuild). Inner key is the tab ID
+// (e.g. `bash:dev-server`). `Order` is a per-branch slice of tab IDs
+// expressing the user's preferred ordering within each Multiple()=true
+// group; tabs not listed fall back to default ordering at the end.
 type RepoEntry struct {
-	ID                 string   `json:"id"`
-	GHQPath            string   `json:"ghqPath"`
-	Starred            bool     `json:"starred"`
-	UserOpenedBranches []string `json:"userOpenedBranches,omitempty"`
+	ID                 string                          `json:"id"`
+	GHQPath            string                          `json:"ghqPath"`
+	Starred            bool                            `json:"starred"`
+	UserOpenedBranches []string                        `json:"userOpenedBranches,omitempty"`
+	TabOverrides       map[string]BranchTabOverrides   `json:"tabOverrides,omitempty"`
+}
+
+// BranchTabOverrides is the per-branch payload of TabOverrides.
+type BranchTabOverrides struct {
+	// Names maps tabID → user-friendly name. Empty string means "no override".
+	Names map[string]string `json:"names,omitempty"`
+	// Order is a flat list of tab IDs giving the user's preferred order.
+	// IDs from different Multiple()=true groups are allowed (Claude tabs
+	// and Bash tabs each cluster within their own group; the server
+	// preserves group adjacency when reading this).
+	Order []string `json:"order,omitempty"`
 }
 
 // RepoStore is the read/write interface for repos.json. All access goes
@@ -227,6 +248,156 @@ func (s *RepoStore) IsUserOpened(repoID, branchName string) bool {
 		return false
 	}
 	return false
+}
+
+// TabName (S020) returns the user-set display name override for the given
+// tab, or "" if none is set.
+func (s *RepoStore) TabName(repoID, branchName, tabID string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, e := range s.entries {
+		if e.ID != repoID {
+			continue
+		}
+		bo, ok := e.TabOverrides[branchName]
+		if !ok {
+			return ""
+		}
+		return bo.Names[tabID]
+	}
+	return ""
+}
+
+// TabOrder (S020) returns the ordered slice of tab IDs the user has saved
+// for the given branch, or nil if none.
+func (s *RepoStore) TabOrder(repoID, branchName string) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, e := range s.entries {
+		if e.ID != repoID {
+			continue
+		}
+		bo, ok := e.TabOverrides[branchName]
+		if !ok {
+			return nil
+		}
+		out := make([]string, len(bo.Order))
+		copy(out, bo.Order)
+		return out
+	}
+	return nil
+}
+
+// SetTabName (S020) records or clears a display-name override for one tab.
+// Pass empty `name` to delete the override.
+func (s *RepoStore) SetTabName(repoID, branchName, tabID, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.entries {
+		if s.entries[i].ID != repoID {
+			continue
+		}
+		if s.entries[i].TabOverrides == nil {
+			s.entries[i].TabOverrides = map[string]BranchTabOverrides{}
+		}
+		bo := s.entries[i].TabOverrides[branchName]
+		if name == "" {
+			if bo.Names != nil {
+				delete(bo.Names, tabID)
+				if len(bo.Names) == 0 {
+					bo.Names = nil
+				}
+			}
+		} else {
+			if bo.Names == nil {
+				bo.Names = map[string]string{}
+			}
+			bo.Names[tabID] = name
+		}
+		// Drop empty branch entry to keep JSON tidy.
+		if bo.Names == nil && len(bo.Order) == 0 {
+			delete(s.entries[i].TabOverrides, branchName)
+		} else {
+			s.entries[i].TabOverrides[branchName] = bo
+		}
+		if len(s.entries[i].TabOverrides) == 0 {
+			s.entries[i].TabOverrides = nil
+		}
+		return s.save()
+	}
+	return fmt.Errorf("config: SetTabName: repo %q not found", repoID)
+}
+
+// SetTabOrder (S020) records the user's preferred ordering for one branch.
+// Pass nil/empty to clear.
+func (s *RepoStore) SetTabOrder(repoID, branchName string, order []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.entries {
+		if s.entries[i].ID != repoID {
+			continue
+		}
+		if s.entries[i].TabOverrides == nil {
+			s.entries[i].TabOverrides = map[string]BranchTabOverrides{}
+		}
+		bo := s.entries[i].TabOverrides[branchName]
+		if len(order) == 0 {
+			bo.Order = nil
+		} else {
+			cp := make([]string, len(order))
+			copy(cp, order)
+			bo.Order = cp
+		}
+		if bo.Names == nil && len(bo.Order) == 0 {
+			delete(s.entries[i].TabOverrides, branchName)
+		} else {
+			s.entries[i].TabOverrides[branchName] = bo
+		}
+		if len(s.entries[i].TabOverrides) == 0 {
+			s.entries[i].TabOverrides = nil
+		}
+		return s.save()
+	}
+	return fmt.Errorf("config: SetTabOrder: repo %q not found", repoID)
+}
+
+// RenameTabIDInOverrides (S020) is called when a Bash window rename causes
+// the tab ID to change (`bash:foo` → `bash:bar`). It rewrites both the
+// Names key and any Order entries to point at the new ID. No-op if neither
+// references the old ID.
+func (s *RepoStore) RenameTabIDInOverrides(repoID, branchName, oldID, newID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.entries {
+		if s.entries[i].ID != repoID {
+			continue
+		}
+		bo, ok := s.entries[i].TabOverrides[branchName]
+		if !ok {
+			return nil
+		}
+		changed := false
+		if v, present := bo.Names[oldID]; present {
+			delete(bo.Names, oldID)
+			if bo.Names == nil {
+				bo.Names = map[string]string{}
+			}
+			bo.Names[newID] = v
+			changed = true
+		}
+		for j, id := range bo.Order {
+			if id == oldID {
+				bo.Order[j] = newID
+				changed = true
+			}
+		}
+		if changed {
+			s.entries[i].TabOverrides[branchName] = bo
+			return s.save()
+		}
+		return nil
+	}
+	return nil
 }
 
 // SetStarred toggles the starred flag on a repo. Returns false if absent.

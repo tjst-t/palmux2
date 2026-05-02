@@ -23,9 +23,10 @@ const (
 	// is `{ category: "user" | "unmanaged" | "subagent" }`.
 	EventBranchCategoryChanged EventType = "branch.categoryChanged"
 
-	EventTabAdded   EventType = "tab.added"
-	EventTabRemoved EventType = "tab.removed"
-	EventTabRenamed EventType = "tab.renamed"
+	EventTabAdded     EventType = "tab.added"
+	EventTabRemoved   EventType = "tab.removed"
+	EventTabRenamed   EventType = "tab.renamed"
+	EventTabReordered EventType = "tab.reordered" // S020 — payload `{order: TabID[]}`
 
 	EventNotification EventType = "notification"
 	EventSettings     EventType = "settings.updated"

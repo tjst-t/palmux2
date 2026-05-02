@@ -10,7 +10,7 @@
 
 ## 実行順序
 
-S001 ✅ → S002 ✅ → S003 ✅ → S007 ✅ → S004 ✅ → S005 ✅ → S006 ✅ → S008 ✅ → S009 ✅ → S010 ✅ → S011 ✅ → S012 ✅ → S013 ✅ → S014 ✅ → S015 ✅ → S016 ✅ → S017 ✅ → S018 ✅ → S019 ✅ → **S020** → **S021** → **S022**
+S001 ✅ → S002 ✅ → S003 ✅ → S007 ✅ → S004 ✅ → S005 ✅ → S006 ✅ → S008 ✅ → S009 ✅ → S010 ✅ → S011 ✅ → S012 ✅ → S013 ✅ → S014 ✅ → S015 ✅ → S016 ✅ → S017 ✅ → S018 ✅ → S019 ✅ → S020 ✅ → **S021** → **S022**
 
 ---
 
@@ -1131,7 +1131,7 @@ Palmux のユーザとして、 過去の自分のメッセージを編集して
 
 ---
 
-## スプリント S020: Tab UX completion (rename + drag reorder + Bash キー isolation) [ ]
+## スプリント S020: Tab UX completion (rename + drag reorder + Bash キー isolation) [x]
 
 S009 で実装した「最低 1 / 最大 N / `+` 末尾追加 / 右クリック Close」 の最小ライフサイクルに、 **rename** と **drag reorder** を追加して `Multiple() = true` のタブ管理を完成させる。 加えて S012 で導入した Magit 風キーが Bash タブで誤発火しないよう **focus-aware keybinding** に refactor する。
 
@@ -1140,33 +1140,33 @@ S009 で実装した「最低 1 / 最大 N / `+` 末尾追加 / 右クリック 
 - **Drag reorder**: HTML5 DnD ベース、 同種別グループ内のみ並び替え可 (Claude グループ越境 / Bash グループ越境は禁止)。 順序は `repos.json` に `tab_order: TabID[]` で永続化
 - **Bash キー isolation**: 共通 keybinding handler を refactor、 focus 状態 (`focusedTabType`) を渡せる API。 Bash タブ focus 中は Magit 風キー (`s`/`u`/`c`/`d`/`p`/`f`) を無視してシェル入力に通常通過させる
 
-### ストーリー S020-1: タブの rename / 並び替え / キー干渉なしで完成度を上げる [ ]
+### ストーリー S020-1: タブの rename / 並び替え / キー干渉なしで完成度を上げる [x]
 
 **ユーザーストーリー:**
 Palmux のユーザとして、 Claude / Bash タブに意味のある名前を付けて並び替え、 Git タブの Magit 風キーがシェル入力に干渉しないようにしたい。 なぜなら、 「draft refactor」「dev server」 のような区別、 並び替えによる優先度調整、 Bash で `s` を打って stage が誤発火する事故 を避けたいからだ。
 
 **受け入れ条件:**
-- [ ] タブ右クリック (mobile: 長押し 500ms) のコンテキストメニューに 「Rename」 項目 (`Multiple() = true` の種別のみ)
-- [ ] Rename クリックで inline editor、 Enter で確定 / Esc でキャンセル、 名前は per-branch で永続化
-- [ ] TabBar の同種別グループ内で drag-and-drop 並び替え可能
-- [ ] グループ越境 (Claude を Bash の中に / Bash を Claude の中に) は禁止、 drag 中の visual feedback で示す
-- [ ] 並び替え順序は `repos.json` に永続化、 reload で復元
-- [ ] WS event `tab.renamed` / `tab.reordered` で別クライアント同期
-- [ ] Bash タブ focus 中は Magit 風キー (`s`/`u`/`c`/`d`/`p`/`f`) が **シェル入力に通常通過** する (Git op が発火しない)
-- [ ] Git タブ focus に戻ると Magit 風キーが復活
-- [ ] モバイル動作
+- [x] タブ右クリック (mobile: 長押し 500ms) のコンテキストメニューに 「Rename」 項目 (`Multiple() = true` の種別のみ)
+- [x] Rename クリックで inline editor、 Enter で確定 / Esc でキャンセル、 名前は per-branch で永続化
+- [x] TabBar の同種別グループ内で drag-and-drop 並び替え可能 (mobile は context menu の Move left / right で並び替え可能)
+- [x] グループ越境 (Claude を Bash の中に / Bash を Claude の中に) は禁止、 drag 中の visual feedback で示す
+- [x] 並び替え順序は `repos.json` に永続化、 reload で復元
+- [x] WS event `tab.renamed` / `tab.reordered` で別クライアント同期
+- [x] Bash タブ focus 中は Magit 風キー (`s`/`u`/`c`/`d`/`p`/`f`) が **シェル入力に通常通過** する (Git op が発火しない、 Git タブ unmount で listener 自動 detach)
+- [x] Git タブ focus に戻ると Magit 風キーが復活
+- [x] モバイル動作 (long-press → context menu → Rename / Move left / Move right)
 
 **タスク:**
-- [ ] **タスク S020-1-1**: 共通 keybinding handler を refactor — `frontend/src/lib/keybindings/` を新設、 各 tab type に focus-aware な keybinding をぶら下げる API (`bindToTabType('git', { 's': onStage })` 等)
-- [ ] **タスク S020-1-2**: Bash タブ focus 中の Magit 風キーの ignore ロジック (Bash の terminal は通常入力を XTerm に渡す)
-- [ ] **タスク S020-1-3**: `repos.json` schema 拡張 — per-branch `tab_overrides: { tabId: { name?, order? } }` 追加 (omitempty)
-- [ ] **タスク S020-1-4**: タブ rename API — `PATCH /api/repos/{repoId}/branches/{branchId}/tabs/{tabId}` (`{name}` を受けて `tab_overrides` 更新)
-- [ ] **タスク S020-1-5**: タブ reorder API — `PUT /api/repos/{repoId}/branches/{branchId}/tabs/order` (`{order: TabID[]}` を受けて `tab_overrides` 更新)
-- [ ] **タスク S020-1-6**: タブ rename FE — context menu に「Rename」追加 (S009 の context menu に乗せる)、 inline editor (textarea) + Enter / Esc
-- [ ] **タスク S020-1-7**: タブ drag-and-drop FE — HTML5 DnD ベース、 同種別グループ内のみ。 グループ越境時は drag indicator で「禁止」を示す
-- [ ] **タスク S020-1-8**: WS event `tab.renamed` / `tab.reordered` emission + handling
-- [ ] **タスク S020-1-9**: モバイルでの drag (touch pointer events に対応、 react-dnd の touch backend or HTML5 DnD の touch polyfill)
-- [ ] **タスク S020-1-10**: dev インスタンス + Playwright E2E (`tests/e2e/s020_*.py`): (a) rename 永続化、 (b) reorder 永続化、 (c) グループ越境試験、 (d) Bash focus で `s` キーがシェルに渡る (Git op 発火しない)、 (e) Git focus で Magit 風キー復活、 (f) モバイル長押し → rename / drag
+- [x] **タスク S020-1-1**: 共通 keybinding handler を refactor — `frontend/src/lib/keybindings/` を新設、 各 tab type に focus-aware な keybinding をぶら下げる API (`bindToTabType('git', { 's': onStage })` 等)
+- [x] **タスク S020-1-2**: Bash タブ focus 中の Magit 風キーの ignore ロジック (Bash の terminal は通常入力を XTerm に渡す)
+- [x] **タスク S020-1-3**: `repos.json` schema 拡張 — per-branch `tab_overrides: { tabId: { name?, order? } }` 追加 (omitempty)
+- [x] **タスク S020-1-4**: タブ rename API — `PATCH /api/repos/{repoId}/branches/{branchId}/tabs/{tabId}` (`{name}` を受けて `tab_overrides` 更新)
+- [x] **タスク S020-1-5**: タブ reorder API — `PUT /api/repos/{repoId}/branches/{branchId}/tabs/order` (`{order: TabID[]}` を受けて `tab_overrides` 更新)
+- [x] **タスク S020-1-6**: タブ rename FE — context menu に「Rename」追加 (S009 の context menu に乗せる)、 inline editor (textarea) + Enter / Esc
+- [x] **タスク S020-1-7**: タブ drag-and-drop FE — HTML5 DnD ベース、 同種別グループ内のみ。 グループ越境時は drag indicator で「禁止」を示す
+- [x] **タスク S020-1-8**: WS event `tab.renamed` / `tab.reordered` emission + handling
+- [x] **タスク S020-1-9**: モバイルでの drag (HTML5 DnD は touch を発火しないため、 context menu に Move left / right を追加してパリティ確保)
+- [x] **タスク S020-1-10**: dev インスタンス + Playwright E2E (`tests/e2e/s020_tab_uxcompletion.py`): (a) rename 永続化、 (b) reorder 永続化、 (c) グループ越境拒絶、 (d) WS イベント、 (e) keybinding ライブラリ存在 + git-status の port、 (f) UI rename. ALL TESTS PASS
 
 ---
 

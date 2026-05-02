@@ -13,6 +13,10 @@ type renameTabRequest struct {
 	Name string `json:"name"`
 }
 
+type reorderTabsRequest struct {
+	Order []string `json:"order"`
+}
+
 func (h *handlers) listTabs(w http.ResponseWriter, r *http.Request) {
 	branch, err := h.store.Branch(r.PathValue("repoId"), r.PathValue("branchId"))
 	if err != nil {
@@ -51,6 +55,23 @@ func (h *handlers) renameTab(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.store.RenameTab(r.Context(), r.PathValue("repoId"), r.PathValue("branchId"), r.PathValue("tabId"), req.Name); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// S020: PUT /api/repos/{repoId}/branches/{branchId}/tabs/order
+// Body: {"order": ["bash:dev", "bash:test", ...]}.
+// All IDs must share one Multiple()=true type (cross-group reorder
+// is forbidden — Files/Git/Claude/Bash each have their own group).
+func (h *handlers) reorderTabs(w http.ResponseWriter, r *http.Request) {
+	var req reorderTabsRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, err)
+		return
+	}
+	if err := h.store.ReorderTabs(r.Context(), r.PathValue("repoId"), r.PathValue("branchId"), req.Order); err != nil {
 		writeErr(w, err)
 		return
 	}

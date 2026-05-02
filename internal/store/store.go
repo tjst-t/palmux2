@@ -439,7 +439,88 @@ func (s *Store) recomputeTabs(ctx context.Context, branch *domain.Branch) {
 			})
 		}
 	}
+	// S020: apply per-branch name overrides + user-set ordering recorded
+	// in repos.json `tabOverrides`. Singleton (Files/Git) tabs ignore both.
+	tabs = s.applyTabOverrides(branch, tabs)
 	branch.TabSet.Tabs = tabs
+}
+
+// applyTabOverrides (S020) consults RepoStore for any user-set rename or
+// reorder entries for the given branch and rewrites the slice accordingly.
+// Order rule: tabs are first grouped by type (preserving group adjacency
+// and singleton positions), then within each Multiple()=true group the
+// user's saved order takes precedence; tabs whose IDs are not in the
+// saved order keep their default position at the tail of their group.
+func (s *Store) applyTabOverrides(branch *domain.Branch, in []domain.Tab) []domain.Tab {
+	if branch == nil || s.deps.RepoStore == nil {
+		return in
+	}
+	// 1. Apply name overrides (cheap — a single map lookup per tab).
+	for i := range in {
+		if !in[i].Multiple {
+			continue
+		}
+		if name := s.deps.RepoStore.TabName(branch.RepoID, branch.Name, in[i].ID); name != "" {
+			in[i].Name = name
+		}
+	}
+	// 2. Apply order overrides.
+	order := s.deps.RepoStore.TabOrder(branch.RepoID, branch.Name)
+	if len(order) == 0 {
+		return in
+	}
+	// Index input by ID.
+	byID := map[string]domain.Tab{}
+	for _, t := range in {
+		byID[t.ID] = t
+	}
+	// Walk the original list; whenever we hit the start of a Multiple()=true
+	// group, emit it in the order: (a) IDs from `order` matching this group,
+	// then (b) any leftover IDs in their original sequence.
+	out := make([]domain.Tab, 0, len(in))
+	emittedIDs := map[string]struct{}{}
+	i := 0
+	for i < len(in) {
+		t := in[i]
+		if !t.Multiple {
+			out = append(out, t)
+			i++
+			continue
+		}
+		// Collect the consecutive same-type group.
+		groupType := t.Type
+		groupTabs := []domain.Tab{}
+		j := i
+		for j < len(in) && in[j].Type == groupType && in[j].Multiple {
+			groupTabs = append(groupTabs, in[j])
+			j++
+		}
+		// Emit user-ordered IDs of this group first.
+		groupIDs := map[string]struct{}{}
+		for _, gt := range groupTabs {
+			groupIDs[gt.ID] = struct{}{}
+		}
+		for _, id := range order {
+			if _, ok := groupIDs[id]; !ok {
+				continue
+			}
+			if _, done := emittedIDs[id]; done {
+				continue
+			}
+			out = append(out, byID[id])
+			emittedIDs[id] = struct{}{}
+		}
+		// Then any remaining tabs in their original order.
+		for _, gt := range groupTabs {
+			if _, done := emittedIDs[gt.ID]; done {
+				continue
+			}
+			out = append(out, gt)
+			emittedIDs[gt.ID] = struct{}{}
+		}
+		i = j
+	}
+	return out
 }
 
 func displayNameFor(p tab.Provider, windowName string) string {

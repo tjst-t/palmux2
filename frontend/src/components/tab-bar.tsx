@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { useLongPress } from '../hooks/use-long-press'
@@ -10,7 +10,6 @@ import {
 } from '../stores/palmux-store'
 
 import { confirmDialog } from './context-menu/confirm-dialog'
-import { promptDialog } from './context-menu/prompt-dialog'
 import { useContextMenu } from './context-menu/store'
 import { ClaudeIcon } from './icons/claude-icon'
 import { WorkspaceActions } from './workspace-actions'
@@ -40,16 +39,28 @@ export function TabBar({ branch }: Props) {
   const addTab = usePalmuxStore((s) => s.addTab)
   const removeTab = usePalmuxStore((s) => s.removeTab)
   const renameTab = usePalmuxStore((s) => s.renameTab)
+  const reorderTabs = usePalmuxStore((s) => s.reorderTabs)
   const settings = usePalmuxStore((s) => s.globalSettings)
   const notifs = usePalmuxStore(
     repoId ? selectBranchNotifications(repoId, branch.id) : () => undefined,
   )
   const claudeUnread = notifs?.unreadCount ?? 0
   const [adding, setAdding] = useState<string | null>(null)
+  const [renamingTabId, setRenamingTabId] = useState<string | null>(null)
   const showContextMenu = useContextMenu()
   const repo = usePalmuxStore((s) =>
     repoId ? selectRepoById(repoId)(s) : undefined,
   )
+
+  // S020: drag-and-drop reorder state. Tracked locally because the order
+  // is committed to the server only on drop; while dragging we only show
+  // visual indicators. `dragOverId` is the tab the cursor is hovering
+  // over; `dragForbidden` is true when the hovered tab is in a different
+  // group from the dragged tab (cross-group drop is rejected).
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [dragOverId, setDragOverId] = useState<string | null>(null)
+  const [dragOverSide, setDragOverSide] = useState<'before' | 'after' | null>(null)
+  const [dragForbidden, setDragForbidden] = useState(false)
 
   if (!repoId) return null
 
@@ -145,6 +156,38 @@ export function TabBar({ branch }: Props) {
     .find((g) => g.type === 'claude')
     ?.tabs[0]?.id
 
+  // S020 reorder: compute new order based on a drop and commit to server.
+  const commitReorder = async (
+    draggedId: string,
+    targetId: string,
+    side: 'before' | 'after',
+  ) => {
+    const draggedTab = branch.tabSet.tabs.find((t) => t.id === draggedId)
+    const targetTab = branch.tabSet.tabs.find((t) => t.id === targetId)
+    if (!draggedTab || !targetTab) return
+    if (draggedTab.type !== targetTab.type) return // cross-group forbidden
+    if (!draggedTab.multiple || !targetTab.multiple) return
+    // Build the new order for this group only.
+    const groupTabs = branch.tabSet.tabs.filter(
+      (t) => t.type === draggedTab.type && t.multiple,
+    )
+    const without = groupTabs.filter((t) => t.id !== draggedId).map((t) => t.id)
+    const insertAt = without.indexOf(targetId)
+    if (insertAt < 0) return
+    const newOrder =
+      side === 'before'
+        ? [...without.slice(0, insertAt), draggedId, ...without.slice(insertAt)]
+        : [...without.slice(0, insertAt + 1), draggedId, ...without.slice(insertAt + 1)]
+    if (sameSequence(newOrder, groupTabs.map((t) => t.id))) return
+    try {
+      await reorderTabs(repoId, branch.id, newOrder)
+    } catch (err) {
+      // The store rolls back optimistically; surface to console for
+      // dev visibility. A toast layer is out of scope here.
+      console.warn('reorderTabs failed:', err)
+    }
+  }
+
   return (
     <div className={styles.bar} role="tablist">
       <div
@@ -172,8 +215,61 @@ export function TabBar({ branch }: Props) {
                       ? claudeUnread
                       : 0
                   }
-                  onSelect={() => goToTab(t.id)}
+                  onSelect={() => {
+                    if (renamingTabId) return
+                    goToTab(t.id)
+                  }}
                   onContext={(x, y) => openContext(t, atMin, x, y)}
+                  draggable={t.multiple === true}
+                  draggingId={draggingId}
+                  dragOverId={dragOverId}
+                  dragOverSide={dragOverSide}
+                  dragForbidden={dragForbidden}
+                  renaming={renamingTabId === t.id}
+                  onCommitRename={async (newName) => {
+                    setRenamingTabId(null)
+                    if (newName == null) return
+                    const trimmed = newName.trim()
+                    const current = extractName(t)
+                    if (!trimmed || trimmed === current) return
+                    try {
+                      await renameTab(repoId, branch.id, t.id, trimmed)
+                    } catch (err) {
+                      console.warn('renameTab failed:', err)
+                    }
+                  }}
+                  onDragStart={() => setDraggingId(t.id)}
+                  onDragEnd={() => {
+                    setDraggingId(null)
+                    setDragOverId(null)
+                    setDragOverSide(null)
+                    setDragForbidden(false)
+                  }}
+                  onDragOver={(side) => {
+                    if (!draggingId || draggingId === t.id) {
+                      setDragOverId(null)
+                      setDragOverSide(null)
+                      setDragForbidden(false)
+                      return
+                    }
+                    const dragged = branch.tabSet.tabs.find(
+                      (x) => x.id === draggingId,
+                    )
+                    const forbidden = !dragged || dragged.type !== t.type
+                    setDragOverId(t.id)
+                    setDragOverSide(side)
+                    setDragForbidden(forbidden)
+                  }}
+                  onDrop={(side) => {
+                    const target = t
+                    const dragged = draggingId
+                    setDraggingId(null)
+                    setDragOverId(null)
+                    setDragOverSide(null)
+                    setDragForbidden(false)
+                    if (!dragged || dragged === target.id) return
+                    void commitReorder(dragged, target.id, side)
+                  }}
                 />
               ))}
               {/* S009: per-type + button sits at the right edge of each
@@ -209,27 +305,47 @@ export function TabBar({ branch }: Props) {
   )
 
   function openContext(t: Tab, atMin: boolean, x: number, y: number) {
-    // Old "Restart Claude / Resume Claude" entries pre-date stream-json
-    // mode and rely on REST routes that no longer exist (the S004 wire
-    // doesn't expose them). Removed here so the menu stays accurate;
-    // both behaviours are now reachable from the in-tab Claude UI.
     const claudeItems: Array<
       | { label: string; onClick: () => void; danger?: boolean; disabled?: boolean }
       | { type: 'separator' }
     > = []
-    const renameDisabled =
-      // Singletons (Files, Git) have nothing to rename.
-      !t.multiple ||
-      // Bash tabs derive their name from the tmux window suffix; rename
-      // works there. Claude tabs are auto-named "Claude" / "Claude 2" /
-      // ... and renaming is deferred to the S020 backlog item, so we
-      // disable it here for now to avoid wedge state.
-      t.type === 'claude'
+    // S020: rename now applies to every Multiple()=true tab type. The
+    // backend persists Claude renames as a `tab_overrides.names` entry
+    // and Bash renames via tmux RenameWindow + override migration.
+    const renameDisabled = !t.multiple
     const closeDisabled =
-      // Files/Git can never close — singletons.
       !t.multiple ||
       // Last instance of a Multiple()=true group.
       atMin
+    // S020: Move-left / Move-right entries provide mobile parity for
+    // drag-and-drop reorder (touch devices don't dispatch HTML5 drag
+    // events). Disabled at boundaries.
+    const moveDisabled = !t.multiple
+    const groupTabs = branch.tabSet.tabs.filter(
+      (x) => x.type === t.type && x.multiple,
+    )
+    const groupIdx = groupTabs.findIndex((x) => x.id === t.id)
+    const canMoveLeft = !moveDisabled && groupIdx > 0
+    const canMoveRight =
+      !moveDisabled && groupIdx >= 0 && groupIdx < groupTabs.length - 1
+    const moveTab = async (dir: 'left' | 'right') => {
+      const idx = groupIdx
+      if (idx < 0) return
+      const targetIdx = dir === 'left' ? idx - 1 : idx + 1
+      if (targetIdx < 0 || targetIdx >= groupTabs.length) return
+      const newOrder = [...groupTabs]
+      const [moved] = newOrder.splice(idx, 1)
+      newOrder.splice(targetIdx, 0, moved)
+      try {
+        await reorderTabs(
+          repoId!,
+          branch.id,
+          newOrder.map((x) => x.id),
+        )
+      } catch (err) {
+        console.warn('moveTab failed:', err)
+      }
+    }
     showContextMenu(
       [
         { type: 'heading', label: t.name },
@@ -237,25 +353,19 @@ export function TabBar({ branch }: Props) {
         {
           label: 'Rename…',
           disabled: renameDisabled,
-          onClick: async () => {
-            const current = extractName(t)
-            const next = await promptDialog.ask({
-              title: 'Rename tab',
-              defaultValue: current,
-              confirmLabel: 'Rename',
-              validate: (v) => {
-                const trimmed = v.trim()
-                if (!trimmed) return 'Name cannot be empty.'
-                if (trimmed === current) return null
-                return null
-              },
-            })
-            if (next == null) return
-            const trimmed = next.trim()
-            if (trimmed && trimmed !== current) {
-              await renameTab(repoId!, branch.id, t.id, trimmed)
-            }
+          onClick: () => {
+            setRenamingTabId(t.id)
           },
+        },
+        {
+          label: 'Move left',
+          disabled: !canMoveLeft,
+          onClick: () => void moveTab('left'),
+        },
+        {
+          label: 'Move right',
+          disabled: !canMoveRight,
+          onClick: () => void moveTab('right'),
         },
         { type: 'separator' },
         {
@@ -286,28 +396,106 @@ export function TabBar({ branch }: Props) {
   }
 }
 
+interface TabRowProps {
+  tab: Tab
+  active: boolean
+  unreadBadge: number
+  onSelect: () => void
+  onContext: (x: number, y: number) => void
+  draggable: boolean
+  draggingId: string | null
+  dragOverId: string | null
+  dragOverSide: 'before' | 'after' | null
+  dragForbidden: boolean
+  renaming: boolean
+  onCommitRename: (newName: string | null) => void
+  onDragStart: () => void
+  onDragEnd: () => void
+  onDragOver: (side: 'before' | 'after') => void
+  onDrop: (side: 'before' | 'after') => void
+}
+
 function TabRow({
   tab,
   active,
   unreadBadge,
   onSelect,
   onContext,
-}: {
-  tab: Tab
-  active: boolean
-  unreadBadge: number
-  onSelect: () => void
-  onContext: (x: number, y: number) => void
-}) {
+  draggable,
+  draggingId,
+  dragOverId,
+  dragOverSide,
+  dragForbidden,
+  renaming,
+  onCommitRename,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDrop,
+}: TabRowProps) {
   const longPress = useLongPress((x, y) => onContext(x, y))
+  const isDragging = draggingId === tab.id
+  const isDragOver = dragOverId === tab.id
+  const inputRef = useRef<HTMLInputElement | null>(null)
+
+  // Focus the rename input when entering rename mode.
+  useEffect(() => {
+    if (renaming && inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
+    }
+  }, [renaming])
+
+  let extra = ''
+  if (isDragging) extra = ` ${styles.tabDragging}`
+  if (isDragOver) {
+    if (dragForbidden) {
+      extra += ` ${styles.tabDropForbidden}`
+    } else if (dragOverSide === 'before') {
+      extra += ` ${styles.tabDropBefore}`
+    } else if (dragOverSide === 'after') {
+      extra += ` ${styles.tabDropAfter}`
+    }
+  }
+
   return (
     <button
       role="tab"
       data-testid={`tab-${tab.id}`}
       data-tab-type={tab.type}
       data-tab-id={tab.id}
+      data-rename-active={renaming ? '1' : undefined}
+      data-drag-over={isDragOver ? (dragForbidden ? 'forbidden' : dragOverSide) : undefined}
       aria-selected={active}
-      className={active ? `${styles.tab} ${styles.tabActive}` : styles.tab}
+      className={(active ? `${styles.tab} ${styles.tabActive}` : styles.tab) + extra}
+      draggable={draggable && !renaming}
+      onDragStart={(e) => {
+        if (!draggable) return
+        e.dataTransfer.effectAllowed = 'move'
+        e.dataTransfer.setData('text/x-palmux-tab', tab.id)
+        onDragStart()
+      }}
+      onDragEnd={onDragEnd}
+      onDragOver={(e) => {
+        if (!draggingId) return
+        e.preventDefault()
+        // Choose `before` if cursor is on the left half of the tab, else `after`.
+        const rect = e.currentTarget.getBoundingClientRect()
+        const side = e.clientX < rect.left + rect.width / 2 ? 'before' : 'after'
+        e.dataTransfer.dropEffect = dragForbidden ? 'none' : 'move'
+        onDragOver(side)
+      }}
+      onDrop={(e) => {
+        if (!draggingId) return
+        e.preventDefault()
+        if (dragForbidden) {
+          onDragEnd()
+          return
+        }
+        const rect = e.currentTarget.getBoundingClientRect()
+        const side = e.clientX < rect.left + rect.width / 2 ? 'before' : 'after'
+        onDrop(side)
+      }}
       onClick={onSelect}
       onContextMenu={(e) => {
         e.preventDefault()
@@ -321,7 +509,29 @@ function TabRow({
       {...longPress}
     >
       <span className={styles.tabIcon}>{iconFor(tab.type)}</span>
-      <span className={styles.tabLabel}>{tab.name}</span>
+      {renaming ? (
+        <input
+          ref={inputRef}
+          data-testid="tab-rename-input"
+          className={styles.renameInput}
+          defaultValue={extractName(tab)}
+          onBlur={(e) => onCommitRename(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              onCommitRename((e.currentTarget as HTMLInputElement).value)
+            } else if (e.key === 'Escape') {
+              e.preventDefault()
+              onCommitRename(null)
+            }
+            // Stop click handlers above from re-routing.
+            e.stopPropagation()
+          }}
+          onClick={(e) => e.stopPropagation()}
+        />
+      ) : (
+        <span className={styles.tabLabel}>{tab.name}</span>
+      )}
       {unreadBadge > 0 && <span className={styles.tabBadge}>{unreadBadge}</span>}
     </button>
   )
@@ -350,12 +560,26 @@ function groupTabsByType(tabs: Tab[]): TabGroup[] {
 }
 
 function extractName(t: Tab): string {
-  if (!t.id.includes(':')) return t.name
-  return t.id.split(':')[1] ?? t.name
+  // For Bash tabs the rename targets the tmux window suffix (so the
+  // editor should default to `dev-server`, not `Bash dev-server`). For
+  // Claude tabs the rename writes a free-form display label, so we
+  // start with whatever the user already sees.
+  if (t.type === 'bash' && t.id.includes(':')) {
+    return t.id.split(':')[1] ?? t.name
+  }
+  return t.name
 }
 
 function capitalise(s: string): string {
   return s.length === 0 ? s : s[0].toUpperCase() + s.slice(1)
+}
+
+function sameSequence(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
 }
 
 function iconFor(type: string): ReactNode {

@@ -90,3 +90,39 @@
   opacity: 0.4;
   cursor: progress;
 }
+
+/* S020: drag-and-drop reorder. The tab being dragged dims slightly
+   so the user can see where it currently is; valid drop targets get a
+   left/right edge rule to indicate where the drop will land. Cross-
+   group drops show a `not-allowed` cursor so the user knows the drop
+   will fail. */
+.tabDragging {
+  opacity: 0.4;
+}
+.tabDropBefore {
+  box-shadow: inset 2px 0 0 0 var(--color-accent);
+}
+.tabDropAfter {
+  box-shadow: inset -2px 0 0 0 var(--color-accent);
+}
+.tabDropForbidden {
+  cursor: not-allowed;
+}
+
+/* S020: inline rename editor — replaces the tab label with a textarea
+   while editing. */
+.renameInput {
+  background: var(--color-elevated);
+  color: var(--color-fg);
+  border: 1px solid var(--color-accent);
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-size: 12px;
+  font-family: var(--font-ui);
+  min-width: 80px;
+  max-width: 200px;
+}
+.renameInput:focus {
+  outline: none;
+  border-color: var(--color-accent-light);
+}

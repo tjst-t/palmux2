@@ -13,11 +13,12 @@
 //     view but *not* in any text input: `s` stage, `u` unstage, `c`
 //     focus-commit, `d` discard, `p` push, `f` fetch.
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { confirmDialog } from '../../components/context-menu/confirm-dialog'
 import { useGitStatusEvents } from '../../hooks/use-git-status-events'
 import { api } from '../../lib/api'
+import { bindToTabType, useTabKeybindings } from '../../lib/keybindings'
 
 import styles from './git-status.module.css'
 import type { FileStatus, StatusReport } from './types'
@@ -91,65 +92,55 @@ export function GitStatus({
     [apiBase, reload],
   )
 
-  // Magit-style keyboard shortcuts. Only fire when focus is inside the
-  // status view AND the active element is not an input/textarea/select.
-  useEffect(() => {
-    const onKey = (ev: KeyboardEvent) => {
-      const target = ev.target as HTMLElement | null
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) {
-        return
-      }
-      if (ev.metaKey || ev.ctrlKey || ev.altKey) return
-      // Only act when the focus is somewhere inside the status view.
-      const root = containerRef.current
-      if (!root || !document.activeElement || !root.contains(document.activeElement)) {
-        return
-      }
-      const path = selectedPath
-      switch (ev.key) {
-        case 's':
-          if (path) {
-            ev.preventDefault()
-            void act(path, 'stage')
-          }
-          break
-        case 'u':
-          if (path) {
-            ev.preventDefault()
-            void act(path, 'unstage')
-          }
-          break
-        case 'd':
-          if (path) {
-            ev.preventDefault()
-            void (async () => {
-              const ok = await confirmDialog.ask({
-                title: 'Discard changes?',
-                message: `Discard changes to ${path}? This cannot be undone.`,
-                confirmLabel: 'Discard',
-                danger: true,
-              })
-              if (ok) await act(path, 'discard')
-            })()
-          }
-          break
-        case 'c':
-          ev.preventDefault()
+  // Magit-style keyboard shortcuts via the shared focus-aware
+  // keybinding helper (S020). Only fires when focus is inside `containerRef`
+  // and the active element is not an input. When the user switches to a
+  // Bash / Claude tab the GitStatus component unmounts; the hook's
+  // effect cleanup detaches the listener so `s` / `u` / `c` flow into
+  // xterm as ordinary shell input.
+  const bindings = useMemo(
+    () =>
+      bindToTabType('git', {
+        s: (e) => {
+          if (!selectedPath) return
+          e.preventDefault()
+          void act(selectedPath, 'stage')
+        },
+        u: (e) => {
+          if (!selectedPath) return
+          e.preventDefault()
+          void act(selectedPath, 'unstage')
+        },
+        d: (e) => {
+          if (!selectedPath) return
+          e.preventDefault()
+          const path = selectedPath
+          void (async () => {
+            const ok = await confirmDialog.ask({
+              title: 'Discard changes?',
+              message: `Discard changes to ${path}? This cannot be undone.`,
+              confirmLabel: 'Discard',
+              danger: true,
+            })
+            if (ok) await act(path, 'discard')
+          })()
+        },
+        c: (e) => {
+          e.preventDefault()
           onMagitCommit()
-          break
-        case 'p':
-          ev.preventDefault()
+        },
+        p: (e) => {
+          e.preventDefault()
           onMagitPush()
-          break
-        case 'f':
-          ev.preventDefault()
+        },
+        f: (e) => {
+          e.preventDefault()
           onMagitFetch()
-          break
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [act, onMagitCommit, onMagitFetch, onMagitPush, selectedPath])
+        },
+      }),
+    [act, onMagitCommit, onMagitFetch, onMagitPush, selectedPath],
+  )
+  useTabKeybindings(containerRef, bindings)
 
   if (error) return <p className={styles.error}>{error}</p>
   if (!rep) return <p className={styles.empty}>Loading…</p>

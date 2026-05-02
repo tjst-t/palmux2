@@ -234,6 +234,11 @@ interface PalmuxStoreState {
   addTab: (repoId: string, branchId: string, type: string, name?: string) => Promise<Tab>
   removeTab: (repoId: string, branchId: string, tabId: string) => Promise<void>
   renameTab: (repoId: string, branchId: string, tabId: string, name: string) => Promise<void>
+  /** S020: reorder a Multiple()=true group within one branch.
+   *  `order` MUST be a contiguous slice of tab IDs that all share one
+   *  Multiple()=true type — the server rejects cross-group payloads
+   *  with 400. */
+  reorderTabs: (repoId: string, branchId: string, order: string[]) => Promise<void>
 
   /** S015: move a branch into `my` by appending to
    *  repos.json#userOpenedBranches. Optimistic — the local Branch's
@@ -331,6 +336,7 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
       'tab.added',
       'tab.removed',
       'tab.renamed',
+      'tab.reordered',
     ])
     if (domainEvents.has(ev.type)) {
       void get().reloadRepos()
@@ -530,6 +536,32 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
     )
     await get().reloadRepos()
   },
+  reorderTabs: async (repoId, branchId, order) => {
+    // Optimistic: shuffle the local cache so the TabBar reflects the drop
+    // immediately. On failure we revert + reload from the server.
+    const prev = get().repos
+    set((state) => ({
+      repos: state.repos.map((r) =>
+        r.id !== repoId
+          ? r
+          : {
+              ...r,
+              openBranches: r.openBranches.map((b) =>
+                b.id !== branchId ? b : { ...b, tabSet: { ...b.tabSet, tabs: applyLocalOrder(b.tabSet.tabs, order) } },
+              ),
+            },
+      ),
+    }))
+    try {
+      await api.put(
+        `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/tabs/order`,
+        { order },
+      )
+    } catch (err) {
+      set({ repos: prev })
+      throw err
+    }
+  },
 
   // S015 promote/demote: optimistic local update + REST. The server
   // also broadcasts `branch.categoryChanged` which the applyEvent path
@@ -587,6 +619,50 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
     }
   },
 }))
+
+// S020: applyLocalOrder rebuilds the tabs slice with the user-requested
+// order applied within the contiguous Multiple()=true group whose IDs are
+// in `order`. Singletons and other groups keep their original positions.
+function applyLocalOrder(tabs: Tab[], order: string[]): Tab[] {
+  if (order.length === 0) return tabs
+  const orderSet = new Set(order)
+  const groupType = tabs.find((t) => orderSet.has(t.id))?.type
+  if (!groupType) return tabs
+  const byId = new Map(tabs.map((t) => [t.id, t]))
+  const out: Tab[] = []
+  const emitted = new Set<string>()
+  let i = 0
+  while (i < tabs.length) {
+    const t = tabs[i]
+    if (t.type !== groupType || !t.multiple) {
+      out.push(t)
+      i++
+      continue
+    }
+    // Walk the contiguous same-type Multiple group.
+    let j = i
+    while (j < tabs.length && tabs[j].type === groupType && tabs[j].multiple) j++
+    // Emit user-ordered IDs first (only those that exist in this group's
+    // payload), then any remaining members in their original relative
+    // order so a partial drop-payload (shouldn't happen, but be safe)
+    // doesn't lose tabs.
+    const present = new Set(tabs.slice(i, j).map((x) => x.id))
+    for (const id of order) {
+      if (!present.has(id)) continue
+      const t2 = byId.get(id)
+      if (!t2 || emitted.has(id)) continue
+      out.push(t2)
+      emitted.add(id)
+    }
+    for (let k = i; k < j; k++) {
+      if (emitted.has(tabs[k].id)) continue
+      out.push(tabs[k])
+      emitted.add(tabs[k].id)
+    }
+    i = j
+  }
+  return out
+}
 
 // Convenience selectors
 export const selectRepoById = (id: string) => (s: PalmuxStoreState) =>

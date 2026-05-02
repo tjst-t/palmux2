@@ -111,6 +111,10 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 
 	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/tabs", h.listTabs)
 	mux.HandleFunc("POST /api/repos/{repoId}/branches/{branchId}/tabs", h.addTab)
+	// S020: order PUT must be registered BEFORE the {tabId} pattern below;
+	// Go's http.ServeMux uses path-pattern specificity but registering
+	// in this order makes the intent obvious.
+	mux.HandleFunc("PUT /api/repos/{repoId}/branches/{branchId}/tabs/order", h.reorderTabs)
 	mux.HandleFunc("DELETE /api/repos/{repoId}/branches/{branchId}/tabs/{tabId}", h.removeTab)
 	mux.HandleFunc("PATCH /api/repos/{repoId}/branches/{branchId}/tabs/{tabId}", h.renameTab)
 
