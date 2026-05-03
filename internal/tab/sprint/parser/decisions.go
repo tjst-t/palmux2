@@ -1,129 +1,66 @@
+// decisions.go — JSON unmarshaler for docs/sprint-logs/{S}/decisions.json
+// (S028). Replaces the markdown bullet parser.
+//
+// Each decision is normalized into a DecisionEntry. We keep `Title` and
+// `Body` separate (Title from the schema's title field, Body from
+// `detail`) because the existing FE renders them distinctly. NEEDS_HUMAN
+// detection is preserved — the schema doesn't have a dedicated field, so
+// we look at category and detail text.
+
 package parser
 
 import (
-	"bufio"
-	"regexp"
+	"encoding/json"
 	"strings"
-	"time"
 )
 
-// DecisionEntry is one bullet inside docs/sprint-logs/{Sprint}/decisions.md.
-type DecisionEntry struct {
-	SprintID  string    `json:"sprintId"`
-	Category  string    `json:"category"` // "planning" | "implementation" | "review" | "backlog" | "needs_human"
-	Title     string    `json:"title,omitempty"`
-	Body      string    `json:"body"`
-	NeedsHuman bool     `json:"needsHuman,omitempty"`
-	Timestamp time.Time `json:"timestamp,omitempty"`
-}
-
-// DecisionsLog is a parsed decisions.md.
-type DecisionsLog struct {
-	SprintID    string          `json:"sprintId"`
-	Header      string          `json:"header,omitempty"`
-	Entries     []DecisionEntry `json:"entries"`
-	ParseErrors []ParseError    `json:"parseErrors,omitempty"`
-}
-
-var (
-	reDecisionCategory = regexp.MustCompile(`^##\s+(.+?)\s*$`)
-	// Bullet entry: `- **Title**: body...` (multi-line continuation handled
-	// separately).
-	reDecisionBullet = regexp.MustCompile(`^- \*\*(.+?)\*\*\s*[:：]\s*(.*)$`)
-	// Plain bullet: `- body` (no bold title).
-	rePlainBullet = regexp.MustCompile(`^- (.+)$`)
-)
-
-// ParseDecisions scans one decisions.md file for the given Sprint ID. It
-// is fail-safe: any unparseable bullet is skipped (and recorded in
-// ParseErrors) but the rest of the document is still served.
-func ParseDecisions(sprintID, src string) DecisionsLog {
-	out := DecisionsLog{SprintID: sprintID}
-	scanner := bufio.NewScanner(strings.NewReader(src))
-	scanner.Buffer(make([]byte, 1024*1024), 8*1024*1024)
-	var lines []string
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+// ParseDecisions parses one decisions.json file. SprintID is taken from
+// the document if present and falls back to the caller-supplied value
+// (which is the directory name under docs/sprint-logs/).
+//
+// Fail-safe: a malformed file yields a single ParseError plus an empty
+// Entries slice.
+func ParseDecisions(sprintID string, src []byte) DecisionsLog {
+	out := DecisionsLog{
+		SprintID:    sprintID,
+		Entries:     []DecisionEntry{},
+		ParseErrors: []ParseError{},
 	}
-
-	// Optional H1 / front-matter as Header.
-	headerEnd := 0
-	for i, l := range lines {
-		if strings.HasPrefix(l, "## ") {
-			headerEnd = i
-			break
-		}
+	if len(src) == 0 {
+		return out
 	}
-	if headerEnd > 0 {
-		out.Header = strings.TrimSpace(strings.Join(lines[:headerEnd], "\n"))
+	var doc decisionsDoc
+	if err := json.Unmarshal(src, &doc); err != nil {
+		out.ParseErrors = append(out.ParseErrors, jsonSyntaxError("decisions.json", src, err))
+		return out
 	}
-
-	category := ""
-	var current *DecisionEntry
-	flush := func() {
-		if current == nil {
-			return
-		}
-		current.Body = strings.TrimSpace(current.Body)
-		if strings.Contains(strings.ToUpper(current.Body), "NEEDS_HUMAN") ||
-			strings.Contains(strings.ToUpper(current.Title), "NEEDS_HUMAN") {
-			current.NeedsHuman = true
-		}
-		out.Entries = append(out.Entries, *current)
-		current = nil
+	if doc.Sprint != "" {
+		out.SprintID = doc.Sprint
 	}
-
-	for _, l := range lines {
-		if m := reDecisionCategory.FindStringSubmatch(l); m != nil {
-			flush()
-			category = classifyDecisionCategory(strings.TrimSpace(m[1]))
-			continue
+	for _, d := range doc.Decisions {
+		entry := DecisionEntry{
+			SprintID:  out.SprintID,
+			Category:  classifyDecisionCategory(d.Category),
+			Title:     d.Title,
+			Body:      d.Detail,
+			Reference: d.Reference,
+			Timestamp: d.Timestamp,
 		}
-		if category == "" {
-			continue
+		// NEEDS_HUMAN detection — preserved from the markdown era.
+		// Either an explicit "needs_human" category or the substring in
+		// title/body sets the flag.
+		if entry.Category == "needs_human" ||
+			containsNeedsHuman(entry.Title) ||
+			containsNeedsHuman(entry.Body) {
+			entry.NeedsHuman = true
 		}
-		if strings.HasPrefix(l, "- **") {
-			flush()
-			if m := reDecisionBullet.FindStringSubmatch(l); m != nil {
-				current = &DecisionEntry{
-					SprintID: sprintID,
-					Category: category,
-					Title:    strings.TrimSpace(m[1]),
-					Body:     strings.TrimSpace(m[2]),
-				}
-				continue
-			}
-			// Bold-without-colon — fall through to plain handling.
-		}
-		if strings.HasPrefix(l, "- ") && current == nil {
-			if m := rePlainBullet.FindStringSubmatch(l); m != nil {
-				current = &DecisionEntry{
-					SprintID: sprintID,
-					Category: category,
-					Body:     strings.TrimSpace(m[1]),
-				}
-				continue
-			}
-		}
-		// Continuation of current bullet (indented or blank-aware).
-		if current != nil {
-			trim := strings.TrimSpace(l)
-			if trim == "" {
-				continue
-			}
-			if strings.HasPrefix(l, "  ") || strings.HasPrefix(l, "\t") {
-				current.Body += " " + trim
-			}
-		}
+		out.Entries = append(out.Entries, entry)
 	}
-	flush()
 	return out
 }
 
-// classifyDecisionCategory maps the section heading text to the canonical
-// category slug used by the FE filter UI.
 func classifyDecisionCategory(s string) string {
-	low := strings.ToLower(s)
+	low := strings.ToLower(strings.TrimSpace(s))
 	switch {
 	case strings.Contains(low, "planning"):
 		return "planning"
@@ -133,9 +70,16 @@ func classifyDecisionCategory(s string) string {
 		return "review"
 	case strings.Contains(low, "backlog"):
 		return "backlog"
-	case strings.Contains(low, "needs_human") || strings.Contains(low, "needs human"):
+	case strings.Contains(low, "needs_human") || strings.Contains(low, "needs-human") || strings.Contains(low, "needs human"):
 		return "needs_human"
-	default:
+	case low == "":
 		return "other"
+	default:
+		return low
 	}
+}
+
+func containsNeedsHuman(s string) bool {
+	up := strings.ToUpper(s)
+	return strings.Contains(up, "NEEDS_HUMAN") || strings.Contains(up, "NEEDS HUMAN")
 }

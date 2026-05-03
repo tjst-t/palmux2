@@ -1,5 +1,10 @@
 // Type contracts mirroring internal/tab/sprint structs. Whenever the
 // backend payload changes, update these in lockstep — there's no codegen.
+//
+// S028: backend was rewritten to consume JSON (ROADMAP.json + sprint-logs/
+// **/*.json). The wire format the FE consumes is intentionally backwards
+// compatible with the S016 markdown-era shape, with a few additive fields
+// (description / blockedReason / failures / parseError line/column).
 
 export interface Progress {
   total: number
@@ -12,17 +17,30 @@ export interface Progress {
 export interface ParseError {
   section: string
   detail: string
+  // S028: present when the parser pinpoints a JSON syntax / type error.
+  line?: number
+  column?: number
 }
 
 export interface Acceptance {
+  // Stable legacy fields (Done / Text). The FE renders {ac.text} directly.
   done: boolean
   text: string
+  // Schema-aligned fields, available when the source is ROADMAP.json.
+  id?: string
+  description?: string
+  test?: string
+  status?: 'pass' | 'fail' | 'pending' | 'no_test'
 }
 
 export interface Task {
   id?: string
   done: boolean
   text: string
+  // Schema-aligned fields.
+  title?: string
+  description?: string
+  status?: 'done' | 'pending'
 }
 
 export interface Story {
@@ -31,6 +49,7 @@ export interface Story {
   status: string
   statusKind: 'done' | 'in-progress' | 'pending' | 'blocked' | 'needs-human'
   userStory?: string
+  blockedReason?: string
   acceptanceCriteria: Acceptance[]
   tasks: Task[]
 }
@@ -41,6 +60,7 @@ export interface Sprint {
   status: string
   statusKind: 'done' | 'in-progress' | 'pending' | 'blocked' | 'needs-human'
   description?: string
+  milestone?: boolean
   stories: Story[]
   parseError?: string
   lineRange: [number, number]
@@ -60,8 +80,12 @@ export interface TimelineEntry {
 }
 
 export interface Dependency {
-  text: string
+  // S028: schema-derived. `from` is the dependent sprint; `refs` is
+  // [from, prereq1, prereq2, ...] for backward compat with the Mermaid
+  // edge derivation.
+  from?: string
   refs?: string[]
+  text: string
 }
 
 export interface DecisionEntry {
@@ -69,6 +93,8 @@ export interface DecisionEntry {
   category: 'planning' | 'implementation' | 'review' | 'backlog' | 'needs_human' | 'other'
   title?: string
   body: string
+  reference?: string
+  timestamp?: string
   needsHuman?: boolean
 }
 
@@ -99,6 +125,17 @@ export interface RefineEntry {
   title?: string
   body?: string
   files?: string[]
+  testsRerun?: string[]
+  testsPassed?: boolean
+}
+
+export interface FailureEntry {
+  sprintId: string
+  story?: string
+  type?: string
+  summary?: string
+  attempts?: Array<{ approach?: string; result?: string }>
+  resolution?: string
 }
 
 // === Endpoint response shapes ===============================================
@@ -119,6 +156,7 @@ export interface SprintDetailResponse {
   decisions: DecisionEntry[]
   acceptanceMatrix: AcceptanceMatrixRow[]
   e2eResults: E2EResults
+  failures?: FailureEntry[]
   parseErrors?: ParseError[]
 }
 

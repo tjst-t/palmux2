@@ -1,0 +1,61 @@
+{
+  "sprint": "S028",
+  "decisions": [
+    {
+      "timestamp": "2026-05-03T07:25:00Z",
+      "category": "planning",
+      "title": "Wire format unchanged",
+      "detail": "Backend was rewritten to consume JSON, but the REST response shape returned to the FE is intentionally backwards-compatible with the S016 markdown era. New schema-derived fields (`description`, `blockedReason`, `failures`, `parseError.line/column`) are additive only. Result: the React screens (overview / sprint-detail / dependency-graph / decision-timeline / refine-history) needed no markup changes — only the TypeScript type file was touched.",
+      "reference": "DESIGN_PRINCIPLES: 既存資産活用 > 新規実装"
+    },
+    {
+      "timestamp": "2026-05-03T07:26:00Z",
+      "category": "implementation",
+      "title": "i18n parser code deleted (S016-fix-1)",
+      "detail": "The dual JP/EN heading regex and prefix matchers introduced in S016-fix-1 are gone. JSON has a single, schema-defined shape — no language ambiguity to resolve. Net diff: -493 lines in roadmap.go, -141 in decisions.go, -180 in results.go. Replaced with `encoding/json` + projection in roughly the same total LoC, but with a much narrower failure surface.",
+      "reference": "VISION: 半完成投入しない / DESIGN_PRINCIPLES: 明示的 > 暗黙的"
+    },
+    {
+      "timestamp": "2026-05-03T07:27:00Z",
+      "category": "implementation",
+      "title": "Schema-aligned Go structs in parser/types.go",
+      "detail": "On-disk `*Doc` types (private) mirror sprint-runner's ROADMAP_SCHEMA.json / SPRINT_LOGS_SCHEMA.json byte-for-byte; FE-facing `Roadmap` / `Sprint` / `Story` etc. (public) preserve the legacy JSON tags so the FE didn't need to be rewritten. `Acceptance.Done` is now derived from `status == 'pass'` (schema enum), `Task.Done` from `status == 'done'`. `BacklogEntry.Source` is still extracted from '(Sxxx 由来)' strings for backward compat with pre-migration backlog entries.",
+      "reference": "ROADMAP_SCHEMA.json / SPRINT_LOGS_SCHEMA.json (sprint-runner skill)"
+    },
+    {
+      "timestamp": "2026-05-03T07:28:00Z",
+      "category": "implementation",
+      "title": "Filewatch narrowed to *.json",
+      "detail": "`sprintFilter` accepts only `docs/ROADMAP.json` and `docs/sprint-logs/**/*.json` (plus `.claude/autopilot-*.lock`). `.md.bak` leftovers and any other extension are rejected at the filter layer so they never reset the debounce. `fileTagDir` was tightened to skip non-JSON files in the ETag hash — verified by E2E test (i): adding `.md.bak` files leaves the overview ETag stable.",
+      "reference": "DESIGN_PRINCIPLES: 明示的 > 暗黙的"
+    },
+    {
+      "timestamp": "2026-05-03T07:29:00Z",
+      "category": "implementation",
+      "title": "Fail-safe ParseError with line/column hints",
+      "detail": "JSON syntax / type errors are caught and folded into `Roadmap.ParseErrors` with line/column derived from `json.SyntaxError.Offset` and `json.UnmarshalTypeError.Offset`. The handler returns 200 with the partial document so the FE renders an inline banner rather than a 500. E2E test (h) verifies a truncated document at line 1 → parseErrors[0].line == 1.",
+      "reference": "DESIGN_PRINCIPLES: 半完成投入しない / 明示的 > 暗黙的"
+    },
+    {
+      "timestamp": "2026-05-03T07:30:00Z",
+      "category": "implementation",
+      "title": "E2EResults bucketing inferred from filename",
+      "detail": "Schema's e2e-results.json has a single top-level summary, but the FE Sprint Detail screen renders three buckets (mock / e2e / acceptance). We infer the bucket per-test from `tests[].file`: `*.mock.spec.*` → mock, `tests/acceptance/*` or substring `acceptance` → acceptance, otherwise e2e. When the document has no per-test array, the top-level summary becomes the e2e bucket.",
+      "reference": "DESIGN_PRINCIPLES: 既存資産活用 > 新規実装"
+    },
+    {
+      "timestamp": "2026-05-03T07:31:00Z",
+      "category": "implementation",
+      "title": "Obsolete S016 / S016-fix-1 E2E tests removed",
+      "detail": "tests/e2e/s016_sprint_dashboard.py and tests/e2e/s016_fix1_i18n.py were deleted — both seeded markdown-only fixtures (ROADMAP.md + decisions.md) which the new provider doesn't read. S028 supersedes them with tests/e2e/s028_sprint_json.py covering the same five-screen surface plus JSON-specific scenarios (parse errors with line hints, .md.bak ignored, failures.json + gui-spec-*.json).",
+      "reference": "VISION: 半完成投入しない"
+    },
+    {
+      "timestamp": "2026-05-03T07:32:00Z",
+      "category": "review",
+      "title": "Story-level review skipped (single-story sprint)",
+      "detail": "S028 has one Story (S028-1: Sprint tab JSON 対応). The acceptance criteria collapse into a single migration cut, so per-story review would just duplicate sprint-level review. Verified at E2E level: 12/12 PASS including playwright smoke, malformed-input fail-safe, .md.bak ignored, filewatch propagation, dependency graph, decision timeline filter, refine history.",
+      "reference": "DESIGN_PRINCIPLES: 既存資産活用 > 新規実装"
+    }
+  ]
+}

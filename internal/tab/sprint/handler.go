@@ -20,7 +20,11 @@ import (
 // handler holds the shared store and serves the five Sprint Dashboard
 // endpoints. Every response carries an ETag derived from the modtime+size
 // of the source files so the FE can short-circuit `window.focus`
-// re-fetches with `If-None-Match` (S016 task -1-15).
+// re-fetches with `If-None-Match`.
+//
+// S028: all reads target JSON files (ROADMAP.json + decisions.json /
+// e2e-results.json / acceptance-matrix.json / refine.json / failures.json
+// / gui-spec-*.json). The wire format the FE consumes is unchanged.
 type handler struct {
 	store *store.Store
 }
@@ -50,8 +54,8 @@ func writeErr(w http.ResponseWriter, err error) {
 	writeJSON(w, status, map[string]string{"error": err.Error()})
 }
 
-// fileTag computes a cheap ETag from one or more file paths. Missing files
-// contribute "0:0" so a created/deleted file changes the ETag.
+// fileTag computes a cheap ETag from one or more file paths. Missing
+// files contribute "missing" so a created/deleted file changes the ETag.
 func fileTag(paths ...string) string {
 	h := sha256.New()
 	for _, p := range paths {
@@ -70,13 +74,15 @@ func fileTag(paths ...string) string {
 	return `"` + hex.EncodeToString(h.Sum(nil))[:16] + `"`
 }
 
-// fileTagDir is fileTag for a directory tree — it walks `dir` and
-// includes every regular file's modtime+size in the hash. Used for the
-// sprint-logs aggregate endpoints (decisions / refine).
+// fileTagDir is fileTag for a directory tree. Only `.json` files
+// contribute — `.md.bak` leftovers are deliberately ignored.
 func fileTagDir(dir string) string {
 	h := sha256.New()
 	_ = filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
 		if err != nil || info == nil || info.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(strings.ToLower(info.Name()), ".json") {
 			return nil
 		}
 		h.Write([]byte(p))
@@ -101,14 +107,10 @@ func sendCacheable(w http.ResponseWriter, r *http.Request, etag string) bool {
 	return false
 }
 
-// readFile reads a worktree-relative file. Returns ("", os.ErrNotExist) if
-// it doesn't exist, ("", nil) for an empty file (regular file, no bytes).
-func readFile(root, rel string) (string, error) {
-	b, err := os.ReadFile(filepath.Join(root, rel))
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
+// readFileBytes reads a worktree-relative file as bytes. Returns
+// (nil, os.ErrNotExist) if missing.
+func readFileBytes(root, rel string) ([]byte, error) {
+	return os.ReadFile(filepath.Join(root, rel))
 }
 
 // ----------------------------------------------------------------------
@@ -117,14 +119,14 @@ func readFile(root, rel string) (string, error) {
 
 // OverviewResponse mirrors the Overview screen contract.
 type OverviewResponse struct {
-	Project        string             `json:"project"`
-	Vision         string             `json:"vision,omitempty"`
-	Progress       parser.Progress    `json:"progress"`
-	CurrentSprint  *parser.Sprint     `json:"currentSprint,omitempty"`
-	NextMilestone  string             `json:"nextMilestone,omitempty"`
-	ActiveAutopilot []ActiveAutopilot `json:"activeAutopilot"`
-	Timeline       []TimelineEntry    `json:"timeline"`
-	ParseErrors    []parser.ParseError `json:"parseErrors,omitempty"`
+	Project         string              `json:"project"`
+	Vision          string              `json:"vision,omitempty"`
+	Progress        parser.Progress     `json:"progress"`
+	CurrentSprint   *parser.Sprint      `json:"currentSprint,omitempty"`
+	NextMilestone   string              `json:"nextMilestone,omitempty"`
+	ActiveAutopilot []ActiveAutopilot   `json:"activeAutopilot"`
+	Timeline        []TimelineEntry     `json:"timeline"`
+	ParseErrors     []parser.ParseError `json:"parseErrors,omitempty"`
 }
 
 // ActiveAutopilot is one .claude/autopilot-*.lock detected in the worktree.
@@ -149,15 +151,15 @@ func (h *handler) overview(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	roadmapPath := filepath.Join(root, "docs", "ROADMAP.md")
-	visionPath := filepath.Join(root, "docs", "VISION.md")
+	roadmapPath := filepath.Join(root, "docs", "ROADMAP.json")
+	visionPath := filepath.Join(root, "docs", "VISION.json")
 	autopilotDir := filepath.Join(root, ".claude")
 	tag := fileTag(roadmapPath, visionPath) + ":" + dirTagFiltered(autopilotDir, isAutopilotLock)
 	if sendCacheable(w, r, `"`+shortHash(tag)+`"`) {
 		return
 	}
 
-	src, err := readFile(root, "docs/ROADMAP.md")
+	src, err := readFileBytes(root, "docs/ROADMAP.json")
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -169,13 +171,13 @@ func (h *handler) overview(w http.ResponseWriter, r *http.Request) {
 		ParseErrors: rm.ParseErrors,
 	}
 
-	// Vision: first non-empty paragraph from VISION.md.
-	if v, err := readFile(root, "docs/VISION.md"); err == nil {
-		resp.Vision = firstNonEmptyParagraph(v)
+	// Vision: read VISION.json and use its top-level "vision" field.
+	if v, err := readFileBytes(root, "docs/VISION.json"); err == nil {
+		resp.Vision = visionFromJSON(v)
 	}
 
-	// Current sprint: the first non-done sprint, falling back to the last
-	// known sprint when everything's done.
+	// Current sprint: the first non-done sprint, falling back to the
+	// last known sprint when everything's done.
 	for i := range rm.Sprints {
 		s := &rm.Sprints[i]
 		if s.StatusKind != "done" {
@@ -189,11 +191,8 @@ func (h *handler) overview(w http.ResponseWriter, r *http.Request) {
 		resp.CurrentSprint = &cp
 	}
 
-	// Active autopilot: scan .claude/autopilot-*.lock.
 	resp.ActiveAutopilot = scanActiveAutopilot(autopilotDir)
 
-	// Timeline: every sprint with status kind. Initialise as empty slice
-	// (not nil) so the FE never has to null-guard `.map()`.
 	resp.Timeline = make([]TimelineEntry, 0, len(rm.Sprints))
 	for _, s := range rm.Sprints {
 		resp.Timeline = append(resp.Timeline, TimelineEntry{
@@ -205,20 +204,22 @@ func (h *handler) overview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func firstNonEmptyParagraph(src string) string {
-	// Skip H1 (`# ...`) and front-matter blockquotes (`> ...`).
-	for _, raw := range strings.Split(src, "\n\n") {
-		para := strings.TrimSpace(raw)
-		if para == "" {
-			continue
-		}
-		if strings.HasPrefix(para, "# ") || strings.HasPrefix(para, "> ") {
-			continue
-		}
-		// Drop trailing dashes / horizontal rules.
-		para = strings.TrimRight(para, "- ")
-		if para != "" {
-			return para
+// visionFromJSON pulls a sensible vision string out of VISION.json. The
+// schema is open-ended (sprint-runner emits {vision, principles, ...})
+// so we accept any of: top-level "vision", "description", "summary"; or
+// fall back to the document's first non-empty string field. Failures
+// degrade silently.
+func visionFromJSON(src []byte) string {
+	var doc map[string]any
+	if err := json.Unmarshal(src, &doc); err != nil {
+		return ""
+	}
+	for _, key := range []string{"vision", "description", "summary", "essence"} {
+		if v, ok := doc[key].(string); ok {
+			s := strings.TrimSpace(v)
+			if s != "" {
+				return s
+			}
 		}
 	}
 	return ""
@@ -230,11 +231,12 @@ func firstNonEmptyParagraph(src string) string {
 
 // SprintDetailResponse is the per-sprint detail payload.
 type SprintDetailResponse struct {
-	Sprint            parser.Sprint            `json:"sprint"`
-	Decisions         []parser.DecisionEntry   `json:"decisions"`
-	AcceptanceMatrix  []parser.AcceptanceMatrixRow `json:"acceptanceMatrix"`
-	E2EResults        parser.E2EResults        `json:"e2eResults"`
-	ParseErrors       []parser.ParseError      `json:"parseErrors,omitempty"`
+	Sprint           parser.Sprint                `json:"sprint"`
+	Decisions        []parser.DecisionEntry       `json:"decisions"`
+	AcceptanceMatrix []parser.AcceptanceMatrixRow `json:"acceptanceMatrix"`
+	E2EResults       parser.E2EResults            `json:"e2eResults"`
+	Failures         []parser.FailureEntry        `json:"failures,omitempty"`
+	ParseErrors      []parser.ParseError          `json:"parseErrors,omitempty"`
 }
 
 func (h *handler) sprintDetail(w http.ResponseWriter, r *http.Request) {
@@ -248,14 +250,14 @@ func (h *handler) sprintDetail(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "sprintId required"})
 		return
 	}
-	roadmapPath := filepath.Join(root, "docs", "ROADMAP.md")
+	roadmapPath := filepath.Join(root, "docs", "ROADMAP.json")
 	logDir := filepath.Join(root, "docs", "sprint-logs", sprintID)
 	tag := `"` + shortHash(fileTag(roadmapPath)+":"+fileTagDir(logDir)) + `"`
 	if sendCacheable(w, r, tag) {
 		return
 	}
 
-	src, err := readFile(root, "docs/ROADMAP.md")
+	src, err := readFileBytes(root, "docs/ROADMAP.json")
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -272,18 +274,27 @@ func (h *handler) sprintDetail(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "sprint not found", "sprintId": sprintID})
 		return
 	}
-	resp := SprintDetailResponse{Sprint: *found, ParseErrors: rm.ParseErrors}
+	resp := SprintDetailResponse{
+		Sprint:           *found,
+		ParseErrors:      rm.ParseErrors,
+		AcceptanceMatrix: []parser.AcceptanceMatrixRow{},
+		Decisions:        []parser.DecisionEntry{},
+		E2EResults:       parser.E2EResults{SprintID: sprintID},
+	}
 
-	if dec, err := readFile(root, "docs/sprint-logs/"+sprintID+"/decisions.md"); err == nil {
+	if dec, err := readFileBytes(root, "docs/sprint-logs/"+sprintID+"/decisions.json"); err == nil {
 		log := parser.ParseDecisions(sprintID, dec)
 		resp.Decisions = log.Entries
 		resp.ParseErrors = append(resp.ParseErrors, log.ParseErrors...)
 	}
-	if am, err := readFile(root, "docs/sprint-logs/"+sprintID+"/acceptance-matrix.md"); err == nil {
+	if am, err := readFileBytes(root, "docs/sprint-logs/"+sprintID+"/acceptance-matrix.json"); err == nil {
 		resp.AcceptanceMatrix = parser.ParseAcceptanceMatrix(sprintID, am).Rows
 	}
-	if e2e, err := readFile(root, "docs/sprint-logs/"+sprintID+"/e2e-results.md"); err == nil {
+	if e2e, err := readFileBytes(root, "docs/sprint-logs/"+sprintID+"/e2e-results.json"); err == nil {
 		resp.E2EResults = parser.ParseE2EResults(sprintID, e2e)
+	}
+	if fl, err := readFileBytes(root, "docs/sprint-logs/"+sprintID+"/failures.json"); err == nil {
+		resp.Failures = parser.ParseFailures(sprintID, fl)
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -292,14 +303,13 @@ func (h *handler) sprintDetail(w http.ResponseWriter, r *http.Request) {
 // Dependency Graph
 // ----------------------------------------------------------------------
 
-// DependencyGraphResponse carries both the structured graph (for client-side
-// rendering or testing) and a Mermaid syntax body the FE can hand to
-// mermaid.render directly without re-deriving it.
+// DependencyGraphResponse carries both the structured graph (for
+// client-side rendering or testing) and a Mermaid syntax body.
 type DependencyGraphResponse struct {
-	Sprints      []TimelineEntry      `json:"sprints"`
-	Dependencies []parser.Dependency  `json:"dependencies"`
-	Mermaid      string               `json:"mermaid"`
-	ParseErrors  []parser.ParseError  `json:"parseErrors,omitempty"`
+	Sprints      []TimelineEntry     `json:"sprints"`
+	Dependencies []parser.Dependency `json:"dependencies"`
+	Mermaid      string              `json:"mermaid"`
+	ParseErrors  []parser.ParseError `json:"parseErrors,omitempty"`
 }
 
 func (h *handler) dependencies(w http.ResponseWriter, r *http.Request) {
@@ -308,12 +318,12 @@ func (h *handler) dependencies(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	roadmapPath := filepath.Join(root, "docs", "ROADMAP.md")
+	roadmapPath := filepath.Join(root, "docs", "ROADMAP.json")
 	tag := fileTag(roadmapPath)
 	if sendCacheable(w, r, tag) {
 		return
 	}
-	src, err := readFile(root, "docs/ROADMAP.md")
+	src, err := readFileBytes(root, "docs/ROADMAP.json")
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -336,14 +346,9 @@ func (h *handler) dependencies(w http.ResponseWriter, r *http.Request) {
 }
 
 // buildMermaid produces a Mermaid `graph LR` flowchart connecting each
-// sprint to the sprints it depends on. Edges are derived from the
-// "Sxxx は Syyy 必須前提" / "Sxxx は Syyy と独立" phrases the dependency
-// section uses; when the parser cannot extract a directional edge, the
-// dependency text is attached to the source node as a comment via
-// `classDef` so the graph never looks wrong.
-//
-// The output is intentionally minimal so existing Mermaid versions render
-// it without issue.
+// sprint to the sprints it depends on. With JSON dependencies the
+// `from` is the dependent and Refs[1:] are prerequisites; we reuse the
+// same edge derivation.
 func buildMermaid(sprints []TimelineEntry, deps []parser.Dependency) string {
 	var b strings.Builder
 	b.WriteString("graph LR\n")
@@ -358,8 +363,6 @@ func buildMermaid(sprints []TimelineEntry, deps []parser.Dependency) string {
 		if len(d.Refs) < 2 {
 			continue
 		}
-		// Heuristic: first ref is the dependent, subsequent refs are
-		// prerequisites. ROADMAP convention is "S013 は S012 必須前提".
 		from := d.Refs[0]
 		for _, to := range d.Refs[1:] {
 			if from == to {
@@ -377,7 +380,6 @@ func buildMermaid(sprints []TimelineEntry, deps []parser.Dependency) string {
 			b.WriteString("\n")
 		}
 	}
-	// Class definitions for status colouring (FE applies CSS via class).
 	b.WriteString("  classDef done fill:#64d2a0,stroke:#1f7a4d,color:#0c0e14\n")
 	b.WriteString("  classDef inProgress fill:#e8b45a,stroke:#a06b1d,color:#0c0e14\n")
 	b.WriteString("  classDef pending fill:#1a1c25,stroke:#7c8aff,color:#d4d4d8\n")
@@ -430,24 +432,23 @@ func (h *handler) decisions(w http.ResponseWriter, r *http.Request) {
 	}
 	filter := strings.ToLower(r.URL.Query().Get("filter"))
 
-	resp := DecisionsResponse{}
-	entries := []parser.DecisionEntry{}
+	resp := DecisionsResponse{Entries: []parser.DecisionEntry{}}
 	if dirs, err := os.ReadDir(logsRoot); err == nil {
 		for _, d := range dirs {
 			if !d.IsDir() {
 				continue
 			}
 			sprintID := d.Name()
-			if path, err := readFile(root, "docs/sprint-logs/"+sprintID+"/decisions.md"); err == nil {
+			if path, err := readFileBytes(root, "docs/sprint-logs/"+sprintID+"/decisions.json"); err == nil {
 				log := parser.ParseDecisions(sprintID, path)
-				entries = append(entries, log.Entries...)
+				resp.Entries = append(resp.Entries, log.Entries...)
 				resp.ParseErrors = append(resp.ParseErrors, log.ParseErrors...)
 			}
 		}
 	}
 	if filter != "" {
-		filtered := entries[:0]
-		for _, e := range entries {
+		filtered := resp.Entries[:0]
+		for _, e := range resp.Entries {
 			switch filter {
 			case "needs_human":
 				if e.NeedsHuman {
@@ -459,12 +460,11 @@ func (h *handler) decisions(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		entries = filtered
+		resp.Entries = filtered
 	}
-	// Sort by SprintID ascending for stability — keeps the timeline
-	// narrative going in chronological-by-design order.
-	sort.SliceStable(entries, func(i, j int) bool { return entries[i].SprintID < entries[j].SprintID })
-	resp.Entries = entries
+	sort.SliceStable(resp.Entries, func(i, j int) bool {
+		return resp.Entries[i].SprintID < resp.Entries[j].SprintID
+	})
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -495,7 +495,7 @@ func (h *handler) refine(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			sprintID := d.Name()
-			if src, err := readFile(root, "docs/sprint-logs/"+sprintID+"/refine.md"); err == nil {
+			if src, err := readFileBytes(root, "docs/sprint-logs/"+sprintID+"/refine.json"); err == nil {
 				out = append(out, parser.ParseRefine(sprintID, src)...)
 			}
 		}
@@ -509,10 +509,6 @@ func (h *handler) refine(w http.ResponseWriter, r *http.Request) {
 // ----------------------------------------------------------------------
 
 // scanActiveAutopilot scans `<worktree>/.claude/autopilot-*.lock` files.
-// Each lock yields one ActiveAutopilot entry. The lock body is a small
-// JSON document `{ "pid": 1234, "startedAt": "..." }` written by the
-// autopilot skill — we read it best-effort and fall back to the file
-// modtime when the format is missing or malformed.
 func scanActiveAutopilot(autopilotDir string) []ActiveAutopilot {
 	out := []ActiveAutopilot{}
 	entries, err := os.ReadDir(autopilotDir)
@@ -532,7 +528,6 @@ func scanActiveAutopilot(autopilotDir string) []ActiveAutopilot {
 		if err != nil {
 			continue
 		}
-		// Sprint ID is between "autopilot-" and ".lock".
 		sprintID := strings.TrimSuffix(strings.TrimPrefix(name, "autopilot-"), ".lock")
 		entry := ActiveAutopilot{
 			SprintID:  sprintID,
@@ -591,8 +586,7 @@ func dirTagFiltered(dir string, keep func(os.FileInfo) bool) string {
 }
 
 // shortHash strips an existing `"hex"` ETag down to a stable 16-char hash
-// of the underlying bytes — used when we composite multiple component
-// ETags into one.
+// of the underlying bytes.
 func shortHash(s string) string {
 	h := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(h[:])[:16]

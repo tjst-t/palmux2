@@ -1,0 +1,20 @@
+{
+  "sprint": "S028",
+  "run_at": "2026-05-03T07:32:00Z",
+  "server_command": "make serve INSTANCE=dev (port 8204)",
+  "summary": {"total": 12, "pass": 12, "fail": 0, "skip": 0},
+  "tests": [
+    {"name": "[a] Sprint tab appears with ROADMAP.json (no .md needed)", "file": "tests/e2e/s028_sprint_json.py", "status": "pass", "duration_ms": null, "error": null},
+    {"name": "[b] Overview parsed; ETag short-circuit OK", "file": "tests/e2e/s028_sprint_json.py", "status": "pass", "duration_ms": null, "error": null},
+    {"name": "[c] Sprint Detail aggregates decisions / matrix / e2e / failures", "file": "tests/e2e/s028_sprint_json.py", "status": "pass", "duration_ms": null, "error": null},
+    {"name": "[d] Dependencies graph payload OK (from/refs from JSON)", "file": "tests/e2e/s028_sprint_json.py", "status": "pass", "duration_ms": null, "error": null},
+    {"name": "[e] decisions filter narrows entries", "file": "tests/e2e/s028_sprint_json.py", "status": "pass", "duration_ms": null, "error": null},
+    {"name": "[f] Refine history surfaces refinements[] entries", "file": "tests/e2e/s028_sprint_json.py", "status": "pass", "duration_ms": null, "error": null},
+    {"name": "[g] filewatch on ROADMAP.json triggers overview refresh", "file": "tests/e2e/s028_sprint_json.py", "status": "pass", "duration_ms": null, "error": null},
+    {"name": "[h] malformed ROADMAP.json → 200 + parseErrors with line hint", "file": "tests/e2e/s028_sprint_json.py", "status": "pass", "duration_ms": null, "error": null},
+    {"name": "[i] .md.bak files ignored (ETag stable, tab present)", "file": "tests/e2e/s028_sprint_json.py", "status": "pass", "duration_ms": null, "error": null},
+    {"name": "[j] Sprint tab requires ROADMAP.json (legacy .md alone ignored)", "file": "tests/e2e/s028_sprint_json.py", "status": "pass", "duration_ms": null, "error": null},
+    {"name": "[k] real-style ROADMAP.json parses without schema errors", "file": "tests/e2e/s028_sprint_json.py", "status": "pass", "duration_ms": null, "error": null},
+    {"name": "[l] 5 subtabs render in headless Chromium", "file": "tests/e2e/s028_sprint_json.py", "status": "pass", "duration_ms": null, "error": null}
+  ]
+}

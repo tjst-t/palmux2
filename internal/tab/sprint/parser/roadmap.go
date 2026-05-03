@@ -1,493 +1,342 @@
-// Package parser turns the markdown files written by the claude-skills
-// `sprint` skill (ROADMAP.md, decisions.md, refine.md, etc.) into typed Go
-// structs the Sprint Dashboard can serve as JSON.
+// roadmap.go — JSON unmarshaler for docs/ROADMAP.json (S028).
 //
-// The format is fixed by sprint-runner — see references/ROADMAP_TEMPLATE.md
-// in the skill — so a regex / line-walker is sufficient. Each parser is
-// section-fail-safe: a malformed entry is replaced with an Unparsed marker
-// rather than aborting the whole document.
+// Replaces the original markdown / regex parser. The on-disk format is
+// strictly defined by sprint-runner's ROADMAP_SCHEMA.json, so unmarshaling
+// + projection is enough; no heuristics required.
+//
+// Fail-safe contract: a malformed file (JSON syntax error, missing
+// required field, unknown enum value) never crashes the request path.
+// We surface the problem in `Roadmap.ParseErrors` and return as much of
+// the document as we could decode. This keeps the dashboard usable even
+// when the user is mid-edit.
 package parser
 
 import (
-	"bufio"
-	"regexp"
-	"strconv"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sort"
 	"strings"
 )
 
-// Roadmap is the top-level structured view of docs/ROADMAP.md.
-type Roadmap struct {
-	Title        string         `json:"title"`
-	Vision       string         `json:"vision,omitempty"`
-	Progress     Progress       `json:"progress"`
-	ExecutionRaw string         `json:"executionRaw,omitempty"`
-	Sprints      []Sprint       `json:"sprints"`
-	Dependencies []Dependency   `json:"dependencies"`
-	Backlog      []BacklogEntry `json:"backlog"`
-	ParseErrors  []ParseError   `json:"parseErrors,omitempty"`
-}
+// ParseRoadmap parses ROADMAP.json bytes. Empty input → an empty Roadmap
+// with a single ParseError so the FE can show "no roadmap yet" without
+// special-casing nil.
+//
+// The function never panics and never returns an error — every problem
+// is folded into Roadmap.ParseErrors.
+func ParseRoadmap(src []byte) Roadmap {
+	rm := emptyRoadmap()
+	if len(src) == 0 {
+		rm.ParseErrors = append(rm.ParseErrors, ParseError{
+			Section: "ROADMAP.json",
+			Detail:  "file is empty",
+		})
+		return rm
+	}
 
-// Progress captures the "## 進捗" header — total / done / in-progress / left.
-type Progress struct {
-	Total      int     `json:"total"`
-	Done       int     `json:"done"`
-	InProgress int     `json:"inProgress"`
-	Remaining  int     `json:"remaining"`
-	Percent    float64 `json:"percent"`
-}
+	var doc roadmapDoc
+	if err := json.Unmarshal(src, &doc); err != nil {
+		rm.ParseErrors = append(rm.ParseErrors, jsonSyntaxError("ROADMAP.json", src, err))
+		return rm
+	}
 
-// Sprint is a single "## スプリント Sxxx: ..." block.
-type Sprint struct {
-	ID          string   `json:"id"`
-	Title       string   `json:"title"`
-	Status      string   `json:"status"` // "[ ]" / "[x]" / "[DONE]" / "[IN PROGRESS]" / etc.
-	StatusKind  string   `json:"statusKind"`
-	Description string   `json:"description,omitempty"`
-	Stories     []Story  `json:"stories"`
-	RawBody     string   `json:"-"` // unexported helper for tests
-	LineRange   [2]int   `json:"lineRange"` // 1-based [start,end]
-	ParseError  string   `json:"parseError,omitempty"`
-}
+	rm.Title = doc.Project
+	rm.Description = doc.Description
+	rm.Progress = Progress{
+		Total:      doc.Progress.Total,
+		Done:       doc.Progress.Done,
+		InProgress: doc.Progress.InProgress,
+		Remaining:  doc.Progress.Remaining,
+		Percent:    doc.Progress.Percentage,
+	}
+	if doc.Progress.Percentage == 0 && doc.Progress.Total > 0 {
+		rm.Progress.Percent = float64(doc.Progress.Done) * 100 / float64(doc.Progress.Total)
+	}
 
-// Story is "### ストーリー Sxxx-N: ..." inside a Sprint.
-type Story struct {
-	ID                 string         `json:"id"`
-	Title              string         `json:"title"`
-	Status             string         `json:"status"`
-	StatusKind         string         `json:"statusKind"`
-	UserStory          string         `json:"userStory,omitempty"`
-	AcceptanceCriteria []Acceptance   `json:"acceptanceCriteria"`
-	Tasks              []Task         `json:"tasks"`
-}
+	if len(doc.ExecutionOrder) > 0 {
+		rm.ExecutionRaw = strings.Join(doc.ExecutionOrder, " → ")
+	}
 
-// Acceptance is a `- [ ]` / `- [x]` AC line.
-type Acceptance struct {
-	Done bool   `json:"done"`
-	Text string `json:"text"`
-}
-
-// Task is a `- [ ]` / `- [x]` task line under "**タスク:**".
-type Task struct {
-	ID   string `json:"id,omitempty"`
-	Done bool   `json:"done"`
-	Text string `json:"text"`
-}
-
-// Dependency is a single bullet inside the "## 依存関係" section.
-type Dependency struct {
-	Text string `json:"text"`
-	// Refs lists Sprint IDs mentioned in Text (best-effort regex extract).
-	Refs []string `json:"refs,omitempty"`
-}
-
-// BacklogEntry is a single bullet inside "## バックログ".
-type BacklogEntry struct {
-	Done   bool   `json:"done"`
-	Text   string `json:"text"`
-	Source string `json:"source,omitempty"` // e.g. "S013 由来"
-}
-
-// ParseError records a section that failed structural parsing.
-type ParseError struct {
-	Section string `json:"section"`
-	Detail  string `json:"detail"`
-}
-
-var (
-	// Patterns accept both Japanese and English headings emitted by the
-	// claude-skills `sprint` skill (i18n: "スプリント|Sprint",
-	// "ストーリー|Story", "タスク|Task"). Either language is valid; the
-	// rest of the line shape is identical.
-	reSprint = regexp.MustCompile(`^## (?:スプリント|Sprint)\s+([A-Za-z0-9-]+)\s*:\s*(.+?)\s*\[(.+)\]\s*$`)
-	// Hotfix-style heading "### Hotfix Sxxx-fix-N: title [x]" mirrors the
-	// regular Story line so we surface them under the sprint they belong
-	// to. Matched by reHotfix (Story-only).
-	reHotfix = regexp.MustCompile(`^### Hotfix\s+([A-Za-z0-9-]+)\s*:\s*(.+?)\s*\[(.+)\]\s*$`)
-	reStory  = regexp.MustCompile(`^### (?:ストーリー|Story)\s+([A-Za-z0-9-]+)\s*:\s*(.+?)\s*\[(.+)\]\s*$`)
-	reTask   = regexp.MustCompile(`^- \[( |x|X)\]\s+\*\*(?:タスク|Task)\s+([A-Za-z0-9-]+)\*\*\s*:\s*(.*)$`)
-	reCheck  = regexp.MustCompile(`^- \[( |x|X)\]\s+(.*)$`)
-	reID     = regexp.MustCompile(`\bS\d{3}(?:-[A-Za-z0-9]+)*\b`)
-
-	// Section title prefixes — accept both Japanese and English variants
-	// for the four headings we recognise.
-	progressPrefixes  = []string{"進捗", "Progress"}
-	executionPrefixes = []string{"実行順序", "Execution Order"}
-	sprintPrefixes    = []string{"スプリント ", "Sprint "}
-	depPrefixes       = []string{"依存関係", "Dependencies"}
-	backlogPrefixes   = []string{"バックログ", "Backlog"}
-)
-
-func hasAnyPrefix(s string, prefixes []string) bool {
-	for _, p := range prefixes {
-		if strings.HasPrefix(s, p) {
-			return true
+	// Sprints: ordered by execution_order if available, otherwise by
+	// sprint ID. We materialize keys so the FE always sees a stable
+	// timeline (map iteration in Go is random).
+	order := orderedSprintIDs(doc)
+	for _, id := range order {
+		sd, ok := doc.Sprints[id]
+		if !ok {
+			continue
 		}
-	}
-	return false
-}
-
-// ParseRoadmap parses the full ROADMAP.md text. It never returns an error
-// — sections that fail to parse are recorded in Roadmap.ParseErrors and
-// the rest of the document is still served.
-func ParseRoadmap(src string) Roadmap {
-	rm := Roadmap{}
-	scanner := bufio.NewScanner(strings.NewReader(src))
-	scanner.Buffer(make([]byte, 1024*1024), 8*1024*1024)
-	lines := []string{}
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+		rm.Sprints = append(rm.Sprints, projectSprint(id, sd))
 	}
 
-	// Title (first H1).
-	for _, l := range lines {
-		if strings.HasPrefix(l, "# ") {
-			rm.Title = strings.TrimSpace(strings.TrimPrefix(l, "# "))
-			break
-		}
-	}
+	// Dependencies: schema is { "{from}": { depends_on: [...], reason: "" } }.
+	// FE expects per-edge entries, so we fan out one Dependency per
+	// (from, to) but keep all `depends_on` IDs in Refs for compatibility
+	// with the existing Mermaid edge derivation (handler reads d.Refs[0]
+	// as `from` and d.Refs[1:] as prerequisites).
+	rm.Dependencies = projectDependencies(doc.Dependencies)
+	rm.Backlog = projectBacklog(doc.Backlog)
 
-	// Section indices.
-	type sec struct {
-		title string
-		start int // index of the heading line in lines
-		end   int // exclusive
-	}
-	var sections []sec
-	for i, l := range lines {
-		if strings.HasPrefix(l, "## ") {
-			sections = append(sections, sec{title: strings.TrimSpace(strings.TrimPrefix(l, "## ")), start: i})
-		}
-	}
-	for i := range sections {
-		if i+1 < len(sections) {
-			sections[i].end = sections[i+1].start
-		} else {
-			sections[i].end = len(lines)
-		}
-	}
-
-	for _, s := range sections {
-		switch {
-		case hasAnyPrefix(s.title, progressPrefixes):
-			rm.Progress = parseProgress(lines[s.start:s.end])
-		case hasAnyPrefix(s.title, executionPrefixes):
-			rm.ExecutionRaw = strings.TrimSpace(strings.Join(lines[s.start+1:s.end], "\n"))
-		case hasAnyPrefix(s.title, sprintPrefixes):
-			sp, perr := parseSprintSection(s.title, lines[s.start:s.end], s.start+1)
-			if perr != "" {
-				sp.ParseError = perr
-				rm.ParseErrors = append(rm.ParseErrors, ParseError{Section: s.title, Detail: perr})
-			}
-			rm.Sprints = append(rm.Sprints, sp)
-		case hasAnyPrefix(s.title, depPrefixes):
-			rm.Dependencies = parseDependencies(lines[s.start+1 : s.end])
-		case hasAnyPrefix(s.title, backlogPrefixes):
-			rm.Backlog = parseBacklog(lines[s.start+1 : s.end])
-		}
-	}
-
-	// Defence in depth: the Sprint Dashboard FE assumes every list field
-	// is an array (it does `.map()` directly without a null guard). If the
-	// roadmap has an unrecognised header variant we'd otherwise emit JSON
-	// `null` and crash the FE. Normalise to empty slices instead, and do
-	// the same recursively for every Sprint / Story.
-	if rm.Sprints == nil {
-		rm.Sprints = []Sprint{}
-	}
-	if rm.Dependencies == nil {
-		rm.Dependencies = []Dependency{}
-	}
-	if rm.Backlog == nil {
-		rm.Backlog = []BacklogEntry{}
-	}
-	if rm.ParseErrors == nil {
-		rm.ParseErrors = []ParseError{}
-	}
-	for i := range rm.Sprints {
-		if rm.Sprints[i].Stories == nil {
-			rm.Sprints[i].Stories = []Story{}
-		}
-		for j := range rm.Sprints[i].Stories {
-			if rm.Sprints[i].Stories[j].AcceptanceCriteria == nil {
-				rm.Sprints[i].Stories[j].AcceptanceCriteria = []Acceptance{}
-			}
-			if rm.Sprints[i].Stories[j].Tasks == nil {
-				rm.Sprints[i].Stories[j].Tasks = []Task{}
-			}
-		}
-	}
 	return rm
 }
 
-func parseProgress(block []string) Progress {
-	var pr Progress
-	// Japanese form: 合計: N | 完了: N | 進行中: N | 残り: N
-	reTotalsJp := regexp.MustCompile(`合計\s*:\s*(\d+).*?完了\s*:\s*(\d+).*?進行中\s*:\s*(\d+).*?残り\s*:\s*(\d+)`)
-	// English form: Total: N Sprints | Done: N | In Progress: N | Remaining: N
-	// (case-insensitive). Allows commentary between fields.
-	reTotalsEn := regexp.MustCompile(`(?i)Total\s*:\s*(\d+).*?Done\s*:\s*(\d+).*?In\s+Progress\s*:\s*(\d+).*?Remaining\s*:\s*(\d+)`)
-	rePercent := regexp.MustCompile(`(\d+(?:\.\d+)?)%`)
-	for _, l := range block {
-		if m := reTotalsJp.FindStringSubmatch(l); m != nil {
-			pr.Total, _ = strconv.Atoi(m[1])
-			pr.Done, _ = strconv.Atoi(m[2])
-			pr.InProgress, _ = strconv.Atoi(m[3])
-			pr.Remaining, _ = strconv.Atoi(m[4])
-		} else if m := reTotalsEn.FindStringSubmatch(l); m != nil {
-			pr.Total, _ = strconv.Atoi(m[1])
-			pr.Done, _ = strconv.Atoi(m[2])
-			pr.InProgress, _ = strconv.Atoi(m[3])
-			pr.Remaining, _ = strconv.Atoi(m[4])
-		}
-		if m := rePercent.FindStringSubmatch(l); m != nil && pr.Percent == 0 {
-			f, _ := strconv.ParseFloat(m[1], 64)
-			pr.Percent = f
-		}
+// emptyRoadmap returns a Roadmap with every list field initialised to
+// an empty slice — the FE renders `.map()` directly without null guards
+// so we never want to emit `null`.
+func emptyRoadmap() Roadmap {
+	return Roadmap{
+		Sprints:      []Sprint{},
+		Dependencies: []Dependency{},
+		Backlog:      []BacklogEntry{},
+		ParseErrors:  []ParseError{},
 	}
-	if pr.Percent == 0 && pr.Total > 0 {
-		pr.Percent = float64(pr.Done) * 100 / float64(pr.Total)
-	}
-	return pr
 }
 
-// parseSprintSection takes the lines between two `## スプリント` headings.
-// `startLine` is the 1-based line number of the heading itself in the
-// original file; emitted LineRange is computed off that.
-//
-// Defensive: empty / malformed sprint sections never panic. Whatever the
-// regex extracts is returned as-is and the caller flags Unparsed entries.
-func parseSprintSection(title string, block []string, startLine int) (Sprint, string) {
-	sp := Sprint{LineRange: [2]int{startLine, startLine + len(block) - 1}}
-	if len(block) == 0 {
-		return sp, "empty section"
-	}
-	headerLine := "## " + title
-	m := reSprint.FindStringSubmatch(headerLine)
-	if m == nil {
-		// Title prefix matched in caller, but full-line regex didn't —
-		// keep the title as-is and continue parsing stories so the FE
-		// can show "Unparsed sprint" rather than crashing.
-		sp.Title = title
-		return sp, "sprint header did not match expected format"
-	}
-	sp.ID = strings.TrimSpace(m[1])
-	sp.Title = strings.TrimSpace(m[2])
-	sp.Status = strings.TrimSpace(m[3])
-	sp.StatusKind = classifySprintStatus(sp.Status)
-
-	// Walk story headings.
-	type storyStart struct {
-		heading string
-		idx     int // index in `block`
-		hotfix  bool
-	}
-	var stories []storyStart
-	for i, l := range block[1:] {
-		if reStory.MatchString(l) {
-			stories = append(stories, storyStart{heading: l, idx: i + 1, hotfix: false})
-		} else if reHotfix.MatchString(l) {
-			stories = append(stories, storyStart{heading: l, idx: i + 1, hotfix: true})
+func orderedSprintIDs(doc roadmapDoc) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(doc.Sprints))
+	for _, id := range doc.ExecutionOrder {
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		if _, ok := doc.Sprints[id]; ok {
+			out = append(out, id)
+			seen[id] = struct{}{}
 		}
 	}
-	// Description is everything between the sprint header and the first
-	// story (or the end of the section).
-	endOfDesc := len(block)
-	if len(stories) > 0 {
-		endOfDesc = stories[0].idx
-	}
-	if endOfDesc > 1 {
-		sp.Description = strings.TrimSpace(strings.Join(block[1:endOfDesc], "\n"))
-	}
-
-	for i, ss := range stories {
-		end := len(block)
-		if i+1 < len(stories) {
-			end = stories[i+1].idx
+	// Append any sprints not in execution_order (defensive: roadmap may
+	// have orphans that haven't been scheduled yet).
+	leftover := []string{}
+	for id := range doc.Sprints {
+		if _, ok := seen[id]; ok {
+			continue
 		}
-		st := parseStory(ss.heading, block[ss.idx:end])
-		sp.Stories = append(sp.Stories, st)
+		leftover = append(leftover, id)
 	}
-	return sp, ""
+	sort.Strings(leftover)
+	return append(out, leftover...)
 }
 
-func parseStory(heading string, body []string) Story {
-	var st Story
-	if m := reStory.FindStringSubmatch(heading); m != nil {
-		st.ID = strings.TrimSpace(m[1])
-		st.Title = strings.TrimSpace(m[2])
-		st.Status = strings.TrimSpace(m[3])
-	} else if m := reHotfix.FindStringSubmatch(heading); m != nil {
-		st.ID = strings.TrimSpace(m[1])
-		st.Title = strings.TrimSpace(m[2])
-		st.Status = strings.TrimSpace(m[3])
+func projectSprint(id string, sd roadmapSprintDoc) Sprint {
+	sp := Sprint{
+		ID:          id,
+		Title:       sd.Title,
+		Status:      sd.Status,
+		StatusKind:  classifySprintStatus(sd.Status),
+		Description: sd.Description,
+		Milestone:   sd.Milestone,
+		Stories:     []Story{},
 	}
-	st.StatusKind = classifyStoryStatus(st.Status)
-
-	// Walk: pick the user story (between **ユーザーストーリー:** and the
-	// next **bold-bracketed section**), then acceptance criteria lines,
-	// then tasks. Section markers come in JP / EN flavours emitted by
-	// claude-skills `sprint`.
-	//
-	// Some roadmap variants (e.g. hydra) skip the **Tasks:** marker
-	// entirely and write `- [ ] **Task Sxxx-y-z**: ...` directly under
-	// the Story heading. We detect that shape by matching reTask with no
-	// active section.
-	section := ""
-	for _, l := range body {
-		trim := strings.TrimSpace(l)
-		switch {
-		case strings.HasPrefix(trim, "**ユーザーストーリー"),
-			strings.HasPrefix(trim, "**User Story"),
-			strings.HasPrefix(trim, "**User story"):
-			section = "user"
-			continue
-		case strings.HasPrefix(trim, "**受け入れ条件"),
-			strings.HasPrefix(trim, "**Acceptance"):
-			section = "ac"
-			continue
-		case strings.HasPrefix(trim, "**タスク"),
-			strings.HasPrefix(trim, "**Tasks"),
-			strings.HasPrefix(trim, "**Task:"):
-			section = "tasks"
-			continue
-		case strings.HasPrefix(trim, "**") && strings.HasSuffix(trim, ":**"):
-			section = ""
-			continue
-		}
-
-		// Sectionless task lines (hydra-style ROADMAPs that skip the
-		// **Tasks:** marker). Match the explicit `**Task Sxxx**` form
-		// only — we don't want to gobble random checkboxes as tasks.
-		if section == "" {
-			if m := reTask.FindStringSubmatch(trim); m != nil {
-				st.Tasks = append(st.Tasks, Task{
-					ID:   strings.TrimSpace(m[2]),
-					Done: m[1] != " ",
-					Text: strings.TrimSpace(m[3]),
-				})
-				continue
-			}
-		}
-
-		switch section {
-		case "user":
-			if trim != "" {
-				if st.UserStory != "" {
-					st.UserStory += " "
-				}
-				st.UserStory += trim
-			}
-		case "ac":
-			if m := reCheck.FindStringSubmatch(trim); m != nil {
-				st.AcceptanceCriteria = append(st.AcceptanceCriteria, Acceptance{
-					Done: m[1] != " ",
-					Text: strings.TrimSpace(m[2]),
-				})
-			}
-		case "tasks":
-			if m := reTask.FindStringSubmatch(trim); m != nil {
-				st.Tasks = append(st.Tasks, Task{
-					ID:   strings.TrimSpace(m[2]),
-					Done: m[1] != " ",
-					Text: strings.TrimSpace(m[3]),
-				})
-			} else if m := reCheck.FindStringSubmatch(trim); m != nil {
-				st.Tasks = append(st.Tasks, Task{
-					Done: m[1] != " ",
-					Text: strings.TrimSpace(m[2]),
-				})
-			}
-		}
+	// Order stories by story ID (S001-1, S001-2, ...). Map iteration is
+	// random in Go so we sort deterministically.
+	keys := make([]string, 0, len(sd.Stories))
+	for k := range sd.Stories {
+		keys = append(keys, k)
 	}
-	return st
+	sort.Strings(keys)
+	for _, sid := range keys {
+		st := sd.Stories[sid]
+		sp.Stories = append(sp.Stories, projectStory(sid, st))
+	}
+	return sp
 }
 
-func parseDependencies(block []string) []Dependency {
-	var out []Dependency
-	for _, l := range block {
-		t := strings.TrimSpace(l)
-		if !strings.HasPrefix(t, "- ") {
-			continue
+func projectStory(id string, st roadmapStoryDoc) Story {
+	story := Story{
+		ID:                 id,
+		Title:              st.Title,
+		Status:             st.Status,
+		StatusKind:         classifyStoryStatus(st.Status),
+		UserStory:          st.UserStory,
+		BlockedReason:      st.BlockedReason,
+		AcceptanceCriteria: []Acceptance{},
+		Tasks:              []Task{},
+	}
+	for _, ac := range st.AcceptanceCriteria {
+		text := ac.Description
+		if ac.ID != "" {
+			text = ac.ID + ": " + ac.Description
 		}
-		text := strings.TrimSpace(strings.TrimPrefix(t, "- "))
-		refs := uniqIDs(reID.FindAllString(text, -1))
-		out = append(out, Dependency{Text: text, Refs: refs})
+		story.AcceptanceCriteria = append(story.AcceptanceCriteria, Acceptance{
+			ID:          ac.ID,
+			Description: ac.Description,
+			Test:        ac.Test,
+			Status:      ac.Status,
+			Done:        ac.Status == "pass",
+			Text:        text,
+		})
+	}
+	keys := make([]string, 0, len(st.Tasks))
+	for k := range st.Tasks {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, tid := range keys {
+		t := st.Tasks[tid]
+		story.Tasks = append(story.Tasks, Task{
+			ID:          tid,
+			Title:       t.Title,
+			Description: t.Description,
+			Status:      t.Status,
+			Done:        t.Status == "done",
+			Text:        joinIfNonempty(t.Title, t.Description),
+		})
+	}
+	return story
+}
+
+func joinIfNonempty(parts ...string) string {
+	out := []string{}
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, ": ")
+}
+
+func projectDependencies(deps map[string]roadmapDepDoc) []Dependency {
+	out := []Dependency{}
+	keys := make([]string, 0, len(deps))
+	for k := range deps {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, from := range keys {
+		d := deps[from]
+		// Always emit one Dependency entry per `from`, even when
+		// depends_on is empty — that keeps the FE list stable. Refs is
+		// `[from, to1, to2, ...]` so existing handler code (Refs[0] is
+		// the dependent, Refs[1:] are prereqs) keeps working.
+		refs := append([]string{from}, d.DependsOn...)
+		text := from
+		if len(d.DependsOn) > 0 {
+			text += " depends on " + strings.Join(d.DependsOn, ", ")
+		} else {
+			text += " (no dependencies)"
+		}
+		if d.Reason != "" {
+			text += ": " + d.Reason
+		}
+		out = append(out, Dependency{
+			From: from,
+			Refs: refs,
+			Text: text,
+		})
 	}
 	return out
 }
 
-func parseBacklog(block []string) []BacklogEntry {
-	var out []BacklogEntry
-	var current *BacklogEntry
-	for _, l := range block {
-		if m := reCheck.FindStringSubmatch(strings.TrimLeft(l, " ")); m != nil && strings.HasPrefix(strings.TrimLeft(l, " "), "- [") {
-			if current != nil {
-				out = append(out, *current)
+func projectBacklog(items []roadmapBacklogDoc) []BacklogEntry {
+	out := []BacklogEntry{}
+	for _, b := range items {
+		text := b.Title
+		if b.Description != "" {
+			if text != "" {
+				text += " — " + b.Description
+			} else {
+				text = b.Description
 			}
-			text := strings.TrimSpace(m[2])
-			source := ""
-			if i := strings.Index(text, "由来)"); i >= 0 {
-				if open := strings.LastIndex(text[:i+len("由来)")], "("); open >= 0 {
-					source = text[open+1 : i+len("由来)")-1]
+		}
+		source := b.AddedIn
+		if source == "" && strings.Contains(b.Description, "由来)") {
+			// Pre-migration backlog items folded the source into the
+			// description as "(Sxxx 由来)". Keep extracting it so older
+			// entries still surface a Source tag.
+			if i := strings.Index(b.Description, "由来)"); i >= 0 {
+				if open := strings.LastIndex(b.Description[:i+len("由来)")], "("); open >= 0 {
+					source = b.Description[open+1 : i+len("由来)")-1]
 				}
 			}
-			current = &BacklogEntry{Done: m[1] != " ", Text: text, Source: source}
-		} else if current != nil && strings.HasPrefix(l, "  ") {
-			// continuation indented under bullet
-			current.Text += " " + strings.TrimSpace(l)
 		}
-	}
-	if current != nil {
-		out = append(out, *current)
+		out = append(out, BacklogEntry{
+			Title:       b.Title,
+			Description: b.Description,
+			AddedIn:     b.AddedIn,
+			Reason:      b.Reason,
+			Done:        false,
+			Text:        text,
+			Source:      source,
+		})
 	}
 	return out
+}
+
+// jsonSyntaxError converts a json.Unmarshal error into a ParseError with
+// line/column hints. encoding/json reports a byte offset in
+// SyntaxError.Offset; we walk `src` to translate that to (line, col).
+func jsonSyntaxError(section string, src []byte, err error) ParseError {
+	pe := ParseError{Section: section, Detail: err.Error()}
+	var se *json.SyntaxError
+	if errors.As(err, &se) {
+		line, col := offsetToLineCol(src, int(se.Offset))
+		pe.Line = line
+		pe.Column = col
+		pe.Detail = fmt.Sprintf("JSON syntax error at line %d col %d: %s", line, col, err.Error())
+	}
+	var ute *json.UnmarshalTypeError
+	if errors.As(err, &ute) {
+		line, col := offsetToLineCol(src, int(ute.Offset))
+		pe.Line = line
+		pe.Column = col
+		pe.Detail = fmt.Sprintf("JSON type error at line %d col %d: cannot unmarshal %s into field %s of type %s",
+			line, col, ute.Value, ute.Field, ute.Type.String())
+	}
+	return pe
+}
+
+// offsetToLineCol converts a byte offset into 1-based (line, column).
+// The offset reported by encoding/json points one byte past the bad
+// token; we clamp into [0, len(src)] and walk.
+func offsetToLineCol(src []byte, offset int) (int, int) {
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(src) {
+		offset = len(src)
+	}
+	line, col := 1, 1
+	for i := 0; i < offset; i++ {
+		if src[i] == '\n' {
+			line++
+			col = 1
+		} else {
+			col++
+		}
+	}
+	return line, col
 }
 
 func classifySprintStatus(raw string) string {
-	r := strings.ToLower(strings.TrimSpace(raw))
-	switch {
-	case r == "x" || r == "done" || strings.HasPrefix(r, "done"):
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "done":
 		return "done"
-	case strings.Contains(r, "in progress"):
+	case "in_progress", "in-progress":
 		return "in-progress"
-	case r == " ":
-		return "pending"
-	default:
-		if strings.Contains(r, "needs_human") {
-			return "needs-human"
-		}
-		if strings.Contains(r, "blocked") {
-			return "blocked"
-		}
-		return "pending"
-	}
-}
-
-func classifyStoryStatus(raw string) string {
-	r := strings.ToLower(strings.TrimSpace(raw))
-	switch r {
-	case "x", "done":
-		return "done"
-	case "":
-		return "pending"
-	case " ":
-		return "pending"
-	}
-	if strings.Contains(r, "needs_human") {
+	case "blocked":
+		return "blocked"
+	case "needs_human", "needs-human":
 		return "needs-human"
+	case "pending", "":
+		return "pending"
 	}
 	return "pending"
 }
 
-func uniqIDs(in []string) []string {
-	seen := map[string]struct{}{}
-	out := []string{}
-	for _, s := range in {
-		if _, ok := seen[s]; ok {
-			continue
-		}
-		seen[s] = struct{}{}
-		out = append(out, s)
+func classifyStoryStatus(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "done":
+		return "done"
+	case "blocked":
+		return "blocked"
+	case "needs_human", "needs-human":
+		return "needs-human"
+	case "in_progress", "in-progress":
+		return "in-progress"
+	case "pending", "":
+		return "pending"
 	}
-	return out
+	return "pending"
 }
