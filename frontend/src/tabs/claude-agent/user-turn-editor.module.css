@@ -151,24 +151,18 @@
 }
 
 /*
- * Frame around MonacoView. Defining an explicit height here is what
- * gives Monaco's `flex: 1; min-height: 0` something to fill — without
- * it the editor collapses inside the auto-height editorBubble.
+ * Frame around MonacoView. Height is driven from Monaco's measured
+ * contentHeight via an inline `style.height` (see clampHeight in the
+ * .tsx) so the editor auto-grows with typed content rather than
+ * always occupying a fixed slot — claude.ai-style. The flex layout
+ * here is what gives Monaco's internal `flex: 1; min-height: 0`
+ * something to fill, otherwise it collapses to 0 px inside the
+ * auto-height editorBubble.
  */
 .editorMonacoFrame {
   display: flex;
   flex-direction: column;
-  min-height: 120px;
-  max-height: 360px;
-  height: 160px;
-}
-
-@media (max-width: 599px) {
-  .editorMonacoFrame {
-    /* Mobile: a touch shorter so Submit / Cancel stay in viewport. */
-    height: 140px;
-    min-height: 100px;
-  }
+  width: 100%;
 }
 
 .editorPlaceholder {

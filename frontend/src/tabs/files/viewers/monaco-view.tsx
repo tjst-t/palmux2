@@ -135,6 +135,12 @@ interface Props extends ViewerProps {
   onChange?: (value: string) => void
   /** S011: invoked when the user hits Ctrl+S / Cmd+S inside the editor. */
   onSave?: () => void
+  /** Hotfix (rewind): when set, fires whenever Monaco's measured
+   *  content height changes (line added/removed, soft wrap reflowed).
+   *  The Files dispatcher doesn't use this — it's for inline editors
+   *  like the rewind composer that want to grow with the content
+   *  rather than fill a fixed pane. */
+  onContentSizeChange?: (contentHeight: number) => void
 }
 
 export function MonacoView({
@@ -145,6 +151,7 @@ export function MonacoView({
   mode = 'view',
   onChange,
   onSave,
+  onContentSizeChange,
 }: Props) {
   const theme = usePalmuxStore((s) => s.deviceSettings.theme)
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null)
@@ -152,6 +159,8 @@ export function MonacoView({
   // latest closure without re-binding on every render.
   const onSaveRef = useRef<typeof onSave>(onSave)
   onSaveRef.current = onSave
+  const onSizeRef = useRef<typeof onContentSizeChange>(onContentSizeChange)
+  onSizeRef.current = onContentSizeChange
 
   // Scroll to the requested 1-based line whenever lineNum changes. We
   // can't just rely on Monaco's internal `revealLineInCenter` from the
@@ -209,6 +218,17 @@ export function MonacoView({
               onSaveRef.current?.()
             }
           })
+          // Auto-grow support: fire onContentSizeChange whenever
+          // Monaco re-measures the wrapped content. Caller is
+          // responsible for clamping/applying the value.
+          if (onSizeRef.current) {
+            onSizeRef.current(ed.getContentHeight())
+            ed.onDidContentSizeChange((e) => {
+              if (e.contentHeightChanged) {
+                onSizeRef.current?.(ed.getContentHeight())
+              }
+            })
+          }
         }}
       />
     </div>

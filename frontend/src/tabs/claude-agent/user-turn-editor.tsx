@@ -28,6 +28,20 @@ const MonacoView = lazy(() =>
 
 const DRAFT_PREFIX = 'palmux:rewindDraft.'
 
+// Editor frame size bounds. The min is large enough to show one
+// comfortable line plus a bit of breathing room (≈ 1 line @ 13 px
+// font + Monaco gutter); the max is small enough that the Submit /
+// Cancel row is always reachable on a typical phone screen without
+// scrolling. Monaco's measured contentHeight is clamped between these
+// before being applied to `.editorMonacoFrame`.
+const MIN_EDITOR_HEIGHT = 56
+const MAX_EDITOR_HEIGHT = 320
+
+function clampHeight(measured: number | null): number {
+  if (measured == null || !Number.isFinite(measured)) return MIN_EDITOR_HEIGHT
+  return Math.max(MIN_EDITOR_HEIGHT, Math.min(MAX_EDITOR_HEIGHT, Math.ceil(measured)))
+}
+
 function draftKey(turnId: string): string {
   return DRAFT_PREFIX + turnId
 }
@@ -142,6 +156,12 @@ export function UserTurnEditor({
   const [draft, setDraft] = useState(() => readDraft(turn.id) ?? displayedText)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string>('')
+  // Monaco's measured contentHeight, fed by onContentSizeChange. The
+  // frame's height is clamped via clampHeight(monacoHeight). Initial
+  // value is unset (null) so we render at MIN before Monaco mounts —
+  // this avoids a flash of full-MAX height while the lazy bundle
+  // resolves.
+  const [monacoHeight, setMonacoHeight] = useState<number | null>(null)
   const headerId = useId()
 
   const beginEdit = useCallback(() => {
@@ -249,12 +269,16 @@ export function UserTurnEditor({
         <div className={styles.editorBubble}>
           {/*
             MonacoView's own .editor / .wrap classes are CSS-Modules-
-            scoped, so the previous ":global(.editor)" selector never
-            matched and the editor collapsed to 0 px. Wrap the lazy
-            view in a frame element with an explicit height — the
-            DiffEditor inside fills it via `height: 100%`.
+            scoped, so we wrap the lazy view in a real frame element.
+            The frame's height is computed from Monaco's measured
+            contentHeight (clamped to MIN/MAX) so the box grows with
+            typed content rather than always occupying a fixed slot —
+            claude.ai-style.
           */}
-          <div className={styles.editorMonacoFrame}>
+          <div
+            className={styles.editorMonacoFrame}
+            style={{ height: clampHeight(monacoHeight) }}
+          >
             <Suspense fallback={<div className={styles.editorPlaceholder}>Loading editor…</div>}>
               <MonacoView
                 apiBase=""
@@ -271,6 +295,7 @@ export function UserTurnEditor({
                 mode="edit"
                 onChange={(v) => setDraft(v)}
                 onSave={() => void submitEdit()}
+                onContentSizeChange={setMonacoHeight}
               />
             </Suspense>
           </div>
