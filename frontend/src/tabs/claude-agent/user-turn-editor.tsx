@@ -81,6 +81,13 @@ interface UserTurnEditorProps {
    *  state (fade out subsequent turns, archive the prior version)
    *  before the network round-trip completes. */
   onRewindApplyLocal: (turnId: string, newContent: string) => void
+  /** Optional controlled-editing mode. When the parent supplies these
+   *  two props, the `editing` state is hoisted up so it survives row
+   *  unmount/remount (e.g. react-window virtualization scrolling the
+   *  row out of view). When undefined, fall back to internal state for
+   *  backwards compatibility with simple callers. */
+  editing?: boolean
+  onEditingChange?: (turnId: string, editing: boolean) => void
 }
 
 export function UserTurnEditor({
@@ -89,6 +96,8 @@ export function UserTurnEditor({
   onSetVersion,
   onRewind,
   onRewindApplyLocal,
+  editing: editingProp,
+  onEditingChange,
 }: UserTurnEditorProps) {
   const versions = turn.versions ?? []
   const versionCount = versions.length + 1 // +1 for the live (active) version
@@ -110,10 +119,27 @@ export function UserTurnEditor({
       ? versionCount
       : activeVersionIndex + 1
 
-  // Enter edit mode flag. Toggling resets the draft: re-opens with the
-  // last persisted draft (if any) or the displayed text.
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(displayedText)
+  // Editing state: controlled (parent-managed) when both props are
+  // provided, otherwise internal. The hoisted form is used by
+  // ConversationView and the harness so the edit survives the row
+  // being unmounted by react-window when it scrolls out of view.
+  const isControlled = editingProp !== undefined && onEditingChange !== undefined
+  const [editingInternal, setEditingInternal] = useState(false)
+  const editing = isControlled ? !!editingProp : editingInternal
+  const setEditing = useCallback(
+    (next: boolean) => {
+      if (isControlled) {
+        onEditingChange!(turn.id, next)
+      } else {
+        setEditingInternal(next)
+      }
+    },
+    [isControlled, onEditingChange, turn.id],
+  )
+
+  // Draft persists separately in localStorage so even an accidental
+  // page refresh doesn't lose typed content (S019 spec).
+  const [draft, setDraft] = useState(() => readDraft(turn.id) ?? displayedText)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string>('')
   const headerId = useId()
@@ -123,13 +149,13 @@ export function UserTurnEditor({
     setDraft(persisted ?? displayedText)
     setError('')
     setEditing(true)
-  }, [displayedText, turn.id])
+  }, [displayedText, setEditing, turn.id])
 
   const cancelEdit = useCallback(() => {
     setEditing(false)
     setError('')
     clearDraft(turn.id)
-  }, [turn.id])
+  }, [setEditing, turn.id])
 
   const submitEdit = useCallback(async () => {
     const next = draft.trim()
@@ -161,7 +187,7 @@ export function UserTurnEditor({
     } finally {
       setSubmitting(false)
     }
-  }, [draft, liveText, onRewind, onRewindApplyLocal, turn.id])
+  }, [draft, liveText, onRewind, onRewindApplyLocal, setEditing, turn.id])
 
   // Persist the draft on every keystroke (debounced via the
   // onChange callback chain — Monaco fires onChange synchronously
@@ -221,24 +247,33 @@ export function UserTurnEditor({
         data-turn-id={turn.id}
       >
         <div className={styles.editorBubble}>
-          <Suspense fallback={<div className={styles.editorPlaceholder}>Loading editor…</div>}>
-            <MonacoView
-              apiBase=""
-              body={{
-                content: draft,
-                path: `${turn.id}.md`,
-                size: draft.length,
-                mime: 'text/markdown',
-                isBinary: false,
-                truncated: false,
-              }}
-              path={`${turn.id}.md`}
-              language="markdown"
-              mode="edit"
-              onChange={(v) => setDraft(v)}
-              onSave={() => void submitEdit()}
-            />
-          </Suspense>
+          {/*
+            MonacoView's own .editor / .wrap classes are CSS-Modules-
+            scoped, so the previous ":global(.editor)" selector never
+            matched and the editor collapsed to 0 px. Wrap the lazy
+            view in a frame element with an explicit height — the
+            DiffEditor inside fills it via `height: 100%`.
+          */}
+          <div className={styles.editorMonacoFrame}>
+            <Suspense fallback={<div className={styles.editorPlaceholder}>Loading editor…</div>}>
+              <MonacoView
+                apiBase=""
+                body={{
+                  content: draft,
+                  path: `${turn.id}.md`,
+                  size: draft.length,
+                  mime: 'text/markdown',
+                  isBinary: false,
+                  truncated: false,
+                }}
+                path={`${turn.id}.md`}
+                language="markdown"
+                mode="edit"
+                onChange={(v) => setDraft(v)}
+                onSave={() => void submitEdit()}
+              />
+            </Suspense>
+          </div>
           <div className={styles.editorActions}>
             {error && (
               <span className={styles.editorError} role="alert">

@@ -56,6 +56,17 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [mcpOpen, setMcpOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
+  // S019 / hotfix: lift the user-turn-edit "editing" flag above the
+  // virtualised conversation list so it survives the row unmounting
+  // when it scrolls out of view. Single string is enough — the user
+  // edits one turn at a time.
+  const [editingTurnId, setEditingTurnId] = useState<string | null>(null)
+  const onEditingChange = useCallback((turnId: string, editing: boolean) => {
+    setEditingTurnId((prev) => {
+      if (editing) return turnId
+      return prev === turnId ? null : prev
+    })
+  }, [])
 
   // S017: virtualisation. Resolve the inner scroll container from the
   // List's imperative API so scroll-restore / persist hooks can hang
@@ -432,6 +443,8 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
                     onSetVersion={(idx) => send.rewindSetVersion(turn.id, idx)}
                     onRewind={send.rewind}
                     onRewindApplyLocal={send.rewindApplyLocal}
+                    editingTurnId={editingTurnId}
+                    onEditingChange={onEditingChange}
                     onRespondPermission={respondPermission}
                     planHandlersFor={planHandlersFor}
                     askHandlersFor={askHandlersFor}
@@ -533,6 +546,8 @@ function TurnView({
   onSetVersion,
   onRewind,
   onRewindApplyLocal,
+  editingTurnId,
+  onEditingChange,
   onRespondPermission,
   planHandlersFor,
   askHandlersFor,
@@ -543,6 +558,12 @@ function TurnView({
   onSetVersion?: (index: number) => void
   onRewind?: (turnId: string, newMessage: string) => Promise<void>
   onRewindApplyLocal?: (turnId: string, newContent: string) => void
+  /** Lifted edit-state. The id of the user turn whose UserTurnEditor
+   *  is currently in edit mode (or null when nothing is being edited).
+   *  Lifted out of UserTurnEditor so the state survives row unmount
+   *  caused by react-window when the row scrolls out of view. */
+  editingTurnId?: string | null
+  onEditingChange?: (turnId: string, editing: boolean) => void
   onRespondPermission: RespondPermissionFn
   planHandlersFor: (blockId: string | undefined) => PlanHandlersForView | undefined
   askHandlersFor: (blockId: string | undefined) => AskHandlersForView | undefined
@@ -566,6 +587,8 @@ function TurnView({
             onSetVersion={onSetVersion}
             onRewind={onRewind}
             onRewindApplyLocal={onRewindApplyLocal}
+            editing={editingTurnId === turn.id}
+            onEditingChange={onEditingChange}
           />
         </div>
       )

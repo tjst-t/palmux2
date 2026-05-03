@@ -19,7 +19,7 @@
 //                    locally (no real backend) so the optimistic apply
 //                    still exercises through.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { BlockView } from './blocks'
@@ -176,6 +176,17 @@ export function TestHarness() {
   // pencil → editor → submit → arrows path against this harness.
   const [activeVersionByTurnId, setActiveVersionByTurnId] = useState<Record<string, number>>({})
   const [overrideTurns, setOverrideTurns] = useState<Turn[] | null>(null)
+  // Editing state lives here (above the virtualised List) so it
+  // survives row unmount/remount when the user scrolls past the
+  // editing turn. Single string is enough — only one turn is edited
+  // at a time in the user flow.
+  const [editingTurnId, setEditingTurnId] = useState<string | null>(null)
+  const onEditingChange = useCallback((turnId: string, editing: boolean) => {
+    setEditingTurnId((prev) => {
+      if (editing) return turnId
+      return prev === turnId ? null : prev
+    })
+  }, [])
   const displayTurns = overrideTurns ?? turns
   const onRewindLocal = async (turnId: string, newMessage: string): Promise<void> => {
     // Mirror BE behaviour: archive the active version + truncate
@@ -278,6 +289,8 @@ export function TestHarness() {
               }
               onRewind={onRewindLocal}
               onRewindApplyLocal={onRewindApplyLocalNoop}
+              editing={editingTurnId === turn.id}
+              onEditingChange={onEditingChange}
             />
           </div>
         </div>
