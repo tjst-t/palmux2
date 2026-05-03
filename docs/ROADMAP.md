@@ -5,12 +5,12 @@
 ## 進捗
 
 - **直近完了: S022 — Mobile UX 総点検 + Playwright モバイル E2E ハーネス** (autopilot 完了 / `autopilot/main/S022` ブランチ) — **22 スプリント全完了**
-- 合計: 25 スプリント | 完了: 24 | 進行中: 0 | 残り: 1
+- 合計: 26 スプリント | 完了: 25 | 進行中: 0 | 残り: 1
 - [████████████████████] 100%
 
 ## 実行順序
 
-S001 ✅ → S002 ✅ → S003 ✅ → S007 ✅ → S004 ✅ → S005 ✅ → S006 ✅ → S008 ✅ → S009 ✅ → S010 ✅ → S011 ✅ → S012 ✅ → S013 ✅ → S014 ✅ → S015 ✅ → S016 ✅ → S017 ✅ → S018 ✅ → S019 ✅ → S020 ✅ → S021 ✅ → S022 ✅ → S023 ✅ → S024 ✅ → S025 ✅
+S001 ✅ → S002 ✅ → S003 ✅ → S007 ✅ → S004 ✅ → S005 ✅ → S006 ✅ → S008 ✅ → S009 ✅ → S010 ✅ → S011 ✅ → S012 ✅ → S013 ✅ → S014 ✅ → S015 ✅ → S016 ✅ → S017 ✅ → S018 ✅ → S019 ✅ → S020 ✅ → S021 ✅ → S022 ✅ → S023 ✅ → S024 ✅ → S025 ✅ → **S026**
 
 ---
 
@@ -1442,6 +1442,104 @@ S015 / S016 / S016-fix1 / S020 / S021 / S023 / S024 の Playwright E2E が `~/gh
 - [x] **タスク S025-1-6**: `Makefile` に `make e2e-cleanup` (+ `e2e-cleanup-dry`) target を追加
 - [x] **タスク S025-1-7**: 全 7 E2E テストを実機で連続実行 → 各テスト後に ghq/palmux2-test/ が空、 repos.json に palmux2-test--* 0 件 (`docs/sprint-logs/S025/e2e-results/`)
 - [x] **タスク S025-1-8**: `tests/e2e/s025_fixture_cleanup.py` で 4 シナリオ (script-clears-leak / context-manager-normal / context-manager-on-exception / make-target) PASS
+
+---
+
+## スプリント S026: Files HTML preview (CSS/JS/image rendering) [ ]
+
+S010 で Files preview dispatcher (Monaco / 画像 / Draw.io) を導入したが、 HTML ファイルは現状 Monaco でソース表示のみ。 ブラウザで直接開くのと同等の **rendered preview** を Files タブ内で実現し、 CSS / JS / 画像 の relative path も解決して表示できるようにする。 編集 → Save → 即時再プレビューの flow で、 別タブ・別サーバ起動なしで動作確認を完結させる。
+
+**設計の中核**:
+
+- **iframe sandbox 方式**: `<iframe sandbox="allow-scripts" src="/api/repos/{repo}/branches/{branch}/files/raw?path={html}">` で表示。 `allow-same-origin` を **絶対に追加しない** ことで iframe 内 JS から palmux2 API 呼び出しを CORS 阻止 (認証情報漏洩防止)
+- **MIME 判定**: 既存の `files/raw` endpoint に拡張子 → Content-Type マッピングを追加 (.html, .css, .js, .svg, .png, .jpg, .gif, .webp, .json, .xml etc.)。 ブラウザが正しく render するため必須
+- **relative path 解決**: HTML が参照する `<link href="style.css">` `<script src="app.js">` 等は、 iframe の base URL (= raw endpoint URL) を起点にブラウザが自動解決、 同 endpoint で適切な MIME で返る
+- **CSP header**: `Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'` を raw endpoint のレスポンスに付与 (sandbox との二重防御)
+- **External resource (CDN)**: 許可 (script-src を緩く、 開発中の HTML は CDN 利用が多い)
+- **Source / Preview トグル**: View mode header に切替ボタン。 default は `.html`/`.htm` → Preview、 `.css/.js/etc.` → Source (Monaco) で既存挙動維持
+- **編集 → 自動 reload**: Edit mode で Save 成功時に iframe の `src` に cache-bust query string (`?_=<timestamp>`) を付与してリロード
+- **大ファイル fallback**: 既存 `previewMaxBytes` (10MB) を流用、 too-large 時は Source mode で表示
+- **エラー時 fallback**: iframe load error / Content-Type 判定失敗時は Source mode に自動 fallback
+
+### ストーリー S026-1: HTML を rendered preview で表示できる [ ]
+
+**ユーザーストーリー:**
+Palmux のユーザとして、 HTML ファイルを Files タブで直接ブラウザレンダリング (CSS + JS + image 含む) でプレビューしたい。 なぜなら、 ローカルで開発中の HTML を別タブで開いたり別サーバを立てたりせずに即座に動作確認したく、 編集 → Save → 即時再プレビューの flow を Palmux 内で完結させたいからだ。
+
+**受け入れ条件:**
+
+**Rendering:**
+- [ ] `.html` / `.htm` ファイルで HTML viewer (rendered preview) がデフォルト表示
+- [ ] `<link rel="stylesheet" href="style.css">` の CSS が適用される
+- [ ] `<script src="app.js">` の JS が実行される
+- [ ] `<img src="picture.png">` の画像が表示される
+- [ ] 相対 path は worktree 内の sibling/parent path を正しく解決
+
+**Security (sandbox):**
+- [ ] `<iframe sandbox="allow-scripts">` で同 origin 隔離、 iframe 内 JS から palmux2 API への fetch は CORS で拒否される
+- [ ] iframe 内 JS は palmux2 の Cookie / localStorage にアクセス不可
+- [ ] CSP header (`default-src 'self'; script-src 'self' 'unsafe-inline'`) が raw endpoint レスポンスに付与
+- [ ] `allow-same-origin` は決して追加されない
+
+**Source / Preview toggle:**
+- [ ] View mode の header 右上に Source / Preview 切替ボタン
+- [ ] `.html`/`.htm` の default は Preview、 他のテキスト系は Source (既存挙動維持)
+- [ ] Source mode は既存 Monaco viewer (S010 / S011 のまま)
+- [ ] Edit mode は Source 限定 (Preview mode では Edit 不可、 Source に切替後 Edit 可能)
+
+**編集 → reload:**
+- [ ] Source mode で Edit + Save 後、 Preview に戻ると最新内容が反映 (cache-bust query)
+- [ ] Save 中は spinner、 Save 完了で iframe が auto-reload
+
+**Fallback:**
+- [ ] ファイルサイズが `previewMaxBytes` (10MB) を超えると Source mode + too-large 警告 (既存挙動)
+- [ ] iframe load error 時は Source mode に自動 fallback、 ユーザに通知
+
+**Mobile:**
+- [ ] モバイル幅 (< 600px) で iframe が破綻なく動作
+
+**MIME 判定:**
+- [ ] `files/raw` endpoint で拡張子 → Content-Type が正しくマッピングされる:
+  - `.html`/`.htm` → `text/html; charset=utf-8`
+  - `.css` → `text/css; charset=utf-8`
+  - `.js`/`.mjs` → `application/javascript; charset=utf-8`
+  - `.json` → `application/json; charset=utf-8`
+  - `.svg` → `image/svg+xml`
+  - `.png` → `image/png`、 `.jpg`/`.jpeg` → `image/jpeg`、 `.gif` → `image/gif`、 `.webp` → `image/webp`
+  - `.xml` → `application/xml`
+  - 不明拡張子 → 既存の挙動 (text/plain or octet-stream)
+
+**タスク:**
+
+**バックエンド:**
+- [ ] **タスク S026-1-1**: `internal/tab/files/handler.go` の raw endpoint に拡張子 → MIME マッピング関数を追加 (`mimeForPath(path string) string`)。 上記 AC の MIME 一覧をテーブルで管理
+- [ ] **タスク S026-1-2**: raw endpoint レスポンスに CSP header `Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'` を付与 (CDN 利用を考慮しつつ最低限 strict)
+- [ ] **タスク S026-1-3**: BE 単体テスト (`handler_test.go`): 各拡張子で正しい Content-Type が返ることを check
+
+**フロントエンド (HTML viewer):**
+- [ ] **タスク S026-1-4**: `frontend/src/tabs/files/viewers/html-view.tsx` 新規 — `<iframe sandbox="allow-scripts" src="...">`、 load error handler、 cache-bust 制御
+- [ ] **タスク S026-1-5**: `frontend/src/tabs/files/viewers/dispatcher.ts` に `.html`/`.htm` 拡張子 → html viewer ルーティングを追加
+- [ ] **タスク S026-1-6**: file-preview.tsx に Source / Preview トグルボタン + 状態管理 (`viewMode: 'preview' | 'source'`)。 `.html`/`.htm` のとき default は preview、 他は source
+- [ ] **タスク S026-1-7**: Edit mode は Source 限定 (Preview mode では Edit ボタン非活性)。 Source に切替後 Edit 可能
+- [ ] **タスク S026-1-8**: Save 成功時に iframe の `src` を cache-bust 付きで更新する hook 追加
+
+**フロントエンド (fallback):**
+- [ ] **タスク S026-1-9**: iframe load error / Content-Type 判定失敗時に Source mode に自動 fallback、 banner で通知
+
+**E2E:**
+- [ ] **タスク S026-1-10**: dev インスタンス + Playwright で実機検証。 `tests/e2e/s026_*.py` で:
+  - (a) `.html` ファイルが iframe + sandbox で表示される
+  - (b) 同フォルダの `.css` が link タグ経由で適用される (computed style 検査)
+  - (c) 同フォルダの `.js` が script タグ経由で実行される (DOM 操作の結果を検査)
+  - (d) `.png` 画像が `<img>` で表示される (naturalWidth check)
+  - (e) Source / Preview トグルが切り替わる
+  - (f) Source mode で Edit + Save → Preview に戻ると最新内容が反映される (cache-bust 確認)
+  - (g) iframe sandbox が `allow-same-origin` を含まないことを DOM で確認
+  - (h) iframe 内 JS が `fetch('/api/...')` すると CORS で拒否される (試験用 fixture を使う)
+  - (i) > 10MB の HTML で too-large fallback が動作
+  - (j) load error 時に Source fallback + banner が出る
+  - (k) モバイル幅で破綻なし
+  - (l) S025 の fixture helper を使い、 テスト後に palmux2-test/ が残らない
 
 ---
 
