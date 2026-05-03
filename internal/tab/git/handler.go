@@ -181,6 +181,57 @@ func (h *handler) branches(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, entries)
 }
 
+// rawShow streams the bytes of <ref>:<path> back to the client without
+// JSON-wrapping them. Used by the Git tab's image preview so binary
+// blobs (PNG / JPG / WebP / etc.) survive the round-trip — `/git/show`
+// embeds the body in JSON and would corrupt invalid UTF-8.
+//
+// Same `ref` whitelist as `show` (HEAD, hex sha, optional ^/~N) plus a
+// non-empty `path`. We don't try to detect the MIME type — Content-Type
+// is inferred from the path's extension via http.DetectContentType on
+// the first 512 bytes (cheap fallback when the extension lies).
+func (h *handler) rawShow(w http.ResponseWriter, r *http.Request) {
+	dir, err := h.repoDir(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	ref := r.URL.Query().Get("ref")
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path required"})
+		return
+	}
+	if !isAllowedShowRef(ref) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "ref must be empty, HEAD, or a hex commit (optionally followed by ^ / ~N)",
+		})
+		return
+	}
+	body, err := Show(r.Context(), dir, ref, path)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if body == "" {
+		// File doesn't exist at this ref — return 404 so the FE can
+		// render a "(new at this commit)" placeholder.
+		http.Error(w, "not found at ref", http.StatusNotFound)
+		return
+	}
+	bs := []byte(body)
+	// Detect Content-Type from the first 512 bytes (matches what the
+	// stdlib does for static files). This covers PNG/JPG/GIF/WebP/SVG
+	// without us needing a hardcoded extension table.
+	sniff := bs
+	if len(sniff) > 512 {
+		sniff = sniff[:512]
+	}
+	w.Header().Set("Content-Type", http.DetectContentType(sniff))
+	w.Header().Set("Cache-Control", "private, max-age=60")
+	_, _ = w.Write(bs)
+}
+
 // show returns the body of <ref>:<path> as JSON `{content}`. Used by the
 // Monaco diff viewer (S012-1-10) to fetch the HEAD blob.
 //

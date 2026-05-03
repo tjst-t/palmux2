@@ -44,6 +44,7 @@ import { api, ApiError } from '../../lib/api'
 import { useGitStatusEvents } from '../../hooks/use-git-status-events'
 
 import { GitMonacoDiff } from './git-monaco-diff'
+import { ImagePair, isImageFile } from './git-image-diff'
 import { monacoLanguageFor } from '../files/viewers/dispatcher'
 import styles from './git-view.module.css'
 import type {
@@ -800,13 +801,21 @@ interface CommitFileDiffProps {
 // CommitFileDiff is a minimal Monaco diff viewer pinned to a specific
 // commit. It avoids reusing GitMonacoDiff because that one is tied to
 // "working vs HEAD" semantics — for committed history we want
-// `<sha>^:path` vs `<sha>:path`.
+// `<sha>^:path` vs `<sha>:path`. Image files are routed to ImagePair
+// instead of Monaco since text DiffEditor can't render binary blobs.
 function CommitFileDiff({ apiBase, sha, path, reloadKey }: CommitFileDiffProps) {
   const [orig, setOrig] = useState<string | null>(null)
   const [mod, setMod] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
+  const isImage = isImageFile(path)
+
   useEffect(() => {
+    if (isImage) {
+      // Skip the text fetch for images — ImagePair pulls the bytes
+      // directly via /git/raw which preserves binary data.
+      return
+    }
     let cancelled = false
     setOrig(null)
     setMod(null)
@@ -840,7 +849,23 @@ function CommitFileDiff({ apiBase, sha, path, reloadKey }: CommitFileDiffProps) 
     return () => {
       cancelled = true
     }
-  }, [apiBase, sha, path, reloadKey])
+  }, [apiBase, sha, path, reloadKey, isImage])
+
+  if (isImage) {
+    const enc = encodeURIComponent(path)
+    const shaShort = sha.slice(0, 7)
+    return (
+      <div className={styles.commitFileDiff}>
+        <header className={styles.commitDiffSubheader}>{path}</header>
+        <ImagePair
+          leftSrc={`${apiBase}/raw?ref=${encodeURIComponent(sha + '^')}&path=${enc}`}
+          rightSrc={`${apiBase}/raw?ref=${encodeURIComponent(sha)}&path=${enc}`}
+          leftLabel={`${shaShort}^`}
+          rightLabel={shaShort}
+        />
+      </div>
+    )
+  }
 
   return (
     <div className={styles.commitFileDiff}>

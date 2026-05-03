@@ -1,0 +1,33 @@
+{
+  "sprintId": "S029",
+  "entries": [
+    {
+      "feedback": "gitのログで、新規追加のファイルやuntrackedなファイルは内容が表示されない",
+      "diagnosis": "GitMonacoDiff.fetchWorking が `/files/<path>` (404) を呼んでいて working content が常に空文字列。 さらに /files/raw?path= は JSON envelope `{content, isBinary, ...}` を返すので raw .text() では使えない。 untracked file は HEAD content も空なので両ペインが空になり、 何も表示されない見た目になっていた (modified file は HEAD 側だけ赤の deletion として見えていたので気づきにくかった)。",
+      "change": "fetchWorking を `/files/raw?path=` + Accept: application/json に変更し、 JSON envelope の .content を抽出して Monaco に渡すよう修正。",
+      "files": ["frontend/src/tabs/git/git-monaco-diff.tsx"]
+    },
+    {
+      "feedback": "あと画像も表示されるようにして",
+      "diagnosis": "Monaco DiffEditor は text 専用で binary blob を表示できない。 画像 file をクリックすると Monaco が空のまま表示されていた。",
+      "change": "isImageFile ヘルパ + ImagePair component (`git-image-diff.tsx` + `.module.css`) を追加。 GitMonacoDiff (working diff) と CommitFileDiff (commit history diff) の両方で、 画像拡張子 (png/jpg/jpeg/gif/webp/avif/bmp/ico/svg) なら DiffEditor の代わりに side-by-side `<img>` を render。 BE: `/git/raw?ref=&path=` endpoint を新設、 `git show <ref>:<path>` の出力を JSON ラップせず生バイトで返す (http.DetectContentType で MIME 自動判定)。 working 側の画像は既存 Files API `/files/raw?path=` が `<img>` の Accept: image/* を見て raw bytes を返してくれるので追加実装不要。 sha 側は新 `/git/raw` が担当。",
+      "files": [
+        "frontend/src/tabs/git/git-image-diff.tsx",
+        "frontend/src/tabs/git/git-image-diff.module.css",
+        "frontend/src/tabs/git/git-monaco-diff.tsx",
+        "frontend/src/tabs/git/git-view.tsx",
+        "internal/tab/git/handler.go",
+        "internal/tab/git/provider.go"
+      ]
+    }
+  ],
+  "verification": {
+    "method": "Playwright headless E2E + curl smoke",
+    "results": [
+      "[1] PASS: docs/_refine_fixtures/untracked.txt shows full content in Monaco diff modified pane",
+      "[2] PASS: docs/_refine_fixtures/icon.svg (32x32) renders via ImagePair, <img>.naturalWidth=32",
+      "[3] PASS: /git/raw?ref=HEAD&path=README.md returns 200 with raw bytes",
+      "[regression] S029 E2E (12/12 ACs) still PASS"
+    ]
+  }
+}

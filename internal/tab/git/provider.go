@@ -119,6 +119,7 @@ func (p *Provider) RegisterRoutes(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("GET "+prefix+"/branches", h.branches)
 	mux.HandleFunc("GET "+prefix+"/head-message", h.headCommitMessage)
 	mux.HandleFunc("GET "+prefix+"/show", h.show)
+	mux.HandleFunc("GET "+prefix+"/raw", h.rawShow)
 
 	mux.HandleFunc("POST "+prefix+"/stage", h.stage)
 	mux.HandleFunc("POST "+prefix+"/unstage", h.unstage)

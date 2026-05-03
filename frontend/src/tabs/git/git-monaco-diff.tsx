@@ -24,6 +24,7 @@ import type { editor as MonacoEditor } from 'monaco-editor'
 import { monacoLanguageFor } from '../files/viewers/dispatcher'
 import { api } from '../../lib/api'
 
+import { ImagePair, isImageFile } from './git-image-diff'
 import styles from './git-monaco-diff.module.css'
 import type { LineRange } from './types'
 
@@ -90,6 +91,27 @@ export function GitMonacoDiff({ apiBase, path, unified, reloadKey, onStaged }: P
     } finally {
       setStaging(false)
     }
+  }
+
+  // For binary image files Monaco's text DiffEditor can't help — swap
+  // in a side-by-side <img> view instead. We still take the same
+  // `apiBase` so URLs flow through the same auth path.
+  if (isImageFile(path)) {
+    const filesBase = apiBase.replace(/\/git$/, '/files')
+    const enc = encodeURIComponent(path)
+    return (
+      <div className={styles.wrap} data-testid="git-monaco-diff">
+        <div className={styles.toolbar}>
+          <span className={styles.path}>{path}</span>
+        </div>
+        <ImagePair
+          leftSrc={`${apiBase}/raw?ref=HEAD&path=${enc}`}
+          rightSrc={`${filesBase}/raw?path=${enc}`}
+          leftLabel="HEAD"
+          rightLabel="Working"
+        />
+      </div>
+    )
   }
 
   return (
@@ -163,11 +185,29 @@ async function fetchOriginal(apiBase: string, path: string): Promise<string> {
 
 /** Fetch working-tree content via the Files API. Same auth path. */
 async function fetchWorking(apiBase: string, path: string): Promise<string> {
-  // apiBase is `/api/repos/{repoId}/branches/{branchId}/git`. Strip the
-  // trailing /git to reach the Files endpoint.
+  // apiBase is `/api/repos/{repoId}/branches/{branchId}/git`. The Files
+  // raw endpoint sits at `/files/raw?path=<worktree-relative-path>`.
+  //
+  // Sending `Accept: application/json` makes the server return a JSON
+  // envelope (`{content, isBinary, mime, ...}`) for text files instead
+  // of the raw bytes; that envelope is also the only path that handles
+  // text files Reliably without us having to second-guess MIME sniffing.
+  // We extract `.content` and hand it to Monaco. Binary files won't
+  // reach this function — the Git tab routes images / etc. through
+  // ImagePair before calling the Monaco diff.
   const filesBase = apiBase.replace(/\/git$/, '/files')
-  const segs = path.split('/').map(encodeURIComponent).join('/')
-  const res = await fetch(`${filesBase}/${segs}`, { credentials: 'include' })
+  const url = `${filesBase}/raw?path=${encodeURIComponent(path)}`
+  const res = await fetch(url, {
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+  })
   if (!res.ok) return ''
-  return res.text()
+  try {
+    const j = (await res.json()) as { content?: string; isBinary?: boolean }
+    if (j.isBinary) return ''
+    return j.content ?? ''
+  } catch {
+    // Server returned non-JSON for some reason — fall back to text.
+    return ''
+  }
 }
