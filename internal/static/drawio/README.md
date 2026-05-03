@@ -41,6 +41,8 @@ Updating
 --------
 
 1. `git clone --depth 1 https://github.com/jgraph/drawio /tmp/drawio-src`
-2. Re-run the same `cp` commands documented in `docs/sprint-logs/S010/decisions.md`
-   (Sprint S010 implementation log).
+2. Re-run the same `cp` commands documented in `docs/sprint-logs/S010/decisions.json`
+   (Sprint S010 implementation log; was `decisions.md` before the S028 JSON
+   migration — see `decisions.md.bak` for the original Markdown copy if you
+   need the inline rationale text rather than the structured entries).
 3. Update the source commit hash above.

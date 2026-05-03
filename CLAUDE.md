@@ -19,7 +19,9 @@
 
 ## 実装ステータス
 
-現在: **Phase 0（Scaffold）実装中**。
+現在: **v0.3.0 リリース済み (S001〜S029 完了)**。Phase 0〜3 のコア機能 + Phase 4 の磨き込み (S016 Sprint Dashboard、S017 virtualization、S018 検索/export、S019 rewind、S020 タブ UX、S021 Subagent worktree、S022 モバイル UX、S023/S024 Drawer redesign、S025 fixture cleanup、S026 HTML preview、S027 Markdown SPA navigation、S028 JSON canonical roadmap、S029 [BREAKING] Git タブ minimal redesign) まで実装済み。Phase 5+ は需要が明確になってから検討 (`docs/VISION.json` 参照)。
+
+実装の生きた進捗は **`docs/ROADMAP.json`** が source of truth。各 Sprint の決定ログは `docs/sprint-logs/{SprintID}/decisions.json` を参照。
 
 ### 確定済みプロジェクト規約
 
@@ -45,7 +47,7 @@
 
 ### autopilot / sprint auto でサブエージェントに実装を委譲するときのルール
 
-**コンパイル + unit test だけで「完了」とせず、必ず E2E 検証まで行う**。`make serve INSTANCE=dev` で立てた別ポートの独立インスタンスに対して Playwright (headless) で UI / WS / API 経路を叩いて確認する。詳細と「スキップが許される条件」は [docs/DESIGN_PRINCIPLES.md](docs/DESIGN_PRINCIPLES.md) の「自律実行 (autopilot / sprint auto) の検証ルール」を参照。
+**コンパイル + unit test だけで「完了」とせず、必ず E2E 検証まで行う**。`make serve INSTANCE=dev` で立てた別ポートの独立インスタンスに対して Playwright (headless) で UI / WS / API 経路を叩いて確認する。詳細と「スキップが許される条件」は [docs/DESIGN_PRINCIPLES.json](docs/DESIGN_PRINCIPLES.json) の `forbidden` / 自律実行ルール (S028 で .md → .json に正典化) を参照。
 
 実装が進んだら、本 CLAUDE.md を必要に応じて更新する（ディレクトリ構成の実態反映、確定した規約の追記、仕様変更の反映など）。
 
@@ -57,7 +59,7 @@ Palmux は Web ベースのターミナルクライアント。tmux セッショ
 
 | レイヤー | 技術 |
 |---|---|
-| バックエンド | Go 1.23+, net/http, nhooyr.io/websocket |
+| バックエンド | Go 1.25+, net/http, nhooyr.io/websocket |
 | フロントエンド | React 19, TypeScript, Vite, React Router v7 |
 | ターミナル | xterm.js 5.x |
 | 状態管理 | Zustand |
@@ -75,6 +77,7 @@ Repository (ghq, Open されたもの)
         ├── Claude  (terminal — protected, 1つ固定)
         ├── Files   (REST view — protected, 1つ固定, tmux window なし)
         ├── Git     (REST view — protected, 1つ固定, tmux window なし)
+        ├── Sprint  (REST view — Conditional: docs/ROADMAP.json があるときだけ生成, tmux window なし)
         └── Bash[]  (terminal — 1つ以上必須, 追加/削除可)
 ```
 
@@ -110,7 +113,8 @@ palmux/
 │   │   ├── claude/      # Claude タブ（terminal 系）
 │   │   ├── bash/        # Bash タブ（terminal 系、複数可）
 │   │   ├── files/       # Files タブ（REST 系、browser + security + handler）
-│   │   └── git/         # Git タブ（REST 系、git + diff + handler）
+│   │   ├── git/         # Git タブ（REST 系、S029 で minimal redesign — status/log/diff/branches/stage/commit/push/pull/fetch のみ）
+│   │   └── sprint/      # Sprint Dashboard タブ（S016, S028 — claude-skills sprint runner と連携、ROADMAP.json + sprint-logs/*.json をパース）
 │   ├── ghq/             # ghq list
 │   ├── gwq/             # gwq add/remove（worktree 操作）
 │   ├── worktree/        # git worktree list（読み取り専用）
@@ -122,8 +126,10 @@ palmux/
 │   ├── components/      # React コンポーネント（Drawer, Header, TabBar 等）
 │   ├── tabs/            # タブモジュール（1タブタイプ = 1ディレクトリ）
 │   │   ├── terminal-view.tsx  # 共通ターミナルビュー（Claude / Bash 共用）
+│   │   ├── claude-agent/ # Claude タブ（stream-json + MCP）
 │   │   ├── files/       # Files タブ（index.ts で registerTab）
-│   │   └── git/         # Git タブ（index.ts で registerTab）
+│   │   ├── git/         # Git タブ（index.ts で registerTab、S029 で minimal redesign）
+│   │   └── sprint/      # Sprint Dashboard タブ（S016, S028）
 │   ├── stores/          # Zustand ストア
 │   ├── hooks/           # カスタムフック
 │   ├── lib/             # api client, ws, terminal-manager, tab-registry
@@ -202,16 +208,17 @@ Tab ID:        claude | files | git | bash:bash | bash:bash-2
 
 ## ルーティング・履歴管理
 
-URL スキーム: `/{repoId}/{branchId}/{tabId}`。Files/Git はサブパスあり。
+URL スキーム: `/{repoId}/{branchId}/{tabId}`。Files はサブパスを持つ (`/files/<path>`)。Git は S029 で 2 カラム単一画面に統合され、 status / log / diff のサブルートは廃止。Sprint タブは `?view=` クエリ (`overview` / `detail` / `dependencies` / `decisions` / `refine`) でビュー切替。
 
 ```
 /tjst-t--palmux--a1b2/main--e5f6/claude
 /tjst-t--palmux--a1b2/main--e5f6/files/src/main.go
-/tjst-t--palmux--a1b2/main--e5f6/git/status
+/tjst-t--palmux--a1b2/main--e5f6/git
+/tjst-t--palmux--a1b2/main--e5f6/sprint?view=detail&sprintId=S010
 /?right=...                                          # Split 右パネル
 ```
 
-- ブランチ・タブ・Files パス・Git ビューの切り替えは `history.pushState`
+- ブランチ・タブ・Files パス・Sprint ビュー / Git 内の選択 (commit sha 等) の切り替えは `history.pushState`
 - Drawer 開閉、モーダル、Toolbar モード等の UI 一時状態は pushState しない
 - ブラウザの戻る/進むで画面遷移可能
 - React Router v7 を使用（`BrowserRouter`, `Routes`, `Route`, `useNavigate`, `useParams`）
@@ -297,7 +304,7 @@ scrollback: デフォルト 5000行、設定可能
 
 - Go: `*_test.go`。`tmux.Client` は interface でモック可能
 - TS: Vitest で stores / lib のユニットテスト
-- E2E: 手動確認主体
+- E2E: `tests/e2e/sNNN_*.py` (Python + Playwright headless) で AC 単位の検証。 `make serve INSTANCE=dev` で立てた dev インスタンス (別ポート) を実体として叩く。 Sprint ごとに 1 ファイル、 acceptance criteria は `[AC-{StoryID}-{N}]` タグで紐付ける (sprint verify が自動チェック)。
 
 ## ビルド
 
@@ -319,7 +326,7 @@ make lint         # golangci-lint + eslint
 - worktree の作成/削除は `gwq` コマンド経由。`git worktree add/remove` を直接呼ばない
 - 起動時に tmux, ghq, gwq, git の存在をチェック。なければエラー終了
 - 複数デバイス同時接続は tmux session group。attach 時に `__grp_{connId}` 作成、detach 時に kill
-- Files/Git タブは tmux window を持たない。REST API のみ
+- Files / Git / Sprint タブは tmux window を持たない。REST API のみ (Provider が `NeedsTmuxWindow() == false`)
 - localStorage キープレフィクス: `palmux:`
 - tmux 復元時は `claude --resume` で起動
 - pty → WS の背圧制御: バッファ 256 チャネル、満杯時は最古ドロップ
