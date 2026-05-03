@@ -1,26 +1,39 @@
-// S023: Drawer v3 — terminal editorial design.
+// S024: Drawer v7 — compact, single-expand, single-line.
 //
 // Layout (top → bottom):
-//   1. Status strip       — brand "PALMUX" + "● N active · M total"
-//   2. ★ Starred section  — title + count
-//   3. Repo blocks        — numbered (`01..NN`), each with branches list,
-//                            chip row (unmanaged / subagent), and an
-//                            expanded panel underneath the active chip
-//   4. Repositories section — collapsed compact list (other repos)
-//   5. Footer hint        — "⌘K to search"
-//   6. Footer CTA         — "Open Repository…"
+//   1. Status strip       — "PALMUX" + "● N active · M total"
+//   2. "Repositories" section (★ Starred and other repos merged into
+//      one list; star marker stays on the row, sort order is starred
+//      first then alphabetical)
+//   3. Each repo row (numbered `01`..`NN`):
+//      - Collapsed: name + ★ + [+], plus a 1-line "glance" preview of
+//        what clicking the row will navigate to (last_active or
+//        ghq folder). Active-containing repos show the glance line in
+//        accent colour.
+//      - Expanded: my-branches list (single-line each, with ⌂ + name +
+//        optional `[main]` badge), chip row, and the chip-expanded
+//        sub-panel under the active chip.
+//   4. Orphan section
+//   5. Footer hint
+//   6. Footer CTA "Open Repository…"
 //
-// "Active" branch carries a 3px accent border-left, "● HERE" label, and
-// a 2.6s pulse animation. Sub-branches in the expanded panel use a
-// stable `minmax(0, 1fr) auto` grid so the action buttons (↗ promote /
-// ✕ remove) stay flush right regardless of name length. Active subagent
-// rows have `✕` disabled (subagent task is currently running — would
-// orphan the work).
+// Single-expand (S024): only one repo can be expanded at any time. The
+// `expandedRepoId` state holds the currently-open repo id (or null when
+// everything is collapsed). Opening a different repo automatically
+// auto-collapses the previous one. Initial value is the active repo
+// (the one containing the current branch).
 //
-// Last-active memory: clicking a collapsed repo's header navigates to
-// `repo.lastActiveBranch` if it still exists (and expands the repo);
-// otherwise expand-only. The `+` button (open new branch dialog) is a
-// distinct path so it does not poison the last-active memory.
+// HERE label removed (S024): active branch is identified visually by
+// border-left + bg tint + bold + 2.6s glow keyframes. No "HERE" text
+// label, no "● HERE" pseudo-element, no `here-label` class — the v7
+// E2E asserts these are absent.
+//
+// Worktree single line (S024): both my-branch rows and sub-branch rows
+// in chip-expanded panels are 1 line each. The previous "stale Nd" /
+// "Nh ago" / "active task" / `idle` / `N turns` / `created YYYY` meta
+// lines are deleted. What remains: branch name, `⌂` ghq mark when the
+// branch is the canonical primary, `[main]` badge, and stat icon
+// (● fresh / ◍ stale) for sub-branches.
 
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
@@ -63,53 +76,55 @@ export function Drawer() {
   const reloadOrphanSessions = usePalmuxStore((s) => s.reloadOrphanSessions)
 
   const [pickerType, setPickerType] = useState<'repo' | { branchOf: string } | null>(null)
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  // S024: single-expand — one repo open at a time. Init lazily to the
+  // repo containing the active branch (URL-driven).
+  const { repoId: activeRepo } = useParams()
+  const [expandedRepoId, setExpandedRepoId] = useState<string | null>(
+    () => activeRepo ?? null,
+  )
+  // Whenever the URL switches to a new repo, follow it (still single-expand).
+  useEffect(() => {
+    if (activeRepo) setExpandedRepoId(activeRepo)
+  }, [activeRepo])
+
   const [orphanTarget, setOrphanTarget] = useState<{
     name: string
     idx: number
     windowName?: string
   } | null>(null)
 
-  const { repoId: activeRepo } = useParams()
-  useEffect(() => {
-    if (activeRepo) setExpanded((prev) => new Set(prev).add(activeRepo))
-  }, [activeRepo])
+  // S024: section unification — Starred + Repositories merged into one
+  // "Repositories" list, sorted starred-first then by id. Star marker
+  // stays on the row.
+  const sortedRepos = useMemo(() => {
+    const arr = [...repos]
+    arr.sort((a, b) => {
+      if (a.starred !== b.starred) return a.starred ? -1 : 1
+      return a.id.localeCompare(b.id)
+    })
+    return arr
+  }, [repos])
 
-  const starred = useMemo(() => repos.filter((r) => r.starred), [repos])
-  const unstarred = useMemo(() => repos.filter((r) => !r.starred), [repos])
+  // Stable repo numbering matches the merged sort order.
+  const numbering = useMemo(() => {
+    const map = new Map<string, number>()
+    let i = 1
+    for (const r of sortedRepos) map.set(r.id, i++)
+    return map
+  }, [sortedRepos])
 
-  // Status strip metrics: "active" = repos that have at least one branch
-  // with a running agent or unread notifications. "total" = total open
-  // branches across all repos. Both are tabular-nums.
+  // Status-strip metrics.
   const { activeCount, totalCount } = useMemo(() => {
     let active = 0
     let total = 0
     for (const r of repos) {
       total += r.openBranches.length
-      const hasActivity = r.openBranches.some(
-        (b) => agentPipClassFor(b ? undefined : undefined),
-        // we re-read agent state via store selector inside BranchItem, so
-        // here we approximate "active" as repos with any open branch
-      )
-      if (hasActivity || r.openBranches.length > 0) {
-        // Keep the metric simple — we can refine to "non-idle agent or
-        // unread notif" later once telemetry shows it matters. For now,
-        // treat any repo with at least one Open branch as "active".
-        active += 1
-      }
+      if (r.openBranches.length > 0) active += 1
     }
     return { activeCount: active, totalCount: total }
   }, [repos])
 
-  // Stable repo numbering: starred first then unstarred, both alphabetical
-  // by ghqPath (matches store sort order). Numbers persist across renders.
-  const numbering = useMemo(() => {
-    const map = new Map<string, number>()
-    let i = 1
-    for (const r of starred) map.set(r.id, i++)
-    for (const r of unstarred) map.set(r.id, i++)
-    return map
-  }, [starred, unstarred])
+  const handleSetExpanded = (repoId: string | null) => setExpandedRepoId(repoId)
 
   return (
     <aside className={styles.drawer} style={{ width: drawerWidth }}>
@@ -127,28 +142,15 @@ export function Drawer() {
           </span>
         </div>
 
-        {starred.length > 0 && (
-          <DrawerSection
-            title="★ Starred"
-            count={starred.length}
-            repos={starred}
-            numbering={numbering}
-            expanded={expanded}
-            setExpanded={setExpanded}
-            onAddBranch={(repoId) => setPickerType({ branchOf: repoId })}
-          />
-        )}
-        {unstarred.length > 0 && (
-          <DrawerSection
-            title="Repositories"
-            count={unstarred.length}
-            repos={unstarred}
-            numbering={numbering}
-            expanded={expanded}
-            setExpanded={setExpanded}
-            onAddBranch={(repoId) => setPickerType({ branchOf: repoId })}
-          />
-        )}
+        <DrawerSection
+          title="Repositories"
+          count={sortedRepos.length}
+          repos={sortedRepos}
+          numbering={numbering}
+          expandedRepoId={expandedRepoId}
+          setExpandedRepoId={handleSetExpanded}
+          onAddBranch={(repoId) => setPickerType({ branchOf: repoId })}
+        />
 
         <OrphanSection
           sessions={orphanSessions}
@@ -194,16 +196,16 @@ function DrawerSection({
   count,
   repos,
   numbering,
-  expanded,
-  setExpanded,
+  expandedRepoId,
+  setExpandedRepoId,
   onAddBranch,
 }: {
   title: string
   count: number
   repos: Repository[]
   numbering: Map<string, number>
-  expanded: Set<string>
-  setExpanded: React.Dispatch<React.SetStateAction<Set<string>>>
+  expandedRepoId: string | null
+  setExpandedRepoId: (id: string | null) => void
   onAddBranch: (repoId: string) => void
 }) {
   return (
@@ -218,15 +220,8 @@ function DrawerSection({
             key={repo.id}
             repo={repo}
             number={numbering.get(repo.id) ?? 0}
-            expanded={expanded.has(repo.id)}
-            onToggle={() =>
-              setExpanded((prev) => {
-                const next = new Set(prev)
-                if (next.has(repo.id)) next.delete(repo.id)
-                else next.add(repo.id)
-                return next
-              })
-            }
+            expanded={expandedRepoId === repo.id}
+            onSetExpanded={setExpandedRepoId}
             onAddBranch={() => onAddBranch(repo.id)}
           />
         ))}
@@ -239,13 +234,13 @@ function RepoItem({
   repo,
   number,
   expanded,
-  onToggle,
+  onSetExpanded,
   onAddBranch,
 }: {
   repo: Repository
   number: number
   expanded: boolean
-  onToggle: () => void
+  onSetExpanded: (id: string | null) => void
   onAddBranch: () => void
 }) {
   const navigate = useNavigate()
@@ -264,11 +259,8 @@ function RepoItem({
 
   const [activeChip, setActiveChip] = useState<'unmanaged' | 'subagent' | null>(null)
 
-  // S023: if the currently-active branch lives in unmanaged/subagent (e.g.
-  // a freshly Open'd repo where the primary is still "unmanaged"), make
-  // sure the chip containing it is auto-expanded so the user can SEE
-  // where they are. Without this the v3 drawer would render only the
-  // chip pill and hide the active branch behind a click.
+  // S023 carry-over: if the active branch lives in unmanaged/subagent, auto-
+  // open the chip containing it so the user sees where they are.
   useEffect(() => {
     if (activeRepo !== repo.id) return
     const activeBranchObj = repo.openBranches.find((b) => b.id === activeBranch)
@@ -276,8 +268,8 @@ function RepoItem({
     const cat = categoryKey(activeBranchObj.category)
     if (cat === 'unmanaged') setActiveChip('unmanaged')
     else if (cat === 'subagent') setActiveChip('subagent')
-    // 'my' → no chip auto-open (active branch already in the my list)
   }, [activeRepo, activeBranch, repo.id, repo.openBranches])
+
   const [cleanupOpen, setCleanupOpen] = useState(false)
   const [cleanupLoading, setCleanupLoading] = useState(false)
   const [cleanupCandidates, setCleanupCandidates] = useState<
@@ -357,40 +349,43 @@ function RepoItem({
 
   const navigateToBranch = (branch: Branch, tabId?: string) => {
     const target = tabId ?? branch.tabSet.tabs[0]?.id ?? 'claude'
-    // Fire-and-forget last-active memory update.
     void setLastActiveBranch(repo.id, branch.name)
     navigate(`/${repo.id}/${branch.id}/${encodeURIComponent(target)}${location.search}`)
   }
 
-  // Click on the repo header (name / number / chevron strip):
-  //   1. If repo is collapsed and `lastActiveBranch` still resolves to an
-  //      open branch → navigate there AND expand. One-click return.
-  //   2. Else → toggle expand state only.
+  // Click on the repo header (name / number / glance line area):
+  //   - Collapsed: navigate to last_active (or ghq primary) AND set this
+  //                repo as the only expanded one (auto-collapses the prev).
+  //   - Expanded:  collapse (no repo expanded after).
   const handleRepoHeaderClick = () => {
-    if (!expanded && repo.lastActiveBranch) {
-      const branch = repo.openBranches.find((b) => b.name === repo.lastActiveBranch)
-      if (branch) {
-        onToggle() // expand
-        navigateToBranch(branch)
-        return
+    if (!expanded) {
+      const target = navigateTarget(repo, branchesByCategory.my)
+      if (target) {
+        navigateToBranch(target.branch)
       }
+      onSetExpanded(repo.id)
+    } else {
+      onSetExpanded(null)
     }
-    onToggle()
   }
 
   const myBranches = branchesByCategory.my
   const unmanagedBranches = branchesByCategory.unmanaged
   const subagentBranches = branchesByCategory.subagent
 
-  // Compact display name: split owner/repo so the owner can be muted.
   const { scope, name } = splitRepoName(repo)
   const isCollapsed = !expanded
+  const containsActive = activeRepo === repo.id
+  const target = navigateTarget(repo, myBranches)
 
   return (
     <li
-      className={`${styles.repo} ${isCollapsed ? styles.repoCollapsed : ''}`}
+      className={`${styles.repo} ${isCollapsed ? styles.repoCollapsed : ''} ${
+        isCollapsed && containsActive ? styles.repoHasActive : ''
+      }`}
       data-repo-id={repo.id}
       data-collapsed={isCollapsed ? 'true' : 'false'}
+      data-has-active={containsActive ? 'true' : 'false'}
     >
       <div
         className={styles.repoRow}
@@ -409,7 +404,7 @@ function RepoItem({
           data-action="repo-toggle"
           title={repo.ghqPath}
         >
-          {scope && <span className={styles.scope}>{scope} / </span>}
+          {scope && <span className={styles.scope}>{scope}/</span>}
           {name}
         </button>
         <button
@@ -433,9 +428,23 @@ function RepoItem({
           title="Open new branch"
           data-action="add-branch"
         >
-          [+]
+          +
         </button>
       </div>
+
+      {/* Glance line — only visible when collapsed. */}
+      {isCollapsed && target && (
+        <div
+          className={styles.glanceLine}
+          data-component="glance-line"
+          data-target-source={target.source}
+          onClick={handleRepoHeaderClick}
+        >
+          {target.source === 'ghq' && <span className={styles.ghqMark}>⌂</span>}
+          {target.branch.name}
+          <span className={styles.glanceArrow}>›</span>
+        </div>
+      )}
 
       {expanded && (
         <>
@@ -585,17 +594,7 @@ function BranchItem({
   }
   const longPress = useLongPress((x, y) => showMenuAt(x, y))
 
-  // Idle-readable meta line: turn count + activity if available, plus
-  // unread notifications. Falls back to the raw worktree path when
-  // nothing fancier is on hand.
-  const metaText = (() => {
-    const bits: string[] = []
-    if (agent?.status && agent.status !== 'idle') bits.push(agent.status)
-    if (unread > 0) bits.push(`${unread} unread`)
-    return bits.join(' · ')
-  })()
-
-  // unused — promoteBranch handler stays for the context menu wiring
+  // Suppress unused-var lint for the menu helper.
   void promoteBranch
 
   return (
@@ -617,36 +616,27 @@ function BranchItem({
             : branch.worktreePath
         }
       >
-        <span className={styles.branchInfo}>
-          {isActive && (
-            <span className={styles.hereLabel} data-label="here">
-              Here
-            </span>
-          )}
-          <span className={styles.branchName}>{branch.name}</span>
-          {metaText && <span className={styles.branchMeta}>{metaText}</span>}
+        <span className={styles.branchName}>
+          {branch.isPrimary && <span className={styles.ghqMark}>⌂</span>}
+          {branch.name}
         </span>
-        {agentPipClass && (
-          <span
-            className={`${styles.agentPip} ${agentPipClass}`}
-            title={`Claude: ${agent?.status ?? 'idle'}`}
-            aria-hidden
-          />
-        )}
-        {unread > 0 && <span className={styles.notifyDot} aria-label={`${unread} unread`} />}
-        {branch.isPrimary && <span className={styles.primaryTag}>main</span>}
+        <span className={styles.branchTrailing}>
+          {agentPipClass && (
+            <span
+              className={`${styles.agentPip} ${agentPipClass}`}
+              title={`Claude: ${agent?.status ?? 'idle'}`}
+              aria-hidden
+            />
+          )}
+          {unread > 0 && <span className={styles.notifyDot} aria-label={`${unread} unread`} />}
+          {branch.isPrimary && <span className={styles.primaryTag}>main</span>}
+        </span>
       </button>
     </li>
   )
 }
 
-// ChipExpandedPanel renders the unmanaged / subagent sub-list under the
-// chip row. Always-visible action buttons:
-//   - ↗ promote → unmanaged: add to userOpenedBranches
-//                  subagent : move worktree to gwq path + record
-//   - ✕ remove  → subagent only (unmanaged stays — the user might be
-//                  using it intentionally). Disabled when the subagent
-//                  branch is currently running an agent task.
+// ChipExpandedPanel renders the unmanaged / subagent sub-list.
 function ChipExpandedPanel({
   category,
   branches,
@@ -768,20 +758,16 @@ function SubBranchRow({
   onPromote: () => void
   onRemove: () => void
 }) {
-  // Sub-branch meta from the lastActivity timestamp + agent state.
-  // Subagent rows with a currently-running agent show "active task" and
-  // disable the remove button (preventing accidental kill of in-flight
-  // work).
+  // S024: single-line. We keep the stat icon (●/◍) but drop the meta line.
+  // Active-task detection is still used to disable the remove (✕) button.
   const agent = usePalmuxStore(selectAgentState(branch.repoId, branch.id))
   const isActiveTask = !!agent?.status && agent.status !== 'idle' && agent.status !== 'error'
   const stat = computeBranchStat(branch.lastActivity, isActiveTask)
-  const meta = computeBranchMeta(branch.lastActivity, isActiveTask)
 
   return (
     <div
       className={styles.subBranch}
       onClick={(e) => {
-        // Avoid double-firing when clicking an inner button.
         if ((e.target as HTMLElement).closest('button')) return
         onSelect()
       }}
@@ -790,21 +776,18 @@ function SubBranchRow({
       data-active={isActive ? 'true' : 'false'}
       data-category={category}
     >
-      <div className={styles.subInfo}>
-        <div className={styles.subTitle}>
-          {stat && (
-            <span
-              className={`${styles.subStat} ${
-                stat.kind === 'fresh' ? styles.subStatFresh : styles.subStatStale
-              }`}
-              aria-hidden
-            >
-              {stat.glyph}
-            </span>
-          )}
-          <span className={styles.subName}>{branch.name}</span>
-        </div>
-        {meta && <div className={styles.subMeta}>{meta}</div>}
+      <div className={styles.subTitle}>
+        {stat && (
+          <span
+            className={`${styles.subStat} ${
+              stat.kind === 'fresh' ? styles.subStatFresh : styles.subStatStale
+            }`}
+            aria-hidden
+          >
+            {stat.glyph}
+          </span>
+        )}
+        <span className={styles.subName}>{branch.name}</span>
       </div>
       <div className={styles.subActions}>
         <button
@@ -951,17 +934,32 @@ function repoDisplayName(repo: { ghqPath: string }): string {
 function splitRepoName(repo: { ghqPath: string }): { scope: string; name: string } {
   const parts = repo.ghqPath.split('/')
   if (parts.length >= 3) {
-    // host / owner / name → scope=owner, name=name
     return { scope: parts[parts.length - 2], name: parts[parts.length - 1] }
   }
   if (parts.length === 2) return { scope: '', name: parts[1] }
   return { scope: '', name: repo.ghqPath }
 }
 
-// computeBranchStat returns a small status glyph + class hint for the
-// sub-branch row. Fresh = recent activity (or active task in flight),
-// stale = no commits in the last `STALE_DAYS`. We don't show a stat for
-// in-between branches (would create noise).
+// navigateTarget picks where a collapsed-repo click should land:
+//   1. last_active_branch when it still resolves to an open branch
+//   2. otherwise the primary (ghq) branch
+// Returns null if neither is available — caller falls back to expand-only.
+function navigateTarget(
+  repo: Repository,
+  myBranches: Branch[],
+): { branch: Branch; source: 'last_active' | 'ghq' } | null {
+  if (repo.lastActiveBranch) {
+    const b = repo.openBranches.find((x) => x.name === repo.lastActiveBranch)
+    if (b) return { branch: b, source: 'last_active' }
+  }
+  // ghq folder = primary worktree. Always exists when repo is Open.
+  const primary = myBranches.find((x) => x.isPrimary) ?? repo.openBranches.find((x) => x.isPrimary)
+  if (primary) return { branch: primary, source: 'ghq' }
+  // Last resort: first MY branch.
+  if (myBranches.length > 0) return { branch: myBranches[0], source: 'ghq' }
+  return null
+}
+
 const STALE_DAYS = 7
 function computeBranchStat(
   lastActivityIso: string,
@@ -973,19 +971,6 @@ function computeBranchStat(
   const ageDays = (Date.now() - t) / (1000 * 60 * 60 * 24)
   if (ageDays >= STALE_DAYS) return { kind: 'stale', glyph: '◍' }
   return null
-}
-
-function computeBranchMeta(lastActivityIso: string, isActiveTask: boolean): string {
-  const t = Date.parse(lastActivityIso)
-  if (Number.isNaN(t)) return ''
-  const diffMs = Date.now() - t
-  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-  const hours = Math.floor(diffMs / (1000 * 60 * 60))
-  const taskNote = isActiveTask ? ' · ⌁ active task' : ''
-  if (days >= STALE_DAYS) return `stale ${days}d${taskNote}`
-  if (days >= 1) return `${days}d ago${taskNote}`
-  if (hours >= 1) return `${hours}h ago${taskNote}`
-  return `recent${taskNote}`
 }
 
 function DrawerResizer({ width, onChange }: { width: number; onChange: (w: number) => void }) {
@@ -1015,5 +1000,4 @@ function DrawerResizer({ width, onChange }: { width: number; onChange: (w: numbe
   )
 }
 
-// silences unused-var lint when nothing in BranchItem uses repoDisplayName
 void repoDisplayName

@@ -503,7 +503,14 @@ def test_a_b_drawer_v3_smoke(repo_id: str) -> None:
                 if repo_toggle.count() == 0:
                     print("  [f] (skipped: repo-toggle not found)")
                 else:
-                    # Collapse first.
+                    # S024: clicking a collapsed repo toggle now ALWAYS
+                    # navigates (to last_active OR ghq primary) — so the
+                    # mobile drawer auto-closes via the same hook that
+                    # closes on branch click. Clicking an expanded repo
+                    # only collapses it (no nav) and the drawer stays
+                    # open. We exercise the collapse-then-stay path.
+                    # First click should collapse the active repo (it's
+                    # auto-expanded due to URL params); drawer stays open.
                     repo_toggle.first.click()
                     page.wait_for_timeout(300)
                     still_open = page.locator(
@@ -511,20 +518,9 @@ def test_a_b_drawer_v3_smoke(repo_id: str) -> None:
                     ).count()
                     assert_(
                         still_open >= 1,
-                        "mobile drawer closed after repo-toggle (collapse) — should stay open",
+                        "mobile drawer closed after collapse click — should stay open (collapse only, no nav)",
                     )
-                    # Re-expand. Active repo has lastActiveBranch unset
-                    # so this should also keep drawer open.
-                    repo_toggle.first.click()
-                    page.wait_for_timeout(300)
-                    still_open = page.locator(
-                        '[role="dialog"][aria-modal="true"]'
-                    ).count()
-                    assert_(
-                        still_open >= 1,
-                        "mobile drawer closed after repo-toggle (expand) — should stay open",
-                    )
-                    print("  [f] mobile drawer stays open across repo-toggle clicks: OK")
+                    print("  [f] mobile drawer stays open on collapse-only click: OK")
 
                 # `+` open-branch button must NOT close drawer (it opens a
                 # picker dialog). The `+ Open new branch` lives at

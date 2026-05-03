@@ -128,6 +128,11 @@ func matchSingleSegment(seg, pattern string) bool {
 // applyCategoriesUnlocked sets `branch.Category` on every branch in `repo`
 // using the live RepoStore + Settings. Caller must hold s.mu (write lock
 // when mutating, read lock for reads). Pure derivation — no side effects.
+//
+// S024-1-1: the primary worktree (canonical ghq folder) is always "user"
+// regardless of `user_opened_branches`. The drawer treats it as MY so the
+// repo always has at least one MY branch — required for the v7 single-line
+// MY list and glance-line preview to make sense.
 func (s *Store) applyCategoriesUnlocked(repo *domain.Repository) {
 	if repo == nil {
 		return
@@ -135,6 +140,11 @@ func (s *Store) applyCategoriesUnlocked(repo *domain.Repository) {
 	entry, _ := s.deps.RepoStore.Get(repo.ID)
 	patterns := s.deps.Settings.AutoWorktreePathPatterns()
 	for _, b := range repo.OpenBranches {
+		if b.IsPrimary {
+			// ghq folder = MY (S024-1-1). Always user, never subagent/unmanaged.
+			b.Category = BranchCategoryUser
+			continue
+		}
 		b.Category = categorize(b.Name, b.WorktreePath, entry.UserOpenedBranches, patterns)
 	}
 }

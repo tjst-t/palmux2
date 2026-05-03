@@ -542,10 +542,15 @@ def test_h_playwright_cleanup_dialog(repo_path: Path, repo_id: str) -> None:
             # Promote button on a subagent row: seed one and click it.
             make_subagent_worktree(repo_path, repo_id, "auto/pw-promote", age_days=1)
             page.wait_for_timeout(2_500)  # give the FE WS event a chance
-            promote_btn = page.locator('button[data-action="promote-subagent"]')
+            # v3+/v7: subagent rows live inside [data-category="subagent"]
+            # and the promote button is generic data-action="promote"
+            # (not "promote-subagent" — that was a v2 attribute).
+            promote_btn = page.locator(
+                '[data-category="subagent"] button[data-action="promote"]'
+            )
             assert_(
                 promote_btn.count() >= 1,
-                f"promote-subagent button missing (got {promote_btn.count()})",
+                f"promote button on subagent row missing (got {promote_btn.count()})",
             )
             print("  [h] Playwright: cleanup dialog flow + promote button render: OK")
         finally:

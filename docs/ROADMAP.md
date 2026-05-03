@@ -10,7 +10,7 @@
 
 ## 実行順序
 
-S001 ✅ → S002 ✅ → S003 ✅ → S007 ✅ → S004 ✅ → S005 ✅ → S006 ✅ → S008 ✅ → S009 ✅ → S010 ✅ → S011 ✅ → S012 ✅ → S013 ✅ → S014 ✅ → S015 ✅ → S016 ✅ → S017 ✅ → S018 ✅ → S019 ✅ → S020 ✅ → S021 ✅ → S022 ✅ → S023 ✅ → **S024**
+S001 ✅ → S002 ✅ → S003 ✅ → S007 ✅ → S004 ✅ → S005 ✅ → S006 ✅ → S008 ✅ → S009 ✅ → S010 ✅ → S011 ✅ → S012 ✅ → S013 ✅ → S014 ✅ → S015 ✅ → S016 ✅ → S017 ✅ → S018 ✅ → S019 ✅ → S020 ✅ → S021 ✅ → S022 ✅ → S023 ✅ → S024 ✅
 
 ---
 
@@ -1347,7 +1347,7 @@ Palmux のモバイルユーザとして、 Git サブタブの選択と Workspa
 
 ---
 
-## スプリント S024: Drawer v7 polish (compact + single-expand + single-line) [ ]
+## スプリント S024: Drawer v7 polish (compact + single-expand + single-line) [DONE]
 
 S023 で v3 design を実装した後、 ユーザの実機テストで判明した密度 / 視線負荷の課題を refine する polish sprint。 design source-of-truth は **`/tmp/drawer-mock-v7.html`** (interactive single-file mock)。 既存 S023 の機能 (last-active memory / mobile auto-hide / Git subtab dropdown / ghq folder = MY 自動管理) は維持、 主に **見た目とインタラクション** を再調整する。
 
@@ -1361,48 +1361,48 @@ S023 で v3 design を実装した後、 ユーザの実機テストで判明し
 6. **Section 統一**: Starred と Repositories を 1 つの「Repositories」 セクションに merge、 starred は repo 行内 ★ で識別 + sort で先頭優先
 7. **ghq folder = MY 自動管理の確認/補完**: S023 の `Repos()` snapshot で main worktree が必ず MY に含まれているか確認、 不足ならここで補完
 
-### ストーリー S024-1: Drawer compact + behavioral refinement [ ]
+### ストーリー S024-1: Drawer compact + behavioral refinement [x]
 
 **ユーザーストーリー:**
 Palmux のユーザとして、 ドロワーを 240px 程度の狭い幅でも repo 名 / branch 名が省略されず、 同時に複数 repo の内容が画面を埋めず、 worktree 一覧を 1 行ずつ高密度で見られるようにしたい。 なぜなら、 v3 の設計だと普段使う幅では密度が低すぎて全体把握できず、 worktree の細かいメタ情報 (idle / turn / commit 時刻) は会話の進行で読みきれないからだ。
 
 **受け入れ条件:**
-- [ ] 全トークン (font / padding / line-height / column gap) が `/tmp/drawer-mock-v7.html` 準拠に縮小される
-- [ ] 240px 幅で repo 名 (`tjst-t/grok-novel` 等) / branch 名 (`autopilot/main/S023` 等) が ellipsis を最小限に表示
-- [ ] **Single-expand**: 同時に開ける repo は 1 つだけ、 別 repo を開くと前のは自動 collapse
-- [ ] 初期 expand は active branch を含む repo のみ (S023 から維持)
-- [ ] **HERE ラベル削除**: `● HERE` / `here` ラベルは表示されない、 active branch は border-left + glow + bold + bg tint で識別される
-- [ ] **Worktree は 1 行**: my branch / sub-branch すべて 1 行で表示、 改行する meta line はなし
-- [ ] 削除される情報: idle / turn / created / stale Nd / Nh ago 等の text meta
-- [ ] 残る情報: branch 名 / `⌂` ghq mark / `[main]` badge / `●` (fresh) / `◍` (stale) stat icon
-- [ ] **Glance line**: collapsed repo 直下に 1 行で navigate 先 (`⌂ main ›` / `last_active branch ›`) が表示される
-- [ ] active を含む collapsed repo の glance line は accent カラー化
-- [ ] **Section 統一**: 「Starred」「Repositories」 の 2 セクションが 1 つの「Repositories」 に merge、 starred 優先 sort + 行内 ★ で識別
-- [ ] **ghq folder = MY 自動管理**: 各 repo に必ず main worktree (canonical clone) が MY branch として 1 件以上存在する
-- [ ] 既存 S023 機能 (last-active memory / mobile auto-hide / Git subtab dropdown) はそのまま動作
-- [ ] モバイル (< 600px) で v7 layout が破綻しない (タップ領域 36px+ 維持)
+- [x] 全トークン (font / padding / line-height / column gap) が `/tmp/drawer-mock-v7.html` 準拠に縮小される
+- [x] 240px 幅で repo 名 (`tjst-t/grok-novel` 等) / branch 名 (`autopilot/main/S023` 等) が ellipsis を最小限に表示
+- [x] **Single-expand**: 同時に開ける repo は 1 つだけ、 別 repo を開くと前のは自動 collapse
+- [x] 初期 expand は active branch を含む repo のみ (S023 から維持)
+- [x] **HERE ラベル削除**: `● HERE` / `here` ラベルは表示されない、 active branch は border-left + glow + bold + bg tint で識別される
+- [x] **Worktree は 1 行**: my branch / sub-branch すべて 1 行で表示、 改行する meta line はなし
+- [x] 削除される情報: idle / turn / created / stale Nd / Nh ago 等の text meta
+- [x] 残る情報: branch 名 / `⌂` ghq mark / `[main]` badge / `●` (fresh) / `◍` (stale) stat icon
+- [x] **Glance line**: collapsed repo 直下に 1 行で navigate 先 (`⌂ main ›` / `last_active branch ›`) が表示される
+- [x] active を含む collapsed repo の glance line は accent カラー化
+- [x] **Section 統一**: 「Starred」「Repositories」 の 2 セクションが 1 つの「Repositories」 に merge、 starred 優先 sort + 行内 ★ で識別
+- [x] **ghq folder = MY 自動管理**: 各 repo に必ず main worktree (canonical clone) が MY branch として 1 件以上存在する
+- [x] 既存 S023 機能 (last-active memory / mobile auto-hide / Git subtab dropdown) はそのまま動作
+- [x] モバイル (< 600px) で v7 layout が破綻しない (タップ領域 36px+ 維持)
 
 **タスク:**
 
 **バックエンド (確認 / 補完):**
-- [ ] **タスク S024-1-1**: ghq folder = MY 自動管理を確認。 `internal/store/category.go` (or 該当箇所) で main worktree が必ず MY branch として `Repos()` snapshot に含まれることを確認、 不足なら補完。 起動時 reconcile も同様
+- [x] **タスク S024-1-1**: ghq folder = MY 自動管理を確認。 `internal/store/category.go` (or 該当箇所) で main worktree が必ず MY branch として `Repos()` snapshot に含まれることを確認、 不足なら補完。 起動時 reconcile も同様
 
 **フロントエンド (CSS):**
-- [ ] **タスク S024-1-2**: `frontend/src/components/drawer.module.css` を v7 mock 準拠に refactor — font (12 / 11.5 / 9-10px)、 padding (5 / 10 / 22px)、 column gap、 glance line スタイル、 active の glow keyframes
-- [ ] **タスク S024-1-3**: HERE label 関連の CSS rule を削除、 active branch の識別 (border-left + bg + glow + bold) を強化
+- [x] **タスク S024-1-2**: `frontend/src/components/drawer.module.css` を v7 mock 準拠に refactor — font (12 / 11.5 / 9-10px)、 padding (5 / 10 / 22px)、 column gap、 glance line スタイル、 active の glow keyframes
+- [x] **タスク S024-1-3**: HERE label 関連の CSS rule を削除、 active branch の識別 (border-left + bg + glow + bold) を強化
 
 **フロントエンド (state + structure):**
-- [ ] **タスク S024-1-4**: Drawer state を `expandedRepoId: string | null` 単一 ref に refactor (Zustand store もしくは local state)。 既存の per-repo `expanded` boolean を廃止
-- [ ] **タスク S024-1-5**: Repo expand handler — 別 repo を開くときに前を auto-collapse (`setExpandedRepoId(repoId)` 1 行で完結する設計)
-- [ ] **タスク S024-1-6**: Branch row component を 1 行 layout に (`<HereLabel>` / `<BranchMeta>` 削除、 ghq mark + name + main badge のみの単純構造)
-- [ ] **タスク S024-1-7**: Sub-branch (chip-expanded) component も 1 行 layout (stat icon + name + actions、 sub-meta line 削除)
-- [ ] **タスク S024-1-8**: Glance line component (collapsed repo の直下、 navigate target = last_active or ghq の preview)。 active を含む repo は accent カラー化
+- [x] **タスク S024-1-4**: Drawer state を `expandedRepoId: string | null` 単一 ref に refactor (Zustand store もしくは local state)。 既存の per-repo `expanded` boolean を廃止
+- [x] **タスク S024-1-5**: Repo expand handler — 別 repo を開くときに前を auto-collapse (`setExpandedRepoId(repoId)` 1 行で完結する設計)
+- [x] **タスク S024-1-6**: Branch row component を 1 行 layout に (`<HereLabel>` / `<BranchMeta>` 削除、 ghq mark + name + main badge のみの単純構造)
+- [x] **タスク S024-1-7**: Sub-branch (chip-expanded) component も 1 行 layout (stat icon + name + actions、 sub-meta line 削除)
+- [x] **タスク S024-1-8**: Glance line component (collapsed repo の直下、 navigate target = last_active or ghq の preview)。 active を含む repo は accent カラー化
 
 **フロントエンド (section 統一):**
-- [ ] **タスク S024-1-9**: Drawer.tsx で「Starred」「Repositories」 を merge、 1 つの「Repositories」 セクションに集約。 sort: starred → !starred、 row 内に ★ アイコン
+- [x] **タスク S024-1-9**: Drawer.tsx で「Starred」「Repositories」 を merge、 1 つの「Repositories」 セクションに集約。 sort: starred → !starred、 row 内に ★ アイコン
 
 **E2E:**
-- [ ] **タスク S024-1-10**: dev インスタンス + Playwright で実機検証。 `tests/e2e/s024_*.py` で:
+- [x] **タスク S024-1-10**: dev インスタンス + Playwright で実機検証。 `tests/e2e/s024_*.py` で:
   - (a) v7 token: 240px 幅で repo 名 / branch 名が cut なし or 最小限
   - (b) Single-expand: repo A 開く → repo B 開く → repo A が auto-collapse
   - (c) HERE label 不在: DOM 上に `here-label` 等の class / textContent "HERE" が存在しない

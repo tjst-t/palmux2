@@ -473,11 +473,19 @@ def test_h2_playwright_drawer_sections(repo_id: str, fixture_branches: dict[str,
                     f"unmanaged section missing: {sections_dump}")
             assert_("subagent" in section_kinds,
                     f"subagent section missing: {sections_dump}")
-            # The `+` promote button must exist on at least one
-            # unmanaged row inside this repo.
+            # The `+` (now `↗`) promote button lives inside the chip-
+            # expanded panel. In v3+ the chip stays closed when the
+            # active branch is in `my`, so we click the unmanaged chip
+            # first and then check.
+            unmanaged_chip = page.locator(
+                f'[data-repo-id="{repo_id}"] button[data-chip="unmanaged"]'
+            )
+            if unmanaged_chip.count() >= 1:
+                unmanaged_chip.first.click()
+                page.wait_for_timeout(300)
             promote_btns = page.locator('button[data-action="promote"]')
             promote_count = promote_btns.count()
-            assert_(promote_count >= 1, f"no `+` promote button present (got {promote_count})")
+            assert_(promote_count >= 1, f"no `+`/↗ promote button present (got {promote_count})")
             # Subagent section is collapsed by default (v2: collapsed
             # `<section>`; v3: chip pill closed). Click the header /
             # chip to expand.
