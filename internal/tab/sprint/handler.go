@@ -319,7 +319,11 @@ func (h *handler) dependencies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	roadmapPath := filepath.Join(root, "docs", "ROADMAP.json")
-	tag := fileTag(roadmapPath)
+	// The ETag includes a Mermaid emitter version so client HTTP
+	// caches are invalidated when buildMermaid's output format
+	// changes (otherwise browsers keep using a cached body even
+	// after a server fix). Bump on any breaking emit change.
+	tag := `"` + shortHash(fileTag(roadmapPath)+":mermaid="+mermaidEmitterVersion) + `"`
 	if sendCacheable(w, r, tag) {
 		return
 	}
@@ -344,6 +348,13 @@ func (h *handler) dependencies(w http.ResponseWriter, r *http.Request) {
 	resp.Mermaid = buildMermaid(resp.Sprints, resp.Dependencies)
 	writeJSON(w, http.StatusOK, resp)
 }
+
+// mermaidEmitterVersion is folded into the dependencies endpoint ETag
+// so existing client HTTP caches are invalidated whenever buildMermaid's
+// emitted format changes. Bump on every breaking emit change.
+//   v1 — initial unquoted `[label]` form
+//   v2 — quoted `["label"]` form, rune-aware truncation, #quot; escape
+const mermaidEmitterVersion = "v2"
 
 // buildMermaid produces a Mermaid `graph LR` flowchart connecting each
 // sprint to the sprints it depends on. With JSON dependencies the
