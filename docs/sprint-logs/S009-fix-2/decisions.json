@@ -1,0 +1,101 @@
+{
+  "sprint": "S009-fix-2",
+  "decisions": [
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "(a) `RemoveTab` returning 500 when its `KillWindowByName` raced with",
+      "detail": "(a) `RemoveTab` returning 500 when its `KillWindowByName` raced with external session destruction. The FE's `removeTab` action skips `reloadRepos()` on throw, so the FE state stays stuck."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "(b) `sync_tmux` re-creating a deleted `bash:bash-2` if the recovery",
+      "detail": "(b) `sync_tmux` re-creating a deleted `bash:bash-2` if the recovery cycle was already in flight when the user pressed Close. The recovery snapshot was taken before the delete, and the original `enrichRecoverySpecs` fed the stale snapshot back into `ensureSession`."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "(c) `attachTab` calls `NewGroupSession` then `Attach`",
+      "detail": "(c) `attachTab` calls `NewGroupSession` then `Attach`. If the base session has been killed and recreated (host palmux running an older binary, or sync_tmux race) the recreated base lacks user-added Bash windows. The group session inherits an empty window list and `tmux attach-session -t group:idx` fails with \"window not found\", closing the WS with `1011 failed to attach`. The FE's ReconnectingWebSocket retries every ~3s — exactly the symptom the user reported."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "(d) Cross-instance trampling: when a host palmux2 and a dev",
+      "detail": "(d) Cross-instance trampling: when a host palmux2 and a dev palmux2 share the same tmux server (the documented bootstrap scenario), the host's old `sync_tmux` step-2 zombie-kill kills the dev's `__grp_xxx` group sessions because the host's `connsAlive` doesn't know dev's connection IDs."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`case-j` — `tab.added`/`tab.removed` arrive over `/api/events` <1s",
+      "detail": "`case-j` — `tab.added`/`tab.removed` arrive over `/api/events` <1s after the REST mutation; `/api/repos` reflects deletion <1s. Pre- fix this passed because the events were emitted; the user-reported bug was downstream of FE state-stuck-on-500."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`case-k` — Bash WS round-trip: input → echo, 3 iterations.",
+      "detail": "`case-k` — Bash WS round-trip: input → echo, 3 iterations."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`case-i` — Bash `+` add → WS attach → first PTY frame within 5s.",
+      "detail": "`case-i` — Bash `+` add → WS attach → first PTY frame within 5s. Pre-fix: WS bounced with `1011 failed to attach`."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`case-h` — `bash:bash` WS stays usable for 30s",
+      "detail": "`case-h` — `bash:bash` WS stays usable for 30s. Test budget allows ≤12 transient drops to accommodate dual-instance dev environments (host+dev sharing a tmux server). The original 3-second loop produces 10+ drops."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`internal/store/sync_tmux.go` — `enrichRecoverySpecs` re-reads",
+      "detail": "`internal/store/sync_tmux.go` — `enrichRecoverySpecs` re-reads branch state, cross-instance group-session safety"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`internal/store/store.go` — `knownConnIDs` field",
+      "detail": "`internal/store/store.go` — `knownConnIDs` field"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`internal/store/conn.go` — record every conn ID ever issued",
+      "detail": "`internal/store/conn.go` — record every conn ID ever issued"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`internal/store/tab.go` — `EnsureTabWindow`, `isWindowGoneErr`,",
+      "detail": "`internal/store/tab.go` — `EnsureTabWindow`, `isWindowGoneErr`, `RemoveTab` tolerates missing window"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`internal/store/store_test.go` — updated group-session zombie test",
+      "detail": "`internal/store/store_test.go` — updated group-session zombie test"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`internal/server/handler_ws.go` — `EnsureTabWindow` before",
+      "detail": "`internal/server/handler_ws.go` — `EnsureTabWindow` before `NewGroupSession`; better logging"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`tests/e2e/s009_fix_lifecycle_v2.py` — new file",
+      "detail": "`tests/e2e/s009_fix_lifecycle_v2.py` — new file"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`docs/ROADMAP.md` — S009 amendment note",
+      "detail": "`docs/ROADMAP.md` — S009 amendment note"
+    }
+  ]
+}

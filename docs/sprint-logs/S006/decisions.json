@@ -1,0 +1,253 @@
+{
+  "sprint": "S006",
+  "decisions": [
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "ディレクトリ追加: `--add-dir <abspath>` (再起動が必要)",
+      "detail": "ディレクトリ追加: `--add-dir <abspath>` (再起動が必要)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "ファイル追加: `@<abspath>` を user message 本文にインライン注入 (画像添付と同じパターン、再起動不要)",
+      "detail": "ファイル追加: `@<abspath>` を user message 本文にインライン注入 (画像添付と同じパターン、再起動不要)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "根拠",
+      "detail": "CLI が真実 (DESIGN_PRINCIPLES 1)。`--file <file_id:relpath>` に偽の file_id を入れても CLI が Anthropic API に投げて 4xx になるだけで、ユーザの意図 (ローカルファイル参照) を満たさない",
+      "context": "決定 D-1: `--file` は使わない、`@<abspath>` インラインで実装する"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "副作用",
+      "detail": "ロードマップ「`--file <path>` として CLI に渡る」の文言とズレるが、**ユーザーストーリー (worktree 外のファイルを参照させたい)** は完全に満たせる。実装後にロードマップ受け入れ条件を「ローカルファイルは送信時のメッセージに `@<abspath>` として展開」に修正する",
+      "context": "決定 D-1: `--file` は使わない、`@<abspath>` インラインで実装する"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "明示性",
+      "detail": "添付チップは「📄 file」表示のままで、ユーザは何が CLI に送られるか追える (DESIGN_PRINCIPLES 4 「明示的 > 暗黙的」)",
+      "context": "決定 D-1: `--file` は使わない、`@<abspath>` インラインで実装する"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "既存の `IncludeHookEvents` 経路 (S005) と同じパターン",
+      "detail": "既存の `IncludeHookEvents` 経路 (S005) と同じパターン。CLI startup-only flag なので mid-session で in-band に追加できない",
+      "context": "決定 D-2: ディレクトリ追加は `--add-dir` で respawn"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "再起動は `respawnClient()` 既存ヘルパー利用、`--resume <session_id>` で会話を継続",
+      "detail": "再起動は `respawnClient()` 既存ヘルパー利用、`--resume <session_id>` で会話を継続",
+      "context": "決定 D-2: ディレクトリ追加は `--add-dir` で respawn"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "添付チップの追加・削除は **送信時にスナップショット** を取って argv に詰める",
+      "detail": "添付チップの追加・削除は **送信時にスナップショット** を取って argv に詰める。送信ごとに argv が変わる場合は respawn を発火する",
+      "context": "決定 D-2: ディレクトリ追加は `--add-dir` で respawn"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "永続化スコープ",
+      "detail": "per-message (送信のたびにフレッシュ) — per-branch defaults は roadmap 範囲外と明記",
+      "context": "決定 D-2: ディレクトリ追加は `--add-dir` で respawn"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "根拠",
+      "detail": "- VISION: 「シングルユーザ・自前ホスティング」前提なので host 公開そのものはセキュリティ的に致命的ではない - DESIGN_PRINCIPLES 2 「責務越境最小 > 便利さ」: 偶発的なホスト走査エンドポイントを生やさず、明示的なオプトインが必要 - 既存 Files tab の `SearchEntries` / `ListDir` を流用すれば再実装不要 (DESIGN_PRINCIPLES 3 「既存資産活用」) - host picker を実装するなら別 affordance + 別エンドポイント + 別 auth スコープにすべきで、それは backlog に切り出す",
+      "context": "決定 D-3: ピッカーはワークツリー内のみ (host filesystem は S006 範囲外)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "実装",
+      "detail": "ワークツリー root を起点に、Files tab の `resolveSafePath` (traversal + symlink 検証) を流用",
+      "context": "決定 D-3: ピッカーはワークツリー内のみ (host filesystem は S006 範囲外)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "API",
+      "detail": "- 既存 `GET /api/repos/{repoId}/branches/{branchId}/files/search?query=...` (ファイルとディレクトリの両方を返す) を再利用 - `--add-dir` には worktree-relative path を **絶対パスに正規化して** 渡す (`worktree + \"/\" + relpath`)。CLI は cwd-relative も受けるが、worktree が CLI の `--cwd` (= `cmd.Dir`) と一致するか保証されない場合に備えて絶対化する",
+      "context": "決定 D-3: ピッカーはワークツリー内のみ (host filesystem は S006 範囲外)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "チップ表示",
+      "detail": "「📁 path/」(ディレクトリ) / 「📄 path」(ファイル) の worktree-相対表示 — ユーザは「ワークツリー内のもの」と認識できる",
+      "context": "決定 D-3: ピッカーはワークツリー内のみ (host filesystem は S006 範囲外)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "「+」ボタンを Composer に追加 (現状ない、画像は paste/drag-drop のみ受けている)",
+      "detail": "「+」ボタンを Composer に追加 (現状ない、画像は paste/drag-drop のみ受けている)",
+      "context": "決定 D-4: ピッカー UI は新規ピッカーポップアップを Composer の `+` メニューから開く"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "メニューに「Add directory」「Add file」「Upload image…」の 3 アクション (image 既存路は menu 経由でも残す)",
+      "detail": "メニューに「Add directory」「Add file」「Upload image…」の 3 アクション (image 既存路は menu 経由でも残す)",
+      "context": "決定 D-4: ピッカー UI は新規ピッカーポップアップを Composer の `+` メニューから開く"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "ピッカーは inline-completion popup と同じ Files API を叩く simple search ダイアログ",
+      "detail": "ピッカーは inline-completion popup と同じ Files API を叩く simple search ダイアログ。タイプして検索、Enter / クリックで添付",
+      "context": "決定 D-4: ピッカー UI は新規ピッカーポップアップを Composer の `+` メニューから開く"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "モバイル parity: 同じポップアップで動く",
+      "detail": "モバイル parity: 同じポップアップで動く。`<input type=\"file\">` を使わない (worktree 検索なので native file picker は ホスト全体 を見せてしまう、これも責務越境)",
+      "context": "決定 D-4: ピッカー UI は新規ピッカーポップアップを Composer の `+` メニューから開く"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "既存の `image | file` を完全に置き換え (`file` は image upload 系の \"添付ファイル\" として一度も使われていなかったので",
+      "detail": "既存の `image | file` を完全に置き換え (`file` は image upload 系の \"添付ファイル\" として一度も使われていなかったので、意味を「Add file picker で選んだローカルファイル」に再利用する)",
+      "context": "決定 D-5: Attachment 型を `kind: 'image' | 'dir' | 'file'` に拡張"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "新フィールド: `relPath` (ワークツリー相対表示用) — `path` (絶対パス) は既存",
+      "detail": "新フィールド: `relPath` (ワークツリー相対表示用) — `path` (絶対パス) は既存",
+      "context": "決定 D-5: Attachment 型を `kind: 'image' | 'dir' | 'file'` に拡張"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "画像との見分け: `kind === 'image'` のみサムネイル、それ以外は icon + text",
+      "detail": "画像との見分け: `kind === 'image'` のみサムネイル、それ以外は icon + text",
+      "context": "決定 D-5: Attachment 型を `kind: 'image' | 'dir' | 'file'` に拡張"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "`dir` 添付は `user.message` フレームの新フィールド `addDirs: string[]` で渡す",
+      "detail": "`dir` 添付は `user.message` フレームの新フィールド `addDirs: string[]` で渡す",
+      "context": "決定 D-6: 送信時の振り分け"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "BE 側: `SendUserMessage(content, addDirs)` に `addDirs` を渡し、 `agent.addDirs` (live",
+      "detail": "BE 側: `SendUserMessage(content, addDirs)` に `addDirs` を渡し、 `agent.addDirs` (live state) と差分比較して必要なら respawn → CLI 起動 → message 送信",
+      "context": "決定 D-6: 送信時の振り分け"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "「送信ごと」ではなく **「addDirs の集合が変わったとき」** のみ",
+      "detail": "「送信ごと」ではなく **「addDirs の集合が変わったとき」** のみ。同じ dirs が連続で渡されたら no-op",
+      "context": "決定 D-7: respawn の発火条件"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "`agent.addDirs` (set/[]string) を持ち、`SendUserMessage(content, addDirs)` で:",
+      "detail": "`agent.addDirs` (set/[]string) を持ち、`SendUserMessage(content, addDirs)` で: 1. 新 addDirs の集合 ⊆ 旧集合 → no respawn (CLI は既に許可済み) 2. 新 addDirs に未登録のものがある → 旧集合 ∪ 新集合 を保存し respawn 3. ユーザが減らしたいときは別経路 (将来 backlog) — まずは「increase only」で OK",
+      "context": "決定 D-7: respawn の発火条件"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "これにより「3 通連続でディレクトリ添付して送る」と最初の 1 回だけ respawn (ユーザが感じる遅延は減る)",
+      "detail": "これにより「3 通連続でディレクトリ添付して送る」と最初の 1 回だけ respawn (ユーザが感じる遅延は減る)",
+      "context": "決定 D-7: respawn の発火条件"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "添付チップの永続化: 現状の image attachment は UI state のみ (リロードで消える)",
+      "detail": "添付チップの永続化: 現状の image attachment は UI state のみ (リロードで消える)。dir/file も同じ揮発挙動でよい (per-message の意図に合致) — backlog に「per-branch persisted attachments」を切り出す"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "モバイル UX: ピッカーは Composer 上に重ねるシンプルなダイアログ → 既存 InlineCompletionPopup と同じ縦並びリスト",
+      "detail": "モバイル UX: ピッカーは Composer 上に重ねるシンプルなダイアログ → 既存 InlineCompletionPopup と同じ縦並びリスト"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "`TestValidateAddDirs_AcceptsRelativeInsideWorktree` — worktree 内の相対パス OK",
+      "detail": "`TestValidateAddDirs_AcceptsRelativeInsideWorktree` — worktree 内の相対パス OK",
+      "context": "Go ユニット試験 (`internal/tab/claudeagent/add_dirs_test.go`)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "`TestValidateAddDirs_RejectsParentTraversal` — `../etc/passwd`, `foo/../../etc`,",
+      "detail": "`TestValidateAddDirs_RejectsParentTraversal` — `../etc/passwd`, `foo/../../etc`, `..` の 3 形態を拒否",
+      "context": "Go ユニット試験 (`internal/tab/claudeagent/add_dirs_test.go`)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "`TestValidateAddDirs_RejectsAbsoluteOutsideWorktree` — 別 TempDir を渡して \"outside w",
+      "detail": "`TestValidateAddDirs_RejectsAbsoluteOutsideWorktree` — 別 TempDir を渡して \"outside worktree\" エラー",
+      "context": "Go ユニット試験 (`internal/tab/claudeagent/add_dirs_test.go`)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "`TestValidateAddDirs_AcceptsAbsoluteInsideWorktree` — worktree 内の絶対パス OK",
+      "detail": "`TestValidateAddDirs_AcceptsAbsoluteInsideWorktree` — worktree 内の絶対パス OK",
+      "context": "Go ユニット試験 (`internal/tab/claudeagent/add_dirs_test.go`)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "`TestValidateAddDirs_DedupesDuplicates` — 同じパスを 3 回渡して 1 件に縮約",
+      "detail": "`TestValidateAddDirs_DedupesDuplicates` — 同じパスを 3 回渡して 1 件に縮約",
+      "context": "Go ユニット試験 (`internal/tab/claudeagent/add_dirs_test.go`)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "`TestValidateAddDirs_RejectsSymlinkEscape` — worktree 内 symlink → 外部ディレクトリのケースも拒",
+      "detail": "`TestValidateAddDirs_RejectsSymlinkEscape` — worktree 内 symlink → 外部ディレクトリのケースも拒否",
+      "context": "Go ユニット試験 (`internal/tab/claudeagent/add_dirs_test.go`)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "`TestValidateAddDirs_DropsEmpty` — 空文字列は無視",
+      "detail": "`TestValidateAddDirs_DropsEmpty` — 空文字列は無視",
+      "context": "Go ユニット試験 (`internal/tab/claudeagent/add_dirs_test.go`)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "`TestMergeAddDirs_GrowsAndDedupes` — 既存集合との和集合と respawn 判定",
+      "detail": "`TestMergeAddDirs_GrowsAndDedupes` — 既存集合との和集合と respawn 判定\n```\n$ go test ./internal/tab/claudeagent/ -run 'TestValidateAddDirs|TestMergeAddDirs' -v\n... 8/8 PASS\n```",
+      "context": "Go ユニット試験 (`internal/tab/claudeagent/add_dirs_test.go`)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Enter キーの submit が Playwright で発火しない件",
+      "detail": "当初 `textarea.press(\"Enter\")` で submit していたが user.message フレームが飛ばなかった。原因は完全には特定していないが、 inline-completion handler の Enter 介入か Playwright の textarea focus 経路と思われる。回避策として `button[aria-label=Send]` を click する形に変更し、これで安定。この件は別 backlog (E2E 安定化) に切り出さず、テスト側の選択肢で済む",
+      "context": "副次バグ・観察"
+    }
+  ]
+}

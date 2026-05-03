@@ -1,0 +1,23 @@
+{
+  "sprint": "S011-fix-1",
+  "decisions": [
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "`tests/e2e/s010_files_preview.py` → 11/11 PASS (no regression in the",
+      "detail": "`tests/e2e/s010_files_preview.py` → 11/11 PASS (no regression in the view-mode dispatcher)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "`tests/e2e/s011_text_edit.py` → 9/9 PASS.",
+      "detail": "`tests/e2e/s011_text_edit.py` → 9/9 PASS."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "`tests/e2e/s011_drawio_edit.py` → 5/5 PASS.",
+      "detail": "`tests/e2e/s011_drawio_edit.py` → 5/5 PASS."
+    }
+  ]
+}

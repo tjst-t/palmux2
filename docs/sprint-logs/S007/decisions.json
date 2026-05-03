@@ -1,0 +1,134 @@
+{
+  "sprint": "S007",
+  "decisions": [
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "AskUserQuestion ツール仕様",
+      "detail": "(Anthropic SDK / Claude Code 内蔵):\n  ```json\n  {\n    \"questions\": [\n      {\n        \"question\": \"string\",\n        \"header\": \"string (optional)\",\n        \"multiSelect\": false,\n        \"options\": [\n          { \"label\": \"string\", \"description\": \"string (optional)\" }\n        ]\n      }\n    ]\n  }\n  ``` 通常 1 質問だが、配列形式なのでサーバ・FE 共に N 件対応で持つ。"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "回答経路",
+      "detail": "AskUserQuestion は CLI 内部ツールではあるが、Palmux の `--permission-prompt-tool` 経由の MCP `permission_prompt` の枠組みで 「使ってよい？」と問い合わせが来る。S001 の ExitPlanMode が同様に permission_prompt 経由でなく **assistant 出力** として現れる (CLI が 自動承認する) のとは対照的に、AskUserQuestion は per-call で permission を要求する。"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "回答の返し方",
+      "detail": "MCP の `permission_prompt` は `behavior:\"allow\"` + `updatedInput` (オリジナルの input を上書き / そのまま返す) という 形しか持たない。回答は CLI に Anthropic Messages API 規定の AskUserQuestion 出力形式 (questionAnswers) で渡す必要がある。 従って **permission の \"allow\" + updatedInput をそのまま使い、 `updatedInput` 配下に `questionAnswers` を埋め込む形は採れない** (CLI は input フィールドを書き換えるだけで、回答は別経路で渡す)。 ただし実際には、AskUserQuestion が permission_prompt 経由で来た時、 CLI が期待しているのは **「ツールを実行してよい」 というだけ** で、 実際の \"ユーザの回答\" は CLI 内部のツール実行ロジックが、 ツール出力 = `[{\"answer\":\"selected option label\"}]` を勝手に生成する (内部実装)。Claude Code v2.1.123 のソースを strings 抽出で確認すると、 AskUserQuestion は CLI 自身が UI をブロッキングで開く想定 → permission を deny されると tool_result に \"User declined\" が返る。 従って、本 Sprint の S007-2 では: 1. permission_prompt 受領時に AskUserQuestion を検出 2. **permission UI の代わりに ask UI を表示** (suspend the permission) 3. ユーザが選択肢を選んだら、`behavior:\"allow\"` + `updatedInput` (`questionAnswers` を埋めた input) を返す。これが効くかどうかは CLI 実装依存 — 効かない場合は deny + 回答を assistant 向けの プロンプト (user.message) として再注入するフォールバックを併用する。 4. UI は decided 状態に切替"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "既存実装の参照点",
+      "detail": "S001 で確立されたパターン: - `internal/tab/claudeagent/normalize.go`: ExitPlanMode 検出 + tool_result 抑制 (`isPlanToolName` 関数) - `internal/tab/claudeagent/session.go`: per-session `planToolUseIDs` suppression set + `MarkPlanToolUse` / `ConsumePlanToolResult` - `frontend/src/tabs/claude-agent/blocks.tsx`: `PlanBlock` コンポーネント - `frontend/src/tabs/claude-agent/blocks.module.css`: `.plan*` 系 - `frontend/src/tabs/claude-agent/types.ts`: `BlockKind = ... | 'plan'` - `claude-agent-view.tsx` の `planHandlersFor` パターン - `transcript.go`: 履歴復元時の同等処理 (planToolUseIDs map)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "GUI spec は省略",
+      "detail": "既存の plan UI と同じ「専用ブロック」パターンで、 新しいエントリポイント・ページ・モーダルは追加されない。S003 と同様、 gui-spec の \"no new entry point\" ガイダンスに従ってスキップ。 代わりに Story S007-2-4 の Playwright E2E で receive→render→answer→ round-trip を実機検証する。"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "ストーリーは分割しない",
+      "detail": "ROADMAP の S007-1 / S007-2 の 2 ストーリー 分割を維持。1 つは「描画」、もう 1 つは「回答経路」で、明確に分離した ユーザ価値単位。"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "CLI 互換戦略",
+      "detail": "AskUserQuestion の正確なツール名 (大文字小文字 / アンダ スコア) のバリエーションを許容する `isAskQuestionToolName` を `isPlanToolName` と同じ shape で用意。"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "回答の wire format",
+      "detail": "`permission.respond` フレームを再利用するのでは なく、新規に `ask.respond` フレームを定義する。ペイロードは `{ permissionId, answers: string[][] }` (二次元: 質問 N × 各質問の選択 ラベル M)。permission_prompt 由来であることを内部で隠蔽したいので、 permissionId は内部識別用。回答は MCP `permission_prompt` の `behavior:\"allow\"` + `updatedInput` として CLI に返す形に変換する。 `updatedInput` には CLI が期待する形 (= 元の input をそのまま) を入れ、 実際の **回答テキストは tool_result-side ではなく user.message として CLI に再注入** はしない。CLI 実装上、AskUserQuestion は permission allow でツール内部のロジックが回答取得を試み、ツール内部実装が無効なら deny→\"User declined\" になる。 ⇒ 動作確認の結果次第で「allow + answer 注入 (updatedInput.questionAnswers)」 または「allow + 別チャネル」に切り替える。E2E で確認する。"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "suppressedToolUseIDs の汎化",
+      "detail": "既存の `planToolUseIDs` は名前が plan 専用に固有化されている。S007 で「ask 用に同じ機構が要る」だけなので、 まず `askToolUseIDs` を追加 (mirror) し、汎化リファクタは将来の バックログに送る (DESIGN_PRINCIPLES rule 6 「既存資産活用」 + rule 7 「明示的 > 暗黙的」)。"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "UI コンポーネント",
+      "detail": "`AskQuestionBlock` を新設。`PlanBlock` を参考に、 - 質問テキスト (上部、太字) - 各選択肢を縦並びカードボタンで表示 - label (見出し) - description (小さく、オプション) - `multiSelect: true` の時は <input type=\"checkbox\"> + Submit ボタン - `multiSelect: false` の時はクリック即確定 - 確定後は `decided` 状態 (選択された option をハイライト + 他は disabled)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "ストリーミング対応",
+      "detail": "ExitPlanMode と同じく、AskUserQuestion 質問は CLI が assistant 出力 (tool_use) として送ってくるので、`block.text` への部分 JSON 蓄積 → `block.input` 確定 の流れで来る。`extractAskQuestions` は plan の `extractPlanText` と同じ tolerant parsing で実装する。"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "単体テスト: `TestAskUserQuestion_NormalizesToAskBlockAndSuppressesToolResult`",
+      "detail": "単体テスト: `TestAskUserQuestion_NormalizesToAskBlockAndSuppressesToolResult` + `TestLoadTranscriptTurns_RetagsAskUserQuestion` を追加。"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "ビルド: `go build ./...` と `cd frontend && npm run build`",
+      "detail": "ビルド: `go build ./...` と `cd frontend && npm run build`。"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "E2E: dev インスタンス (port 8214) + Playwright で実機検証 (S007-2-4)",
+      "detail": "E2E: dev インスタンス (port 8214) + Playwright で実機検証 (S007-2-4)。"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "Go 統合テスト",
+      "detail": "(`internal/tab/claudeagent/ask_integration_test.go`): Agent の `RequestPermission` ↔ `AnswerAskQuestion` 経路を full round-trip する。AskUserQuestion ツール `tool_use` 受領 → permission 発行 → ユーザ回答 → `behavior:\"allow\"` + `updatedInput.questionAnswers` を 返すまで、stream 段階の event broadcast (ask.question / ask.decided) も含めて検証。multi-select も別ケースで確認。"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "Playwright E2E",
+      "detail": "(`tests/e2e/s007_ask_question.py`): 実 dev インスタンス (port 8215) を Chromium headless でアクセスして、 ask.respond の WS frame routing、send.askRespond の wire shape、 AskQuestionBlock の DOM 描画 + click で `ask.respond` 送出 + `ask.decided` で decided 状態に切替まで検証。"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "ホスト用 palmux2 (port 8207、PID 3609980) は触らず、dev",
+      "detail": "ホスト用 palmux2 (port 8207、PID 3609980) は触らず、dev (port 8215、PID 4104767) のみ再起動して検証した。✅",
+      "context": "Observed side-effects / dust"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`tmp/palmux-dev.log` に AskUserQuestion 実行ログが記録された (各",
+      "detail": "`tmp/palmux-dev.log` に AskUserQuestion 実行ログが記録された (各 `ask.respond: unknown or already-resolved permission_id` は意図的な fake permission_id のテスト由来)。",
+      "context": "Observed side-effects / dust"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "pre-existing lint warnings (claude-agent-view.tsx の props ref-access",
+      "detail": "pre-existing lint warnings (claude-agent-view.tsx の props ref-access 系) は本 Sprint で増減なし: 41 → 41 のまま。",
+      "context": "Observed side-effects / dust"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "backlog",
+      "title": "`planToolUseIDs` と `askToolUseIDs` を共通化する `suppressedToolUseIDs`",
+      "detail": "`planToolUseIDs` と `askToolUseIDs` を共通化する `suppressedToolUseIDs` への汎化リファクタを Backlog に追加 (将来 ExitPlanMode と AskUserQuestion 以外にも tool_result 抑制が必要な tool が出れば)。 優先度低。本 Sprint では DESIGN_PRINCIPLES rule 6 「既存資産活用 > 新規実装」と rule 7 「明示的 > 暗黙的」 に従い mirror 実装に留めた。"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "backlog",
+      "title": "`Composer.askRespond` 経由ではなく URL 経由で answers を入れる route",
+      "detail": "`Composer.askRespond` 経由ではなく URL 経由で answers を入れる route も将来的に Backlog 候補。今は WS のみ。"
+    }
+  ]
+}

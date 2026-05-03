@@ -1,0 +1,149 @@
+{
+  "sprint": "S021",
+  "decisions": [
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Stale judgement = lock-file absence + last-commit age",
+      "detail": ". Lock file pattern `.claude/autopilot-*.lock` (matches the file `autopilot` skill creates while a sub-agent is mid-flight). Last-commit age is queried via `git log -1 --format=%cI HEAD` against the worktree path. A worktree is \"stale\" iff (no lock file) AND (last commit older than `subagentStaleAfterDays` days). Spec said \"lock + N days\" so we anchor on the spec text."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Threshold setting",
+      "detail": "`subagentStaleAfterDays` int, default `7`. Negative or zero treated as \"use default\". Live in `internal/config/settings.go` as `SubagentStaleAfterDays`. PATCH only accepts positive integers."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "API surface",
+      "detail": "- `POST /api/repos/{repoId}/worktrees/cleanup-subagent`: body `{ \"dryRun\": bool, \"branchNames\": []string|nil }`. `dryRun=true` returns the list of stale worktrees with reasons; `dryRun=false` deletes them via `gwq remove`. When `branchNames` is provided, only those branches are considered (the FE narrows after dialog review). Response: `{ candidates: [...], removed: [...], failed: [{branchName, error}] }`. - `POST /api/repos/{repoId}/branches/{branchId}/promote-subagent`: moves a subagent worktree to the gwq-standard path (`<gwq-root>/<repo-host>/<owner>/<repo>/<branch>` — derived from `gwq` itself by reading its config or via `gwq add` semantics) and flips the branch into `userOpenedBranches`. We rely on `git worktree move` for the move and update the in-memory `WorktreePath` afterwards. Response: the updated branch dict."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Move strategy",
+      "detail": "Use `git worktree move <old> <new>` (a thin shell rather than calling `gwq` because gwq doesn't expose a `move` subcommand directly). The new path is derived by querying `gwq` for its `worktree_dir` setting; failing that, we fall back to `<repo-parent>/<branch-as-dir>`. After the move, we need a `git worktree repair` only if the post-move path doesn't survive a `git worktree list` validation; we do it defensively."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "WS events",
+      "detail": "- `worktree.cleaned`: payload `{ repoId, removed: [{branchName, branchId, path}], failed: [...] }`. Emitted once per cleanup batch. - `branch.categoryChanged`: re-used (already exists from S015) for the promote case. Adding a separate `branch.promoted` would be duplicate signal."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "FE structure",
+      "detail": "- Subagent section header gets a \"Clean up\" button (small icon next to the count badge) that opens a modal listing the stale candidates (queried via `dryRun=true`) with per-row checkboxes and delete rationale (last commit time + lock-status). - Per subagent row: a \"→ my\" promote button next to the existing chip (and inside the context menu as \"Promote to my worktrees\"). Clicking opens a confirm dialog (showing the new path it will land in) then issues the API call."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Partial-failure tolerance",
+      "detail": "cleanup API runs each `gwq remove` in isolation, collecting per-branch errors into `failed[]` and returning 200 with the breakdown. The FE surfaces one toast per failure + removes successful ones from the dialog. This is the DESIGN_PRINCIPLES \"明示的\" + \"安全性\" guidance."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Reusing existing assets",
+      "detail": "(DESIGN_PRINCIPLES \"既存資産活用\"): - `Store.PromoteBranch` already exists for the `userOpenedBranches` mutation; the new promote-subagent endpoint reuses it after the move succeeds. - The S015 `branch.categoryChanged` event is reused; no new event for promote. - `confirmDialog` in `frontend/src/components/context-menu/` is reused for the promote confirm."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Reconcile",
+      "detail": "the existing `ReconcileUserOpenedBranches` handles drift caused by the cleanup, but only at startup. To keep in-memory state honest, the cleanup handler re-runs the worktree sync for the affected repo immediately after gwq remove succeeds."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Reusing `Store.CloseBranch` for cleanup",
+      "detail": "rather than re-implementing the gwq remove + tmux kill + repos.json drift handling: cleanup candidates are routed through `s.CloseBranch` which already runs that full lifecycle. This caught several edge cases for free (e.g. tmux session orphaning, S009-fix-4 known-base-session bookkeeping). Per DESIGN_PRINCIPLES \"既存資産活用\"."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`git log -1 --format=%cI HEAD` runs against the worktree path",
+      "detail": "(cmd.Dir = worktree). This covers worktrees that have a different HEAD branch than the primary repo. A failure (unborn branch, no commits) is mapped to \"zero time → not stale\" so brand-new worktrees can't be deleted by accident. Per DESIGN_PRINCIPLES \"安全性\"."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Promote uses raw `git worktree move`",
+      "detail": "rather than gwq because gwq has no `move` subcommand. After moving, we run `git worktree repair` defensively to keep the linked-worktree pointers consistent. The in-memory `WorktreePath` is patched directly under the write lock so subsequent `/api/repos` snapshots reflect the new location without waiting for the 30s sync ticker."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Destination derivation uses `gwq config get worktree.basedir`",
+      "detail": "with a `~/worktrees` fallback, plus the default `{Host}/{Owner}/{Repository}/{Branch}` template (with `:`/`/` sanitisation). The function is in `internal/store/subagent.go` so unit tests can reach it."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "WS event payload is the full `SubagentCleanupResult`",
+      "detail": "so other clients can render the same dialog state (e.g. show which branches failed) without re-issuing the cleanup. The existing per-branch `branch.closed` events still fire per-removal — the consolidated `worktree.cleaned` is informational on top of that."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "No new `branch.promoted` event",
+      "detail": "subsequent dry-run state is recovered through the existing `branch.categoryChanged` path. The store's `PromoteBranch` call inside `PromoteSubagentBranch` already publishes that event."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "FE store removes branches eagerly on cleanup confirm",
+      "detail": "when the POST response carries `removed[]`, the local `repos` slice drops those branches before any WS round-trip. The Drawer therefore refreshes immediately, and the eventual `worktree.cleaned` / `branch.closed` events become idempotent no-ops."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Per-row promote button uses `↗`",
+      "detail": "(north-east arrow) rather than the `+` reserved for unmanaged → my because the action is semantically different (it MOVES files on disk, not just records a preference). The context-menu entry \"Promote to my worktrees\" triggers the same path with a confirm dialog showing the destination."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "**Cleanup dialog is intentionally not the project's existing",
+      "detail": "**Cleanup dialog is intentionally not the project's existing `confirmDialog`** — we needed a multi-row, partial-failure-aware UI with checkboxes and per-row result indicators, which the simple confirm/cancel dialog can't represent. The new component lives at `frontend/src/components/subagent-cleanup-dialog.tsx` and is reused per-repo."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "review",
+      "title": "Promote fails fast when destination already exists",
+      "detail": "(e.g. left over from a previous interrupted run): the handler returns 500 with the message \"destination already exists: <path>\". The user can resolve by manually removing the directory and retrying. Adding an --override flag was deferred to backlog."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "review",
+      "title": "`Promoting the primary worktree` is rejected upfront",
+      "detail": "with ErrInvalidArg → 400. The category derivation already excludes the primary, so this guard is redundant in practice but defensive."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "review",
+      "title": "Skipping rows in dry-run for which `git log` itself errors out",
+      "detail": "(corrupted worktree): we log a warning and treat as \"not stale\" so the user must explicitly inspect them. Better than risking an unwanted delete."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "review",
+      "title": "Threshold of 0 days",
+      "detail": "is treated as \"use default\" rather than \"all worktrees stale\". A user who *actually* wants to mark every commit as stale can set 0.001 — but more likely they want a value > 0."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "backlog",
+      "title": "`gwq move` subcommand upstream",
+      "detail": "the current implementation reaches around gwq for the move because gwq doesn't expose one. If gwq adds it later, swap `git worktree move` for `gwq move` to keep basedir/template handling consistent."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "backlog",
+      "title": "Cleanup with destination override",
+      "detail": "when promote fails with \"destination already exists\" the user has to clean up by hand. A follow-up could offer a `?force=true` flag or a confirm dialog with \"remove existing destination first\"."
+    }
+  ]
+}

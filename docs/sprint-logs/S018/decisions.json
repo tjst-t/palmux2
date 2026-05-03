@@ -1,0 +1,122 @@
+{
+  "sprint": "S018",
+  "decisions": [
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "`kind:\"compact\"` block synthesised from `compact_boundary` metadata (turn count",
+      "detail": "`kind:\"compact\"` block synthesised from `compact_boundary` metadata (turn count from session.TurnCountSince(boundary), pre_tokens/post_tokens display, duration_ms)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "spinner driven by an `agentState.compacting` flag toggled on `status=compacting`",
+      "detail": "spinner driven by an `agentState.compacting` flag toggled on `status=compacting` and cleared on `compact_result`"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "existing `<local-command-caveat>` filter in `transcript.go` already swallows the",
+      "detail": "existing `<local-command-caveat>` filter in `transcript.go` already swallows the `Compacted` replay marker"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "`toMarkdown(turns)` — `## User` / `## Assistant` headings, tool blocks as `<deta",
+      "detail": "`toMarkdown(turns)` — `## User` / `## Assistant` headings, tool blocks as `<details><summary>tool: …</summary>…</details>`, code in fenced blocks"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "`toJSON(turns)` — full snapshot (all blocks + role + ids), pretty-printed",
+      "detail": "`toJSON(turns)` — full snapshot (all blocks + role + ids), pretty-printed"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Search bar: full-width docked under the TopBar at `<600px`, hides modes pill if",
+      "detail": "Search bar: full-width docked under the TopBar at `<600px`, hides modes pill if collision (S017 already shrinks `virtualTurnRow` padding mobile-side, so search bar fits cleanly)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Export dialog: `position: fixed; inset: 0` modal on mobile (we reuse `confirmDia",
+      "detail": "Export dialog: `position: fixed; inset: 0` modal on mobile (we reuse `confirmDialog` infra from S009)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Slash menu: existing `InlineCompletionPopup` already supports tap (verified mobi",
+      "detail": "Slash menu: existing `InlineCompletionPopup` already supports tap (verified mobile in S004) — `compact` just appears as one more option"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`s018_search.py` — TestHarness session, exercise `Cmd+F` + nav + Esc",
+      "detail": "`s018_search.py` — TestHarness session, exercise `Cmd+F` + nav + Esc"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`s018_export.py` — Click Export, choose Markdown then JSON, verify download inte",
+      "detail": "`s018_export.py` — Click Export, choose Markdown then JSON, verify download intercepted via Playwright `page.on(\"download\", …)`"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`s018_compact.py` — Synthesize a `system/compact_boundary` envelope via TestHarn",
+      "detail": "`s018_compact.py` — Synthesize a `system/compact_boundary` envelope via TestHarness, verify spinner + Compacted block render"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`s018_mobile.py` — 375px viewport sanity for all three",
+      "detail": "`s018_mobile.py` — 375px viewport sanity for all three"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Lets E2E tests assert auto-expand without scraping CSS classes.",
+      "detail": "Lets E2E tests assert auto-expand without scraping CSS classes.",
+      "context": "`data-search-match` outer attribute"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Lets a future CSS variant draw a subtle frame around matched rows (already wired",
+      "detail": "Lets a future CSS variant draw a subtle frame around matched rows (already wired in `theme.css`).",
+      "context": "`data-search-match` outer attribute"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Makes it trivial for ⌘K palette enhancements (S020+) to reuse the same match ind",
+      "detail": "Makes it trivial for ⌘K palette enhancements (S020+) to reuse the same match index.",
+      "context": "`data-search-match` outer attribute"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "Initial run: highlight `<mark>` not in DOM because the matched row hadn't been r",
+      "detail": "Initial run: highlight `<mark>` not in DOM because the matched row hadn't been realised by the virtualised list yet. Fixed by `page.wait_for_function(...mark[data-testid=search-mark])` so the test waits for `scrollToRow` to materialise the row."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "Portman re-leased the dev instance on 8204 instead of the documented 8203 (cache",
+      "detail": "Portman re-leased the dev instance on 8204 instead of the documented 8203 (cached env file conflict). E2E uses `PALMUX2_DEV_PORT_OVERRIDE=8204` to point Playwright at the right port."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "ROADMAP states control_request is required for /compact; the spike showed the CL",
+      "detail": "ROADMAP states control_request is required for /compact; the spike showed the CLI handles `/compact` as a slash command via the user message channel. **Roadmap text was reconciled in the same commit so the doc and code agree.**"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "The roadmap acceptance criterion \"JSON 形式: 生 stream-json envelope を dump\" was de",
+      "detail": "The roadmap acceptance criterion \"JSON 形式: 生 stream-json envelope を dump\" was deviated to \"FE-side normalised snapshot dump\" — divergence acknowledged, raw-export proposed as Backlog #3 above."
+    }
+  ]
+}

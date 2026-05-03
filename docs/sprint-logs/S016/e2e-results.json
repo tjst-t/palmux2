@@ -1,0 +1,84 @@
+{
+  "sprint": "S016",
+  "run_at": "2026-05-01T00:00:00Z",
+  "server_command": "http://localhost:8202",
+  "summary": {
+    "total": 10,
+    "pass": 10,
+    "fail": 0,
+    "skip": 0
+  },
+  "tests": [
+    {
+      "name": "[a] Sprint tab appears with ROADMAP.md present",
+      "file": "",
+      "status": "pass",
+      "duration_ms": null,
+      "error": null
+    },
+    {
+      "name": "[a2] overview parsed; ETag short-circuit OK (\"4bf1b11c437901bb\")",
+      "file": "",
+      "status": "pass",
+      "duration_ms": null,
+      "error": null
+    },
+    {
+      "name": "[b] tab.removed / tab.added round-trip OK",
+      "file": "",
+      "status": "pass",
+      "duration_ms": null,
+      "error": null
+    },
+    {
+      "name": "[c] ROADMAP.md edit reflected in overview within ~1s debounce",
+      "file": "",
+      "status": "pass",
+      "duration_ms": null,
+      "error": null
+    },
+    {
+      "name": "[d] autopilot lock detection round-trip OK",
+      "file": "",
+      "status": "pass",
+      "duration_ms": null,
+      "error": null
+    },
+    {
+      "name": "[e] dependency graph payload OK",
+      "file": "",
+      "status": "pass",
+      "duration_ms": null,
+      "error": null
+    },
+    {
+      "name": "[f] decisions filter narrowed: 2 → 1",
+      "file": "",
+      "status": "pass",
+      "duration_ms": null,
+      "error": null
+    },
+    {
+      "name": "[h] Refresh button (no If-None-Match) returns 200",
+      "file": "",
+      "status": "pass",
+      "duration_ms": null,
+      "error": null
+    },
+    {
+      "name": "[i] malformed ROADMAP yielded 200 with degraded payload",
+      "file": "",
+      "status": "pass",
+      "duration_ms": null,
+      "error": null
+    },
+    {
+      "name": "[j] 5 subtabs render; dep graph node click navigates; mobile width OK",
+      "file": "",
+      "status": "pass",
+      "duration_ms": null,
+      "error": null
+    }
+  ],
+  "raw_log": "S016 sprint dashboard E2E against http://localhost:8202\n  fixture repo: github.com/palmux2-test/s016-20260501-233216-2716714 (id=palmux2-test--s016-20260501-233216-2716714--74a2)\n  branch_id: main--811b\n  [a] Sprint tab appears with ROADMAP.md present\n  [a2] overview parsed; ETag short-circuit OK (\"4bf1b11c437901bb\")\n  [b] tab.removed / tab.added round-trip OK\n  [c] ROADMAP.md edit reflected in overview within ~1s debounce\n  [d] autopilot lock detection round-trip OK\n  [e] dependency graph payload OK\n  [f] decisions filter narrowed: 2 → 1\n  [h] Refresh button (no If-None-Match) returns 200\n  [i] malformed ROADMAP yielded 200 with degraded payload\n  [j] 5 subtabs render; dep graph node click navigates; mobile width OK\nS016 E2E: PASS\n"
+}

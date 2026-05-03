@@ -1,0 +1,239 @@
+{
+  "sprint": "S008",
+  "decisions": [
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Per-branch endpoint vs. global",
+      "detail": "Added a new `POST /api/repos/{repoId}/branches/{branchId}/upload` route and kept the legacy `POST /api/upload` so the bash terminal-view paste flow (which doesn't always carry repo/branch context — orphan tabs) still works. The Composer always uses the per-branch endpoint; legacy `[image: <abspath>]` references in old transcripts still resolve via the legacy GET `/api/upload/{name}` because the locator now walks the two-level per-branch tree under the configured root. Rationale: VISION single-user / mobile-parity lets us avoid multi-user scoping; DESIGN_PRINCIPLES \"既存資産活用 > 新規実装\" argued for keeping the legacy GET path resolving so old conversations don't break."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Attachment dir auto-add via `--add-dir`",
+      "detail": "Instead of respawning the CLI when each new file lands (the S006 dir-attachment pattern), the per-branch attachment directory is included on **every CLI spawn** as `--add-dir <root>/<repoId>/<branchId>`. The directory is created (`MkdirAll`) before the CLI launches so the flag works even on the very first message. Files dropped after the spawn are reachable instantly because `--add-dir` allows the whole directory. Rationale: DESIGN_PRINCIPLES \"lazy spawn > eager spawn\" + \"明示的 > 暗黙的\" — one stable, predictable argv per branch beats per-message argv churn. Avoids the `mergeAddDirs` respawn dance entirely for uploads."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Removed user-supplied `addDirs` from WS frame",
+      "detail": "Per S008 spec, the S006 server-side dir picker UI is gone. The frame field is preserved on the type for back-compat but the handler now just logs and ignores it. `Agent.AddDirs`, `validateAddDirs`, `SendUserMessageWithDirs` stay in the codebase per the spec — they may be reused later, and the test suite covers them."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "TTL cleanup at startup, not via cron",
+      "detail": "The cleanup pass runs once at server startup (`internal/attachment.CleanupOlderThan`). A long-running daily ticker is overkill for the use case (single-user, most users restart palmux2 a few times a week minimum). Branch close also wipes the per-branch dir (`Manager.KillBranch` → `os.RemoveAll`). Default TTL = 30 days, configurable via `attachmentTtlDays`."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "MIME signal",
+      "detail": "Server resolves MIME via `header.Get(\"Content-Type\")` → `mime.TypeByExtension` → `application/octet-stream` fallback. The response carries a coarse `kind ∈ {\"image\",\"file\"}` so the frontend doesn't have to re-classify. Frontend still does a filename-extension fallback for the upload-time chip kind because some platforms don't set `file.type` for clipboard-pasted blobs."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Multi-file in one route",
+      "detail": "File input gets `multiple` attribute; drop and paste both iterate the entire `FileList`. No special handling for >1 files — each becomes its own chip and uploads in parallel."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "`onDrop` on composer-root",
+      "detail": "The drop target is the `composerInner` wrapper, not the textarea, so dropping anywhere over the input area attaches. A blue dashed overlay appears while a file is being dragged over the area. `dragenter`/`dragleave` are counted to avoid flicker as the cursor crosses inner element boundaries."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Backward-compatible settings load",
+      "detail": "Legacy `imageUploadDir` JSON key is read on load and migrated into `attachmentUploadDir`; the Patch endpoint also accepts either key. Subsequent saves write only the new key (the legacy field is cleared after read)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`sanitizeBaseName`",
+      "detail": "Filenames are sanitised on the server to ASCII alnum + `-_.` (anything else collapses to `_`), prefixed with the user's chosen base name, and suffixed with `<UTC-timestamp>-<rand4>`. This preserves the user-recognisable name in tool output while guaranteeing uniqueness when two files with the same name land in the same second. Length cap 60 chars before suffix."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "64 MiB upload cap",
+      "detail": "Bumped from 16 MiB so log files / PDFs / middleweight CSVs fit. Still bounded so a runaway upload can't fill `/tmp`. Configurable via the `uploadMaxBytes` constant for now; future-work backlog item: surface as a `attachmentMaxMB` setting."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`os.MkdirAll` in `EnsureClient`",
+      "detail": "The per-branch attachment dir is created before each CLI spawn even though the upload handler also calls MkdirAll. Belt-and-braces: a user might create a branch and send a message before any upload, in which case `--add-dir` would point at a non-existent path. CLI tolerates that today but Read tools inside the directory wouldn't see new files until the dir actually exists."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Removed `+`-button context menu",
+      "detail": "Replaced the dropdown with a direct click → `<input type=file multiple>`. The single-action UX is also more obvious to first-time users. Drag-and-drop and paste cover every other affordance."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Composer status field on attachment chips",
+      "detail": "Added `status: 'uploading' | 'ready' | 'error'` to the Attachment type. Submission excludes any chip not in `ready`; the Send button is disabled while any chip is uploading. Error chips display a `!` glyph and a hover tooltip with the server message."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Legacy GET `/api/upload/{name}` walks per-branch dirs",
+      "detail": "The image embed in transcripts (`uploadURLForPath` in `blocks.tsx`) only carries the basename, not the full per-branch path. To keep old transcripts viewable after S008's directory layout change, the fetcher walks two levels under root looking for the basename. We cap at two levels (repo/branch) so a malicious symlink can't trick us into a deep filesystem walk."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "review",
+      "title": "No new unit tests for the upload handler itself",
+      "detail": "The upload handler is exercised end-to-end by the Playwright run; adding a dedicated Go test would duplicate coverage. The decision in S006 (test the wire-level frame contract via E2E, test pure functions via unit tests) is followed here. The new pure functions — `attachment.CleanupOlderThan`, `attachment.RemoveBranchDir` — got Go unit tests."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "review",
+      "title": "Kept `Agent.AddDirs()` accessor",
+      "detail": "Tests in `internal/tab/claudeagent/add_dirs_test.go` still use it. Removing the accessor means rewriting those tests; the field is still useful for debugging."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "backlog",
+      "title": "**Surface `attachmentMaxMB` and `attachmentTtlDays` in the Settings",
+      "detail": "**Surface `attachmentMaxMB` and `attachmentTtlDays` in the Settings UI**: Both are wired through the schema but have no UI control yet. Today the user has to edit `settings.json` by hand to change them."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "backlog",
+      "title": "Periodic cleanup ticker",
+      "detail": "The current cleanup runs once at startup. For long-running palmux2 instances (months between restarts) the dir could accumulate >30-day-old files in the steady state. A 24-hour ticker would keep things tidy."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "backlog",
+      "title": "Show upload progress for large files",
+      "detail": "The chip currently shows a binary \"uploading…\" spinner. A progress bar (XHR/fetch progress events) would help when uploading multi-MB CSVs / videos."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "backlog",
+      "title": "Drag-and-drop on composer-only sub-area is a leak vector",
+      "detail": "If the user drags a file onto the conversation pane (not the composer), it opens in a new tab. Could swallow that and route to upload too."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "1: CLI が真実 — we don't store metadata Claude can't see; the path",
+      "detail": "1: CLI が真実 — we don't store metadata Claude can't see; the path goes verbatim into the user message."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "2: タブ間の対称性 — bash terminal paste still works (legacy global",
+      "detail": "2: タブ間の対称性 — bash terminal paste still works (legacy global endpoint)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "7: 明示的 > 暗黙的 — `--add-dir` is on argv at spawn, not implicit.",
+      "detail": "7: 明示的 > 暗黙的 — `--add-dir` is on argv at spawn, not implicit."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "9: 下書き保持 — composer text draft via localStorage was preserved",
+      "detail": "9: 下書き保持 — composer text draft via localStorage was preserved (existing); attachments reset on remount because blob URLs don't round-trip safely."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`internal/config/settings.go` — `imageUploadDir` → `attachmentUploadDir`",
+      "detail": "`internal/config/settings.go` — `imageUploadDir` → `attachmentUploadDir` + `attachmentTtlDays` + back-compat migrate."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`internal/config/repos_test.go` — adjusted assertions.",
+      "detail": "`internal/config/repos_test.go` — adjusted assertions."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`internal/server/handler_upload.go` — full rewrite",
+      "detail": "`internal/server/handler_upload.go` — full rewrite. Per-branch + legacy endpoint, expanded response, sanitised filenames."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`internal/server/server.go` — new routes registered.",
+      "detail": "`internal/server/server.go` — new routes registered."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`internal/tab/claudeagent/manager.go` — `Config.AttachmentDirFn`,",
+      "detail": "`internal/tab/claudeagent/manager.go` — `Config.AttachmentDirFn`, EnsureClient adds attachment dir, KillBranch removes it."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`internal/tab/claudeagent/handler.go` — ignores stale user-supplied",
+      "detail": "`internal/tab/claudeagent/handler.go` — ignores stale user-supplied AddDirs[]."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`internal/attachment/cleanup.go` (+ test) — TTL sweep + per-branch",
+      "detail": "`internal/attachment/cleanup.go` (+ test) — TTL sweep + per-branch remove."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`cmd/palmux/main.go` — startup cleanup + AttachmentDirFn wiring.",
+      "detail": "`cmd/palmux/main.go` — startup cleanup + AttachmentDirFn wiring."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`frontend/src/tabs/claude-agent/composer.tsx` — Attach file button,",
+      "detail": "`frontend/src/tabs/claude-agent/composer.tsx` — Attach file button, drag-and-drop overlay, status field, three-route upload pipeline, send-time routing."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`frontend/src/tabs/claude-agent/claude-agent-view.module.css` —",
+      "detail": "`frontend/src/tabs/claude-agent/claude-agent-view.module.css` — drop overlay + error chip styles, removed PathPicker/AttachMenu CSS."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`frontend/src/tabs/terminal-view.tsx` — terminal-view paste uses the",
+      "detail": "`frontend/src/tabs/terminal-view.tsx` — terminal-view paste uses the per-branch endpoint when a (repo, branch) is in scope."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`frontend/src/stores/palmux-store.ts` — extended GlobalSettings",
+      "detail": "`frontend/src/stores/palmux-store.ts` — extended GlobalSettings type."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`frontend/src/tabs/claude-agent/blocks.tsx` — comment refresh.",
+      "detail": "`frontend/src/tabs/claude-agent/blocks.tsx` — comment refresh."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`tests/e2e/s008_upload_routes.py` — three-route Playwright test.",
+      "detail": "`tests/e2e/s008_upload_routes.py` — three-route Playwright test."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`docs/ROADMAP.md` — story / tasks marked done.",
+      "detail": "`docs/ROADMAP.md` — story / tasks marked done."
+    }
+  ]
+}

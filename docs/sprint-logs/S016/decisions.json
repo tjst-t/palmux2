@@ -1,0 +1,119 @@
+{
+  "sprint": "S016",
+  "decisions": [
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Conditional tab presence pattern",
+      "detail": "Sprint provider returns `[]domain.Tab` (length 0 or 1) from `OnBranchOpen` based on `docs/ROADMAP.md` existence. `recomputeTabs` already calls `OnBranchOpen` for non-tmux non-Multiple providers (store.go:331), but currently assumes singleton (always emits one tab). Updated `recomputeTabs` to honor empty result for non-tmux singletons (extends the `Multiple()=true` branch behavior to the singleton case for conditional tabs). Aligns with DESIGN_PRINCIPLES \"明示的\" (data shape matches reality, not symbolic always-present)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Markdown parser choice",
+      "detail": "Picked **regex/line-based parser** in pure Go stdlib. Considered `yuin/goldmark` for AST walking but the sprint-runner output has a tightly fixed format (`## スプリント <ID>: <title> [<status>]`, `### ストーリー <ID>: ...`, `- [ ] / - [x]` checkboxes, decisions.md sections). Regex is simpler, has zero new deps, and aligns with DESIGN_PRINCIPLES \"既存資産活用\". Section-level fail-safe (per task S016-1-8) localises any parse error."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Mermaid bundling",
+      "detail": "Bundled into the FE as a dynamic import (`import('mermaid')` inside the Dependency Graph component). Lazy keeps initial JS payload small while DOM is ready when graph mounts. CDN rejected per VISION 自前ホスティング."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "WS event design",
+      "detail": "Single `sprint.changed` event with payload `{ files: [paths], scope: 'overview'|'detail'|'decisions'|... }`. Frontend invalidates the matched view's cache and refetches. ETag is the cheap optimization on the GET side."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Active autopilot scope",
+      "detail": "Limited to current branch's `.claude/autopilot-*.lock`. Cross-branch aggregation deferred to backlog (would require broader watcher fan-out + cross-tab session correlation)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Read-only",
+      "detail": "No launcher/run-sprint actions in S016 (deferred to backlog). Reduces scope to read paths + filewatch only."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`Conditional()` interface extension",
+      "detail": "Added `Conditional() bool` to the `tab.Provider` interface (default `false` on existing providers) so the Store's `recomputeTabs` knows when a non-Multiple non-tmux provider may legitimately return zero tabs. Sprint is the first user. Aligned with DESIGN_PRINCIPLES \"明示的\" — visibility is data, not a side-channel comment."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`Store.RecomputeBranchTabs(repoID, branchID)` public API",
+      "detail": "New public entry that takes the lock, runs `recomputeTabs`, diffs the resulting `TabSet.Tabs` against the previous list, and publishes `tab.added` / `tab.removed` for the differences. Provider's worktreewatch callback uses it on every debounced batch so ROADMAP.md appearance / disappearance propagates without bespoke per-provider diffing logic."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "fsnotify race fix in `sprintFilter`",
+      "detail": "Initially the filter accepted only `docs/ROADMAP.md`. When the test harness writes `docs/ROADMAP.md` starting from a worktree without `docs/`, the parent dir create races the recursive watcher subscribe — by the time `docs/` is added, ROADMAP.md may already exist and fsnotify silently misses it. Fix: also accept the bare `docs` path so the parent-dir create propagates, and recompute fires anyway. Verified by the (a) and (b) E2E flows."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Mermaid bundling",
+      "detail": "Installed via `npm install mermaid`. Lazy import inside `dependency-graph.tsx` (`import('mermaid').then(...)`) — Vite splits it into its own chunks so the Files / Git / Claude tabs do not pay the cost. Rejected: server-side SVG render — would require shipping a JS engine inside the Go binary."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "WS event payload `{ files, scopes }`",
+      "detail": "payload carries both the affected paths AND a derived list of dashboard scopes. The FE hook matches on scope (cheap, no path parsing duplicated client-side). Empty `scopes` is treated as \"everything\" (defensive fall-through)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "ETag implementation",
+      "detail": "SHA-256 over modtime+size of the source file(s), truncated to 16 hex chars. Re-derived on every request — no in-memory cache. The cost is one Stat per file per GET, which is cheap; the upside is correctness when files mutate concurrently. Composite endpoints (overview = ROADMAP.md + .claude/) compose the per-component tags through another SHA-256."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Active autopilot lock format",
+      "detail": "Best-effort JSON parse of `{ pid, startedAt }` falling back to file modtime + `0` PID. Spec for the lock body is owned by the autopilot skill; we accept the documented shape and stay forward-compatible."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Decision parser regex tightening",
+      "detail": "`- **Title**: body` was the intended pattern but real decisions.md docs use both `:` and `：` (full-width colon). Regex updated to accept either."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Sprint tab order",
+      "detail": "TabBar Provider registration order is Claude / Files / Git / Sprint / Bash[]. This matches the spec (\"work → browse → commit → status → terminal\") and slots Sprint before the multi-instance Bash group."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "No new Go module dependencies",
+      "detail": "chose regex/line-walker over `yuin/goldmark` (saves ~200KB binary). The format we parse is fixed by sprint-runner so a regex is sufficient."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "review",
+      "title": "Lint compliance",
+      "detail": "Moved `statusClass` from `view-header.tsx` to a separate `view-helpers.ts` to satisfy the `react-refresh/only-export- components` rule. `setState`-in-effect calls in `use-sprint-data` carry per-line eslint disables (legitimate \"fetch on mount / reconnect\" pattern documented in the React docs)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "review",
+      "title": "Lint clean across `src/tabs/sprint`",
+      "detail": ", type-check clean, FE prod build succeeds (Mermaid auto-split into chunks ranging 35–475 KB, loaded only on Dependency Graph view mount)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "review",
+      "title": "All 10 acceptance scenarios pass",
+      "detail": "via the dedicated E2E (`tests/e2e/s016_sprint_dashboard.py`) against dev instance on port 8202; full output saved to `docs/sprint-logs/S016/e2e-results.md`."
+    }
+  ]
+}

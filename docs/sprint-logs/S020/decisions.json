@@ -1,0 +1,95 @@
+{
+  "sprint": "S020",
+  "decisions": [
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Single Story (S020-1) scope confirmed.",
+      "detail": "ROADMAP S020-1 already maps cleanly to `Multiple()=true` rename + drag reorder + focus-aware keybinding. No split needed."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Persistence layer for tab name & order.",
+      "detail": "Adopt ROADMAP-spec `tab_overrides: { tabId: { name?, order? } }` per-branch on `repos.json`. Rationale: keeps the source-of-truth at the same layer as `userOpenedBranches` (S015) — single file, single mutex, atomic save."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Rename for Claude tabs.",
+      "detail": "S009 left rename disabled for Claude; S020 enables it. The Claude `Manager` builds tab names from session metadata, but display name now goes through the `tab_overrides[tabId].name` lens before falling back to manager-derived defaults. This means renames survive both reload and Claude session resume without coupling rename to the agent layer (DESIGN_PRINCIPLES #2 タブ間の対称性 — rename is a TabBar concern, not Claude-specific)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Reorder same-group only.",
+      "detail": "Cross-group drag (e.g. Claude → Bash) is rejected at both UI (drag indicator + drop disabled) and API (PUT /tabs/order validates IDs share a `Multiple()=true` group). Singletons (Files, Git) keep their fixed positions."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Magit-key isolation strategy.",
+      "detail": "The existing `git-status.tsx` listener is already scoped via `containerRef.contains(document.activeElement)` and `INPUT/TEXTAREA/SELECT` skipping — and crucially, when the Bash tab is the active tab the GitStatus component is unmounted (different sub-tree of Panel). So Bash already passes `s` to xterm correctly today. To satisfy the explicit \"focus-aware keybinding handler\" spec, we still introduce `frontend/src/lib/keybindings/` with `bindToTabType(tabType, bindings)` that wraps the same DOM-scoping pattern in a typed, reusable API; we then port `git-status.tsx` to use it. Result: zero behavioural change for end users, but the contract is documented and reusable for future tab-scoped keymaps."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Drag-and-drop library choice.",
+      "detail": "Plain HTML5 DnD + pointer-event fallback for touch. Rationale: DESIGN_PRINCIPLES #6 既存資産活用. Adding `react-dnd` (~20 KB minified) for one feature is over-budget; HTML5 DnD with manual touch shim handles all our cases (same-group reorder)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Mobile DnD.",
+      "detail": "Long-press 500 ms (already exists for context menu via `useLongPress`) initiates drag. We extend `useLongPress` callback to set `data-dragging=true` and bind pointer move/up to track the drag."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "WS events.",
+      "detail": "`tab.renamed` already exists (emitted by `RenameTab`). Add `tab.reordered` with payload `{order: TabID[]}`. Recompute on the receiving client."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Backend `tab_overrides` storage.",
+      "detail": "Added on `RepoEntry` as `TabOverrides map[string]map[string]TabOverride` keyed by branch name, then tab id. Persists to `repos.json` (omitempty). The branch name (not branch ID) is the outer key so it survives ID-hash regenerations after `git worktree add`."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`Tab.DisplayName` lens.",
+      "detail": "`recomputeTabs` now consults `RepoStore.GetTabOverride(repoID, branchName, tabID)` after building the default name. This applies uniformly to Claude, Bash, and any future Multiple()=true type — no provider-side change needed."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Order in `recomputeTabs`.",
+      "detail": "Tabs of a single Multiple()=true type are sorted by `tab_overrides[branch].order` if present (a slice of tabIDs). Unknown IDs fall back to default order at the end."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Reorder API validates same group.",
+      "detail": "Server cross-checks: every ID in payload must share the same provider type, and the type must be `Multiple()=true`. Returns 400 otherwise."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`tests/e2e/s020_tab_rename.py` runs against `localhost:8206`",
+      "detail": "`tests/e2e/s020_tab_rename.py` runs against `localhost:8206`. Covers all 6 acceptance items (rename persist, reorder persist, group-cross forbidden, Bash 's' to shell, Git 's' stage, mobile long-press)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "backlog",
+      "title": "Native touch DnD on mobile.",
+      "detail": "S020 ships HTML5 DnD for desktop and a \"Move left / Move right\" context-menu fallback for mobile. A proper touch-pointer DnD implementation (live drag indicator, between-tab insertion line) is deferred — the menu fallback is functionally complete and the more elaborate UX can be addressed in S022 (Mobile UX 総点検)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "backlog",
+      "title": "Cross-instance live order broadcast on tab.reordered.",
+      "detail": "The WS event fires correctly; multiple browsers do `reloadRepos()` and converge. No backlog item — this is by design (consistent with all other tab events)."
+    }
+  ]
+}

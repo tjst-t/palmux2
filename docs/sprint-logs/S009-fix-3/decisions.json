@@ -1,0 +1,41 @@
+{
+  "sprint": "S009-fix-3",
+  "decisions": [
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "WS continuity (count every close)",
+      "detail": "WS continuity (count every close)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "marker round-trip (one echo every 2 s; record any drop)",
+      "detail": "marker round-trip (one echo every 2 s; record any drop)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "server log scrape (count zombie kills targeting our branch)",
+      "detail": "server log scrape (count zombie kills targeting our branch)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Existing installs",
+      "detail": "nothing changes. Default prefix is still `_palmux_`. Single-instance behaviour is identical."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Multi-instance dev",
+      "detail": "`make serve INSTANCE=dev` now isolates the tmux namespace automatically. No code or workflow change required."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Hand-rolled deployments",
+      "detail": "pass `--tmux-prefix=…` if running two palmux processes against one tmux server. The prefix should not start with `_palmux_` for cross-version safety."
+    }
+  ]
+}

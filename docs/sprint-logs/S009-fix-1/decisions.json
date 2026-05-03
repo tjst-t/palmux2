@@ -1,0 +1,101 @@
+{
+  "sprint": "S009-fix-1",
+  "decisions": [
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "`recomputeTabs` already iterated `prevByType` indirectly through",
+      "detail": "`recomputeTabs` already iterated `prevByType` indirectly through the in-memory branch state; we just stop discarding it on the transient-error path."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "`ensureBranchSession` calls `ensureSession`, which is the same path",
+      "detail": "`ensureBranchSession` calls `ensureSession`, which is the same path sync_tmux uses. No new tmux primitives."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "The Panel redirect runs only when `decodedTabId` is not in the",
+      "detail": "The Panel redirect runs only when `decodedTabId` is not in the current tabs and matches the bare-type set (closed-set: `claude`, `bash`)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "(a) add Claude → Bash intact",
+      "detail": "(a) add Claude → Bash intact"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "(b) remove Claude:2 → Bash intact",
+      "detail": "(b) remove Claude:2 → Bash intact"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "(c) re-add Claude → no resurrected Bash",
+      "detail": "(c) re-add Claude → no resurrected Bash"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "(d) rapid Bash adds during sync_tmux pressure",
+      "detail": "(d) rapid Bash adds during sync_tmux pressure"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "(e) interleaved Claude/Bash add/remove independence",
+      "detail": "(e) interleaved Claude/Bash add/remove independence"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "(f) S009 cap/floor enforcement still in force (Files/Git → 403, last",
+      "detail": "(f) S009 cap/floor enforcement still in force (Files/Git → 403, last Claude → 409, 4th Claude → 409)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "(g) 15-second Bash persistence sample (1 Hz, 0 phantom drops)",
+      "detail": "(g) 15-second Bash persistence sample (1 Hz, 0 phantom drops)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "D-1 — Preserve previous tab list across failed ListWindows",
+      "detail": "the alternative was retrying the tmux call inside `recomputeTabs`, but that bakes timing assumptions into a function that's also called under the write lock from sync_tmux. The fall-back is read-only and self-converges within one sync cycle."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "**D-2 — Synthesise canonical bash window when session is up but",
+      "detail": "**D-2 — Synthesise canonical bash window when session is up but byType[bash] is empty**: this matches what bash.Provider.OnBranchOpen guarantees at session creation time. Without this, a freshly opened branch would show 0 Bash tabs until ensureSession runs, even though the persisted contract is \"always at least one Bash\"."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "**D-3 — `ensureBranchSession` in AddTab not in",
+      "detail": "**D-3 — `ensureBranchSession` in AddTab not in pickNextWindowName**: the right layer is the AddTab handler, since it's the only operation that has to *commit* to a new window name. pickNextWindowName stays a pure read."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "D-4 — Legacy URL redirect lives in `Panel`, not router",
+      "detail": "the router doesn't have access to the live tab list. Doing the redirect in Panel keeps the rule next to the consumer (`activeTab`) and uses the existing decodedTabId pipeline."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "The two-instance shared `tmp/` race (host palmux2 and dev palmux2",
+      "detail": "The two-instance shared `tmp/` race (host palmux2 and dev palmux2 both managing the same set of `_palmux_*` sessions and killing each other's not-yet-tracked recoveries). This is a development-setup quirk, not a production bug. Workaround documented in `docs/development.md` (use distinct INSTANCE names + separate config dirs). Long-term fix is owner-tagging tmux sessions with the managing palmux2 PID."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "The 3-second WS reconnect cycle the user observed (Bug 3) was the",
+      "detail": "The 3-second WS reconnect cycle the user observed (Bug 3) was the symptom of the same recomputeTabs issue: every dropped Bash tab in the FE snapshot tore down the Bash terminal-view → unmount → WS close → reconnect. With (a) and (b) holding stable, the WS now stays attached. Verified by case-g (15-second 1 Hz sample, 0 phantom drops)."
+    }
+  ]
+}

@@ -1,0 +1,107 @@
+{
+  "priority_rules": [
+    {
+      "priority": 1,
+      "rule": "CLI が真実 > Palmux が真実",
+      "detail": "会話履歴・権限設定・skills/agents は claude 側で管理する。Palmux はミラー描画と入力中継に徹し、CLI が持つべき状態を独自に持たない"
+    },
+    {
+      "priority": 2,
+      "rule": "タブ間の対称性 > Claude 専用 API",
+      "detail": "通知・状態 pip 等の機構は全タブが乗れる汎用基盤として作る。Claude タブのために専用 API を生やさない"
+    },
+    {
+      "priority": 3,
+      "rule": "Phase 区切り > 半完成投入",
+      "detail": "各 Phase 終了時点で main で動く。中間状態は残さない"
+    },
+    {
+      "priority": 4,
+      "rule": "lazy spawn > eager spawn",
+      "detail": "リソース消費（claude CLI spawn・tmux session 作成等）はユーザの能動操作トリガで開始。起動だけで API クォータを消費しない"
+    },
+    {
+      "priority": 5,
+      "rule": "責務越境最小 > 便利さ",
+      "detail": "~/.claude/ や .claude/settings.json を Palmux が触るときは UI で明示同意フローを通す"
+    },
+    {
+      "priority": 6,
+      "rule": "既存資産活用 > 新規実装",
+      "detail": "標準ライブラリ・既存コア機構の再利用を優先。車輪を再発明しない"
+    },
+    {
+      "priority": 7,
+      "rule": "明示的 > 暗黙的",
+      "detail": "ポート番号ハードコード禁止 (portman 経由)、マジックナンバー回避、暗黙の規約は避ける"
+    },
+    {
+      "priority": 8,
+      "rule": "ナビゲーション保持 > UI state 保持",
+      "detail": "ブラウザ戻る/進むで戻れる範囲は pushState で URL に乗せる。Drawer 開閉や Toolbar モード等の UI 一時状態は state にとどめる"
+    },
+    {
+      "priority": 9,
+      "rule": "下書き / スナップショットは積極保持",
+      "detail": "画面遷移で消えるべきでないもの (composer 下書き、エージェント状態) は localStorage / module-level cache に置く"
+    },
+    {
+      "priority": 10,
+      "rule": "mobile parity > desktop only",
+      "detail": "機能追加は両方でテスト。モバイルでだけ壊れる UI は出荷しない"
+    }
+  ],
+  "coding_conventions": [
+    "Go: パッケージは internal/ 以下のみ。pkg/ は使わない",
+    "Go: エラーは fmt.Errorf(\"xxx: %w\", err) でラップ。naked return 禁止",
+    "Go: context.Context は全パブリック関数の第 1 引数",
+    "Go: tmux は internal/tmux.Client interface 経由。exec.Command(\"tmux\", ...) 直接呼び禁止",
+    "Go: フレームワーク不使用（標準 net/http）",
+    "Go: ログは log/slog",
+    "Go: JSON は json.NewEncoder(w).Encode",
+    "TS: 関数コンポーネントのみ。React.FC は使わない",
+    "TS: 状態管理は Zustand。コンポーネント state は UI 一時状態のみ",
+    "TS: API は lib/api.ts、WebSocket は lib/ws.ts、xterm は lib/terminal-manager.ts に集約",
+    "TS: スタイルは CSS Modules *.module.css。CSS 変数はテーマファイルに集約",
+    "TS: import 順序: react → 外部ライブラリ → stores → hooks → components → lib → styles → types",
+    "命名: Go ファイル = snake_case (handler_branch.go)",
+    "命名: Go 型/関数 = PascalCase (ListBranches)",
+    "命名: TS ファイル = kebab-case (branch-item.tsx)",
+    "命名: TS コンポーネント = PascalCase (BranchItem)",
+    "命名: CSS Modules キー = camelCase (styles.branchItem)",
+    "命名: API URL = kebab-case (/api/repos/{repoId}/branches)"
+  ],
+  "ui_ux": [
+    "Fog palette v2.1 (Dark/Light テーマ両対応、Accent #7c8aff)",
+    "ターミナルフォント: Geist Mono / Cascadia Code / Fira Code",
+    "UI フォント: Geist / Noto Sans JP",
+    "レスポンシブブレークポイント: ≥900px / 600〜899px / <600px の 3 段階",
+    "アクション後は即時フィードバック（楽観的更新）",
+    "エラーメッセージは具体的に。『エラーが発生しました』のような曖昧な文言禁止",
+    "モバイルでは Drawer モーダル化、Toolbar 常時表示、Split 無効",
+    "通知集約は Activity Inbox（Linear 的レイアウト）",
+    "アイコンは Claude 関連で <ClaudeIcon /> (8 本のレイ放射状 SVG)、絵文字に頼らない"
+  ],
+  "architecture": [
+    "タブモジュールシステム: 新タブタイプ追加でコア変更不要。tab.Provider 実装 + tabRegistry.Register + frontend/src/tabs/{type}/index.ts",
+    "2 段階 Open: Repository Open（repos.json 登録）→ Branch Open（worktree 存在で Open 扱い）",
+    "真実の所在: repos.json → git worktree list → tmux（導出）",
+    "ID 体系: Slug+Hash 方式（人間可読 + 衝突回避、URL 直書き可）",
+    "WebSocket: ターミナル WS（pty I/O）+ イベント WS（broadcast）の 2 系統。再接続時はクライアントが REST でフル状態をリロード",
+    "設定 2 層: グローバル settings.json（~/.config/palmux/）+ デバイス固有 localStorage（palmux: prefix）",
+    "認証 2 経路: Cookie (HMAC-SHA256, 90 日) + Bearer フォールバック",
+    "タブ間ナビゲーション: frontend/src/lib/tab-nav.ts 経由で URL を組む。各タブの URL 規約は内部実装"
+  ],
+  "forbidden": [
+    "_palmux_ プレフィクスを変更しない（Orphan 判定に使用）",
+    "ポート番号をソースに直接書かない（必ず portman 経由）",
+    ".env を git commit しない",
+    "既存の API レスポンス形式を破壊的変更しない（パッチ間互換）",
+    "worktree の作成/削除を git worktree add/remove で直接呼ばない（必ず gwq 経由）",
+    "tmux コマンドを exec.Command(\"tmux\", ...) で直接呼ばない（internal/tmux.Client 経由）",
+    "IsPrimary worktree を gwq remove しない（リポ本体の close は tmux kill のみ、worktree は消さない）",
+    "~/.claude/ 配下を勝手に書き換えない（UI 経由の明示同意フロー必須）",
+    "ホスト用 palmux2 をフォアグラウンドで再起動して Claude セッションを巻き込まない（host は make serve バックグラウンド、開発は別 worktree + INSTANCE=）",
+    "マルチユーザ前提のコード（ユーザ別 namespace、共有制御）を入れない（VISION でスコープ外宣言済み）"
+  ]
+}

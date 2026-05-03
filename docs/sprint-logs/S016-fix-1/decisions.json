@@ -1,0 +1,149 @@
+{
+  "sprint": "S016-fix-1",
+  "decisions": [
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Bilingual regex via alternation, not dual-regex",
+      "detail": ". Each pattern uses `(?:スプリント|Sprint)` style alternation so the same line produces the same captures regardless of language. Dual-regex would have doubled the maintenance surface and made \"mixed\" roadmaps (English heading, Japanese title) need ad-hoc fallback paths."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Section-prefix dispatch via shared helper",
+      "detail": ". Replaced `strings.HasPrefix(s.title, \"進捗\")` etc. with `hasAnyPrefix(s.title, progressPrefixes)`. Adding a third language later is just appending to the slice."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "English progress totals",
+      "detail": ". Added a second `(?i)Total: N ... Done: N ... In Progress: N ... Remaining: N` regex alongside the existing JP one. Kept them as two separate expressions instead of one combined alternation because the JP form has fixed character classes (`合計`, `完了`) that don't fit cleanly with the English word-boundary handling."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Sectionless task detection",
+      "detail": ". Hydra-style ROADMAPs skip the `**Tasks:**` separator and write `- [x] **Task S001-1-1**: ...` directly under the Story heading. When `section == \"\"` and a line matches the explicit `**Task <ID>**` form (`reTask`), accept it as a task. Plain checkboxes still need an active section so we don't accidentally promote arbitrary AC bullets to tasks."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Null safety as defence in depth, server side",
+      "detail": ". `ParseRoadmap` now normalises every list field to a non-nil empty slice before returning — `Sprints`, `Dependencies`, `Backlog`, `ParseErrors`, plus per-Sprint `Stories` and per-Story `AcceptanceCriteria` / `Tasks`. Even if a future format variant evades the regex, the FE will see `[]` instead of `null` and render an empty state."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "**Null safety server side, second front: `OverviewResponse.Timeline`",
+      "detail": "**Null safety server side, second front: `OverviewResponse.Timeline` and `DependencyGraphResponse.Sprints`**. The handler builds these by appending in a loop; the prior code left them as `nil` slices when `rm.Sprints` was empty. Pre-allocated to `make([]TimelineEntry, 0, ...)` so they always serialise as `[]`."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Null safety client side",
+      "detail": ". Every `.map()` / `.length` call on a potentially-undefined array in the Sprint screens (Overview, Sprint Detail, Dependency Graph, Decision Timeline, Refine History) is now guarded with `?? []`. Backend null safety should make this unreachable, but the FE should never crash on a bad payload."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Three-test E2E in `tests/e2e/s016_fix1_i18n.py`",
+      "detail": "English-only headers, mixed JP/EN, and an empty (no-sprint) ROADMAP. The third asserts `timeline == []` and `activeAutopilot == []` at the JSON level — this is the exact shape that pre-fix would have been `null` and caused the production crash."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Playwright harness driving every subtab",
+      "detail": ". The sub-test mounts a real browser, listens for `pageerror`, and clicks every subtab on both an English ROADMAP and an empty ROADMAP. Catches the original symptom directly."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Three Go unit tests",
+      "detail": "alongside the existing `*_Real` and `*_Malformed`: `*_NullSafety`, `*_EnglishHeaders`, `*_MixedHeaders`."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Manual hydra check kept out of the test suite",
+      "detail": ". Verified during development by opening `tjst-t/hydra` / `new-webui` on the dev instance and parsing live (36 sprints, 34 done, 0 page errors). Not codified as an E2E because the test would couple to the contributor's worktrees."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`internal/tab/sprint/parser/roadmap.go` — i18n regexes,",
+      "detail": "`internal/tab/sprint/parser/roadmap.go` — i18n regexes, section-prefix table, sectionless task detection, null-safety pass."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`internal/tab/sprint/parser/roadmap_test.go` — three new unit tests.",
+      "detail": "`internal/tab/sprint/parser/roadmap_test.go` — three new unit tests."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`internal/tab/sprint/handler.go` — `Timeline` and dependency",
+      "detail": "`internal/tab/sprint/handler.go` — `Timeline` and dependency `Sprints` pre-allocated to empty slice."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`frontend/src/tabs/sprint/screens/overview.tsx`,",
+      "detail": "`frontend/src/tabs/sprint/screens/overview.tsx`, `sprint-detail.tsx`, `dependency-graph.tsx`, `decision-timeline.tsx`, `refine-history.tsx` — `?? []` guards on every `.map()` / `.length` access."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`tests/e2e/s016_fix1_i18n.py` — new E2E.",
+      "detail": "`tests/e2e/s016_fix1_i18n.py` — new E2E."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`docs/ROADMAP.md` — S016 section appended with the fix note.",
+      "detail": "`docs/ROADMAP.md` — S016 section appended with the fix note."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`docs/sprint-logs/S016-fix-1/decisions.md` — this file.",
+      "detail": "`docs/sprint-logs/S016-fix-1/decisions.md` — this file."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`go test ./internal/tab/sprint/parser/...` — 5/5 pass (2 existing + 3 new).",
+      "detail": "`go test ./internal/tab/sprint/parser/...` — 5/5 pass (2 existing + 3 new)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`go test ./...` — all green.",
+      "detail": "`go test ./...` — all green."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`npm run build` — typecheck + bundle clean.",
+      "detail": "`npm run build` — typecheck + bundle clean."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`tests/e2e/s016_sprint_dashboard.py` (existing JP) — PASS.",
+      "detail": "`tests/e2e/s016_sprint_dashboard.py` (existing JP) — PASS."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`tests/e2e/s016_fix1_i18n.py` (new) — PASS (4/4 sub-tests:",
+      "detail": "`tests/e2e/s016_fix1_i18n.py` (new) — PASS (4/4 sub-tests: english / mixed / empty / playwright)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "Manual: opened `tjst-t/hydra` / `new-webui` → Sprint tab loaded with",
+      "detail": "Manual: opened `tjst-t/hydra` / `new-webui` → Sprint tab loaded with 36 timeline dots, no `pageerror`."
+    }
+  ]
+}

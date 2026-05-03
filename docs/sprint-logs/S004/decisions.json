@@ -1,0 +1,159 @@
+{
+  "sprint": "S004",
+  "decisions": [
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Wire shape (BE → FE)",
+      "detail": "- Backend struct (`protocol.go`): `MCPServerInfo { Name string `json:\"name\"`, Status string `json:\"status\"` }`. - Statuses observed in CLI emit (per Anthropic SDK doc + recent CLI): `\"connected\"`, `\"connecting\"`, `\"failed\"`, `\"needs-auth\"`, `\"disconnected\"`, `\"error\"`. UI must accept any string and degrade gracefully."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "No mid-session refresh",
+      "detail": "There is no `mcp.update` event today — MCP status only lands once, in `system/init`. If the user reconnects the page, the snapshot replays the most-recent statuses. The sprint acceptance criterion is \"表示のみ\" so a single source of truth is fine."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Empty-state path",
+      "detail": "When CLI starts with no MCP servers (the common dev / unauthed case), `mcpServers` is empty / nil. The TopBar pip and popup must render gracefully (zero servers → muted \"No MCP servers\" text, no badge)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "TopBar is razor-thin (32 px)",
+      "detail": "— adding a button needs to fit visually. Existing `iconBtn` class is reusable."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "No new entry point page / no new route",
+      "detail": "per S003 / S007 precedent (\"no new entry point\" → skip gui-spec full pass). UI lives inside the Claude tab TopBar as a popup, exactly as ROADMAP S004-1 task list spells out."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Single Story, three tasks",
+      "detail": "(mirror ROADMAP). No story split needed — it is genuinely one user-facing capability (\"see MCP server health\")."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Reducer wiring",
+      "detail": "extend `AgentState` with `mcpServers: { name; status }[]` and pull the value from `session.init`. Re-export through `claude-agent-view` to the existing TopBar prop."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Popup pattern",
+      "detail": "re-use the shape of `SettingsPopup` / `HistoryPopup` (open/close state in the parent, anchored near the triggering icon button). The popup is read-only — no controls beyond close. This keeps with VISION \"Phase 3 ではスコープ外 (再起動など)\"."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Status semantics",
+      "detail": "- `connected` → green (`--color-success`) - `connecting` → amber pulse (`--color-warning`, animated) - everything else (`failed`, `needs-auth`, `disconnected`, `error`, unknown) → red (`--color-error`) - The TopBar pill collapses these into a one-glance summary: `OK` (all connected), `N/M` (partial connected), `✕` (any failure), `—` (no servers configured)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`agent-state.ts` reducer",
+      "detail": "extended `AgentState` with `mcpServers: MCPServerInfo[]` (initial = `[]`). The `init` reducer case takes `p.mcpServers ?? []` from the incoming `SessionInit` — the snapshot ships `mcpServers: undefined` when the CLI hasn't emitted `system/init` yet, and empty when no MCP servers are configured, so the `?? []` defends both. The dedicated `session.replaced` case re-uses the regular `init` path (reduce(initialState, ...)), so MCP state is reset alongside the rest of the session — verified on real reconnect via Playwright."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`mcp-popup.tsx` + `mcp-status.ts` split",
+      "detail": "original draft had the popup component file export both the `MCPPopup` React component and pure helper functions (`statusTone`, `rollupTone`, `MCPStatusTone`). Vite's `react-refresh/only-export-components` rule flagged this (HMR cannot fast-refresh a file that mixes components with non- components). Split helpers into `mcp-status.ts`. Net lint count improved by 2 (45 → 43; remaining 43 are pre-existing in unrelated files — same baseline noted in S007 decisions log)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "No `mcp.update` event added",
+      "detail": "Phase 3 spec is \"display only\" and the CLI only emits MCP state once per session via `system/init`. If / when CLI starts streaming reconnect events we'll add a dedicated reducer case. Not in scope for S004."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "TopBar summary format",
+      "detail": "chose `mcp N/M` (count of connected over total) with a status pip on the leading edge — at-a-glance health in 32 px, opens a full read-only popup on click. `—` for the empty-state case so the visual element is preserved (avoids the TopBar visually shifting on first session.init)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Last-connection timestamp is omitted",
+      "detail": "the original ROADMAP S004-1-2 task description mentioned \"最終接続時刻も見られる\". The CLI's `system/init` payload (verified in protocol.go and the actual wire format from CLI 2.1.123) only includes `name + status` — there's no last-connect timestamp to show. Surfacing a synthetic \"ever since the page loaded\" timestamp would be misleading. Logged here because the ROADMAP wording was aspirational; the acceptance criteria themselves only require name + status, which we satisfy."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "CLI vocabulary tolerance",
+      "detail": "`statusTone` accepts `connected`, `connecting`, `failed`, `error`, `needs-auth`, `auth-required`, `disconnected`, `closed`, `pending`, `starting`, `ready`, `ok`. Any other string falls through to a neutral `unknown` tone — the status text is still shown verbatim in the badge, so users see whatever the CLI emitted even if the colour is muted."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "Frontend lint baseline",
+      "detail": "43 problems remain (down from 45). All 43 are pre-existing in unrelated files (files-view.tsx, git-diff.tsx, git-status.tsx — `react-hooks/set-state-in-effect`). The two pre-existing `react-refresh/only-export-components` errors that would have flagged my `mcp-popup.tsx` are avoided by the `mcp-status.ts` split. Verified with grep: zero new lint errors attributable to S004 files (mcp-popup.tsx, mcp-status.ts, agent-state.ts, types.ts). The `claude-agent-view.tsx` `props.X-access` warnings are the same legacy 41 documented in S007 decisions log."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "Go test",
+      "detail": "`go test ./...` all PASS (cached for unrelated packages, fresh for `internal/tab/claudeagent` with the new mcp_servers_test.go)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "空状態 (CLI が未だ system/init を出していない or MCP サーバ ゼロ)",
+      "detail": "空状態 (CLI が未だ system/init を出していない or MCP サーバ ゼロ)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "3 サーバ (connected, failed, connecting) の rollup-worst-tone",
+      "detail": "3 サーバ (connected, failed, connecting) の rollup-worst-tone"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "ホスト用 palmux2 (port 8207, PID 2576959) は触らず、dev",
+      "detail": "ホスト用 palmux2 (port 8207, PID 2576959) は触らず、dev (port 8215, PID 3157312) のみ再起動。✅",
+      "context": "Observed side-effects / dust"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "既存 dev インスタンス (PID 1907757) は `make serve INSTANCE=dev`",
+      "detail": "既存 dev インスタンス (PID 1907757) は `make serve INSTANCE=dev` の自動 kill フローで graceful 終了。",
+      "context": "Observed side-effects / dust"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`tmp/palmux-dev.log` に S004 由来のエラーログ無し",
+      "detail": "`tmp/palmux-dev.log` に S004 由来のエラーログ無し。",
+      "context": "Observed side-effects / dust"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "新規 lint 警告: ゼロ (43 → 43、内 mcp-popup の",
+      "detail": "新規 lint 警告: ゼロ (43 → 43、内 mcp-popup の `react-refresh/only-export-components` × 2 は `mcp-status.ts` split で消滅 → 結果として 45 → 43 で改善)。",
+      "context": "Observed side-effects / dust"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "backlog",
+      "title": "なし (既存スコープ内)",
+      "detail": "なし (既存スコープ内)。"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "backlog",
+      "title": "S004 の \"最終接続時刻\" 記述は ROADMAP のタスク説明側 (S004-1-2) のみ",
+      "detail": "S004 の \"最終接続時刻\" 記述は ROADMAP のタスク説明側 (S004-1-2) のみ に存在し、受け入れ条件には含まれていない。CLI が今のところ提供 していないので Phase 3 では省略。Phase 4 以降に CLI が timestamp を 返すようになったら追加 — backlog 対象として明示的なエントリは 起こさず、CLI の進化を契機に再検討する。"
+    }
+  ]
+}

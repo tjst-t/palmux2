@@ -1,0 +1,89 @@
+{
+  "sprint": "S012",
+  "decisions": [
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Provider-owned watcher",
+      "detail": "(not store-owned). The shared `*worktreewatch.Watcher` is created lazily inside the Git provider on the first `OnBranchOpen` so unit tests that don't use the provider don't pay the fsnotify cost. S016 will create its own Watcher instance for autopilot-lock detection — the API is shared, the *instance* is per-feature so subscriptions cannot leak across domains. Rationale: VISION emphasises \"speed first / no surprise side effects\" and DESIGN_PRINCIPLES \"small, composable abstractions\". A god-watcher subscribed to every directory by default would invert that."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "`worktreewatch` filter signature",
+      "detail": "pure function `func(Event) bool` rather than a list of include/exclude globs. Globs felt under- specified (which engine? case-sensitivity?), and the Git tab needs custom logic anyway (`.git/HEAD` allow-list while ignoring `.git/objects`). One callback wins on flexibility *and* test ergonomics."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Coalesced batch delivery",
+      "detail": "(`OnEvent([]Event)`) rather than per-event callbacks. The Git tab only needs \"something moved\"; S016 needs the path. Delivering the slice satisfies both consumers without splitting the API."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Credential failure detection",
+      "detail": "uses stderr substring matching (`could not read username`, `authentication failed`, `permission denied (publickey)`, etc.). Originally considered reading `git --no-pager` exit codes, but the codes alone don't distinguish \"remote rejected non-fast-forward\" from \"no credentials\". String matching against `GIT_TERMINAL_PROMPT=0` output is brittle but simple, and the failure path (FE shows the raw stderr in a dialog) is forgiving when the heuristic misses."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "AI commit message",
+      "detail": "*just* writes the prompt to the Claude composer's `localStorage` draft key (`palmux:claude-draft:{repoId}/{branchId}`) and dispatches a `palmux:composer-prefill` `CustomEvent`. The composer subscribes via the same draft-key effect it already uses for tab/branch switches. **No new WS frame** needed — chosen because (a) the composer is a FE-only state machine, so a server-side frame would be redundant, and (b) `localStorage` survives reload, so a Claude tab opened *after* clicking the AI button still picks up the prompt. Trade-off: the user has to actually open the Claude tab for the prefill to take effect — surfaced via the redirect `navigate(/{repoId}/{branchId}/{tabId})` so this is invisible."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Composer prefill listener wiring deferred",
+      "detail": ". The current composer.tsx already re-loads the draft when `draftKey` changes; navigating to the Claude tab triggers the mount which re-reads `localStorage`. So the `CustomEvent` is fired but no listener is added in this sprint — the draft-key reload covers the visible cases (cold open, branch switch, after AI button). If a power user has the Claude tab already focused when they click AI, they'll need a manual refocus. Logged as backlog: **`composer.prefill hot-reload listener`**."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Force-push 2-step confirm",
+      "detail": "uses two separate `confirmDialog.ask` calls rather than a custom 2-step dialog. Reuses the existing primitive at zero cost. UX-wise the second dialog is a \"are you REALLY sure\" pattern familiar from GitKraken / Sublime Merge."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Git Show endpoint",
+      "detail": "added (`GET /git/show?ref=...&path=...`) instead of fetching pre-image lines from the diff parser. Rationale: Monaco DiffEditor wants two complete file bodies; reconstructing them from hunks would require accumulating context lines from `--unified=99999`, which can be huge. `git show HEAD:path` is the canonical way and adds one route."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Stage-lines algorithm",
+      "detail": "filter the *existing* unified diff (kept additions inside the line range, dropped additions outside, preserved context everywhere) rather than building a fresh patch from scratch. Re-uses `BuildHunkPatch`'s output format and the existing `git apply --cached --whitespace=nowarn` pipeline. Validated by `TestStageLines`."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`unidiff-zero=false` regression fix",
+      "detail": ". The pre-S012 hunk-staging path passed `--unidiff-zero=false` which `git apply` rejects as \"option `unidiff-zero' takes no value\". Removed the flag entirely — the default is what we wanted anyway."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "DiffEditor language detection",
+      "detail": "reuses `monacoLanguageFor(path)` from S010 so the same syntax-highlight set handles diffs and read-only previews."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "No `git daemon` in E2E",
+      "detail": ". Uses a local bare repo + `file://` remote. Avoids opening a TCP port in the test runner and works on any machine without daemon perms."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "review",
+      "title": "`git apply --whitespace=nowarn` retained",
+      "detail": "even after removing the bad `--unidiff-zero=false` flag — a few hunks our parser emits have trailing whitespace inconsistencies which `git apply` would otherwise refuse."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "review",
+      "title": "No remote ref bookkeeping inside `BranchEntry`",
+      "detail": ". Could surface `ahead/behind` counts so the FE shows \"ahead 2\" badges, but shipping the simpler list first matches DESIGN_PRINCIPLES \"ship the minimum, expand on real demand\". Logged as backlog: **`branch ahead/behind counters`**."
+    }
+  ]
+}

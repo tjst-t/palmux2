@@ -1,0 +1,77 @@
+{
+  "sprint": "S017",
+  "decisions": [
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "react-window v2 (2.2.x) instead of v1",
+      "detail": "npm i pulls v2 (2.2.7). v2 ships `useDynamicRowHeight` with built-in `ResizeObserver` measurement and `setRowHeight` cache, replacing v1's `VariableSizeList` + manual `resetAfterIndex`. The roadmap text says \"VariableSizeList\" but the intent (\"仮想化 + サイズ再計算\") is satisfied by the v2 API more cleanly. Logged here so the deviation from the literal roadmap text is traceable."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Read preview is FE-side",
+      "detail": "BE event format (`Block.output`) is unchanged. The FE splits on `\\n` and renders the first N lines. Keeps the wire format simple, matches the roadmap recommendation (S017-1-5)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Scroll restoration: localStorage keyed by sessionId",
+      "detail": "URL hash would interfere with the existing routing (`/{repoId}/{branchId}/claude` doesn't have hash semantics today). localStorage avoids polluting URL history and survives reloads cleanly. Key: `palmux:claudeScroll:{repoId}/{branchId}/{tabId}` → `{sessionId, top}`."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Sub-agent (Task) child turns are part of the parent turn row",
+      "detail": "Children don't get their own virtual rows. The Task block already has collapsing chrome and child turns are typically short. Treating sub-agent transcripts as a single \"logical row\" sidesteps cross-row height coupling on collapse."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Read tool detection",
+      "detail": "`block.kind === 'tool_use' && block.name === 'Read'` is the upstream marker. The result block (`tool_result`) is matched back to the Read tool by `toolUseId` → the previous turn's `tool_use` block carrying `toolUseId`. Simpler alternative: heuristic on output (looks like a numbered file dump). We picked the explicit toolUseId match because it's robust to other tools that emit numbered output (e.g. `Bash` with `cat -n`)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Row identity = top-level Turn",
+      "detail": "We render one virtual row per top-level Turn. Child sub-agent turns nest inside via the existing `TaskTreeBlock`. `useDynamicRowHeight({ defaultRowHeight: 120 })` measures the actual rendered height through `observeRowElements`."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Collapse handling",
+      "detail": "We do NOT call `setRowHeight` manually on collapse — `observeRowElements` (ResizeObserver under the hood) picks up the size delta. Reduces the bug surface compared to manual `resetAfterIndex` in v1."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Auto-follow",
+      "detail": "preserved from existing logic. `scrollToRow({ index: rowCount-1, align: 'end' })` when the user is at the bottom and a new turn lands."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Scroll restore race",
+      "detail": "On session swap (reload, sessionResume), we wait for `state.turns.length > 0` and one rAF tick before restoring scroll, otherwise the dynamic height cache doesn't have measured rows yet and the offset is meaningless."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "backlog",
+      "title": "(none)",
+      "detail": "— S017 fits cleanly inside its scope. The Read preview ended up applying to ANY long tool_result (not just Read), so a potential future refinement is per-tool defaults (e.g. show full Bash output, only preview Read). Left for a future sprint if the one-size-fits-all behaviour proves too aggressive in practice."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "review",
+      "title": "lint scope",
+      "detail": "existing `react-refresh/only-export-components` warnings on the new `conversation-list.tsx` mirror the same pattern in `composer.tsx` / `settings-popup.tsx`. We don't split the helpers out into a separate module because the file already groups the closely-related Conversation-list infrastructure (component + hooks + storage helpers) into a coherent unit; splitting would just create import noise."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "review",
+      "title": "E2E results",
+      "detail": "(8203, 2026-05-01): - virt/500-turns: only 16 DOM rows for 500 logical turns - virt/scroll-perf: 5 scroll round-trips in 63ms - read-preview/1000: Show all (1000 lines) toggle round-trips OK - read-preview/setting: PATCH=10 reflects within 1.5s - collapse/round-trip: 410→22→410 (no layout drift) - mobile/virtualisation: 14 DOM rows + 8px padding @ 375px - scroll-restore: target 15794 → restored 15794 (exact match)"
+    }
+  ]
+}

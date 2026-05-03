@@ -1,0 +1,128 @@
+{
+  "sprint": "S023",
+  "decisions": [
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "`Repo.LastActiveBranch`",
+      "detail": "— schema は `last_active_branch string omitempty` で `internal/config/repos.go` に追加。 既存 `repos.json` の読み込みは backward-compat (nil tolerated)。",
+      "context": "S023-1: Drawer v3 redesign + last-active"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "PATCH endpoint",
+      "detail": "— `PATCH /api/repos/{repoId}/last-active-branch` で body `{branch: string}`。 空文字 / null で clear (reconciler が削除した branch の手動 reset 用)。",
+      "context": "S023-1: Drawer v3 redesign + last-active"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Implicit update on navigate",
+      "detail": "— Branch URL 遷移時に FE が fire-and-forget で PATCH。 UX に影響しない (失敗しても無視)。",
+      "context": "S023-1: Drawer v3 redesign + last-active"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Reconcile",
+      "detail": "— 起動時 `Store.ReconcileUserOpenedBranches` を拡張、 `LastActiveBranch` も実存 check、 不在なら null。",
+      "context": "S023-1: Drawer v3 redesign + last-active"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "WS event",
+      "detail": "— 既存 `branch.categoryChanged` payload を拡張せず、 別クライアント同期は **次回 reload で反映** とした (single-user 前提なので頻度低、 `branch.lastActiveChanged` 新設は YAGNI)。 - **Drift note**: ROADMAP は新 WS event を要求していたが、 簡素化 (cross-client read-after-write は GET で確認可能) を選んだ。 cross-client 即時同期が頻出する運用が出てきたら追加可能。",
+      "context": "S023-1: Drawer v3 redesign + last-active"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Drawer v3 design source",
+      "detail": "— `/tmp/drawer-mock-v3.html` final fixed version。 トークンは Fog palette (新規追加なし)、 タイポは既存 Geist Mono。 全 CSS は `drawer.module.css` に集約。",
+      "context": "S023-1: Drawer v3 redesign + last-active"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Active branch indicator",
+      "detail": "— chip panel 文脈 (unmanaged / subagent expansion 内の branch list) では `Here` label を **意図的に出さない**: そこは「自分の active branch」 ではなく「subagent / unmanaged の中身」 なので semantics が違う。 my branch (repo 直下) のみ Here + accent border + glow 対象。",
+      "context": "S023-1: Drawer v3 redesign + last-active"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Sub-branch icon buttons",
+      "detail": "— 26×22px、 always-visible (hover-reveal なし、 v3-fix で確定した方針)。 disabled 状態は `data-disabled` 属性 + opacity 0.3 で表現。",
+      "context": "S023-1: Drawer v3 redesign + last-active"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Subtab switching",
+      "detail": "— `< 600px` で `<select>` ネイティブ要素、 `≥ 600px` で既存 horizontal tabs (CSS media query で切替、 JS なし)。 select の onChange が既存 navigation hook を fire。",
+      "context": "S023-2: Mobile Git subtab dropdown + drawer auto-hide"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Drawer auto-hide trigger",
+      "detail": "— branch / worktree クリックのみ。 repo expand と `+` ボタンクリックは drawer 閉じない (展開と切替を区別、 ROADMAP 仕様どおり)。",
+      "context": "S023-2: Mobile Git subtab dropdown + drawer auto-hide"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Mobile drawer の「mobile」 判定",
+      "detail": "— viewport width ベース (`max-width: 599.98px`)、 既存の S022 BottomSheet pattern と整合。",
+      "context": "S023-2: Mobile Git subtab dropdown + drawer auto-hide"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`tests/e2e/s015_worktree_categorization.py` 修正 (drawer DOM 構造変更に追従、 9 シナリオ PASS)",
+      "detail": "`tests/e2e/s015_worktree_categorization.py` 修正 (drawer DOM 構造変更に追従、 9 シナリオ PASS)",
+      "context": "Existing E2E regression"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`tests/e2e/s021_subagent_lifecycle.py` 修正 (sub-branch grid 構造変更に追従、 8 シナリオ PASS)",
+      "detail": "`tests/e2e/s021_subagent_lifecycle.py` 修正 (sub-branch grid 構造変更に追従、 8 シナリオ PASS)",
+      "context": "Existing E2E regression"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`go test ./...` clean",
+      "detail": "`go test ./...` clean",
+      "context": "Existing E2E regression"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`make build` clean",
+      "detail": "`make build` clean",
+      "context": "Existing E2E regression"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "backlog",
+      "title": "WS event の新設は YAGNI で見送り",
+      "detail": "(上述)。 cross-client 即時同期が必要になったら `branch.lastActiveChanged` を追加。"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "backlog",
+      "title": "Promote ボタンの hover state を強調する案",
+      "detail": "— 現状 border の色変化のみ、 mobile では tap で feedback が薄い → backlog `S023 由来: ico-btn touch feedback 強化`"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "backlog",
+      "title": "Skip された E2E",
+      "detail": "mobile fixture で branch row の可視性を保証する仕組みは別途整備、 backlog `S022 mobile E2E ハーネスの fixture 拡充`"
+    }
+  ]
+}

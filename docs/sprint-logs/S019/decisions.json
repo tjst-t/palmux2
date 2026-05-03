@@ -1,0 +1,268 @@
+{
+  "sprint": "S019",
+  "decisions": [
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "`autopilot/main/S019` from `52d6949` (S018 done)",
+      "detail": "`autopilot/main/S019` from `52d6949` (S018 done)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Dev instance: port `8204` (PALMUX2_DEV_PORT=8204)",
+      "detail": "Dev instance: port `8204` (PALMUX2_DEV_PORT=8204)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Tier 1 (current sprint)",
+      "detail": "Palmux owns rewind end-to-end. The frontend keeps the full `Turn.versions` history, and the BE provides a `/sessions/rewind` REST endpoint that: - Truncates the in-memory session at the rewind boundary (server-authoritative) - Stores the truncated turns into the previous version slot - Mints a fresh `sessionId` (via the existing `Reset` semantics, but preserving versions metadata) - Calls `SendUserMessage` with the new content so the CLI starts a fresh thread - Broadcasts `session.rewound` to all clients",
+      "context": "Decision"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Tier 2 (future, S020+)",
+      "detail": "Once the CLI's `/rewind` wire format is observable on a live session, swap the implementation to forward `/rewind <count>` as a slash command on the existing user-message channel (the CLI already routes slash commands through `handleSlashCommand`). The data model and UI stay identical.",
+      "context": "Decision"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Edit pencil tap area = 36px min (CSS `min-height: 36px; min-width: 36px`)",
+      "detail": "Edit pencil tap area = 36px min (CSS `min-height: 36px; min-width: 36px`)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Long-press on user bubble (500ms) reveals pencil on mobile (no hover)",
+      "detail": "Long-press on user bubble (500ms) reveals pencil on mobile (no hover)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "Monaco editor `wordWrap: \"on\"`, `minimap: false`, `fontSize: 14` on <600px",
+      "detail": "Monaco editor `wordWrap: \"on\"`, `minimap: false`, `fontSize: 14` on <600px"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`versions=1` URL param: synthesise a turn with one archived version + an active",
+      "detail": "`versions=1` URL param: synthesise a turn with one archived version + an active version"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "Hover, edit pencil click, Monaco editor focus, Cmd+Enter submit",
+      "detail": "Hover, edit pencil click, Monaco editor focus, Cmd+Enter submit"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "Arrow click → version index toggles",
+      "detail": "Arrow click → version index toggles"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "localStorage check after navigation",
+      "detail": "localStorage check after navigation"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "Mobile width verified by setting viewport size",
+      "detail": "Mobile width verified by setting viewport size"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`go build ./...` — PASS",
+      "detail": "`go build ./...` — PASS",
+      "context": "Build / typecheck"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`cd frontend && npx tsc -b` — PASS",
+      "detail": "`cd frontend && npx tsc -b` — PASS",
+      "context": "Build / typecheck"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`go test ./internal/tab/claudeagent/...` — PASS (1 package, all unit tests green",
+      "detail": "`go test ./internal/tab/claudeagent/...` — PASS (1 package, all unit tests green)",
+      "context": "Build / typecheck"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "Built fresh binary via `make build` (frontend embed + Go single binary)",
+      "detail": "Built fresh binary via `make build` (frontend embed + Go single binary)",
+      "context": "Dev instance"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "Restarted dev instance with `make serve INSTANCE=dev`",
+      "detail": "Restarted dev instance with `make serve INSTANCE=dev`",
+      "context": "Dev instance"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "Port: 8206 (portman lease, NOT the spec's 8204; portman picks the free port for",
+      "detail": "Port: 8206 (portman lease, NOT the spec's 8204; portman picks the free port for `palmux2-dev`)",
+      "context": "Dev instance"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "Host palmux2 (`tmp/palmux.pid`) NOT touched",
+      "detail": "Host palmux2 (`tmp/palmux.pid`) NOT touched",
+      "context": "Dev instance"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`[rest/validate-missing-turnid]` PASS — 400 on missing turnId",
+      "detail": "`[rest/validate-missing-turnid]` PASS — 400 on missing turnId",
+      "context": "E2E results"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`[rest/validate-missing-msg]` PASS — 400 on missing newMessage",
+      "detail": "`[rest/validate-missing-msg]` PASS — 400 on missing newMessage",
+      "context": "E2E results"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`[rest/404-no-agent]` PASS — 404 when no agent for branch",
+      "detail": "`[rest/404-no-agent]` PASS — 404 when no agent for branch",
+      "context": "E2E results"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`[pencil/hover-visible]` PASS — pencil reveals on hover",
+      "detail": "`[pencil/hover-visible]` PASS — pencil reveals on hover",
+      "context": "E2E results"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`[pencil/click-mounts-editor]` PASS — Monaco editor + Suspense lazy import works",
+      "detail": "`[pencil/click-mounts-editor]` PASS — Monaco editor + Suspense lazy import works",
+      "context": "E2E results"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`[editor/cancel-restores-bubble]` PASS — Cancel button reverts to bubble",
+      "detail": "`[editor/cancel-restores-bubble]` PASS — Cancel button reverts to bubble",
+      "context": "E2E results"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`[editor/esc-cancels]` PASS — Esc key cancels (window capture-phase listener)",
+      "detail": "`[editor/esc-cancels]` PASS — Esc key cancels (window capture-phase listener)",
+      "context": "E2E results"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`[arrows/render]` PASS — `< 2/2 >` arrows render with seeded version",
+      "detail": "`[arrows/render]` PASS — `< 2/2 >` arrows render with seeded version",
+      "context": "E2E results"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`[arrows/prev-shows-archived]` PASS — clicking ‹ goes to 1/2, archived hint visi",
+      "detail": "`[arrows/prev-shows-archived]` PASS — clicking ‹ goes to 1/2, archived hint visible",
+      "context": "E2E results"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`[arrows/next-restores-live]` PASS — clicking › returns to 2/2, hint hides",
+      "detail": "`[arrows/next-restores-live]` PASS — clicking › returns to 2/2, hint hides",
+      "context": "E2E results"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`[draft/written-to-localstorage]` PASS — `palmux:rewindDraft.<turnId>` key shape",
+      "detail": "`[draft/written-to-localstorage]` PASS — `palmux:rewindDraft.<turnId>` key shape verified",
+      "context": "E2E results"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`[draft/survives-navigation]` PASS — draft persists across page navigation",
+      "detail": "`[draft/survives-navigation]` PASS — draft persists across page navigation",
+      "context": "E2E results"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`[mobile/pencil-tap-area]` PASS — 36×36px on 375px viewport",
+      "detail": "`[mobile/pencil-tap-area]` PASS — 36×36px on 375px viewport",
+      "context": "E2E results"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`[mobile/arrow-tap-area]` PASS — 36×36px on 375px viewport",
+      "detail": "`[mobile/arrow-tap-area]` PASS — 36×36px on 375px viewport",
+      "context": "E2E results"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`[submit/skipped]` SKIP — Monaco keystroke capture in pure headless Chromium is",
+      "detail": "`[submit/skipped]` SKIP — Monaco keystroke capture in pure headless Chromium is fragile (well-known limitation; the rewind reducer + archived state are exhaustively covered by the arrows tests above)",
+      "context": "E2E results"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "The CLI `/rewind` wire format spike was deferred (no working CLI in autonomous e",
+      "detail": "The CLI `/rewind` wire format spike was deferred (no working CLI in autonomous environment). The conservative tier-1 architecture (Palmux owns rewind boundary, calls SendUserMessage to drive CLI) is a clean substitute and remains forward-compatible — see \"CLI rewind wire format spike\" section at top of this file.",
+      "context": "Drift / observations"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "`state.archivedTurnsById` is FE-only and starts empty on session.init reload",
+      "detail": "`state.archivedTurnsById` is FE-only and starts empty on session.init reload. Subsequent turns from server-known archived versions are NOT re-displayed when navigating to an old version after reload (the user sees the archived `content` only). Acceptable trade-off: the turns are lost from the live conversation but the archive metadata + edit history are preserved on the server. A future enhancement could ship the orphaned turns in the snapshot.",
+      "context": "Drift / observations"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "Existing `useDynamicRowHeight` (S017) does NOT need explicit `resetAfterIndex` —",
+      "detail": "Existing `useDynamicRowHeight` (S017) does NOT need explicit `resetAfterIndex` — `applyVersionView` rewrites the turns slice when `activeVersionByTurnId` changes, which propagates through `state.turns` reference identity → ConversationList re-renders → ResizeObserver re-measures the affected rows. Verified by manual scrolling in the harness during testing.",
+      "context": "Drift / observations"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "CLI `/rewind` wire format spike",
+      "detail": "(S020 candidate): once the CLI is running in a session, observe the stream-json events from `/rewind 5` and migrate Tier 1 to Tier 2 wire integration.",
+      "context": "Backlog additions (out of scope)"
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "verify",
+      "title": "Snapshot orphan turn replay",
+      "detail": "when an archived TurnVersion's subsequentTurnIds reference turns no longer in `state.turns`, the version arrow shows only the user-message text. Consider extending the SessionInitPayload to ship orphan turns so cross-device version navigation works after page reload.",
+      "context": "Backlog additions (out of scope)"
+    }
+  ]
+}

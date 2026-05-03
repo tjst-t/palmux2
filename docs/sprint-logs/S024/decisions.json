@@ -1,0 +1,89 @@
+{
+  "sprint": "S024",
+  "decisions": [
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Mock-first implementation",
+      "detail": "All CSS / DOM structure / state logic was transcribed from `/tmp/drawer-mock-v7.html` to keep designer's intent intact. The HTML's exact font-sizes (12 / 11.5 / 9–10px), padding (5 / 8 / 10 / 22px), `expandedRepoId: string | null` state shape, and accordion behavior were ported verbatim. Rationale: VISION emphasizes \"狭い幅でも一瞥で示すコマンドサーフェス\"; the v7 mock is the ground truth for that goal, and reinterpreting it would risk drift."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "planning",
+      "title": "Polish vs feature",
+      "detail": "S024 is a polish sprint that **does not delete S023 features**. Last-active memory, mobile auto-hide, Git subtab dropdown, BottomSheet, subagent cleanup dialog, orphan section all survive untouched. Only the Drawer presentation layer changed."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`IsPrimary` → `user` category override (S024-1-1)",
+      "detail": "Implemented inside `applyCategoriesUnlocked` rather than at categorize() level. Rationale: keeps the lower-level `categorize()` pure (still tested by `category_test.go` unchanged), but guarantees the drawer always sees the primary worktree as MY. DESIGN_PRINCIPLES \"明示的 > 暗黙的\": a single line at the top of the loop documents the override clearly."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Single-expand state ownership",
+      "detail": "Held at the `Drawer` level (`useState<string | null>`), not pushed into Zustand. Rationale: this is pure UI state — surviving across navigation makes sense via the existing `activeRepo`-driven `useEffect`. Zustand is reserved for cross-surface state (DESIGN_PRINCIPLES \"状態管理は Zustand に集約\" applies to domain state, not transient UI)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "HERE label removal — keep `data-active`",
+      "detail": "The visual identifier (border-left + bg + glow + bold) replaces the text label, but the `data-active=\"true\"` data attribute is preserved on the branch row. Rationale: existing E2E (S021, S015) relies on `data-active`, and keeping it is free."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Glance line click semantics",
+      "detail": "Made the glance line itself click-through to the same `handleRepoHeaderClick` so users do not have to thread the click between repo name and glance — the entire row navigates. Mock-equivalent UX."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "`navigateTarget` precedence",
+      "detail": "`last_active` wins, then ghq primary fallback, then first MY branch. Matches the mock's `navigateTarget()` JS function. Rationale: provides a deterministic preview every collapsed repo can show."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Mobile auto-hide on collapse-click",
+      "detail": "With v7 always navigating on collapsed-repo click (last_active or ghq), mobile drawer auto-closes via the existing nav hook. This is a behavior change from S023 where collapse-only-no-nav was possible. The S023 E2E was updated to assert collapse-only (when expanded → click → collapse, no nav, drawer stays). DESIGN_PRINCIPLES \"明示的 > 暗黙的\": the user always sees in advance (glance line) that clicking will navigate, so auto-close is no surprise."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "implementation",
+      "title": "Section unification",
+      "detail": "One `<DrawerSection title=\"Repositories\">` lists every repo, sorted starred-first then alphabetically. Removed the per-section split. The `★` glyph on each row stays as the marker. Rationale: v7 mock has a single section; matches the simplification."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "review",
+      "title": "`.ghqMark` global vs scoped",
+      "detail": "Originally written as `.branchName .ghqMark` and `.glanceLine .ghqMark` (compound selectors), but CSS Modules generates a unique hash per top-level rule. Re-promoted `.ghqMark` to a top-level rule and scoped via the active-state selectors. Rationale: keeps `styles.ghqMark` resolvable in JSX."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "review",
+      "title": "S015 E2E correction",
+      "detail": "The promote-button assertion in `s015_worktree_categorization.py` did not click the chip first. Test updated to click `[data-chip=\"unmanaged\"]` before scanning for `data-action=\"promote\"`. The behavior is consistent with v3 (S023): chip-pill panels are closed by default; opening surfaces the action buttons."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "review",
+      "title": "S021 E2E selector fix",
+      "detail": "The test was looking for `button[data-action=\"promote-subagent\"]` but the v3+ Drawer uses `data-action=\"promote\"` on subagent rows (the `subagent` qualifier is on the parent `data-category=\"subagent\"`). Updated the locator to `[data-category=\"subagent\"] button[data-action=\"promote\"]`. This was a pre-existing breakage from the S023 redesign that was masked because S021 wasn't run after S023 merge; S024 surfaced and fixed it."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "backlog",
+      "title": "None (all S024-1-* tasks completed in scope).",
+      "detail": "None (all S024-1-* tasks completed in scope)."
+    },
+    {
+      "timestamp": "2026-05-01T00:00:00Z",
+      "category": "general",
+      "title": "None",
+      "detail": "None. Mock parity is exact at the token level; behavioral parity verified via E2E."
+    }
+  ]
+}
