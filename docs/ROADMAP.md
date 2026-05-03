@@ -5,12 +5,12 @@
 ## 進捗
 
 - **直近完了: S022 — Mobile UX 総点検 + Playwright モバイル E2E ハーネス** (autopilot 完了 / `autopilot/main/S022` ブランチ) — **22 スプリント全完了**
-- 合計: 24 スプリント | 完了: 23 | 進行中: 0 | 残り: 1
+- 合計: 25 スプリント | 完了: 24 | 進行中: 0 | 残り: 1
 - [████████████████████] 100%
 
 ## 実行順序
 
-S001 ✅ → S002 ✅ → S003 ✅ → S007 ✅ → S004 ✅ → S005 ✅ → S006 ✅ → S008 ✅ → S009 ✅ → S010 ✅ → S011 ✅ → S012 ✅ → S013 ✅ → S014 ✅ → S015 ✅ → S016 ✅ → S017 ✅ → S018 ✅ → S019 ✅ → S020 ✅ → S021 ✅ → S022 ✅ → S023 ✅ → S024 ✅
+S001 ✅ → S002 ✅ → S003 ✅ → S007 ✅ → S004 ✅ → S005 ✅ → S006 ✅ → S008 ✅ → S009 ✅ → S010 ✅ → S011 ✅ → S012 ✅ → S013 ✅ → S014 ✅ → S015 ✅ → S016 ✅ → S017 ✅ → S018 ✅ → S019 ✅ → S020 ✅ → S021 ✅ → S022 ✅ → S023 ✅ → S024 ✅ → **S025**
 
 ---
 
@@ -1411,6 +1411,44 @@ Palmux のユーザとして、 ドロワーを 240px 程度の狭い幅でも r
   - (f) Section 統一: starred と other が 1 つの section に並ぶ
   - (g) Mobile (< 600px) で破綻なし
   - (h) 既存 S023 E2E (last-active / drawer auto-hide / Git subtab dropdown) も regression なし
+
+---
+
+## スプリント S025: E2E test fixture cleanup hygiene [ ]
+
+S015 / S016 / S016-fix1 / S020 / S021 / S023 / S024 の Playwright E2E が `~/ghq/github.com/palmux2-test/<sprint>-<timestamp>-<pid>/` に fixture repo を作るが、 **テスト後に削除しない** ため `repos.json` と ghq folder にゴミが蓄積。 ドロワーが palmux2-test/sNNN... で汚染される問題を解消する。
+
+### ストーリー S025-1: E2E が後始末を残さないようにする [ ]
+
+**ユーザーストーリー:**
+開発者として、 E2E テストが実行後に palmux2-test/ fixture を残さず常にクリーンアップするようにしたい。 なぜなら、 テスト実行のたびに ghq folder と repos.json にゴミが溜まり、 ドロワーが汚染されて開発体験を損なうからだ。
+
+**受け入れ条件:**
+- [ ] 既存の `~/ghq/github.com/palmux2-test/*` を一括削除する script が用意される
+- [ ] 既存の `tmp/repos.json` の `palmux2-test--*` エントリも削除される (script で同時に or 連動で)
+- [ ] 共通 cleanup helper (`tests/e2e/_fixture.py` or `conftest.py`) が新設され、 fixture 作成 → テスト → cleanup を context manager / try-finally で確実に実行
+- [ ] 既存 7 E2E テスト (s015 / s016 / s016_fix1 / s020 / s021 / s023 / s024) が helper を使うように refactor、 fail / 例外時も cleanup が走る
+- [ ] 各 E2E テスト完走後に `~/ghq/github.com/palmux2-test/` が空、 `repos.json` に `palmux2-test--*` が 0 件
+- [ ] テスト実行が中断された場合 (Ctrl-C) も基本 cleanup 動作 (signal handler or atexit hook)
+- [ ] CI / make target からも cleanup script を呼べる
+
+**タスク:**
+
+- [ ] **タスク S025-1-1**: 一括 cleanup script (`scripts/cleanup-test-fixtures.sh` or `tests/e2e/cleanup_fixtures.py`) — `~/ghq/github.com/palmux2-test/*` を rmtree + `repos.json` の `palmux2-test--*` エントリを削除 (palmux2 の `DELETE /api/repos/{id}` 経由 or 直接書き換え)
+- [ ] **タスク S025-1-2**: 既存ゴミを実機で削除 (script を 1 回実行)、 ドロワー / repos.json から palmux2-test--* が消えることを確認
+- [ ] **タスク S025-1-3**: 共通 fixture helper (`tests/e2e/_fixture.py` or `conftest.py`) — context manager `palmux2_test_fixture(sprint_id)` で:
+  - fixture path を作成 + git init + repos.json 登録
+  - yield (テスト本体実行)
+  - finally: repos.json 削除 + rmtree
+- [ ] **タスク S025-1-4**: 既存 7 E2E テストを helper 経由に refactor、 try / finally で cleanup を保証
+- [ ] **タスク S025-1-5**: signal handler / atexit hook で Ctrl-C 中断時にも cleanup を試行 (best-effort、 失敗しても script で再 cleanup 可能)
+- [ ] **タスク S025-1-6**: `Makefile` に `make e2e-cleanup` target を追加 (cleanup script を呼ぶ)
+- [ ] **タスク S025-1-7**: 全 7 E2E テストを実機で連続実行 → ghq/palmux2-test/ が空、 repos.json に palmux2-test--* 0 件 を確認
+- [ ] **タスク S025-1-8**: dev インスタンス + Playwright で実機検証。 `tests/e2e/s025_*.py` で:
+  - (a) cleanup script 実行で 4+ fixture が削除される
+  - (b) E2E test の正常完了で fixture が残らない
+  - (c) E2E test の異常終了 (例外) でも fixture が残らない
+  - (d) `make e2e-cleanup` で同等の動作
 
 ---
 
