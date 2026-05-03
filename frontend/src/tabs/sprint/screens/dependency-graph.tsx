@@ -60,6 +60,29 @@ export function DependencyGraphView({ repoId, branchId, onOpenSprint }: Dependen
 
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [renderError, setRenderError] = useState<string | null>(null)
+  // Pan/zoom transform — kept in a ref to avoid re-rendering on every
+  // mousemove. The Mermaid <svg> inside the container is transformed
+  // directly via inline style.
+  const transformRef = useRef({ scale: 1, tx: 0, ty: 0 })
+  // Timestamp until which click events on sprint nodes should be
+  // ignored. Set briefly after a drag-pan so the synthesized click on
+  // mouseup doesn't navigate to a sprint the user happens to release
+  // over. Auto-expires (timestamp comparison) so a non-pan click that
+  // arrives later still works.
+  const suppressClickUntilRef = useRef(0)
+
+  const applyTransform = useCallback(() => {
+    const svg = containerRef.current?.querySelector<SVGSVGElement>('svg')
+    if (!svg) return
+    const { scale, tx, ty } = transformRef.current
+    svg.style.transformOrigin = '0 0'
+    svg.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`
+  }, [])
+
+  const resetTransform = useCallback(() => {
+    transformRef.current = { scale: 1, tx: 0, ty: 0 }
+    applyTransform()
+  }, [applyTransform])
 
   useEffect(() => {
     let cancelled = false
@@ -73,18 +96,28 @@ export function DependencyGraphView({ repoId, branchId, onOpenSprint }: Dependen
         if (cancelled || !containerRef.current) return
         containerRef.current.innerHTML = svg
         if (bindFunctions) bindFunctions(containerRef.current)
+        // Reset transform every time we re-render the SVG.
+        transformRef.current = { scale: 1, tx: 0, ty: 0 }
+        applyTransform()
 
         // Wire click → onOpenSprint. Mermaid emits each node with id
-        // matching the sprint ID; we hook every <g class="node">.
+        // `<containerId>-flowchart-<sprintId>-<n>`; pick the segment
+        // between `-flowchart-` and the trailing `-N`.
         const nodes = containerRef.current.querySelectorAll<SVGGElement>('g.node')
         nodes.forEach((g) => {
-          // Mermaid prefixes ids with `flowchart-` — strip it.
           const raw = g.id || ''
-          const m = raw.match(/^flowchart-([A-Za-z0-9-]+)-\d+$/)
+          const m = raw.match(/-flowchart-([A-Za-z0-9_]+)-\d+$/)
           const sprintId = m ? m[1] : raw
           g.style.cursor = 'pointer'
           g.setAttribute('data-testid', `sprint-dep-node-${sprintId}`)
-          g.addEventListener('click', () => onOpenSprint(sprintId))
+          g.addEventListener('click', () => {
+            // If the click landed within the suppression window
+            // following a drag, treat it as part of the pan and skip
+            // navigation. A direct click without a recent drag
+            // navigates as usual.
+            if (performance.now() < suppressClickUntilRef.current) return
+            onOpenSprint(sprintId)
+          })
         })
       } catch (e) {
         if (!cancelled) {
@@ -95,7 +128,93 @@ export function DependencyGraphView({ repoId, branchId, onOpenSprint }: Dependen
     return () => {
       cancelled = true
     }
-  }, [data?.mermaid, onOpenSprint])
+  }, [data?.mermaid, onOpenSprint, applyTransform])
+
+  // Wheel zoom + drag pan. Pointer events are wired to `containerRef`;
+  // we use a movement threshold to distinguish a drag from a click on
+  // a node, and suppress the synthetic `click` that follows a drag so
+  // node-clicks don't navigate after a pan.
+  //
+  // Re-runs when `data` arrives because the container <div> is gated
+  // on `data && (...)` — until then `containerRef.current` is null.
+  useEffect(() => {
+    const wrap = containerRef.current
+    if (!wrap) return
+
+    let pointerStart: { x: number; y: number } | null = null
+    let lastPos = { x: 0, y: 0 }
+    let didDrag = false
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const t = transformRef.current
+      const factor = Math.exp(-e.deltaY * 0.0015)
+      const newScale = Math.max(0.2, Math.min(8, t.scale * factor))
+      const rect = wrap.getBoundingClientRect()
+      const mx = e.clientX - rect.left
+      const my = e.clientY - rect.top
+      // Cursor-centered zoom: keep the point under the cursor fixed.
+      t.tx = mx - (newScale / t.scale) * (mx - t.tx)
+      t.ty = my - (newScale / t.scale) * (my - t.ty)
+      t.scale = newScale
+      applyTransform()
+    }
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.button !== 0) return
+      pointerStart = { x: e.clientX, y: e.clientY }
+      lastPos = { x: e.clientX, y: e.clientY }
+      didDrag = false
+      wrap.setPointerCapture(e.pointerId)
+    }
+
+    const onPointerMove = (e: PointerEvent) => {
+      if (!pointerStart) return
+      const dx = e.clientX - pointerStart.x
+      const dy = e.clientY - pointerStart.y
+      if (!didDrag && Math.hypot(dx, dy) > 4) {
+        didDrag = true
+        wrap.dataset.dragging = 'true'
+      }
+      if (didDrag) {
+        const t = transformRef.current
+        t.tx += e.clientX - lastPos.x
+        t.ty += e.clientY - lastPos.y
+        lastPos = { x: e.clientX, y: e.clientY }
+        applyTransform()
+      }
+    }
+
+    const onPointerUp = (e: PointerEvent) => {
+      if (wrap.hasPointerCapture(e.pointerId)) {
+        wrap.releasePointerCapture(e.pointerId)
+      }
+      if (didDrag) {
+        // Mark a short window during which node clicks are ignored,
+        // so the synthesized click that follows a drag doesn't
+        // unintentionally navigate to whatever node lies under the
+        // cursor at mouseup.
+        suppressClickUntilRef.current = performance.now() + 250
+      }
+      pointerStart = null
+      delete wrap.dataset.dragging
+    }
+
+    wrap.addEventListener('wheel', onWheel, { passive: false })
+    wrap.addEventListener('pointerdown', onPointerDown)
+    wrap.addEventListener('pointermove', onPointerMove)
+    wrap.addEventListener('pointerup', onPointerUp)
+    wrap.addEventListener('pointercancel', onPointerUp)
+    return () => {
+      wrap.removeEventListener('wheel', onWheel)
+      wrap.removeEventListener('pointerdown', onPointerDown)
+      wrap.removeEventListener('pointermove', onPointerMove)
+      wrap.removeEventListener('pointerup', onPointerUp)
+      wrap.removeEventListener('pointercancel', onPointerUp)
+    }
+    // `data` is a dep so the listeners re-attach once the container
+    // <div> is in the DOM (it's gated on `data && (...)` in JSX).
+  }, [applyTransform, data])
 
   return (
     <>
@@ -116,7 +235,11 @@ export function DependencyGraphView({ repoId, branchId, onOpenSprint }: Dependen
 
       {data && (
         <>
-          <div className={styles.depGraphContainer} ref={containerRef} data-testid="sprint-dep-graph" />
+          <div
+            className={styles.depGraphContainer}
+            ref={containerRef}
+            data-testid="sprint-dep-graph"
+          />
           <div className={styles.depGraphLegend}>
             <span>
               <span className={styles.depLegendDot} style={{ background: '#64d2a0' }} />
@@ -134,6 +257,17 @@ export function DependencyGraphView({ repoId, branchId, onOpenSprint }: Dependen
               <span className={styles.depLegendDot} style={{ background: '#ef4444' }} />
               Blocked
             </span>
+            <span style={{ marginLeft: 'auto', color: 'var(--color-fg-muted)', fontSize: 11 }}>
+              ホイールで拡大/縮小、 ドラッグで移動
+            </span>
+            <button
+              type="button"
+              className={styles.depGraphResetBtn}
+              onClick={resetTransform}
+              data-testid="sprint-dep-reset"
+            >
+              Reset view
+            </button>
           </div>
           {(data.dependencies ?? []).length > 0 && (
             <details style={{ marginTop: 16 }}>
