@@ -4,10 +4,10 @@
   "progress": {
     "current_sprint": "S029",
     "total": 29,
-    "done": 28,
+    "done": 29,
     "in_progress": 0,
-    "remaining": 1,
-    "percentage": 97
+    "remaining": 0,
+    "percentage": 100
   },
   "execution_order": [
     "S001",
@@ -3998,158 +3998,158 @@
     },
     "S029": {
       "title": "Git tab redesign (VS Code 風 minimal) [BREAKING]",
-      "status": "pending",
+      "status": "done",
       "description": "S012 / S013 / S014 で実装した Git タブは stash / cherry-pick / interactive rebase / 3-way merge / submodule / bisect 等の advanced 機能まで GUI 化したことで、 結果として日常使う「変更を見て commit する」 という核フローが押しにくく / 見づらくなっている。 旧 palmux の VS Code 風シンプル設計を参考に、 **核フローに絞った minimal UI に reset** + **使わない BE endpoint も削除して codebase を slim 化** する。\n\n**[BREAKING]**: S013 / S014 で追加した advanced GUI (stash / cherry-pick / revert / reset / tag / file-history / blame / 3-way merge / interactive rebase / submodule / reflog / bisect) を意図的に削除。 これら advanced 操作は CLI (Bash タブ / Claude タブ) で実行する想定。 旧 BE handler 約 1500 行の削除を含む。\n\n**設計の中核 (旧 palmux スクリーンショット準拠)**:\n\n- **2 カラム layout**: 左 sidebar (working tree + history)、 右 main (Monaco diff)\n- **Working tree section**: 単一 「Changes」 リスト (4 セクション分割は廃止)、 status letter (M/A/D/?) + filename、 hover で stage/unstage icon、 下部に commit message textarea + commit button + push/pull icon\n- **History section**: flat 時系列、 各 row: dot + hash7 + branch chips (HEAD / main / origin/main 等) + message + 相対時間。 click で diff 表示、 paginated (50 件ずつ)\n- **Diff view**: Monaco diff mode (S010 流用)、 side-by-side / unified 切替、 commit 選択時は全 file 順次表示\n- **Branch switcher**: ステータスバーの branch 名 click → dropdown (一覧 + Create + Switch)\n- **Conflict 検出時**: sidebar 上部に banner 「Merge in progress — N files conflicted」 → Files タブで編集 → 解決後 「Continue merge」\n- **mobile**: sidebar / main を vertical stack、 タブで切替\n\n**残す BE endpoint** (10 個): status / log (basic) / diff / branches CRUD / stage / unstage / commit / push / pull / fetch\n\n**削除する BE endpoint**: log filter / branch-graph / stash CRUD / cherry-pick / revert / reset / tag CRUD / file-history / blame / conflict 3-way / rebase ops / merge ops / submodule / reflog / bisect\n\n**削除する FE component**: git-blame / git-branch-graph / git-bisect / git-conflict / git-file-history / git-history-modals / git-rebase-modal / git-rebase-status / git-reflog / git-stash / git-submodules / git-tags\n\n**削除する FE 機能**: AI commit message / Magit-style キー / ⌘K palette Git 統合 / モバイルスワイプ stage / Force-push 2-stage confirm — すべて backlog 行き、 必要なら別 sprint で再追加",
       "milestone": false,
       "stories": {
         "S029-1": {
           "title": "Git タブを VS Code 風 minimal に reset",
-          "status": "pending",
+          "status": "done",
           "user_story": "Palmux のユーザとして、 Git タブを「review → commit → push」 の核フローに絞った VS Code 風 minimal UI で使いたい。 なぜなら、 現在の実装は stash / cherry-pick / interactive rebase / 3-way merge / submodule / bisect 等まで GUI 化されてトゥーマッチで、 結果として頻繁に使う「変更を見て commit する」 が見づらく押しにくくなっているからだ。 advanced 操作は CLI (Bash タブ / Claude タブ) で十分 expressive なので、 GUI から外して codebase の維持コストも下げたい。",
           "acceptance_criteria": [
             {
               "id": "AC-S029-1-1",
               "description": "Git タブが 2 カラム layout (左 sidebar + 右 main diff) で表示される",
               "test": "[AC-S029-1-1] in tests/e2e/s029_git_minimal.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S029-1-2",
               "description": "左 sidebar 上部に Working tree section (Uncommitted Changes、 折りたたみ可)",
               "test": "[AC-S029-1-2] in tests/e2e/s029_git_minimal.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S029-1-3",
               "description": "Working tree の各 file に status letter (M/A/D/?) + name 表示、 hover で stage/unstage icon、 click で diff 表示",
               "test": "[AC-S029-1-3] in tests/e2e/s029_git_minimal.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S029-1-4",
               "description": "Working tree section 下部に commit message textarea + Commit button + Push/Pull icon",
               "test": "[AC-S029-1-4] in tests/e2e/s029_git_minimal.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S029-1-5",
               "description": "左 sidebar 下部に History section、 各 row に hash7 + branch chips + 相対時間 + message",
               "test": "[AC-S029-1-5] in tests/e2e/s029_git_minimal.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S029-1-6",
               "description": "History の commit click で右 main に Monaco diff (side-by-side) 表示、 全 file 順次",
               "test": "[AC-S029-1-6] in tests/e2e/s029_git_minimal.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S029-1-7",
               "description": "ステータスバーに current branch + ahead/behind 表示、 click で branch switcher dropdown (一覧 + Create + Switch)",
               "test": "[AC-S029-1-7] in tests/e2e/s029_git_minimal.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S029-1-8",
               "description": "Conflict 中は sidebar 上部に banner、 file click で Files タブで開く、 解決後 Continue merge",
               "test": "[AC-S029-1-8] in tests/e2e/s029_git_minimal.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S029-1-9",
               "description": "削除した advanced GUI (stash / cherry-pick / revert / reset / tag / blame / file-history / rebase / submodule / reflog / bisect) が画面に存在しない (DOM check)",
               "test": "[AC-S029-1-9] in tests/e2e/s029_git_minimal.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S029-1-10",
               "description": "削除した BE endpoint (削除一覧の 15+ 個) を呼ぶと 404 を返す",
               "test": "[AC-S029-1-10] in tests/e2e/s029_git_minimal.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S029-1-11",
               "description": "mobile (< 600px) で sidebar / main が vertical stack、 タブで切替 (Changes / History / Diff)",
               "test": "[AC-S029-1-11] in tests/e2e/s029_git_minimal.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S029-1-12",
               "description": "S012 で残す BE endpoint (status / log / diff / branches / stage / unstage / commit / push / pull / fetch) が引き続き動作",
               "test": "[AC-S029-1-12] in tests/e2e/s029_git_minimal.py",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S029-1-1": {
               "title": "FE: 2 カラム layout の git-view.tsx を rewrite",
               "description": "既存の複雑な構造を捨て、 sidebar (working tree + history) + main (diff) のシンプル 2 カラムに書き直し",
-              "status": "pending"
+              "status": "done"
             },
             "S029-1-2": {
               "title": "FE: Working tree section component",
               "description": "changes list + stage/unstage icon + commit message textarea + commit button + push/pull icon を 1 component に",
-              "status": "pending"
+              "status": "done"
             },
             "S029-1-3": {
               "title": "FE: History section component",
               "description": "flat 時系列リスト、 paginated 50 件、 branch chips (HEAD / main / origin/main)、 click で diff 表示",
-              "status": "pending"
+              "status": "done"
             },
             "S029-1-4": {
               "title": "FE: Diff view (Monaco diff mode 流用)",
               "description": "commit / working file の両対応、 side-by-side default、 unified 切替",
-              "status": "pending"
+              "status": "done"
             },
             "S029-1-5": {
               "title": "FE: Branch switcher (status bar)",
               "description": "current branch + ahead/behind を status bar 表示、 click で dropdown (一覧 + Create + Switch)",
-              "status": "pending"
+              "status": "done"
             },
             "S029-1-6": {
               "title": "FE: Conflict banner",
               "description": "merge / rebase 中の banner、 file click で Files タブを開く (S011 の編集経路へ)、 全 file 解決後の Continue merge button",
-              "status": "pending"
+              "status": "done"
             },
             "S029-1-7": {
               "title": "FE: 削除する component group",
               "description": "git-blame / git-branch-graph / git-bisect / git-conflict / git-file-history / git-history-modals / git-rebase-modal / git-rebase-status / git-reflog / git-stash / git-submodules / git-tags の 12 component を全削除",
-              "status": "pending"
+              "status": "done"
             },
             "S029-1-8": {
               "title": "FE: 削除する機能 (AI commit / Magit key / ⌘K Git 統合 / mobile swipe / force-push UI)",
               "description": "S012 / S013 で導入した上記 5 系統を FE から完全除去、 backlog 登録",
-              "status": "pending"
+              "status": "done"
             },
             "S029-1-9": {
               "title": "BE: history.go を削除",
               "description": "log filter / branch-graph / stash / cherry-pick / revert / reset / tag / file-history / blame の handler を全削除 (約 700 行)",
-              "status": "pending"
+              "status": "done"
             },
             "S029-1-10": {
               "title": "BE: conflict.go を削除",
               "description": "3-way merge / rebase ops / merge ops / submodule / reflog / bisect の handler を全削除 (約 800 行)",
-              "status": "pending"
+              "status": "done"
             },
             "S029-1-11": {
               "title": "BE: 残す endpoint の整理",
               "description": "status / log / diff / branches CRUD / stage / unstage / commit / push / pull / fetch の 10 endpoint だけを provider.go に登録、 unused import 等を cleanup",
-              "status": "pending"
+              "status": "done"
             },
             "S029-1-12": {
               "title": "Backlog 整理",
               "description": "削除した機能を ROADMAP の backlog に登録 (Magit-style キー / AI commit / ⌘K Git 統合 / stash GUI / cherry-pick GUI / 3-way merge GUI / interactive rebase GUI / submodule / reflog / bisect GUI 等)",
-              "status": "pending"
+              "status": "done"
             },
             "S029-1-13": {
               "title": "E2E: tests/e2e/s029_git_minimal.py 新規",
               "description": "新仕様の core 経路 + branch switch + conflict banner + diff + mobile を担保、 削除された機能の DOM 不在も検証",
-              "status": "pending"
+              "status": "done"
             },
             "S029-1-14": {
               "title": "E2E: 旧 s012/s013/s014 の整理",
               "description": "s013 / s014 を削除、 s012 を新仕様に rewrite (大幅縮小)、 S025 fixture helper を使用",
-              "status": "pending"
+              "status": "done"
             }
           }
         }
@@ -4369,6 +4369,78 @@
       "description": "(S012 由来) 現在は bare `--force-with-lease`。 FE が upstream sha を握っている場合は `--force-with-lease=refs/heads/branch:expected_sha` の形で明示すると、より安全。 サイズ S。",
       "added_in": null,
       "reason": null
+    },
+    {
+      "title": "AI commit message (POST /git/ai-commit-message)",
+      "description": "Auto-generate Conventional-Commits message via Claude. Removed from Git tab in S029. Re-add as opt-in palette command if demand returns.",
+      "added_in": "S029",
+      "reason": "Trade-off: kept Git tab minimal"
+    },
+    {
+      "title": "Magit-style keybindings on Git tab",
+      "description": "`s` to stage / `u` to unstage / `c` to commit. Removed in S029.",
+      "added_in": "S029",
+      "reason": "Discoverability poor; folded into Bash for power users"
+    },
+    {
+      "title": "⌘K command palette: git ops sub-mode",
+      "description": "Reintroduce git-aware palette commands once core minimal UI proves stable.",
+      "added_in": "S029",
+      "reason": "Removed in S029 to delete dead code paths"
+    },
+    {
+      "title": "Mobile swipe-to-stage gesture",
+      "description": "Swipe left = stage, right = unstage on the Changes list.",
+      "added_in": "S029",
+      "reason": "Removed in S029; basic stage button already works on touch"
+    },
+    {
+      "title": "Force-push 2-stage confirm UI",
+      "description": "Reintroduce when push UI gains advanced flags.",
+      "added_in": "S029",
+      "reason": "Removed in S029 along with all push options"
+    },
+    {
+      "title": "Stash CRUD GUI",
+      "description": "Backlog. CLI suffices for now.",
+      "added_in": "S029",
+      "reason": "Trade-off: GUI maintenance cost"
+    },
+    {
+      "title": "Cherry-pick / Revert / Reset GUI",
+      "description": "Backlog.",
+      "added_in": "S029",
+      "reason": "Trade-off: CLI is more expressive"
+    },
+    {
+      "title": "Tag CRUD GUI",
+      "description": "Backlog.",
+      "added_in": "S029",
+      "reason": "Trade-off"
+    },
+    {
+      "title": "File history / blame GUI",
+      "description": "Backlog.",
+      "added_in": "S029",
+      "reason": "Trade-off"
+    },
+    {
+      "title": "Interactive rebase TODO editor",
+      "description": "Backlog.",
+      "added_in": "S029",
+      "reason": "Trade-off: CLI works fine"
+    },
+    {
+      "title": "3-way merge editor",
+      "description": "Backlog. Conflict marker editing in Files tab + commit-to-finish flow handles merge resolution now.",
+      "added_in": "S029",
+      "reason": "Trade-off"
+    },
+    {
+      "title": "Submodule / Reflog / Bisect GUI",
+      "description": "Backlog.",
+      "added_in": "S029",
+      "reason": "Trade-off: extremely niche"
     }
   ]
 }

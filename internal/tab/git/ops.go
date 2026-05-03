@@ -471,35 +471,3 @@ func buildLineRangePatch(f DiffFile, ranges []LineRange) string {
 	return sb.String()
 }
 
-// === AI commit message helper =============================================
-
-// AICommitPrompt assembles a prompt for Claude based on the staged diff
-// and current branch context. The handler returns this string so the FE
-// can prefill the Claude composer.
-func AICommitPrompt(ctx context.Context, repoDir string) (string, error) {
-	stagedDiff, err := RawDiff(ctx, repoDir, DiffStaged, "")
-	if err != nil {
-		return "", err
-	}
-	stagedDiff = strings.TrimSpace(stagedDiff)
-	if stagedDiff == "" {
-		return "", errors.New("nothing staged: stage hunks before requesting an AI commit message")
-	}
-	branch, _ := runGit(ctx, repoDir, "branch", "--show-current")
-	recent, _ := runGit(ctx, repoDir, "log", "-5", "--pretty=format:%h %s")
-	const maxDiff = 12000 // avoid blowing up the prompt on huge stages
-	if len(stagedDiff) > maxDiff {
-		stagedDiff = stagedDiff[:maxDiff] + "\n... (truncated)\n"
-	}
-	var sb strings.Builder
-	sb.WriteString("Please write a Conventional-Commits-style commit message for the staged changes below. ")
-	sb.WriteString("Subject ≤ 72 chars, imperative mood. Add a body only if it adds context the diff doesn't show.\n\n")
-	sb.WriteString("Branch: ")
-	sb.WriteString(strings.TrimSpace(string(branch)))
-	sb.WriteString("\n\nRecent commits on this branch:\n")
-	sb.WriteString(strings.TrimSpace(string(recent)))
-	sb.WriteString("\n\n--- staged diff ---\n")
-	sb.WriteString(stagedDiff)
-	sb.WriteString("\n--- end staged diff ---\n")
-	return sb.String(), nil
-}

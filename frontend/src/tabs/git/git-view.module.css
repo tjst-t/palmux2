@@ -1,62 +1,709 @@
-.wrap {
+/* Git tab — VS Code-style minimal layout (S029). */
+
+/* ----- Root layout ----- */
+
+.root {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background-color: var(--color-bg);
+  min-height: 0;
+  background: var(--color-bg);
   color: var(--color-fg);
+  font-family: 'Geist', 'Noto Sans JP', system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
-.tabs {
-  display: flex;
-  align-items: center;
-  background-color: var(--color-surface);
+.body {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  min-height: 0;
+}
+
+@media (max-width: 899px) {
+  .body {
+    grid-template-columns: 280px 1fr;
+  }
+}
+
+@media (max-width: 599px) {
+  .body {
+    grid-template-columns: 1fr;
+  }
+  .body[data-mobile-pane='changes'] .main,
+  .body[data-mobile-pane='history'] .main {
+    display: none;
+  }
+  .body[data-mobile-pane='diff'] .sidebar {
+    display: none;
+  }
+  /* On mobile the History section is shown only when the History
+     sub-tab is active so the Changes section doesn't share the
+     viewport with it. */
+  .body[data-mobile-pane='changes'] [data-testid='git-section-history'] {
+    display: none;
+  }
+  .body[data-mobile-pane='history'] [data-testid='git-section-changes'] {
+    display: none;
+  }
+}
+
+/* ----- Mobile sub-tabs ----- */
+
+.mobileTabs {
+  display: none;
+  background: var(--color-elevated);
   border-bottom: 1px solid var(--color-border);
 }
+@media (max-width: 599px) {
+  .mobileTabs {
+    display: flex;
+  }
+}
 
-.tab {
-  padding: var(--space-2) var(--space-4);
-  font-size: 12px;
+.mobileTab,
+.mobileTabActive {
+  flex: 1 1 0;
+  padding: 10px 6px;
+  background: transparent;
+  border: none;
   color: var(--color-fg-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
   border-bottom: 2px solid transparent;
 }
-.tab:hover {
-  color: var(--color-fg);
-  background-color: var(--color-elevated);
-}
-
-.tabActive {
+.mobileTabActive {
   color: var(--color-accent);
   border-bottom-color: var(--color-accent);
 }
 
-.body {
-  flex: 1;
+/* ----- Sidebar (Changes + History) ----- */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+  overflow: hidden;
   min-height: 0;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.section:last-of-type {
+  border-bottom: none;
+  flex: 1 1 auto;
+}
+
+.sectionHeader {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  background: var(--color-elevated);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-fg-muted);
+  display: flex;
+  align-items: center;
+}
+
+.sectionLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sectionToggle {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  font-weight: inherit;
+}
+
+.chev {
+  display: inline-block;
+  width: 10px;
+  font-size: 10px;
+  color: var(--color-fg-faint);
+}
+
+.count {
+  display: inline-block;
+  margin-left: auto;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0 6px;
+  font-size: 10px;
+  color: var(--color-fg);
+}
+
+/* ----- File list (Changes) ----- */
+
+.fileList {
+  flex: 1 1 auto;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  max-height: 280px;
+}
+
+.fileRow,
+.fileRowActive {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+.fileRow:hover {
+  background: var(--color-elevated);
+}
+.fileRowActive {
+  background: rgba(124, 138, 255, 0.12);
+  border-left-color: var(--color-accent);
+}
+
+.statusLetter {
+  font-family: 'Geist Mono', 'Cascadia Code', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+.statusM { color: #e8b45a; }
+.statusA { color: #64d2a0; }
+.statusD { color: #ef4444; }
+.statusR { color: #9ba6ff; }
+.statusU { color: #ef4444; font-weight: 800; }
+.statusQ { color: var(--color-fg-faint); }
+
+.filePath {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+
+.iconBtn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--color-fg-muted);
+  width: 22px;
+  height: 22px;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 4px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.iconBtn:hover {
+  background: var(--color-elevated);
+  color: var(--color-fg);
+  border-color: var(--color-border);
+}
+.iconBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.fileRow .iconBtn {
+  visibility: hidden;
+}
+.fileRow:hover .iconBtn,
+.fileRowActive .iconBtn {
+  visibility: visible;
+}
+
+.badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: var(--color-accent);
+  color: var(--color-bg);
+  font-size: 9px;
+  font-weight: 700;
+  border-radius: 8px;
+  min-width: 14px;
+  padding: 0 3px;
+  line-height: 14px;
+  text-align: center;
+}
+
+/* ----- Commit form ----- */
+
+.commitForm {
+  flex: 0 0 auto;
+  padding: 8px 10px;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.commitMessage {
+  width: 100%;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-fg);
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+  resize: vertical;
+  min-height: 36px;
+}
+.commitMessage:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.commitRow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.commitBtn {
+  flex: 1 1 auto;
+  background: var(--color-accent);
+  color: var(--color-bg);
+  border: none;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.commitBtn:hover {
+  background: var(--color-accent-light);
+}
+.commitBtn:disabled {
+  background: var(--color-border);
+  color: var(--color-fg-muted);
+  cursor: default;
+}
+
+/* ----- History list ----- */
+
+.historyList {
+  flex: 1 1 auto;
+  list-style: none;
+  margin: 0;
+  padding: 0;
   overflow: auto;
 }
 
-/* S023: mobile (< 600px) — replace the 10-tab horizontal row with a
-   native `<select>`. We keep the surface colour + border so the slot
-   reads as the same control. */
-.tabsMobile {
+.historyRow,
+.historyRowActive {
+  display: grid;
+  grid-template-columns: 12px 60px auto 1fr auto;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  font-size: 12px;
+}
+.historyRow:hover {
+  background: var(--color-elevated);
+}
+.historyRowActive {
+  background: rgba(124, 138, 255, 0.12);
+  border-left-color: var(--color-accent);
+}
+
+.dot {
+  color: var(--color-accent);
+  font-size: 10px;
+}
+
+.hash {
+  font-family: 'Geist Mono', 'Cascadia Code', monospace;
+  color: var(--color-fg-muted);
+  font-size: 11px;
+}
+
+.refs {
+  display: inline-flex;
+  gap: 4px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.refChip {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0 6px;
+  font-size: 10px;
+  font-family: 'Geist Mono', monospace;
+  color: var(--color-accent-light);
+  white-space: nowrap;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.subject {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.relTime {
+  color: var(--color-fg-faint);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.loadMore {
+  flex: 0 0 auto;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-fg-muted);
+  font: inherit;
+  font-size: 11px;
+  padding: 6px;
+  cursor: pointer;
+  margin: 6px 10px;
+  border-radius: 4px;
+}
+.loadMore:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/* ----- Empty / error states ----- */
+
+.empty {
+  padding: 16px 10px;
+  color: var(--color-fg-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.errorBanner {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid #ef4444;
+  color: #ef4444;
+  padding: 6px 8px;
+  margin: 6px 10px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.errorBanner button {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: #ef4444;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+}
+
+/* ----- Conflict banner ----- */
+
+.conflictBanner {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid #ef4444;
+  border-radius: 4px;
+  margin: 8px 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--color-fg);
+}
+.conflictBanner strong {
+  color: #ef4444;
+}
+.conflictList {
+  list-style: none;
+  margin: 6px 0;
+  padding: 0;
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+}
+.conflictHint {
+  margin: 6px 0 8px;
+  color: var(--color-fg-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.continueBtn {
+  background: var(--color-accent);
+  color: var(--color-bg);
+  border: none;
+  border-radius: 4px;
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.continueBtn:hover {
+  background: var(--color-accent-light);
+}
+
+/* ----- Main / diff panel ----- */
+
+.main {
+  background: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.emptyMain {
+  margin: auto;
+  color: var(--color-fg-muted);
+  font-size: 13px;
+}
+
+.commitDiffPanel {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.commitDiffHeader {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
   display: flex;
   align-items: center;
-  padding: 6px 10px;
-  background-color: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
+  gap: 12px;
+  font-size: 12px;
 }
-.tabSelect {
-  width: 100%;
-  min-height: 36px;
+
+.commitDiffSha {
+  font-family: 'Geist Mono', monospace;
+  color: var(--color-accent-light);
+  font-weight: 700;
+}
+
+.commitDiffRefs {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.commitDiffCount {
+  margin-left: auto;
+  color: var(--color-fg-muted);
+  font-size: 11px;
+}
+
+.commitDiffFiles {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
   padding: 6px 10px;
-  font-size: 14px;
-  background-color: var(--color-bg);
-  color: var(--color-fg);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-elevated);
+  overflow-x: auto;
+}
+.commitDiffFile,
+.commitDiffFileActive {
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: 4px;
-  font-family: inherit;
+  font: inherit;
+  font-size: 11.5px;
+  font-family: 'Geist Mono', monospace;
+  color: var(--color-fg-muted);
+  padding: 3px 8px;
+  cursor: pointer;
+  white-space: nowrap;
 }
-.tabSelect:focus {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
+.commitDiffFile:hover {
+  border-color: var(--color-accent);
+  color: var(--color-fg);
+}
+.commitDiffFileActive {
+  border-color: var(--color-accent);
+  color: var(--color-fg);
+  background: rgba(124, 138, 255, 0.12);
+}
+
+.commitFileDiff {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.commitDiffSubheader {
+  flex: 0 0 auto;
+  font-family: 'Geist Mono', monospace;
+  font-size: 11.5px;
+  color: var(--color-fg-muted);
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.monacoFrame {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ----- Status bar ----- */
+
+.statusBar {
+  flex: 0 0 auto;
+  position: relative;
+  background: var(--color-elevated);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  padding: 4px 10px;
+  font-size: 11.5px;
+}
+
+.statusBarBtn {
+  background: transparent;
+  border: none;
+  color: var(--color-fg);
+  font: inherit;
+  font-size: 11.5px;
+  padding: 2px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.statusBarBtn:hover {
+  background: var(--color-bg);
+}
+
+.branchIcon {
+  color: var(--color-accent);
+  font-size: 12px;
+}
+.branchName {
+  font-weight: 700;
+}
+.aheadBehind {
+  color: var(--color-fg-muted);
+  font-family: 'Geist Mono', monospace;
+}
+
+.branchDropdown {
+  position: absolute;
+  bottom: 100%;
+  left: 4px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  width: 280px;
+  max-height: 360px;
+  display: flex;
+  flex-direction: column;
+  z-index: 20;
+  overflow: hidden;
+}
+
+.branchFilter {
+  width: 100%;
+  background: var(--color-bg);
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-fg);
+  font: inherit;
+  font-size: 12px;
+  padding: 8px 10px;
+}
+.branchFilter:focus {
+  outline: none;
+}
+
+.branchList {
+  flex: 1 1 auto;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+}
+
+.branchRow,
+.branchRowActive {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.branchRow:hover,
+.branchRowActive:hover {
+  background: var(--color-elevated);
+}
+.branchRowActive {
+  background: rgba(124, 138, 255, 0.12);
+}
+
+.branchRowName {
+  font-family: 'Geist Mono', monospace;
+}
+
+.branchRowUpstream {
+  margin-left: auto;
+  color: var(--color-fg-faint);
+  font-size: 10.5px;
+  font-family: 'Geist Mono', monospace;
+}
+
+.branchCreateBtn {
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-accent);
+  font: inherit;
+  font-size: 12px;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+}
+.branchCreateBtn:hover {
+  background: var(--color-elevated);
+}
+
+.branchCreateForm {
+  display: flex;
+  flex-direction: column;
+}
+
+.branchCreateRow {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
 }

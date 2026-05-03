@@ -4,10 +4,31 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"strconv"
 
 	"github.com/tjst-t/palmux2/internal/store"
 )
+
+// isHexRef matches a 4–64 char lowercase / uppercase hex commit hash.
+// Used to reject anything that could be interpreted as a git flag
+// (e.g. `-C /tmp`) by the `git show <sha>` subprocess.
+var hexRefRe = regexp.MustCompile(`^[0-9a-fA-F]{4,64}$`)
+
+func isHexRef(s string) bool { return hexRefRe.MatchString(s) }
+
+// isAllowedShowRef accepts "" (means HEAD downstream), "HEAD", or a
+// hex sha with an optional ^ / ~N suffix. We deliberately do not allow
+// arbitrary branch names because the only callers (Monaco diff viewers)
+// always know the sha they want.
+var showRefRe = regexp.MustCompile(`^(?:HEAD|[0-9a-fA-F]{4,64})(?:\^+|~\d+)?$`)
+
+func isAllowedShowRef(s string) bool {
+	if s == "" {
+		return true
+	}
+	return showRefRe.MatchString(s)
+}
 
 // Event-type aliases. Centralised in store/events.go; mirrored here so
 // callers inside this package don't have to dual-import store just to
@@ -82,7 +103,13 @@ func (h *handler) log(w http.ResponseWriter, r *http.Request) {
 			limit = n
 		}
 	}
-	entries, err := Log(r.Context(), dir, limit)
+	skip := 0
+	if v := r.URL.Query().Get("skip"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			skip = n
+		}
+	}
+	entries, err := Log(r.Context(), dir, limit, skip)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -96,21 +123,47 @@ func (h *handler) diff(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	path := r.URL.Query().Get("path")
+	// `?sha=<hash>` overrides mode and asks for the diff of one commit
+	// against its first parent. Used by the History panel. The sha is
+	// validated as a hex hash so that a hostile value like `-C /tmp` or
+	// `--git-dir=...` cannot reach `git show` as a flag (defense in
+	// depth — `runGit` already passes args via os/exec.Command not a
+	// shell, but a hex restriction also blocks `..origin/main` style
+	// rev-range shenanigans).
+	if sha := r.URL.Query().Get("sha"); sha != "" {
+		if !isHexRef(sha) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "sha must be 4–64 hex characters",
+			})
+			return
+		}
+		raw, err := CommitDiff(r.Context(), dir, sha, path)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"mode":  "commit",
+			"sha":   sha,
+			"raw":   raw,
+			"files": ParseUnifiedDiff(raw),
+		})
+		return
+	}
 	mode := DiffMode(r.URL.Query().Get("mode"))
 	if mode == "" {
 		mode = DiffWorking
 	}
-	path := r.URL.Query().Get("path")
 	raw, err := RawDiff(r.Context(), dir, mode, path)
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
-	files := ParseUnifiedDiff(raw)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"mode":  mode,
 		"raw":   raw,
-		"files": files,
+		"files": ParseUnifiedDiff(raw),
 	})
 }
 
@@ -130,6 +183,10 @@ func (h *handler) branches(w http.ResponseWriter, r *http.Request) {
 
 // show returns the body of <ref>:<path> as JSON `{content}`. Used by the
 // Monaco diff viewer (S012-1-10) to fetch the HEAD blob.
+//
+// `ref` is restricted to "HEAD", a hex sha (with optional ^ / ~N
+// suffix), or empty (defaults to HEAD inside Show). This blocks values
+// like `-C /tmp` from being treated as a git flag.
 func (h *handler) show(w http.ResponseWriter, r *http.Request) {
 	dir, err := h.repoDir(r)
 	if err != nil {
@@ -140,6 +197,12 @@ func (h *handler) show(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	if path == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path required"})
+		return
+	}
+	if !isAllowedShowRef(ref) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "ref must be empty, HEAD, or a hex commit (optionally followed by ^ / ~N)",
+		})
 		return
 	}
 	body, err := Show(r.Context(), dir, ref, path)
@@ -474,22 +537,6 @@ func (h *handler) setUpstream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// === S012: AI commit message ==============================================
-
-func (h *handler) aiCommitMessage(w http.ResponseWriter, r *http.Request) {
-	dir, err := h.repoDir(r)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	prompt, err := AICommitPrompt(r.Context(), dir)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"prompt": prompt})
 }
 
 // publishStatus re-broadcasts a `git.statusChanged` event after a write op

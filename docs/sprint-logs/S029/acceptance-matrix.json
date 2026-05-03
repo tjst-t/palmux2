@@ -1,0 +1,17 @@
+{
+  "sprintId": "S029",
+  "rows": [
+    {"id": "AC-S029-1-1",  "story": "S029-1", "description": "2-column layout (sidebar + main diff)", "test": "[AC-S029-1-1] in tests/e2e/s029_git_minimal.py", "status": "pass"},
+    {"id": "AC-S029-1-2",  "story": "S029-1", "description": "Working tree section visible", "test": "[AC-S029-1-2] in tests/e2e/s029_git_minimal.py", "status": "pass"},
+    {"id": "AC-S029-1-3",  "story": "S029-1", "description": "Status letter + filename + stage/unstage button per row", "test": "[AC-S029-1-3] in tests/e2e/s029_git_minimal.py", "status": "pass"},
+    {"id": "AC-S029-1-4",  "story": "S029-1", "description": "Commit message + Commit button + Push/Pull/Fetch icons", "test": "[AC-S029-1-4] in tests/e2e/s029_git_minimal.py", "status": "pass"},
+    {"id": "AC-S029-1-5",  "story": "S029-1", "description": "History rows: hash7 + branch chips + relative time + subject", "test": "[AC-S029-1-5] in tests/e2e/s029_git_minimal.py", "status": "pass"},
+    {"id": "AC-S029-1-6",  "story": "S029-1", "description": "Click commit → Monaco diff in main pane", "test": "[AC-S029-1-6] in tests/e2e/s029_git_minimal.py", "status": "pass"},
+    {"id": "AC-S029-1-7",  "story": "S029-1", "description": "Status bar branch + ahead/behind + dropdown", "test": "[AC-S029-1-7] in tests/e2e/s029_git_minimal.py", "status": "pass"},
+    {"id": "AC-S029-1-8",  "story": "S029-1", "description": "Conflict banner conditionally rendered with Continue button", "test": "[AC-S029-1-8] in tests/e2e/s029_git_minimal.py", "status": "pass"},
+    {"id": "AC-S029-1-9",  "story": "S029-1", "description": "Deleted advanced GUI not in DOM", "test": "[AC-S029-1-9] in tests/e2e/s029_git_minimal.py", "status": "pass"},
+    {"id": "AC-S029-1-10", "story": "S029-1", "description": "Deleted BE endpoints return 404/405", "test": "[AC-S029-1-10] in tests/e2e/s029_git_minimal.py", "status": "pass"},
+    {"id": "AC-S029-1-11", "story": "S029-1", "description": "Mobile (<600px) vertical stack with sub-tabs", "test": "[AC-S029-1-11] in tests/e2e/s029_git_minimal.py", "status": "pass"},
+    {"id": "AC-S029-1-12", "story": "S029-1", "description": "Kept BE endpoints (status/log/diff/branches) work", "test": "[AC-S029-1-12] in tests/e2e/s029_git_minimal.py", "status": "pass"}
+  ]
+}

@@ -81,20 +81,31 @@ func parseStatus(s string) StatusReport {
 
 // LogEntry is one commit in `git log`.
 type LogEntry struct {
-	Hash    string `json:"hash"`
-	Subject string `json:"subject"`
-	Author  string `json:"author"`
-	Email   string `json:"email"`
-	Date    string `json:"date"` // ISO 8601
+	Hash    string   `json:"hash"`
+	Subject string   `json:"subject"`
+	Author  string   `json:"author"`
+	Email   string   `json:"email"`
+	Date    string   `json:"date"`           // ISO 8601
+	Refs    []string `json:"refs,omitempty"` // decoration: HEAD, branch names, tags
 }
 
-// Log returns up to limit recent commits.
-func Log(ctx context.Context, repoDir string, limit int) ([]LogEntry, error) {
+// Log returns up to limit recent commits, skipping the first `skip`.
+// `%D` adds decoration (refs) to each entry so the History panel can
+// render branch / tag chips. Pagination is just `--skip=N`.
+func Log(ctx context.Context, repoDir string, limit, skip int) ([]LogEntry, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
-	out, err := runGit(ctx, repoDir, "log", "--max-count="+fmt.Sprint(limit),
-		"--pretty=format:%H%x09%s%x09%an%x09%ae%x09%aI")
+	if skip < 0 {
+		skip = 0
+	}
+	args := []string{
+		"log",
+		"--max-count=" + fmt.Sprint(limit),
+		"--skip=" + fmt.Sprint(skip),
+		"--pretty=format:%H%x09%s%x09%an%x09%ae%x09%aI%x09%D",
+	}
+	out, err := runGit(ctx, repoDir, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -103,17 +114,27 @@ func Log(ctx context.Context, repoDir string, limit int) ([]LogEntry, error) {
 		if line == "" {
 			continue
 		}
-		fields := strings.SplitN(line, "\t", 5)
-		if len(fields) != 5 {
+		fields := strings.SplitN(line, "\t", 6)
+		if len(fields) < 5 {
 			continue
 		}
-		entries = append(entries, LogEntry{
+		entry := LogEntry{
 			Hash:    fields[0],
 			Subject: fields[1],
 			Author:  fields[2],
 			Email:   fields[3],
 			Date:    fields[4],
-		})
+		}
+		if len(fields) == 6 && fields[5] != "" {
+			// %D returns "HEAD -> main, origin/main, tag: v1" etc.
+			for _, r := range strings.Split(fields[5], ", ") {
+				r = strings.TrimSpace(r)
+				if r != "" {
+					entry.Refs = append(entry.Refs, r)
+				}
+			}
+		}
+		entries = append(entries, entry)
 	}
 	return entries, nil
 }
@@ -123,12 +144,17 @@ type BranchEntry struct {
 	Name     string `json:"name"`
 	IsRemote bool   `json:"isRemote"`
 	IsHead   bool   `json:"isHead"`
+	Upstream string `json:"upstream,omitempty"`
+	Ahead    int    `json:"ahead,omitempty"`
+	Behind   int    `json:"behind,omitempty"`
 }
 
-// Branches lists local + remote branches.
+// Branches lists local + remote branches. For local branches we also
+// resolve the configured upstream (if any) and compute ahead/behind so
+// the status-bar branch indicator can show "main ↑2 ↓1".
 func Branches(ctx context.Context, repoDir string) ([]BranchEntry, error) {
 	out, err := runGit(ctx, repoDir, "for-each-ref",
-		"--format=%(refname:short)\t%(refname)\t%(HEAD)",
+		"--format=%(refname:short)\t%(refname)\t%(HEAD)\t%(upstream:short)\t%(upstream:track,nobracket)",
 		"refs/heads", "refs/remotes")
 	if err != nil {
 		return nil, err
@@ -138,7 +164,7 @@ func Branches(ctx context.Context, repoDir string) ([]BranchEntry, error) {
 		if line == "" {
 			continue
 		}
-		fields := strings.SplitN(line, "\t", 3)
+		fields := strings.SplitN(line, "\t", 5)
 		if len(fields) < 2 {
 			continue
 		}
@@ -151,11 +177,33 @@ func Branches(ctx context.Context, repoDir string) ([]BranchEntry, error) {
 		if strings.HasSuffix(short, "/HEAD") {
 			continue
 		}
-		entries = append(entries, BranchEntry{
+		entry := BranchEntry{
 			Name:     short,
 			IsRemote: strings.HasPrefix(full, "refs/remotes/"),
 			IsHead:   head,
-		})
+		}
+		if len(fields) > 3 {
+			entry.Upstream = fields[3]
+		}
+		if len(fields) > 4 {
+			// upstream:track,nobracket emits "ahead N", "behind N",
+			// "ahead N, behind N", or "" / "gone".
+			track := fields[4]
+			if track != "" && track != "gone" {
+				for _, part := range strings.Split(track, ", ") {
+					var n int
+					switch {
+					case strings.HasPrefix(part, "ahead "):
+						_, _ = fmt.Sscanf(part, "ahead %d", &n)
+						entry.Ahead = n
+					case strings.HasPrefix(part, "behind "):
+						_, _ = fmt.Sscanf(part, "behind %d", &n)
+						entry.Behind = n
+					}
+				}
+			}
+		}
+		entries = append(entries, entry)
 	}
 	return entries, nil
 }
@@ -204,6 +252,25 @@ func RawDiff(ctx context.Context, repoDir string, mode DiffMode, path string) (s
 	if mode == DiffStaged {
 		args = append(args, "--cached")
 	}
+	if path != "" {
+		args = append(args, "--", path)
+	}
+	out, err := runGit(ctx, repoDir, args...)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// CommitDiff returns the unified diff produced by `git show <sha>` —
+// i.e. the diff of one commit against its first parent. Used by the
+// History panel to render a clicked commit's full set of changes.
+// Path is optional; when set, scope the diff to that file only.
+func CommitDiff(ctx context.Context, repoDir, sha, path string) (string, error) {
+	if sha == "" {
+		return "", errors.New("commit diff: sha required")
+	}
+	args := []string{"show", "--no-color", "--no-ext-diff", "--format=", sha}
 	if path != "" {
 		args = append(args, "--", path)
 	}

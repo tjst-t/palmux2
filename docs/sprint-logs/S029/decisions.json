@@ -1,0 +1,44 @@
+{
+  "sprintId": "S029",
+  "title": "Git tab redesign (VS Code 風 minimal) [BREAKING]",
+  "decisions": [
+    {
+      "category": "planning",
+      "title": "Skip prototype phase",
+      "body": "ROADMAP description + 旧 palmux スクリーンショット (/tmp/palmux-b617e26c9bc68895641ca5432e4d1069.png) で UI 仕様は確定済み。 propose 段階で user 承認済み (S029 を roadmap に追加した時点でデザインも合意)。 改めての HTML prototype は時間に対する価値が低いので skip。"
+    },
+    {
+      "category": "planning",
+      "title": "Single sub-agent / main-agent execution",
+      "body": "S029 は 1 Story 14 task の sequential refactor。 並列化できる Story がないので worktree + parallel sub-agents は不要。 main agent + 必要に応じて Explore sub-agent で進める。"
+    },
+    {
+      "category": "implementation",
+      "title": "BE delete strategy: file-level vs trim",
+      "body": "history.go / handler_history.go / conflict.go / handler_conflict.go と test 2 ファイルは丸ごと削除。 ops.go / handler.go は advanced 関数だけ trim (commit / push / pull / fetch / stage / unstage / branches CRUD は keep)。 provider.go の RegisterRoutes も削除エンドポイント分を削る。",
+      "ref": "DESIGN_PRINCIPLES priority 6 既存資産活用 > 新規実装 — 残す部分は触らず必要箇所だけ削る"
+    },
+    {
+      "category": "implementation",
+      "title": "FE rewrite scope",
+      "body": "git-view.tsx を中核に書き直し。 working-tree section / history section / commit composer / branch switcher は新規 component として小さく実装し、 既存 git-monaco-diff.tsx は流用。 削除する小コンポーネント (bisect / blame / branch-graph / conflict / file-history / history-modals / rebase-* / reflog / stash / submodules / tags) は丸ごと削除。"
+    },
+    {
+      "category": "implementation",
+      "title": "Force-push / AI commit / ⌘K Git / Magit / mobile-swipe を削除",
+      "body": "trade-off: 失う機能はすべて Bash / Claude タブで代替可能、 codebase の維持コストを下げ、 GUI を minimal に保つ方を優先。 必要なら別 sprint で再追加 (backlog 行き)。",
+      "ref": "VISION priority: Phase 4 磨き込み — minimal で価値の出る方向"
+    },
+    {
+      "category": "implementation",
+      "title": "Mobile = vertical stack with sub-tabs",
+      "body": "<600px では 2 カラムを維持できないので Changes / History / Diff の 3 sub-tab で切替。 desktop 用 layout を素直に縦に積むより使いやすい。",
+      "ref": "DESIGN_PRINCIPLES priority 10 mobile parity > desktop only"
+    },
+    {
+      "category": "review",
+      "title": "Backlog items moved",
+      "body": "backlog に move: AI commit message / Magit-style キー / ⌘K Git 統合 / モバイルスワイプ stage / Force-push 2-stage confirm / advanced GUI 機能群 (stash / cherry-pick / interactive rebase / 3-way merge / submodule / bisect 等)。 必要が再度出てきた場合のみ別 sprint で再導入。"
+    }
+  ]
+}

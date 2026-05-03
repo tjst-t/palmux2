@@ -1,0 +1,13 @@
+{
+  "sprintId": "S029",
+  "runs": [
+    {
+      "timestamp": "2026-05-03T08:30:00Z",
+      "spec": "tests/e2e/s029_git_minimal.py",
+      "result": "pass",
+      "passed": 12,
+      "failed": 0,
+      "notes": "All 12 acceptance criteria verified against dev instance (port 8206). Verified pan/zoom + drag, sha validation rejects -C /tmp injection, ref validation rejects branch names, log skip pagination returns distinct commits, refs decoration populated."
+    }
+  ]
+}

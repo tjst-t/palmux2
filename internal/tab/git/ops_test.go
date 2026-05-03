@@ -143,22 +143,3 @@ func TestBranchCRUD(t *testing.T) {
 	}
 }
 
-func TestAICommitPrompt(t *testing.T) {
-	repo := initRepo(t)
-	// Nothing staged → error.
-	if _, err := AICommitPrompt(context.Background(), repo); err == nil {
-		t.Errorf("AICommitPrompt with empty stage: expected error")
-	}
-	os.WriteFile(filepath.Join(repo, "x.txt"), []byte("x\n"), 0o644)
-	Stage(context.Background(), repo, "x.txt")
-	prompt, err := AICommitPrompt(context.Background(), repo)
-	if err != nil {
-		t.Fatalf("AICommitPrompt: %v", err)
-	}
-	if !strings.Contains(prompt, "x.txt") {
-		t.Errorf("prompt missing path:\n%s", prompt)
-	}
-	if !strings.Contains(prompt, "Conventional-Commits") {
-		t.Errorf("prompt missing format guidance")
-	}
-}
