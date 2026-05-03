@@ -3,11 +3,11 @@
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
     "current_sprint": "S026",
-    "total": 27,
+    "total": 28,
     "done": 25,
     "in_progress": 0,
-    "remaining": 2,
-    "percentage": 93
+    "remaining": 3,
+    "percentage": 89
   },
   "execution_order": [
     "S001",
@@ -36,7 +36,8 @@
     "S024",
     "S025",
     "S026",
-    "S027"
+    "S027",
+    "S028"
   ],
   "sprints": {
     "S001": {
@@ -3867,6 +3868,127 @@
             "S027-1-8": {
               "title": "dev インスタンス + Playwright で実機検証。 `tests/e2e/s027_*.py` で:",
               "description": "",
+              "status": "pending"
+            }
+          }
+        }
+      }
+    },
+    "S028": {
+      "title": "Sprint tab JSON support",
+      "status": "pending",
+      "description": "S016 で実装した Sprint タブの parser (`internal/tab/sprint/parser/{roadmap,decisions,results}.go`) は Markdown 前提だが、 直近の migration で全 sprint-runner data file が JSON canonical (`docs/ROADMAP.json`、 `decisions.json` 等) に移行された。 タブを JSON 直接読みに rewrite して、 schema-validated で堅牢に + i18n 不要 + より高速にする。\n\n**設計の中核**:\n\n- **検出条件**: `docs/ROADMAP.json` の存在 (旧 `docs/ROADMAP.md` は無視)\n- **Backward compat なし**: 旧 MD への fallback は実装しない (シンプル化)、 `.md.bak` も無視\n- **Parser 実装**: `encoding/json` で `json.Unmarshal`。 Go struct を `references/ROADMAP_SCHEMA.json` / `SPRINT_LOGS_SCHEMA.json` 準拠で定義、 既存正規表現パーサは削除\n- **i18n 廃止**: JSON は schema 一意なので、 S016-fix-1 で導入した英日見出し対応コードを削除\n- **Fail-safe**: JSON syntax error → 500 ではなく `parseError` field に詳細 (line/column hint) を入れて返す、 schema 必須 field 不足は部分表示\n- **Filewatch**: `worktreewatch` の subscribe path を `docs/ROADMAP.json` / `docs/sprint-logs/**/*.json` に\n- **WS event**: `sprint.changed` payload は据え置き (FE interface 変更不要)\n- **FE 影響**: 最小。 BE の REST レスポンス JSON 構造は schema に揃え、 TypeScript 型定義を schema 準拠に update",
+      "milestone": false,
+      "stories": {
+        "S028-1": {
+          "title": "Sprint tab JSON 対応",
+          "status": "pending",
+          "user_story": "Palmux のユーザとして、 Sprint タブが最新の JSON 形式 (ROADMAP.json + sprint-logs/**/*.json) を直接読み、 markdown parser のあいまいさやエラーに悩まされずに常に正確な開発状況を見たい。 なぜなら、 直近のマイグレーションで sprint runner skill が JSON canonical に移行したのに、 Sprint タブが旧 .md.bak を読もうとしたり parse error で表示崩れが起きると、 ダッシュボードとして信頼できないからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S028-1-1",
+              "description": "`docs/ROADMAP.json` 存在で Sprint タブが TabBar に出現 (旧 `.md` 検出は削除)",
+              "test": "[AC-S028-1-1] in tests/e2e/s028_sprint_json.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S028-1-2",
+              "description": "ROADMAP.json から overview / sprint detail / dependency graph / decision timeline / refine history が正しく描画される",
+              "test": "[AC-S028-1-2] in tests/e2e/s028_sprint_json.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S028-1-3",
+              "description": "decisions.json / e2e-results.json / acceptance-matrix.json / refine.json / failures.json / gui-spec-*.json それぞれ schema 通りに parse され UI に反映",
+              "test": "[AC-S028-1-3] in tests/e2e/s028_sprint_json.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S028-1-4",
+              "description": "JSON syntax error / schema 不足時に UI が crash せず parseError を表示 (line/column hint 付き)",
+              "test": "[AC-S028-1-4] in tests/e2e/s028_sprint_json.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S028-1-5",
+              "description": "i18n parser コード (S016-fix-1 由来) が削除されてもテストが通る (JSON は単一形式)",
+              "test": "[AC-S028-1-5] in tests/e2e/s028_sprint_json.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S028-1-6",
+              "description": "filewatch が `docs/ROADMAP.json` / `docs/sprint-logs/**/*.json` の変更を検知して `sprint.changed` を emit",
+              "test": "[AC-S028-1-6] in tests/e2e/s028_sprint_json.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S028-1-7",
+              "description": "既存 S016 の 5 画面 (Overview / Sprint Detail / Dependency Graph / Decision Timeline / Refine History) が regression なし",
+              "test": "[AC-S028-1-7] in tests/e2e/s028_sprint_json.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S028-1-8",
+              "description": "`.md.bak` ファイルは無視され、 Sprint タブには影響しない",
+              "test": "[AC-S028-1-8] in tests/e2e/s028_sprint_json.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S028-1-9",
+              "description": "S025 fixture helper を使ったテストで palmux2-test/ 残らない",
+              "test": "[AC-S028-1-9] in tests/e2e/s028_sprint_json.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S028-1-1": {
+              "title": "Go struct を schema 準拠で定義",
+              "description": "ROADMAP_SCHEMA.json / SPRINT_LOGS_SCHEMA.json に揃えた struct 群を `internal/tab/sprint/parser/types.go` (新規) に定義",
+              "status": "pending"
+            },
+            "S028-1-2": {
+              "title": "roadmap.go を JSON unmarshaler に rewrite",
+              "description": "正規表現パーサを削除、 `json.Unmarshal` で `ROADMAP.json` を読む。 fail-safe で parse error を構造化レスポンスに含める",
+              "status": "pending"
+            },
+            "S028-1-3": {
+              "title": "decisions.go を JSON 化",
+              "description": "decisions.json schema 通りに parse、 timestamp / category / detail / reference を抽出",
+              "status": "pending"
+            },
+            "S028-1-4": {
+              "title": "results.go を JSON 化 (5 種別)",
+              "description": "e2e-results.json / acceptance-matrix.json / refine.json / failures.json / gui-spec-*.json それぞれを schema 通りに parse",
+              "status": "pending"
+            },
+            "S028-1-5": {
+              "title": "i18n コードを削除",
+              "description": "S016-fix-1 で追加した英日見出し regex / dual matching コードを撤去 (JSON は単一形式)",
+              "status": "pending"
+            },
+            "S028-1-6": {
+              "title": "Provider 検出条件を JSON に変更",
+              "description": "`internal/tab/sprint/provider.go` の `OnBranchOpen` で `docs/ROADMAP.json` 存在チェック、 `.md` は無視",
+              "status": "pending"
+            },
+            "S028-1-7": {
+              "title": "Filewatch の subscribe paths を更新",
+              "description": "worktreewatch subscription を `docs/ROADMAP.json` + `docs/sprint-logs/**/*.json` に。 旧 `.md` パターンを削除",
+              "status": "pending"
+            },
+            "S028-1-8": {
+              "title": "Handler の parse error 改善",
+              "description": "JSON syntax error / schema 不足を構造化して返す (line/column hint、 missing field list)、 UI が壊れない",
+              "status": "pending"
+            },
+            "S028-1-9": {
+              "title": "FE TypeScript 型定義を schema 準拠に update",
+              "description": "`frontend/src/tabs/sprint/types.ts` を schema fields に合わせる。 minimal change",
+              "status": "pending"
+            },
+            "S028-1-10": {
+              "title": "E2E + 既存 regression",
+              "description": "`tests/e2e/s028_sprint_json.py` で JSON fixture で 5 画面 + parse error fail-safe + filewatch を検証。 既存 `s016_*.py` を JSON fixture 版に refactor",
               "status": "pending"
             }
           }
