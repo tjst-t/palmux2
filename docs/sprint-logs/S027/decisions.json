@@ -1,0 +1,88 @@
+{
+  "sprint": "S027",
+  "title": "Markdown preview link enhancement (anchor + SPA nav)",
+  "completed_at": "2026-05-03",
+  "branch": "autopilot/main/S027",
+  "status": "success",
+  "planning_decisions": [
+    {
+      "decision": "Use rehype-slug (not rehype-autolink-headings or a hand-rolled walker) for heading id generation",
+      "rationale": "rehype-slug is the de-facto plugin for the unified ecosystem and produces GitHub-compatible slugs (the format users already expect from README rendering on GitHub itself). Hand-rolling the walker would re-implement the same edge cases (Unicode normalisation, duplicate-id suffixing) without buying anything. We deliberately do NOT add rehype-autolink-headings — the hover-to-copy anchor link is a separate UX feature and adds visual noise; users get hash-jumping from the TOC link override.",
+      "guided_by": "DESIGN_PRINCIPLES: '既存資産活用' — extend the existing react-markdown pipeline with a single dependency, don't re-implement"
+    },
+    {
+      "decision": "4-bucket link classifier (anchor / relative / absolute-same-origin / external) lives in markdown-view.tsx, not a separate util",
+      "rationale": "The classifier is short (≈40 lines) and has exactly one consumer. Moving it to a sibling file would add a file to track without buying re-use. If a future viewer (e.g. Notion-style page) needs the same logic we will extract then. Logged here so the next reader knows the option was considered.",
+      "guided_by": "DESIGN_PRINCIPLES: 'over-abstraction を避ける' — keep code where it lives until it has a second consumer"
+    },
+    {
+      "decision": "Anchor click → pushState (not replaceState as the original spec described)",
+      "rationale": "The roadmap text said replaceState, but AC-S027-1-4 explicitly requires browser back/forward to restore previous hashes. With replaceState the back-stack never grows, so back/forward through anchors is impossible. pushState satisfies the AC and matches user expectation from GitHub README rendering. We guard against deepening the stack with a same-hash check (no push if window.location.hash already matches).",
+      "guided_by": "DESIGN_PRINCIPLES: 'AC > 仕様文' — when the roadmap description and the AC disagree, the AC wins because it is the testable contract"
+    },
+    {
+      "decision": "Image relative-src rewriting → /files/raw?path=… (not /files/preview/…)",
+      "rationale": "S010's `/files/raw` already serves the bytes with the right MIME (S026 added the iframe-friendly raw mode). For an `<img>` element rendered inside the parent palmux2 origin we don't need the same-origin-isolation that /files/preview/{path...} solves for iframes. Using /raw also keeps the cache layer shared with the rest of the Files tab and matches what ImageView already does — one less API surface to teach.",
+      "guided_by": "DESIGN_PRINCIPLES: '既存資産活用' — reuse the existing endpoint instead of cargo-culting the S026 path-style URL where it isn't needed"
+    },
+    {
+      "decision": "Initial-hash scroll uses double-rAF, not MutationObserver",
+      "rationale": "ReactMarkdown renders synchronously inside the component, but heading slug ids only become available after React commits and paints. A double requestAnimationFrame is enough for the second frame to see the mounted DOM, and is far cheaper than wiring a MutationObserver only to tear it down on the first match. We confirmed this works in the E2E (AC-1-5 passes deterministically without flakiness)."
+    }
+  ],
+  "implementation_decisions": [
+    {
+      "decision": "MarkdownView signature extended with optional repoId/branchId/tabId",
+      "rationale": "Made the new params optional on ViewerProps so other viewers (Image / Drawio / Monaco) and any test-only renderers don't need to know about them. FilePreview passes them in unconditionally now that we plumbed tabId through; legacy callers without the props degrade gracefully (relative links fall back to the browser default — full reload — which is strictly no worse than pre-S027 behaviour).",
+      "guided_by": "DESIGN_PRINCIPLES: 'gracefully degrade' — never block the existing call path"
+    },
+    {
+      "decision": "Add tabId to FilePreview Props (was repoId/branchId only)",
+      "rationale": "Resolving a relative-path link to /{repoId}/{branchId}/{tabId}/{path} requires the tab id at the call site of `useNavigate`. Hard-coding 'files' would break if the tab were ever renamed or if a custom Files-tab provider used a different singleton id. Files-view already knows the tabId (tab registry contract) so plumbing it through one extra prop is cheap and explicit.",
+      "guided_by": "CLAUDE.md: 'タブモジュールシステム — Provider が tabId を所有する'"
+    },
+    {
+      "decision": "Modifier-key passthrough on anchor click",
+      "rationale": "Cmd/Ctrl/Shift/Alt-click and middle-click should keep their browser-default semantics (open in new tab, open in new window, etc.). We bail out early on non-primary buttons or any modifier so the SPA handler never swallows a user-initiated 'open elsewhere' action. The external-link <a> element keeps its href intact for the same reason.",
+      "guided_by": "DESIGN_PRINCIPLES: '明示的 > 暗黙的' — don't override behaviours users are already paying for via keybinds"
+    },
+    {
+      "decision": "Image src resolved via dirnameOf(currentPath) + normalizePath",
+      "rationale": "We deliberately do not use `new URL(href, base)` because it implicitly anchors to the page's own origin and silently drops segments when the relative path tries to escape the worktree root. Posix-style normalisation keeps `..` segments visible if they would escape, so the API can return a clean 404 rather than the resolver lying about the path.",
+      "guided_by": "DESIGN_PRINCIPLES: '責務越境最小' — never let a path-resolution bug cross worktree boundaries"
+    },
+    {
+      "decision": "data-link-kind attribute on every rendered <a>",
+      "rationale": "Lets E2E tests target each link bucket (anchor / relative / absolute / external) without relying on href patterns the test would have to keep in sync with fixture content. Costs one attribute per link, zero runtime impact.",
+      "guided_by": "DESIGN_PRINCIPLES: 'テスト可能性' — give tests a stable hook"
+    }
+  ],
+  "review_decisions": [
+    {
+      "decision": "popstate AND hashchange listeners (belt-and-braces)",
+      "rationale": "popstate fires when the user navigates back/forward through pushState entries within the same document; hashchange fires when only the hash differs and the browser short-circuits the history update. React Router intercepts popstate but only re-runs route matching — the URL fragment scroll is our concern, not its. Listening to both ensures AC-1-4 holds across browser quirks (notably Safari, where same-document hash-only popstate can be missed)."
+    },
+    {
+      "decision": "classifyLink kept private (de-exported after lint warning)",
+      "rationale": "react-refresh/only-export-components flagged the dual export. Since the function isn't consumed anywhere else, demoting it to module-private resolves the warning without losing testability — its behaviour is exercised end-to-end via the rendered <a data-link-kind=…> attribute."
+    }
+  ],
+  "test_results": {
+    "ts_compile": "PASS (npx tsc --noEmit, no errors)",
+    "ts_lint": "PASS for S027-touched files (markdown-view.tsx, types.ts, file-preview.tsx). 5 pre-existing lint errors in file-preview.tsx / files-view.tsx exist on main and are not introduced by S027.",
+    "go_build": "PASS (go build ./...)",
+    "e2e_s027": "PASS (tests/e2e/s027_md_link_spa.py — AC-1-1 / 1-2 / 1-3 / 1-4 / 1-5 / 1-6 / 1-6 cross-dir / 1-9 / 1-10 / 1-11 / 1-13 / 1-14 / 1-15)",
+    "e2e_s026_regression": "PASS (S026 HTML preview unaffected)",
+    "e2e_s025_regression": "PASS (fixture cleanup hygiene unchanged)"
+  },
+  "warnings": [],
+  "drift_notes": [
+    "Dev instance port drifted 8202 → 8203 during sprint due to portman picking the next free port after the kill/restart cycle. Test runner reads PALMUX2_DEV_PORT so no code change required.",
+    "Roadmap description suggested history.replaceState for anchor click; AC-1-4 requires back/forward restoration which mandates pushState. Implementation follows the AC. Decision logged above."
+  ],
+  "backlog_added": [
+    "Anchor-link copy affordance: GitHub-style hover icon next to each heading that copies a permalink to the clipboard. Out of scope for S027 (UX-only enhancement on top of the slug ids we just added).",
+    "Mermaid / KaTeX live render in MarkdownView: now that the rendering pipeline is being touched, several users have asked for inline diagrams. Needs separate sprint with security review (Mermaid eval surface).",
+    "Cross-file dirty-buffer warning when navigating via markdown link: today selectFile() warns on dirty drafts but the SPA-link path bypasses it. Low-risk gap — drafts are only created from the Edit toggle, not from preview navigation."
+  ]
+}

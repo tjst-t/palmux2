@@ -19,4 +19,12 @@ export interface ViewerProps {
   body: FileBody | null
   /** 1-based line to scroll to (Monaco / line-aware viewers only). */
   lineNum?: number
+  /** Branch / tab coordinates for SPA navigation between files (S027).
+   *  MarkdownView uses these to resolve relative-path links and `<img>`
+   *  sources without leaving the React Router app. Optional so legacy
+   *  callers (and other viewers that don't navigate cross-file) keep
+   *  working unchanged. */
+  repoId?: string
+  branchId?: string
+  tabId?: string
 }

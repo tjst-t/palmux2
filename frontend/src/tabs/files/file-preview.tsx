@@ -70,6 +70,9 @@ interface Props {
   apiBase: string
   repoId: string
   branchId: string
+  /** Files-tab id (e.g. `files`). Forwarded to MarkdownView so SPA
+   *  navigation between markdown files keeps the same tab focused. */
+  tabId: string
   path: string
   /** 1-based line to scroll to and briefly highlight (for grep results). */
   lineNum?: number
@@ -100,7 +103,7 @@ function isEditable(kind: ViewerKind): boolean {
   )
 }
 
-export function FilePreview({ apiBase, repoId, branchId, path, lineNum }: Props) {
+export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum }: Props) {
   const previewMaxBytes = usePalmuxStore(
     (s) => s.globalSettings.previewMaxBytes ?? DEFAULT_PREVIEW_MAX_BYTES,
   )
@@ -571,7 +574,15 @@ export function FilePreview({ apiBase, repoId, branchId, path, lineNum }: Props)
             <TooLargeView path={stat.path} size={stat.size} maxBytes={previewMaxBytes} />
           )}
           {viewerKind === 'markdown' && mode === 'view' && (
-            <MarkdownView apiBase={apiBase} path={path} body={body} lineNum={lineNum} />
+            <MarkdownView
+              apiBase={apiBase}
+              path={path}
+              body={body}
+              lineNum={lineNum}
+              repoId={repoId}
+              branchId={branchId}
+              tabId={tabId}
+            />
           )}
           {viewerKind === 'markdown' && mode === 'edit' && (
             // S011-fix-1: editing markdown source uses Monaco with the

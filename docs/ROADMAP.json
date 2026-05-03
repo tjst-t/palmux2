@@ -3730,146 +3730,146 @@
     },
     "S027": {
       "title": "Markdown preview link enhancement (anchor + SPA nav)",
-      "status": "pending",
+      "status": "done",
       "description": "S010 で導入した MarkdownView は基本的な markdown 描画を行うが、 リンク挙動が不完全:\n- ページ内アンカー (`#section-name`) が動作しない (heading に id が振られていない)\n- 他 markdown / フォルダ / 画像 への内部リンクがクリック時に **Palmux2 全体を full reload**\n\nドキュメント読みでは「目次から各章にジャンプ」 「README から関連 doc を辿る」 が頻発するため、 reload で state / scroll position / 他タブのコンテキストが失われると体験を大きく損なう。 SPA navigation で完結させる。\n\n**設計の中核**:\n\n- **Heading ID 生成**: `rehype-slug` プラグイン (GitHub 互換、 デファクト) を react-markdown pipeline に追加。 `<h1 id=\"…\">` 等が自動付与される\n- **`components.a` override**: react-markdown の `a` をカスタムコンポーネントで置換、 link 種類別 dispatch:\n  - **① anchor (`#foo`)**: `e.preventDefault()` → `scrollIntoView({behavior: 'smooth', block: 'start'})` + `history.replaceState` で URL hash 更新\n  - **② 相対 path (`./other.md`, `../shared/x.png`)**: `URL` API で base = 現在 file path として resolve → React Router の `navigate()` で `/files/{resolved-path}` ルートへ。 page reload なし\n  - **③ 同 origin 絶対 path (`/path/...`)**: Palmux2 ルートとして React Router navigate\n  - **④ 外部 (`http(s)://`)**: `target=\"_blank\" rel=\"noopener noreferrer\"` で別タブ\n- **`components.img` override**: 画像も同様に相対 path resolve、 raw API (S010 既存 + S026 MIME 判定) で取得\n- **存在しない target file**: navigate 試行 → 404 fallback (Files tab 既存挙動)、 error toast は出さない (ブラウザ標準と同じ)\n- **初期 hash scroll**: URL fragment (`#foo`) でロードされた場合も初期 scroll が動く (`useEffect` で hash check して scrollIntoView)\n- **既存挙動の保全**: コードブロック内のテキストは link 化しない (markdown-it 標準どおり)、 footnote / table 等の特殊構造は影響受けない",
       "milestone": false,
       "stories": {
         "S027-1": {
           "title": "Markdown 内のリンクが SPA で動作する",
-          "status": "pending",
+          "status": "done",
           "user_story": "Palmux のユーザとして、 Markdown プレビュー内のリンク (アンカー / 他ファイル / 外部) を期待通りに動かしたい。 なぜなら、 ドキュメントを読むときに目次から各章にジャンプしたり、 関連 markdown ファイルや画像を辿ったりするのが頻繁で、 その都度 Palmux2 が full reload するとスクロール位置 / state / 他タブの作業コンテキストを失うからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S027-1-1",
               "description": "heading に id が自動付与される (例: `## Foo Bar` → `<h1 id=\"foo-bar\">`)。 GitHub 互換の slug 規則",
-              "test": "",
-              "status": "pending"
+              "test": "tests/e2e/s027_md_link_spa.py [AC-1-1]",
+              "status": "done"
             },
             {
               "id": "AC-S027-1-2",
               "description": "anchor link (`[link](#foo-bar)`) クリックで該当 heading に **smooth scroll**",
-              "test": "",
-              "status": "pending"
+              "test": "tests/e2e/s027_md_link_spa.py [AC-1-2]",
+              "status": "done"
             },
             {
               "id": "AC-S027-1-3",
               "description": "URL の hash (`#foo-bar`) が更新される",
-              "test": "",
-              "status": "pending"
+              "test": "tests/e2e/s027_md_link_spa.py [AC-1-3]",
+              "status": "done"
             },
             {
               "id": "AC-S027-1-4",
               "description": "ブラウザの戻る/進むで hash が復元される",
-              "test": "",
-              "status": "pending"
+              "test": "tests/e2e/s027_md_link_spa.py [AC-1-4]",
+              "status": "done"
             },
             {
               "id": "AC-S027-1-5",
               "description": "初期ロード時 URL に `#foo-bar` がついていると該当 heading に初期 scroll する",
-              "test": "",
-              "status": "pending"
+              "test": "tests/e2e/s027_md_link_spa.py [AC-1-5]",
+              "status": "done"
             },
             {
               "id": "AC-S027-1-6",
               "description": "相対 path リンク (`./other.md`, `../shared/notes.md`) クリックで **Palmux2 全体を reload せずに** Files tab 内で navigate",
-              "test": "",
-              "status": "pending"
+              "test": "tests/e2e/s027_md_link_spa.py [AC-1-6]",
+              "status": "done"
             },
             {
               "id": "AC-S027-1-7",
               "description": "同 origin 絶対 path (`/files/...`) も同様に SPA 遷移",
-              "test": "",
-              "status": "pending"
+              "test": "tests/e2e/s027_md_link_spa.py [AC-1-6 cross-dir]",
+              "status": "done"
             },
             {
               "id": "AC-S027-1-8",
               "description": "navigate 後にスクロール位置 / 他タブの状態が保持される (Drawer / Claude タブ等)",
-              "test": "",
-              "status": "pending"
+              "test": "tests/e2e/s027_md_link_spa.py [marker assertions]",
+              "status": "done"
             },
             {
               "id": "AC-S027-1-9",
               "description": "存在しない path の場合は Files tab の既存 404 fallback (error toast は出さない)",
-              "test": "",
-              "status": "pending"
+              "test": "tests/e2e/s027_md_link_spa.py [AC-1-9]",
+              "status": "done"
             },
             {
               "id": "AC-S027-1-10",
               "description": "画像の相対 path (`![alt](./img.png)`) は raw API 経由で正しく表示される",
-              "test": "",
-              "status": "pending"
+              "test": "tests/e2e/s027_md_link_spa.py [AC-1-10]",
+              "status": "done"
             },
             {
               "id": "AC-S027-1-11",
               "description": "外部 URL (`http(s)://...`) は **別タブ** で開く (`target=\"_blank\" rel=\"noopener noreferrer\"`)",
-              "test": "",
-              "status": "pending"
+              "test": "tests/e2e/s027_md_link_spa.py [AC-1-11]",
+              "status": "done"
             },
             {
               "id": "AC-S027-1-12",
               "description": "Palmux2 自身の navigation には影響しない",
-              "test": "",
-              "status": "pending"
+              "test": "tests/e2e/s027_md_link_spa.py (history sanity)",
+              "status": "done"
             },
             {
               "id": "AC-S027-1-13",
               "description": "既存 S010 の MarkdownView 基本機能 (heading / list / table / code block / blockquote 等) は影響なし",
-              "test": "",
-              "status": "pending"
+              "test": "tests/e2e/s027_md_link_spa.py [AC-1-13]",
+              "status": "done"
             },
             {
               "id": "AC-S027-1-14",
               "description": "S011 の MD 編集 (Source mode) は影響なし",
-              "test": "",
-              "status": "pending"
+              "test": "tests/e2e/s027_md_link_spa.py [AC-1-14]",
+              "status": "done"
             },
             {
               "id": "AC-S027-1-15",
               "description": "mobile (< 600px) でも anchor scroll / cross-file navigate が動作",
-              "test": "",
-              "status": "pending"
+              "test": "tests/e2e/s027_md_link_spa.py [AC-1-15]",
+              "status": "done"
             }
           ],
           "tasks": {
             "S027-1-1": {
               "title": "`npm i rehype-slug` を追加、 `frontend/src/tabs/files/viewers/markdown-view.tsx` の react-markdown pipeline に `rehypePlugins: [rehypeSlug]` を組み込み",
               "description": "",
-              "status": "pending"
+              "status": "done"
             },
             "S027-1-2": {
               "title": "`components.a` override を実装",
               "description": "link 種類判定 helper (`classifyLink(href, currentPath)`) で 4 種に分類 (anchor / relative / absolute-same-origin / external)、 各経路で適切な動作",
-              "status": "pending"
+              "status": "done"
             },
             "S027-1-3": {
               "title": "anchor scroll handler",
               "description": "`scrollIntoView({behavior: 'smooth', block: 'start'})` + `history.replaceState({...}, '', '#${id}')`",
-              "status": "pending"
+              "status": "done"
             },
             "S027-1-4": {
               "title": "相対 path resolve",
               "description": "`new URL(href, baseURL).pathname` で resolve、 React Router の `useNavigate` で `/files/{resolved}` に遷移 (full reload なし)",
-              "status": "pending"
+              "status": "done"
             },
             "S027-1-5": {
               "title": "external link は `target=\"_blank\" rel=\"noopener noreferrer\"` を付与してそのまま `<a>` 描画 (handler なし、 ブラウザ標準動作)",
               "description": "",
-              "status": "pending"
+              "status": "done"
             },
             "S027-1-6": {
               "title": "`components.img` override",
               "description": "相対 path を raw API URL に変換して `<img src=\"...\">` で描画",
-              "status": "pending"
+              "status": "done"
             },
             "S027-1-7": {
               "title": "初期 hash scroll",
               "description": "`useEffect` で `window.location.hash` を check、 該当 element に scrollIntoView (markdown render 完了後の timing 注意、 setTimeout or MutationObserver で対処)",
-              "status": "pending"
+              "status": "done"
             },
             "S027-1-8": {
               "title": "dev インスタンス + Playwright で実機検証。 `tests/e2e/s027_*.py` で:",
               "description": "",
-              "status": "pending"
+              "status": "done"
             }
           }
         }

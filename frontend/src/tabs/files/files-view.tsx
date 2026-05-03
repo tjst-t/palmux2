@@ -277,6 +277,7 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
               apiBase={apiBase}
               repoId={repoId}
               branchId={branchId}
+              tabId={tabId}
               path={selected}
               lineNum={selectedLine}
             />
