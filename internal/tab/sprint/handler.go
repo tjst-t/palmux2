@@ -353,7 +353,11 @@ func buildMermaid(sprints []TimelineEntry, deps []parser.Dependency) string {
 	var b strings.Builder
 	b.WriteString("graph LR\n")
 	for _, s := range sprints {
-		shape := s.ID + "[" + s.ID + ": " + escapeMermaid(s.Title) + "]"
+		// Mermaid node label is wrapped in double quotes so that
+		// parens / brackets in the title don't collide with the
+		// node-shape syntax (e.g. `(Task)` would otherwise be parsed
+		// as a stadium-shape opener inside `[...]`).
+		shape := s.ID + "[\"" + escapeMermaid(s.ID+": "+s.Title) + "\"]"
 		b.WriteString("  ")
 		b.WriteString(shape)
 		b.WriteString("\n")
@@ -399,12 +403,15 @@ func buildMermaid(sprints []TimelineEntry, deps []parser.Dependency) string {
 	return b.String()
 }
 
+// escapeMermaid escapes a label for placement inside a `["..."]` Mermaid
+// node. We use Mermaid's own `#quot;` entity escape for double quotes so
+// the parser stops scanning the string. Truncation is rune-aware so we
+// don't slice multi-byte UTF-8 characters in half.
 func escapeMermaid(s string) string {
-	s = strings.ReplaceAll(s, "\"", "'")
-	s = strings.ReplaceAll(s, "[", "(")
-	s = strings.ReplaceAll(s, "]", ")")
-	if len(s) > 40 {
-		s = s[:37] + "..."
+	s = strings.ReplaceAll(s, "\"", "#quot;")
+	rs := []rune(s)
+	if len(rs) > 40 {
+		s = string(rs[:37]) + "..."
 	}
 	return s
 }
@@ -426,11 +433,14 @@ func (h *handler) decisions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	logsRoot := filepath.Join(root, "docs", "sprint-logs")
-	tag := fileTagDir(logsRoot)
+	filter := strings.ToLower(r.URL.Query().Get("filter"))
+	// The filter must participate in the ETag — otherwise switching
+	// chips returns 304 with the previous filter's body and the UI
+	// only updates after a manual Refresh.
+	tag := `"` + shortHash(fileTagDir(logsRoot)+":filter="+filter) + `"`
 	if sendCacheable(w, r, tag) {
 		return
 	}
-	filter := strings.ToLower(r.URL.Query().Get("filter"))
 
 	resp := DecisionsResponse{Entries: []parser.DecisionEntry{}}
 	if dirs, err := os.ReadDir(logsRoot); err == nil {

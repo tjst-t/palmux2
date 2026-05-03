@@ -150,6 +150,12 @@ export function useConversationSearch(
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
+  // Mirror `open` into a ref so `openBar` can read the current value
+  // without re-creating its callback identity on every state change.
+  const openRef = useRef(false)
+  useEffect(() => {
+    openRef.current = open
+  }, [open])
 
   const index = useMemo(() => buildSearchIndex(turns), [turns])
   const matches = useMemo(() => runSearch(index, query), [index, query])
@@ -187,19 +193,24 @@ export function useConversationSearch(
     setActive((cur) => (cur - 1 + matches.length) % matches.length)
   }, [matches])
 
+  const close = useCallback(() => {
+    setOpen(false)
+    setQuery('')
+    setActive(-1)
+  }, [])
   const openBar = useCallback(() => {
+    // Pressing Find again while the bar is already open closes it.
+    if (openRef.current) {
+      close()
+      return
+    }
     setOpen(true)
     // rAF so the input has mounted before we focus.
     requestAnimationFrame(() => {
       inputRef.current?.focus()
       inputRef.current?.select()
     })
-  }, [])
-  const close = useCallback(() => {
-    setOpen(false)
-    setQuery('')
-    setActive(-1)
-  }, [])
+  }, [close])
 
   const state: SearchState = { open, query, matches, active, openedBlocks }
   return { state, setQuery, next, prev, open: openBar, close, inputRef }
