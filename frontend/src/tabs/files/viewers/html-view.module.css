@@ -1,0 +1,23 @@
+.wrap {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  background-color: var(--color-bg);
+  overflow: hidden;
+}
+
+.frame {
+  border: 0;
+  width: 100%;
+  height: 100%;
+  background-color: var(--color-bg);
+}
+
+@media (max-width: 599px) {
+  .wrap {
+    /* Mobile: keep the iframe edge-to-edge so a viewport-meta'd
+     * document still fits. The dispatcher header above us already
+     * handles the chrome — we don't double up on padding here. */
+    height: 100%;
+  }
+}

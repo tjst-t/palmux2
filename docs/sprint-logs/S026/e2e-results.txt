@@ -1,0 +1,13 @@
+S026 — HTML preview E2E (port 8202)
+  fixture: palmux2-test--s026-20260503-065354-2322529--223e/main--ae61
+  [api] MIME map + CSP OK
+  [a] iframe sandbox: 'allow-scripts allow-forms' OK
+  [c] JS executed OK
+  [b] CSS sibling reachable as text/css OK
+  [d] PNG sibling reachable as image/png OK
+  [h] iframe → /api/* blocked: 'blocked: Failed to fetch' OK
+  [e] Source/Preview toggle OK
+  [f] Save → Preview reflects new content OK
+  [i] huge.html → too-large fallback OK
+  [j] mobile viewport OK
+S026 E2E: PASS

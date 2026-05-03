@@ -1,0 +1,79 @@
+{
+  "sprint": "S026",
+  "title": "Files HTML preview (CSS/JS/image rendering)",
+  "completed_at": "2026-05-03",
+  "branch": "autopilot/main/S026",
+  "status": "success",
+  "planning_decisions": [
+    {
+      "decision": "Path-based preview endpoint (/files/preview/{path...}) instead of reusing /files/raw?path=",
+      "rationale": "Iframes need relative URL resolution to work. With ?path= in the query string a `<link href=\"style.css\">` inside the rendered HTML resolves against the *query string* (clobbering it) and produces a 404. Putting the worktree path in the URL path itself makes the browser's default relative-URL resolution line up: iframe.src=.../files/preview/preview/index.html → <link href=\"style.css\"> → .../files/preview/preview/style.css. Cleaner than rewriting the HTML body server-side to inject <base>.",
+      "guided_by": "DESIGN_PRINCIPLES: 'mobile parity' / '明示的 > 暗黙的' — keep HTML untouched, route differently"
+    },
+    {
+      "decision": "Sandbox attribute = `allow-scripts allow-forms` (NOT `allow-same-origin`)",
+      "rationale": "Without allow-same-origin the browser treats the iframe as a unique opaque origin: scripts inside cannot read palmux2 cookies/localStorage AND fetch('/api/...') is cross-origin (cookies stripped + CORS blocked). This is the load-bearing security boundary. allow-forms permits HTML demos with form submissions to function. We deliberately exclude allow-popups, allow-modals, allow-top-navigation to keep the surface minimal.",
+      "guided_by": "DESIGN_PRINCIPLES: '責務越境最小', VISION.security: 'シングルユーザ・自前ホスティング' — never let iframe code escape into palmux2 origin"
+    },
+    {
+      "decision": "CSP defense-in-depth: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'",
+      "rationale": "Sandbox-without-allow-same-origin is the primary rail; CSP is the secondary. unsafe-inline/unsafe-eval are needed for typical hand-rolled HTML (inline scripts, Vue templates, etc.) and are safe under the sandbox because the iframe origin is opaque. data:/blob: in img-src is required for HTML demos that build images at runtime.",
+      "guided_by": "DESIGN_PRINCIPLES: '責務越境最小' — two independent rails so no single change can re-open session cookie access"
+    },
+    {
+      "decision": "Content negotiation on /files/raw: Accept: application/json → JSON envelope (legacy), default browser Accept → raw body with mimeForPath Content-Type",
+      "rationale": "Preserves S010/S011 dispatcher behaviour exactly while adding the iframe-friendly raw path on the same endpoint. The Files-tab dispatcher already sends Accept: application/json, so no client change is needed for existing viewers; the iframe sends a default browser Accept and gets text/html.",
+      "guided_by": "DESIGN_PRINCIPLES: '既存資産活用' — extend, don't replace"
+    },
+    {
+      "decision": "Source / Preview toggle is local UI state, not URL state",
+      "rationale": "The toggle is a UI affordance for one file at a time and should not pollute the back/forward history. Switching files always resets to the configured default (preview for HTML, source elsewhere). URL still drives `path` and tab selection — only the rendering mode is ephemeral.",
+      "guided_by": "CLAUDE.md: 'Drawer 開閉、モーダル、Toolbar モード等の UI 一時状態は pushState しない'"
+    },
+    {
+      "decision": "Cache-bust via ?_=<n> query param (incremented on Save) rather than full src reload or Location.reload()",
+      "rationale": "A new src URL is the simplest cache-key change; the server ignores the unknown param. A full iframe reload via DOM mutation would break the sandbox state (re-flicker), and Location.reload requires same-origin access which is forbidden here.",
+      "guided_by": "DESIGN_PRINCIPLES: 'mobile parity' — small URL nudge is cheap on every device"
+    }
+  ],
+  "implementation_decisions": [
+    {
+      "decision": "Edit button disabled in HTML preview mode with explanatory tooltip",
+      "rationale": "Editing the rendered iframe in place is non-trivial (no contenteditable on an opaque-origin frame) and would conflict with the read-only preview semantics. Forcing the user through Source mode first makes the data flow explicit: read source → edit source → save → preview reloads.",
+      "guided_by": "DESIGN_PRINCIPLES: '明示的 > 暗黙的'"
+    },
+    {
+      "decision": "Iframe load error → auto-fallback to Source mode + banner",
+      "rationale": "A failed preview should never leave the user stranded with no UI. The banner tells them why we fell back and Source mode lets them at least see / fix the file.",
+      "guided_by": "DESIGN_PRINCIPLES: 'グレースフルデグラデーション'"
+    },
+    {
+      "decision": "E2E uses frame.content() string assertions instead of frame.eval_on_selector()",
+      "rationale": "Playwright cannot evaluate selectors against a sandboxed-without-allow-same-origin frame (that's the whole point of the sandbox). String assertions on the document HTML cover the same ground for the AC we care about (CSS applied, JS executed, image referenced). Sibling MIME checks via direct API calls give us the network-level signal that the parent's getComputedStyle/naturalWidth probes would otherwise provide."
+    },
+    {
+      "decision": "X-Content-Type-Options: nosniff on every preview response",
+      "rationale": "Prevents the browser from MIME-sniffing JavaScript bytes out of an image response (a known historical XSS vector). Cheap belt-and-braces."
+    }
+  ],
+  "review_decisions": [
+    {
+      "decision": "rawCSP shape test guards drift",
+      "rationale": "A single-line CSP is easy to mangle in a refactor and the consequence is silent loss of security. Unit test asserts the must-have directives and forbids wildcard script-src/connect-src so a future PR cannot accidentally relax them."
+    }
+  ],
+  "test_results": {
+    "go_unit": "PASS (internal/tab/files/... including TestMimeForPath, TestWantsJSON, TestRawCSP_Shape)",
+    "e2e": "PASS (tests/e2e/s026_html_preview.py: a + b + c + d + e + f + g + h + i + j; fixture cleaned up via S025 helper)"
+  },
+  "warnings": [],
+  "drift_notes": [
+    "Dev instance port shifted from 8215 → 8202 during sprint due to portman lease churn. The fixture helper reads PALMUX2_DEV_PORT_OVERRIDE which the sprint runner sets explicitly — no code changes needed.",
+    "AC-S026-1-19 originally listed as a placeholder for the MIME table; satisfied by TestMimeForPath + the API-level slice of the E2E."
+  ],
+  "backlog_added": [
+    "Source/Preview toggle keyboard shortcut (e.g. Cmd+Shift+P) — current implementation is mouse/touch only.",
+    "Hot reload on filesystem change: today the iframe only refetches on Save; watching the worktree and bumping cacheBust on any sibling file change would round out the dev-loop UX.",
+    "Console / network panel inside the preview: power users will want to see iframe-side console.log output. Out of scope for S026 (security review needed)."
+  ]
+}

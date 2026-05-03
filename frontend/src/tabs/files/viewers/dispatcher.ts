@@ -8,7 +8,7 @@
 // Order matters in `pickViewer` — `.drawio.svg` must be matched as
 // drawio (not image), so the drawio check fires first.
 
-export type ViewerKind = 'markdown' | 'drawio' | 'image' | 'monaco' | 'too-large'
+export type ViewerKind = 'markdown' | 'drawio' | 'html' | 'image' | 'monaco' | 'too-large'
 
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'])
 
@@ -41,6 +41,15 @@ export function isMarkdownPath(name: string): boolean {
   return lower.endsWith('.md') || lower.endsWith('.markdown')
 }
 
+/** True for HTML files we route through the iframe sandbox preview
+ *  (S026). The default view mode for these is `preview`; the
+ *  Source / Preview toggle in the preview header lets the user fall
+ *  back to the Monaco source view (and edit). */
+export function isHtmlPath(name: string): boolean {
+  const lower = name.toLowerCase()
+  return lower.endsWith('.html') || lower.endsWith('.htm')
+}
+
 export interface ViewerInputs {
   /** Worktree-relative path. */
   path: string
@@ -61,6 +70,9 @@ export function pickViewer(input: ViewerInputs): ViewerKind {
   if (isDrawioPath(input.path)) return 'drawio'
   if (isImagePath(input.path) || (input.mime ?? '').startsWith('image/')) return 'image'
   if (isMarkdownPath(input.path) || input.mime === 'text/markdown') return 'markdown'
+  // S026: HTML routes to a dedicated rendered-preview viewer with the
+  // raw source available behind a Source / Preview toggle.
+  if (isHtmlPath(input.path)) return 'html'
   return 'monaco'
 }
 

@@ -55,6 +55,9 @@ const ImageView = lazy(() =>
 const DrawioView = lazy(() =>
   import('./viewers/drawio-view').then((m) => ({ default: m.DrawioView })),
 )
+const HtmlView = lazy(() =>
+  import('./viewers/html-view').then((m) => ({ default: m.HtmlView })),
+)
 
 interface Stat {
   path: string
@@ -74,7 +77,7 @@ interface Props {
 
 const DEFAULT_PREVIEW_MAX_BYTES = 10 * 1024 * 1024
 
-/** Editable viewer kinds (S011 + S011-fix-1).
+/** Editable viewer kinds (S011 + S011-fix-1 + S026).
  *
  *  - `monaco` / `drawio`: inline editors — original S011 scope.
  *  - `markdown`: rendered preview by default; toggling Edit swaps in
@@ -83,10 +86,18 @@ const DEFAULT_PREVIEW_MAX_BYTES = 10 * 1024 * 1024
  *    with monaco/drawio. (S011-fix-1, regression discovered after
  *    the original S011 implementation hard-coded markdown to
  *    read-only — see docs/sprint-logs/S011-fix-1/decisions.md.)
+ *  - `html`: rendered iframe preview by default; toggling to Source
+ *    swaps in MonacoView with `language=html` so users can edit. Save
+ *    path is shared with monaco/drawio/markdown. (S026.)
  *  - `image`: read-only; inline image editing stays in the backlog.
  */
 function isEditable(kind: ViewerKind): boolean {
-  return kind === 'monaco' || kind === 'drawio' || kind === 'markdown'
+  return (
+    kind === 'monaco' ||
+    kind === 'drawio' ||
+    kind === 'markdown' ||
+    kind === 'html'
+  )
 }
 
 export function FilePreview({ apiBase, repoId, branchId, path, lineNum }: Props) {
@@ -134,6 +145,31 @@ export function FilePreview({ apiBase, repoId, branchId, path, lineNum }: Props)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+
+  // S026: HTML viewer maintains a Source / Preview toggle. The default
+  // is `preview` for `.html` / `.htm` (rendered iframe) and `source`
+  // for everything else (current behavior — Monaco). We track this in
+  // local state because the toggle is purely a UI concern; we do not
+  // pushState it (URL changes only when navigating to a new file).
+  const [htmlViewMode, setHtmlViewMode] = useState<'preview' | 'source'>('preview')
+  // Reset the toggle whenever the path changes so opening a new HTML
+  // file always starts in the configured default (preview).
+  useEffect(() => {
+    setHtmlViewMode('preview')
+  }, [path])
+
+  // S026: cache-bust counter. Bumped on every successful Save so the
+  // HtmlView appends `?_=<n>` to the iframe `src` and the browser
+  // refetches the document with its CSS / JS / image siblings.
+  const [cacheBust, setCacheBust] = useState(0)
+
+  // S026: load-error banner. Set when the iframe / preflight fetch
+  // reports failure; cleared when the user manually toggles back to
+  // Preview or opens a different file.
+  const [previewError, setPreviewError] = useState<string | null>(null)
+  useEffect(() => {
+    setPreviewError(null)
+  }, [path])
 
   // Step 1: stat the file (size + MIME) without loading the body. This
   // lets us decide whether to bother fetching at all (the too-large
@@ -292,6 +328,9 @@ export function FilePreview({ apiBase, repoId, branchId, path, lineNum }: Props)
         // a save shows the *pre-save* rendered content because
         // MarkdownView consumes `body.content` directly.
         setBody((prev) => (prev ? { ...prev, content, size: data.size } : prev))
+        // S026: bump cache-bust so when the user toggles back to
+        // Preview the iframe refetches with the new content.
+        setCacheBust((n) => n + 1)
       } catch (err) {
         if (err instanceof ApiError && err.status === 412) {
           // Already routed to the conflict dialog above.
@@ -383,6 +422,18 @@ export function FilePreview({ apiBase, repoId, branchId, path, lineNum }: Props)
 
   const editable = isEditable(viewerKind)
   const drawioMobileBlocked = viewerKind === 'drawio' && isMobile && mode === 'view'
+  // S026: HTML files have an additional Source / Preview toggle in
+  // the header. Editing is only meaningful in Source mode (the
+  // rendered iframe is read-only by definition), so we disable the
+  // Edit button while Preview is active and surface a tooltip.
+  const isHtml = viewerKind === 'html'
+  const htmlInPreview = isHtml && htmlViewMode === 'preview'
+  const editBlockedReason = drawioMobileBlocked
+    ? 'Drawio editing is desktop-only — open this file on a wider screen.'
+    : htmlInPreview
+      ? 'Switch to Source mode to edit the HTML file.'
+      : 'Edit this file'
+  const editBlocked = drawioMobileBlocked || htmlInPreview
 
   // Render the chosen viewer. Each receives the same props envelope so
   // adding a new viewer is one-liner-cheap from here.
@@ -393,6 +444,7 @@ export function FilePreview({ apiBase, repoId, branchId, path, lineNum }: Props)
       data-viewer={viewerKind}
       data-mode={mode}
       data-dirty={dirty ? 'true' : 'false'}
+      data-html-view-mode={isHtml ? htmlViewMode : undefined}
     >
       <header className={styles.header}>
         <span className={styles.path}>
@@ -426,6 +478,40 @@ export function FilePreview({ apiBase, repoId, branchId, path, lineNum }: Props)
           >
             Blame
           </button>
+          {/* S026: Source / Preview toggle for HTML files. Lives to
+              the left of the Edit button so the spatial flow reads as
+              "view mode → edit mode". The toggle is purely UI state
+              (no URL change), and Edit is disabled in Preview because
+              the iframe is read-only by design. */}
+          {isHtml && (
+            <button
+              type="button"
+              className={styles.editButton}
+              onClick={() => {
+                // If the user is mid-edit when they hit Preview we
+                // confirm the discard, mirroring the Edit ↔ View toggle.
+                if (htmlViewMode === 'source' && mode === 'edit' && dirty) {
+                  const ok = window.confirm(
+                    'You have unsaved changes. Discard them and switch to Preview?',
+                  )
+                  if (!ok) return
+                  clearDraft(editorKey)
+                  setMode(editorKey, 'view')
+                }
+                setPreviewError(null)
+                setHtmlViewMode((m) => (m === 'preview' ? 'source' : 'preview'))
+              }}
+              data-testid="html-mode-toggle"
+              data-html-mode={htmlViewMode}
+              title={
+                htmlViewMode === 'preview'
+                  ? 'Show HTML source (Monaco editor)'
+                  : 'Show rendered HTML preview'
+              }
+            >
+              {htmlViewMode === 'preview' ? 'Source' : 'Preview'}
+            </button>
+          )}
           {editable && (
             <>
               {mode === 'view' ? (
@@ -434,12 +520,8 @@ export function FilePreview({ apiBase, repoId, branchId, path, lineNum }: Props)
                   className={styles.editButton}
                   onClick={onToggleMode}
                   data-testid="edit-button"
-                  disabled={drawioMobileBlocked}
-                  title={
-                    drawioMobileBlocked
-                      ? 'Drawio editing is desktop-only — open this file on a wider screen.'
-                      : 'Edit this file'
-                  }
+                  disabled={editBlocked}
+                  title={editBlockedReason}
                 >
                   Edit
                 </button>
@@ -472,6 +554,15 @@ export function FilePreview({ apiBase, repoId, branchId, path, lineNum }: Props)
       {saveError && (
         <p className={styles.saveError} data-testid="save-error">
           Save failed: {saveError}
+        </p>
+      )}
+      {/* S026: HTML preview load-error banner. Surfaced when the
+          iframe / preflight fetch reports failure (e.g. file vanished,
+          server 5xx). We auto-fallback to Source mode so the user can
+          at least edit the file. */}
+      {isHtml && previewError && (
+        <p className={styles.saveError} data-testid="html-preview-error">
+          Preview unavailable: {previewError}. Showing source instead.
         </p>
       )}
       <div className={styles.body}>
@@ -533,6 +624,40 @@ export function FilePreview({ apiBase, repoId, branchId, path, lineNum }: Props)
               body={body}
               mode={mode}
               onDraft={(xml) => setDraft(editorKey, xml)}
+              onSave={() => onMonacoSaveRef.current?.()}
+            />
+          )}
+          {viewerKind === 'html' && htmlViewMode === 'preview' && (
+            // S026: rendered preview via sandboxed iframe.
+            <HtmlView
+              apiBase={apiBase}
+              path={path}
+              cacheBust={cacheBust}
+              onLoadError={(reason) => {
+                // Auto-fallback to Source mode so the user can still
+                // see / edit the file, with a banner explaining why.
+                setPreviewError(reason)
+                setHtmlViewMode('source')
+              }}
+            />
+          )}
+          {viewerKind === 'html' && htmlViewMode === 'source' && (
+            // S026: source mode reuses Monaco with `html` language so
+            // syntax highlighting + Save flow stay identical to other
+            // editable file types (markdown / monaco / drawio).
+            <MonacoView
+              key={`${editorKey}::html::${mode}`}
+              apiBase={apiBase}
+              path={path}
+              body={
+                entry?.draft != null && body
+                  ? { ...body, content: entry.draft }
+                  : body
+              }
+              lineNum={lineNum}
+              language="html"
+              mode={mode}
+              onChange={(v) => setDraft(editorKey, v)}
               onSave={() => onMonacoSaveRef.current?.()}
             />
           )}

@@ -57,6 +57,10 @@ func (p *Provider) RegisterRoutes(mux *http.ServeMux, prefix string) {
 	// `If-Match: <etag>` optimistic locking. Lives at the same `/raw`
 	// path as the GET so the URL contract is symmetric.
 	mux.HandleFunc("PUT "+prefix+"/raw", h.writeFile)
+	// S026: HTML preview iframe loads files via a path-based URL so
+	// relative `<link href="style.css">` / `<script src="app.js">`
+	// resolve correctly. See `previewFile` for the full rationale.
+	mux.HandleFunc("GET "+prefix+"/preview/{path...}", h.previewFile)
 	mux.HandleFunc("GET "+prefix+"/search", h.search)
 	mux.HandleFunc("GET "+prefix+"/grep", h.grep)
 }

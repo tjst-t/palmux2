@@ -6,10 +6,98 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/tjst-t/palmux2/internal/store"
 )
+
+// mimeForPath maps a worktree-relative path to the MIME type the browser
+// should see when loading the file via `/files/raw` (S026).
+//
+// Pre-S026 the raw endpoint returned `application/json` for all
+// non-binary content (a JSON envelope around the file body) and only
+// switched to a binary content-type for image/*-class files. That worked
+// for the dispatcher's stat / Monaco / image viewers but broke the new
+// HTML preview iframe — the browser treated `style.css` and `app.js` as
+// JSON, refused to apply / execute them, and the rendered preview showed
+// no styles or behavior.
+//
+// S026 introduces a separate MIME table that's consulted before falling
+// back to the JSON envelope. When `mimeForPath` returns a non-empty
+// string we serve the body directly with that Content-Type so the
+// browser renders / executes the resource as the author intended. The
+// extension list is intentionally narrow: only formats the iframe
+// preview actually needs (HTML / CSS / JS / common images / a couple of
+// lighter text formats).
+//
+// CDN-hosted assets are unaffected — they're loaded by the iframe with
+// their own origin's headers; we only control resources served from our
+// own origin.
+func mimeForPath(name string) string {
+	switch ext := strings.ToLower(filepath.Ext(name)); ext {
+	case ".html", ".htm":
+		return "text/html; charset=utf-8"
+	case ".css":
+		return "text/css; charset=utf-8"
+	case ".js", ".mjs":
+		return "application/javascript; charset=utf-8"
+	case ".json":
+		return "application/json; charset=utf-8"
+	case ".svg":
+		return "image/svg+xml"
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	case ".xml":
+		return "application/xml; charset=utf-8"
+	}
+	return ""
+}
+
+// rawCSP is the Content-Security-Policy header attached to every raw
+// response (S026). It applies *inside* the sandboxed iframe that
+// renders HTML previews, providing defense-in-depth alongside the
+// `<iframe sandbox="allow-scripts">` restriction (which already
+// prevents the iframe from claiming our origin and reaching the
+// session cookie).
+//
+//   - `default-src 'self'`: same-origin assets only by default. The
+//     iframe is treated by the browser as a unique opaque origin
+//     because we deliberately omit `allow-same-origin`, so 'self'
+//     here means "the iframe's own origin" — i.e. nothing is loadable
+//     unless explicitly allowed below.
+//   - `script-src 'self' 'unsafe-inline' 'unsafe-eval'`: developer
+//     HTML almost always uses inline `<script>` blocks during local
+//     iteration; eval is needed by some popular libs (Vue templates,
+//     etc.). These are safe under sandbox-without-same-origin because
+//     anything the script does still cannot touch palmux2's session.
+//   - `style-src 'self' 'unsafe-inline'`: same reasoning for inline
+//     `<style>` tags.
+//   - `img-src 'self' data: blob:`: data: and blob: URLs are common in
+//     hand-rolled HTML; the iframe's same-origin resolves to its
+//     opaque origin so 'self' covers worktree-relative `<img src>`
+//     references.
+//   - `font-src` / `connect-src`: 'self' only — no covert exfiltration.
+//
+// We intentionally do NOT whitelist any external CDN here. CDN hosting
+// is supported (the developer's own `<script src="https://cdn...">`
+// works because the browser fetches them directly) but our header
+// declares the strictest viable policy — the browser merges the
+// document's own CSP (if any) with this one using the most-restrictive
+// directive.
+const rawCSP = "default-src 'self'; " +
+	"script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+	"style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data: blob:; " +
+	"font-src 'self' data:; " +
+	"connect-src 'self'"
 
 const (
 	defaultReadLimit  = int64(2 << 20) // 2 MiB
@@ -116,6 +204,36 @@ func (h *handler) readFile(w http.ResponseWriter, r *http.Request) {
 	// keeps the ETag derivation in one place.
 	if etag, err := EtagFor(root, path); err == nil {
 		w.Header().Set("ETag", etag)
+	}
+	// S026: every raw response (JSON envelope OR direct body) carries
+	// the same CSP. The header is harmless on the JSON envelope (the
+	// browser doesn't render JSON as a document) and load-bearing on
+	// the iframe-targeted direct-body responses.
+	w.Header().Set("Content-Security-Policy", rawCSP)
+	// S026: when the request is *not* asking for the JSON envelope
+	// (the Files-tab dispatcher always sends `Accept: application/json`)
+	// AND we have a direct MIME mapping for the extension, serve the
+	// body straight back to the caller with the correct Content-Type.
+	// This is the path the HTML preview iframe takes — it loads the
+	// raw URL like a normal browser navigation, sending the default
+	// `Accept: text/html,…` header, and needs to receive `text/html`
+	// (not `application/json`) so the browser renders the document.
+	//
+	// The same path returns CSS / JS / images for assets the rendered
+	// HTML references via relative URLs, so a `<link href="style.css">`
+	// inside the iframe resolves to a sibling raw URL and gets the
+	// right Content-Type for application.
+	if !wantsJSON(r) {
+		if mt := mimeForPath(info.Path); mt != "" {
+			w.Header().Set("Content-Type", mt)
+			w.Header().Set("X-Palmux-Path", info.Path)
+			w.Header().Set("X-Palmux-Size", strconv.FormatInt(info.Size, 10))
+			// X-Content-Type-Options: keeps the browser from
+			// MIME-sniffing the body and overriding our type.
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			_, _ = w.Write(body)
+			return
+		}
 	}
 	if info.IsBinary {
 		w.Header().Set("Content-Type", info.MIME)
@@ -288,6 +406,87 @@ func (h *handler) grep(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"hits": hits})
+}
+
+// wantsJSON returns true when the caller's Accept header explicitly
+// asks for `application/json` (S026). The Files-tab dispatcher always
+// sets `Accept: application/json` so it stays on the JSON envelope
+// path; the HTML preview iframe uses a default browser Accept header
+// (`text/html,...`) and gets the raw direct-body path instead.
+//
+// We do a substring check rather than a strict media-type parse — the
+// browser's default Accept header can be "text/html,application/xhtml+xml,…"
+// or similar, and we just need the binary "did the dispatcher ask for
+// JSON or not?" answer.
+func wantsJSON(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept"), "application/json")
+}
+
+// previewFile handles `GET /files/preview/{path...}` (S026).
+//
+// Why a separate endpoint? The S010 / S011 raw endpoint encodes the
+// worktree path in the query string (`?path=preview/index.html`),
+// which is fine for the dispatcher's API calls but breaks relative
+// URL resolution inside an iframe document. When the rendered HTML
+// contains `<link href="style.css">`, the browser resolves that
+// against the iframe's URL — and a query-string base means the
+// relative href clobbers the `?path=` parameter, producing
+// `?path=style.css` (not `?path=preview/style.css`). The result is
+// a 404 / wrong file.
+//
+// Putting the worktree path in the URL path itself fixes that —
+// relative resolution then works the way the browser expects:
+//
+//	iframe.src = ".../files/preview/preview/index.html"
+//	<link href="style.css"> →
+//	  ".../files/preview/preview/style.css" → correct.
+//
+// We serve every file (not just HTML) through this endpoint so the
+// iframe can pull CSS / JS / images via relative paths. MIME mapping
+// + CSP behavior is identical to the raw endpoint's S026 path.
+//
+// Auth still flows through the standard middleware (cookie / bearer);
+// the iframe inherits the parent's cookie at *load time* but, because
+// of `sandbox` without `allow-same-origin`, scripts inside the iframe
+// see a unique opaque origin and CANNOT read the cookie themselves.
+func (h *handler) previewFile(w http.ResponseWriter, r *http.Request) {
+	root, err := h.branchPath(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	// Worktree-relative path lives in `{path...}` (Go 1.22+ wildcard
+	// pattern). Empty path → 400.
+	path := r.PathValue("path")
+	if path == "" {
+		writeErr(w, errors.New("path required"))
+		return
+	}
+	// Read the body up to the soft cap so a single huge file can't
+	// exhaust the server. We deliberately use the same default cap
+	// the raw endpoint uses; the dispatcher's `previewMaxBytes`
+	// gate prevents the iframe from loading too-large HTML in the
+	// first place.
+	body, info, err := ReadFile(root, path, defaultReadLimit)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if etag, err := EtagFor(root, path); err == nil {
+		w.Header().Set("ETag", etag)
+	}
+	w.Header().Set("Content-Security-Policy", rawCSP)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if mt := mimeForPath(info.Path); mt != "" {
+		w.Header().Set("Content-Type", mt)
+	} else {
+		// Fall back to the sniffed MIME — important for arbitrary
+		// binary assets the rendered HTML may reference.
+		w.Header().Set("Content-Type", info.MIME)
+	}
+	w.Header().Set("X-Palmux-Path", info.Path)
+	w.Header().Set("X-Palmux-Size", strconv.FormatInt(info.Size, 10))
+	_, _ = w.Write(body)
 }
 
 func maxResultsParam(q map[string][]string, fallback int) int {
