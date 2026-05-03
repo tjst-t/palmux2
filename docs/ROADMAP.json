@@ -4,10 +4,10 @@
   "progress": {
     "current_sprint": "S029",
     "total": 29,
-    "done": 26,
+    "done": 28,
     "in_progress": 0,
-    "remaining": 3,
-    "percentage": 90.0
+    "remaining": 1,
+    "percentage": 97
   },
   "execution_order": [
     "S001",
