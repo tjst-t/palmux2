@@ -5,12 +5,12 @@
 ## 進捗
 
 - **直近完了: S022 — Mobile UX 総点検 + Playwright モバイル E2E ハーネス** (autopilot 完了 / `autopilot/main/S022` ブランチ) — **22 スプリント全完了**
-- 合計: 26 スプリント | 完了: 25 | 進行中: 0 | 残り: 1
+- 合計: 27 スプリント | 完了: 25 | 進行中: 0 | 残り: 2
 - [████████████████████] 100%
 
 ## 実行順序
 
-S001 ✅ → S002 ✅ → S003 ✅ → S007 ✅ → S004 ✅ → S005 ✅ → S006 ✅ → S008 ✅ → S009 ✅ → S010 ✅ → S011 ✅ → S012 ✅ → S013 ✅ → S014 ✅ → S015 ✅ → S016 ✅ → S017 ✅ → S018 ✅ → S019 ✅ → S020 ✅ → S021 ✅ → S022 ✅ → S023 ✅ → S024 ✅ → S025 ✅ → **S026**
+S001 ✅ → S002 ✅ → S003 ✅ → S007 ✅ → S004 ✅ → S005 ✅ → S006 ✅ → S008 ✅ → S009 ✅ → S010 ✅ → S011 ✅ → S012 ✅ → S013 ✅ → S014 ✅ → S015 ✅ → S016 ✅ → S017 ✅ → S018 ✅ → S019 ✅ → S020 ✅ → S021 ✅ → S022 ✅ → S023 ✅ → S024 ✅ → S025 ✅ → **S026** → **S027**
 
 ---
 
@@ -1540,6 +1540,84 @@ Palmux のユーザとして、 HTML ファイルを Files タブで直接ブラ
   - (j) load error 時に Source fallback + banner が出る
   - (k) モバイル幅で破綻なし
   - (l) S025 の fixture helper を使い、 テスト後に palmux2-test/ が残らない
+
+---
+
+## スプリント S027: Markdown preview link enhancement (anchor + SPA nav) [ ]
+
+S010 で導入した MarkdownView は基本的な markdown 描画を行うが、 リンク挙動が不完全:
+- ページ内アンカー (`#section-name`) が動作しない (heading に id が振られていない)
+- 他 markdown / フォルダ / 画像 への内部リンクがクリック時に **Palmux2 全体を full reload**
+
+ドキュメント読みでは「目次から各章にジャンプ」 「README から関連 doc を辿る」 が頻発するため、 reload で state / scroll position / 他タブのコンテキストが失われると体験を大きく損なう。 SPA navigation で完結させる。
+
+**設計の中核**:
+
+- **Heading ID 生成**: `rehype-slug` プラグイン (GitHub 互換、 デファクト) を react-markdown pipeline に追加。 `<h1 id="…">` 等が自動付与される
+- **`components.a` override**: react-markdown の `a` をカスタムコンポーネントで置換、 link 種類別 dispatch:
+  - **① anchor (`#foo`)**: `e.preventDefault()` → `scrollIntoView({behavior: 'smooth', block: 'start'})` + `history.replaceState` で URL hash 更新
+  - **② 相対 path (`./other.md`, `../shared/x.png`)**: `URL` API で base = 現在 file path として resolve → React Router の `navigate()` で `/files/{resolved-path}` ルートへ。 page reload なし
+  - **③ 同 origin 絶対 path (`/path/...`)**: Palmux2 ルートとして React Router navigate
+  - **④ 外部 (`http(s)://`)**: `target="_blank" rel="noopener noreferrer"` で別タブ
+- **`components.img` override**: 画像も同様に相対 path resolve、 raw API (S010 既存 + S026 MIME 判定) で取得
+- **存在しない target file**: navigate 試行 → 404 fallback (Files tab 既存挙動)、 error toast は出さない (ブラウザ標準と同じ)
+- **初期 hash scroll**: URL fragment (`#foo`) でロードされた場合も初期 scroll が動く (`useEffect` で hash check して scrollIntoView)
+- **既存挙動の保全**: コードブロック内のテキストは link 化しない (markdown-it 標準どおり)、 footnote / table 等の特殊構造は影響受けない
+
+### ストーリー S027-1: Markdown 内のリンクが SPA で動作する [ ]
+
+**ユーザーストーリー:**
+Palmux のユーザとして、 Markdown プレビュー内のリンク (アンカー / 他ファイル / 外部) を期待通りに動かしたい。 なぜなら、 ドキュメントを読むときに目次から各章にジャンプしたり、 関連 markdown ファイルや画像を辿ったりするのが頻繁で、 その都度 Palmux2 が full reload するとスクロール位置 / state / 他タブの作業コンテキストを失うからだ。
+
+**受け入れ条件:**
+
+**Anchor (in-page):**
+- [ ] heading に id が自動付与される (例: `## Foo Bar` → `<h1 id="foo-bar">`)。 GitHub 互換の slug 規則
+- [ ] anchor link (`[link](#foo-bar)`) クリックで該当 heading に **smooth scroll**
+- [ ] URL の hash (`#foo-bar`) が更新される
+- [ ] ブラウザの戻る/進むで hash が復元される
+- [ ] 初期ロード時 URL に `#foo-bar` がついていると該当 heading に初期 scroll する
+
+**Cross-file (SPA):**
+- [ ] 相対 path リンク (`./other.md`, `../shared/notes.md`) クリックで **Palmux2 全体を reload せずに** Files tab 内で navigate
+- [ ] 同 origin 絶対 path (`/files/...`) も同様に SPA 遷移
+- [ ] navigate 後にスクロール位置 / 他タブの状態が保持される (Drawer / Claude タブ等)
+- [ ] 存在しない path の場合は Files tab の既存 404 fallback (error toast は出さない)
+- [ ] 画像の相対 path (`![alt](./img.png)`) は raw API 経由で正しく表示される
+
+**External:**
+- [ ] 外部 URL (`http(s)://...`) は **別タブ** で開く (`target="_blank" rel="noopener noreferrer"`)
+- [ ] Palmux2 自身の navigation には影響しない
+
+**互換性:**
+- [ ] 既存 S010 の MarkdownView 基本機能 (heading / list / table / code block / blockquote 等) は影響なし
+- [ ] S011 の MD 編集 (Source mode) は影響なし
+- [ ] mobile (< 600px) でも anchor scroll / cross-file navigate が動作
+
+**タスク:**
+
+**フロントエンド:**
+- [ ] **タスク S027-1-1**: `npm i rehype-slug` を追加、 `frontend/src/tabs/files/viewers/markdown-view.tsx` の react-markdown pipeline に `rehypePlugins: [rehypeSlug]` を組み込み
+- [ ] **タスク S027-1-2**: `components.a` override を実装 — link 種類判定 helper (`classifyLink(href, currentPath)`) で 4 種に分類 (anchor / relative / absolute-same-origin / external)、 各経路で適切な動作
+- [ ] **タスク S027-1-3**: anchor scroll handler — `scrollIntoView({behavior: 'smooth', block: 'start'})` + `history.replaceState({...}, '', '#${id}')`
+- [ ] **タスク S027-1-4**: 相対 path resolve — `new URL(href, baseURL).pathname` で resolve、 React Router の `useNavigate` で `/files/{resolved}` に遷移 (full reload なし)
+- [ ] **タスク S027-1-5**: external link は `target="_blank" rel="noopener noreferrer"` を付与してそのまま `<a>` 描画 (handler なし、 ブラウザ標準動作)
+- [ ] **タスク S027-1-6**: `components.img` override — 相対 path を raw API URL に変換して `<img src="...">` で描画
+- [ ] **タスク S027-1-7**: 初期 hash scroll — `useEffect` で `window.location.hash` を check、 該当 element に scrollIntoView (markdown render 完了後の timing 注意、 setTimeout or MutationObserver で対処)
+
+**E2E:**
+- [ ] **タスク S027-1-8**: dev インスタンス + Playwright で実機検証。 `tests/e2e/s027_*.py` で:
+  - (a) anchor リンククリック → smooth scroll + URL hash 更新、 ブラウザ戻る/進むで復元
+  - (b) `./other.md` リンククリック → Files tab で navigate、 Palmux2 全体は reload しない (page load count を check)
+  - (c) `../parent/file.md` も SPA navigate
+  - (d) `![alt](./img.png)` 画像が表示される
+  - (e) 外部 `https://...` リンクは別タブで開く (`target="_blank"` 検証)
+  - (f) 存在しない `./missing.md` リンクで 404 fallback、 toast 出ない
+  - (g) URL `#section` でロード → 初期 scroll が動く
+  - (h) 既存 MarkdownView の基本機能 (heading / list / table / code block) regression なし
+  - (i) S011 MD 編集 (Source mode) regression なし
+  - (j) mobile (< 600px) で動作
+  - (k) S025 fixture helper を使用 (テスト後 palmux2-test/ 残らない)
 
 ---
 
