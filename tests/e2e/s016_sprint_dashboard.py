@@ -172,35 +172,31 @@ S001 → S002
 """
 
 
+# S025: fixture creation/cleanup delegated to tests/e2e/_fixture.py so
+# the cleanup is registered with atexit/signal handlers and survives
+# Ctrl-C / SIGTERM.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _fixture import make_fixture as _make_fixture, Fixture as _Fixture  # noqa: E402
+
+_FIXTURES: list[_Fixture] = []
+
+
 def make_fixture_repo() -> tuple[Path, str, str]:
     """Create a fresh git repo under ghq root and register it with palmux2."""
-    root = ghq_root()
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    rel = f"github.com/palmux2-test/s016-{stamp}-{os.getpid()}"
-    repo = root / rel
-    repo.mkdir(parents=True, exist_ok=False)
-    run(repo, "git", "init", "-b", "main")
-    run(repo, "git", "config", "user.email", "test@example.com")
-    run(repo, "git", "config", "user.name", "Test")
-    run(repo, "git", "config", "commit.gpgsign", "false")
-    (repo / "README.md").write_text("hi\n")
-    run(repo, "git", "add", ".")
-    run(repo, "git", "commit", "-m", "init")
-    run(repo, "git", "remote", "add", "origin", f"https://example.com/{rel}.git")
-    code, _, avail = http_json("GET", "/api/repos/available")
-    assert_(code == 200, f"available: {code} {avail}")
-    repo_id = None
-    for entry in avail:  # type: ignore[union-attr]
-        if entry.get("ghqPath") == rel:
-            repo_id = entry["id"]
-            break
-    assert_(repo_id is not None, f"fixture {rel} not in available repos")
-    code, _, _body = http_json("POST", f"/api/repos/{urllib.parse.quote(repo_id)}/open")
-    assert_(code in (200, 201), f"open repo: {code}")
-    return repo, rel, repo_id  # type: ignore[return-value]
+    fx = _make_fixture("s016")
+    _FIXTURES.append(fx)
+    return fx.path, fx.ghq_path, fx.repo_id
 
 
 def fixture_cleanup(repo_id: str, repo_path: Path) -> None:
+    for fx in list(_FIXTURES):
+        if fx.repo_id == repo_id:
+            fx._cleanup()
+            try:
+                _FIXTURES.remove(fx)
+            except ValueError:
+                pass
+            return
     try:
         http_json("POST", f"/api/repos/{urllib.parse.quote(repo_id)}/close")
     except Exception:

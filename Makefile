@@ -1,4 +1,4 @@
-.PHONY: dev dev-api dev-frontend ports tmp serve serve-stop serve-logs build build-linux build-arm test lint clean
+.PHONY: dev dev-api dev-frontend ports tmp serve serve-stop serve-logs build build-linux build-arm test lint clean e2e-cleanup e2e-cleanup-dry
 
 TMP_DIR := tmp
 ENV_FILE := $(TMP_DIR)/portman.env
@@ -152,3 +152,12 @@ clean:
 	rm -rf $(BIN_DIR) frontend/dist
 	@mkdir -p frontend/dist
 	@touch frontend/dist/.gitkeep
+
+# S025: remove stale palmux2-test fixtures (ghq folder + repos.json).
+# Operates only on this repo's tmp/ config-dir. Re-run any time you see
+# `palmux2-test--*` entries lingering in the dev drawer.
+e2e-cleanup:
+	@python3 scripts/cleanup-test-fixtures.py --config-dir ./$(TMP_DIR)
+
+e2e-cleanup-dry:
+	@python3 scripts/cleanup-test-fixtures.py --config-dir ./$(TMP_DIR) --dry-run

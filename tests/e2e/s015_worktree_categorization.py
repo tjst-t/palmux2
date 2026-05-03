@@ -169,40 +169,21 @@ def ghq_root() -> Path:
     return Path(out.stdout.strip())
 
 
+# S025: fixture creation is now delegated to tests/e2e/_fixture.py so
+# the cleanup is registered with atexit/signal handlers and survives
+# Ctrl-C / SIGTERM.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _fixture import make_fixture as _make_fixture, Fixture as _Fixture  # noqa: E402
+
+_FIXTURES: list[_Fixture] = []
+
+
 def make_fixture_repo() -> tuple[Path, str, str]:
     """Create a fresh git repo under ghq root and register it with palmux2.
     Returns (repo_path, ghq_path, repo_id)."""
-    root = ghq_root()
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    rel = f"github.com/palmux2-test/s015-{stamp}-{os.getpid()}"
-    repo = root / rel
-    repo.mkdir(parents=True, exist_ok=False)
-    run(repo, "git", "init", "-b", "main")
-    run(repo, "git", "config", "user.email", "test@example.com")
-    run(repo, "git", "config", "user.name", "Test")
-    run(repo, "git", "config", "commit.gpgsign", "false")
-    (repo / "README.md").write_text("hi\n")
-    run(repo, "git", "add", ".")
-    run(repo, "git", "commit", "-m", "init")
-    # gwq derives the worktree base path from the origin URL. Add a fake
-    # remote so the test fixture can be opened through palmux2 (which
-    # delegates to `gwq add`). The remote URL is never fetched.
-    run(repo, "git", "remote", "add", "origin", f"https://example.com/{rel}.git")
-    # Register with palmux2.
-    # palmux2 derives the repoId from the ghq path (slug + 4-char hash);
-    # rather than reproducing that algorithm here, we let the server tell
-    # us the ID by listing /repos/available.
-    code, avail = http_json("GET", "/api/repos/available")
-    assert_(code == 200, f"available: {code} {avail}")
-    repo_id = None
-    for entry in avail:  # type: ignore[union-attr]
-        if entry.get("ghqPath") == rel:
-            repo_id = entry["id"]
-            break
-    assert_(repo_id is not None, f"fixture {rel} not in /api/repos/available")
-    code, _ = http_json("POST", f"/api/repos/{urllib.parse.quote(repo_id)}/open")  # type: ignore[arg-type]
-    assert_(code in (200, 201), f"open repo: {code}")
-    return repo, rel, repo_id  # type: ignore[return-value]
+    fx = _make_fixture("s015")
+    _FIXTURES.append(fx)
+    return fx.path, fx.ghq_path, fx.repo_id
 
 
 def fetch_repos_json() -> list[dict]:
@@ -217,7 +198,18 @@ def fetch_repos_json() -> list[dict]:
 
 
 def fixture_cleanup(repo_id: str, repo_path: Path) -> None:
-    """Best-effort cleanup: close repo via API, then remove the directory."""
+    """Best-effort cleanup: close repo via API, then remove the directory.
+
+    Backed by the helper so the same atexit-registered fixture object is
+    cleaned exactly once."""
+    for fx in list(_FIXTURES):
+        if fx.repo_id == repo_id:
+            fx._cleanup()
+            try:
+                _FIXTURES.remove(fx)
+            except ValueError:
+                pass
+            return
     try:
         http_json("POST", f"/api/repos/{urllib.parse.quote(repo_id)}/close")
     except Exception:

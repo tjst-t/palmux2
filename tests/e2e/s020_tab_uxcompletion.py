@@ -105,31 +105,19 @@ def ghq_root() -> Path:
     return Path(out.stdout.strip())
 
 
+# Fixture creation/cleanup is delegated to the shared helper in
+# tests/e2e/_fixture.py (S025). The helper installs an atexit / signal
+# hook so the fixture is removed even on Ctrl-C.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _fixture import make_fixture as _make_fixture, Fixture as _Fixture  # noqa: E402
+
+_FIXTURES: list[_Fixture] = []
+
+
 def make_fixture_repo() -> tuple[Path, str, str]:
-    root = ghq_root()
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    rel = f"github.com/palmux2-test/s020-{stamp}-{os.getpid()}"
-    repo = root / rel
-    repo.mkdir(parents=True, exist_ok=False)
-    run(repo, "git", "init", "-b", "main")
-    run(repo, "git", "config", "user.email", "test@example.com")
-    run(repo, "git", "config", "user.name", "Test")
-    run(repo, "git", "config", "commit.gpgsign", "false")
-    (repo / "README.md").write_text("hi\n")
-    run(repo, "git", "add", ".")
-    run(repo, "git", "commit", "-m", "init")
-    run(repo, "git", "remote", "add", "origin", f"https://example.com/{rel}.git")
-    code, avail = http_json("GET", "/api/repos/available")
-    assert_(code == 200, f"available: {code} {avail}")
-    repo_id = None
-    for entry in avail:  # type: ignore[union-attr]
-        if entry.get("ghqPath") == rel:
-            repo_id = entry["id"]
-            break
-    assert_(repo_id is not None, f"fixture {rel} not in /api/repos/available")
-    code, _ = http_json("POST", f"/api/repos/{urllib.parse.quote(repo_id)}/open")  # type: ignore[arg-type]
-    assert_(code in (200, 201), f"open repo: {code}")
-    return repo, rel, repo_id  # type: ignore[return-value]
+    fx = _make_fixture("s020")
+    _FIXTURES.append(fx)
+    return fx.path, fx.ghq_path, fx.repo_id
 
 
 def get_branch(repo_id: str, branch_name: str) -> dict:
@@ -146,6 +134,17 @@ def get_branch(repo_id: str, branch_name: str) -> dict:
 
 
 def fixture_cleanup(repo_id: str, repo_path: Path) -> None:
+    # S025: delegate to the helper's cleanup so atexit registration stays
+    # consistent. We match by repo_id; on the unlikely chance the entry is
+    # missing (caller created it some other way), fall back to manual.
+    for fx in list(_FIXTURES):
+        if fx.repo_id == repo_id:
+            fx._cleanup()
+            try:
+                _FIXTURES.remove(fx)
+            except ValueError:
+                pass
+            return
     try:
         http_json("POST", f"/api/repos/{urllib.parse.quote(repo_id)}/close")
     except Exception:
