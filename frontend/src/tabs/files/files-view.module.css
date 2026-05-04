@@ -16,15 +16,82 @@
   background-color: var(--color-surface);
 }
 
-.searchToggle {
+.searchToggle,
+.newFileBtn {
   font-size: 12px;
   color: var(--color-fg-muted);
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
 }
-.searchToggle:hover {
+.searchToggle:hover,
+.newFileBtn:hover {
   background-color: var(--color-elevated);
   color: var(--color-fg);
+}
+.headerActions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.headerActions:empty {
+  display: none;
+}
+
+/* hotfix: VS Code-style "New file" inline input. Anchored to the
+   header — appears as a slim row just under the breadcrumb. */
+.newFileRow {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+  align-items: center;
+}
+.newFileRow .newFileInput {
+  flex: 1;
+  min-width: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-fg);
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+}
+.newFileRow .newFileInput:focus {
+  outline: 1px solid var(--color-accent);
+  border-color: var(--color-accent);
+}
+.newFileRow .newFileSubmit,
+.newFileRow .newFileCancel {
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-fg);
+  cursor: pointer;
+}
+.newFileRow .newFileSubmit {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+.newFileRow .newFileSubmit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.newFileRow .newFileCancel:hover { background: var(--color-elevated); }
+.newFileError {
+  font-size: 11px;
+  color: var(--color-error);
+  font-family: var(--font-mono);
+  padding: 4px var(--space-3) 8px;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .body {

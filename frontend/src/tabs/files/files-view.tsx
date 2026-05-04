@@ -50,6 +50,15 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
   const [entries, setEntries] = useState<Entry[]>([])
   const [error, setError] = useState<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
+
+  // hotfix: VS Code-style "+ New file" affordance — small inline input
+  // anchored to the header. Bumping refreshTick re-runs the dir-fetch
+  // useEffects so the freshly-created file shows up in the listing.
+  const [newFileOpen, setNewFileOpen] = useState(false)
+  const [newFileName, setNewFileName] = useState('')
+  const [newFileError, setNewFileError] = useState<string | null>(null)
+  const [newFileBusy, setNewFileBusy] = useState(false)
+  const [refreshTick, setRefreshTick] = useState(0)
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const listRatio = usePalmuxStore((s) => s.deviceSettings.filesListRatio)
   const setDeviceSetting = usePalmuxStore((s) => s.setDeviceSetting)
@@ -192,7 +201,7 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
     return () => {
       cancelled = true
     }
-  }, [isUrlPanel, apiBase, splat])
+  }, [isUrlPanel, apiBase, splat, refreshTick])
 
   // Right-panel local state path: simpler, just refresh whenever localPath
   // changes (no URL/resource resolution involved).
@@ -214,7 +223,7 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
     return () => {
       cancelled = true
     }
-  }, [isUrlPanel, apiBase, localPath])
+  }, [isUrlPanel, apiBase, localPath, refreshTick])
 
   const onPick = (entry: Entry) => {
     if (entry.isDir) {
@@ -224,17 +233,110 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
     }
   }
 
+  const submitNewFile = useCallback(async () => {
+    const name = newFileName.trim()
+    if (!name) return
+    // Compose path: current dir + name. Reject leading "/" to keep the
+    // create endpoint guarded — server also validates via resolveSafePath.
+    if (name.startsWith('/')) {
+      setNewFileError('path must be relative (no leading /)')
+      return
+    }
+    const targetPath = path ? `${path}/${name}` : name
+    setNewFileBusy(true)
+    setNewFileError(null)
+    try {
+      await api.post<unknown>(`${apiBase}/create`, { path: targetPath, content: '' })
+      setNewFileOpen(false)
+      setNewFileName('')
+      // Bump tick so dir listing re-fetches; then open the new file in
+      // the editor pane so the user can start typing immediately.
+      setRefreshTick((t) => t + 1)
+      selectFile(targetPath)
+    } catch (err) {
+      setNewFileError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setNewFileBusy(false)
+    }
+  }, [apiBase, newFileName, path, selectFile])
+
+  const cancelNewFile = useCallback(() => {
+    setNewFileOpen(false)
+    setNewFileName('')
+    setNewFileError(null)
+  }, [])
+
   return (
     <div className={styles.wrap}>
       <header className={styles.header}>
         <Breadcrumb path={path} onNavigate={goToDir} />
-        <button
-          className={styles.searchToggle}
-          onClick={() => setSearchOpen((v) => !v)}
-        >
-          {searchOpen ? '× Close search' : '🔍 Search'}
-        </button>
+        <div className={styles.headerActions}>
+          <button
+            className={styles.newFileBtn}
+            onClick={() => {
+              setNewFileOpen(true)
+              setNewFileError(null)
+            }}
+            title="New file (UTF-8)"
+            data-testid="files-new-file-btn"
+          >
+            ＋ New file
+          </button>
+          <button
+            className={styles.searchToggle}
+            onClick={() => setSearchOpen((v) => !v)}
+          >
+            {searchOpen ? '× Close search' : '🔍 Search'}
+          </button>
+        </div>
       </header>
+      {newFileOpen && (
+        <div className={styles.newFileRow}>
+          <span style={{ color: 'var(--color-fg-muted)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+            {path ? path + '/' : ''}
+          </span>
+          <input
+            autoFocus
+            className={styles.newFileInput}
+            type="text"
+            placeholder="filename.txt (or relative/path/file.txt)"
+            value={newFileName}
+            onChange={(e) => {
+              setNewFileName(e.target.value)
+              setNewFileError(null)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault()
+                cancelNewFile()
+              } else if (e.key === 'Enter') {
+                e.preventDefault()
+                void submitNewFile()
+              }
+            }}
+            disabled={newFileBusy}
+            data-testid="files-new-file-input"
+          />
+          <button
+            className={styles.newFileSubmit}
+            onClick={() => void submitNewFile()}
+            disabled={!newFileName.trim() || newFileBusy}
+            data-testid="files-new-file-submit"
+          >
+            {newFileBusy ? 'Creating…' : 'Create'}
+          </button>
+          <button
+            className={styles.newFileCancel}
+            onClick={cancelNewFile}
+            disabled={newFileBusy}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+      {newFileError && (
+        <div className={styles.newFileError} data-testid="files-new-file-error">{newFileError}</div>
+      )}
       {searchOpen && (
         <FileSearch
           apiBase={apiBase}

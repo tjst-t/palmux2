@@ -57,6 +57,11 @@ func (p *Provider) RegisterRoutes(mux *http.ServeMux, prefix string) {
 	// `If-Match: <etag>` optimistic locking. Lives at the same `/raw`
 	// path as the GET so the URL contract is symmetric.
 	mux.HandleFunc("PUT "+prefix+"/raw", h.writeFile)
+	// hotfix: VS Code-style "+ New file" affordance. Body is JSON
+	// `{"path": "rel/path/foo.txt", "content": "..."}`. Returns 201 on
+	// success, 409 if the path already exists. UTF-8 only — no encoding
+	// negotiation; that's an explicit scope cut for this hotfix.
+	mux.HandleFunc("POST "+prefix+"/create", h.createFile)
 	// S026: HTML preview iframe loads files via a path-based URL so
 	// relative `<link href="style.css">` / `<script src="app.js">`
 	// resolve correctly. See `previewFile` for the full rationale.

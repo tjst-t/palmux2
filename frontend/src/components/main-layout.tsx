@@ -71,14 +71,24 @@ export function MainLayout() {
     )
   }
 
+  // hotfix: toolbar + IME bar are exclusively for Bash terminals.
+  // Claude tab has its own composer (with its own IME handling) and
+  // Files / Git / Sprint are pointer-driven REST views — neither needs
+  // the on-screen modifier-key bar. Hide both unless the focused tab
+  // is a Bash terminal.
+  const activeTab = branch?.tabSet.tabs.find((t) => t.id === tabId)
+  const isBashTab = activeTab?.type === 'bash'
+
   return (
     <div className={styles.shell}>
       {showInlineDrawer && <Drawer />}
       <div className={styles.body}>
         <Header />
-        {imeMode !== 'none' && <IMEBar mode={imeMode} />}
         <MainArea />
-        <Toolbar />
+        {/* IME bar sits directly above the toolbar — both are bottom-anchored
+            mobile/touch UX so they belong together. */}
+        {isBashTab && imeMode !== 'none' && <IMEBar mode={imeMode} />}
+        {isBashTab && <Toolbar />}
       </div>
       {showMobileDrawer && <MobileDrawerOverlay onClose={() => setMobileDrawerOpen(false)} />}
     </div>

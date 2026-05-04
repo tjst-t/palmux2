@@ -368,6 +368,71 @@ func (h *handler) writeFile(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// createFile handles `POST /api/repos/.../files/create`.
+//
+// Body: JSON `{"path": "rel/path/to/new.txt", "content": "...optional..."}`.
+// UTF-8 only. Parent directories are auto-created (VS Code parity).
+// Returns 201 with the new FileInfo + ETag, or 409 if the path exists.
+func (h *handler) createFile(w http.ResponseWriter, r *http.Request) {
+	root, err := h.branchPath(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	const maxUpload = int64(32 << 20)
+	r.Body = http.MaxBytesReader(w, r.Body, maxUpload)
+	defer r.Body.Close()
+
+	var payload struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	}
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&payload); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{
+				"error": "request body exceeds 32 MiB upload limit",
+			})
+			return
+		}
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if dec.More() {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "trailing content after JSON object"})
+		return
+	}
+	if strings.TrimSpace(payload.Path) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path required"})
+		return
+	}
+
+	info, etag, err := CreateFile(root, payload.Path, []byte(payload.Content))
+	if err != nil {
+		switch {
+		case errors.Is(err, os.ErrExist):
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		case errors.Is(err, os.ErrPermission):
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
+		case errors.Is(err, ErrInvalidPath):
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		default:
+			writeErr(w, err)
+		}
+		return
+	}
+	w.Header().Set("ETag", etag)
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"path":     info.Path,
+		"size":     info.Size,
+		"mime":     info.MIME,
+		"isBinary": info.IsBinary,
+		"etag":     etag,
+	})
+}
+
 func (h *handler) search(w http.ResponseWriter, r *http.Request) {
 	root, err := h.branchPath(r)
 	if err != nil {

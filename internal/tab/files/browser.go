@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -385,6 +386,59 @@ func WriteFile(worktreeRoot, relPath string, content []byte) (FileInfo, string, 
 	info.IsBinary = looksBinary(head)
 	info.MIME = detectMIME(relPath, head)
 	return info, ComputeETag(newSt.ModTime(), newSt.Size()), nil
+}
+
+// CreateFile creates a new file at relPath with the given (UTF-8) content.
+// The path must not already exist — if it does, returns os.ErrExist so the
+// caller can map it to 409. Parent directories are auto-created (VS Code
+// "new file" UX: typing `dir/sub/foo.txt` creates the `dir/sub` chain).
+//
+// The atomic temp+rename dance from WriteFile isn't needed here — there's
+// no existing file to race against — but we still write via Create+Sync
+// so a crash mid-write doesn't leave an empty inode hanging.
+func CreateFile(worktreeRoot, relPath string, content []byte) (FileInfo, string, error) {
+	abs, err := resolveSafePath(worktreeRoot, relPath)
+	if err != nil {
+		return FileInfo{}, "", err
+	}
+	if _, err := os.Stat(abs); err == nil {
+		return FileInfo{}, "", fmt.Errorf("create %s: %w", relPath, os.ErrExist)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return FileInfo{}, "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		return FileInfo{}, "", err
+	}
+	f, err := os.OpenFile(abs, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		return FileInfo{}, "", err
+	}
+	if _, err := f.Write(content); err != nil {
+		_ = f.Close()
+		return FileInfo{}, "", err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return FileInfo{}, "", err
+	}
+	if err := f.Close(); err != nil {
+		return FileInfo{}, "", err
+	}
+	st, err := os.Stat(abs)
+	if err != nil {
+		return FileInfo{}, "", err
+	}
+	head := content
+	if len(head) > 512 {
+		head = head[:512]
+	}
+	info := FileInfo{
+		Path:     relPath,
+		Size:     st.Size(),
+		IsBinary: looksBinary(head),
+		MIME:     detectMIME(relPath, head),
+	}
+	return info, ComputeETag(st.ModTime(), st.Size()), nil
 }
 
 // detectMIME picks a MIME type by extension, falling back to "text/plain".
