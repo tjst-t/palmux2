@@ -1,0 +1,224 @@
+/* user-commands-modal.module.css — S032
+ * Matches prototype/user-commands-modal.html approved layout.
+ */
+
+.subtitle {
+  font-size: 12px;
+  color: var(--color-fg-muted);
+  margin: 0 0 16px;
+  line-height: 1.5;
+}
+
+.kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--color-fg-muted);
+  background: var(--color-surface);
+}
+
+/* Column header row */
+.headerRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1fr) 110px 36px;
+  gap: 8px;
+  padding: 0 12px 6px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-dim);
+  font-weight: 600;
+}
+
+/* Data row */
+.cmdRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1fr) 110px 36px;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  margin-bottom: 8px;
+}
+
+.input {
+  font-size: 12px;
+  padding: 6px 8px;
+  min-width: 0;
+  width: 100%;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  outline: none;
+  transition: border-color 120ms;
+}
+.input:focus {
+  border-color: var(--color-accent);
+}
+
+.targetSelect {
+  background: var(--color-bg);
+  color: var(--color-fg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  padding: 6px 8px;
+  font-family: var(--font-ui);
+  min-width: 0;
+  width: 100%;
+  outline: none;
+}
+.targetSelect:focus {
+  border-color: var(--color-accent);
+}
+
+.removeRowBtn {
+  background: transparent;
+  border: 0;
+  color: var(--color-fg-muted);
+  font-size: 16px;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 100ms, background 100ms;
+}
+.removeRowBtn:hover {
+  color: var(--color-error);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.addRowBtn {
+  margin-top: 8px;
+  background: transparent;
+  color: var(--color-accent-light);
+  border: 1px dashed rgba(124, 138, 255, 0.4);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: background 100ms, border-style 100ms;
+  font-family: var(--font-ui);
+}
+.addRowBtn:hover {
+  background: rgba(124, 138, 255, 0.06);
+  border-style: solid;
+}
+
+/* Raw JSON details */
+.rawDetails {
+  margin-top: 22px;
+}
+
+.rawSummary {
+  cursor: pointer;
+  color: var(--color-fg-muted);
+  font-size: 12px;
+  user-select: none;
+}
+
+.rawPre {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 12px;
+  color: var(--color-fg);
+  overflow: auto;
+  font-family: var(--font-mono);
+  margin-top: 8px;
+  line-height: 1.6;
+  max-height: 200px;
+}
+
+/* Footer */
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+
+.footerMeta {
+  margin-right: auto;
+  font-size: 11px;
+  color: var(--color-fg-dim);
+}
+
+.unsaved {
+  color: var(--color-fg-muted);
+}
+
+.saveError {
+  font-size: 12px;
+  color: var(--color-error);
+  flex: 1;
+}
+
+.btnGhost {
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  background: transparent;
+  color: var(--color-fg-muted);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  transition: background 100ms, color 100ms;
+}
+.btnGhost:hover:not(:disabled) {
+  background: var(--color-surface);
+  color: var(--color-fg);
+}
+.btnGhost:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btnPrimary {
+  padding: 6px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  background: var(--color-accent);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-weight: 500;
+  transition: background 100ms;
+}
+.btnPrimary:hover:not(:disabled) {
+  background: var(--color-accent-dark);
+}
+.btnPrimary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Mobile: shrink columns */
+@media (max-width: 600px) {
+  .cmdRow,
+  .headerRow {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 90px 28px;
+  }
+  /* Hide notes column on mobile */
+  .cmdRow :nth-child(3),
+  .headerRow :nth-child(3) {
+    display: none;
+  }
+}

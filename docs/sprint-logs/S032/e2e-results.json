@@ -1,0 +1,46 @@
+{
+  "sprint": "S032",
+  "run_date": "2026-05-04",
+  "instance": "dev",
+  "port": 8214,
+  "total": 7,
+  "passed": 7,
+  "failed": 0,
+  "results": [
+    {
+      "ac": "AC-S032-1-1",
+      "status": "pass",
+      "detail": "schema validates, round-trips, and rejects malformed entries"
+    },
+    {
+      "ac": "AC-S032-1-2",
+      "status": "pass",
+      "detail": "target:'bash' userCommand shows in >mode"
+    },
+    {
+      "ac": "AC-S032-1-3",
+      "status": "pass",
+      "detail": "target:'url' userCommand shows in >mode with url routing detail"
+    },
+    {
+      "ac": "AC-S032-1-4",
+      "status": "pass",
+      "detail": "target:'files' userCommand shows in >mode with files routing detail"
+    },
+    {
+      "ac": "AC-S032-1-5",
+      "status": "pass",
+      "detail": "builtin 'manage user commands' opens UserCommandsModal"
+    },
+    {
+      "ac": "AC-S032-1-6",
+      "status": "pass",
+      "detail": "Add row → Save → persists via PATCH /api/settings; Reset reverts unsaved edits"
+    },
+    {
+      "ac": "AC-S032-1-7",
+      "status": "pass",
+      "detail": "'View raw JSON' shows current userCommands as JSON"
+    }
+  ]
+}

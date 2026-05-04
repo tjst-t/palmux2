@@ -116,6 +116,20 @@ export interface GlobalSettings {
    *  before the "Show all (X lines)" toggle is offered (default 50). */
   readPreviewLineCount?: number
   toolbar?: Partial<ToolbarConfig>
+  /** S032: palette-specific settings (user-defined commands etc.) */
+  palette?: {
+    userCommands?: UserCommand[]
+  }
+}
+
+/** S032: A user-defined command entry in palette.userCommands. */
+export interface UserCommand {
+  name: string
+  target: 'bash' | 'url' | 'files'
+  command?: string
+  url?: string
+  path?: string
+  notes?: string
 }
 
 const DEVICE_DEFAULTS: DeviceSettings = {

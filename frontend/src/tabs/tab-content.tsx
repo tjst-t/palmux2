@@ -31,7 +31,9 @@ function TabFallback() {
 
 export function TabContent({ tab, repoId, branchId }: Props) {
   if (tab.windowName) {
-    return <TerminalView repoId={repoId} branchId={branchId} tabId={tab.id} />
+    // S032: pass tabType so TerminalView can update the MRU Bash tab cache
+    // (updateMruBashTab) on user pty input when type === 'bash'.
+    return <TerminalView repoId={repoId} branchId={branchId} tabId={tab.id} tabType={tab.type} />
   }
   const renderer = getRenderer(tab.type)
   if (!renderer) {

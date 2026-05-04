@@ -1,0 +1,43 @@
+{
+  "sprint": "S032",
+  "title": "User-defined palette commands (settings.json)",
+  "planning_decisions": [
+    {
+      "decision": "Modal width set to min(820px, 92vw) to match prototype approval",
+      "rationale": "Prototype user-commands-modal.html was approved with feedback_rounds=2. Width matches exactly.",
+      "reference": "docs/sprint-logs/S030/prototype-review.json"
+    },
+    {
+      "decision": "PaletteSettings added as nested struct in Settings (not json.RawMessage)",
+      "rationale": "DESIGN_PRINCIPLES: 'existing assets > new implementation'. Other fields use typed structs; using json.RawMessage would be inconsistent and delay validation.",
+      "reference": "DESIGN_PRINCIPLES.json#priority6"
+    },
+    {
+      "decision": "UserCommand target field validation: bash requires command, url requires url, files requires path",
+      "rationale": "AC-S032-1-1 requires schema validation. Reject on PATCH with 400 when contract violated.",
+      "reference": "ROADMAP.json#S032-1-1"
+    },
+    {
+      "decision": "userCommands inserted between builtins and Make/npm in command palette >mode",
+      "rationale": "S031 integration point: builtins registry near line 494. User-defined commands ranked higher than auto-detected Make/npm — user intentionality > automation.",
+      "reference": "ROADMAP.json#S032-1-3"
+    },
+    {
+      "decision": "updateMruBashTab wired in terminal-manager.ts sendInput path",
+      "rationale": "S031 flagged this as unwired. Must wire so MRU resolution in resolveBashTarget returns correct tab after user types in a bash terminal.",
+      "reference": "ROADMAP.json#S032-1-3 + bash-target.ts comment"
+    },
+    {
+      "decision": "> mode capped at 40 items when in command mode (not all mode)",
+      "rationale": "S031 agent flagged: no cap on >mode. With builtins + user cmds + Make/npm a large Makefile could flood the list. Cap at 40 keeps scroll manageable.",
+      "reference": "DESIGN_PRINCIPLES.json#ui_ux"
+    },
+    {
+      "decision": "Modal state held in React local state (not Zustand) — open/close and row edits",
+      "rationale": "DESIGN_PRINCIPLES: 'コンポーネント state は UI 一時状態のみ'. The modal's unsaved edits are ephemeral UI state, not app state.",
+      "reference": "DESIGN_PRINCIPLES.json#coding_conventions"
+    }
+  ],
+  "implementation_decisions": [],
+  "review_decisions": []
+}

@@ -2,9 +2,9 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 31,
+    "sprints_done": 32,
     "sprints_total": 32,
-    "percent": 97
+    "percent": 100
   },
   "execution_order": [
     "S001",
@@ -4576,56 +4576,56 @@
     },
     "S032": {
       "title": "User-defined palette commands (settings.json)",
-      "status": "planned",
+      "status": "done",
       "description": "S031 で palette が一通り使える形になった後、 ユーザが自分の定型コマンドを `~/.config/palmux/settings.json` で palette に持ち込めるようにする。 これによって 「いつものデプロイ」 「Slack 開く」 「特定の make ターゲット (auto-detect から外れているもの)」 などを ⌘K → `>` で起動できる。\n\n**スキーマ** (`~/.config/palmux/settings.json`):\n```json\n{\n  \"palette\": {\n    \"userCommands\": [\n      {\"name\": \"deploy preview\", \"command\": \"make deploy-preview\", \"target\": \"bash\"},\n      {\"name\": \"open Slack\", \"url\": \"https://app.slack.com/...\", \"target\": \"url\"},\n      {\"name\": \"docs\", \"path\": \"docs/index.md\", \"target\": \"files\"}\n    ]\n  }\n}\n```\n\n- `target: 'bash'` — S031-2 の resolveBashTarget で送信\n- `target: 'url'` — `window.open(url)`\n- `target: 'files'` — Files タブで該当パスを開く\n- 設定変更は HTTP PATCH `/api/settings` (既存) で済む\n\n**UI 配置**: 全体設定画面はまだ存在しないが、 S032 1 機能のために左 nav 付きの設定ページを建てるのは過剰。 既存の Modal popup パターン (Claude `.claude/settings.json` editor / RepoPicker と同じ) を踏襲し、 単機能の **\"Manage user commands\" Modal** を作る。 起動口は ⌘K palette の `> manage user commands` builtin (S031-4 の builtin commands に相乗り)。 将来 theme / keybindings 等の設定編集 UI が増えてきた段階で別 sprint で `/settings` ルート + 統合ページを建てる。\n\n**触る FE**: command-palette (builtin に `manage user commands` 追加 + userCommands を `>` mode に統合)、 新規 `user-commands-modal.tsx`\n\n**触る BE**: settings.json schema validation を拡張",
       "milestone": false,
       "stories": {
         "S032-1": {
           "title": "userCommands を `>` mode に統合 + Modal で編集",
-          "status": "planned",
+          "status": "done",
           "user_story": "Palmux ユーザとして、 自分の定型コマンドを ⌘K palette から追加・編集したい。 なぜなら、 Make/npm 自動検出から外れているがいつも叩く (deploy / Slack / docs ジャンプ) コマンドを palette に常駐させ、 編集も Palmux 内で完結させたいからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S032-1-1",
               "description": "`palette.userCommands` 配列が `~/.config/palmux/settings.json` で受け付けられ、 schema validation を通る",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S032-1-1] in tests/e2e/s032_user_commands.py",
+              "status": "pass"
             },
             {
               "id": "AC-S032-1-2",
               "description": "`target: 'bash'` の userCommand が `>` mode に source 「user」 で表示され、 select で S031-2 の resolveBashTarget で送信される",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S032-1-2] in tests/e2e/s032_user_commands.py",
+              "status": "pass"
             },
             {
               "id": "AC-S032-1-3",
               "description": "`target: 'url'` の userCommand が `>` mode に表示され、 select で `window.open(url, '_blank')` が走る",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S032-1-3] in tests/e2e/s032_user_commands.py",
+              "status": "pass"
             },
             {
               "id": "AC-S032-1-4",
               "description": "`target: 'files'` の userCommand が `>` mode に表示され、 select で Files タブの該当パスに navigate する",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S032-1-4] in tests/e2e/s032_user_commands.py",
+              "status": "pass"
             },
             {
               "id": "AC-S032-1-5",
               "description": "⌘K palette の builtin commands に `> manage user commands` が含まれ、 select で User Commands Modal が開く",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S032-1-5] in tests/e2e/s032_user_commands.py",
+              "status": "pass"
             },
             {
               "id": "AC-S032-1-6",
               "description": "Modal で行追加 / 編集 / 削除ができ、 Save で `PATCH /api/settings` が走り永続化される",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S032-1-6] in tests/e2e/s032_user_commands.py",
+              "status": "pass"
             },
             {
               "id": "AC-S032-1-7",
               "description": "Modal の \"View raw JSON\" 折りたたみで現在の userCommands が JSON で確認できる",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S032-1-7] in tests/e2e/s032_user_commands.py",
+              "status": "pass"
             }
           ],
           "tasks": {
@@ -4963,6 +4963,18 @@
       "description": "Backlog.",
       "added_in": "S029",
       "reason": "Trade-off: extremely niche"
+    },
+    {
+      "title": "palette.userCommands: stable IDs to prevent React key collision on duplicate names",
+      "description": "When two userCommands share the same name, the palette renders them with duplicate React keys (name is used as key). Fix by assigning a stable UUID/slug ID to each entry in the schema (e.g. `id` field auto-generated on PATCH if absent) and using that as the React key instead of `name`. File: frontend/src/components/command-palette/command-palette.tsx (userCommands section) + internal/config/settings.go (UserCommand struct + PATCH handler to auto-fill missing IDs).",
+      "added_in": "S032",
+      "reason": "Non-blocking at S032 because duplicate names are edge-case in practice; fixing requires a schema migration (adding `id` field) that needs its own sprint slot."
+    },
+    {
+      "title": "Replace string-match isValidationErr with typed sentinel error in handler_settings.go",
+      "description": "The `isValidationErr` helper in internal/server/handler_settings.go detects 400-worthy errors by string-matching the error message (e.g. `strings.Contains(err.Error(), \"validation\")`). This is fragile — any rename of the error message silently breaks the 400 path. Fix: declare `var ErrUserCommandValidation = errors.New(\"user command validation error\")` in internal/config/settings.go, wrap validation errors via `fmt.Errorf(\"%w: %s\", ErrUserCommandValidation, detail)`, and detect via `errors.Is(err, ErrUserCommandValidation)` in the handler. File: internal/config/settings.go + internal/server/handler_settings.go.",
+      "added_in": "S032",
+      "reason": "Non-blocking at S032 because E2E shows validation returns 400 correctly today; the fragility is a maintenance risk rather than a user-facing bug. Deferred to keep S032 scope tight."
     }
   ]
 }

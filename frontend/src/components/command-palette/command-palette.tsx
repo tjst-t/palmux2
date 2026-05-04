@@ -5,8 +5,9 @@ import { api } from '../../lib/api'
 import { resolveBashTarget } from '../../lib/bash-target'
 import { pushRecent, listRecents } from '../../lib/recents'
 import { terminalManager } from '../../lib/terminal-manager'
-import { selectBranchById, selectRepoById, usePalmuxStore } from '../../stores/palmux-store'
+import { selectBranchById, selectRepoById, usePalmuxStore, type UserCommand } from '../../stores/palmux-store'
 import { ClaudeIcon } from '../icons/claude-icon'
+import { UserCommandsModal } from '../user-commands-modal'
 
 import styles from './palette.module.css'
 import { useCommandPaletteStore } from './store'
@@ -37,6 +38,9 @@ interface GrepHit {
   lineNum: number
   line: string
 }
+
+/** Stable fallback to avoid creating a new array reference on every render. */
+const EMPTY_USER_COMMANDS: UserCommand[] = []
 
 function detectMode(raw: string): { mode: Mode; needle: string } {
   if (raw.startsWith('@')) return { mode: 'workspace', needle: raw.slice(1) }
@@ -80,6 +84,9 @@ export function CommandPalette() {
   const initialQuery = useCommandPaletteStore((s) => s.initialQuery)
   const hide = useCommandPaletteStore((s) => s.hide)
   const toggle = useCommandPaletteStore((s) => s.toggle)
+  // S032: user commands modal — lifted to CommandPalette so it survives
+  // after the palette hides (PaletteInner unmounts on hide).
+  const [userCmdModalOpen, setUserCmdModalOpen] = useState(false)
 
   // Global hotkey: Cmd+K / Ctrl+K toggles. Register once.
   useEffect(() => {
@@ -93,16 +100,34 @@ export function CommandPalette() {
     return () => window.removeEventListener('keydown', onKey)
   }, [toggle])
 
-  if (!open) return null
-  return <PaletteInner key={initialQuery} initialQuery={initialQuery} onClose={hide} />
+  const openUserCmdModal = useCallback(() => {
+    hide() // close the palette first
+    setUserCmdModalOpen(true)
+  }, [hide])
+
+  return (
+    <>
+      {open && (
+        <PaletteInner
+          key={initialQuery}
+          initialQuery={initialQuery}
+          onClose={hide}
+          onOpenUserCmdModal={openUserCmdModal}
+        />
+      )}
+      <UserCommandsModal open={userCmdModalOpen} onClose={() => setUserCmdModalOpen(false)} />
+    </>
+  )
 }
 
 function PaletteInner({
   initialQuery,
   onClose,
+  onOpenUserCmdModal,
 }: {
   initialQuery: string
   onClose: () => void
+  onOpenUserCmdModal: () => void
 }) {
   const [query, setQuery] = useState(initialQuery)
   const [active, setActive] = useState(0)
@@ -123,6 +148,8 @@ function PaletteInner({
   const renameTab = usePalmuxStore((s) => s.renameTab)
   const setDeviceSetting = usePalmuxStore((s) => s.setDeviceSetting)
   const deviceSettings = usePalmuxStore((s) => s.deviceSettings)
+  // S032: user-defined commands from global settings palette.userCommands
+  const userCommands = usePalmuxStore((s) => s.globalSettings.palette?.userCommands ?? EMPTY_USER_COMMANDS)
   // The palette is mounted at app root (outside <Routes>) so useParams()
   // always returns empty here. Parse the active repo/branch out of
   // location.pathname instead.
@@ -370,8 +397,21 @@ function PaletteInner({
       },
     })
 
+    // S032: manage user commands — opens the UserCommandsModal
+    items.push({
+      id: 'builtin:manage-user-commands',
+      kind: 'command',
+      icon: '⚙',
+      label: 'manage user commands',
+      detail: 'builtin',
+      searchable: 'manage user commands palette settings',
+      perform: () => {
+        onOpenUserCmdModal()
+      },
+    })
+
     return items
-  }, [activeRepo, activeBranch, params.tabId, addTab, removeTab, renameTab, setDeviceSetting, deviceSettings, navigate, searchParams])
+  }, [activeRepo, activeBranch, params.tabId, addTab, removeTab, renameTab, setDeviceSetting, deviceSettings, navigate, searchParams, onOpenUserCmdModal])
 
   const items = useMemo<PaletteItem[]>(() => {
     // S031-4: read recents fresh on every render so pushRecent() during the
@@ -487,7 +527,7 @@ function PaletteInner({
       }
     }
 
-    // S031-2: commands mode — route to Bash tab
+    // S031-2 / S032: commands mode — route to Bash tab
     if (includeCommand && activeRepo && activeBranch) {
       // Resolve mru bash tab name for detail display
       const mruBashTabName = resolveMruBashTabName(activeRepo.id, activeBranch.id, activeBranch.tabSet.tabs)
@@ -496,6 +536,44 @@ function PaletteInner({
       for (const b of builtinCommands) {
         if (!fuzzyContains(b.searchable, needle)) continue
         out.push(b)
+      }
+
+      // S032: user-defined commands — inserted between builtins and Make/npm.
+      // target: bash → resolveBashTarget; url → window.open; files → navigate.
+      const filesTabId = activeBranch.tabSet.tabs.find((t) => t.type === 'files')?.id
+      for (const uc of userCommands) {
+        const searchable = `${uc.name} ${uc.notes ?? ''} user`.toLowerCase()
+        if (!fuzzyContains(searchable, needle)) continue
+        const buildDetail = () => {
+          if (uc.target === 'bash') return mruBashTabName ? `→ bash:${mruBashTabName}` : `→ bash`
+          if (uc.target === 'url') return `→ url`
+          if (uc.target === 'files') return `→ files`
+          return 'user'
+        }
+        const ucCopy: UserCommand = { ...uc }
+        out.push({
+          id: `user:${ucCopy.name}`,
+          kind: 'command',
+          icon: '★',
+          label: ucCopy.name,
+          detail: buildDetail(),
+          searchable,
+          perform: async () => {
+            if (ucCopy.target === 'bash' && ucCopy.command) {
+              await runOnBash(ucCopy.command)
+            } else if (ucCopy.target === 'url' && ucCopy.url) {
+              window.open(ucCopy.url, '_blank', 'noopener,noreferrer')
+            } else if (ucCopy.target === 'files' && ucCopy.path && filesTabId) {
+              const tail = ucCopy.path
+                ? `/${ucCopy.path.split('/').map(encodeURIComponent).join('/')}`
+                : ''
+              const search = searchParams.toString() ? `?${searchParams.toString()}` : ''
+              navigate(
+                `/${encodeURIComponent(activeRepo.id)}/${encodeURIComponent(activeBranch.id)}/${encodeURIComponent(filesTabId)}${tail}${search}`,
+              )
+            }
+          },
+        })
       }
 
       // Make/npm detected commands
@@ -510,6 +588,14 @@ function PaletteInner({
           searchable: c.command,
           perform: () => runOnBash(c.command),
         })
+      }
+
+      // S032: cap command mode at 40 items so a large Makefile + user cmds +
+      // builtins doesn't flood the list and stays scrollable.
+      if (mode === 'command') {
+        const cmdItems = out.filter((it) => it.kind === 'command')
+        const others = out.filter((it) => it.kind !== 'command')
+        return [...others, ...cmdItems.slice(0, 40)]
       }
     }
 
@@ -585,7 +671,7 @@ function PaletteInner({
       return capByKind(out, 6)
     }
     return out
-  }, [repos, mode, needle, commands, files, grepHits, builtinCommands, searchParams, navigate, activeRepo, activeBranch, runOnBash, bashPickerCmd])
+  }, [repos, mode, needle, commands, files, grepHits, builtinCommands, userCommands, searchParams, navigate, activeRepo, activeBranch, runOnBash, bashPickerCmd])
 
   // Sentinel items (non-interactive, like grep:searching) don't participate
   // in keyboard navigation — compute the selectable count separately.
