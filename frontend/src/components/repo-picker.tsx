@@ -21,6 +21,10 @@ import styles from './repo-picker.module.css'
 interface Props {
   open: boolean
   onClose: () => void
+  /** hotfix: when supplied, each browse-mode row shows a small × that
+   *  invokes this callback (typically opens RepoDeleteModal at the
+   *  Drawer level so we don't need to mount it twice). */
+  onRequestDelete?: (repoId: string, ghqPath: string) => void
 }
 
 type CloneState = 'idle' | 'cloning' | 'error'
@@ -58,7 +62,7 @@ function shortRepoLabel(url: string): string {
   return s
 }
 
-export function RepoPicker({ open, onClose }: Props) {
+export function RepoPicker({ open, onClose, onRequestDelete }: Props) {
   const reload = usePalmuxStore((s) => s.reloadAvailableRepos)
   const repos = usePalmuxStore((s) => s.availableRepos)
   const openRepo = usePalmuxStore((s) => s.openRepo)
@@ -286,7 +290,7 @@ export function RepoPicker({ open, onClose }: Props) {
             {!isURL && filtered.map((r, i) => {
               const isActive = i === active
               return (
-                <li key={r.id}>
+                <li key={r.id} className={styles.rowItem}>
                   <button
                     data-row={i}
                     className={isActive ? `${styles.row} ${styles.rowActive}` : styles.row}
@@ -298,6 +302,22 @@ export function RepoPicker({ open, onClose }: Props) {
                     <span className={styles.rowName}>{r.ghqPath}</span>
                     <span className={styles.rowState}>{r.starred ? '★' : ''}</span>
                   </button>
+                  {onRequestDelete && (
+                    <button
+                      type="button"
+                      className={styles.rowDeleteBtn}
+                      title={`Delete ${r.ghqPath}`}
+                      aria-label={`Delete repository ${r.ghqPath}`}
+                      data-testid={`open-repo-row-delete-${r.id}`}
+                      disabled={pending !== null}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onRequestDelete(r.id, r.ghqPath)
+                      }}
+                    >
+                      🗑
+                    </button>
+                  )}
                 </li>
               )
             })}

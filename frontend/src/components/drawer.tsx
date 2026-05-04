@@ -176,14 +176,22 @@ export function Drawer() {
         >
           <span style={{ color: 'var(--color-fg-muted)' }}>📂</span>
           <span>Open Repository…</span>
-          <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--color-fg-dim)' }}>browse · clone</span>
         </button>
       </footer>
       <DrawerResizer
         width={drawerWidth}
         onChange={(w) => setDeviceSetting('drawerWidth', w)}
       />
-      <RepoPicker open={pickerType === 'repo'} onClose={() => setPickerType(null)} />
+      <RepoPicker
+        open={pickerType === 'repo'}
+        onClose={() => setPickerType(null)}
+        onRequestDelete={(repoId, ghqPath) => {
+          // Stage the deletion target. The picker stays open behind the
+          // delete modal — after delete completes, reloadRepos() refreshes
+          // the available list automatically (same store).
+          setDeleteTarget({ repoId, ghqPath })
+        }}
+      />
       <BranchPicker
         open={typeof pickerType === 'object' && pickerType !== null}
         repoId={typeof pickerType === 'object' && pickerType !== null ? pickerType.branchOf : ''}
@@ -514,6 +522,27 @@ function RepoItem({
                 <span>Copy ghq path</span>
               </button>
               <div className={styles.overflowDivider} />
+              {/* Close: remove from Palmux's management. ghq directory and
+                  worktrees stay on disk. Cheap, reversible. */}
+              <button
+                className={styles.overflowItem}
+                role="menuitem"
+                data-testid="repo-close-item"
+                onClick={async (e) => {
+                  e.stopPropagation()
+                  setOverflowOpen(false)
+                  const ok = await confirmDialog.ask({
+                    title: 'Close repository?',
+                    message: `${repo.ghqPath} will be removed from Palmux. The ghq directory and any worktrees stay on disk — reopen any time from "Open Repository…".`,
+                    confirmLabel: 'Close',
+                  })
+                  if (ok) await closeRepo(repo.id)
+                }}
+              >
+                <span>✕</span>
+                <span>Close repository</span>
+              </button>
+              {/* Delete: destructive — removes ghq directory + all worktrees. */}
               <button
                 className={`${styles.overflowItem} ${styles.overflowItemDanger}`}
                 role="menuitem"

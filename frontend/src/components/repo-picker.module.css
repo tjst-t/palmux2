@@ -102,6 +102,51 @@
   color: var(--color-fg-dim);
 }
 
+/* hotfix: each browse-mode <li> is a flex row containing the main
+   open-button + a hover-revealed delete button. The main button still
+   takes the full row width via flex: 1. */
+.rowItem {
+  display: flex;
+  align-items: stretch;
+}
+.rowItem .row { flex: 1; min-width: 0; }
+
+.rowDeleteBtn {
+  flex-shrink: 0;
+  width: 32px;
+  margin-right: 8px;
+  background: transparent;
+  border: 0;
+  color: var(--color-fg-muted);
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+  align-self: center;
+  height: 28px;
+}
+.rowItem:hover .rowDeleteBtn,
+.rowDeleteBtn:focus-visible {
+  opacity: 0.7;
+}
+.rowDeleteBtn:hover {
+  opacity: 1;
+  color: var(--color-error);
+  background: rgba(239, 68, 68, 0.10);
+}
+.rowDeleteBtn:disabled {
+  opacity: 0.2 !important;
+  cursor: not-allowed;
+}
+@media (max-width: 600px) {
+  /* On touch, always show the delete affordance — no hover. */
+  .rowDeleteBtn { opacity: 0.5; min-width: 36px; min-height: 36px; }
+}
+
 .row {
   display: flex;
   align-items: center;

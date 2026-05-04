@@ -90,6 +90,11 @@ func (d *Detector) Invalidate(dir string) {
 // makeTargetRE matches lines like "build: deps" or "build:". The first capture
 // group is the target name; we filter out targets that look like file paths
 // (contain '/' or '.') and special targets (start with '.').
+//
+// hotfix: also reject Makefile variable assignments — `VAR := value`,
+// `VAR ?= value`, `VAR += value` start with `name:` so the regex matches,
+// but they aren't runnable targets. We detect the second `:` / `=` after
+// the colon manually because RE2 lacks lookahead.
 var makeTargetRE = regexp.MustCompile(`^([A-Za-z0-9_][A-Za-z0-9_\-]*)\s*:`)
 
 func scanMakefile(dir string) []Command {
@@ -114,11 +119,17 @@ func scanMakefile(dir string) []Command {
 		if strings.HasPrefix(line, "\t") || strings.HasPrefix(line, "#") {
 			continue
 		}
-		m := makeTargetRE.FindStringSubmatch(line)
-		if m == nil {
+		idx := makeTargetRE.FindStringSubmatchIndex(line)
+		if idx == nil {
 			continue
 		}
-		name := m[1]
+		// idx[1] is the byte position right after the matched colon.
+		// If the next char is '=' the line is a `name :=` variable
+		// assignment, not a target — skip it.
+		if idx[1] < len(line) && line[idx[1]] == '=' {
+			continue
+		}
+		name := line[idx[2]:idx[3]]
 		if seen[name] {
 			continue
 		}
