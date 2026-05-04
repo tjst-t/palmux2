@@ -1,3 +1,15 @@
+// S033: files-view.tsx — wires up all CRUD / multi-select / move / delete
+// features introduced in S033 (create file/folder, rename, move, delete,
+// multi-select, right-click context menu).
+//
+// State ownership:
+//   selection (selectedPaths, touchSelectMode)  →  here (UI-transient)
+//   inline create (createKind/Value/Error/Busy) →  here
+//   inline rename (renameTarget/Value/Error/Busy) →  here
+//   context menu (ctxMenu state)                →  here
+//   move modal (moveModalItems)                 →  here
+//   delete modal (deleteModalItems)             →  here
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
@@ -9,6 +21,9 @@ import { usePalmuxStore } from '../../stores/palmux-store'
 
 import { Breadcrumb } from './breadcrumb'
 import { FileList } from './file-list'
+import { FilesContextMenu } from './files-context-menu'
+import { FilesDeleteModal } from './files-delete-modal'
+import { FilesMoveModal } from './files-move-modal'
 import { FilePreview } from './file-preview'
 import { FileSearch } from './file-search'
 import styles from './files-view.module.css'
@@ -19,14 +34,15 @@ interface DirResponse {
   entries: Entry[] | null
 }
 
+type CreateKind = 'file' | 'folder'
+
+interface CtxMenuState {
+  x: number
+  y: number
+  entry: Entry
+}
+
 export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
-  // The URL is the source of truth for navigation when this Files view
-  // matches the active panel. The path after `/files/` is treated as a
-  // *resource path*: if it points at a directory we list it; if it points
-  // at a file we list its parent directory and select the file in the
-  // preview pane. `?line=N` jumps to a line inside the selected file.
-  // Right-panel Files views (whose target lives in `?right`) can't share
-  // that URL space, so they fall back to local state.
   const params = useParams()
   const location = useLocation()
   const [searchParams] = useSearchParams()
@@ -40,40 +56,50 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
   const [localSelected, setLocalSelected] = useState<string | null>(null)
   const [localLine, setLocalLine] = useState<number | undefined>(undefined)
 
-  // Resolved state derived from the URL splat for the URL panel. After
-  // the listDir probe we know whether splat was a directory (resolvedDir
-  // = splat, resolvedSelected = null) or a file (resolvedDir = parent,
-  // resolvedSelected = splat).
   const [resolvedDir, setResolvedDir] = useState('')
   const [resolvedSelected, setResolvedSelected] = useState<string | null>(null)
 
   const [entries, setEntries] = useState<Entry[]>([])
   const [error, setError] = useState<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
-
-  // hotfix: VS Code-style "+ New file" affordance — small inline input
-  // anchored to the header. Bumping refreshTick re-runs the dir-fetch
-  // useEffects so the freshly-created file shows up in the listing.
-  const [newFileOpen, setNewFileOpen] = useState(false)
-  const [newFileName, setNewFileName] = useState('')
-  const [newFileError, setNewFileError] = useState<string | null>(null)
-  const [newFileBusy, setNewFileBusy] = useState(false)
   const [refreshTick, setRefreshTick] = useState(0)
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const listRatio = usePalmuxStore((s) => s.deviceSettings.filesListRatio)
   const setDeviceSetting = usePalmuxStore((s) => s.setDeviceSetting)
 
+  // ── S033-1: inline create state ──────────────────────────────────────────
+  const [createKind, setCreateKind] = useState<CreateKind | null>(null)
+  const [createValue, setCreateValue] = useState('')
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [createBusy, setCreateBusy] = useState(false)
+
+  // ── S033-2: inline rename state ──────────────────────────────────────────
+  const [renameTarget, setRenameTarget] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [renameError, setRenameError] = useState<string | null>(null)
+  const [renameBusy, setRenameBusy] = useState(false)
+
+  // ── S033-2: context menu state ───────────────────────────────────────────
+  const [ctxMenu, setCtxMenu] = useState<CtxMenuState | null>(null)
+
+  // ── S033-3: multi-select state ───────────────────────────────────────────
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
+  const [touchSelectMode, setTouchSelectMode] = useState(false)
+
+  // ── S033-2/3: modal state ─────────────────────────────────────────────────
+  const [deleteModalItems, setDeleteModalItems] = useState<Entry[] | null>(null)
+  const [moveModalItems, setMoveModalItems] = useState<Entry[] | null>(null)
+
   const apiBase = useMemo(
     () => `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/files`,
     [repoId, branchId],
   )
+  const remoteUrlBase = useMemo(
+    () => `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/remote-url`,
+    [repoId, branchId],
+  )
 
-  // S011-1-6: dirty paths inside this branch — used by the FileList
-  // to decorate filenames with a `●` badge.
-  // We subscribe to the entries map and derive the array via useMemo
-  // so the selector returns a stable identity (Zustand's default
-  // selector compares with Object.is — returning a fresh array each
-  // tick would loop the renderer).
+  // ── Dirty path tracking (S011-1-6) ───────────────────────────────────────
   const entriesMap = useEditorStore((s) => s.entries)
   const dirtyPaths = useMemo(() => {
     const prefix = `${repoId}/${branchId}/`
@@ -96,6 +122,7 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
       : undefined
     : localLine
 
+  // ── Navigation helpers ────────────────────────────────────────────────────
   const goToDir = useCallback(
     (next: string) => {
       const cleaned = next.replace(/^\/+|\/+$/g, '')
@@ -106,7 +133,6 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
       }
       const base = `/${encodeURIComponent(repoId)}/${encodeURIComponent(branchId)}/${encodeURIComponent(tabId)}`
       const tail = cleaned ? `/${cleaned.split('/').map(encodeURIComponent).join('/')}` : ''
-      // Drop ?line — it's tied to the previous selection.
       const sp = new URLSearchParams(location.search)
       sp.delete('line')
       const search = sp.toString()
@@ -117,8 +143,6 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
 
   const selectFile = useCallback(
     (filePath: string | null, lineNum?: number) => {
-      // S011-1-8: if the currently-selected file is dirty, confirm
-      // before swapping. Cancel keeps the user on the existing buffer.
       const cur = isUrlPanel ? resolvedSelected : localSelected
       if (cur && cur !== filePath) {
         const key = makeEditorKey(repoId, branchId, cur)
@@ -127,8 +151,6 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
             `You have unsaved changes in ${cur}. Discard them and switch files?`,
           )
           if (!ok) return
-          // User accepted — drop the draft so the next visit shows
-          // pristine content.
           useEditorStore.getState().clearDraft(key)
         }
       }
@@ -138,7 +160,6 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
         return
       }
       if (!filePath) {
-        // Clearing the selection navigates back to the listed directory.
         goToDir(path)
         return
       }
@@ -153,10 +174,7 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
     [isUrlPanel, repoId, branchId, tabId, location.search, navigate, goToDir, path, resolvedSelected, localSelected],
   )
 
-  // Resolve splat → (listed dir, selected file) and fetch the dir listing.
-  // We try splat as a directory first; the API answers "not a directory"
-  // for files, in which case we re-fetch the parent and treat splat as the
-  // selected file.
+  // ── Dir listing effects ──────────────────────────────────────────────────
   useEffect(() => {
     if (!isUrlPanel) return
     let cancelled = false
@@ -171,8 +189,6 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-        // The listDir handler returns 500 with "not a directory" when the
-        // path points at a file. Treat that as the "select this file" case.
         if (msg.includes('not a directory')) {
           const parent = dirnameOf(splat)
           try {
@@ -203,8 +219,6 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
     }
   }, [isUrlPanel, apiBase, splat, refreshTick])
 
-  // Right-panel local state path: simpler, just refresh whenever localPath
-  // changes (no URL/resource resolution involved).
   useEffect(() => {
     if (isUrlPanel) return
     let cancelled = false
@@ -233,55 +247,223 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
     }
   }
 
-  const submitNewFile = useCallback(async () => {
-    const name = newFileName.trim()
+  // ── S033-1: create file/folder ────────────────────────────────────────────
+  // The FileList communicates CTA clicks via sentinel values in createValue.
+  const handleCreateValueChange = useCallback((v: string) => {
+    if (v === '\x01new-file') {
+      setCreateKind('file')
+      setCreateValue('')
+      setCreateError(null)
+      return
+    }
+    if (v === '\x02new-folder') {
+      setCreateKind('folder')
+      setCreateValue('')
+      setCreateError(null)
+      return
+    }
+    setCreateValue(v)
+    setCreateError(null)
+  }, [])
+
+  const handleCreateSubmit = useCallback(async () => {
+    const name = createValue.trim()
     if (!name) return
-    // Compose path: current dir + name. Reject leading "/" to keep the
-    // create endpoint guarded — server also validates via resolveSafePath.
     if (name.startsWith('/')) {
-      setNewFileError('path must be relative (no leading /)')
+      setCreateError('path must be relative (no leading /)')
       return
     }
     const targetPath = path ? `${path}/${name}` : name
-    setNewFileBusy(true)
-    setNewFileError(null)
+    setCreateBusy(true)
+    setCreateError(null)
     try {
-      await api.post<unknown>(`${apiBase}/create`, { path: targetPath, content: '' })
-      setNewFileOpen(false)
-      setNewFileName('')
-      // Bump tick so dir listing re-fetches; then open the new file in
-      // the editor pane so the user can start typing immediately.
-      setRefreshTick((t) => t + 1)
-      selectFile(targetPath)
+      if (createKind === 'folder') {
+        await api.post<unknown>(`${apiBase}/create-dir`, { path: targetPath })
+        setCreateKind(null)
+        setCreateValue('')
+        setRefreshTick((t) => t + 1)
+      } else {
+        await api.post<unknown>(`${apiBase}/create`, { path: targetPath, content: '' })
+        setCreateKind(null)
+        setCreateValue('')
+        setRefreshTick((t) => t + 1)
+        selectFile(targetPath)
+      }
     } catch (err) {
-      setNewFileError(err instanceof Error ? err.message : String(err))
+      setCreateError(err instanceof Error ? err.message : String(err))
     } finally {
-      setNewFileBusy(false)
+      setCreateBusy(false)
     }
-  }, [apiBase, newFileName, path, selectFile])
+  }, [apiBase, createKind, createValue, path, selectFile])
 
-  const cancelNewFile = useCallback(() => {
-    setNewFileOpen(false)
-    setNewFileName('')
-    setNewFileError(null)
+  const handleCreateCancel = useCallback(() => {
+    setCreateKind(null)
+    setCreateValue('')
+    setCreateError(null)
   }, [])
+
+  // ── S033-2: inline rename ─────────────────────────────────────────────────
+  const startRename = useCallback((entry: Entry) => {
+    setRenameTarget(entry.path)
+    setRenameValue(entry.name)
+    setRenameError(null)
+  }, [])
+
+  const handleRenameSubmit = useCallback(async () => {
+    if (!renameTarget) return
+    const newName = renameValue.trim()
+    if (!newName) return
+    const parentDir = dirnameOf(renameTarget)
+    const toPath = parentDir ? `${parentDir}/${newName}` : newName
+    setRenameBusy(true)
+    setRenameError(null)
+    try {
+      await api.post<unknown>(`${apiBase}/rename`, { from: renameTarget, to: toPath })
+      // If the renamed file was selected, navigate to new path.
+      if (selected === renameTarget) selectFile(toPath)
+      setRenameTarget(null)
+      setRenameValue('')
+      setRefreshTick((t) => t + 1)
+    } catch (err) {
+      setRenameError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRenameBusy(false)
+    }
+  }, [renameTarget, renameValue, apiBase, selected, selectFile])
+
+  const handleRenameCancel = useCallback(() => {
+    setRenameTarget(null)
+    setRenameValue('')
+    setRenameError(null)
+  }, [])
+
+  // ── S033-2: context menu ──────────────────────────────────────────────────
+  const handleContextMenu = useCallback((e: React.MouseEvent, entry: Entry) => {
+    e.preventDefault()
+    setCtxMenu({ x: e.clientX, y: e.clientY, entry })
+  }, [])
+
+  const handleContextAction = useCallback(
+    async (action: { type: string }) => {
+      if (!ctxMenu) return
+      const entry = ctxMenu.entry
+      switch (action.type) {
+        case 'open':
+          onPick(entry)
+          break
+        case 'rename':
+          startRename(entry)
+          break
+        case 'move':
+          setMoveModalItems([entry])
+          break
+        case 'copy-path':
+          await navigator.clipboard.writeText(entry.path).catch(() => {
+            // fallback: no-op if clipboard API unavailable
+          })
+          break
+        case 'open-on-github': {
+          try {
+            const result = await api.get<{ url: string }>(
+              `${remoteUrlBase}`,
+            )
+            if (result.url) {
+              // Append the file path to the repo tree URL.
+              const fileUrl = result.url + '/' + entry.path
+              window.open(fileUrl, '_blank', 'noopener,noreferrer')
+            }
+          } catch {
+            // Silently fail — GitHub URL is best-effort.
+          }
+          break
+        }
+        case 'delete':
+          setDeleteModalItems([entry])
+          break
+        case 'batch-move':
+          setMoveModalItems(
+            entries.filter((e) => selectedPaths.has(e.path)),
+          )
+          break
+        case 'batch-copy': {
+          const paths = [...selectedPaths].join('\n')
+          await navigator.clipboard.writeText(paths).catch(() => {})
+          break
+        }
+        case 'batch-delete':
+          setDeleteModalItems(entries.filter((e) => selectedPaths.has(e.path)))
+          break
+      }
+    },
+    [ctxMenu, entries, selectedPaths, remoteUrlBase, startRename, onPick],
+  )
+
+  // ── S033-3: multi-select keyboard shortcuts ───────────────────────────────
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // Only handle when inside the files view.
+      if (selectedPaths.size === 0 && !touchSelectMode) return
+      if (e.key === 'Escape') {
+        // If context menu is open, let it handle Escape first; selection stays.
+        if (ctxMenu) return
+        setSelectedPaths(new Set())
+        setTouchSelectMode(false)
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedPaths.size > 0) {
+        // Don't intercept Backspace if user is typing in an input.
+        const tag = (e.target as HTMLElement)?.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return
+        const items = entries.filter((e) => selectedPaths.has(e.path))
+        if (items.length > 0) setDeleteModalItems(items)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [selectedPaths, touchSelectMode, entries, ctxMenu])
+
+  // ── F2 key for inline rename ──────────────────────────────────────────────
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'F2') return
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      // Find the currently-selected (single) file to rename.
+      if (selected) {
+        const entry = entries.find((x) => x.path === selected)
+        if (entry) startRename(entry)
+      } else if (selectedPaths.size === 1) {
+        const [p] = [...selectedPaths]
+        const entry = entries.find((x) => x.path === p)
+        if (entry) startRename(entry)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [selected, selectedPaths, entries, startRename])
+
+  // ── Delete handler (from modal) ───────────────────────────────────────────
+  const handleDeleteConfirm = useCallback(
+    async (paths: string[]) => {
+      await api.post<unknown>(`${apiBase}/batch-delete`, { paths })
+      // Clear selection if deleted items were selected.
+      const removed = new Set(paths)
+      setSelectedPaths((prev) => {
+        const next = new Set(prev)
+        for (const p of removed) next.delete(p)
+        return next
+      })
+      if (selected && removed.has(selected)) {
+        selectFile(null)
+      }
+      setRefreshTick((t) => t + 1)
+    },
+    [apiBase, selected, selectFile],
+  )
 
   return (
     <div className={styles.wrap}>
       <header className={styles.header}>
         <Breadcrumb path={path} onNavigate={goToDir} />
         <div className={styles.headerActions}>
-          <button
-            className={styles.newFileBtn}
-            onClick={() => {
-              setNewFileOpen(true)
-              setNewFileError(null)
-            }}
-            title="New file (UTF-8)"
-            data-testid="files-new-file-btn"
-          >
-            ＋ New file
-          </button>
           <button
             className={styles.searchToggle}
             onClick={() => setSearchOpen((v) => !v)}
@@ -290,53 +472,48 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
           </button>
         </div>
       </header>
-      {newFileOpen && (
-        <div className={styles.newFileRow}>
-          <span style={{ color: 'var(--color-fg-muted)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-            {path ? path + '/' : ''}
+
+      {/* S033-3: Multi-select action bar */}
+      {(selectedPaths.size > 0 || touchSelectMode) && (
+        <div className={styles.multiSelectBar} data-testid="files-multi-select-bar">
+          <span className={styles.multiSelectCount}>
+            {selectedPaths.size} selected
           </span>
-          <input
-            autoFocus
-            className={styles.newFileInput}
-            type="text"
-            placeholder="filename.txt (or relative/path/file.txt)"
-            value={newFileName}
-            onChange={(e) => {
-              setNewFileName(e.target.value)
-              setNewFileError(null)
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                e.preventDefault()
-                cancelNewFile()
-              } else if (e.key === 'Enter') {
-                e.preventDefault()
-                void submitNewFile()
-              }
-            }}
-            disabled={newFileBusy}
-            data-testid="files-new-file-input"
-          />
           <button
-            className={styles.newFileSubmit}
-            onClick={() => void submitNewFile()}
-            disabled={!newFileName.trim() || newFileBusy}
-            data-testid="files-new-file-submit"
+            className={styles.multiSelectBtn}
+            disabled={selectedPaths.size === 0}
+            onClick={() => {
+              const items = entries.filter((e) => selectedPaths.has(e.path))
+              if (items.length > 0) setMoveModalItems(items)
+            }}
+            data-testid="files-batch-move"
           >
-            {newFileBusy ? 'Creating…' : 'Create'}
+            → Move…
           </button>
           <button
-            className={styles.newFileCancel}
-            onClick={cancelNewFile}
-            disabled={newFileBusy}
+            className={`${styles.multiSelectBtn} ${styles.multiSelectBtnDanger}`}
+            disabled={selectedPaths.size === 0}
+            onClick={() => {
+              const items = entries.filter((e) => selectedPaths.has(e.path))
+              if (items.length > 0) setDeleteModalItems(items)
+            }}
+            data-testid="files-batch-delete"
           >
-            Cancel
+            🗑 Delete
+          </button>
+          <button
+            className={`${styles.multiSelectBtn} ${styles.multiSelectBtnGhost}`}
+            onClick={() => {
+              setSelectedPaths(new Set())
+              setTouchSelectMode(false)
+            }}
+            data-testid="files-multi-clear"
+          >
+            ✕ Cancel
           </button>
         </div>
       )}
-      {newFileError && (
-        <div className={styles.newFileError} data-testid="files-new-file-error">{newFileError}</div>
-      )}
+
       {searchOpen && (
         <FileSearch
           apiBase={apiBase}
@@ -351,6 +528,7 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
           }}
         />
       )}
+
       <div
         className={`${styles.body} ${selected ? styles.previewOpen : ''}`.trim()}
         ref={bodyRef}
@@ -362,6 +540,26 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
             selected={selected ?? undefined}
             onPick={onPick}
             dirtyPaths={dirtyPaths}
+            selectedPaths={selectedPaths}
+            onSelectionChange={setSelectedPaths}
+            touchSelectMode={touchSelectMode}
+            onTouchSelectMode={setTouchSelectMode}
+            createKind={createKind}
+            createValue={createValue}
+            createError={createError}
+            createBusy={createBusy}
+            onCreateValueChange={handleCreateValueChange}
+            onCreateSubmit={() => void handleCreateSubmit()}
+            onCreateCancel={handleCreateCancel}
+            renameTarget={renameTarget}
+            renameValue={renameValue}
+            renameError={renameError}
+            renameBusy={renameBusy}
+            onRenameValueChange={setRenameValue}
+            onRenameSubmit={() => void handleRenameSubmit()}
+            onRenameCancel={handleRenameCancel}
+            onContextMenu={handleContextMenu}
+            contextMenuTarget={ctxMenu?.entry.path}
           />
         </div>
         <div className={styles.dividerWrap}>
@@ -388,6 +586,41 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
           )}
         </div>
       </div>
+
+      {/* Context menu portal */}
+      {ctxMenu && (
+        <FilesContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          target={ctxMenu.entry}
+          selectedPaths={selectedPaths}
+          onAction={handleContextAction}
+          onClose={() => setCtxMenu(null)}
+        />
+      )}
+
+      {/* Delete modal */}
+      {deleteModalItems && (
+        <FilesDeleteModal
+          items={deleteModalItems}
+          onClose={() => setDeleteModalItems(null)}
+          onConfirm={handleDeleteConfirm}
+        />
+      )}
+
+      {/* Move modal */}
+      {moveModalItems && (
+        <FilesMoveModal
+          items={moveModalItems}
+          apiBase={apiBase}
+          onClose={() => setMoveModalItems(null)}
+          onCompleted={() => {
+            setMoveModalItems(null)
+            setSelectedPaths(new Set())
+            setRefreshTick((t) => t + 1)
+          }}
+        />
+      )}
     </div>
   )
 }

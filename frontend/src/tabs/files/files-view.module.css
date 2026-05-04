@@ -14,10 +14,10 @@
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-border);
   background-color: var(--color-surface);
+  flex-shrink: 0;
 }
 
-.searchToggle,
-.newFileBtn {
+.searchToggle {
   font-size: 12px;
   color: var(--color-fg-muted);
   padding: var(--space-1) var(--space-2);
@@ -26,8 +26,7 @@
   border: 0;
   cursor: pointer;
 }
-.searchToggle:hover,
-.newFileBtn:hover {
+.searchToggle:hover {
   background-color: var(--color-elevated);
   color: var(--color-fg);
 }
@@ -40,58 +39,60 @@
   display: none;
 }
 
-/* hotfix: VS Code-style "New file" inline input. Anchored to the
-   header — appears as a slim row just under the breadcrumb. */
-.newFileRow {
+/* S033-3: slim multi-select action bar — appears when ≥1 row is selected */
+.multiSelectBar {
   display: flex;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-bg);
-  border-bottom: 1px solid var(--color-border);
   align-items: center;
-}
-.newFileRow .newFileInput {
-  flex: 1;
-  min-width: 0;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  color: var(--color-fg);
-  font-size: 13px;
-  padding: 6px 10px;
-  border-radius: var(--radius-sm);
-  font-family: var(--font-mono);
-}
-.newFileRow .newFileInput:focus {
-  outline: 1px solid var(--color-accent);
-  border-color: var(--color-accent);
-}
-.newFileRow .newFileSubmit,
-.newFileRow .newFileCancel {
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--color-elevated);
+  border-bottom: 1px solid var(--color-border);
   font-size: 12px;
-  padding: 6px 10px;
-  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.multiSelectCount {
+  font-weight: 500;
+  color: var(--color-accent-light);
+  font-family: var(--font-mono);
+  margin-right: auto;
+}
+
+.multiSelectBtn {
+  background: transparent;
   border: 1px solid var(--color-border);
-  background: var(--color-surface);
   color: var(--color-fg);
+  padding: 3px 10px;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
+  font-family: var(--font-ui);
 }
-.newFileRow .newFileSubmit {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  color: #fff;
+.multiSelectBtn:hover {
+  background: var(--color-surface);
 }
-.newFileRow .newFileSubmit:disabled {
+.multiSelectBtn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
-.newFileRow .newFileCancel:hover { background: var(--color-elevated); }
-.newFileError {
-  font-size: 11px;
+
+.multiSelectBtnDanger {
   color: var(--color-error);
-  font-family: var(--font-mono);
-  padding: 4px var(--space-3) 8px;
-  background: var(--color-bg);
-  border-bottom: 1px solid var(--color-border);
+  border-color: rgba(239, 68, 68, 0.32);
+}
+.multiSelectBtnDanger:hover {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.multiSelectBtnGhost {
+  border: 0;
+  color: var(--color-fg-muted);
+  padding: 3px 8px;
+}
+.multiSelectBtnGhost:hover {
+  color: var(--color-fg);
+  background: var(--color-surface);
 }
 
 .body {
@@ -104,6 +105,8 @@
 .listPane {
   min-width: 0;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .previewPane {
@@ -144,9 +147,6 @@
   .dividerWrap {
     display: none;
   }
-  /* When a file is open on mobile, give the preview the entire body
-     and hide the list — tapping the breadcrumb (which shows the file's
-     parent directory) goes back to the listing. */
   .body.previewOpen .listPane {
     display: none;
   }
