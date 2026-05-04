@@ -1,0 +1,88 @@
+{
+  "sprint": "S031",
+  "title": "Command palette redesign (drop /slash, route to Bash, recents + tab/quick actions)",
+  "planning_decisions": [
+    {
+      "id": "D031-P01",
+      "decision": "Execute all 5 stories (S031-1 through S031-5) in sequence without parallelism",
+      "rationale": "S031-2 introduces resolveBashTarget helper which is needed by S031-3. S031-4 builtin commands include theme/font toggles that S031-5 also uses. Sequential execution avoids merge conflicts in command-palette.tsx.",
+      "reference": "DESIGN_PRINCIPLES.json priority_rules[2]: Phase 区切り > 半完成投入"
+    },
+    {
+      "id": "D031-P02",
+      "decision": "Reuse existing /api/repos/{repoId}/branches/{branchId}/files/search endpoint for ? grep mode rather than creating a new endpoint",
+      "rationale": "The existing endpoint already does filesystem grep. Adding ?content=1 flag to differentiate content search from path search is the minimal change. DESIGN_PRINCIPLES: 既存資産活用 > 新規実装.",
+      "reference": "DESIGN_PRINCIPLES.json priority_rules[5]: 既存資産活用 > 新規実装"
+    },
+    {
+      "id": "D031-P03",
+      "decision": "resolveBashTarget helper lives in frontend/src/lib/bash-target.ts (new file) rather than inline in command-palette.tsx",
+      "rationale": "S031-3 (Run button) and S032 (user commands) both need the same resolution logic. A shared lib avoids duplication. DESIGN_PRINCIPLES: 既存資産活用 > 新規実装.",
+      "reference": "DESIGN_PRINCIPLES.json coding_conventions"
+    },
+    {
+      "id": "D031-P04",
+      "decision": "locale-aware font/theme settings read from/write to localStorage via deviceSettings helper that already exists in the codebase",
+      "rationale": "CLAUDE.md: デバイス固有（ブラウザ）: localStorage（プレフィクス palmux:）. No new storage abstraction needed.",
+      "reference": "CLAUDE.md 設定管理セクション"
+    }
+  ],
+  "implementation_decisions": [
+    {
+      "id": "D031-I01",
+      "decision": "listRecents() called inside items useMemo (not useState) so pushRecent() during the same palette session reflects immediately",
+      "rationale": "useState(() => listRecents()) creates a stale snapshot; the memo re-reads on every render cycle. Self-review fix 1.",
+      "reference": "DESIGN_PRINCIPLES.json correctness_over_cleverness"
+    },
+    {
+      "id": "D031-I02",
+      "decision": "After resolveBashTarget auto-creates a Bash tab, navigate using termKey.tabId directly — not the stale tabs[] snapshot",
+      "rationale": "After addTab(), the Zustand store's activeBranch.tabSet.tabs is stale in the current closure. The new tab's id is in termKey.tabId. Self-review fix 2.",
+      "reference": "DESIGN_PRINCIPLES.json correctness_over_cleverness"
+    },
+    {
+      "id": "D031-I03",
+      "decision": "grep:searching sentinel rendered as non-interactive <li> with .empty class, excluded from keyboard selectableCount",
+      "rationale": "A <button> with a noop perform is keyboard-accessible but useless — misleads screen-reader and keyboard users. Self-review fix 4.",
+      "reference": "DESIGN_PRINCIPLES.json user_facing_quality"
+    },
+    {
+      "id": "D031-I04",
+      "decision": "data-testid on palette items uses item.id.replace(/[:/]/g, '-') to produce valid CSS selector strings for Playwright",
+      "rationale": "Grep result IDs contain ':' and '/' from file paths. CSS attribute selectors break on these characters. Self-review fix 5.",
+      "reference": "DESIGN_PRINCIPLES.json testing"
+    },
+    {
+      "id": "D031-I05",
+      "decision": "normaliseRemoteURL handles ssh:// prefix in addition to git@ SCP format",
+      "rationale": "palmux2's own remote is configured as ssh://git@github.com/... which the original implementation did not handle. Discovered during E2E.",
+      "reference": "DESIGN_PRINCIPLES.json correctness_over_cleverness"
+    },
+    {
+      "id": "D031-I06",
+      "decision": "updateMruBashTab is exported from bash-target.ts but not yet wired to terminal-manager.ts",
+      "rationale": "MRU tracking requires terminal-manager to emit pty input events per tab. This is a S032 integration point — wiring it now would touch terminal-manager and risk regression. Noted in review.",
+      "reference": "DESIGN_PRINCIPLES.json priority_rules[2]: Phase 区切り > 半完成投入"
+    }
+  ],
+  "review_decisions": [
+    {
+      "id": "D031-R01",
+      "decision": "builtinCommands useMemo depends on deviceSettings — acceptable for now, note for S032 optimization",
+      "rationale": "Each font/theme toggle re-computes builtinCommands. Not a correctness issue; minor perf concern deferred to S032.",
+      "reference": "DESIGN_PRINCIPLES.json performance"
+    },
+    {
+      "id": "D031-R02",
+      "decision": "window.prompt() used for rename-current tab — acceptable for v0.3, polish deferred",
+      "rationale": "A native prompt is consistent with the existing rename flow in TabBar context menu. An inline text field would be better UX but is out of scope for S031.",
+      "reference": "DESIGN_PRINCIPLES.json user_facing_quality"
+    },
+    {
+      "id": "D031-R03",
+      "decision": "S032 should wire updateMruBashTab to terminal-manager.ts and cap > mode command list",
+      "rationale": "Review identified two deferred items: mru tracking not wired, and > mode list uncapped (only 'all' mode is capped via capByKind). Both are S032 integration tasks.",
+      "reference": "DESIGN_PRINCIPLES.json iterative_refinement"
+    }
+  ]
+}

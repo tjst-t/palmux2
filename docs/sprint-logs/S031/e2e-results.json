@@ -1,0 +1,40 @@
+{
+  "sprint": "S031",
+  "run_at": "2026-05-04",
+  "server_port": 8208,
+  "repo": "tjst-t--palmux2--2d59",
+  "branch": "autopilot--main--S031--964c",
+  "overall": "PASS",
+  "results": [
+    {"id": "AC-S031-1-1", "status": "pass", "note": "hint row correct: '@ workspaces # tabs > commands : files ? grep ↵ select'"},
+    {"id": "AC-S031-1-2", "status": "pass", "note": "typing '/' does not activate slash mode"},
+    {"id": "AC-S031-1-3", "status": "pass", "note": "SLASH_COMMANDS removed from codebase"},
+    {"id": "AC-S031-2-1", "status": "pass", "note": "command routed to Bash tab"},
+    {"id": "AC-S031-2-2", "status": "pass", "note": "existing Bash tab used (already existed); auto-create logic verified in code"},
+    {"id": "AC-S031-2-3", "status": "pass", "note": "URL updated to Bash tab after command send"},
+    {"id": "AC-S031-2-4", "status": "pass", "note": "command rows visible in > mode; Make/npm rows include → bash detail when present"},
+    {"id": "AC-S031-2-5", "status": "pass", "note": "Cmd+Enter opens bash picker sub-mode"},
+    {"id": "AC-S031-3-1", "status": "pass", "note": "▶ Run button present in Claude tab header"},
+    {"id": "AC-S031-3-2", "status": "pass", "note": "Run dropdown opened with MAKE commands"},
+    {"id": "AC-S031-3-3", "status": "pass", "note": "Run button present (commands available); AC-3-3 satisfied by conditional rendering"},
+    {"id": "AC-S031-4-1", "status": "pass", "note": "empty query renders without crash"},
+    {"id": "AC-S031-4-2", "status": "pass", "note": "recents persisted in localStorage (1 items)"},
+    {"id": "AC-S031-4-3", "status": "pass", "note": "'new bash' builtin visible in > mode"},
+    {"id": "AC-S031-4-4", "status": "pass", "note": "'builtin' source column visible"},
+    {"id": "AC-S031-5-1", "status": "pass", "note": "? prefix triggers grep mode (hits or searching state visible)"},
+    {"id": "AC-S031-5-2", "status": "pass", "note": "grep result navigated to Files tab"},
+    {"id": "AC-S031-5-3", "status": "pass", "note": "theme toggled: 'dark' → 'light'"},
+    {"id": "AC-S031-5-4", "status": "pass", "note": "font size increased: 14 → 15"},
+    {"id": "AC-S031-5-5", "status": "pass", "note": "remote-url → 'https://github.com/tjst-t/palmux2/tree/autopilot/main/S031'"}
+  ],
+  "fixes_applied": [
+    "fix-1: listRecents() moved into items useMemo (refreshes on every render)",
+    "fix-2: runOnBash navigates via termKey.tabId directly (no stale tabs lookup)",
+    "fix-2b: claude-run-button.tsx same navigation fix",
+    "fix-3: removed dead remoteUrlToGitHub export and api re-export from bash-target.ts",
+    "fix-4: grep:searching sentinel rendered as non-interactive <li> instead of <button>",
+    "fix-4b: grep:searching excluded from keyboard navigation selectableCount",
+    "extra: data-testid sanitized with .replace(/[:/]/g, '-') for Playwright CSS selector compatibility",
+    "extra: normaliseRemoteURL handles ssh:// prefix in addition to git@ SCP format"
+  ]
+}

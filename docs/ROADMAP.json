@@ -2,12 +2,9 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "current_sprint": "S031",
-    "total": 32,
-    "done": 30,
-    "in_progress": 0,
-    "remaining": 2,
-    "percentage": 93.75
+    "sprints_done": 31,
+    "sprints_total": 32,
+    "percent": 97
   },
   "execution_order": [
     "S001",
@@ -4301,13 +4298,13 @@
     },
     "S031": {
       "title": "Command palette redesign (drop /slash, route to Bash, recents + tab/quick actions)",
-      "status": "planned",
+      "status": "done",
       "description": "現在の ⌘K パレットは 5 prefix (`@workspace` `#tab` `/slash` `>command` `:file`) を持つが、 `/slash` (Claude スラッシュ) と `>command` (Make/npm) はどちらも **focused terminal に送信** する実装で、 Claude タブにフォーカスがあると Claude プロンプトとして食われて「実質使えない」 状態。\n\nユーザの具体ユースケースは 「Claude タブで作業しながら ⌘K → `>make serve` で dev サーバを再起動」。 これに合わせて palette を作り直す + ついでに「コマンドパレットがあって良かった」 と感じる定番機能 (recents / タブ操作 / テーマ / GitHub オープン / content grep) を入れる。\n\n**主な設計判断:**\n\n- `/slash` モードは完全削除 (Claude タブ composer 内に既存 UI あり、 重複)\n- `>command` の送信先を 「focused terminal」 から 「現ブランチの Bash タブ (mru 解決, なければ自動作成)」 に変更。 修飾キー (Cmd+Enter) で送信先 picker を強制表示\n- 空クエリ時 placeholder ではなく recent workspaces / tabs / files を mixed list で表示 (VS Code 流)\n- `>` mode に組み込みコマンド追加: タブ操作 (`new bash` / `new claude` / `close current` / `rename current` / `close others`) + テーマ・フォント (`toggle theme` / `increase font` / `decrease font`) + Git (`open on GitHub`)\n- `?` prefix で content grep mode を新設 (path 検索の `:` と分離、 既存 Files grep API を流用)\n- Claude タブヘッダーに常駐の `▶ Run` プルダウン (Make/npm ターゲットを直接起動。 ⌘K を覚えていない / モバイル局面の発見性)\n\n**触る FE**: `frontend/src/components/command-palette/command-palette.tsx` (大改修)、 新規 `claude-run-button.tsx`、 `frontend/src/lib/recents.ts` (新規)、 Claude タブヘッダー\n\n**触る BE**: 既存 `/api/.../commands` 流用、 `/files/search?content=1` の grep フラグ追加 (or 既存 grep endpoint を palette からも叩く)、 タブ CRUD は既存 endpoint で済む",
       "milestone": false,
       "stories": {
         "S031-1": {
           "title": "コマンドパレットから `/` slash モードを撤去",
-          "status": "planned",
+          "status": "done",
           "user_story": "Palmux ユーザとして、 ⌘K パレットから死んだ Claude スラッシュコマンド一覧を消したい。 なぜなら、 同じ機能が Claude タブの composer に既にあり、 重複している上に「focused terminal に送信」 という実装で実質動かないからだ。",
           "acceptance_criteria": [
             {
@@ -4344,7 +4341,7 @@
         },
         "S031-2": {
           "title": "`>command` を Bash タブに送信する (focused terminal から切り替え)",
-          "status": "planned",
+          "status": "done",
           "user_story": "Claude タブで作業しているユーザとして、 ⌘K → `>make serve` で dev サーバを Bash タブで再起動したい。 なぜなら、 デバッグ中に Claude との対話を維持したまま開発サーバを更新できるからだ。",
           "acceptance_criteria": [
             {
@@ -4408,7 +4405,7 @@
         },
         "S031-3": {
           "title": "Claude タブヘッダーに `▶ Run` プルダウン",
-          "status": "planned",
+          "status": "done",
           "user_story": "Claude タブで作業しているユーザとして、 ⌘K を覚えていなくても Claude タブヘッダーから直接 Make/npm ターゲットを起動したい。 なぜなら、 モバイルでは ⌘K が押しづらいし、 Run ボタンが常駐していると発見性が上がるからだ。",
           "acceptance_criteria": [
             {
@@ -4450,7 +4447,7 @@
         },
         "S031-4": {
           "title": "Empty query → recents + 組み込みタブ操作コマンド",
-          "status": "planned",
+          "status": "done",
           "user_story": "Palmux ユーザとして、 ⌘K でパレットを開いた瞬間に最近使った workspace / tab / file がそのまま並んでいてほしい。 さらに `> new bash` `> close current tab` `> rename tab` のような組み込みタブ操作も palette から実行したい。 なぜなら、 空 placeholder は dead screen で、 タブ CRUD のためだけに TabBar の context-menu に手を伸ばすのは流れを切るからだ。",
           "acceptance_criteria": [
             {
@@ -4503,7 +4500,7 @@
         },
         "S031-5": {
           "title": "`?` content grep mode + テーマ/フォント/GitHub クイックコマンド",
-          "status": "planned",
+          "status": "done",
           "user_story": "Palmux ユーザとして、 `?TODO` でリポジトリ全体の content grep を palette から実行したい (path 検索の `:` と区別)。 ついでに `> toggle theme` `> increase font size` `> open on GitHub` のような環境系クイックコマンドも palette に欲しい。 なぜなら、 grep は Files タブを開いてから実行するより palette 直叩きが速く、 テーマ・フォント・GitHub オープンは ⌘K 経由が一番自然だからだ。",
           "acceptance_criteria": [
             {

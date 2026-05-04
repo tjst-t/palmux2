@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
-import { useFocusedTerminal } from '../../hooks/use-focused-terminal'
 import { api } from '../../lib/api'
+import { resolveBashTarget } from '../../lib/bash-target'
+import { pushRecent, listRecents } from '../../lib/recents'
 import { terminalManager } from '../../lib/terminal-manager'
 import { selectBranchById, selectRepoById, usePalmuxStore } from '../../stores/palmux-store'
 import { ClaudeIcon } from '../icons/claude-icon'
@@ -10,7 +11,9 @@ import { ClaudeIcon } from '../icons/claude-icon'
 import styles from './palette.module.css'
 import { useCommandPaletteStore } from './store'
 
-type Mode = 'all' | 'workspace' | 'tab' | 'slash' | 'command' | 'file'
+// Modes: 'slash' has been removed (S031-1). The '/' prefix is now treated as
+// a plain 'all' search. '?' prefix is new for content grep (S031-5).
+type Mode = 'all' | 'workspace' | 'tab' | 'command' | 'file' | 'grep'
 
 interface PaletteItem {
   id: string
@@ -23,29 +26,25 @@ interface PaletteItem {
   perform: () => void | Promise<void>
 }
 
-const SLASH_COMMANDS = [
-  '/clear',
-  '/compact',
-  '/init',
-  '/memory',
-  '/help',
-  '/model',
-  '/cost',
-  '/exit',
-]
-
 interface DetectedCommand {
   name: string
   source: string
   command: string
 }
 
+interface GrepHit {
+  path: string
+  lineNum: number
+  line: string
+}
+
 function detectMode(raw: string): { mode: Mode; needle: string } {
   if (raw.startsWith('@')) return { mode: 'workspace', needle: raw.slice(1) }
   if (raw.startsWith('#')) return { mode: 'tab', needle: raw.slice(1) }
-  if (raw.startsWith('/')) return { mode: 'slash', needle: raw.slice(1) }
+  // S031-1: '/' no longer triggers slash mode — falls through to 'all'
   if (raw.startsWith('>')) return { mode: 'command', needle: raw.slice(1) }
   if (raw.startsWith(':')) return { mode: 'file', needle: raw.slice(1) }
+  if (raw.startsWith('?')) return { mode: 'grep', needle: raw.slice(1) }
   return { mode: 'all', needle: raw }
 }
 
@@ -109,6 +108,9 @@ function PaletteInner({
   const [active, setActive] = useState(0)
   const [commands, setCommands] = useState<DetectedCommand[]>([])
   const [files, setFiles] = useState<{ path: string; isDir: boolean }[]>([])
+  const [grepHits, setGrepHits] = useState<GrepHit[]>([])
+  // S031-2: bash picker mode (Cmd+Enter)
+  const [bashPickerCmd, setBashPickerCmd] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
   const listRef = useRef<HTMLUListElement | null>(null)
 
@@ -116,7 +118,11 @@ function PaletteInner({
   const location = useLocation()
   const [searchParams] = useSearchParams()
   const repos = usePalmuxStore((s) => s.repos)
-  const focused = useFocusedTerminal()
+  const addTab = usePalmuxStore((s) => s.addTab)
+  const removeTab = usePalmuxStore((s) => s.removeTab)
+  const renameTab = usePalmuxStore((s) => s.renameTab)
+  const setDeviceSetting = usePalmuxStore((s) => s.setDeviceSetting)
+  const deviceSettings = usePalmuxStore((s) => s.deviceSettings)
   // The palette is mounted at app root (outside <Routes>) so useParams()
   // always returns empty here. Parse the active repo/branch out of
   // location.pathname instead.
@@ -130,7 +136,7 @@ function PaletteInner({
       : undefined,
   )
 
-  // Lazy-load commands + files when a branch is in scope.
+  // Lazy-load commands when a branch is in scope.
   useEffect(() => {
     if (!activeRepo || !activeBranch) return
     let cancelled = false
@@ -147,13 +153,11 @@ function PaletteInner({
     }
   }, [activeRepo, activeBranch])
 
-  // Files: lazy search using the file-search endpoint. Only fires when in
-  // ":" mode and there's a query. The server takes a single substring, so
-  // we send the first token and let the client-side fuzzyContains narrow
-  // by any remaining tokens (so ":foo bar" works the same as ":foo bar"
-  // in workspace mode).
   const { mode, needle } = detectMode(query)
   const firstToken = needle.split(/\s+/).filter(Boolean)[0] ?? ''
+
+  // Files: lazy search using the file-search endpoint. Only fires when in
+  // ":" mode and there's a query.
   useEffect(() => {
     if (!activeRepo || !activeBranch) return
     if (mode !== 'file' && mode !== 'all') return
@@ -178,14 +182,256 @@ function PaletteInner({
     }
   }, [activeRepo, activeBranch, mode, firstToken])
 
+  // S031-5: Content grep mode — debounced fetch on '?' prefix
+  useEffect(() => {
+    if (!activeRepo || !activeBranch) return
+    if (mode !== 'grep') {
+      setGrepHits([])
+      return
+    }
+    if (!needle) {
+      setGrepHits([])
+      return
+    }
+    let cancelled = false
+    const t = window.setTimeout(() => {
+      void api
+        .get<{ hits: GrepHit[] | null }>(
+          `/api/repos/${encodeURIComponent(activeRepo.id)}/branches/${encodeURIComponent(activeBranch.id)}/files/grep?path=&pattern=${encodeURIComponent(needle)}&case=0`,
+        )
+        .then((res) => {
+          if (!cancelled) setGrepHits(res.hits ?? [])
+        })
+        .catch(() => {})
+    }, 250)
+    return () => {
+      cancelled = true
+      window.clearTimeout(t)
+    }
+  }, [activeRepo, activeBranch, mode, needle])
+
+  // S031-2: resolveBashTarget helper — uses the store addTab so it can
+  // auto-create a Bash tab when none exists.
+  const runOnBash = useCallback(
+    async (command: string, targetTabId?: string) => {
+      if (!activeRepo || !activeBranch) return
+      const termKey = await resolveBashTarget(
+        activeRepo.id,
+        activeBranch.id,
+        activeBranch.tabSet.tabs,
+        addTab,
+        targetTabId,
+      )
+      if (!termKey) return
+      // Navigate to that tab so the user can see output.
+      // Use termKey.tabId directly — avoids the stale closure problem when
+      // auto-create just created the tab and it's not yet in tabs[] snapshot.
+      const search = searchParams.toString() ? `?${searchParams.toString()}` : ''
+      if (activeRepo && activeBranch) {
+        navigate(
+          `/${encodeURIComponent(activeRepo.id)}/${encodeURIComponent(activeBranch.id)}/${encodeURIComponent(termKey.tabId)}${search}`,
+        )
+      }
+      terminalManager.sendInput(termKey.termKey, command + '\r')
+      terminalManager.focus(termKey.termKey)
+    },
+    [activeRepo, activeBranch, addTab, navigate, searchParams],
+  )
+
+  // S031-4: builtin commands
+  const builtinCommands = useMemo<PaletteItem[]>(() => {
+    if (!activeRepo || !activeBranch) return []
+    const items: PaletteItem[] = []
+
+    // Tab operations
+    items.push({
+      id: 'builtin:new-bash',
+      kind: 'command',
+      icon: '$',
+      label: 'new bash',
+      detail: 'builtin',
+      searchable: 'new bash terminal',
+      perform: async () => {
+        const tab = await addTab(activeRepo.id, activeBranch.id, 'bash')
+        const search = searchParams.toString() ? `?${searchParams.toString()}` : ''
+        navigate(`/${encodeURIComponent(activeRepo.id)}/${encodeURIComponent(activeBranch.id)}/${encodeURIComponent(tab.id)}${search}`)
+      },
+    })
+    items.push({
+      id: 'builtin:new-claude',
+      kind: 'command',
+      icon: <ClaudeIcon style={{ color: 'var(--color-accent-light)' }} />,
+      label: 'new claude',
+      detail: 'builtin',
+      searchable: 'new claude tab',
+      perform: async () => {
+        const tab = await addTab(activeRepo.id, activeBranch.id, 'claude')
+        const search = searchParams.toString() ? `?${searchParams.toString()}` : ''
+        navigate(`/${encodeURIComponent(activeRepo.id)}/${encodeURIComponent(activeBranch.id)}/${encodeURIComponent(tab.id)}${search}`)
+      },
+    })
+    if (params.tabId) {
+      items.push({
+        id: 'builtin:close-current',
+        kind: 'command',
+        icon: '×',
+        label: 'close current tab',
+        detail: 'builtin',
+        searchable: 'close current tab',
+        perform: async () => {
+          await removeTab(activeRepo.id, activeBranch.id, params.tabId!)
+        },
+      })
+      items.push({
+        id: 'builtin:rename-current',
+        kind: 'command',
+        icon: '✎',
+        label: 'rename current tab',
+        detail: 'builtin',
+        searchable: 'rename current tab',
+        perform: async () => {
+          const currentTab = activeBranch.tabSet.tabs.find((t) => t.id === params.tabId)
+          const newName = window.prompt('New tab name:', currentTab?.name ?? '')
+          if (newName && newName.trim()) {
+            await renameTab(activeRepo.id, activeBranch.id, params.tabId!, newName.trim())
+          }
+        },
+      })
+      items.push({
+        id: 'builtin:close-others',
+        kind: 'command',
+        icon: '⊠',
+        label: 'close other tabs',
+        detail: 'builtin',
+        searchable: 'close other tabs',
+        perform: async () => {
+          const others = activeBranch.tabSet.tabs.filter(
+            (t) => t.id !== params.tabId && !t.protected,
+          )
+          for (const t of others) {
+            await removeTab(activeRepo.id, activeBranch.id, t.id)
+          }
+        },
+      })
+    }
+
+    // S031-5: theme / font / GitHub builtins
+    items.push({
+      id: 'builtin:toggle-theme',
+      kind: 'command',
+      icon: '◑',
+      label: 'toggle theme',
+      detail: 'builtin',
+      searchable: 'toggle theme dark light',
+      perform: () => {
+        setDeviceSetting('theme', deviceSettings.theme === 'dark' ? 'light' : 'dark')
+      },
+    })
+    items.push({
+      id: 'builtin:increase-font',
+      kind: 'command',
+      icon: 'A+',
+      label: 'increase font size',
+      detail: 'builtin',
+      searchable: 'increase font size bigger',
+      perform: () => {
+        setDeviceSetting('fontSize', Math.min(24, deviceSettings.fontSize + 1))
+      },
+    })
+    items.push({
+      id: 'builtin:decrease-font',
+      kind: 'command',
+      icon: 'A-',
+      label: 'decrease font size',
+      detail: 'builtin',
+      searchable: 'decrease font size smaller',
+      perform: () => {
+        setDeviceSetting('fontSize', Math.max(8, deviceSettings.fontSize - 1))
+      },
+    })
+    items.push({
+      id: 'builtin:open-github',
+      kind: 'command',
+      icon: '⎇',
+      label: 'open on GitHub',
+      detail: 'builtin',
+      searchable: 'open on github browser',
+      perform: async () => {
+        try {
+          const res = await api.get<{ url: string }>(
+            `/api/repos/${encodeURIComponent(activeRepo.id)}/branches/${encodeURIComponent(activeBranch.id)}/remote-url`,
+          )
+          if (res?.url) {
+            window.open(res.url, '_blank', 'noopener,noreferrer')
+          }
+        } catch {
+          // ignore
+        }
+      },
+    })
+
+    return items
+  }, [activeRepo, activeBranch, params.tabId, addTab, removeTab, renameTab, setDeviceSetting, deviceSettings, navigate, searchParams])
+
   const items = useMemo<PaletteItem[]>(() => {
+    // S031-4: read recents fresh on every render so pushRecent() during the
+    // same session is reflected immediately (fix 1 from self-review).
+    const recents = listRecents()
+
+    // S031-2: bash picker mode replaces normal items
+    if (bashPickerCmd !== null && activeRepo && activeBranch) {
+      const out: PaletteItem[] = []
+      const bashTabs = activeBranch.tabSet.tabs.filter((t) => t.type === 'bash')
+      for (const t of bashTabs) {
+        out.push({
+          id: `bash-picker:${t.id}`,
+          kind: 'command',
+          icon: '$',
+          label: t.name,
+          detail: `→ bash:${t.name}`,
+          searchable: t.name,
+          perform: () => runOnBash(bashPickerCmd, t.id),
+        })
+      }
+      out.push({
+        id: 'bash-picker:new',
+        kind: 'command',
+        icon: '+',
+        label: 'Open new Bash tab',
+        detail: '→ new bash',
+        searchable: 'new bash',
+        perform: () => runOnBash(bashPickerCmd, '__new__'),
+      })
+      return out
+    }
+
     const out: PaletteItem[] = []
 
     const includeWorkspace = mode === 'all' || mode === 'workspace'
     const includeTab = mode === 'tab'
-    const includeSlash = mode === 'all' || mode === 'slash'
     const includeCommand = mode === 'all' || mode === 'command'
     const includeFile = mode === 'file'
+    const includeGrep = mode === 'grep'
+
+    // S031-4: empty query shows recents
+    if (mode === 'all' && needle === '') {
+      // Show up to 8 recent items
+      const recentItems = recents.slice(0, 8)
+      for (const r of recentItems) {
+        out.push({
+          id: `recent:${r.key}`,
+          kind: 'workspace',
+          icon: recentIcon(r.kind),
+          label: r.label,
+          detail: r.kind,
+          searchable: r.label,
+          perform: () => {
+            if (r.url) navigate(r.url)
+          },
+        })
+      }
+      return out
+    }
 
     if (includeWorkspace) {
       // One row per (repo, branch). Selecting it navigates to the branch's
@@ -210,7 +456,10 @@ function PaletteInner({
             label,
             detail: `→ ${target.name}`,
             searchable: label,
-            perform: () => navigate(url),
+            perform: () => {
+              pushRecent({ kind: 'workspace', key: `${repo.id}/${branch.id}`, label, url })
+              navigate(url)
+            },
           })
         }
       }
@@ -230,31 +479,26 @@ function PaletteInner({
           label: tab.name,
           detail: tab.type,
           searchable: `${tab.name} ${tab.type}`,
-          perform: () => navigate(url),
-        })
-      }
-    }
-
-    if (includeSlash) {
-      for (const cmd of SLASH_COMMANDS) {
-        if (!fuzzyContains(cmd, needle)) continue
-        out.push({
-          id: `slash:${cmd}`,
-          kind: 'slash',
-          icon: '/',
-          label: cmd,
-          detail: focused.tabType === 'claude' ? 'send to Claude' : 'no Claude tab',
-          searchable: cmd,
           perform: () => {
-            if (!focused.termKey) return
-            terminalManager.sendInput(focused.termKey, cmd + '\r')
-            terminalManager.focus(focused.termKey)
+            pushRecent({ kind: 'tab', key: `${activeRepo.id}/${activeBranch.id}/${tab.id}`, label: `${repoDisplay(activeRepo.ghqPath)} / ${activeBranch.name} / ${tab.name}`, url })
+            navigate(url)
           },
         })
       }
     }
 
-    if (includeCommand) {
+    // S031-2: commands mode — route to Bash tab
+    if (includeCommand && activeRepo && activeBranch) {
+      // Resolve mru bash tab name for detail display
+      const mruBashTabName = resolveMruBashTabName(activeRepo.id, activeBranch.id, activeBranch.tabSet.tabs)
+
+      // Builtin commands (filtered by needle)
+      for (const b of builtinCommands) {
+        if (!fuzzyContains(b.searchable, needle)) continue
+        out.push(b)
+      }
+
+      // Make/npm detected commands
       for (const c of commands) {
         if (!fuzzyContains(`${c.source} ${c.name} ${c.command}`, needle)) continue
         out.push({
@@ -262,13 +506,9 @@ function PaletteInner({
           kind: 'command',
           icon: '>',
           label: c.command,
-          detail: c.source,
+          detail: mruBashTabName ? `→ bash:${mruBashTabName}` : `→ bash`,
           searchable: c.command,
-          perform: () => {
-            if (!focused.termKey) return
-            terminalManager.sendInput(focused.termKey, c.command + '\r')
-            terminalManager.focus(focused.termKey)
-          },
+          perform: () => runOnBash(c.command),
         })
       }
     }
@@ -276,6 +516,11 @@ function PaletteInner({
     if (includeFile && activeRepo && activeBranch) {
       for (const f of files) {
         if (!fuzzyContains(f.path, needle)) continue
+        const search = searchParams.toString() ? `?${searchParams.toString()}` : ''
+        const filesTabId = activeBranch.tabSet.tabs.find((t) => t.type === 'files')?.id
+        const fileUrl = filesTabId
+          ? `/${encodeURIComponent(activeRepo.id)}/${encodeURIComponent(activeBranch.id)}/${encodeURIComponent(filesTabId)}/${f.path.split('/').map(encodeURIComponent).join('/')}${search}`
+          : null
         out.push({
           id: `file:${f.path}`,
           kind: 'file',
@@ -284,18 +529,53 @@ function PaletteInner({
           detail: 'files',
           searchable: f.path,
           perform: () => {
-            const filesTabId = activeBranch.tabSet.tabs.find((t) => t.type === 'files')?.id
-            if (!filesTabId) return
+            if (!filesTabId || !activeRepo || !activeBranch) return
             // Files routes treat the URL path as the resource — the tab
             // resolves file vs dir on load, no `?file=` query needed.
             const tail = f.path
               ? `/${f.path.split('/').map(encodeURIComponent).join('/')}`
               : ''
-            const search = searchParams.toString() ? `?${searchParams.toString()}` : ''
+            if (fileUrl) pushRecent({ kind: 'file', key: f.path, label: f.path, url: fileUrl })
             navigate(
               `/${encodeURIComponent(activeRepo.id)}/${encodeURIComponent(activeBranch.id)}/${encodeURIComponent(filesTabId)}${tail}${search}`,
             )
           },
+        })
+      }
+    }
+
+    // S031-5: grep results
+    if (includeGrep && activeRepo && activeBranch) {
+      const filesTabId = activeBranch.tabSet.tabs.find((t) => t.type === 'files')?.id
+      for (const h of grepHits) {
+        out.push({
+          id: `grep:${h.path}:${h.lineNum}`,
+          kind: 'grep',
+          icon: '¶',
+          label: `${h.path}:${h.lineNum}`,
+          detail: h.line.trim().slice(0, 60),
+          searchable: `${h.path} ${h.line}`,
+          perform: () => {
+            if (!filesTabId || !activeRepo || !activeBranch) return
+            const search = `?line=${h.lineNum}`
+            const tail = `/${h.path.split('/').map(encodeURIComponent).join('/')}`
+            navigate(
+              `/${encodeURIComponent(activeRepo.id)}/${encodeURIComponent(activeBranch.id)}/${encodeURIComponent(filesTabId)}${tail}${search}`,
+            )
+          },
+        })
+      }
+      if (grepHits.length === 0 && needle) {
+        // Use a sentinel id so the render below can display a non-interactive
+        // status row instead of a keyboard-selectable button (fix 4).
+        out.push({
+          id: 'grep:searching',
+          kind: 'grep',
+          icon: '¶',
+          label: 'Searching…',
+          detail: '',
+          searchable: '',
+          perform: () => {},
         })
       }
     }
@@ -305,39 +585,60 @@ function PaletteInner({
       return capByKind(out, 6)
     }
     return out
-  }, [repos, mode, needle, commands, files, focused, searchParams, navigate, activeRepo, activeBranch])
+  }, [repos, mode, needle, commands, files, grepHits, builtinCommands, searchParams, navigate, activeRepo, activeBranch, runOnBash, bashPickerCmd])
+
+  // Sentinel items (non-interactive, like grep:searching) don't participate
+  // in keyboard navigation — compute the selectable count separately.
+  const selectableCount = items.filter((it) => it.id !== 'grep:searching').length
 
   // Reset highlight whenever the candidate set changes.
   useEffect(() => {
     setActive(0)
   }, [query, items.length])
 
-  // Keyboard navigation.
+  // Keyboard navigation. S031-2: Cmd+Enter enters bash picker mode.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault()
+        // If in bash picker mode, go back to command mode
+        if (bashPickerCmd !== null) {
+          setBashPickerCmd(null)
+          return
+        }
         onClose()
         return
       }
       if (e.key === 'ArrowDown') {
         e.preventDefault()
-        setActive((i) => Math.min(items.length - 1, i + 1))
+        setActive((i) => Math.min(selectableCount - 1, i + 1))
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
         setActive((i) => Math.max(0, i - 1))
       } else if (e.key === 'Enter') {
         e.preventDefault()
+        // S031-2: Cmd+Enter (Mac) / Ctrl+Enter (Linux) opens bash picker
+        if ((e.metaKey || e.ctrlKey) && mode === 'command' && bashPickerCmd === null) {
+          const item = items[active]
+          if (item && item.id.startsWith('cmd:')) {
+            setBashPickerCmd(item.label)
+            return
+          }
+        }
         const item = items[active]
         if (item) {
           void item.perform()
-          onClose()
+          if (!item.id.startsWith('bash-picker:new')) {
+            onClose()
+          } else {
+            onClose()
+          }
         }
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [items, active, onClose])
+  }, [items, active, onClose, mode, bashPickerCmd, selectableCount])
 
   // Scroll active item into view.
   useEffect(() => {
@@ -351,63 +652,93 @@ function PaletteInner({
   }, [])
 
   const modeLabel =
-    mode === 'workspace'
-      ? 'workspaces'
-      : mode === 'tab'
-        ? 'tabs'
-        : mode === 'slash'
-          ? 'slash'
+    bashPickerCmd !== null
+      ? 'select bash target'
+      : mode === 'workspace'
+        ? 'workspaces'
+        : mode === 'tab'
+          ? 'tabs'
           : mode === 'command'
             ? 'commands'
             : mode === 'file'
               ? 'files'
-              : ''
+              : mode === 'grep'
+                ? 'grep'
+                : ''
 
   return (
-    <div className={styles.overlay} onClick={onClose}>
-      <div className={styles.card} onClick={(e) => e.stopPropagation()}>
+    <div className={styles.overlay} onClick={onClose} data-testid="palette-overlay">
+      <div className={styles.card} onClick={(e) => e.stopPropagation()} data-testid="palette-card">
         <div className={styles.inputRow}>
           <input
             ref={inputRef}
             className={styles.input}
             value={query}
-            placeholder="Type to search… use @workspace, /slash, >command, :file"
-            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Type to search… use @workspace, #tab, >command, :file, ?grep"
+            onChange={(e) => {
+              setQuery(e.target.value)
+              setBashPickerCmd(null)
+            }}
+            data-testid="palette-input"
           />
-          {modeLabel && <span className={styles.prefix}>filter: {modeLabel}</span>}
+          {modeLabel && <span className={styles.prefix} data-testid="palette-mode-label">filter: {modeLabel}</span>}
         </div>
-        <div className={styles.hintRow}>
+        {/* S031-1: hint row no longer includes /slash */}
+        <div className={styles.hintRow} data-testid="palette-hint-row">
           <span><span className={styles.hint}>@</span> workspaces</span>
           <span><span className={styles.hint}>#</span> tabs</span>
-          <span><span className={styles.hint}>/</span> slash</span>
           <span><span className={styles.hint}>&gt;</span> commands</span>
           <span><span className={styles.hint}>:</span> files</span>
+          <span><span className={styles.hint}>?</span> grep</span>
           <span style={{ marginLeft: 'auto' }}><span className={styles.hint}>↵</span> select</span>
         </div>
-        <ul className={styles.list} ref={listRef}>
-          {items.length === 0 && (
-            <li className={styles.empty}>
-              {needle ? 'No matches.' : 'Start typing or press a prefix to filter.'}
+        {bashPickerCmd !== null && (
+          <div className={styles.bashPickerBanner} data-testid="bash-picker-banner">
+            <span>Send <code className={styles.bashPickerCmd}>{bashPickerCmd}</code> to:</span>
+          </div>
+        )}
+        <ul className={styles.list} ref={listRef} data-testid="palette-list">
+          {items.length === 0 && mode === 'all' && needle === '' && (
+            <li className={styles.empty} data-testid="palette-empty-state">
+              No recent items. Start typing to search.
             </li>
           )}
-          {items.map((item, i) => (
-            <li key={item.id}>
-              <button
-                type="button"
-                data-row={i}
-                className={i === active ? `${styles.row} ${styles.rowActive}` : styles.row}
-                onMouseEnter={() => setActive(i)}
-                onClick={() => {
-                  void item.perform()
-                  onClose()
-                }}
-              >
-                <span className={styles.icon}>{item.icon}</span>
-                <span className={styles.label}>{item.label}</span>
-                {item.detail && <span className={styles.detail}>{item.detail}</span>}
-              </button>
+          {items.length === 0 && (mode !== 'all' || needle !== '') && (
+            <li className={styles.empty}>
+              {mode === 'grep' ? 'No matches.' : needle ? 'No matches.' : 'Start typing or press a prefix to filter.'}
             </li>
-          ))}
+          )}
+          {items.map((item, i) => {
+            // Sentinel rows (e.g. grep:searching) are non-interactive status
+            // indicators — render as plain <li> with the .empty style so they
+            // are visible but not keyboard-selectable (fix 4).
+            if (item.id === 'grep:searching') {
+              return (
+                <li key={item.id} className={styles.empty} data-testid="palette-grep-searching">
+                  {item.label}
+                </li>
+              )
+            }
+            return (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  data-row={i}
+                  data-testid={`palette-item-${item.id.replace(/[:/]/g, '-')}`}
+                  className={i === active ? `${styles.row} ${styles.rowActive}` : styles.row}
+                  onMouseEnter={() => setActive(i)}
+                  onClick={() => {
+                    void item.perform()
+                    onClose()
+                  }}
+                >
+                  <span className={styles.icon}>{item.icon}</span>
+                  <span className={styles.label}>{item.label}</span>
+                  {item.detail && <span className={styles.detail}>{item.detail}</span>}
+                </button>
+              </li>
+            )
+          })}
         </ul>
       </div>
     </div>
@@ -435,21 +766,51 @@ function tabIcon(type: string): ReactNode {
   }
 }
 
+function recentIcon(kind: string): string {
+  switch (kind) {
+    case 'workspace': return '⌂'
+    case 'tab': return '⊡'
+    case 'file': return '📄'
+    default: return '•'
+  }
+}
+
 function capByKind(items: PaletteItem[], n: number): PaletteItem[] {
-  const buckets: Record<Mode, PaletteItem[]> = {
-    all: [],
+  const buckets: Record<string, PaletteItem[]> = {
     workspace: [],
     tab: [],
-    slash: [],
     command: [],
     file: [],
+    grep: [],
   }
-  for (const it of items) buckets[it.kind].push(it)
+  for (const it of items) {
+    const b = buckets[it.kind]
+    if (b) b.push(it)
+  }
   return [
     ...buckets.workspace.slice(0, n),
     ...buckets.tab.slice(0, n),
-    ...buckets.slash.slice(0, n),
     ...buckets.command.slice(0, n),
     ...buckets.file.slice(0, n),
+    ...buckets.grep.slice(0, n),
   ]
+}
+
+// S031-2: return the mru bash tab name for detail display in command rows
+function resolveMruBashTabName(
+  repoId: string,
+  branchId: string,
+  tabs: { id: string; type: string; name: string }[],
+): string | null {
+  try {
+    const stored = localStorage.getItem(`palmux:lastBashTab:${repoId}/${branchId}`)
+    if (stored) {
+      const tab = tabs.find((t) => t.id === stored)
+      if (tab) return tab.name
+    }
+  } catch {
+    // ignore
+  }
+  const firstBash = tabs.find((t) => t.type === 'bash')
+  return firstBash?.name ?? null
 }
