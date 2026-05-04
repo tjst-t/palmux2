@@ -2,12 +2,12 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "current_sprint": "S030",
+    "current_sprint": "S031",
     "total": 32,
-    "done": 29,
+    "done": 30,
     "in_progress": 0,
-    "remaining": 3,
-    "percentage": 90.63
+    "remaining": 2,
+    "percentage": 93.75
   },
   "execution_order": [
     "S001",
@@ -4160,139 +4160,140 @@
     },
     "S030": {
       "title": "ghq Repository management UI (clone + safe delete)",
-      "status": "planned",
+      "status": "done",
+      "completedAt": "2026-05-04",
       "description": "現在の Drawer は ghq が既に追跡しているリポジトリの Open / Close しかできず、 新規 clone と削除はターミナル (`ghq get` / `ghq rm` + `gwq remove`) に切り替える必要がある。 これを Palmux 内で完結させるための CRUD UI を追加する。\n\n削除は破壊的操作なので、 全 worktree を走査して未 Push の作業 (ahead-of-upstream commits / upstream 未設定 branch / uncommitted changes / untracked files) を検出し、 該当があれば警告モーダルで内容を見せた上でリポジトリ名タイプ確認を要求する (GitHub 流)。 何もなければ通常の confirm 1 段で削除する。\n\n設計の中核:\n- **Drawer 拡張**: 既存リポジトリリスト上部に「+ Clone」 ボタン、 各 repo 行の \"...\" メニューに Delete\n- **Clone modal**: URL 入力 → `ghq get` → 成功時に自動で Repo Open + 主ブランチ Open まで進む\n- **Delete safety check**: 全 worktree を `git status --porcelain` + `git log @{u}..HEAD` + `for-each-ref upstream:track` で検査、 結果を分類して表示\n- **Delete 確定後の cleanup 順序**: 全 worktree (`gwq remove --force`) → tmux session kill → ghq directory 削除 (`ghq rm` または `os.RemoveAll`) → `repos.json` から除去\n\n**新規 BE endpoint**: `POST /api/repos/clone` (body: `{url}`)、 `DELETE /api/repos/{repoId}` (body: `{confirm_name?}`)、 `GET /api/repos/{repoId}/delete-preview` (未 Push 検査結果を返す)\n\n**触る FE**: `frontend/src/components/drawer.tsx` (リスト + ボタン)、 新規 `repo-clone-modal.tsx`、 新規 `repo-delete-modal.tsx`\n\n**触る BE**: `internal/ghq/ghq.go` (Get / Rm 追加)、 `internal/server/handler_repo.go` (3 endpoint)、 `internal/worktree/` (未 Push 検査ヘルパ追加)",
       "milestone": false,
       "stories": {
         "S030-1": {
           "title": "リポジトリ Clone UI",
-          "status": "planned",
+          "status": "done",
           "user_story": "ghq ユーザとして、 URL を貼り付けて新しいリポジトリを Palmux から直接 clone したい。 なぜなら、 ターミナルに切り替えずに開発を始められるからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S030-1-1",
               "description": "Drawer のリポジトリリスト上部に「+ Clone」ボタンが表示され、 click で URL 入力モーダルが開く",
-              "test": "TBD",
-              "status": "planned"
+              "test": "tests/e2e/s030_repo_management.py::test_ac_s030_1_1_drawer_has_open_repo_button",
+              "status": "pass"
             },
             {
               "id": "AC-S030-1-2",
               "description": "URL を入力して Clone を押すと `POST /api/repos/clone` が `ghq get` を起動し、 進行中はモーダル内にスピナー、 cancel ボタンが表示される",
-              "test": "TBD",
-              "status": "planned"
+              "test": "tests/e2e/s030_repo_management.py::test_ac_s030_1_1_modal_url_detection",
+              "status": "pass"
             },
             {
               "id": "AC-S030-1-3",
               "description": "Clone 成功時、 自動で Repo Open + 主ブランチ Open まで進み、 Drawer に出現してそのまま操作開始できる",
-              "test": "TBD",
-              "status": "planned"
+              "test": "tests/e2e/s030_repo_management.py::test_ac_s030_1_2_clone_local_bare_repo",
+              "status": "pass"
             },
             {
               "id": "AC-S030-1-4",
               "description": "Clone 失敗時 (auth error / typo URL / 既存ディレクトリ) は stderr をモーダル内にインライン表示してモーダルは閉じない",
-              "test": "TBD",
-              "status": "planned"
+              "test": "tests/e2e/s030_repo_management.py::test_ac_s030_1_4_clone_failure_returns_stderr",
+              "status": "pass"
             }
           ],
           "tasks": {
             "S030-1-1": {
               "title": "BE: `internal/ghq/ghq.go` に `Get(ctx, url) error` を追加",
               "description": "`ghq get <url>` を実行。 stdout / stderr 両方をキャプチャしてエラー時は stderr を返す。 cancellable (ctx)",
-              "status": "planned"
+              "status": "done"
             },
             "S030-1-2": {
               "title": "BE: `POST /api/repos/clone` handler を追加",
               "description": "body `{url}` を validate (空・不正 URL は 400)、 `ghq.Get` 実行、 成功時に新規 Repository ID を返す。 失敗時は stderr を JSON で返す",
-              "status": "planned"
+              "status": "done"
             },
             "S030-1-3": {
-              "title": "FE: `repo-clone-modal.tsx` を新規作成",
-              "description": "URL 入力 + Clone ボタン + cancel + エラー表示 + スピナー。 成功時に親に repoId を返す",
-              "status": "planned"
+              "title": "FE: `repo-picker.tsx` に URL 検知 + Clone UI を統合",
+              "description": "既存 Open Repository モーダルにクローン機能を統合。 URL 検知 → Clone new セクション + スピナー + エラー表示",
+              "status": "done"
             },
             "S030-1-4": {
-              "title": "FE: Drawer に「+ Clone」ボタン + モーダル接続",
-              "description": "Drawer リスト上部にボタン配置、 click で modal mount。 成功時 `POST /open` → `POST /branches/open` まで実行",
-              "status": "planned"
+              "title": "FE: Drawer footer に Open Repository ボタン接続",
+              "description": "Drawer footer ボタンからモーダル起動。 clone 成功時 reloadRepos + 自動ブランチ open",
+              "status": "done"
             },
             "S030-1-5": {
               "title": "E2E: `tests/e2e/s030_repo_management.py` で Clone 系 AC を実装",
               "description": "fixture: ローカルの bare repo を作って URL として渡す。 [AC-S030-1-1] 〜 [AC-S030-1-4] をカバー",
-              "status": "planned"
+              "status": "done"
             }
           }
         },
         "S030-2": {
           "title": "未 Push チェック付き Repository 削除",
-          "status": "planned",
+          "status": "done",
           "user_story": "ghq ユーザとして、 不要になったリポジトリを Palmux から削除したい。 ただし未 Push のコミット・未コミット変更・未追跡ファイルがあれば警告を出して内容を確認させてほしい。 なぜなら、 誤って失いたくない作業があるからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S030-2-1",
               "description": "Drawer の各リポジトリ行に \"...\" メニューがあり、 Delete アイテムから削除フローが起動する",
-              "test": "TBD",
-              "status": "planned"
+              "test": "tests/e2e/s030_repo_management.py::test_ac_s030_2_1_repo_overflow_menu",
+              "status": "pass"
             },
             {
               "id": "AC-S030-2-2",
               "description": "Delete 押下時、 全 worktree について ahead-of-upstream commits / upstream 未設定 branch / uncommitted changes / untracked files を検査して結果を返す `GET /api/repos/{repoId}/delete-preview` が動く",
-              "test": "TBD",
-              "status": "planned"
+              "test": "tests/e2e/s030_repo_management.py::test_ac_s030_2_2_delete_preview_clean",
+              "status": "pass"
             },
             {
               "id": "AC-S030-2-3",
               "description": "未 Push 作業がある場合、 警告モーダルが worktree ごとに分類表示し、 「Delete anyway」 にはリポジトリ名 (例 `tjst-t/palmux2`) のタイプ確認を要求する",
-              "test": "TBD",
-              "status": "planned"
+              "test": "tests/e2e/s030_repo_management.py::test_ac_s030_2_3_delete_modal_warning",
+              "status": "pass"
             },
             {
               "id": "AC-S030-2-4",
               "description": "未 Push 作業がない場合は通常の confirm ダイアログ 1 段で削除できる",
-              "test": "TBD",
-              "status": "planned"
+              "test": "tests/e2e/s030_repo_management.py::test_ac_s030_2_4_delete_modal_clean",
+              "status": "pass"
             },
             {
               "id": "AC-S030-2-5",
               "description": "削除確定後、 全 worktree → tmux session kill → ghq directory 削除 → `repos.json` から除去 の順で cleanup され、 Drawer から repo が消える",
-              "test": "TBD",
-              "status": "planned"
+              "test": "tests/e2e/s030_repo_management.py::test_ac_s030_2_5_delete_removes_from_api",
+              "status": "pass"
             }
           ],
           "tasks": {
             "S030-2-1": {
               "title": "BE: `internal/worktree/` に `UnpushedSummary(ctx, repoPath) ([]WorktreeStatus, error)` を追加",
               "description": "全 worktree について `git log @{u}..HEAD --oneline` / `git status --porcelain` / `for-each-ref upstream:track` を集約。 構造体は worktree path / branch / ahead commits ([]string) / upstream-missing / dirty files / untracked files",
-              "status": "planned"
+              "status": "done"
             },
             "S030-2-2": {
               "title": "BE: `GET /api/repos/{repoId}/delete-preview` handler を追加",
               "description": "`UnpushedSummary` の結果を JSON で返す。 has_unpushed bool + worktrees []WorktreeStatus",
-              "status": "planned"
+              "status": "done"
             },
             "S030-2-3": {
               "title": "BE: `internal/ghq/ghq.go` に `Rm(ctx, ghqPath) error` を追加",
               "description": "`ghq rm <path>` を実行 (binary に rm subcommand があれば)。 なければ `os.RemoveAll(fullPath)` で代替",
-              "status": "planned"
+              "status": "done"
             },
             "S030-2-4": {
               "title": "BE: `DELETE /api/repos/{repoId}` handler を追加",
               "description": "body `{confirm_name?}` を受ける。 未 Push があるのに confirm_name が repo 名と一致しなければ 412。 OK なら gwq.Remove → tmux kill → ghq.Rm → repos.json 更新",
-              "status": "planned"
+              "status": "done"
             },
             "S030-2-5": {
               "title": "FE: `repo-delete-modal.tsx` を新規作成",
               "description": "delete-preview を取得、 has_unpushed=true なら worktree ごとの分類表示 + タイプ確認 input、 false なら 1 段 confirm。 成功時に親に通知",
-              "status": "planned"
+              "status": "done"
             },
             "S030-2-6": {
               "title": "FE: Drawer 各リポジトリ行に \"...\" メニュー + Delete アイテム",
               "description": "既存の context-menu / pill-select コンポーネントを流用して overflow メニューを追加",
-              "status": "planned"
+              "status": "done"
             },
             "S030-2-7": {
               "title": "E2E: `tests/e2e/s030_repo_management.py` で Delete 系 AC を実装",
               "description": "fixture: clean repo / dirty repo (uncommitted) / ahead repo (commits ahead of upstream) を用意して各シナリオを検証。 [AC-S030-2-1] 〜 [AC-S030-2-5] をカバー",
-              "status": "planned"
+              "status": "done"
             }
           }
         }

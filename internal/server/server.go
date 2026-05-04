@@ -90,10 +90,15 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 
 	mux.HandleFunc("GET /api/repos", h.listRepos)
 	mux.HandleFunc("GET /api/repos/available", h.availableRepos)
+	// S030: clone must be registered BEFORE {repoId}/open to avoid ambiguity.
+	mux.HandleFunc("POST /api/repos/clone", h.cloneRepo)
 	mux.HandleFunc("POST /api/repos/{repoId}/open", h.openRepo)
 	mux.HandleFunc("POST /api/repos/{repoId}/close", h.closeRepo)
 	mux.HandleFunc("POST /api/repos/{repoId}/star", h.star)
 	mux.HandleFunc("POST /api/repos/{repoId}/unstar", h.unstar)
+	// S030: delete-preview and permanent delete.
+	mux.HandleFunc("GET /api/repos/{repoId}/delete-preview", h.deletePreview)
+	mux.HandleFunc("DELETE /api/repos/{repoId}", h.deleteRepo)
 
 	mux.HandleFunc("GET /api/repos/{repoId}/branches", h.listBranches)
 	mux.HandleFunc("GET /api/repos/{repoId}/branch-picker", h.branchPicker)

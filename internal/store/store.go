@@ -198,6 +198,16 @@ func (s *Store) Settings() *config.SettingsStore { return s.deps.Settings }
 // Registry returns the TabProvider registry.
 func (s *Store) Registry() *tab.Registry { return s.registry }
 
+// GHQClient returns the store's ghq.Client, or nil if not configured.
+// Exposed for the clone handler which needs to run `ghq get`.
+func (s *Store) GHQClient() *ghq.Client { return s.deps.GHQ }
+
+// OpenBranchInternal exposes the internal open-branch path to server handlers.
+// markUserOpened controls whether the branch is recorded in repos.json#userOpenedBranches.
+func (s *Store) OpenBranchInternal(ctx context.Context, repoID, branchName string, markUserOpened bool) (*domain.Branch, error) {
+	return s.openBranchInternal(ctx, repoID, branchName, markUserOpened)
+}
+
 // Repos returns a snapshot of every Open repository, sorted by GHQPath.
 func (s *Store) Repos() []*domain.Repository {
 	s.mu.Lock()
@@ -624,6 +634,42 @@ func (s *Store) CloseRepo(ctx context.Context, repoID string) error {
 		}
 	}
 	s.hub.Publish(Event{Type: EventRepoClosed, RepoID: repoID})
+	return nil
+}
+
+// DeleteRepo permanently removes a repository: it runs CloseRepo to kill tmux
+// sessions and remove linked worktrees, then removes the ghq directory from
+// disk.
+//
+// This is the "Delete repository" path. The caller is responsible for verifying
+// any unpushed work and requiring a typed confirmation before calling this
+// (see handler_repo.go cloneRepo / deleteRepo).
+func (s *Store) DeleteRepo(ctx context.Context, repoID string) error {
+	// Capture fullPath before CloseRepo wipes the in-memory state.
+	s.mu.RLock()
+	repo, ok := s.repos[repoID]
+	if !ok {
+		s.mu.RUnlock()
+		return ErrRepoNotFound
+	}
+	ghqPath := repo.GHQPath
+	fullPath := repo.FullPath
+	s.mu.RUnlock()
+
+	// Step 1: close repo (kills tmux, removes linked worktrees, removes from repos.json).
+	if err := s.CloseRepo(ctx, repoID); err != nil {
+		return fmt.Errorf("DeleteRepo CloseRepo: %w", err)
+	}
+
+	// Step 2: remove the ghq-managed directory.
+	if s.deps.GHQ != nil {
+		if err := s.deps.GHQ.Rm(ctx, ghqPath, fullPath); err != nil {
+			s.logger.Warn("DeleteRepo: ghq rm failed", "ghqPath", ghqPath, "err", err)
+			// Non-fatal warning: the repo is already removed from Palmux's
+			// perspective. The leftover directory is an orphan the user can
+			// clean up manually.
+		}
+	}
 	return nil
 }
 

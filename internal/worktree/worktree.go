@@ -125,3 +125,136 @@ func ListAllBranches(ctx context.Context, repoDir string) ([]Branch, error) {
 	}
 	return branches, nil
 }
+
+// WorktreeStatus describes the unpushed/dirty state of a single worktree for
+// the delete-preview endpoint.
+type WorktreeStatus struct {
+	Path            string   `json:"path"`
+	Branch          string   `json:"branch"`
+	AheadCommits    []string `json:"aheadCommits"` // short log lines from git log @{u}..HEAD; never nil → []
+	UpstreamMissing bool     `json:"upstreamMissing"`
+	DirtyFiles      []string `json:"dirtyFiles"`    // M/D/etc entries from git status --porcelain; never nil → []
+	UntrackedFiles  []string `json:"untrackedFiles"` // ?? entries; never nil → []
+	IsPrimary       bool     `json:"isPrimary"`
+}
+
+// HasWarnings reports whether this worktree has any unpushed or dirty state.
+func (w WorktreeStatus) HasWarnings() bool {
+	return len(w.AheadCommits) > 0 || w.UpstreamMissing || len(w.DirtyFiles) > 0 || len(w.UntrackedFiles) > 0
+}
+
+// UnpushedSummary inspects every worktree of the repository at repoPath and
+// returns per-worktree status. This is best-effort: individual command errors
+// are silently dropped so a missing upstream or detached HEAD does not block
+// the preview.
+func UnpushedSummary(ctx context.Context, repoPath string) ([]WorktreeStatus, error) {
+	wts, err := List(ctx, repoPath)
+	if err != nil {
+		return nil, fmt.Errorf("worktree.List: %w", err)
+	}
+	out := make([]WorktreeStatus, 0, len(wts))
+	for _, wt := range wts {
+		if wt.Branch == "" || wt.IsDetached {
+			continue
+		}
+		st := WorktreeStatus{
+			Path:           wt.Path,
+			Branch:         wt.Branch,
+			IsPrimary:      wt.IsPrimary,
+			AheadCommits:   []string{},
+			DirtyFiles:     []string{},
+			UntrackedFiles: []string{},
+		}
+
+		// 1. Check for upstream and ahead commits.
+		upstreamTrack := gitForEachRefUpstreamTrack(ctx, wt.Path, wt.Branch)
+		if upstreamTrack == "" {
+			// No upstream configured at all.
+			st.UpstreamMissing = true
+			// Collect all local commits as "ahead" for display.
+			if commits := gitLogLines(ctx, wt.Path, "HEAD", ""); commits != nil {
+				st.AheadCommits = commits
+			}
+		} else {
+			// Upstream exists; get commits ahead of it.
+			if commits := gitLogLines(ctx, wt.Path, "@{u}..HEAD", ""); commits != nil {
+				st.AheadCommits = commits
+			}
+		}
+
+		// 2. Get dirty/untracked files from git status --porcelain.
+		dirty, untracked := gitStatusPortcelain(ctx, wt.Path)
+		if dirty != nil {
+			st.DirtyFiles = dirty
+		}
+		if untracked != nil {
+			st.UntrackedFiles = untracked
+		}
+
+		out = append(out, st)
+	}
+	return out, nil
+}
+
+// gitForEachRefUpstreamTrack returns the upstream tracking info for a branch,
+// e.g. "[ahead 3]" or "". Empty string means no upstream is configured.
+func gitForEachRefUpstreamTrack(ctx context.Context, dir, branch string) string {
+	cmd := exec.CommandContext(ctx, "git", "for-each-ref",
+		"--format=%(upstream:track)", "refs/heads/"+branch)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// gitLogLines returns short log lines. refRange is e.g. "@{u}..HEAD" or "HEAD".
+// An empty range (no upstream) uses "HEAD" with a limit of 20.
+func gitLogLines(ctx context.Context, dir, refRange, _ string) []string {
+	args := []string{"log", "--oneline"}
+	if refRange != "" {
+		args = append(args, refRange)
+	}
+	if refRange == "HEAD" {
+		args = append(args, "--max-count=20")
+	}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	var lines []string
+	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		l = strings.TrimSpace(l)
+		if l != "" {
+			lines = append(lines, l)
+		}
+	}
+	return lines
+}
+
+// gitStatusPortcelain parses `git status --porcelain` and splits entries into
+// dirty files (any XY except ??) and untracked files (?? entries).
+func gitStatusPortcelain(ctx context.Context, dir string) (dirty, untracked []string) {
+	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, nil
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if len(line) < 4 {
+			continue
+		}
+		xy := line[:2]
+		file := strings.TrimSpace(line[3:])
+		if xy == "??" {
+			untracked = append(untracked, file)
+		} else {
+			dirty = append(dirty, xy+" "+file)
+		}
+	}
+	return
+}
