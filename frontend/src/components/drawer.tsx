@@ -35,7 +35,7 @@
 // branch is the canonical primary, `[main]` badge, and stat icon
 // (● fresh / ◍ stale) for sub-branches.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { useLongPress } from '../hooks/use-long-press'
@@ -56,6 +56,7 @@ import { BranchPicker } from './branch-picker'
 import { confirmDialog } from './context-menu/confirm-dialog'
 import { useContextMenu } from './context-menu/store'
 import { OrphanAttachModal } from './orphan/orphan-modal'
+import { RepoDeleteModal } from './repo-delete-modal'
 import { RepoPicker } from './repo-picker'
 import { SubagentCleanupDialog } from './subagent-cleanup-dialog'
 import styles from './drawer.module.css'
@@ -76,6 +77,8 @@ export function Drawer() {
   const reloadOrphanSessions = usePalmuxStore((s) => s.reloadOrphanSessions)
 
   const [pickerType, setPickerType] = useState<'repo' | { branchOf: string } | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ repoId: string; ghqPath: string } | null>(null)
+  const reloadRepos = usePalmuxStore((s) => s.reloadRepos)
   // S024: single-expand — one repo open at a time. Init lazily to the
   // repo containing the active branch (URL-driven).
   const { repoId: activeRepo } = useParams()
@@ -150,6 +153,7 @@ export function Drawer() {
           expandedRepoId={expandedRepoId}
           setExpandedRepoId={handleSetExpanded}
           onAddBranch={(repoId) => setPickerType({ branchOf: repoId })}
+          onDeleteRepo={(repoId, ghqPath) => setDeleteTarget({ repoId, ghqPath })}
         />
 
         <OrphanSection
@@ -165,8 +169,14 @@ export function Drawer() {
       </div>
 
       <footer className={styles.footer}>
-        <button className={styles.addRepoBtn} onClick={() => setPickerType('repo')}>
-          + Open Repository…
+        <button
+          className={styles.addRepoBtn}
+          onClick={() => setPickerType('repo')}
+          data-testid="drawer-open-repo-btn"
+        >
+          <span style={{ color: 'var(--color-fg-muted)' }}>📂</span>
+          <span>Open Repository…</span>
+          <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--color-fg-dim)' }}>browse · clone</span>
         </button>
       </footer>
       <DrawerResizer
@@ -187,6 +197,19 @@ export function Drawer() {
           onClose={() => setOrphanTarget(null)}
         />
       )}
+      {deleteTarget && (
+        <RepoDeleteModal
+          open={true}
+          repoId={deleteTarget.repoId}
+          repoName={deleteTarget.ghqPath.split('/').slice(-2).join('/')}
+          ghqPath={deleteTarget.ghqPath}
+          onClose={() => setDeleteTarget(null)}
+          onDeleted={async () => {
+            setDeleteTarget(null)
+            await reloadRepos()
+          }}
+        />
+      )}
     </aside>
   )
 }
@@ -199,6 +222,7 @@ function DrawerSection({
   expandedRepoId,
   setExpandedRepoId,
   onAddBranch,
+  onDeleteRepo,
 }: {
   title: string
   count: number
@@ -207,6 +231,7 @@ function DrawerSection({
   expandedRepoId: string | null
   setExpandedRepoId: (id: string | null) => void
   onAddBranch: (repoId: string) => void
+  onDeleteRepo: (repoId: string, ghqPath: string) => void
 }) {
   return (
     <section data-section={title}>
@@ -223,6 +248,7 @@ function DrawerSection({
             expanded={expandedRepoId === repo.id}
             onSetExpanded={setExpandedRepoId}
             onAddBranch={() => onAddBranch(repo.id)}
+            onDeleteRepo={() => onDeleteRepo(repo.id, repo.ghqPath)}
           />
         ))}
       </ul>
@@ -236,12 +262,14 @@ function RepoItem({
   expanded,
   onSetExpanded,
   onAddBranch,
+  onDeleteRepo,
 }: {
   repo: Repository
   number: number
   expanded: boolean
   onSetExpanded: (id: string | null) => void
   onAddBranch: () => void
+  onDeleteRepo: () => void
 }) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -269,6 +297,21 @@ function RepoItem({
     if (cat === 'unmanaged') setActiveChip('unmanaged')
     else if (cat === 'subagent') setActiveChip('subagent')
   }, [activeRepo, activeBranch, repo.id, repo.openBranches])
+
+  const [overflowOpen, setOverflowOpen] = useState(false)
+  const overflowRef = useRef<HTMLDivElement>(null)
+
+  // Close overflow menu when clicking outside.
+  useEffect(() => {
+    if (!overflowOpen) return
+    const handler = (e: MouseEvent) => {
+      if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
+        setOverflowOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [overflowOpen])
 
   const [cleanupOpen, setCleanupOpen] = useState(false)
   const [cleanupLoading, setCleanupLoading] = useState(false)
@@ -430,6 +473,63 @@ function RepoItem({
         >
           +
         </button>
+        <div ref={overflowRef} className={styles.overflowMenuWrap}>
+          <button
+            type="button"
+            className={`${styles.moreBtn} ${overflowOpen ? styles.moreBtnActive : ''}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              setOverflowOpen((v) => !v)
+            }}
+            aria-label="More options"
+            title="More options"
+            data-testid="repo-more-btn"
+          >
+            ⋯
+          </button>
+          {overflowOpen && (
+            <div className={styles.overflowMenu} role="menu" data-testid="repo-overflow-menu">
+              <button
+                className={styles.overflowItem}
+                role="menuitem"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setOverflowOpen(false)
+                  star(repo.id, !repo.starred)
+                }}
+              >
+                <span>{repo.starred ? '★' : '☆'}</span>
+                <span>{repo.starred ? 'Unstar' : 'Pin to top'}</span>
+              </button>
+              <button
+                className={styles.overflowItem}
+                role="menuitem"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setOverflowOpen(false)
+                  void navigator.clipboard.writeText(repo.ghqPath).catch(() => {})
+                }}
+              >
+                <span>📋</span>
+                <span>Copy ghq path</span>
+              </button>
+              <div className={styles.overflowDivider} />
+              <button
+                className={`${styles.overflowItem} ${styles.overflowItemDanger}`}
+                role="menuitem"
+                data-testid="repo-delete-item"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setOverflowOpen(false)
+                  onDeleteRepo()
+                }}
+              >
+                <span>🗑</span>
+                <span>Delete repository…</span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Glance line — only visible when collapsed. */}
