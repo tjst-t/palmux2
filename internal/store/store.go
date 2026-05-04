@@ -645,20 +645,44 @@ func (s *Store) CloseRepo(ctx context.Context, repoID string) error {
 // any unpushed work and requiring a typed confirmation before calling this
 // (see handler_repo.go cloneRepo / deleteRepo).
 func (s *Store) DeleteRepo(ctx context.Context, repoID string) error {
-	// Capture fullPath before CloseRepo wipes the in-memory state.
+	// hotfix: also delete repos that are NOT currently Open in Palmux —
+	// the user can request deletion of any ghq-tracked repo from the
+	// Open Repository modal's per-row 🗑.
 	s.mu.RLock()
-	repo, ok := s.repos[repoID]
-	if !ok {
-		s.mu.RUnlock()
-		return ErrRepoNotFound
-	}
-	ghqPath := repo.GHQPath
-	fullPath := repo.FullPath
+	repo, isOpen := s.repos[repoID]
 	s.mu.RUnlock()
 
-	// Step 1: close repo (kills tmux, removes linked worktrees, removes from repos.json).
-	if err := s.CloseRepo(ctx, repoID); err != nil {
-		return fmt.Errorf("DeleteRepo CloseRepo: %w", err)
+	var ghqPath, fullPath string
+	if isOpen {
+		ghqPath = repo.GHQPath
+		fullPath = repo.FullPath
+	} else {
+		// Closed repo: discover its on-disk paths via ghq list.
+		if s.deps.GHQ == nil {
+			return ErrRepoNotFound
+		}
+		all, err := s.deps.GHQ.List(ctx)
+		if err != nil {
+			return fmt.Errorf("DeleteRepo ghq list: %w", err)
+		}
+		for _, r := range all {
+			if domain.RepoSlugID(r.GHQPath) == repoID {
+				ghqPath = r.GHQPath
+				fullPath = r.FullPath
+				break
+			}
+		}
+		if fullPath == "" {
+			return ErrRepoNotFound
+		}
+	}
+
+	// Step 1: if currently Open, close the repo (kills tmux, removes linked
+	// worktrees, removes from repos.json). Skip for already-closed repos.
+	if isOpen {
+		if err := s.CloseRepo(ctx, repoID); err != nil {
+			return fmt.Errorf("DeleteRepo CloseRepo: %w", err)
+		}
 	}
 
 	// Step 2: remove the ghq-managed directory.

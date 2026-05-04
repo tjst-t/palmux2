@@ -115,6 +115,33 @@ func (h *handlers) lookupGHQPath(r *http.Request, repoID string) (string, error)
 	return "", &repoIDError{ID: repoID}
 }
 
+// resolveRepoPaths returns the absolute fullPath and ghq-relative path for
+// repoID, regardless of whether the repo is currently Open in Palmux. The
+// Open list is checked first (cheap, in-memory); if absent we fall back
+// to AvailableRepos (calls `ghq list`).
+//
+// hotfix: deletePreview / deleteRepo previously consulted only the Open
+// repos via h.store.Repos(), so the unpushed-work check returned 404
+// when the user requested deletion from the Open Repository modal —
+// where the listed repos are by definition Closed.
+func (h *handlers) resolveRepoPaths(r *http.Request, repoID string) (fullPath, ghqPath string, err error) {
+	for _, rp := range h.store.Repos() {
+		if rp.ID == repoID {
+			return rp.FullPath, rp.GHQPath, nil
+		}
+	}
+	all, listErr := h.store.AvailableRepos(r.Context())
+	if listErr != nil {
+		return "", "", listErr
+	}
+	for _, rp := range all {
+		if domain.RepoSlugID(rp.GHQPath) == repoID {
+			return rp.FullPath, rp.GHQPath, nil
+		}
+	}
+	return "", "", &repoIDError{ID: repoID}
+}
+
 // repoIDError surfaces a 404 with a friendly message.
 type repoIDError struct{ ID string }
 
@@ -216,19 +243,15 @@ type deletePreviewResponse struct {
 }
 
 // deletePreview handles GET /api/repos/{repoId}/delete-preview.
+//
+// Works for both Open and Closed repos — the Open Repository modal calls
+// this on closed repos when the user clicks the per-row 🗑.
 func (h *handlers) deletePreview(w http.ResponseWriter, r *http.Request) {
 	repoID := r.PathValue("repoId")
 
-	repos := h.store.Repos()
-	var repoFullPath string
-	for _, rp := range repos {
-		if rp.ID == repoID {
-			repoFullPath = rp.FullPath
-			break
-		}
-	}
-	if repoFullPath == "" {
-		writeJSON(w, http.StatusNotFound, errorResponse{Error: "repository not found: " + repoID})
+	repoFullPath, _, err := h.resolveRepoPaths(r, repoID)
+	if err != nil {
+		writeErr(w, err)
 		return
 	}
 
@@ -261,22 +284,15 @@ type deleteRepoRequest struct {
 }
 
 // deleteRepo handles DELETE /api/repos/{repoId}.
+//
+// Works for both Open and Closed repos — Closed-repo deletion is requested
+// from the Open Repository modal's per-row 🗑.
 func (h *handlers) deleteRepo(w http.ResponseWriter, r *http.Request) {
 	repoID := r.PathValue("repoId")
 
-	// Check unpushed work to determine whether a typed confirmation is required.
-	repos := h.store.Repos()
-	var repoFullPath, ghqPath string
-	for _, rp := range repos {
-		if rp.ID == repoID {
-			repoFullPath = rp.FullPath
-			ghqPath = rp.GHQPath
-			break
-		}
-	}
-	if repoFullPath == "" {
-		// Repo may already be closed; attempt delete anyway.
-		writeJSON(w, http.StatusNotFound, errorResponse{Error: "repository not found: " + repoID})
+	repoFullPath, ghqPath, err := h.resolveRepoPaths(r, repoID)
+	if err != nil {
+		writeErr(w, err)
 		return
 	}
 

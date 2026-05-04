@@ -186,6 +186,10 @@ func writeErr(w http.ResponseWriter, err error) {
 }
 
 func statusForErr(err error) int {
+	// hotfix: handler_repo.go's repoIDError isn't a sentinel — match by type.
+	if _, ok := err.(*repoIDError); ok {
+		return http.StatusNotFound
+	}
 	switch {
 	case errors.Is(err, store.ErrRepoNotFound), errors.Is(err, store.ErrBranchNotFound), errors.Is(err, store.ErrTabNotFound):
 		return http.StatusNotFound
