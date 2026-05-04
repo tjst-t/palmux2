@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S030-2 · Delete modal — clean</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app" aria-hidden="true" style="filter: blur(0.5px);">
+    <header class="header"><span class="headerBrand">PALMUX</span><span class="headerCrumb">tjst-t/<b>palmux2</b></span></header>
+    <aside class="drawer"><div class="statusStrip"><span class="brand">PALMUX</span></div></aside>
+    <main class="main"><div class="tabBar"><button class="tab tabActive">◆ Claude</button></div></main>
+  </div>
+
+  <div class="modalOverlay" role="dialog" aria-modal="true">
+    <div class="modalCard" data-testid="delete-modal">
+      <div class="modalHeader">
+        <h2 class="modalTitle">Delete <code>tjst-t/old-prototype</code>?</h2>
+        <p class="modalSub">All worktrees, the ghq directory, and any tmux sessions for this repo will be removed.</p>
+      </div>
+      <div class="modalBody">
+        <div style="display:flex;gap:10px;align-items:flex-start;padding:12px;background: rgba(100,210,160,0.06);border:1px solid rgba(100,210,160,0.28);border-radius:var(--radius-sm);">
+          <span style="font-size:16px;line-height:1;">✓</span>
+          <div style="font-size:12px;color:var(--color-fg);">
+            <b style="color:var(--color-success);">Nothing unpushed.</b><br>
+            All 1 worktree is clean and up to date with its upstream.
+          </div>
+        </div>
+
+        <div class="wtBlock" style="margin-top:14px;">
+          <div class="wtHeader">
+            <span class="wtPath">~/ghq/github.com/tjst-t/old-prototype</span>
+            <span class="wtBranch">· main</span>
+            <span class="wtBadge wtBadgeClean">clean</span>
+          </div>
+          <div class="wtBody" style="font-size:11px;color:var(--color-fg-muted);">
+            up to date with <code>origin/main</code>, working tree clean
+          </div>
+        </div>
+      </div>
+      <div class="modalFooter">
+        <button class="btn btnGhost">Cancel</button>
+        <button class="btn btnDanger" data-testid="delete-confirm">Delete repository</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

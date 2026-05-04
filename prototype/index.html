@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>palmux2 prototype — S030 / S031 / S032</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="indexGrid">
+    <header class="indexHeader">
+      <h1>palmux2 prototype</h1>
+      <p>
+        Static HTML mockups for <b>S030</b> (ghq Repository CRUD),
+        <b>S031</b> (Command palette redesign), and <b>S032</b> (User-defined palette commands).
+        These are the visual reference for sprint run — implementation matches markup, classes, and
+        <code>data-testid</code>s. Open any card to see its screen.
+      </p>
+    </header>
+
+    <section class="indexSection">
+      <h2>S030 · ghq Repository CRUD</h2>
+      <div class="cardGrid">
+        <a class="card" href="drawer-with-open.html">
+          <span class="cardLabel">S030-1</span>
+          <div class="cardTitle">Drawer · single Open Repository button</div>
+          <p class="cardDesc">One CTA in the drawer footer that handles browse <em>and</em> clone — no separate "+ Clone" button.</p>
+        </a>
+        <a class="card" href="drawer-with-overflow.html">
+          <span class="cardLabel">S030-2</span>
+          <div class="cardTitle">Drawer · repo overflow menu</div>
+          <p class="cardDesc">Per-repo "…" menu with Delete (and Star / Copy / GitHub). Dropdown anchored to the row.</p>
+        </a>
+        <a class="card" href="open-repo-modal-browse.html">
+          <span class="cardLabel">S030-1</span>
+          <div class="cardTitle">Open Repository · browse</div>
+          <p class="cardDesc">Default state: filter the ghq-known repos that aren't open yet. Arrow keys + Enter.</p>
+        </a>
+        <a class="card" href="open-repo-modal-clone-detected.html">
+          <span class="cardLabel">S030-1</span>
+          <div class="cardTitle">Open Repository · URL detected</div>
+          <p class="cardDesc">Smart-detect: pasted URL pins a "Clone &lt;url&gt;" affordance at the top. Same Enter, fires <code>ghq get</code>.</p>
+        </a>
+        <a class="card" href="open-repo-modal-cloning.html">
+          <span class="cardLabel">S030-1</span>
+          <div class="cardTitle">Open Repository · cloning</div>
+          <p class="cardDesc">Spinner + live progress line. Cancel keeps the modal mounted; retry stays in place.</p>
+        </a>
+        <a class="card" href="open-repo-modal-clone-error.html">
+          <span class="cardLabel">S030-1</span>
+          <div class="cardTitle">Open Repository · clone error</div>
+          <p class="cardDesc">stderr inline (auth / not-found / exists). URL retained, Retry primary action.</p>
+        </a>
+        <a class="card" href="delete-modal-clean.html">
+          <span class="cardLabel">S030-2</span>
+          <div class="cardTitle">Delete · clean repo</div>
+          <p class="cardDesc">No unpushed work — single confirmation, danger button.</p>
+        </a>
+        <a class="card" href="delete-modal-warning.html">
+          <span class="cardLabel">S030-2</span>
+          <div class="cardTitle">Delete · unpushed warning</div>
+          <p class="cardDesc">Per-worktree breakdown: ahead commits, dirty files, untracked, missing upstream. Type-the-name confirm.</p>
+        </a>
+      </div>
+    </section>
+
+    <section class="indexSection">
+      <h2>S031 · Command palette redesign</h2>
+      <div class="cardGrid">
+        <a class="card" href="palette-empty.html">
+          <span class="cardLabel">S031-4</span>
+          <div class="cardTitle">Palette · empty query</div>
+          <p class="cardDesc">VS Code-style recents on first open + builtin tab actions. No more <code>/</code> slash mode.</p>
+        </a>
+        <a class="card" href="palette-commands.html">
+          <span class="cardLabel">S031-2 · 4</span>
+          <div class="cardTitle">Palette · &gt; commands</div>
+          <p class="cardDesc">Make / npm / builtin / user mixed list. Each row shows target Bash tab. Active row highlighted.</p>
+        </a>
+        <a class="card" href="palette-grep.html">
+          <span class="cardLabel">S031-5</span>
+          <div class="cardTitle">Palette · ? content grep</div>
+          <p class="cardDesc">New <code>?</code> prefix runs grep across the worktree. Path : line snippets, highlight match.</p>
+        </a>
+        <a class="card" href="palette-bash-picker.html">
+          <span class="cardLabel">S031-2</span>
+          <div class="cardTitle">Palette · Bash picker (Cmd+Enter)</div>
+          <p class="cardDesc">Second-stage explicit Bash target picker. Auto-create option pinned at bottom.</p>
+        </a>
+        <a class="card" href="claude-tab-with-run.html">
+          <span class="cardLabel">S031-3</span>
+          <div class="cardTitle">Claude tab · ▶ Run dropdown</div>
+          <p class="cardDesc">Always-visible Run button in the Claude toolbar — discoverable on mobile too.</p>
+        </a>
+      </div>
+    </section>
+
+    <section class="indexSection">
+      <h2>S032 · User-defined palette commands</h2>
+      <div class="cardGrid">
+        <a class="card" href="user-commands-modal.html">
+          <span class="cardLabel">S032-1</span>
+          <div class="cardTitle">Manage user commands · Modal popup</div>
+          <p class="cardDesc">Single-purpose Modal opened from ⌘K → <code>&gt; manage user commands</code>. Reuses palmux2's existing popup pattern — no new settings page.</p>
+        </a>
+      </div>
+    </section>
+
+    <footer class="indexSection" style="opacity:0.5;font-size:11px;margin-top:48px;">
+      Generated 2026-05-04 · palmux2 v0.3.1 · Fog palette v2.1
+    </footer>
+  </div>
+</body>
+</html>

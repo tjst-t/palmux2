@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S030-1 · Open Repository — URL detected (clone)</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app" aria-hidden="true" style="filter: blur(0.5px);">
+    <header class="header"><span class="headerBrand">PALMUX</span><span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b></span></header>
+    <aside class="drawer"><div class="statusStrip"><span class="brand">PALMUX</span></div></aside>
+    <main class="main"><div class="tabBar"><button class="tab tabActive">◆ Claude</button></div></main>
+  </div>
+
+  <div class="modalOverlay" role="dialog" aria-modal="true">
+    <div class="modalCard" data-testid="open-repo-modal">
+      <div class="modalHeader">
+        <h2 class="modalTitle">Open Repository</h2>
+        <p class="modalSub">URL detected — Press <span class="kbd">↵</span> to clone, or pick from the list below.</p>
+      </div>
+      <div class="modalBody" style="padding: 0;">
+        <div style="padding: 16px 18px 8px;">
+          <input
+            class="input"
+            type="text"
+            autofocus
+            value="https://github.com/charmbracelet/glow"
+            data-testid="open-repo-input"
+            style="width:100%;font-size:14px;font-family:var(--font-mono);border-color: rgba(124,138,255,0.4);"
+          >
+        </div>
+
+        <ul class="paletteList" style="padding: 4px 0 8px; max-height: 360px;">
+          <li class="paletteSection">Clone new</li>
+          <li>
+            <button
+              class="paletteRow paletteRowActive"
+              data-testid="open-repo-clone-row"
+              style="background: rgba(124,138,255,0.08); border-left-color: var(--color-accent);"
+            >
+              <span class="paletteIcon" style="color:var(--color-accent);">⤓</span>
+              <span class="paletteLabel">
+                Clone <code style="color:var(--color-accent-light);">charmbracelet/glow</code>
+                <span style="display:block;font-family:var(--font-mono);font-size:11px;color:var(--color-fg-dim);margin-top:2px;">→ github.com/charmbracelet/glow · ghq get</span>
+              </span>
+              <span class="paletteDetail">new</span>
+            </button>
+          </li>
+
+          <li class="paletteSection">No matching local repo</li>
+          <li class="empty" style="padding: 14px 18px; text-align: center; color: var(--color-fg-muted); font-size: 12px;">
+            github.com/charmbracelet/glow is not yet on this machine.
+          </li>
+        </ul>
+      </div>
+      <div class="paletteFootRow" style="border-top: 1px solid var(--color-border);">
+        <span><span class="kbd">↵</span> clone</span>
+        <span><span class="kbd">Esc</span> cancel</span>
+        <span style="margin-left:auto;color:var(--color-fg-faint);">Detects http(s):// · git@host: · owner/repo shorthand</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

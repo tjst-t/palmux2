@@ -1,0 +1,32 @@
+{
+  "sprint_range": ["S030", "S031", "S032"],
+  "scope_note": "One prototype review covers all 3 sprints because they execute as a single milestone batch (autopilot one-milestone override).",
+  "screens": [
+    {"file": "prototype/drawer-with-open.html",            "story": "S030-1", "feedback_rounds": 1, "approved": true},
+    {"file": "prototype/drawer-with-overflow.html",        "story": "S030-2", "feedback_rounds": 1, "approved": true},
+    {"file": "prototype/open-repo-modal-browse.html",      "story": "S030-1", "feedback_rounds": 1, "approved": true},
+    {"file": "prototype/open-repo-modal-clone-detected.html", "story": "S030-1", "feedback_rounds": 1, "approved": true},
+    {"file": "prototype/open-repo-modal-cloning.html",     "story": "S030-1", "feedback_rounds": 1, "approved": true},
+    {"file": "prototype/open-repo-modal-clone-error.html", "story": "S030-1", "feedback_rounds": 1, "approved": true},
+    {"file": "prototype/delete-modal-clean.html",          "story": "S030-2", "feedback_rounds": 0, "approved": true},
+    {"file": "prototype/delete-modal-warning.html",        "story": "S030-2", "feedback_rounds": 0, "approved": true},
+    {"file": "prototype/palette-empty.html",               "story": "S031-4", "feedback_rounds": 0, "approved": true},
+    {"file": "prototype/palette-commands.html",            "story": "S031-2", "feedback_rounds": 0, "approved": true},
+    {"file": "prototype/palette-grep.html",                "story": "S031-5", "feedback_rounds": 0, "approved": true},
+    {"file": "prototype/palette-bash-picker.html",         "story": "S031-2", "feedback_rounds": 0, "approved": true},
+    {"file": "prototype/claude-tab-with-run.html",         "story": "S031-3", "feedback_rounds": 0, "approved": true},
+    {"file": "prototype/user-commands-modal.html",         "story": "S032-1", "feedback_rounds": 2, "approved": true}
+  ],
+  "design_decisions": [
+    "Folded clone into the existing Open Repository modal — single drawer footer button, smart URL detection pins a 'Clone <url>' affordance at the top of the result list (user override of the original separate '+ Clone' design).",
+    "Repo deletion uses GitHub-style two-tier confirm: simple 1-step when clean, type-the-name confirm when any worktree has unpushed work (ahead commits / dirty / untracked / no-upstream).",
+    "Per-worktree breakdown in delete warning: ahead-commits / dirty / untracked categories shown separately so the user sees exactly what would be lost.",
+    "Removed slash mode from ⌘K palette entirely — the Claude tab composer already has its own slash UI; '/slash mode in palette was send-to-focused-terminal which broke when Claude was focused.",
+    "`>command` mode now resolves a Bash target instead of focused terminal: mru cached in localStorage, auto-create when none exists, Cmd+Enter opens an explicit Bash picker (palette stays in tact, just shifts result set).",
+    "Empty palette query shows recents + builtin tab actions (new bash / close current / rename / toggle theme / open on GitHub) — replaces the prior 'Start typing…' dead screen.",
+    "Added `?` prefix for content grep — distinct from `:` (path search) so the prefix legend reads cleanly.",
+    "Claude tab toolbar gets a persistent ▶ Run button — discoverable on mobile and for users who don't know ⌘K.",
+    "S032 user-commands editor uses the existing Modal popup pattern (matching Claude `.claude/settings.json` editor) instead of building a global settings page from scratch — entry point is ⌘K → `> manage user commands` builtin. Full settings page deferred to a future sprint when other settings need a UI.",
+    "All scrollbars are themed (thin, --color-fg-ghost thumb, transparent track, padding-box clip) so the prototype matches the Fog v2.1 dark surface aesthetic on both Firefox and WebKit."
+  ]
+}

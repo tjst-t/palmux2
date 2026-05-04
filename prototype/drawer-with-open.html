@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S030-1 · Drawer with single Open Repository button</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b> / Claude</span>
+      <span class="headerSpacer"></span>
+      <button class="headerBtn">⌘K</button>
+      <button class="headerBtn">🔔</button>
+    </header>
+
+    <aside class="drawer">
+      <div class="statusStrip">
+        <span class="brand">PALMUX</span>
+        <span class="statusMeta"><span><b>3</b> open</span><span><b>7</b> total</span></span>
+      </div>
+
+      <div class="section">
+        <span class="sectionTitle">Repositories</span>
+        <span class="sectionCount">3</span>
+      </div>
+
+      <ul class="repos">
+        <li class="repo">
+          <div class="repoRow">
+            <span class="repoNum">1</span>
+            <button class="repoName"><span class="scope">tjst-t/</span>palmux2</button>
+            <button class="starBtn" data-on="true">★</button>
+            <button class="addBranchBtn" title="Add branch">+</button>
+            <button class="moreBtn" title="More">⋯</button>
+          </div>
+          <ul class="branches">
+            <li>
+              <button class="branch branchActive">
+                <span><span class="ghqMark">⌂</span>main</span>
+                <span class="primaryTag">primary</span>
+              </button>
+            </li>
+            <li>
+              <button class="branch">
+                <span><span class="ghqMark">⌂</span>feature/sprint-runner</span>
+              </button>
+            </li>
+            <li>
+              <button class="branch">
+                <span><span class="ghqMark">⌂</span>autopilot/main/S030</span>
+              </button>
+            </li>
+          </ul>
+        </li>
+
+        <li class="repo">
+          <div class="repoRow">
+            <span class="repoNum">2</span>
+            <button class="repoName"><span class="scope">tjst-t/</span>port-manager</button>
+            <button class="starBtn">☆</button>
+            <button class="addBranchBtn">+</button>
+            <button class="moreBtn">⋯</button>
+          </div>
+          <div class="glanceLine">⌂ main <span class="glanceArrow">›</span></div>
+        </li>
+
+        <li class="repo">
+          <div class="repoRow">
+            <span class="repoNum">3</span>
+            <button class="repoName"><span class="scope">tjst-t/</span>old-prototype</button>
+            <button class="starBtn">☆</button>
+            <button class="addBranchBtn">+</button>
+            <button class="moreBtn">⋯</button>
+          </div>
+          <div class="glanceLine">⌂ main <span class="glanceArrow">›</span></div>
+        </li>
+      </ul>
+
+      <div class="drawerFooter">
+        <button class="addRepoBtn" data-testid="drawer-open-repo-btn">
+          <span style="color:var(--color-fg-muted);">📂</span>
+          <span>Open Repository…</span>
+          <span style="margin-left:auto;font-family:var(--font-mono);font-size:10px;color:var(--color-fg-dim);">browse · clone</span>
+        </button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="tabBar">
+        <button class="tab tabActive"><span class="tabIcon">◆</span> Claude</button>
+        <button class="tab"><span class="tabIcon">$</span> bash</button>
+        <button class="tab"><span class="tabIcon">📁</span> Files</button>
+        <button class="tab"><span class="tabIcon">⎇</span> Git</button>
+        <button class="tab"><span class="tabIcon">▶</span> Sprint</button>
+      </div>
+      <div class="claudeShell">
+        <div class="claudeToolbar">
+          <span class="claudeToolbarTitle">claude · <b>palmux2 / main</b></span>
+          <span class="toolbarSpacer"></span>
+          <button class="iconBtn">🔍 Find</button>
+          <button class="iconBtn">/compact</button>
+          <button class="iconBtn">⋯</button>
+        </div>
+        <div class="claudeStream">
+          <div class="claudeMsgUser">Fold clone into the Open Repository dialog — single drawer entry point.</div>
+          <div class="claudeMsgAssistant">
+            Drawer footer is one button now. The modal accepts a free-text filter (matches existing
+            ghq repos) <em>and</em> a URL — when the input looks like a URL it pins a Clone affordance
+            at the top of the result list. Same Enter key, two outcomes depending on input shape.
+          </div>
+        </div>
+        <div class="claudeComposer">
+          <div class="claudeComposerInner">Type your prompt or drop a file…</div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

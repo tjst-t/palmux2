@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S031-5 · Palette — ? content grep</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app" aria-hidden="true" style="filter: blur(0.5px);">
+    <header class="header"><span class="headerBrand">PALMUX</span><span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b> / Files</span></header>
+    <aside class="drawer"><div class="statusStrip"><span class="brand">PALMUX</span></div></aside>
+    <main class="main"><div class="tabBar"><button class="tab tabActive">📁 Files</button></div></main>
+  </div>
+
+  <div class="paletteOverlay">
+    <div class="paletteCard" data-testid="command-palette">
+      <div class="paletteInputRow">
+        <span class="palettePrefix">?</span>
+        <input
+          class="paletteInput"
+          autofocus
+          value="resolveBashTarget"
+          data-testid="palette-input"
+        >
+        <span class="paletteDetail" style="font-family:var(--font-mono);">filter: grep · 6 hits</span>
+      </div>
+      <div class="paletteHintRow">
+        <span><span class="paletteHint">@</span> workspaces</span>
+        <span><span class="paletteHint">#</span> tabs</span>
+        <span><span class="paletteHint">&gt;</span> commands</span>
+        <span><span class="paletteHint">:</span> files</span>
+        <span><span class="paletteHint">?</span> grep</span>
+        <span style="margin-left:auto;"><span class="paletteHint">↵</span> open in Files</span>
+      </div>
+
+      <ul class="paletteList">
+        <li>
+          <button class="paletteRow paletteRowActive">
+            <span class="paletteIcon">📄</span>
+            <span class="paletteLabel">
+              frontend/src/components/command-palette/command-palette.tsx<span style="color:var(--color-fg-dim);">:174</span>
+              <span class="grepSnippet">function <mark>resolveBashTarget</mark>(repoId: string, branchId: string): TabRef | null {</span>
+            </span>
+            <span class="paletteDetail">.tsx</span>
+          </button>
+        </li>
+        <li>
+          <button class="paletteRow">
+            <span class="paletteIcon">📄</span>
+            <span class="paletteLabel">
+              frontend/src/components/command-palette/command-palette.tsx<span style="color:var(--color-fg-dim);">:201</span>
+              <span class="grepSnippet">  const target = <mark>resolveBashTarget</mark>(repo.id, branch.id)</span>
+            </span>
+            <span class="paletteDetail">.tsx</span>
+          </button>
+        </li>
+        <li>
+          <button class="paletteRow">
+            <span class="paletteIcon">📄</span>
+            <span class="paletteLabel">
+              frontend/src/tabs/claude-agent/claude-run-button.tsx<span style="color:var(--color-fg-dim);">:62</span>
+              <span class="grepSnippet">    const t = <mark>resolveBashTarget</mark>(activeRepo.id, activeBranch.id)</span>
+            </span>
+            <span class="paletteDetail">.tsx</span>
+          </button>
+        </li>
+        <li>
+          <button class="paletteRow">
+            <span class="paletteIcon">📄</span>
+            <span class="paletteLabel">
+              tests/e2e/s031_palette.py<span style="color:var(--color-fg-dim);">:88</span>
+              <span class="grepSnippet">    # [AC-S031-2-1] verify <mark>resolveBashTarget</mark> picks mru tab</span>
+            </span>
+            <span class="paletteDetail">.py</span>
+          </button>
+        </li>
+        <li>
+          <button class="paletteRow">
+            <span class="paletteIcon">📄</span>
+            <span class="paletteLabel">
+              docs/sprint-logs/S031/decisions.json<span style="color:var(--color-fg-dim);">:12</span>
+              <span class="grepSnippet">"impl": "<mark>resolveBashTarget</mark>(): mru via localStorage palmux:lastBashTab:{repo}/{branch}"</span>
+            </span>
+            <span class="paletteDetail">.json</span>
+          </button>
+        </li>
+        <li>
+          <button class="paletteRow">
+            <span class="paletteIcon">📄</span>
+            <span class="paletteLabel">
+              CLAUDE.md<span style="color:var(--color-fg-dim);">:412</span>
+              <span class="grepSnippet">- `<mark>resolveBashTarget</mark>` ヘルパは S031-2 で導入されたタブ送信先決定ロジック…</span>
+            </span>
+            <span class="paletteDetail">.md</span>
+          </button>
+        </li>
+      </ul>
+
+      <div class="paletteFootRow">
+        <span><span class="kbd">↑</span><span class="kbd">↓</span> navigate</span>
+        <span><span class="kbd">↵</span> open in Files</span>
+        <span><span class="kbd">Esc</span> close</span>
+        <span style="margin-left:auto;color:var(--color-fg-faint);">grep across worktree</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

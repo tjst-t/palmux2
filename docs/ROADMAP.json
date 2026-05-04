@@ -2,12 +2,12 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "current_sprint": "S029",
-    "total": 29,
+    "current_sprint": "S030",
+    "total": 32,
     "done": 29,
     "in_progress": 0,
-    "remaining": 0,
-    "percentage": 100
+    "remaining": 3,
+    "percentage": 90.63
   },
   "execution_order": [
     "S001",
@@ -38,7 +38,10 @@
     "S026",
     "S027",
     "S028",
-    "S029"
+    "S029",
+    "S030",
+    "S031",
+    "S032"
   ],
   "sprints": {
     "S001": {
@@ -4154,6 +4157,513 @@
           }
         }
       }
+    },
+    "S030": {
+      "title": "ghq Repository management UI (clone + safe delete)",
+      "status": "planned",
+      "description": "現在の Drawer は ghq が既に追跡しているリポジトリの Open / Close しかできず、 新規 clone と削除はターミナル (`ghq get` / `ghq rm` + `gwq remove`) に切り替える必要がある。 これを Palmux 内で完結させるための CRUD UI を追加する。\n\n削除は破壊的操作なので、 全 worktree を走査して未 Push の作業 (ahead-of-upstream commits / upstream 未設定 branch / uncommitted changes / untracked files) を検出し、 該当があれば警告モーダルで内容を見せた上でリポジトリ名タイプ確認を要求する (GitHub 流)。 何もなければ通常の confirm 1 段で削除する。\n\n設計の中核:\n- **Drawer 拡張**: 既存リポジトリリスト上部に「+ Clone」 ボタン、 各 repo 行の \"...\" メニューに Delete\n- **Clone modal**: URL 入力 → `ghq get` → 成功時に自動で Repo Open + 主ブランチ Open まで進む\n- **Delete safety check**: 全 worktree を `git status --porcelain` + `git log @{u}..HEAD` + `for-each-ref upstream:track` で検査、 結果を分類して表示\n- **Delete 確定後の cleanup 順序**: 全 worktree (`gwq remove --force`) → tmux session kill → ghq directory 削除 (`ghq rm` または `os.RemoveAll`) → `repos.json` から除去\n\n**新規 BE endpoint**: `POST /api/repos/clone` (body: `{url}`)、 `DELETE /api/repos/{repoId}` (body: `{confirm_name?}`)、 `GET /api/repos/{repoId}/delete-preview` (未 Push 検査結果を返す)\n\n**触る FE**: `frontend/src/components/drawer.tsx` (リスト + ボタン)、 新規 `repo-clone-modal.tsx`、 新規 `repo-delete-modal.tsx`\n\n**触る BE**: `internal/ghq/ghq.go` (Get / Rm 追加)、 `internal/server/handler_repo.go` (3 endpoint)、 `internal/worktree/` (未 Push 検査ヘルパ追加)",
+      "milestone": false,
+      "stories": {
+        "S030-1": {
+          "title": "リポジトリ Clone UI",
+          "status": "planned",
+          "user_story": "ghq ユーザとして、 URL を貼り付けて新しいリポジトリを Palmux から直接 clone したい。 なぜなら、 ターミナルに切り替えずに開発を始められるからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S030-1-1",
+              "description": "Drawer のリポジトリリスト上部に「+ Clone」ボタンが表示され、 click で URL 入力モーダルが開く",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S030-1-2",
+              "description": "URL を入力して Clone を押すと `POST /api/repos/clone` が `ghq get` を起動し、 進行中はモーダル内にスピナー、 cancel ボタンが表示される",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S030-1-3",
+              "description": "Clone 成功時、 自動で Repo Open + 主ブランチ Open まで進み、 Drawer に出現してそのまま操作開始できる",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S030-1-4",
+              "description": "Clone 失敗時 (auth error / typo URL / 既存ディレクトリ) は stderr をモーダル内にインライン表示してモーダルは閉じない",
+              "test": "TBD",
+              "status": "planned"
+            }
+          ],
+          "tasks": {
+            "S030-1-1": {
+              "title": "BE: `internal/ghq/ghq.go` に `Get(ctx, url) error` を追加",
+              "description": "`ghq get <url>` を実行。 stdout / stderr 両方をキャプチャしてエラー時は stderr を返す。 cancellable (ctx)",
+              "status": "planned"
+            },
+            "S030-1-2": {
+              "title": "BE: `POST /api/repos/clone` handler を追加",
+              "description": "body `{url}` を validate (空・不正 URL は 400)、 `ghq.Get` 実行、 成功時に新規 Repository ID を返す。 失敗時は stderr を JSON で返す",
+              "status": "planned"
+            },
+            "S030-1-3": {
+              "title": "FE: `repo-clone-modal.tsx` を新規作成",
+              "description": "URL 入力 + Clone ボタン + cancel + エラー表示 + スピナー。 成功時に親に repoId を返す",
+              "status": "planned"
+            },
+            "S030-1-4": {
+              "title": "FE: Drawer に「+ Clone」ボタン + モーダル接続",
+              "description": "Drawer リスト上部にボタン配置、 click で modal mount。 成功時 `POST /open` → `POST /branches/open` まで実行",
+              "status": "planned"
+            },
+            "S030-1-5": {
+              "title": "E2E: `tests/e2e/s030_repo_management.py` で Clone 系 AC を実装",
+              "description": "fixture: ローカルの bare repo を作って URL として渡す。 [AC-S030-1-1] 〜 [AC-S030-1-4] をカバー",
+              "status": "planned"
+            }
+          }
+        },
+        "S030-2": {
+          "title": "未 Push チェック付き Repository 削除",
+          "status": "planned",
+          "user_story": "ghq ユーザとして、 不要になったリポジトリを Palmux から削除したい。 ただし未 Push のコミット・未コミット変更・未追跡ファイルがあれば警告を出して内容を確認させてほしい。 なぜなら、 誤って失いたくない作業があるからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S030-2-1",
+              "description": "Drawer の各リポジトリ行に \"...\" メニューがあり、 Delete アイテムから削除フローが起動する",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S030-2-2",
+              "description": "Delete 押下時、 全 worktree について ahead-of-upstream commits / upstream 未設定 branch / uncommitted changes / untracked files を検査して結果を返す `GET /api/repos/{repoId}/delete-preview` が動く",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S030-2-3",
+              "description": "未 Push 作業がある場合、 警告モーダルが worktree ごとに分類表示し、 「Delete anyway」 にはリポジトリ名 (例 `tjst-t/palmux2`) のタイプ確認を要求する",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S030-2-4",
+              "description": "未 Push 作業がない場合は通常の confirm ダイアログ 1 段で削除できる",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S030-2-5",
+              "description": "削除確定後、 全 worktree → tmux session kill → ghq directory 削除 → `repos.json` から除去 の順で cleanup され、 Drawer から repo が消える",
+              "test": "TBD",
+              "status": "planned"
+            }
+          ],
+          "tasks": {
+            "S030-2-1": {
+              "title": "BE: `internal/worktree/` に `UnpushedSummary(ctx, repoPath) ([]WorktreeStatus, error)` を追加",
+              "description": "全 worktree について `git log @{u}..HEAD --oneline` / `git status --porcelain` / `for-each-ref upstream:track` を集約。 構造体は worktree path / branch / ahead commits ([]string) / upstream-missing / dirty files / untracked files",
+              "status": "planned"
+            },
+            "S030-2-2": {
+              "title": "BE: `GET /api/repos/{repoId}/delete-preview` handler を追加",
+              "description": "`UnpushedSummary` の結果を JSON で返す。 has_unpushed bool + worktrees []WorktreeStatus",
+              "status": "planned"
+            },
+            "S030-2-3": {
+              "title": "BE: `internal/ghq/ghq.go` に `Rm(ctx, ghqPath) error` を追加",
+              "description": "`ghq rm <path>` を実行 (binary に rm subcommand があれば)。 なければ `os.RemoveAll(fullPath)` で代替",
+              "status": "planned"
+            },
+            "S030-2-4": {
+              "title": "BE: `DELETE /api/repos/{repoId}` handler を追加",
+              "description": "body `{confirm_name?}` を受ける。 未 Push があるのに confirm_name が repo 名と一致しなければ 412。 OK なら gwq.Remove → tmux kill → ghq.Rm → repos.json 更新",
+              "status": "planned"
+            },
+            "S030-2-5": {
+              "title": "FE: `repo-delete-modal.tsx` を新規作成",
+              "description": "delete-preview を取得、 has_unpushed=true なら worktree ごとの分類表示 + タイプ確認 input、 false なら 1 段 confirm。 成功時に親に通知",
+              "status": "planned"
+            },
+            "S030-2-6": {
+              "title": "FE: Drawer 各リポジトリ行に \"...\" メニュー + Delete アイテム",
+              "description": "既存の context-menu / pill-select コンポーネントを流用して overflow メニューを追加",
+              "status": "planned"
+            },
+            "S030-2-7": {
+              "title": "E2E: `tests/e2e/s030_repo_management.py` で Delete 系 AC を実装",
+              "description": "fixture: clean repo / dirty repo (uncommitted) / ahead repo (commits ahead of upstream) を用意して各シナリオを検証。 [AC-S030-2-1] 〜 [AC-S030-2-5] をカバー",
+              "status": "planned"
+            }
+          }
+        }
+      }
+    },
+    "S031": {
+      "title": "Command palette redesign (drop /slash, route to Bash, recents + tab/quick actions)",
+      "status": "planned",
+      "description": "現在の ⌘K パレットは 5 prefix (`@workspace` `#tab` `/slash` `>command` `:file`) を持つが、 `/slash` (Claude スラッシュ) と `>command` (Make/npm) はどちらも **focused terminal に送信** する実装で、 Claude タブにフォーカスがあると Claude プロンプトとして食われて「実質使えない」 状態。\n\nユーザの具体ユースケースは 「Claude タブで作業しながら ⌘K → `>make serve` で dev サーバを再起動」。 これに合わせて palette を作り直す + ついでに「コマンドパレットがあって良かった」 と感じる定番機能 (recents / タブ操作 / テーマ / GitHub オープン / content grep) を入れる。\n\n**主な設計判断:**\n\n- `/slash` モードは完全削除 (Claude タブ composer 内に既存 UI あり、 重複)\n- `>command` の送信先を 「focused terminal」 から 「現ブランチの Bash タブ (mru 解決, なければ自動作成)」 に変更。 修飾キー (Cmd+Enter) で送信先 picker を強制表示\n- 空クエリ時 placeholder ではなく recent workspaces / tabs / files を mixed list で表示 (VS Code 流)\n- `>` mode に組み込みコマンド追加: タブ操作 (`new bash` / `new claude` / `close current` / `rename current` / `close others`) + テーマ・フォント (`toggle theme` / `increase font` / `decrease font`) + Git (`open on GitHub`)\n- `?` prefix で content grep mode を新設 (path 検索の `:` と分離、 既存 Files grep API を流用)\n- Claude タブヘッダーに常駐の `▶ Run` プルダウン (Make/npm ターゲットを直接起動。 ⌘K を覚えていない / モバイル局面の発見性)\n\n**触る FE**: `frontend/src/components/command-palette/command-palette.tsx` (大改修)、 新規 `claude-run-button.tsx`、 `frontend/src/lib/recents.ts` (新規)、 Claude タブヘッダー\n\n**触る BE**: 既存 `/api/.../commands` 流用、 `/files/search?content=1` の grep フラグ追加 (or 既存 grep endpoint を palette からも叩く)、 タブ CRUD は既存 endpoint で済む",
+      "milestone": false,
+      "stories": {
+        "S031-1": {
+          "title": "コマンドパレットから `/` slash モードを撤去",
+          "status": "planned",
+          "user_story": "Palmux ユーザとして、 ⌘K パレットから死んだ Claude スラッシュコマンド一覧を消したい。 なぜなら、 同じ機能が Claude タブの composer に既にあり、 重複している上に「focused terminal に送信」 という実装で実質動かないからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S031-1-1",
+              "description": "⌘K パレットの prefix ヒント行から `/ slash` が消え、 `@ # > :` (および S031-5 の `?`) のみが表示される",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S031-1-2",
+              "description": "クエリに `/` を入力しても slash mode の result section は出ない (workspace 等の通常検索として扱われる)",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S031-1-3",
+              "description": "`SLASH_COMMANDS` 配列・関連 render 経路がコードベースから削除されている",
+              "test": "TBD",
+              "status": "planned"
+            }
+          ],
+          "tasks": {
+            "S031-1-1": {
+              "title": "FE: `command-palette.tsx` から SLASH_COMMANDS / slash mode 経路を削除",
+              "description": "`Mode` 型から 'slash' を除外、 `detectMode` の `/` 分岐を削除、 `includeSlash` block 削除、 hint 行と placeholder 文字列を更新",
+              "status": "planned"
+            },
+            "S031-1-2": {
+              "title": "E2E: `tests/e2e/s031_palette.py` に slash 撤去の AC を追加",
+              "description": "[AC-S031-1-1] [AC-S031-1-2] をカバー",
+              "status": "planned"
+            }
+          }
+        },
+        "S031-2": {
+          "title": "`>command` を Bash タブに送信する (focused terminal から切り替え)",
+          "status": "planned",
+          "user_story": "Claude タブで作業しているユーザとして、 ⌘K → `>make serve` で dev サーバを Bash タブで再起動したい。 なぜなら、 デバッグ中に Claude との対話を維持したまま開発サーバを更新できるからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S031-2-1",
+              "description": "`>command` 選択時、 focused terminal ではなく現ブランチの Bash タブ (mru) に command が送られる",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S031-2-2",
+              "description": "現ブランチに Bash タブが存在しない場合、 自動で新規 Bash タブを作って送信する",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S031-2-3",
+              "description": "実行と同時に対象 Bash タブが focus + URL navigate され、 出力が見える状態になる",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S031-2-4",
+              "description": "`>command` row の detail 欄に送信先 (例 `→ bash:my-server`) が表示される",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S031-2-5",
+              "description": "Cmd+Enter (Mac) / Ctrl+Enter (Linux) で送信先 picker が起動し、 Bash タブを 1 つ選んで送信できる",
+              "test": "TBD",
+              "status": "planned"
+            }
+          ],
+          "tasks": {
+            "S031-2-1": {
+              "title": "FE: lastUsed Bash tab を localStorage で memoize するヘルパ",
+              "description": "`palmux:lastBashTab:{repoId}/{branchId}` で persist。 Bash タブに pty input が flow したら更新",
+              "status": "planned"
+            },
+            "S031-2-2": {
+              "title": "FE: `>command` の `perform` を 「focused terminal」 から resolveBashTarget に変更",
+              "description": "resolveBashTarget(repoId, branchId): 現ブランチの Bash タブを列挙 → mru / first を返す。 なければ `POST /api/repos/.../tabs` で auto-create",
+              "status": "planned"
+            },
+            "S031-2-3": {
+              "title": "FE: Cmd+Enter で Bash picker を起動する 2 段モード",
+              "description": "Enter 単独 → resolveBashTarget で auto。 Cmd+Enter → palette の中身を Bash タブリストに差し替えて選択させる",
+              "status": "planned"
+            },
+            "S031-2-4": {
+              "title": "FE: row detail に送信先 (mru tab name) を表示",
+              "description": "`commands` mode の row レンダラで `→ bash:<name>` を出す",
+              "status": "planned"
+            },
+            "S031-2-5": {
+              "title": "E2E: Bash 送信 + auto-create + picker をカバー",
+              "description": "[AC-S031-2-1] 〜 [AC-S031-2-5]",
+              "status": "planned"
+            }
+          }
+        },
+        "S031-3": {
+          "title": "Claude タブヘッダーに `▶ Run` プルダウン",
+          "status": "planned",
+          "user_story": "Claude タブで作業しているユーザとして、 ⌘K を覚えていなくても Claude タブヘッダーから直接 Make/npm ターゲットを起動したい。 なぜなら、 モバイルでは ⌘K が押しづらいし、 Run ボタンが常駐していると発見性が上がるからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S031-3-1",
+              "description": "Claude タブヘッダー (会話の上部 toolbar) に `▶ Run` ボタンが表示される",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S031-3-2",
+              "description": "クリック (or タップ) で Make/npm ターゲットの dropdown が開き、 選択すると S031-2 の Bash 送信ロジックが走る",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S031-3-3",
+              "description": "ターゲットが 0 個 (Makefile / package.json なし) の場合、 ボタンは表示されない (あるいは disabled + tooltip)",
+              "test": "TBD",
+              "status": "planned"
+            }
+          ],
+          "tasks": {
+            "S031-3-1": {
+              "title": "FE: `claude-run-button.tsx` を新規作成 (dropdown コンポーネント)",
+              "description": "既存 `/commands` API を叩く、 結果を dropdown に並べる、 click で resolveBashTarget + sendInput",
+              "status": "planned"
+            },
+            "S031-3-2": {
+              "title": "FE: Claude タブヘッダーに Run ボタンを配置",
+              "description": "既存の Find / Compact ボタン群と並べる。 mobile では icon-only に縮める",
+              "status": "planned"
+            },
+            "S031-3-3": {
+              "title": "E2E: Run ボタン経路の AC をカバー",
+              "description": "[AC-S031-3-1] 〜 [AC-S031-3-3]",
+              "status": "planned"
+            }
+          }
+        },
+        "S031-4": {
+          "title": "Empty query → recents + 組み込みタブ操作コマンド",
+          "status": "planned",
+          "user_story": "Palmux ユーザとして、 ⌘K でパレットを開いた瞬間に最近使った workspace / tab / file がそのまま並んでいてほしい。 さらに `> new bash` `> close current tab` `> rename tab` のような組み込みタブ操作も palette から実行したい。 なぜなら、 空 placeholder は dead screen で、 タブ CRUD のためだけに TabBar の context-menu に手を伸ばすのは流れを切るからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S031-4-1",
+              "description": "空クエリ (palette を開いた直後 / クエリを全消去した時) に recent workspaces + tabs + files が mixed list で 8 件表示される",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S031-4-2",
+              "description": "recent items は localStorage `palmux:recents` で永続化され、 select するたびに先頭に push される",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S031-4-3",
+              "description": "`>` mode で組み込みコマンド `new bash` `new claude` `close current tab` `rename current tab` `close other tabs` が表示・実行できる",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S031-4-4",
+              "description": "組み込みコマンドは Make/npm ターゲットと統合表示され、 source 欄で 「builtin」 と区別される",
+              "test": "TBD",
+              "status": "planned"
+            }
+          ],
+          "tasks": {
+            "S031-4-1": {
+              "title": "FE: `lib/recents.ts` を新規作成",
+              "description": "kind ('workspace'|'tab'|'file') + key + label + ts を保持。 push / list / cap (50) を実装",
+              "status": "planned"
+            },
+            "S031-4-2": {
+              "title": "FE: palette の空クエリ分岐で recents を表示",
+              "description": "`mode === 'all' && needle === ''` のとき items を recents から組み立てる。 select 時に push",
+              "status": "planned"
+            },
+            "S031-4-3": {
+              "title": "FE: 組み込みタブ操作コマンドを `>` mode に注入",
+              "description": "BUILTIN_COMMANDS 配列を palette 内で定義。 perform は既存タブ CRUD API を叩く",
+              "status": "planned"
+            },
+            "S031-4-4": {
+              "title": "E2E: recents + builtin コマンドの AC をカバー",
+              "description": "[AC-S031-4-1] 〜 [AC-S031-4-4]",
+              "status": "planned"
+            }
+          }
+        },
+        "S031-5": {
+          "title": "`?` content grep mode + テーマ/フォント/GitHub クイックコマンド",
+          "status": "planned",
+          "user_story": "Palmux ユーザとして、 `?TODO` でリポジトリ全体の content grep を palette から実行したい (path 検索の `:` と区別)。 ついでに `> toggle theme` `> increase font size` `> open on GitHub` のような環境系クイックコマンドも palette に欲しい。 なぜなら、 grep は Files タブを開いてから実行するより palette 直叩きが速く、 テーマ・フォント・GitHub オープンは ⌘K 経由が一番自然だからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S031-5-1",
+              "description": "`?foo` で content grep が走り、 マッチしたファイル + 行番号 + 周辺行が palette result に並ぶ",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S031-5-2",
+              "description": "grep result を select すると Files タブが該当ファイル + 該当行で開く",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S031-5-3",
+              "description": "`> toggle theme` で dark / light が切り替わり、 永続化される",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S031-5-4",
+              "description": "`> increase font size` / `> decrease font size` でターミナルフォントサイズが変わり、 永続化される",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S031-5-5",
+              "description": "`> open on GitHub` で `git remote -v` から URL を抽出し、 現ブランチを GitHub の web UI で開く (`window.open`)",
+              "test": "TBD",
+              "status": "planned"
+            }
+          ],
+          "tasks": {
+            "S031-5-1": {
+              "title": "FE: palette に `?` prefix を追加して `mode === 'grep'` を実装",
+              "description": "Files grep API (既存) を debounced で叩く。 結果を path:line 形式で render",
+              "status": "planned"
+            },
+            "S031-5-2": {
+              "title": "FE: grep result の perform で Files タブの該当行に navigate",
+              "description": "Files タブはクエリパラメータ `?line=N` を既に解釈する想定 (なければ追加)",
+              "status": "planned"
+            },
+            "S031-5-3": {
+              "title": "FE: `> toggle theme` builtin",
+              "description": "deviceSettings.theme を反転 + persist",
+              "status": "planned"
+            },
+            "S031-5-4": {
+              "title": "FE: `> increase/decrease font size` builtin",
+              "description": "deviceSettings.fontSize を ±1 で clamp、 persist",
+              "status": "planned"
+            },
+            "S031-5-5": {
+              "title": "BE: `GET /api/repos/{repoId}/branches/{branchId}/remote-url` (or git package に拡張)",
+              "description": "`git remote get-url origin` から URL を返す。 https/ssh 両対応",
+              "status": "planned"
+            },
+            "S031-5-6": {
+              "title": "FE: `> open on GitHub` builtin",
+              "description": "remote-url を取得 → `<owner>/<repo>/tree/<branch>/<path>` 形式に変換 → `window.open`",
+              "status": "planned"
+            },
+            "S031-5-7": {
+              "title": "E2E: grep + builtin クイックコマンドの AC をカバー",
+              "description": "[AC-S031-5-1] 〜 [AC-S031-5-5]",
+              "status": "planned"
+            }
+          }
+        }
+      }
+    },
+    "S032": {
+      "title": "User-defined palette commands (settings.json)",
+      "status": "planned",
+      "description": "S031 で palette が一通り使える形になった後、 ユーザが自分の定型コマンドを `~/.config/palmux/settings.json` で palette に持ち込めるようにする。 これによって 「いつものデプロイ」 「Slack 開く」 「特定の make ターゲット (auto-detect から外れているもの)」 などを ⌘K → `>` で起動できる。\n\n**スキーマ** (`~/.config/palmux/settings.json`):\n```json\n{\n  \"palette\": {\n    \"userCommands\": [\n      {\"name\": \"deploy preview\", \"command\": \"make deploy-preview\", \"target\": \"bash\"},\n      {\"name\": \"open Slack\", \"url\": \"https://app.slack.com/...\", \"target\": \"url\"},\n      {\"name\": \"docs\", \"path\": \"docs/index.md\", \"target\": \"files\"}\n    ]\n  }\n}\n```\n\n- `target: 'bash'` — S031-2 の resolveBashTarget で送信\n- `target: 'url'` — `window.open(url)`\n- `target: 'files'` — Files タブで該当パスを開く\n- 設定変更は HTTP PATCH `/api/settings` (既存) で済む\n\n**UI 配置**: 全体設定画面はまだ存在しないが、 S032 1 機能のために左 nav 付きの設定ページを建てるのは過剰。 既存の Modal popup パターン (Claude `.claude/settings.json` editor / RepoPicker と同じ) を踏襲し、 単機能の **\"Manage user commands\" Modal** を作る。 起動口は ⌘K palette の `> manage user commands` builtin (S031-4 の builtin commands に相乗り)。 将来 theme / keybindings 等の設定編集 UI が増えてきた段階で別 sprint で `/settings` ルート + 統合ページを建てる。\n\n**触る FE**: command-palette (builtin に `manage user commands` 追加 + userCommands を `>` mode に統合)、 新規 `user-commands-modal.tsx`\n\n**触る BE**: settings.json schema validation を拡張",
+      "milestone": false,
+      "stories": {
+        "S032-1": {
+          "title": "userCommands を `>` mode に統合 + Modal で編集",
+          "status": "planned",
+          "user_story": "Palmux ユーザとして、 自分の定型コマンドを ⌘K palette から追加・編集したい。 なぜなら、 Make/npm 自動検出から外れているがいつも叩く (deploy / Slack / docs ジャンプ) コマンドを palette に常駐させ、 編集も Palmux 内で完結させたいからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S032-1-1",
+              "description": "`palette.userCommands` 配列が `~/.config/palmux/settings.json` で受け付けられ、 schema validation を通る",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S032-1-2",
+              "description": "`target: 'bash'` の userCommand が `>` mode に source 「user」 で表示され、 select で S031-2 の resolveBashTarget で送信される",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S032-1-3",
+              "description": "`target: 'url'` の userCommand が `>` mode に表示され、 select で `window.open(url, '_blank')` が走る",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S032-1-4",
+              "description": "`target: 'files'` の userCommand が `>` mode に表示され、 select で Files タブの該当パスに navigate する",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S032-1-5",
+              "description": "⌘K palette の builtin commands に `> manage user commands` が含まれ、 select で User Commands Modal が開く",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S032-1-6",
+              "description": "Modal で行追加 / 編集 / 削除ができ、 Save で `PATCH /api/settings` が走り永続化される",
+              "test": "TBD",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S032-1-7",
+              "description": "Modal の \"View raw JSON\" 折りたたみで現在の userCommands が JSON で確認できる",
+              "test": "TBD",
+              "status": "planned"
+            }
+          ],
+          "tasks": {
+            "S032-1-1": {
+              "title": "BE: `internal/config/settings.go` に palette.userCommands schema を追加",
+              "description": "PaletteSettings 入れ子。 各 userCommand: name (必須) + command|url|path (target に応じて) + target (\"bash\"|\"url\"|\"files\")。 PATCH 時に validate",
+              "status": "planned"
+            },
+            "S032-1-2": {
+              "title": "FE: settings store に palette.userCommands を読み込む + Save 経路",
+              "description": "既存 settings 取得経路に palette.userCommands を追加、 PATCH 経由で更新",
+              "status": "planned"
+            },
+            "S032-1-3": {
+              "title": "FE: palette `>` mode に userCommands を統合表示",
+              "description": "Make/npm/builtin と一緒に並べる。 source ラベルは「user」。 perform は target に応じて分岐 (bash → resolveBashTarget, url → window.open, files → navigate Files タブ)",
+              "status": "planned"
+            },
+            "S032-1-4": {
+              "title": "FE: 新規 `user-commands-modal.tsx` (単機能 Modal popup)",
+              "description": "既存 `<Modal>` コンポーネント流用。 行ごとの編集 (name / command-or-url-or-path / notes / target select / 削除ボタン)、 + Add 行、 raw JSON 折りたたみ、 Save / Reset。 prototype は `prototype/user-commands-modal.html`",
+              "status": "planned"
+            },
+            "S032-1-5": {
+              "title": "FE: builtin commands に `manage user commands` を追加",
+              "description": "S031-4 の BUILTIN_COMMANDS 配列に行を足す。 perform は user-commands-modal を mount するだけ。 ⌘K → `> manage` で発見できる",
+              "status": "planned"
+            },
+            "S032-1-6": {
+              "title": "E2E: `tests/e2e/s032_user_commands.py` で全 AC をカバー",
+              "description": "fixture: tmp settings.json に 3 種 target の userCommand を入れて palette `>` 表示確認、 Modal 経由の add/edit/save 経路確認。 [AC-S032-1-1] 〜 [AC-S032-1-7]",
+              "status": "planned"
+            }
+          }
+        }
+      }
     }
   },
   "dependencies": {
@@ -4265,6 +4775,20 @@
     "S022": {
       "depends_on": [],
       "reason": "（Mobile UX 総点検）は **全 sprint の最後**。 各 sprint で都度モバイル対応を入れているが、 横断監査として最終 sprint に置く"
+    },
+    "S030": {
+      "depends_on": [],
+      "reason": "S030 は既存の repos.json / worktree / tmux 機構の上に CRUD を被せるだけで、 既存 in-progress の Sprint への依存はない (v0.3.1 時点で全 Sprint done)"
+    },
+    "S031": {
+      "depends_on": [],
+      "reason": "既存 ⌘K palette / commands API / Bash タブ機構の上の改修。 S030 (ghq CRUD) とは独立で、 並列実装可能"
+    },
+    "S032": {
+      "depends_on": [
+        "S031"
+      ],
+      "reason": "userCommands は S031-2 の resolveBashTarget や `>` mode の builtin/auto-detected 統合表示に乗るため、 S031 完了後に積む"
     }
   },
   "backlog": [

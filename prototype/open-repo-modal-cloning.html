@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S030-1 · Open Repository — cloning in progress</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app" aria-hidden="true" style="filter: blur(0.5px);">
+    <header class="header"><span class="headerBrand">PALMUX</span><span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b></span></header>
+    <aside class="drawer"><div class="statusStrip"><span class="brand">PALMUX</span></div></aside>
+    <main class="main"><div class="tabBar"><button class="tab tabActive">◆ Claude</button></div></main>
+  </div>
+
+  <div class="modalOverlay" role="dialog" aria-modal="true">
+    <div class="modalCard" data-testid="open-repo-modal">
+      <div class="modalHeader">
+        <h2 class="modalTitle">Open Repository</h2>
+        <p class="modalSub">Cloning — Cancel to keep working, the session will pick up where it left off.</p>
+      </div>
+      <div class="modalBody" style="padding: 0;">
+        <div style="padding: 16px 18px 8px;">
+          <input
+            class="input"
+            type="text"
+            value="https://github.com/charmbracelet/glow"
+            disabled
+            style="width:100%;font-size:14px;font-family:var(--font-mono);"
+          >
+        </div>
+
+        <div style="padding: 0 18px 12px;">
+          <div style="display:flex;align-items:center;gap:10px;padding:14px;background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-sm);">
+            <span class="spinner" aria-hidden="true"></span>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:13px;color:var(--color-fg);">
+                Cloning <code>charmbracelet/glow</code>…
+              </div>
+              <div style="font-size:11px;color:var(--color-fg-muted);font-family:var(--font-mono);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                Receiving objects: 78% (4231/5424), 1.2 MiB/s
+              </div>
+            </div>
+          </div>
+          <div style="margin-top: 8px; font-size: 11px; color: var(--color-fg-dim); display: flex; gap: 8px;">
+            <span>→ ghq root: <code>~/ghq</code></span>
+            <span>·</span>
+            <span>auto-open primary branch on success</span>
+          </div>
+        </div>
+      </div>
+      <div class="paletteFootRow" style="border-top: 1px solid var(--color-border); justify-content: space-between;">
+        <button class="btn btnGhost" data-testid="open-repo-cancel">Cancel clone</button>
+        <span style="color:var(--color-fg-faint);">elapsed 4.2s</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

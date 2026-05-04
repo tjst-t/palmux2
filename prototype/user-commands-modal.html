@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S032-1 · Manage user commands (Modal popup)</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app" aria-hidden="true" style="filter: blur(0.5px);">
+    <header class="header"><span class="headerBrand">PALMUX</span><span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b> / Claude</span></header>
+    <aside class="drawer">
+      <div class="statusStrip"><span class="brand">PALMUX</span></div>
+      <div class="section"><span class="sectionTitle">Repositories</span></div>
+      <ul class="repos">
+        <li class="repo"><div class="repoRow"><span class="repoNum">1</span><button class="repoName"><span class="scope">tjst-t/</span>palmux2</button><button class="starBtn" data-on="true">★</button><button class="addBranchBtn">+</button><button class="moreBtn">⋯</button></div></li>
+      </ul>
+    </aside>
+    <main class="main"><div class="tabBar"><button class="tab tabActive">◆ Claude</button></div></main>
+  </div>
+
+  <div class="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="ucmd-title">
+    <div class="modalCard modalCardWide" data-testid="user-commands-modal" style="width: min(820px, 92vw);">
+      <div class="modalHeader">
+        <h2 class="modalTitle" id="ucmd-title">Manage user commands</h2>
+        <p class="modalSub">
+          Custom entries that show up in <span class="kbd">⌘K</span>'s <code>&gt;</code> command mode.
+          Saved to <code>~/.config/palmux/settings.json</code>.
+        </p>
+      </div>
+      <div class="modalBody">
+        <div class="userCmdRowHeader">
+          <span>Name</span>
+          <span>Command / URL / Path</span>
+          <span>Notes</span>
+          <span>Target</span>
+          <span></span>
+        </div>
+
+        <div class="userCmdRow" data-testid="user-cmd-row-0">
+          <input class="input" type="text" value="deploy preview">
+          <input class="input" type="text" value="make deploy-preview">
+          <input class="input" type="text" placeholder="(optional)" value="needs PORTMAN env">
+          <select class="targetSelect">
+            <option>bash</option>
+            <option>url</option>
+            <option>files</option>
+          </select>
+          <button class="removeRowBtn" title="Remove">✕</button>
+        </div>
+
+        <div class="userCmdRow">
+          <input class="input" type="text" value="open Slack">
+          <input class="input" type="text" value="https://app.slack.com/client/T0/CABCDEF">
+          <input class="input" type="text" placeholder="(optional)">
+          <select class="targetSelect">
+            <option>bash</option>
+            <option selected>url</option>
+            <option>files</option>
+          </select>
+          <button class="removeRowBtn">✕</button>
+        </div>
+
+        <div class="userCmdRow">
+          <input class="input" type="text" value="docs / index">
+          <input class="input" type="text" value="docs/original-specs/01-architecture.md">
+          <input class="input" type="text" placeholder="(optional)" value="">
+          <select class="targetSelect">
+            <option>bash</option>
+            <option>url</option>
+            <option selected>files</option>
+          </select>
+          <button class="removeRowBtn">✕</button>
+        </div>
+
+        <button class="addRowBtn" data-testid="user-cmd-add">+ Add user command</button>
+
+        <details style="margin-top: 22px;">
+          <summary style="cursor:pointer;color:var(--color-fg-muted);font-size:12px;">View raw JSON (settings.json snippet)</summary>
+          <pre style="background:var(--color-bg);border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:12px 14px;font-size:12px;color:var(--color-fg);overflow:auto;font-family:var(--font-mono);margin-top:8px;line-height:1.6;">{
+  "palette": {
+    "userCommands": [
+      { "name": "deploy preview",  "command": "make deploy-preview",                       "target": "bash"  },
+      { "name": "open Slack",      "url":     "https://app.slack.com/client/T0/CABCDEF",   "target": "url"   },
+      { "name": "docs / index",    "path":    "docs/original-specs/01-architecture.md",    "target": "files" }
+    ]
+  }
+}</pre>
+        </details>
+      </div>
+      <div class="modalFooter">
+        <span style="margin-right:auto;font-size:11px;color:var(--color-fg-dim);">
+          3 commands ·
+          <span style="color:var(--color-fg-muted);">unsaved changes</span>
+        </span>
+        <button class="btn btnGhost">Reset</button>
+        <button class="btn btnPrimary" data-testid="user-commands-save">Save</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S031-2 · Palette — Bash target picker (Cmd+Enter)</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app" aria-hidden="true" style="filter: blur(0.5px);">
+    <header class="header"><span class="headerBrand">PALMUX</span><span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b> / Claude</span></header>
+    <aside class="drawer"><div class="statusStrip"><span class="brand">PALMUX</span></div></aside>
+    <main class="main"><div class="tabBar"><button class="tab tabActive">◆ Claude</button></div></main>
+  </div>
+
+  <div class="paletteOverlay">
+    <div class="paletteCard" data-testid="command-palette">
+      <div class="paletteInputRow" style="border-bottom-color: rgba(124,138,255,0.4); background: rgba(124,138,255,0.04);">
+        <span class="palettePrefix" style="background:rgba(124,138,255,0.10);color:var(--color-accent-light);border-color:rgba(124,138,255,0.3);">⌘↵</span>
+        <input
+          class="paletteInput"
+          autofocus
+          placeholder="Pick the Bash to run `make serve` …"
+          data-testid="palette-bash-picker-input"
+        >
+        <span class="paletteDetail" style="font-family:var(--font-mono);color:var(--color-accent-light);">target picker</span>
+      </div>
+      <div class="paletteHintRow" style="background:var(--color-elevated);">
+        <span style="color:var(--color-fg-muted);">Choose where to send: <code>make serve</code></span>
+        <span style="margin-left:auto;"><span class="paletteHint">Esc</span> back</span>
+      </div>
+
+      <ul class="paletteList">
+        <li class="paletteSection">Existing Bash tabs · this branch</li>
+        <li>
+          <button class="paletteRow paletteRowActive">
+            <span class="paletteIcon">$</span>
+            <span class="paletteLabel">bash:dev <span style="color:var(--color-fg-dim);font-family:var(--font-mono);font-size:11px;">— mru, 14 lines visible</span></span>
+            <span class="paletteDetail">recent</span>
+          </button>
+        </li>
+        <li>
+          <button class="paletteRow">
+            <span class="paletteIcon">$</span>
+            <span class="paletteLabel">bash:logs <span style="color:var(--color-fg-dim);font-family:var(--font-mono);font-size:11px;">— tail -f tmp/palmux.log</span></span>
+            <span class="paletteDetail">running</span>
+          </button>
+        </li>
+        <li>
+          <button class="paletteRow">
+            <span class="paletteIcon">$</span>
+            <span class="paletteLabel">bash:my-server <span style="color:var(--color-fg-dim);font-family:var(--font-mono);font-size:11px;">— idle</span></span>
+            <span class="paletteDetail">idle 22m</span>
+          </button>
+        </li>
+
+        <li class="paletteSection">Or create new</li>
+        <li>
+          <button class="paletteRow">
+            <span class="paletteIcon" style="color:var(--color-accent-light);">+</span>
+            <span class="paletteLabel">Open new Bash and run there</span>
+            <span class="paletteDetail">creates bash:dev-2</span>
+          </button>
+        </li>
+      </ul>
+
+      <div class="paletteFootRow">
+        <span><span class="kbd">↑</span><span class="kbd">↓</span> navigate</span>
+        <span><span class="kbd">↵</span> run on selected</span>
+        <span><span class="kbd">Esc</span> back to commands</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S031-4 · Palette — empty query (recents + builtins)</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app" aria-hidden="true" style="filter: blur(0.5px);">
+    <header class="header"><span class="headerBrand">PALMUX</span><span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b> / Claude</span></header>
+    <aside class="drawer"><div class="statusStrip"><span class="brand">PALMUX</span></div></aside>
+    <main class="main"><div class="tabBar"><button class="tab tabActive">◆ Claude</button></div></main>
+  </div>
+
+  <div class="paletteOverlay">
+    <div class="paletteCard" data-testid="command-palette">
+      <div class="paletteInputRow">
+        <input
+          class="paletteInput"
+          autofocus
+          placeholder="Search recents, jump to a workspace, or type a prefix…"
+          data-testid="palette-input"
+        >
+      </div>
+      <div class="paletteHintRow">
+        <span><span class="paletteHint">@</span> workspaces</span>
+        <span><span class="paletteHint">#</span> tabs</span>
+        <span><span class="paletteHint">&gt;</span> commands</span>
+        <span><span class="paletteHint">:</span> files</span>
+        <span><span class="paletteHint">?</span> grep</span>
+        <span style="margin-left:auto;"><span class="paletteHint">↵</span> select</span>
+      </div>
+
+      <ul class="paletteList">
+        <li class="paletteSection">Recently opened</li>
+        <li>
+          <button class="paletteRow paletteRowActive">
+            <span class="paletteIcon">⌂</span>
+            <span class="paletteLabel">tjst-t/palmux2 / main</span>
+            <span class="paletteDetail">→ Claude</span>
+          </button>
+        </li>
+        <li>
+          <button class="paletteRow">
+            <span class="paletteIcon">⌂</span>
+            <span class="paletteLabel">tjst-t/palmux2 / feature/sprint-runner</span>
+            <span class="paletteDetail">→ Files</span>
+          </button>
+        </li>
+        <li>
+          <button class="paletteRow">
+            <span class="paletteIcon">📄</span>
+            <span class="paletteLabel">docs/ROADMAP.json</span>
+            <span class="paletteDetail">files · 2m ago</span>
+          </button>
+        </li>
+        <li>
+          <button class="paletteRow">
+            <span class="paletteIcon">$</span>
+            <span class="paletteLabel">bash · my-server</span>
+            <span class="paletteDetail">tab · 11m ago</span>
+          </button>
+        </li>
+
+        <li class="paletteSection">Builtin commands</li>
+        <li>
+          <button class="paletteRow">
+            <span class="paletteIcon">$</span>
+            <span class="paletteLabel">new bash</span>
+            <span class="paletteDetail">builtin · tab</span>
+          </button>
+        </li>
+        <li>
+          <button class="paletteRow">
+            <span class="paletteIcon">◆</span>
+            <span class="paletteLabel">new claude</span>
+            <span class="paletteDetail">builtin · tab</span>
+          </button>
+        </li>
+        <li>
+          <button class="paletteRow">
+            <span class="paletteIcon">✕</span>
+            <span class="paletteLabel">close current tab</span>
+            <span class="paletteDetail">builtin</span>
+          </button>
+        </li>
+        <li>
+          <button class="paletteRow">
+            <span class="paletteIcon">✎</span>
+            <span class="paletteLabel">rename current tab</span>
+            <span class="paletteDetail">builtin</span>
+          </button>
+        </li>
+        <li>
+          <button class="paletteRow">
+            <span class="paletteIcon">🌓</span>
+            <span class="paletteLabel">toggle theme</span>
+            <span class="paletteDetail">builtin · device</span>
+          </button>
+        </li>
+      </ul>
+
+      <div class="paletteFootRow">
+        <span><span class="kbd">↑</span><span class="kbd">↓</span> navigate</span>
+        <span><span class="kbd">↵</span> select</span>
+        <span><span class="kbd">Esc</span> close</span>
+        <span style="margin-left:auto;color:var(--color-fg-faint);">10 results</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

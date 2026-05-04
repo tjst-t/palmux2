@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S031-3 · Claude tab with ▶ Run dropdown</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b> / Claude</span>
+      <span class="headerSpacer"></span>
+      <button class="headerBtn">⌘K</button>
+      <button class="headerBtn">🔔</button>
+    </header>
+
+    <aside class="drawer">
+      <div class="statusStrip"><span class="brand">PALMUX</span><span class="statusMeta"><span><b>3</b> open</span></span></div>
+      <div class="section"><span class="sectionTitle">Repositories</span></div>
+      <ul class="repos">
+        <li class="repo">
+          <div class="repoRow"><span class="repoNum">1</span><button class="repoName"><span class="scope">tjst-t/</span>palmux2</button><button class="starBtn" data-on="true">★</button><button class="addBranchBtn">+</button><button class="moreBtn">⋯</button></div>
+          <ul class="branches">
+            <li><button class="branch branchActive"><span><span class="ghqMark">⌂</span>main</span><span class="primaryTag">primary</span></button></li>
+            <li><button class="branch"><span><span class="ghqMark">⌂</span>feature/sprint-runner</span></button></li>
+          </ul>
+        </li>
+      </ul>
+    </aside>
+
+    <main class="main">
+      <div class="tabBar">
+        <button class="tab tabActive"><span class="tabIcon">◆</span> Claude</button>
+        <button class="tab"><span class="tabIcon">$</span> bash:dev</button>
+        <button class="tab"><span class="tabIcon">$</span> bash:logs</button>
+        <button class="tab"><span class="tabIcon">📁</span> Files</button>
+        <button class="tab"><span class="tabIcon">⎇</span> Git</button>
+      </div>
+
+      <div class="claudeShell">
+        <div class="claudeToolbar">
+          <span class="claudeToolbarTitle">claude · <b>palmux2 / main</b> · session #ce7-eee</span>
+          <span class="toolbarSpacer"></span>
+          <button class="iconBtn">🔍</button>
+          <button class="iconBtn">/compact</button>
+          <button class="runBtn" data-testid="claude-run-btn" aria-expanded="true">
+            <span class="play">▶</span> Run <span class="caret">▾</span>
+          </button>
+          <button class="iconBtn">⋯</button>
+        </div>
+
+        <div class="claudeStream">
+          <div class="claudeMsgUser">restart the dev server please</div>
+          <div class="claudeMsgAssistant">
+            Sure — fastest path is <code>make serve</code> on a Bash tab. You can also fire it via
+            the Run button above (stays in this conversation).
+          </div>
+        </div>
+
+        <div class="claudeComposer">
+          <div class="claudeComposerInner">Type your prompt or drop a file…</div>
+        </div>
+      </div>
+
+      <!-- Run dropdown (positioned absolutely over toolbar; static position here approximates) -->
+      <div class="runDropdown" data-testid="claude-run-dropdown">
+        <div class="runDropdownHeader">
+          <span>Run on bash:dev</span>
+          <span style="font-family:var(--font-mono);text-transform:none;letter-spacing:0;color:var(--color-fg-dim);">⌥ pick target</span>
+        </div>
+        <button class="runItem">
+          <span style="color:var(--color-accent);">▶</span>
+          <span>make serve</span>
+          <span class="runItemBadge">make</span>
+        </button>
+        <button class="runItem">
+          <span style="color:var(--color-accent);">▶</span>
+          <span>make serve-stop</span>
+          <span class="runItemBadge">make</span>
+        </button>
+        <button class="runItem">
+          <span style="color:var(--color-accent);">▶</span>
+          <span>make serve-logs</span>
+          <span class="runItemBadge">make</span>
+        </button>
+        <button class="runItem">
+          <span style="color:var(--color-accent);">▶</span>
+          <span>make dev</span>
+          <span class="runItemBadge">make</span>
+        </button>
+        <div style="height:1px;background:var(--color-border);margin:4px 0;"></div>
+        <button class="runItem">
+          <span style="color:var(--color-fg-dim);">⌘</span>
+          <span>npm run build</span>
+          <span class="runItemBadge">npm</span>
+        </button>
+        <button class="runItem">
+          <span style="color:var(--color-fg-dim);">⌘</span>
+          <span>npm run lint</span>
+          <span class="runItemBadge">npm</span>
+        </button>
+        <div style="height:1px;background:var(--color-border);margin:4px 0;"></div>
+        <button class="runItem">
+          <span style="color:var(--color-warning);">★</span>
+          <span>deploy preview</span>
+          <span class="runItemBadge">user</span>
+        </button>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

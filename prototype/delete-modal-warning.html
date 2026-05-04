@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S030-2 · Delete modal — unpushed warning</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app" aria-hidden="true" style="filter: blur(0.5px);">
+    <header class="header"><span class="headerBrand">PALMUX</span><span class="headerCrumb">tjst-t/<b>palmux2</b></span></header>
+    <aside class="drawer"><div class="statusStrip"><span class="brand">PALMUX</span></div></aside>
+    <main class="main"><div class="tabBar"><button class="tab tabActive">◆ Claude</button></div></main>
+  </div>
+
+  <div class="modalOverlay" role="dialog" aria-modal="true">
+    <div class="modalCard modalCardWide" data-testid="delete-modal">
+      <div class="modalHeader">
+        <h2 class="modalTitle">Delete <code>tjst-t/sandbox-experiments</code>?</h2>
+        <p class="modalSub">3 worktrees, ghq directory, and tmux sessions. <b style="color:var(--color-warning);">Unpushed work detected — review below.</b></p>
+      </div>
+      <div class="modalBody">
+        <div class="warnBanner">
+          <span class="warnIcon">⚠</span>
+          <div>
+            <b>Unpushed work in 2 of 3 worktrees.</b> Pushing or stashing first is recommended.
+            Anything listed here will be permanently lost when you confirm.
+          </div>
+        </div>
+
+        <!-- Worktree 1: ahead-of-upstream commits + dirty -->
+        <div class="wtBlock">
+          <div class="wtHeader">
+            <span class="wtPath">~/ghq/github.com/tjst-t/sandbox-experiments</span>
+            <span class="wtBranch">· feature/new-runtime</span>
+            <span class="wtBadge">3 ahead · dirty</span>
+          </div>
+          <div class="wtBody">
+            <div class="wtCategory">3 commits ahead of <code>origin/feature/new-runtime</code></div>
+            <ul class="wtList">
+              <li><span class="commitHash">a1b2c3d</span> Wire up the experimental runtime probe</li>
+              <li><span class="commitHash">e4f5g6h</span> Refactor scheduler hot loop</li>
+              <li><span class="commitHash">i7j8k9l</span> WIP: bench harness</li>
+            </ul>
+            <div class="wtCategory">2 modified, 1 deleted</div>
+            <ul class="wtList">
+              <li><span class="fileMod">M</span> src/runtime/probe.ts</li>
+              <li><span class="fileMod">M</span> docs/sketches/runtime.md</li>
+              <li><span class="fileDel">D</span> src/runtime/legacy.ts</li>
+            </ul>
+            <div class="wtCategory">2 untracked</div>
+            <ul class="wtList">
+              <li><span class="fileUntracked">??</span> bench/results-2026-04-30.json</li>
+              <li><span class="fileUntracked">??</span> notes.local.md</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Worktree 2: missing upstream -->
+        <div class="wtBlock">
+          <div class="wtHeader">
+            <span class="wtPath">~/ghq/github.com/tjst-t/sandbox-experiments</span>
+            <span class="wtBranch">· spike/wasi-preview2</span>
+            <span class="wtBadge">no upstream</span>
+          </div>
+          <div class="wtBody">
+            <div class="wtCategory">Branch has never been pushed</div>
+            <ul class="wtList">
+              <li><span class="commitHash">m9n8o7p</span> Initial WASI preview2 spike</li>
+              <li><span class="commitHash">q6r5s4t</span> Plumb host-fn registry</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Worktree 3: clean -->
+        <div class="wtBlock">
+          <div class="wtHeader">
+            <span class="wtPath">~/ghq/github.com/tjst-t/sandbox-experiments</span>
+            <span class="wtBranch">· main</span>
+            <span class="wtBadge wtBadgeClean">clean</span>
+          </div>
+          <div class="wtBody" style="font-size:11px;color:var(--color-fg-muted);">
+            up to date with <code>origin/main</code>, working tree clean
+          </div>
+        </div>
+
+        <div class="typeConfirm">
+          <div class="label">Type the repository name to confirm</div>
+          <input
+            class="input"
+            type="text"
+            placeholder="tjst-t/sandbox-experiments"
+            data-testid="delete-confirm-input"
+          >
+          <div class="helpText" style="margin-top:6px;">
+            Required because unpushed work exists in 2 worktrees.
+          </div>
+        </div>
+      </div>
+      <div class="modalFooter">
+        <button class="btn btnGhost">Cancel</button>
+        <button class="btn btnDanger" disabled data-testid="delete-confirm">Delete anyway</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

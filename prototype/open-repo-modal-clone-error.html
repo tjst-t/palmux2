@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S030-1 · Open Repository — clone error</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app" aria-hidden="true" style="filter: blur(0.5px);">
+    <header class="header"><span class="headerBrand">PALMUX</span><span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b></span></header>
+    <aside class="drawer"><div class="statusStrip"><span class="brand">PALMUX</span></div></aside>
+    <main class="main"><div class="tabBar"><button class="tab tabActive">◆ Claude</button></div></main>
+  </div>
+
+  <div class="modalOverlay" role="dialog" aria-modal="true">
+    <div class="modalCard" data-testid="open-repo-modal">
+      <div class="modalHeader">
+        <h2 class="modalTitle">Open Repository</h2>
+        <p class="modalSub">Clone failed — check the URL and credentials, then retry.</p>
+      </div>
+      <div class="modalBody" style="padding: 0;">
+        <div style="padding: 16px 18px 8px;">
+          <input
+            class="input"
+            type="text"
+            value="git@github.com:internal/private-repo.git"
+            data-testid="open-repo-input"
+            style="width:100%;font-size:14px;font-family:var(--font-mono);border-color: rgba(239,68,68,0.4);"
+          >
+        </div>
+
+        <div style="padding: 0 18px 12px;">
+          <div class="errorBox" data-testid="open-repo-error">git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+ghq exit code: 128</div>
+          <div style="margin-top: 8px; font-size: 11px; color: var(--color-fg-dim);">
+            Tip: ensure your SSH agent has the right key, or use the HTTPS URL with a personal access token.
+          </div>
+        </div>
+      </div>
+      <div class="paletteFootRow" style="border-top: 1px solid var(--color-border); justify-content: space-between;">
+        <button class="btn btnGhost">Cancel</button>
+        <button class="btn btnPrimary" data-testid="open-repo-retry">Retry clone</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

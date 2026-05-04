@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S030-1 · Open Repository — browse mode</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app" aria-hidden="true" style="filter: blur(0.5px);">
+    <header class="header"><span class="headerBrand">PALMUX</span><span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b></span></header>
+    <aside class="drawer">
+      <div class="statusStrip"><span class="brand">PALMUX</span></div>
+      <div class="section"><span class="sectionTitle">Repositories</span></div>
+      <ul class="repos">
+        <li class="repo"><div class="repoRow"><span class="repoNum">1</span><button class="repoName"><span class="scope">tjst-t/</span>palmux2</button><button class="starBtn" data-on="true">★</button><button class="addBranchBtn">+</button><button class="moreBtn">⋯</button></div></li>
+      </ul>
+      <div class="drawerFooter">
+        <button class="addRepoBtn" style="border-color: var(--color-accent); background: rgba(124,138,255,0.06);">
+          <span style="color:var(--color-fg-muted);">📂</span>
+          <span>Open Repository…</span>
+          <span style="margin-left:auto;font-family:var(--font-mono);font-size:10px;color:var(--color-fg-dim);">browse · clone</span>
+        </button>
+      </div>
+    </aside>
+    <main class="main"><div class="tabBar"><button class="tab tabActive">◆ Claude</button></div></main>
+  </div>
+
+  <div class="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="open-repo-title">
+    <div class="modalCard" data-testid="open-repo-modal">
+      <div class="modalHeader">
+        <h2 class="modalTitle" id="open-repo-title">Open Repository</h2>
+        <p class="modalSub">Filter your ghq repositories — or paste a URL to clone a new one.</p>
+      </div>
+      <div class="modalBody" style="padding: 0;">
+        <div style="padding: 16px 18px 8px;">
+          <input
+            class="input"
+            type="text"
+            autofocus
+            placeholder="Filter by name, or paste a URL to clone…"
+            data-testid="open-repo-input"
+            style="width:100%;font-size:14px;"
+          >
+        </div>
+
+        <ul class="paletteList" style="padding: 4px 0 8px; max-height: 360px;">
+          <li class="paletteSection">Available · ghq tracked, not yet open</li>
+          <li>
+            <button class="paletteRow paletteRowActive">
+              <span class="paletteIcon">⌂</span>
+              <span class="paletteLabel">github.com/charmbracelet/bubbletea</span>
+              <span class="paletteDetail">★</span>
+            </button>
+          </li>
+          <li>
+            <button class="paletteRow">
+              <span class="paletteIcon">⌂</span>
+              <span class="paletteLabel">github.com/jgraph/drawio</span>
+              <span class="paletteDetail"></span>
+            </button>
+          </li>
+          <li>
+            <button class="paletteRow">
+              <span class="paletteIcon">⌂</span>
+              <span class="paletteLabel">github.com/microsoft/monaco-editor</span>
+              <span class="paletteDetail"></span>
+            </button>
+          </li>
+          <li>
+            <button class="paletteRow">
+              <span class="paletteIcon">⌂</span>
+              <span class="paletteLabel">github.com/tjst-t/notes</span>
+              <span class="paletteDetail">★</span>
+            </button>
+          </li>
+          <li>
+            <button class="paletteRow">
+              <span class="paletteIcon">⌂</span>
+              <span class="paletteLabel">github.com/tjst-t/old-prototype</span>
+              <span class="paletteDetail"></span>
+            </button>
+          </li>
+        </ul>
+      </div>
+      <div class="paletteFootRow" style="border-top: 1px solid var(--color-border);">
+        <span><span class="kbd">↑</span><span class="kbd">↓</span> navigate</span>
+        <span><span class="kbd">↵</span> open</span>
+        <span style="margin-left:auto;color:var(--color-fg-faint);">Tip: paste a URL to clone instead</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
