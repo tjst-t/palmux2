@@ -62,6 +62,14 @@ func (p *Provider) RegisterRoutes(mux *http.ServeMux, prefix string) {
 	// success, 409 if the path already exists. UTF-8 only — no encoding
 	// negotiation; that's an explicit scope cut for this hotfix.
 	mux.HandleFunc("POST "+prefix+"/create", h.createFile)
+	// S033-1-1: create an empty directory (parents auto-created).
+	mux.HandleFunc("POST "+prefix+"/create-dir", h.createDir)
+	// S033-2-1: rename an entry within the same directory.
+	mux.HandleFunc("POST "+prefix+"/rename", h.renameEntry)
+	// S033-4-1: move one or more entries to a new path / directory.
+	mux.HandleFunc("POST "+prefix+"/move", h.moveEntries)
+	// S033-2-2: delete one or more entries (files or directories).
+	mux.HandleFunc("POST "+prefix+"/batch-delete", h.batchDelete)
 	// S026: HTML preview iframe loads files via a path-based URL so
 	// relative `<link href="style.css">` / `<script src="app.js">`
 	// resolve correctly. See `previewFile` for the full rationale.

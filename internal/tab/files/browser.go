@@ -441,6 +441,94 @@ func CreateFile(worktreeRoot, relPath string, content []byte) (FileInfo, string,
 	return info, ComputeETag(st.ModTime(), st.Size()), nil
 }
 
+// CreateDir creates a directory (and any missing parents) at relPath inside
+// worktreeRoot. If the directory already exists it returns os.ErrExist so the
+// caller can map it to 409.
+func CreateDir(worktreeRoot, relPath string) error {
+	abs, err := resolveSafePath(worktreeRoot, relPath)
+	if err != nil {
+		return err
+	}
+	if st, err := os.Stat(abs); err == nil {
+		if st.IsDir() {
+			return fmt.Errorf("create-dir %s: %w", relPath, os.ErrExist)
+		}
+		return fmt.Errorf("create-dir %s: path exists as a file", relPath)
+	}
+	return os.MkdirAll(abs, 0o755)
+}
+
+// RenameEntry renames a single entry within the same directory. from and to
+// must be worktree-relative paths with the same parent directory.
+// Returns os.ErrExist (→ 409) if the target already exists.
+func RenameEntry(worktreeRoot, from, to string) error {
+	absFrom, err := resolveSafePath(worktreeRoot, from)
+	if err != nil {
+		return err
+	}
+	absTo, err := resolveSafePath(worktreeRoot, to)
+	if err != nil {
+		return err
+	}
+	// Require same parent directory — this is a rename, not a move.
+	if filepath.Dir(absFrom) != filepath.Dir(absTo) {
+		return fmt.Errorf("%w: rename must stay in same directory (use move for cross-dir)", ErrInvalidPath)
+	}
+	if _, err := os.Stat(absFrom); err != nil {
+		return err
+	}
+	if _, err := os.Stat(absTo); err == nil {
+		return fmt.Errorf("rename %s: %w", to, os.ErrExist)
+	}
+	return os.Rename(absFrom, absTo)
+}
+
+// MoveEntry moves a single entry (file or directory) from fromRel to toRel.
+// toRel is the complete new path (including new basename). Returns os.ErrExist
+// (→ 409) if the destination already exists. Returns ErrInvalidPath (→ 422)
+// if the destination parent directory does not exist.
+func MoveEntry(worktreeRoot, fromRel, toRel string) error {
+	absFrom, err := resolveSafePath(worktreeRoot, fromRel)
+	if err != nil {
+		return err
+	}
+	absTo, err := resolveSafePath(worktreeRoot, toRel)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(absFrom); err != nil {
+		return err
+	}
+	if _, err := os.Stat(absTo); err == nil {
+		return fmt.Errorf("move %s: %w", toRel, os.ErrExist)
+	}
+	// Target parent must exist — we don't auto-create it.
+	toParent := filepath.Dir(absTo)
+	if _, err := os.Stat(toParent); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("%w: target directory %q does not exist", ErrInvalidPath, filepath.Dir(toRel))
+		}
+		return err
+	}
+	return os.Rename(absFrom, absTo)
+}
+
+// DeleteEntry deletes a single file or directory (recursive) at relPath.
+func DeleteEntry(worktreeRoot, relPath string) error {
+	abs, err := resolveSafePath(worktreeRoot, relPath)
+	if err != nil {
+		return err
+	}
+	st, err := os.Stat(abs)
+	if err != nil {
+		return err
+	}
+	if st.IsDir() {
+		return os.RemoveAll(abs)
+	}
+	return os.Remove(abs)
+}
+
 // detectMIME picks a MIME type by extension, falling back to "text/plain".
 func detectMIME(name string, head []byte) string {
 	switch ext := strings.ToLower(filepath.Ext(name)); ext {

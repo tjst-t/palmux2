@@ -2,9 +2,9 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 32,
+    "sprints_done": 33,
     "sprints_total": 33,
-    "percent": 96.97,
+    "percent": 100,
     "current_sprint": "S033"
   },
   "execution_order": [
@@ -4667,325 +4667,325 @@
     },
     "S033": {
       "title": "Files tab CRUD enhancements (create / rename / delete / move + multi-select)",
-      "status": "planned",
+      "status": "done",
       "description": "Files タブは S010 (preview) → S011 (edit) → S026 (HTML preview) → S027 (Markdown SPA nav) と「読む / 編集する」 機能を積み上げてきたが、 「ファイル / ディレクトリそのものの管理」 (新規作成 / リネーム / 削除 / 移動) が依然として CLI 任せ。 直近の hotfix で簡易的な + New file ボタンを header に置いたが、 user feedback で 「VS Code 流の compact icon を一覧底部に」 「フォルダも作りたい」 「右クリックで Rename / Move / Delete」 「複数選択で batch Move / Delete」 がまとまった要望として上がった。 本 sprint で Files タブを 「真のファイル管理 UI」 に引き上げる。\n\n**設計の中核 (prototype/files-* で承認済):**\n- bottom-right に **2 個の compact icon button** (📄＋ / 📁＋) — VS Code エクスプローラ header 流。 アイコン slot ゼロ idle\n- クリック → 一覧末尾に **inline rename 行** が出現 (file/folder アイコン + autofocus input)。 Enter で create、 Esc で discard\n- 既存 row を **右クリック → portal context menu** (Open · Rename… · Move… · Copy path · Open on GitHub · Delete)。 viewport-fixed で list pane を超えて floating\n- F2 / Rename… → 同じ位置で inline rename (basename 編集のみ。 directory 移動は Move… 経由)\n- **Move… modal**: repo-root-relative target 入力 + ⌘K-`@` スタイルの **directory incremental 補完** + FROM/TO live preview\n- **Delete confirm modal**: 削除対象一覧 (path + size + 最終更新)、 directory は recursive 警告\n- **Multi-select**: Cmd/Ctrl-click toggle / Shift-click range / long-press for touch。 **チェックボックスは持たず**、 Finder / VSCode 流の `tinted bg + accent 左 border` で表現。 上部 action bar に `N selected · → Move… · 🗑 Delete · ✕ Cancel`\n- 右クリック on selected → batch context menu (Move N items · Delete N items)\n\n**新規 BE endpoint** (5 個):\n- `POST /api/repos/.../files/create` (S031 hotfix で導入済 — 流用)\n- `POST /api/repos/.../files/create-dir` (空ディレクトリ作成、 parent dirs 自動作成)\n- `POST /api/repos/.../files/rename` (`{from, to}` — 同一 dir 内の basename 変更)\n- `POST /api/repos/.../files/move` (`{paths: [...], target: \"dir\"}` または `{from, to}` for single — batch 兼用)\n- `POST /api/repos/.../files/batch-delete` (`{paths: [...]}` — directory は recursive)\n\n**新規 FE component** (5 個):\n- `inline-create-row.tsx` — 一覧末尾の create row\n- `inline-rename-row.tsx` — 行内 rename\n- `files-context-menu.tsx` — portal-rendered\n- `files-move-modal.tsx` — modal + directory 補完\n- `files-delete-modal.tsx` — confirm modal\n\n**触る FE**: `frontend/src/tabs/files/files-view.tsx`, `file-list.tsx` (selection state lift), `frontend/src/components/files-context-menu.tsx` 新規\n\n**承認済みプロトタイプ** (`prototype/files-*.html`): 7 mock すべて反映済 — implementation はこれを visual source of truth として layout / class / `data-testid` をリテラルに合わせる。\n\n**スコープ外 (将来 sprint 候補)**: drag-and-drop による move、 cut/copy/paste のクリップボード操作、 Trash / 復元、 directory-tree (現在は単一 dir リスト)、 shell ファイル操作の history / undo。",
       "milestone": false,
       "stories": {
         "S033-1": {
           "title": "Inline create — file + folder at bottom of list",
-          "status": "planned",
+          "status": "done",
           "user_story": "Files タブを使う開発者として、 一覧の最下部にあるコンパクトな ＋📄 / ＋📁 アイコンから、 そのまま一覧の中で新しいファイル / フォルダの名前をタイプして作成したい。 なぜなら、 ターミナルや別モーダルに切り替えずに 「目で見ているディレクトリ」 のコンテキストでそのまま操作したいからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S033-1-1",
               "description": "Files タブの一覧 pane 下部 (border-top の thin strip 内) に compact icon button 2 個 (📄＋ / 📁＋) が右寄せで表示され、 hover で tooltip が出る (\"New file\" / \"New folder\")",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-1-1] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             },
             {
               "id": "AC-S033-1-2",
               "description": "📄＋ クリック → 一覧末尾に file icon + autofocus input + 下部に Enter / Esc ヒントを示す inline create row が出現する。 同時に 2 個の CTA は disabled",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-1-2] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             },
             {
               "id": "AC-S033-1-3",
               "description": "📁＋ も同じパターンで folder icon + 末尾 \"/\" のヒント表示で発火する",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-1-3] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             },
             {
               "id": "AC-S033-1-4",
               "description": "Enter で `POST /files/create` (file) または `POST /files/create-dir` (folder) が走り、 成功時に一覧 refresh + (file の場合) editor pane で新規ファイルを開く",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-1-4] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             },
             {
               "id": "AC-S033-1-5",
               "description": "subpath 入力 (`foo/bar/baz.tsx`) で parent dirs が auto-mkdir される",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-1-5] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             },
             {
               "id": "AC-S033-1-6",
               "description": "既存名と衝突した場合 backend は 409 を返し、 inline row はそのまま残って下部 hint 行に赤字でエラーを表示 (Esc で discard 可能)",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-1-6] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             },
             {
               "id": "AC-S033-1-7",
               "description": "Esc で create row が discard され、 CTA 2 個が enabled に戻る。 既存の listing は不変",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-1-7] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             }
           ],
           "tasks": {
             "S033-1-1": {
               "title": "BE: `POST /files/create-dir` endpoint + helper",
               "description": "browser.go に CreateDir(root, relPath) を追加。 `os.MkdirAll(0o755)`、 既存ディレクトリ → 409。 handler.go に createDir handler。 provider.go にルート登録",
-              "status": "planned"
+              "status": "done"
             },
             "S033-1-2": {
               "title": "FE: 既存 header `+ New file` ボタンを撤去、 一覧底部の compact icon strip に置き換え",
               "description": "files-view.tsx — 旧 header CTA を削除、 `<div class=fileListCTAs>` を listPane の最下部に配置。 既存 inline create state を流用し、 file/folder kind を分岐 (folder の場合 create-dir に POST)",
-              "status": "planned"
+              "status": "done"
             },
             "S033-1-3": {
               "title": "FE: inline create row のレイアウト + キーバインド",
               "description": "icon (file/folder) + auto-focused `<input>` + hint 行 (Enter / Esc + path preview)。 prototype/files-new-file-inline.html / files-new-folder-inline.html とマークアップ・data-testid 一致",
-              "status": "planned"
+              "status": "done"
             },
             "S033-1-4": {
               "title": "FE: 衝突時のエラー表示と Esc discard",
               "description": "409 を catch → hint 行を赤字に切り替え。 Esc で row を unmount + CTAs を re-enable",
-              "status": "planned"
+              "status": "done"
             },
             "S033-1-5": {
               "title": "E2E: `tests/e2e/s033_files_crud.py` で AC-S033-1-* をカバー",
               "description": "fixture: tmp/ ディレクトリ内で create + create-dir + collision + Esc を検証。 既存 hotfix test の延長",
-              "status": "planned"
+              "status": "done"
             }
           }
         },
         "S033-2": {
           "title": "Right-click context menu + inline rename + delete confirm modal",
-          "status": "planned",
+          "status": "done",
           "user_story": "Files タブを使う開発者として、 既存のファイル / フォルダを右クリックして名前変更や削除をしたい。 なぜなら、 単純な操作のために CLI に切り替えるオーバーヘッドを減らしたいからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S033-2-1",
               "description": "Files 一覧の任意 row を右クリックすると、 viewport-fixed (portal-rendered) の context menu が cursor 位置に出現する (list pane を超えて floating)",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-2-1] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             },
             {
               "id": "AC-S033-2-2",
               "description": "メニュー項目: Open / Rename… / Move… / Copy path / Open on GitHub / Delete (区切り線あり)。 Delete は赤字 (danger)",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-2-2] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             },
             {
               "id": "AC-S033-2-3",
               "description": "Rename… (または row フォーカス時の F2) で、 同じ row 位置に inline rename input が出現し basename が pre-select される",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-2-3] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             },
             {
               "id": "AC-S033-2-4",
               "description": "Enter で `POST /files/rename` が走り、 成功時に listing を refresh、 hint 行に from → to の live preview が出ていた場合は実 path に沿うかを確認",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-2-4] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             },
             {
               "id": "AC-S033-2-5",
               "description": "Delete を選択すると confirm modal が開き、 path / size / 最終更新 + (directory なら recursive 警告) を表示。 Delete file (or N items) ボタン押下で `POST /files/batch-delete` が走る",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-2-5] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             },
             {
               "id": "AC-S033-2-6",
               "description": "Copy path で worktree-relative path が clipboard にコピーされ、 一時的な toast / アクティブ row のフラッシュで feedback",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-2-6] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             },
             {
               "id": "AC-S033-2-7",
               "description": "Open on GitHub で `git remote get-url origin` (S031-5 helper 流用) からの URL に worktree-relative path を append して新規タブで開く",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-2-7] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             }
           ],
           "tasks": {
             "S033-2-1": {
               "title": "BE: `POST /files/rename` endpoint + helper",
               "description": "browser.go に Rename(root, from, to) を追加。 from と to は worktree 相対、 同一 parent dir 内のみ許容、 collision → 409、 atomic os.Rename",
-              "status": "planned"
+              "status": "done"
             },
             "S033-2-2": {
               "title": "BE: `POST /files/batch-delete` endpoint",
               "description": "`{paths: [...]}` を受けて各 path を削除 (file: os.Remove、 directory: os.RemoveAll)。 全成功時 200 + `{deleted: N}`、 一部失敗時 207 Multi-Status で per-path 結果を返す",
-              "status": "planned"
+              "status": "done"
             },
             "S033-2-3": {
               "title": "FE: 新規 `files-context-menu.tsx` (portal-rendered)",
               "description": "既存 `useContextMenu()` に乗せず Files タブ専用にしておくのが scope 良し。 cursor 座標で fixed 配置、 outside-click / Esc で close、 keyboard navigation (↑↓↵)。 prototype/files-list-with-actions.html のメニュー一致",
-              "status": "planned"
+              "status": "done"
             },
             "S033-2-4": {
               "title": "FE: inline rename row + F2 keybind",
               "description": "files-view.tsx に renameTarget state を追加、 Rename… 選択 / F2 で発動。 input value は basename pre-select。 prototype/files-rename-inline.html 一致",
-              "status": "planned"
+              "status": "done"
             },
             "S033-2-5": {
               "title": "FE: 新規 `files-delete-modal.tsx` (single + batch 共用)",
               "description": "props: items: FileMeta[]. 1 item → 1 ブロック、 N items → N ブロック並べる。 directory には recursive 警告バッジ。 prototype/files-delete-confirm.html 一致",
-              "status": "planned"
+              "status": "done"
             },
             "S033-2-6": {
               "title": "FE: Copy path + Open on GitHub の handler 配線",
               "description": "Copy: `navigator.clipboard.writeText(path)`。 GitHub: S031-5 で導入済 `/api/.../remote-url` を叩いて URL 組み立て + window.open",
-              "status": "planned"
+              "status": "done"
             },
             "S033-2-7": {
               "title": "E2E: AC-S033-2-* をカバー",
               "description": "Playwright で右クリック / F2 / Delete confirm / Copy / GitHub open を検証",
-              "status": "planned"
+              "status": "done"
             }
           }
         },
         "S033-3": {
           "title": "Multi-select with batch action bar + batch right-click menu",
-          "status": "planned",
+          "status": "done",
           "user_story": "Files タブを使う開発者として、 複数のファイル / フォルダをまとめて削除や移動したい。 なぜなら、 reorganization 中に 5 件のファイルを 1 個ずつ右クリック → Delete… するのは流れを切るし、 関連ファイル群をまとめて別ディレクトリに移したいシナリオが頻繁にあるからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S033-3-1",
               "description": "Cmd/Ctrl + click で個別 row の選択を toggle できる、 Shift + click で前回 anchor からの range 選択ができる、 通常 click は単選 (置換)",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-3-1] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             },
             {
               "id": "AC-S033-3-2",
               "description": "選択行はチェックボックスではなく `tinted bg + 2px accent 左 border` でハイライトされる (Finder / VSCode 流)。 アイコンは file / folder のまま常時表示",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-3-2] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             },
             {
               "id": "AC-S033-3-3",
               "description": "1 個以上選択された瞬間に list pane 上部に slim な action bar が現れる: `N selected · → Move… · 🗑 Delete · ✕ Cancel`。 全解除で消える",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-3-3] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             },
             {
               "id": "AC-S033-3-4",
               "description": "選択 row の右クリック → context menu は **batch 版** (Move N items… / Copy N paths / Delete N items)。 Rename / Open は単項目限定なので非表示",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-3-4] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             },
             {
               "id": "AC-S033-3-5",
               "description": "touch (max-width: 600px): 任意 row の long-press (>= 500ms) で select mode に入る。 以後 tap は toggle (open しない)。 action bar の Cancel で抜けると tap は通常 open に戻る",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-3-5] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             },
             {
               "id": "AC-S033-3-6",
               "description": "Esc / action bar の Cancel / 全解除で multi-select 状態が解除される",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-3-6] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             },
             {
               "id": "AC-S033-3-7",
               "description": "Delete / Backspace キー押下で batch delete confirm modal が起動 (S033-2 のモーダルを N items mode で再利用)",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-3-7] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             }
           ],
           "tasks": {
             "S033-3-1": {
               "title": "FE: file-list.tsx に selection state を lift + key modifiers 配線",
               "description": "selectedPaths: Set<string> を files-view.tsx に置く。 Cmd/Ctrl + click → toggle、 Shift + click → range from anchorPath。 normal click → replace",
-              "status": "planned"
+              "status": "done"
             },
             "S033-3-2": {
               "title": "FE: action bar component (top of list pane)",
               "description": "selectedPaths.size >= 1 で mount。 Move / Delete / Cancel ボタン配置。 prototype/files-multi-select.html 一致",
-              "status": "planned"
+              "status": "done"
             },
             "S033-3-3": {
               "title": "FE: context menu の batch 版 (single 版と分岐)",
               "description": "右クリック時に selectedPaths を見て、 N >= 2 なら batch 版を render (Rename / Open を hide、 ラベルに count を埋め込み)",
-              "status": "planned"
+              "status": "done"
             },
             "S033-3-4": {
               "title": "FE: touch long-press → select mode 突入",
               "description": "use-long-press hook (既存 hooks/use-long-press.ts 流用) を file row に attach。 touchstart 500ms で row select + multi-select state 突入",
-              "status": "planned"
+              "status": "done"
             },
             "S033-3-5": {
               "title": "FE: Esc / Cancel / Delete-key 配線 + tap-outside で全解除",
               "description": "files-view 内の keydown listener で Esc → clearSelection、 Delete/Backspace → openDeleteModal。 list pane 外 click で全解除",
-              "status": "planned"
+              "status": "done"
             },
             "S033-3-6": {
               "title": "E2E: AC-S033-3-* をカバー",
               "description": "desktop: Cmd-click / Shift-click / action bar / batch context menu。 mobile (Playwright touch emulation): long-press 突入 + tap toggle",
-              "status": "planned"
+              "status": "done"
             }
           }
         },
         "S033-4": {
           "title": "Move modal with directory incremental completion",
-          "status": "planned",
+          "status": "done",
           "user_story": "Files タブを使う開発者として、 1 個または複数のファイル / フォルダを別ディレクトリに移動したい。 移動先のパスをタイプ中、 ⌘K の `@` モードのようにディレクトリ候補が逐次サジェストされてほしい。 なぜなら、 path をフルでタイプするのは typo の温床で、 補完があると正確かつ速いからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S033-4-1",
               "description": "Single-item Move… / Batch Move… のどちらからも同じ files-move-modal が起動する。 Single の場合 input は full path (basename 含む)、 Batch の場合 input は target dir のみ (basenames は preserve)",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-4-1] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             },
             {
               "id": "AC-S033-4-2",
               "description": "input typing で repo-root-relative の dir 候補が completion list として下部に出現する。 マッチ部分は `<mark>` 風に highlight、 候補 1 個以上で有効、 0 個なら 「No matches」",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-4-2] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             },
             {
               "id": "AC-S033-4-3",
               "description": "↑↓ で navigate、 Tab で先頭候補を input に accept、 ↵ で move 確定 (or もう 1 段の completion)",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-4-3] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             },
             {
               "id": "AC-S033-4-4",
               "description": "modal 下部に FROM → TO の per-item live preview が表示される (single: 1 行、 batch: N 行)",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-4-4] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             },
             {
               "id": "AC-S033-4-5",
               "description": "Move ボタン (single / batch ラベル分岐) で `POST /files/move` が走り、 全成功で modal close + listing refresh、 partial 失敗で per-path エラーを表示",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-4-5] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             },
             {
               "id": "AC-S033-4-6",
               "description": "存在しない target dir を入れた場合 422 (modal 内エラー表示)、 collision (target に同名ファイルあり) は 409 で per-path エラー",
-              "test": "TBD",
-              "status": "planned"
+              "test": "[AC-S033-4-6] in tests/e2e/s033_files_crud.py",
+              "status": "pass"
             }
           ],
           "tasks": {
             "S033-4-1": {
               "title": "BE: `POST /files/move` endpoint + helper",
               "description": "browser.go に Move({from, to}) helper、 同 directory 内 rename と cross-dir move 兼用。 atomic os.Rename。 collision → 409、 missing parent → 422 (auto-mkdir はしない、 明示的に user-supplied target dir を尊重)",
-              "status": "planned"
+              "status": "done"
             },
             "S033-4-2": {
               "title": "BE: directory-only file-search の確認 / 必要なら拡張",
               "description": "既存 `/files/search` は file + dir 両方を返す。 modal 補完用に `?type=dir` フィルタを追加 (or FE 側で filter)。 `internal/tab/files/browser.go` SearchEntries のシグネチャ確認",
-              "status": "planned"
+              "status": "done"
             },
             "S033-4-3": {
               "title": "FE: 新規 `files-move-modal.tsx`",
               "description": "props: items: FileMeta[], onClose, onCompleted。 single/batch を items.length で分岐。 input + completion dropdown + preview。 prototype/files-move-modal.html 一致",
-              "status": "planned"
+              "status": "done"
             },
             "S033-4-4": {
               "title": "FE: directory completion (debounced + ranked)",
               "description": "input change で 80ms debounce、 `/files/search?type=dir&query=...` を叩いて結果を completion list に。 ⌘K の @ モードと同じ keyboard / mouse navigation",
-              "status": "planned"
+              "status": "done"
             },
             "S033-4-5": {
               "title": "FE: action bar の Move… ボタンと右クリック Move… を modal に配線",
               "description": "S033-3 の action bar / S033-2 + S033-3 の context menu からの起動 entry point を modal mount に揃える",
-              "status": "planned"
+              "status": "done"
             },
             "S033-4-6": {
               "title": "E2E: AC-S033-4-* をカバー",
               "description": "single move / batch move / completion navigation / partial failure を Playwright で検証",
-              "status": "planned"
+              "status": "done"
             }
           }
         }
@@ -5307,6 +5307,12 @@
       "description": "The `isValidationErr` helper in internal/server/handler_settings.go detects 400-worthy errors by string-matching the error message (e.g. `strings.Contains(err.Error(), \"validation\")`). This is fragile — any rename of the error message silently breaks the 400 path. Fix: declare `var ErrUserCommandValidation = errors.New(\"user command validation error\")` in internal/config/settings.go, wrap validation errors via `fmt.Errorf(\"%w: %s\", ErrUserCommandValidation, detail)`, and detect via `errors.Is(err, ErrUserCommandValidation)` in the handler. File: internal/config/settings.go + internal/server/handler_settings.go.",
       "added_in": "S032",
       "reason": "Non-blocking at S032 because E2E shows validation returns 400 correctly today; the fragility is a maintenance risk rather than a user-facing bug. Deferred to keep S032 scope tight."
+    },
+    {
+      "title": "Files tab CRUD polish (S033 review follow-ups)",
+      "description": "Items deferred from S033 sprint-level review (refer to docs/sprint-logs/S033/decisions.json review section): TOCTOU on CreateDir, rename-to-empty-basename validation, dir-only search maxResults, files-context-menu keyboard navigation (↑↓↵), Open-on-GitHub popup verification in tests, dirty-set useMemo (if not applied in fix-up).",
+      "added_in": "S033",
+      "reason": "Trade-off: low-impact polish, did not block core sprint completion"
     }
   ]
 }

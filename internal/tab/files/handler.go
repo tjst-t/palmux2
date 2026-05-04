@@ -450,6 +450,17 @@ func (h *handler) search(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	// S033-4-2: optional ?type=dir filter for directory completion in the
+	// move modal. We filter in the handler so SearchEntries stays generic.
+	if q.Get("type") == "dir" {
+		filtered := results[:0]
+		for _, e := range results {
+			if e.IsDir {
+				filtered = append(filtered, e)
+			}
+		}
+		results = filtered
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"results": results})
 }
 
@@ -552,6 +563,216 @@ func (h *handler) previewFile(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Palmux-Path", info.Path)
 	w.Header().Set("X-Palmux-Size", strconv.FormatInt(info.Size, 10))
 	_, _ = w.Write(body)
+}
+
+// createDir handles `POST /api/repos/.../files/create-dir`.
+// Body: JSON `{"path": "rel/path/to/new-dir"}`. Returns 201 on success, 409
+// if the directory already exists.
+func (h *handler) createDir(w http.ResponseWriter, r *http.Request) {
+	root, err := h.branchPath(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	defer r.Body.Close()
+	var payload struct {
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if strings.TrimSpace(payload.Path) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path required"})
+		return
+	}
+	if err := CreateDir(root, payload.Path); err != nil {
+		switch {
+		case errors.Is(err, os.ErrExist):
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		case errors.Is(err, ErrInvalidPath):
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		case errors.Is(err, os.ErrPermission):
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
+		default:
+			writeErr(w, err)
+		}
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"path": payload.Path})
+}
+
+// renameEntry handles `POST /api/repos/.../files/rename`.
+// Body: JSON `{"from": "old-name.txt", "to": "new-name.txt"}` (same parent dir).
+func (h *handler) renameEntry(w http.ResponseWriter, r *http.Request) {
+	root, err := h.branchPath(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	const maxUpload = int64(32 << 20)
+	r.Body = http.MaxBytesReader(w, r.Body, maxUpload)
+	defer r.Body.Close()
+	var payload struct {
+		From string `json:"from"`
+		To   string `json:"to"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if strings.TrimSpace(payload.From) == "" || strings.TrimSpace(payload.To) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "from and to required"})
+		return
+	}
+	if err := RenameEntry(root, payload.From, payload.To); err != nil {
+		switch {
+		case errors.Is(err, os.ErrExist):
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		case errors.Is(err, ErrInvalidPath):
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		case errors.Is(err, os.ErrNotExist):
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		case errors.Is(err, os.ErrPermission):
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
+		default:
+			writeErr(w, err)
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"from": payload.From, "to": payload.To})
+}
+
+// moveEntries handles `POST /api/repos/.../files/move`.
+// For single-item move: body `{"from": "path/a.txt", "to": "path/b.txt"}`.
+// For batch move: body `{"paths": ["a.txt", "b/c.txt"], "target": "some/dir"}`.
+// target dir must exist; basenames are preserved for batch.
+// Returns 200 on full success, 207 Multi-Status on partial failure.
+func (h *handler) moveEntries(w http.ResponseWriter, r *http.Request) {
+	root, err := h.branchPath(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	defer r.Body.Close()
+	// Decode into a generic map so we can handle both shapes.
+	var payload struct {
+		From   string   `json:"from"`
+		To     string   `json:"to"`
+		Paths  []string `json:"paths"`
+		Target string   `json:"target"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	// Determine single vs batch.
+	type moveResult struct {
+		From  string `json:"from"`
+		To    string `json:"to"`
+		Error string `json:"error,omitempty"`
+	}
+
+	var pairs []struct{ from, to string }
+	if payload.From != "" && payload.To != "" {
+		// Single-item: full from → to path.
+		pairs = append(pairs, struct{ from, to string }{payload.From, payload.To})
+	} else if len(payload.Paths) > 0 && payload.Target != "" {
+		// Batch: move each path into target dir, preserving basename.
+		for _, p := range payload.Paths {
+			base := filepath.Base(filepath.FromSlash(p))
+			dest := filepath.ToSlash(filepath.Join(payload.Target, base))
+			pairs = append(pairs, struct{ from, to string }{p, dest})
+		}
+	} else {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "provide {from,to} or {paths,target}"})
+		return
+	}
+
+	// Single-item: execute and return a meaningful HTTP status on error.
+	if len(pairs) == 1 {
+		pair := pairs[0]
+		if err := MoveEntry(root, pair.from, pair.to); err != nil {
+			switch {
+			case errors.Is(err, os.ErrExist):
+				writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+			case errors.Is(err, ErrInvalidPath):
+				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
+			case errors.Is(err, os.ErrNotExist):
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+			case errors.Is(err, os.ErrPermission):
+				writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
+			default:
+				writeErr(w, err)
+			}
+			return
+		}
+		writeJSON(w, http.StatusOK, moveResult{From: pair.from, To: pair.to})
+		return
+	}
+
+	// Batch: attempt all, return 207 on partial failure.
+	results := make([]moveResult, 0, len(pairs))
+	anyErr := false
+	for _, pair := range pairs {
+		res := moveResult{From: pair.from, To: pair.to}
+		if err := MoveEntry(root, pair.from, pair.to); err != nil {
+			res.Error = err.Error()
+			anyErr = true
+		}
+		results = append(results, res)
+	}
+	if anyErr {
+		writeJSON(w, http.StatusMultiStatus, map[string]any{"results": results})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"moved": len(results), "results": results})
+}
+
+// batchDelete handles `POST /api/repos/.../files/batch-delete`.
+// Body: JSON `{"paths": ["rel/path/a.txt", "rel/path/b/"]}`.
+// Returns 200 with {deleted: N} on full success, 207 Multi-Status on partial.
+func (h *handler) batchDelete(w http.ResponseWriter, r *http.Request) {
+	root, err := h.branchPath(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	const maxUpload = int64(32 << 20)
+	r.Body = http.MaxBytesReader(w, r.Body, maxUpload)
+	defer r.Body.Close()
+	var payload struct {
+		Paths []string `json:"paths"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if len(payload.Paths) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "paths required"})
+		return
+	}
+
+	type deleteResult struct {
+		Path  string `json:"path"`
+		Error string `json:"error,omitempty"`
+	}
+	results := make([]deleteResult, 0, len(payload.Paths))
+	anyErr := false
+	for _, p := range payload.Paths {
+		res := deleteResult{Path: p}
+		if err := DeleteEntry(root, p); err != nil {
+			res.Error = err.Error()
+			anyErr = true
+		}
+		results = append(results, res)
+	}
+	if anyErr {
+		writeJSON(w, http.StatusMultiStatus, map[string]any{"results": results})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": len(results), "results": results})
 }
 
 func maxResultsParam(q map[string][]string, fallback int) int {

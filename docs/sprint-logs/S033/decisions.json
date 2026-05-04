@@ -1,0 +1,45 @@
+{
+  "sprint": "S033",
+  "title": "Files tab CRUD enhancements",
+  "branch": "autopilot/main/S033",
+  "planning_decisions": [
+    {
+      "id": "PD-001",
+      "decision": "Prototype is pre-approved; skip prototype phase and proceed directly to implementation",
+      "rationale": "All 7 prototype HTML mocks in prototype/files-*.html are marked approved=true in docs/sprint-logs/S033/prototype-review.json. The calling agent confirmed this explicitly.",
+      "principle": "DESIGN_PRINCIPLES: 既存資産活用 > 新規実装"
+    },
+    {
+      "id": "PD-002",
+      "decision": "selection state (selectedPaths: Set<string>) lifted to files-view.tsx, NOT a Zustand store",
+      "rationale": "Multi-select is a transient UI state scoped to a single Files tab instance. DESIGN_PRINCIPLES.coding_conventions: 状態は Zustand に集約。コンポーネント state は UI 一時状態のみ — multi-select is UI-temporary. Zustand store would be overkill here.",
+      "principle": "DESIGN_PRINCIPLES priority 8: ナビゲーション保持 > UI state 保持"
+    },
+    {
+      "id": "PD-003",
+      "decision": "context menu as portal via ReactDOM.createPortal to document.body",
+      "rationale": "Prototype explicitly states 'portal-rendered, viewport-fixed'. Without portal, the menu is clipped by list pane overflow:auto. This is the standard approach and avoids z-index complexity.",
+      "principle": "DESIGN_PRINCIPLES: 明示的 > 暗黙的"
+    },
+    {
+      "id": "PD-004",
+      "decision": "SearchEntries extended with ?type=dir filter in the handler (FE side filter), not in browser.go",
+      "rationale": "Adding ?type=dir to the search handler query param keeps browser.go generic. The existing SearchEntries already returns Entry with IsDir flag so FE or handler can filter. Minimal blast radius.",
+      "principle": "DESIGN_PRINCIPLES: 既存資産活用 > 新規実装"
+    },
+    {
+      "id": "PD-005",
+      "decision": "POST /files/move uses {from, to} for single-item and {paths, target} for batch; same endpoint handles both via JSON shape",
+      "rationale": "ROADMAP spec says 'batch 兼用' for move endpoint. Distinguishing by JSON fields is cleaner than two endpoints for the same underlying os.Rename operation.",
+      "principle": "DESIGN_PRINCIPLES: 明示的 > 暗黙的"
+    },
+    {
+      "id": "PD-006",
+      "decision": "inline-create-row and inline-rename-row are implemented inline in file-list.tsx and files-view.tsx rather than separate component files",
+      "rationale": "Both are tightly coupled to the list rendering and selection state. Extracting to separate files would require prop-drilling or additional context. Inline is cleaner for the scale.",
+      "principle": "DESIGN_PRINCIPLES: 既存資産活用 > 新規実装"
+    }
+  ],
+  "implementation_decisions": [],
+  "review_decisions": []
+}
