@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Files · inline new-folder row</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b> / Files</span>
+      <span class="headerSpacer"></span>
+      <button class="headerBtn">⌘K</button>
+    </header>
+
+    <aside class="drawer">
+      <div class="statusStrip"><span class="brand">PALMUX</span></div>
+      <div class="section"><span class="sectionTitle">Repositories</span></div>
+      <ul class="repos">
+        <li class="repo"><div class="repoRow"><span class="repoNum">1</span><button class="repoName"><span class="scope">tjst-t/</span>palmux2</button><button class="starBtn" data-on="true">★</button><button class="addBranchBtn">+</button><button class="moreBtn">⋯</button></div></li>
+      </ul>
+    </aside>
+
+    <main class="main">
+      <div class="tabBar">
+        <button class="tab"><span class="tabIcon">◆</span> Claude</button>
+        <button class="tab tabActive"><span class="tabIcon">📁</span> Files</button>
+        <button class="tab"><span class="tabIcon">⎇</span> Git</button>
+      </div>
+
+      <div class="filesShell">
+        <div class="filesHeader">
+          <nav class="filesCrumbs">
+            <span>📁 root</span>
+            <span style="color:var(--color-fg-faint);">/</span>
+            <span><b>src</b></span>
+          </nav>
+          <div class="filesHeaderActions">
+            <button class="iconBtn">🔍 Search</button>
+          </div>
+        </div>
+
+        <div class="filesBody">
+          <div class="filesListPane">
+            <ul class="fileList">
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">..</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">components/</span><span class="fileMeta">28 items</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">hooks/</span><span class="fileMeta">7 items</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">lib/</span><span class="fileMeta">12 items</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">stores/</span><span class="fileMeta">5 items</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">styles/</span><span class="fileMeta">2 items</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">tabs/</span><span class="fileMeta">9 items</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">types/</span><span class="fileMeta">3 items</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconFile">📄</span><span class="fileName">main.tsx</span><span class="fileMeta">1.2 KB</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconFile">📄</span><span class="fileName">vite-env.d.ts</span><span class="fileMeta">38 B</span></button></li>
+
+              <!-- Inline new-folder row — same shape as new-file but with
+                   the directory icon, and the trailing "/" hint reinforces
+                   what's being created. -->
+              <li>
+                <div class="fileRowInline" data-testid="files-inline-create">
+                  <span class="fileIcon fileIconDir">📁</span>
+                  <input
+                    autofocus
+                    class="fileInlineInput"
+                    type="text"
+                    placeholder="folder-name"
+                    value="widgets"
+                    data-testid="files-inline-create-input"
+                  >
+                  <span style="color: var(--color-fg-muted); font-family: var(--font-mono); font-size: 12px;">/</span>
+                </div>
+                <div class="fileInlineHint">
+                  Will create directory <code>src/<b style="color:var(--color-accent-light);">widgets</b>/</code> ·
+                  <span class="kbd">↵</span> create
+                  <span class="kbd">Esc</span> cancel
+                </div>
+              </li>
+            </ul>
+
+            <div class="fileListCTAs">
+              <button class="fileCTAIcon" data-tip="New file" disabled aria-label="New file"><span class="ctaGlyph">📄</span><span class="ctaPlus">+</span></button>
+              <button class="fileCTAIcon" data-tip="New folder" disabled aria-label="New folder"><span class="ctaGlyph">📁</span><span class="ctaPlus">+</span></button>
+            </div>
+          </div>
+
+          <div class="filesPreviewPane">
+            <p style="color: var(--color-fg-muted);">Same inline pattern as <b>+ New file</b>, but the row uses the directory icon and the hint shows a trailing slash to confirm "this creates a directory".</p>
+            <p>Empty directories are created via <code>POST /files/create-dir</code> (a sibling of the new file endpoint). Subpaths still work — <code>foo/bar/baz</code> creates the whole chain.</p>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

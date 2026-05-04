@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Files · inline rename</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b> / Files</span>
+      <span class="headerSpacer"></span>
+      <button class="headerBtn">⌘K</button>
+    </header>
+
+    <aside class="drawer">
+      <div class="statusStrip"><span class="brand">PALMUX</span></div>
+      <div class="section"><span class="sectionTitle">Repositories</span></div>
+      <ul class="repos">
+        <li class="repo"><div class="repoRow"><span class="repoNum">1</span><button class="repoName"><span class="scope">tjst-t/</span>palmux2</button><button class="starBtn" data-on="true">★</button><button class="addBranchBtn">+</button><button class="moreBtn">⋯</button></div></li>
+      </ul>
+    </aside>
+
+    <main class="main">
+      <div class="tabBar">
+        <button class="tab"><span class="tabIcon">◆</span> Claude</button>
+        <button class="tab tabActive"><span class="tabIcon">📁</span> Files</button>
+        <button class="tab"><span class="tabIcon">⎇</span> Git</button>
+      </div>
+
+      <div class="filesShell">
+        <div class="filesHeader">
+          <nav class="filesCrumbs">
+            <span>📁 root</span>
+            <span style="color:var(--color-fg-faint);">/</span>
+            <span><b>src</b></span>
+            <span style="color:var(--color-fg-faint);">/</span>
+            <span><b>components</b></span>
+          </nav>
+          <div class="filesHeaderActions">
+            <button class="iconBtn">🔍 Search</button>
+          </div>
+        </div>
+
+        <div class="filesBody">
+          <div class="filesListPane">
+            <ul class="fileList">
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">..</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">command-palette/</span><span class="fileMeta">14 items</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">context-menu/</span><span class="fileMeta">3 items</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconFile">📄</span><span class="fileName">drawer.tsx</span><span class="fileMeta">22.4 KB</span></button></li>
+
+              <!-- The original row is replaced in-place by an inline rename
+                   widget. The basename portion is selected (inverse colors)
+                   so typing replaces it; the extension is preserved if the
+                   user just edits the stem. -->
+              <li>
+                <div class="fileRowInline" data-testid="files-inline-rename">
+                  <span class="fileIcon fileIconFile">📄</span>
+                  <input
+                    autofocus
+                    class="fileInlineInput"
+                    type="text"
+                    value="repo-picker.tsx"
+                    data-testid="files-inline-rename-input"
+                  >
+                </div>
+                <div class="fileInlineHint">
+                  Renaming <code>repo-picker.tsx</code> →
+                  <code><b style="color:var(--color-accent-light);">repo-picker.tsx</b></code> ·
+                  <span class="kbd">↵</span> save
+                  <span class="kbd">Esc</span> cancel
+                </div>
+              </li>
+
+              <li><button class="fileRow"><span class="fileIcon fileIconFile">📄</span><span class="fileName">repo-picker.module.css</span><span class="fileMeta">3.8 KB</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconFile">📄</span><span class="fileName">subagent-cleanup-dialog.tsx</span><span class="fileMeta">5.4 KB</span></button></li>
+            </ul>
+
+            <div class="fileListCTAs">
+              <button class="fileCTAIcon" data-tip="New file" disabled aria-label="New file"><span class="ctaGlyph">📄</span><span class="ctaPlus">+</span></button>
+              <button class="fileCTAIcon" data-tip="New folder" disabled aria-label="New folder"><span class="ctaGlyph">📁</span><span class="ctaPlus">+</span></button>
+            </div>
+          </div>
+
+          <div class="filesPreviewPane">
+            <p style="color: var(--color-fg-muted);">Click <b>Rename…</b> in the right-click menu (or press <code>F2</code> on a focused row) to enter rename mode in place.</p>
+            <p>The input opens with the basename portion pre-selected — typing replaces the stem, the extension stays. The hint line below shows a live preview of the new path so the user can confirm before pressing Enter.</p>
+            <p style="margin-top: 18px;"><b>Constraints</b> — rename only changes the basename within the same directory. To move <em>and</em> rename in one step, use <b>Move…</b> (modal with full path). This separation keeps inline-rename mistakes shallow.</p>
+            <p style="margin-top: 18px;"><b>Server side</b>: <code>POST /files/rename</code> with <code>{from, to}</code>. Both must resolve inside the worktree. Conflict on existing target → 409.</p>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

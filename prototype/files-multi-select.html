@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Files · multi-select (Cmd-click) + batch action bar</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b> / Files</span>
+      <span class="headerSpacer"></span>
+      <button class="headerBtn">⌘K</button>
+    </header>
+
+    <aside class="drawer">
+      <div class="statusStrip"><span class="brand">PALMUX</span></div>
+      <div class="section"><span class="sectionTitle">Repositories</span></div>
+      <ul class="repos">
+        <li class="repo"><div class="repoRow"><span class="repoNum">1</span><button class="repoName"><span class="scope">tjst-t/</span>palmux2</button><button class="starBtn" data-on="true">★</button><button class="addBranchBtn">+</button><button class="moreBtn">⋯</button></div></li>
+      </ul>
+    </aside>
+
+    <main class="main">
+      <div class="tabBar">
+        <button class="tab"><span class="tabIcon">◆</span> Claude</button>
+        <button class="tab tabActive"><span class="tabIcon">📁</span> Files</button>
+        <button class="tab"><span class="tabIcon">⎇</span> Git</button>
+      </div>
+
+      <div class="filesShell">
+        <div class="filesHeader">
+          <nav class="filesCrumbs">
+            <span>📁 root</span>
+            <span style="color:var(--color-fg-faint);">/</span>
+            <span><b>src</b></span>
+            <span style="color:var(--color-fg-faint);">/</span>
+            <span><b>components</b></span>
+          </nav>
+          <div class="filesHeaderActions">
+            <button class="iconBtn">🔍 Search</button>
+          </div>
+        </div>
+
+        <!-- Multi-select action bar — appears whenever ≥1 row is selected
+             via Cmd-click / Shift-click (or the hover checkbox on touch).
+             Disappears when count returns to 0. -->
+        <div class="multiSelectBar" data-testid="files-multi-select-bar">
+          <span class="count">3 selected</span>
+          <button class="multiSelectBtn" data-testid="files-batch-move">→ Move…</button>
+          <button class="multiSelectBtn multiSelectBtnDanger" data-testid="files-batch-delete">🗑 Delete</button>
+          <button class="multiSelectBtn multiSelectBtnGhost" data-testid="files-multi-clear">✕ Cancel</button>
+        </div>
+
+        <div class="filesBody">
+          <div class="filesListPane" style="position:relative;">
+            <ul class="fileList">
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">..</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">command-palette/</span><span class="fileMeta">14 items</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">context-menu/</span><span class="fileMeta">3 items</span></button></li>
+              <li>
+                <button class="fileRow fileRowMultiSelected">
+                  <span class="fileIcon fileIconDir">📁</span>
+                  <span class="fileName">icons/</span>
+                  <span class="fileMeta">21 items</span>
+                </button>
+              </li>
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">inbox/</span><span class="fileMeta">5 items</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconFile">📄</span><span class="fileName">drawer.tsx</span><span class="fileMeta">22.4 KB</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconFile">📄</span><span class="fileName">drawer.module.css</span><span class="fileMeta">8.1 KB</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconFile">📄</span><span class="fileName">header.tsx</span><span class="fileMeta">4.9 KB</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconFile">📄</span><span class="fileName">header.module.css</span><span class="fileMeta">2.3 KB</span></button></li>
+              <li>
+                <button class="fileRow fileRowMultiSelected">
+                  <span class="fileIcon fileIconFile">📄</span>
+                  <span class="fileName">repo-picker.tsx</span>
+                  <span class="fileMeta">11.2 KB</span>
+                </button>
+              </li>
+              <li>
+                <button class="fileRow fileRowMultiSelected">
+                  <span class="fileIcon fileIconFile">📄</span>
+                  <span class="fileName">repo-picker.module.css</span>
+                  <span class="fileMeta">3.8 KB</span>
+                </button>
+              </li>
+              <li><button class="fileRow"><span class="fileIcon fileIconFile">📄</span><span class="fileName">subagent-cleanup-dialog.tsx</span><span class="fileMeta">5.4 KB</span></button></li>
+            </ul>
+
+            <div class="fileListCTAs">
+              <button class="fileCTAIcon" data-tip="New file" aria-label="New file"><span class="ctaGlyph">📄</span><span class="ctaPlus">+</span></button>
+              <button class="fileCTAIcon" data-tip="New folder" aria-label="New folder"><span class="ctaGlyph">📁</span><span class="ctaPlus">+</span></button>
+            </div>
+          </div>
+
+          <div class="filesPreviewPane">
+            <p style="color: var(--color-fg-muted);">3 items selected via Cmd / Ctrl-click. No checkboxes — the leading 📁 / 📄 icon stays put on every row, so file ↔ folder distinction never depends on selection state. Selected rows get the accent-tinted background + 2px accent left border (same treatment Finder / VSCode use).</p>
+            <p><b>Selection rules — desktop</b>:</p>
+            <ul style="line-height: 1.7; padding-left: 16px;">
+              <li><code>Click</code> → select single (replaces previous selection)</li>
+              <li><code>Cmd/Ctrl + click</code> → toggle individual rows</li>
+              <li><code>Shift + click</code> → range from last anchor</li>
+              <li><code>Esc</code> or <b>✕ Cancel</b> → clear selection</li>
+              <li><code>Delete</code> / <code>Backspace</code> → invoke batch delete</li>
+            </ul>
+            <p style="margin-top: 14px;"><b>Selection rules — touch</b>:</p>
+            <ul style="line-height: 1.7; padding-left: 16px;">
+              <li><b>Long-press</b> a row → enter select mode, that row gets selected</li>
+              <li>While in select mode, a tap <em>toggles</em> the row (instead of opening it)</li>
+              <li><b>Cancel</b> in the action bar exits select mode</li>
+            </ul>
+            <p style="margin-top: 18px;"><b>Batch actions</b>: <b>Move</b> opens the move modal with all selected items as a list (target = a directory; basenames preserved). <b>Delete</b> opens the confirm modal listing all items.</p>
+            <p style="margin-top: 18px;"><b>Disabled in multi-select</b>: Rename (single-item only). Right-clicking a selected row drops "Rename" / "Open" from the menu.</p>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Right-click on any selected row → context menu shows the BATCH
+       variants. Rename / Open are hidden because they're single-item
+       operations. Rendered at viewport level (portal in production). -->
+  <div class="ctxMenu" role="menu" data-testid="files-context-menu-batch" style="left: 380px; top: 380px;">
+    <button class="ctxItem"><span class="ctxIcon">→</span><span>Move 3 items…</span><span class="ctxKbd">⌘⇧M</span></button>
+    <button class="ctxItem"><span class="ctxIcon">📋</span><span>Copy 3 paths</span></button>
+    <div class="ctxDivider"></div>
+    <button class="ctxItem ctxItemDanger"><span class="ctxIcon">🗑</span><span>Delete 3 items</span><span class="ctxKbd" style="color: rgba(239, 68, 68, 0.55);">⌫</span></button>
+  </div>
+</body>
+</html>

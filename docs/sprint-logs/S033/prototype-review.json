@@ -1,0 +1,25 @@
+{
+  "sprint_range": ["S033"],
+  "scope_note": "Prototype review for S033 (Files tab CRUD enhancements). 7 mocks covering create / rename / delete / move / multi-select. Approved through 4 rounds of refinement with the user.",
+  "screens": [
+    {"file": "prototype/files-list-with-actions.html",  "story": "S033-2", "feedback_rounds": 2, "approved": true},
+    {"file": "prototype/files-new-file-inline.html",    "story": "S033-1", "feedback_rounds": 1, "approved": true},
+    {"file": "prototype/files-new-folder-inline.html",  "story": "S033-1", "feedback_rounds": 1, "approved": true},
+    {"file": "prototype/files-rename-inline.html",      "story": "S033-2", "feedback_rounds": 1, "approved": true},
+    {"file": "prototype/files-delete-confirm.html",     "story": "S033-2/3", "feedback_rounds": 2, "approved": true},
+    {"file": "prototype/files-move-modal.html",         "story": "S033-4", "feedback_rounds": 2, "approved": true},
+    {"file": "prototype/files-multi-select.html",       "story": "S033-3", "feedback_rounds": 4, "approved": true}
+  ],
+  "design_decisions": [
+    "+ New file / + New folder are 2 compact icon buttons (📄+ / 📁+) at bottom-right of the file list, not large rows. Matches VS Code explorer header style. Tooltip carries label.",
+    "Inline create row appears at the END of the current dir's listing (above the CTAs). User feedback discarded the alternative of inserting at click position — cleaner spatial coherence.",
+    "Inline rename happens IN PLACE on the row that's being renamed. Basename pre-selected; extension preserved.",
+    "Right-click context menu rendered at viewport level (portal in production). Items: Open / Rename… / Move… / Copy path / Open on GitHub / Delete (danger, red).",
+    "Delete: dedicated confirm modal with per-item path + size + last-modified breakdown. Recursive directory delete is flagged. Single and batch share the same modal.",
+    "Move: dedicated modal with repo-root-relative path input + ⌘K-@-style incremental directory completion + per-item FROM→TO live preview. Single = full path, batch = target directory only (basenames preserved).",
+    "Multi-select uses Finder/VSCode-style tinted background + 2px accent left-border ONLY — no checkboxes. Earlier checkbox prototypes (slot-saving icon swap, etc.) were rejected because they forced a file/folder color hack that felt unnatural.",
+    "Touch multi-select: long-press to enter select mode (>=500ms). Once in mode, tap toggles instead of opens. Action bar Cancel exits the mode.",
+    "Action bar appears when ≥1 item is selected: 'N selected · → Move… · 🗑 Delete · ✕ Cancel'. Right-click on any selected row shows the BATCH variant of the context menu (Move N items… / Delete N items / Copy N paths) with Rename and Open hidden because those are single-item operations.",
+    "Browser <button> default ButtonFace background was leaking through the file rows during prototype iteration. Reset .fileRow with `background: transparent; border: 0; width: 100%;` — added to the prototype CSS to keep production-CSS aware of the gotcha."
+  ]
+}

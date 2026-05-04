@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Files · inline new-file row (after clicking + New file)</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b> / Files</span>
+      <span class="headerSpacer"></span>
+      <button class="headerBtn">⌘K</button>
+    </header>
+
+    <aside class="drawer">
+      <div class="statusStrip"><span class="brand">PALMUX</span></div>
+      <div class="section"><span class="sectionTitle">Repositories</span></div>
+      <ul class="repos">
+        <li class="repo"><div class="repoRow"><span class="repoNum">1</span><button class="repoName"><span class="scope">tjst-t/</span>palmux2</button><button class="starBtn" data-on="true">★</button><button class="addBranchBtn">+</button><button class="moreBtn">⋯</button></div></li>
+      </ul>
+    </aside>
+
+    <main class="main">
+      <div class="tabBar">
+        <button class="tab"><span class="tabIcon">◆</span> Claude</button>
+        <button class="tab tabActive"><span class="tabIcon">📁</span> Files</button>
+        <button class="tab"><span class="tabIcon">⎇</span> Git</button>
+      </div>
+
+      <div class="filesShell">
+        <div class="filesHeader">
+          <nav class="filesCrumbs">
+            <span>📁 root</span>
+            <span style="color:var(--color-fg-faint);">/</span>
+            <span><b>src</b></span>
+            <span style="color:var(--color-fg-faint);">/</span>
+            <span><b>components</b></span>
+          </nav>
+          <div class="filesHeaderActions">
+            <button class="iconBtn">🔍 Search</button>
+          </div>
+        </div>
+
+        <div class="filesBody">
+          <div class="filesListPane">
+            <ul class="fileList">
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">..</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">command-palette/</span><span class="fileMeta">14 items</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">context-menu/</span><span class="fileMeta">3 items</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">icons/</span><span class="fileMeta">21 items</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconFile">📄</span><span class="fileName">drawer.tsx</span><span class="fileMeta">22.4 KB</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconFile">📄</span><span class="fileName">drawer.module.css</span><span class="fileMeta">8.1 KB</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconFile">📄</span><span class="fileName">header.tsx</span><span class="fileMeta">4.9 KB</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconFile">📄</span><span class="fileName">repo-picker.tsx</span><span class="fileMeta">11.2 KB</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconFile">📄</span><span class="fileName">repo-picker.module.css</span><span class="fileMeta">3.8 KB</span></button></li>
+
+              <!-- Inline new-file row spawned at the bottom of the current
+                   dir's listing (just above the CTAs). The placeholder
+                   appears with the file icon, the input is auto-focused
+                   and empty (cursor blinking), and a hint line below
+                   shows the keyboard contract. -->
+              <li>
+                <div class="fileRowInline" data-testid="files-inline-create">
+                  <span class="fileIcon fileIconFile">📄</span>
+                  <input
+                    autofocus
+                    class="fileInlineInput"
+                    type="text"
+                    placeholder="filename.ts"
+                    value=""
+                    data-testid="files-inline-create-input"
+                  >
+                </div>
+                <div class="fileInlineHint" data-testid="files-inline-create-hint">
+                  Will create <code>src/components/<b style="color:var(--color-accent-light);">…</b></code> ·
+                  <span class="kbd">↵</span> create
+                  <span class="kbd">Esc</span> cancel
+                </div>
+              </li>
+            </ul>
+
+            <div class="fileListCTAs">
+              <button class="fileCTAIcon" data-tip="New file" disabled aria-label="New file"><span class="ctaGlyph">📄</span><span class="ctaPlus">+</span></button>
+              <button class="fileCTAIcon" data-tip="New folder" disabled aria-label="New folder"><span class="ctaGlyph">📁</span><span class="ctaPlus">+</span></button>
+            </div>
+          </div>
+
+          <div class="filesPreviewPane">
+            <p style="color: var(--color-fg-muted);">When the user clicks <b>+ New file</b>, a placeholder row is inserted at the bottom of the current directory's listing (above the CTAs).</p>
+            <p>The input is autofocused with a placeholder hinting the kind of name expected. Both CTAs go disabled while the inline editor is active so the user can't open a second editor.</p>
+            <p style="margin-top: 18px;"><b>Keyboard contract:</b></p>
+            <ul style="line-height: 1.7; padding-left: 16px;">
+              <li><code>Enter</code> → create the file (or directory) with the typed name; opens it in the editor pane on success</li>
+              <li><code>Esc</code> → discard the inline row, return to the normal list</li>
+              <li><code>/</code> in the name → user can include subpaths (<code>foo/bar.txt</code>); parent dirs auto-created</li>
+            </ul>
+            <p style="margin-top: 18px;"><b>Validation:</b> empty name + Esc cancels; existing names show inline error in the hint line below the input (red, replaces the help text). Server returns 409 on dup.</p>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

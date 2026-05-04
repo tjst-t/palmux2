@@ -96,6 +96,47 @@
     </section>
 
     <section class="indexSection">
+      <h2>Files tab · CRUD enhancements (PROPOSED — not yet implemented)</h2>
+      <div class="cardGrid">
+        <a class="card" href="files-list-with-actions.html">
+          <span class="cardLabel">FILES</span>
+          <div class="cardTitle">List · compact icon CTAs + right-click menu</div>
+          <p class="cardDesc">📄＋ / 📁＋ icon buttons sit at the bottom-right of the file list (VS Code explorer header style). Right-click any row → Open / Rename / Move / Copy path / Open on GitHub / Delete.</p>
+        </a>
+        <a class="card" href="files-multi-select.html">
+          <span class="cardLabel">FILES</span>
+          <div class="cardTitle">Multi-select · tinted bg + action bar</div>
+          <p class="cardDesc">Cmd/Ctrl-click toggles, Shift-click range. <b>No checkboxes</b> — selected rows get the accent-tinted bg + 2px accent left border (Finder/VSCode style). Touch: long-press to enter select mode. Action bar: <b>Move…</b> / <b>Delete</b> / Cancel.</p>
+        </a>
+        <a class="card" href="files-new-file-inline.html">
+          <span class="cardLabel">FILES</span>
+          <div class="cardTitle">Inline new-file row</div>
+          <p class="cardDesc">Click 📄＋ → placeholder row with file icon at the bottom of the list, focused input ready for the name. Enter to create, Esc to cancel.</p>
+        </a>
+        <a class="card" href="files-new-folder-inline.html">
+          <span class="cardLabel">FILES</span>
+          <div class="cardTitle">Inline new-folder row</div>
+          <p class="cardDesc">Same pattern, folder icon, trailing slash hint. Subpaths allowed (<code>foo/bar</code> creates the chain).</p>
+        </a>
+        <a class="card" href="files-rename-inline.html">
+          <span class="cardLabel">FILES</span>
+          <div class="cardTitle">Inline rename</div>
+          <p class="cardDesc">F2 / Rename… replaces the row in place with an editable input pre-selected on the basename. Same row, same position. Single-item only.</p>
+        </a>
+        <a class="card" href="files-delete-confirm.html">
+          <span class="cardLabel">FILES</span>
+          <div class="cardTitle">Delete confirm · batch</div>
+          <p class="cardDesc">Modal lists each item being deleted (path · size · last modified). Recursive directory deletes are flagged. Single-item case shrinks to one block.</p>
+        </a>
+        <a class="card" href="files-move-modal.html">
+          <span class="cardLabel">FILES</span>
+          <div class="cardTitle">Move modal · batch + completion</div>
+          <p class="cardDesc">Target = a directory (basenames preserved for batch). Repo-root-relative input with ⌘K-<code>@</code>-style directory completion. Per-item FROM→TO preview.</p>
+        </a>
+      </div>
+    </section>
+
+    <section class="indexSection">
       <h2>S032 · User-defined palette commands</h2>
       <div class="cardGrid">
         <a class="card" href="user-commands-modal.html">

@@ -1041,6 +1041,398 @@ button {
 }
 .addRowBtn:hover { background: rgba(124, 138, 255, 0.06); border-style: solid; }
 
+/* ─────────── Files tab — list rows + inline create/rename ─────────── */
+.filesShell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-bg);
+}
+.filesHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+.filesCrumbs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-fg-muted);
+}
+.filesCrumbs b { color: var(--color-fg); font-weight: 500; }
+.filesHeaderActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filesBody {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) 1fr;
+  min-height: 0;
+}
+.filesListPane {
+  border-right: 1px solid var(--color-border);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+.filesPreviewPane {
+  background: var(--color-bg);
+  padding: 16px 18px;
+  overflow: auto;
+  color: var(--color-fg-muted);
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.fileList {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  flex: 1;
+}
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px 5px 14px;
+  font-size: 13px;
+  font-family: var(--font-ui);
+  color: var(--color-fg);
+  cursor: pointer;
+  user-select: none;
+  /* Reset the user-agent <button> background — without this every row
+     paints with the OS ButtonFace colour and the list reads as a stack
+     of disabled-looking pills. */
+  background: transparent;
+  border: 0;
+  width: 100%;
+  text-align: left;
+}
+.fileRow:hover { background: var(--color-surface); }
+.fileRowSelected {
+  background: rgba(124, 138, 255, 0.10);
+  border-left: 2px solid var(--color-accent);
+  padding-left: 12px;
+}
+.fileRowContextOpen {
+  background: rgba(124, 138, 255, 0.10);
+}
+.fileIcon {
+  width: 16px;
+  text-align: center;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.fileIconDir { color: var(--color-warning); }
+.fileIconFile { color: var(--color-fg-muted); }
+.fileName {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+}
+.fileMeta {
+  font-size: 11px;
+  color: var(--color-fg-dim);
+  font-family: var(--font-mono);
+}
+
+/* Inline create / rename row — matches the look of fileRow but the
+   filename slot is an editable input. */
+.fileRowInline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 14px;
+  background: rgba(124, 138, 255, 0.10);
+  border-left: 2px solid var(--color-accent);
+  padding-left: 12px;
+}
+.fileInlineInput {
+  flex: 1;
+  min-width: 0;
+  background: var(--color-bg);
+  border: 1px solid var(--color-accent);
+  outline: none;
+  color: var(--color-fg);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+}
+.fileInlineHint {
+  font-size: 10px;
+  color: var(--color-fg-dim);
+  font-family: var(--font-mono);
+  padding: 2px 14px 6px 36px;
+}
+.fileInlineHint .kbd {
+  display: inline-block;
+  border: 1px solid var(--color-border);
+  border-bottom-width: 1.5px;
+  border-radius: 2px;
+  padding: 0 4px;
+  background: var(--color-surface);
+  color: var(--color-fg-muted);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  margin: 0 1px;
+}
+.fileInlineHintError { color: var(--color-error); }
+
+/* Bottom-of-list CTA strip — VS Code-style icon buttons in a single
+   row (compare the explorer header in /tmp/palmux-c5589f7…png). Two
+   buttons here: new file, new folder. Tooltips carry the labels. */
+.fileListCTAs {
+  border-top: 1px dotted var(--color-border);
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 4px 6px;
+  margin-top: auto;
+  background: var(--color-bg);
+}
+.fileCTAIcon {
+  min-width: 36px;
+  height: 30px;
+  padding: 0 6px;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  gap: 2px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-fg-muted);
+  font-size: 13px;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  position: relative;
+  line-height: 1;
+}
+.fileCTAIcon .ctaGlyph {
+  font-size: 14px;
+  line-height: 1;
+}
+.fileCTAIcon .ctaPlus {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-accent-light);
+  line-height: 1;
+  margin-bottom: 1px;
+}
+.fileCTAIcon:hover {
+  background: var(--color-surface);
+  color: var(--color-fg);
+}
+.fileCTAIcon:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.fileCTAIcon[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-elevated);
+  color: var(--color-fg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 3px 7px;
+  font-size: 11px;
+  white-space: nowrap;
+  font-family: var(--font-ui);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s 0.5s;
+  z-index: 10;
+}
+.fileCTAIcon[data-tip]:hover::after { opacity: 1; }
+@media (max-width: 600px) {
+  .fileCTAIcon { width: 36px; height: 36px; }
+}
+
+/* Multi-select state — Finder/VSCode-style. Selected rows use tinted
+   background + accent left-border. No checkboxes, no icon swap; the
+   leading 📁 / 📄 stays put so file↔folder distinction is unambiguous
+   regardless of mode. */
+.fileRowMultiSelected {
+  background: rgba(124, 138, 255, 0.14);
+  border-left: 2px solid var(--color-accent);
+  padding-left: 12px; /* compensate the 2px the border ate from the 14px padding */
+}
+.fileRowMultiSelected:hover { background: rgba(124, 138, 255, 0.20); }
+
+/* Slim action bar shown above the list when ≥1 row is multi-selected. */
+.multiSelectBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--color-elevated);
+  border-bottom: 1px solid var(--color-border);
+  font-size: 12px;
+  color: var(--color-fg);
+}
+.multiSelectBar .count {
+  font-weight: 500;
+  color: var(--color-accent-light);
+  font-family: var(--font-mono);
+  margin-right: auto;
+}
+.multiSelectBtn {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-fg);
+  padding: 3px 10px;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--font-ui);
+}
+.multiSelectBtn:hover { background: var(--color-surface); }
+.multiSelectBtnDanger { color: var(--color-error); border-color: rgba(239, 68, 68, 0.32); }
+.multiSelectBtnDanger:hover { background: rgba(239, 68, 68, 0.08); border-color: rgba(239, 68, 68, 0.5); }
+.multiSelectBtnGhost {
+  border: 0;
+  color: var(--color-fg-muted);
+  padding: 3px 8px;
+}
+.multiSelectBtnGhost:hover { color: var(--color-fg); background: var(--color-surface); }
+
+/* Right-click context menu — anchored at the cursor position relative
+   to the *viewport*, not the list. In production this is rendered into
+   a top-level portal so the menu floats over header / drawer too. */
+.ctxMenu {
+  position: fixed;
+  z-index: 200;
+  min-width: 220px;
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  padding: 4px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+.ctxItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  padding: 6px 10px;
+  color: var(--color-fg);
+  text-align: left;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+}
+.ctxItem:hover { background: var(--color-surface); }
+.ctxItem .ctxIcon {
+  width: 14px;
+  text-align: center;
+  color: var(--color-fg-muted);
+  font-size: 12px;
+}
+.ctxItem .ctxKbd {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-fg-dim);
+}
+.ctxItemDanger { color: var(--color-error); }
+.ctxItemDanger:hover { background: rgba(239, 68, 68, 0.08); }
+.ctxDivider {
+  height: 1px;
+  background: var(--color-border);
+  margin: 4px 0;
+}
+
+/* Move modal — incremental directory completion dropdown. */
+.completionList {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 4px 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  max-height: 220px;
+  overflow-y: auto;
+}
+.completionRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-fg);
+  cursor: pointer;
+}
+.completionRow:hover,
+.completionRowActive {
+  background: var(--color-surface);
+}
+.completionRowActive {
+  border-left: 2px solid var(--color-accent);
+  padding-left: 8px;
+}
+.completionRow .completionMatch {
+  background: rgba(124, 138, 255, 0.28);
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+}
+.completionRow .completionIcon {
+  color: var(--color-warning);
+  width: 14px;
+  text-align: center;
+}
+.completionEmpty {
+  padding: 14px 16px;
+  text-align: center;
+  color: var(--color-fg-muted);
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+.movePreview {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-fg-muted);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  align-items: baseline;
+}
+.movePreview .label { color: var(--color-fg-dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+.movePreview .value { color: var(--color-fg); }
+.movePreview .from .value { color: var(--color-fg-muted); text-decoration: line-through; opacity: 0.7; }
+.movePreview .to .value { color: var(--color-accent-light); }
+
 /* index.html grid */
 .indexGrid {
   max-width: 1100px;

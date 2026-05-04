@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Files · move modal with directory completion</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app" aria-hidden="true" style="filter: blur(0.5px);">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b> / Files</span>
+    </header>
+    <aside class="drawer"><div class="statusStrip"><span class="brand">PALMUX</span></div></aside>
+    <main class="main">
+      <div class="tabBar"><button class="tab tabActive">📁 Files</button></div>
+    </main>
+  </div>
+
+  <div class="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="files-move-title">
+    <div class="modalCard modalCardWide" data-testid="files-move-modal" style="width: min(640px, 92vw);">
+      <div class="modalHeader">
+        <h2 class="modalTitle" id="files-move-title">Move <code>3 items</code> to a new directory</h2>
+        <p class="modalSub">All selected items are moved into the chosen directory, keeping their basenames. Directory completions appear below as you type — like ⌘K's <code>@</code> mode.</p>
+      </div>
+      <div class="modalBody">
+        <!-- For batch move: target is a DIRECTORY (basenames preserved).
+             For single-item move (right-click → Move… on one row): target
+             can be a full new path including new basename. The input
+             placeholder + preview adapt based on selection count. -->
+        <div class="field">
+          <label class="label" for="move-path">Target directory (repo-root-relative)</label>
+          <input
+            id="move-path"
+            class="input"
+            type="text"
+            autofocus
+            value="src/widgets"
+            data-testid="files-move-input"
+            style="font-family: var(--font-mono); font-size: 13px;"
+          >
+
+          <ul class="completionList" data-testid="files-move-completion">
+            <li>
+              <button class="completionRow completionRowActive">
+                <span class="completionIcon">📁</span>
+                <span>src/<span class="completionMatch">widgets</span>/</span>
+                <span style="margin-left:auto;color:var(--color-fg-dim);font-size:10px;">3 dirs · 14 files</span>
+              </button>
+            </li>
+            <li>
+              <button class="completionRow">
+                <span class="completionIcon">📁</span>
+                <span>src/<span class="completionMatch">widgets</span>/buttons/</span>
+              </button>
+            </li>
+            <li>
+              <button class="completionRow">
+                <span class="completionIcon">📁</span>
+                <span>src/<span class="completionMatch">widgets</span>/forms/</span>
+              </button>
+            </li>
+            <li>
+              <button class="completionRow">
+                <span class="completionIcon">📁</span>
+                <span>src/<span class="completionMatch">widgets</span>/layouts/</span>
+              </button>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Per-item before/after — same FROM/TO pattern, listed once per
+             selected item so the user can spot a typo before confirming. -->
+        <div class="movePreview" data-testid="files-move-preview">
+          <span class="label from">FROM</span>
+          <span class="value from">src/components/repo-picker.tsx</span>
+          <span class="label to">TO</span>
+          <span class="value to">src/widgets/repo-picker.tsx</span>
+
+          <span class="label from">FROM</span>
+          <span class="value from">src/components/repo-picker.module.css</span>
+          <span class="label to">TO</span>
+          <span class="value to">src/widgets/repo-picker.module.css</span>
+
+          <span class="label from">FROM</span>
+          <span class="value from">src/components/icons/</span>
+          <span class="label to">TO</span>
+          <span class="value to">src/widgets/icons/</span>
+        </div>
+      </div>
+      <div class="modalFooter">
+        <span style="margin-right: auto; font-size: 11px; color: var(--color-fg-dim);">
+          <span class="kbd">↑</span><span class="kbd">↓</span> navigate completions ·
+          <span class="kbd">Tab</span> accept ·
+          <span class="kbd">↵</span> move
+        </span>
+        <button class="btn btnGhost">Cancel</button>
+        <button class="btn btnPrimary" data-testid="files-move-confirm">Move 3 items</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

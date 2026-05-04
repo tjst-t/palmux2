@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Files · delete confirm dialog</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app" aria-hidden="true" style="filter: blur(0.5px);">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b> / Files</span>
+    </header>
+    <aside class="drawer"><div class="statusStrip"><span class="brand">PALMUX</span></div></aside>
+    <main class="main">
+      <div class="tabBar"><button class="tab tabActive">📁 Files</button></div>
+    </main>
+  </div>
+
+  <div class="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="files-delete-title">
+    <div class="modalCard" data-testid="files-delete-modal">
+      <div class="modalHeader">
+        <h2 class="modalTitle" id="files-delete-title">Delete <code>3 items</code>?</h2>
+        <p class="modalSub">The selected files and directories will be removed from disk. The changes are uncommitted — Git can recover anything previously committed via <code>git restore</code>.</p>
+      </div>
+      <div class="modalBody">
+        <!-- Batch state: 3 items selected via Cmd-click / Shift-click. The
+             confirm modal lists each one with size + last modified so the
+             user can verify before committing. The single-item case shows
+             one block; the API contract is the same. -->
+        <div class="wtBlock" style="margin-bottom: 8px;">
+          <div class="wtHeader">
+            <span class="fileIcon fileIconFile">📄</span>
+            <span class="wtPath">src/components/repo-picker.tsx</span>
+            <span class="wtBadge wtBadgeClean" style="margin-left:auto;">11.2 KB</span>
+          </div>
+          <div class="wtBody" style="font-size:11px;color:var(--color-fg-muted);">
+            Last modified 2 minutes ago · text/typescript-jsx
+          </div>
+        </div>
+
+        <div class="wtBlock" style="margin-bottom: 8px;">
+          <div class="wtHeader">
+            <span class="fileIcon fileIconFile">📄</span>
+            <span class="wtPath">src/components/repo-picker.module.css</span>
+            <span class="wtBadge wtBadgeClean" style="margin-left:auto;">3.8 KB</span>
+          </div>
+          <div class="wtBody" style="font-size:11px;color:var(--color-fg-muted);">
+            Last modified 1 minute ago · text/css
+          </div>
+        </div>
+
+        <div class="wtBlock" style="margin-bottom: 0;">
+          <div class="wtHeader">
+            <span class="fileIcon fileIconDir">📁</span>
+            <span class="wtPath">src/components/icons/</span>
+            <span class="wtBadge" style="margin-left:auto;">21 items</span>
+          </div>
+          <div class="wtBody" style="font-size:11px;color:var(--color-fg-muted);">
+            Recursive — directory and contents are removed
+          </div>
+        </div>
+
+        <p style="margin-top: 14px; font-size: 12px; color: var(--color-fg-muted);">
+          Deletion is undoable from Git history if previously committed.
+          Brand-new items (never staged) <b style="color: var(--color-warning);">cannot be recovered</b> after delete.
+        </p>
+      </div>
+      <div class="modalFooter">
+        <button class="btn btnGhost">Cancel</button>
+        <button class="btn btnDanger" data-testid="files-delete-confirm">Delete 3 items</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
