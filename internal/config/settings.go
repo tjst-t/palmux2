@@ -8,6 +8,60 @@ import (
 	"sync"
 )
 
+// UserCommandTarget specifies where a user-defined palette command is
+// dispatched when selected.
+type UserCommandTarget string
+
+const (
+	UserCommandTargetBash  UserCommandTarget = "bash"
+	UserCommandTargetURL   UserCommandTarget = "url"
+	UserCommandTargetFiles UserCommandTarget = "files"
+)
+
+// UserCommand is a single entry in palette.userCommands. The payload field
+// (Command / URL / Path) is determined by Target:
+//   - bash  → Command (shell string sent to the MRU Bash tab)
+//   - url   → URL (opened in a new browser tab)
+//   - files → Path (relative path navigated to in the Files tab)
+type UserCommand struct {
+	Name    string            `json:"name"`
+	Target  UserCommandTarget `json:"target"`
+	Command string            `json:"command,omitempty"`
+	URL     string            `json:"url,omitempty"`
+	Path    string            `json:"path,omitempty"`
+	Notes   string            `json:"notes,omitempty"`
+}
+
+// Validate checks that a UserCommand is self-consistent.
+func (u UserCommand) Validate() error {
+	if u.Name == "" {
+		return fmt.Errorf("userCommand: name is required")
+	}
+	switch u.Target {
+	case UserCommandTargetBash:
+		if u.Command == "" {
+			return fmt.Errorf("userCommand %q: target 'bash' requires command", u.Name)
+		}
+	case UserCommandTargetURL:
+		if u.URL == "" {
+			return fmt.Errorf("userCommand %q: target 'url' requires url", u.Name)
+		}
+	case UserCommandTargetFiles:
+		if u.Path == "" {
+			return fmt.Errorf("userCommand %q: target 'files' requires path", u.Name)
+		}
+	default:
+		return fmt.Errorf("userCommand %q: unknown target %q (must be bash|url|files)", u.Name, u.Target)
+	}
+	return nil
+}
+
+// PaletteSettings holds palette-specific user configuration.
+type PaletteSettings struct {
+	// UserCommands lists user-defined commands shown in the ⌘K '>' mode.
+	UserCommands []UserCommand `json:"userCommands,omitempty"`
+}
+
 // Settings is the global, shared-across-devices configuration. Per-device
 // settings live in localStorage on the frontend.
 //
@@ -79,6 +133,10 @@ type Settings struct {
 	SubagentStaleAfterDays int `json:"subagentStaleAfterDays,omitempty"`
 
 	Toolbar json.RawMessage `json:"toolbar,omitempty"`
+
+	// Palette (S032) holds palette-specific settings, currently just
+	// user-defined commands shown in ⌘K '>' mode.
+	Palette *PaletteSettings `json:"palette,omitempty"`
 }
 
 // DefaultAttachmentUploadDir is the fallback when the user has not
@@ -278,6 +336,18 @@ func (s *SettingsStore) Patch(update Settings) (Settings, error) {
 	}
 	if update.Toolbar != nil {
 		s.settings.Toolbar = update.Toolbar
+	}
+	// S032: palette.userCommands — validate each entry before persisting.
+	if update.Palette != nil {
+		for _, uc := range update.Palette.UserCommands {
+			if err := uc.Validate(); err != nil {
+				return Settings{}, fmt.Errorf("config: patch: %w", err)
+			}
+		}
+		if s.settings.Palette == nil {
+			s.settings.Palette = &PaletteSettings{}
+		}
+		s.settings.Palette.UserCommands = update.Palette.UserCommands
 	}
 	if err := s.save(); err != nil {
 		return Settings{}, err

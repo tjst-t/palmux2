@@ -5,6 +5,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal } from '@xterm/xterm'
 
+import { updateMruBashTab } from '../lib/bash-target'
 import { terminalManager } from '../lib/terminal-manager'
 import { type ConnState, ReconnectingWebSocket } from '../lib/ws'
 import { usePalmuxStore } from '../stores/palmux-store'
@@ -17,6 +18,9 @@ interface Props {
   repoId?: string
   branchId?: string
   tabId?: string
+  /** Tab type — when 'bash', user pty input updates the MRU Bash tab cache
+   *  so ⌘K → '>' command dispatch resolves the correct target (S032). */
+  tabType?: string
   /** Orphan-attach mode — uses /api/orphan-sessions/.../windows/<idx>/attach. */
   orphanName?: string
   orphanIdx?: number
@@ -143,6 +147,7 @@ export function TerminalView({
   repoId,
   branchId,
   tabId,
+  tabType,
   orphanName,
   orphanIdx,
 }: Props) {
@@ -193,7 +198,14 @@ export function TerminalView({
     const initialSize = { cols: term.cols, rows: term.rows }
 
     let ws: ReconnectingWebSocket | null = null
-    const sendInput = (data: string) => ws?.send(JSON.stringify({ type: 'input', data }))
+    const sendInput = (data: string) => {
+      ws?.send(JSON.stringify({ type: 'input', data }))
+      // S032: update MRU Bash tab cache so ⌘K '>' command dispatch resolves
+      // the correct target after the user has typed in this terminal.
+      if (tabType === 'bash' && repoId && branchId && tabId) {
+        updateMruBashTab(repoId, branchId, tabId)
+      }
+    }
     const sendResize = (cols: number, rows: number) =>
       ws?.send(JSON.stringify({ type: 'resize', cols, rows }))
 
