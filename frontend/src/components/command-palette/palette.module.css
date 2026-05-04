@@ -157,3 +157,22 @@
   color: var(--color-fg-muted);
   font-size: 13px;
 }
+
+/* S031-2: bash picker banner */
+.bashPickerBanner {
+  padding: 6px var(--space-4);
+  font-size: 12px;
+  color: var(--color-fg-dim);
+  background-color: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.bashPickerCmd {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-fg);
+  background: var(--color-bg);
+  padding: 1px 4px;
+  border-radius: 3px;
+  border: 1px solid var(--color-border);
+}

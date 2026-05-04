@@ -1,12 +1,15 @@
 // Command palette open/close + query state.
 //
 // Open via Cmd+K / Ctrl+K (registered globally in CommandPalette). The
-// palette searches across four sources, narrowed by a prefix:
-//   (none) — all sources mixed
+// palette searches across sources, narrowed by a prefix:
+//   (none) — recents (empty query) or all sources mixed (with query)
 //   @      — workspaces (open repos / branches / tabs)
-//   /      — slash commands sent to a Claude tab
-//   >      — Makefile / package.json commands for the active branch
-//   :      — files in the active branch
+//   #      — tabs of the active branch
+//   >      — Makefile / npm commands + builtin tab/theme/font actions
+//   :      — files in the active branch (path search)
+//   ?      — content grep in the active branch (S031-5)
+//
+// S031-1: '/' slash mode removed. '/compact' etc. are in Claude tab composer.
 
 import { create } from 'zustand'
 

@@ -6,6 +6,7 @@ import type { TabViewProps } from '../../lib/tab-registry'
 
 import { BlockView } from './blocks'
 import styles from './claude-agent-view.module.css'
+import { ClaudeRunButton } from './claude-run-button'
 import { Composer } from './composer'
 import { ConversationExportDialog } from './conversation-export'
 import {
@@ -348,6 +349,8 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
         onOpenSearch={search.open}
         onOpenExport={() => setExportOpen(true)}
         historyButtonRef={historyButtonRef}
+        repoId={repoId}
+        branchId={branchId}
       />
       <ConversationSearchBar
         state={search.state}
@@ -819,6 +822,9 @@ interface TopBarProps {
   /** S018 — opens the export dialog. */
   onOpenExport: () => void
   historyButtonRef?: React.RefObject<HTMLButtonElement | null>
+  /** S031-3 — repo/branch context for the Run button. */
+  repoId?: string
+  branchId?: string
 }
 
 function TopBar(props: TopBarProps) {
@@ -862,6 +868,11 @@ function TopBar(props: TopBarProps) {
         >
           stop
         </button>
+      )}
+
+      {/* S031-3: persistent ▶ Run button */}
+      {props.repoId && props.branchId && (
+        <ClaudeRunButton repoId={props.repoId} branchId={props.branchId} />
       )}
 
       <button

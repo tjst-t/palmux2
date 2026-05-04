@@ -1,0 +1,106 @@
+/* claude-run-button.module.css — S031-3 */
+
+.wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.btn {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-family: var(--font-ui);
+  color: var(--color-fg-muted);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background-color 80ms, color 80ms;
+  white-space: nowrap;
+}
+
+.btn:hover,
+.btnOpen {
+  background-color: var(--color-bg);
+  color: var(--color-fg);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.triangle {
+  font-size: 9px;
+  color: var(--color-accent);
+}
+
+.label {
+  font-size: 12px;
+}
+
+.caret {
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 200px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 200;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-fg-ghost) transparent;
+}
+
+.groupHeader {
+  padding: 6px 12px 3px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-fg-dim);
+}
+
+.item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 12px;
+  font-size: 13px;
+  color: var(--color-fg);
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.item:hover {
+  background: var(--color-bg);
+}
+
+.itemLabel {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.itemBadge {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--color-fg-dim);
+  flex-shrink: 0;
+}

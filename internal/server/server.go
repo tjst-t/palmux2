@@ -121,6 +121,8 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 
 	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/commands", h.listCommands)
 	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/portman", h.listRepoPortman)
+	// S031-5: remote URL for "open on GitHub" builtin command.
+	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/remote-url", h.remoteURL)
 
 	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/tabs", h.listTabs)
 	mux.HandleFunc("POST /api/repos/{repoId}/branches/{branchId}/tabs", h.addTab)
