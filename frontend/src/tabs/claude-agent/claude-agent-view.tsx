@@ -53,6 +53,13 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
   const mcpButtonRef = useRef<HTMLButtonElement | null>(null)
   const [modes, setModes] = useState<PermissionModesResp>(FALLBACK_PERMISSION_MODES)
   const [autoFollow, setAutoFollow] = useState(true)
+  // Mirror autoFollow synchronously. The auto-follow effect below
+  // reads this ref, not the state, because React batches the
+  // setAutoFollow(false) update from a user scroll behind the next
+  // streaming chunk's setState — leaving the effect with a stale
+  // autoFollow=true that yanks the user back to the bottom right
+  // after they scrolled up to read.
+  const autoFollowRef = useRef(true)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [mcpOpen, setMcpOpen] = useState(false)
@@ -163,15 +170,16 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
   // wrapper isn't the scroll container any more — react-window owns
   // the scroller and only it knows the precomputed total height.
   useEffect(() => {
-    if (!autoFollow) return
+    if (!autoFollowRef.current) return
     const handle = listHandleRef.current
     if (handle) handle.scrollToBottom('instant')
-  }, [state.turns, state.status, autoFollow])
+  }, [state.turns, state.status])
 
   // Bridge scroll events from List → autoFollow flag.
   const onListScroll = useCallback(
     (scrollTop: number, scrollHeight: number, clientHeight: number) => {
       const atBottom = scrollHeight - scrollTop - clientHeight < 32
+      autoFollowRef.current = atBottom
       setAutoFollow(atBottom)
       // Also keep containerRef in sync so the persist/restore hooks
       // resolve the live element each render.
@@ -467,6 +475,7 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
             title="Scroll to latest"
             onClick={() => {
               listHandleRef.current?.scrollToBottom('smooth')
+              autoFollowRef.current = true
               setAutoFollow(true)
             }}
           >
