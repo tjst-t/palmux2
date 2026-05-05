@@ -211,10 +211,13 @@ function FileRow({
         }
       }
 
-      // Normal click: open + clear multi-select.
-      if (selectedPaths.size > 0) {
-        onSelectionChange(new Set())
-      }
+      // hotfix: VS Code-style — plain click SELECTS the row (single,
+      // replaces previous multi-selection) AND opens it. Anchor is
+      // set so a subsequent Cmd-click extends the selection from THIS
+      // item, not from an empty set. Without this, m1-click → m2-Cmd
+      // -click → m3-Cmd-click ended up as {m2, m3} instead of
+      // {m1, m2, m3}.
+      onSelectionChange(new Set([entry.path]))
       anchorPath.current = entry.path
       onPick(entry)
     },

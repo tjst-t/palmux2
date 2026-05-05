@@ -474,7 +474,7 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
       </header>
 
       {/* S033-3: Multi-select action bar */}
-      {(selectedPaths.size > 0 || touchSelectMode) && (
+      {(selectedPaths.size >= 2 || touchSelectMode) && (
         <div className={styles.multiSelectBar} data-testid="files-multi-select-bar">
           <span className={styles.multiSelectCount}>
             {selectedPaths.size} selected
