@@ -6,7 +6,7 @@
 // Batch mode (N >= 2 selected): Move N items… / Copy N paths / Delete N items
 // (Rename / Open are single-item only)
 
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import styles from './files-context-menu.module.css'
@@ -183,23 +183,47 @@ export function FilesContextMenu({ x, y, target, selectedPaths, onAction, onClos
   return createPortal(menu, document.body)
 }
 
-// Nudge menu position if it would overflow the viewport.
+// Windows-style positioning: cursor at top-left of menu by default
+// (expand right + down). Flip to put cursor at:
+//   - top-right when menu would overflow viewport right
+//   - bottom-left when it would overflow bottom
+//   - bottom-right when both
+//
+// hotfix: the previous implementation hard-coded the menu height (280)
+// which produced a wrong flip offset on bottom edges (actual menu is
+// ~204px so we flipped 76px too far, leaving a visible gap between the
+// cursor and the menu's bottom). Now we render the menu at the cursor
+// first, measure the real size in useLayoutEffect, and re-anchor in
+// the same paint frame — no visible flash.
 function useAdjustedPosition(
   x: number,
   y: number,
   ref: React.RefObject<HTMLDivElement | null>,
 ): React.CSSProperties {
-  // Start at cursor, then snap after paint if overflowing.
-  // We use a simple heuristic: if x + 240 > window.innerWidth, flip left.
-  const menuWidth = 240
-  const menuHeight = 280 // rough estimate
-  const adjX = x + menuWidth > window.innerWidth ? x - menuWidth : x
-  const adjY = y + menuHeight > window.innerHeight ? y - menuHeight : y
-  void ref // keep linter happy
+  const [pos, setPos] = useState({ left: x, top: y })
+
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const w = rect.width
+    const h = rect.height
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    const left = x + w > vw ? Math.max(4, x - w) : x
+    const top = y + h > vh ? Math.max(4, y - h) : y
+    if (left !== pos.left || top !== pos.top) {
+      setPos({ left, top })
+    }
+    // Re-run only when the cursor input changes — pos is intentionally
+    // not in deps to avoid a feedback loop after the one-shot adjust.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [x, y])
+
   return {
     position: 'fixed',
-    left: Math.max(4, adjX),
-    top: Math.max(4, adjY),
+    left: pos.left,
+    top: pos.top,
     zIndex: 200,
   }
 }
