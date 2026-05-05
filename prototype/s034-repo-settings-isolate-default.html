@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S034-2 · Repo Settings — Default isolate network</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Settings rows — match settingsLayout from styles.css but simpler for single-section */
+    .settingsSection {
+      margin-bottom: 28px;
+    }
+    .settingsSectionTitle {
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-fg-dim);
+      font-weight: 600;
+      margin: 0 0 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .settingsRow {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .settingsRow:last-child { border-bottom: 0; }
+    .settingsRowBody {
+      flex: 1;
+      min-width: 0;
+    }
+    .settingsRowLabel {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--color-fg);
+      margin-bottom: 4px;
+    }
+    .settingsRowHelp {
+      font-size: 12px;
+      color: var(--color-fg-dim);
+      line-height: 1.55;
+    }
+    /* Toggle switch */
+    .toggle {
+      position: relative;
+      width: 40px;
+      height: 22px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggleTrack {
+      position: absolute;
+      inset: 0;
+      background: var(--color-fg-ghost);
+      border-radius: 22px;
+      cursor: pointer;
+      transition: background 0.18s;
+    }
+    .toggle input:checked + .toggleTrack { background: var(--color-accent); }
+    .toggleTrack::after {
+      content: '';
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 16px;
+      height: 16px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.18s;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+    }
+    .toggle input:checked + .toggleTrack::after { transform: translateX(18px); }
+    /* Status pill */
+    .statusPill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-family: var(--font-mono);
+      padding: 4px 10px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--color-border);
+      background: var(--color-surface);
+      color: var(--color-fg-muted);
+    }
+    .statusPillOk { color: var(--color-success); border-color: rgba(100, 210, 160, 0.25); background: rgba(100, 210, 160, 0.06); }
+    .statusPillWarn { color: var(--color-warning); border-color: rgba(245, 158, 11, 0.28); background: rgba(245, 158, 11, 0.06); }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">tjst-t/<b>palmux2</b> · Repository Settings</span>
+      <span class="headerSpacer"></span>
+      <button class="headerBtn">⌘K</button>
+      <button class="headerBtn">🔔</button>
+    </header>
+
+    <aside class="drawer">
+      <div class="statusStrip">
+        <span class="brand">PALMUX</span>
+        <span class="statusMeta"><span><b>2</b> open</span></span>
+      </div>
+      <div class="section">
+        <span class="sectionTitle">Repositories</span>
+        <span class="sectionCount">2</span>
+      </div>
+      <ul class="repos">
+        <li class="repo">
+          <div class="repoRow">
+            <span class="repoNum">1</span>
+            <button class="repoName" style="color: var(--color-accent-light);"><span class="scope">tjst-t/</span>palmux2</button>
+            <button class="starBtn" data-on="true">★</button>
+            <button class="addBranchBtn">+</button>
+            <button class="moreBtn">⋯</button>
+          </div>
+          <ul class="branches">
+            <li><button class="branch branchActive"><span><span class="ghqMark">⌂</span>main</span><span class="primaryTag">primary</span></button></li>
+            <li><button class="branch"><span><span class="ghqMark">⌂</span>feat/billing</span></button></li>
+          </ul>
+        </li>
+        <li class="repo">
+          <div class="repoRow">
+            <span class="repoNum">2</span>
+            <button class="repoName"><span class="scope">tjst-t/</span>port-manager</button>
+            <button class="starBtn">☆</button>
+            <button class="addBranchBtn">+</button>
+            <button class="moreBtn">⋯</button>
+          </div>
+          <div class="glanceLine">⌂ main <span class="glanceArrow">›</span></div>
+        </li>
+      </ul>
+      <div class="drawerFooter">
+        <button class="addRepoBtn">
+          <span style="color:var(--color-fg-muted);">📂</span>
+          <span>Open Repository…</span>
+        </button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="tabBar">
+        <button class="tab"><span class="tabIcon">◆</span> Claude</button>
+        <button class="tab"><span class="tabIcon">📁</span> Files</button>
+        <button class="tab"><span class="tabIcon">⎇</span> Git</button>
+        <button class="tab tabActive"><span class="tabIcon">⚙</span> Settings</button>
+      </div>
+
+      <div class="mainBody" style="max-width: 680px;">
+        <h2 class="settingsTitle" style="font-size:16px;margin:0 0 2px;">Repository Settings</h2>
+        <p class="settingsSub" style="margin:0 0 24px;">
+          <span style="font-family:var(--font-mono);font-size:12px;color:var(--color-fg-muted);">tjst-t/palmux2</span>
+        </p>
+
+        <!-- General section placeholder -->
+        <div class="settingsSection">
+          <h3 class="settingsSectionTitle">General</h3>
+          <div class="settingsRow">
+            <div class="settingsRowBody">
+              <div class="settingsRowLabel">Default base branch</div>
+              <div class="settingsRowHelp">New worktrees will branch from this by default.</div>
+            </div>
+            <select style="background:var(--color-bg);color:var(--color-fg);border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:5px 8px;font-size:12px;font-family:var(--font-mono);margin-top:2px;">
+              <option selected>main</option>
+              <option>develop</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Network isolation section -->
+        <div class="settingsSection">
+          <h3 class="settingsSectionTitle">Network isolation</h3>
+
+          <div class="settingsRow">
+            <div class="settingsRowBody">
+              <div class="settingsRowLabel">Default: isolate network for new worktrees</div>
+              <div class="settingsRowHelp">
+                When enabled, new worktrees in this repo are created with network isolation by default.
+                Existing worktrees are unaffected — change isolation per-worktree from the branch context menu.
+              </div>
+            </div>
+            <label class="toggle" data-testid="repo-settings-isolate-default-toggle" title="Toggle default network isolation">
+              <input type="checkbox" checked>
+              <span class="toggleTrack"></span>
+            </label>
+          </div>
+
+          <div class="settingsRow">
+            <div class="settingsRowBody">
+              <div class="settingsRowLabel" style="color:var(--color-fg-muted);font-weight:400;">slirp4netns availability</div>
+              <div class="settingsRowHelp">
+                Detection runs at server startup. Required to create isolated network namespaces.
+              </div>
+            </div>
+            <span class="statusPill statusPillOk" style="margin-top:2px;">
+              🛡 Available — slirp4netns 1.2.1
+            </span>
+          </div>
+        </div>
+
+        <div style="padding-top:8px;display:flex;justify-content:flex-end;gap:8px;border-top:1px solid var(--color-border);">
+          <button class="btn btnGhost">Reset</button>
+          <button class="btn btnPrimary">Save changes</button>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

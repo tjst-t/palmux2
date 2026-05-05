@@ -3,9 +3,9 @@
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
     "sprints_done": 33,
-    "sprints_total": 33,
-    "percent": 100,
-    "current_sprint": "S033"
+    "sprints_total": 35,
+    "percent": 94,
+    "current_sprint": "S034"
   },
   "execution_order": [
     "S001",
@@ -40,7 +40,9 @@
     "S030",
     "S031",
     "S032",
-    "S033"
+    "S033",
+    "S034",
+    "S035"
   ],
   "sprints": {
     "S001": {
@@ -4990,6 +4992,787 @@
           }
         }
       }
+    },
+    "S034": {
+      "title": "Per-worktree network namespace isolation (rootless MVP)",
+      "status": "pending",
+      "description": "同一 VM で複数レポを並行開発するときに dev server のポート (8080 / 3000 / 5173 等) が衝突する問題を構造的に解決する。 Linux network namespace で worktree (= TabSet) 単位にネットワーク空間を隔離し、 各 worktree がそれぞれ独立した lo を持つようにする。 これにより全 worktree が同時に `localhost:8080` に bind しても物理的に衝突しない。 ホストから見せたいポートだけ明示的に port forward で公開する。\n\n**設計方針:**\n- 特権要件を抑えるため **rootless approach** (`unshare -Urn` + `slirp4netns`) を MVP として採用。 podman rootless と同じ枠組みで実績あり、 palmux2 はユーザー権限のまま動く\n- 性能要求が出たら Phase 2 で veth + iptables + 特権 daemon (palmux-netd) 案へ昇格 (本 sprint スコープ外)\n- **Linux only** (macOS は対象外)\n- 分離単位は **TabSet (= worktree)**。 同 TabSet 内の Claude / Bash が同じ netns を共有することで、 Claude が立てた dev server を別 tab の curl で叩く動線が保たれる\n- Files / Git / Sprint タブは netns に入らない (REST のみで port を持たない)\n- 切替時は対象 worktree の全 tab を restart 必要 (UI に明示)\n\n**opt-in 設計 (必須要件):**\n- **デフォルトは isolation ON** (ユーザー指定により変更)\n- repo-level 設定 (`repos.json` の `isolateNetwork: \"on\" | \"off\"`) で「このレポの新規 worktree のデフォルト」を制御\n- worktree-level 上書きが可能 (per-worktree state file `tmp/netns-state.json`)\n- 新規 worktree 作成 UI に「Isolate network」チェックボックス (デフォルト チェック済)\n- `slirp4netns` バイナリが見つからない場合は **自動的に OFF + warning ログ** を出してフォールバック (graceful degradation)。 `repos.json` の設定値は保持\n\n**永続化:**\n- `repos.json`: repo-level flag (グローバル設定)\n- `tmp/netns-state.json`: live state (host_port allocation、 active netns 一覧、 reconcile 用)\n- palmux 再起動時に kernel 状態と差分があれば再構築 (reconcile pattern)\n\n**新規 BE パッケージ:**\n- `internal/netns/manager.go` — netns lifecycle + slirp4netns subprocess 管理\n- `internal/netns/discovery.go` — listening port polling\n- `internal/netns/forward.go` — port forward (slirp4netns API socket 経由)\n- `internal/netns/state.go` — `tmp/netns-state.json` SSOT\n\n**新規 BE endpoint:**\n- `POST /api/repos/{repoId}/branches/{branchId}/ports/expose` — `{internalPort, hostPort?}` (auto-allocate option)\n- `DELETE /api/repos/{repoId}/branches/{branchId}/ports/{hostPort}`\n- `GET /api/repos/{repoId}/branches/{branchId}/ports` — 公開中マッピング一覧\n- `GET /api/repos/{repoId}/branches/{branchId}/listeners` — 検出 listener 一覧 (REST fallback)\n- WS event: `netns.listenersChanged`\n\n****UI architecture (S034 リファイン):**\n- Network 操作はモーダル (右サイドパネルでなく)。 既存 modal pattern を再利用、 新規レイアウト pattern を増やさない\n- グローバル Settings ページ (`/settings/network`) を新設 — palmux2 初の global settings page。 Network セクションのみ (Caddy + global isolation default)。 既存モーダル系設定 (palette commands 等) は移行せず、 将来別 sprint で\n\n新規 FE component:**\n- `frontend/src/components/network-modal.tsx + settings/settings-page.tsx` — Detected listeners + Public ports 一覧\n- `frontend/src/stores/netns.ts` — Zustand store\n- 既存 Drawer の新規 worktree modal に Isolate network チェック追加\n- 既存 Repository Settings UI に default toggle 追加\n\n**スコープ外 (Backlog 候補):**\n- 特権 daemon (`palmux-netd`) と veth + iptables 高性能版 (Phase 2)\n- IPv6 対応\n- Tab 単位の細粒度分離\n- Files/Git/Sprint タブが分離 worktree 内のファイルを netns 越しに read する経路の最適化\n- macOS 向け fallback (palmux2 全体として macOS は対象外)\n\n**外部依存:**\n- `slirp4netns` バイナリ (機能 ON 時のみ必須)。 palmux 起動時に存在チェック。 不在時は警告のみで起動は継続",
+      "milestone": true,
+      "stories": {
+        "S034-1": {
+          "title": "Rootless netns lifecycle + per-repo/per-worktree opt-in flag",
+          "status": "pending",
+          "user_story": "Palmux2 の運用者として、 レポジトリ単位またはワークツリー単位でネットワーク分離の有無を切り替えたい。 なぜなら、 portman に頼った cooperative なポート規約では、 Claude や手動操作が他レポの dev server を kill してしまう事故を防げないからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S034-1-1",
+              "description": "`repos.json` に `isolateNetwork: \"on\" | \"off\"` フィールドが追加され、 新規 repo の追加時はデフォルトで `on` がセットされる",
+              "test": "[AC-S034-1-1] in tests/acceptance/s034_netns_lifecycle.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-1-2",
+              "description": "worktree-level の上書きが `tmp/netns-state.json` の `worktrees[].isolateNetwork` で可能 (未設定時は repo-level flag を継承)",
+              "test": "[AC-S034-1-2] in tests/acceptance/s034_netns_lifecycle.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-1-3",
+              "description": "isolation ON の worktree open 時に `unshare -Urn` でユーザー netns が作成され、 lo が up している (検証: `nsenter --net=... ip addr show lo` で UP 表示)",
+              "test": "[AC-S034-1-3] in tests/acceptance/s034_netns_lifecycle.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-1-4",
+              "description": "isolation ON の worktree で起動された terminal 系タブ (Claude / Bash) のプロセスが対応する netns に属している (`readlink /proc/<pid>/ns/net` で host と異なる inode)",
+              "test": "[AC-S034-1-4] in tests/acceptance/s034_netns_lifecycle.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-1-5",
+              "description": "worktree close 時に netns + slirp4netns subprocess が cleanup され、 リソースリークしない (close 後に対応する `/proc/<pid>` が消える)",
+              "test": "[AC-S034-1-5] in tests/acceptance/s034_netns_lifecycle.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-1-6",
+              "description": "isolation OFF の worktree は netns を作成せず、 従来通り host network で tab が起動する (機能 OFF が完全に従来動作と同一)",
+              "test": "[AC-S034-1-6] in tests/acceptance/s034_netns_lifecycle.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-1-7",
+              "description": "`slirp4netns` バイナリが PATH に無い環境で palmux 起動時に warning ログが出力され、 isolation ON 設定の worktree は自動的に OFF にフォールバック (`repos.json` の値は変更せずランタイム挙動のみ degrade)",
+              "test": "[AC-S034-1-7] in tests/acceptance/s034_netns_lifecycle.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-1-8",
+              "description": "palmux 再起動時に `tmp/netns-state.json` と kernel 実状態を reconcile し、 orphan netns を cleanup する (再起動前に立ててた netns は再構築 or cleanup)",
+              "test": "[AC-S034-1-8] in tests/acceptance/s034_netns_lifecycle.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-1-9",
+              "description": "AppArmor restriction が有効な環境で palmux 起動 + isolation ON の worktree open を試みると、 docs/INSTALL.md を指す具体的なエラーメッセージが出力される (`run \"sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0\" or install AppArmor profile — see docs/INSTALL.md` 等)",
+              "test": "[AC-S034-1-9] in tests/acceptance/s034_netns_lifecycle.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-1-10",
+              "description": "subagent worktree (S015 / S021 で導入) を open するとき、 起点 worktree (parent) と同じ netns を共有する。 subagent worktree の inode は親と同一 (ip netns identify で同一名)。 `isolateNetwork: \"own\"` 指定時のみ独立 netns",
+              "test": "[AC-S034-1-10] in tests/acceptance/s034_netns_lifecycle.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S034-1-1": {
+              "title": "BE: `internal/netns/manager.go` 新設 — netns CRUD",
+              "description": "`Create(worktreeID) (*Netns, error)` / `Destroy(worktreeID) error` / `Get(worktreeID) *Netns`。 内部で `unshare -Urn` の persistent ns を `/var/run/user/<uid>/palmux/netns/<worktreeID>` 等に bind mount して保持。 cleanup は umount + ns ファイル削除。 lo を up にする",
+              "status": "pending"
+            },
+            "S034-1-2": {
+              "title": "BE: `repos.json` schema 拡張 — `isolateNetwork` フィールド追加 + マイグレーション",
+              "description": "`internal/config/repos.go` に Repo.IsolateNetwork 追加。 既存 repos.json は missing field を `on` で fill (新仕様デフォルト)。 既存ユーザーが「いきなり挙動変わって困る」を避けるため、 マイグレーション時のみ `off` で fill するか要検討 — 本 sprint では新規 repo のみ default on とし、 既存 repos は off のまま (明示 opt-in)",
+              "status": "pending"
+            },
+            "S034-1-3": {
+              "title": "BE: `tmp/netns-state.json` SSOT 実装",
+              "description": "`internal/netns/state.go`。 `worktrees: [{worktreeID, netnsPath, slirp4netnsPID, isolateNetwork: bool, ports: [...]}]` を JSON で永続化。 atomic write (tempfile + rename)。 startup 時 read + reconcile",
+              "status": "pending"
+            },
+            "S034-1-4": {
+              "title": "BE: Tab Provider への netns interceptor 配線",
+              "description": "`internal/tab/provider.go` の Provider interface に `WrapSpawn(cmd, worktreeID) *exec.Cmd` 相当の hook を追加するか、 spawn 経路 (`internal/server/handler_attach.go` 等) で netns manager を参照して `nsenter --net=...` を前置。 terminal 系タブ (Claude / Bash) のみ対象、 Files / Git / Sprint は対象外",
+              "status": "pending"
+            },
+            "S034-1-5": {
+              "title": "BE: 起動時 slirp4netns 存在チェック + graceful degradation",
+              "description": "`cmd/palmux/main.go` で `slirp4netns --version` を試行、 失敗時は `slog.Warn(\"slirp4netns not found, network isolation disabled\")` を出して `netns.Manager` を no-op mode にする。 `repos.json` の値は変えない",
+              "status": "pending"
+            },
+            "S034-1-6": {
+              "title": "BE: worktree open/close hook で netns CRUD を発火",
+              "description": "`internal/store/store.go` の OpenBranch / CloseBranch から `netns.Manager` を呼び出す。 isolation flag は repo-level + worktree-override の merge",
+              "status": "pending"
+            },
+            "S034-1-7": {
+              "title": "Acceptance: `tests/acceptance/s034_netns_lifecycle.py`",
+              "description": "Linux only テスト。 fixture: テスト用 repo を `repos.json` に追加、 worktree open → netns 確認 → tab 起動 → ns inode 確認 → close → cleanup 確認。 slirp4netns 非インストール環境のシミュレーション (PATH 上書き) も含める",
+              "status": "pending"
+            },
+            "S034-1-8": {
+              "title": "Install guide: AppArmor / sysctl 設定 + Ubuntu 24.04 注意書き",
+              "description": "Ubuntu 24.04+ では `kernel.apparmor_restrict_unprivileged_userns=1` が default で rootless userns がブロックされる。 docs/INSTALL.md (新規) または README に以下を明記: (1) sysctl 案 — `/etc/sysctl.d/99-palmux-userns.conf` で `kernel.apparmor_restrict_unprivileged_userns=0`、 (2) AppArmor profile 案 — `/etc/apparmor.d/usr.local.bin.palmux` で `userns,` を allow する profile。 palmux 起動時に rootless netns smoke test を試行 → 失敗時はこのドキュメントへの link 付きエラーメッセージを出す (S034-1-5 の slirp4netns 不在チェックと同じパターン)",
+              "status": "pending"
+            },
+            "S034-1-9": {
+              "title": "BE: subagent worktree の netns 継承ロジック",
+              "description": "subagent worktree (S015 / S021 で導入済み category) を open するときは、 起点 worktree (parent) と同じ netns を共有する。 worktree state に `parentWorktreeId` を保持、 manager が parent を resolve して既存 netns に nsenter する。 subagent でも独立 ns が欲しい場合の override flag (`isolateNetwork: \"own\"`) も用意 (default は `\"inherit\"`)。 親の netns が壊れたら subagent も道連れになるので docs/INSTALL.md か CLAUDE.md にメンタルモデルを明記",
+              "status": "pending"
+            }
+          }
+        },
+        "S034-2": {
+          "title": "Outbound networking (slirp4netns) + port-forward API",
+          "status": "pending",
+          "user_story": "分離 worktree で開発する開発者として、 netns 内の dev server を VM ホストの明示したポートからアクセスしたい。 なぜなら、 外から完全に隔離されると VS Code やブラウザから dev server が見えず、 開発体験が成立しないからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S034-2-1",
+              "description": "isolation ON の worktree で slirp4netns subprocess が起動し、 netns 内から `curl https://example.com` が成功する (outbound HTTPS 通る)",
+              "test": "[AC-S034-2-1] in tests/acceptance/s034_netns_forward.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-2-2",
+              "description": "netns 内から `dig example.com` が解決する (DNS が通る)",
+              "test": "[AC-S034-2-2] in tests/acceptance/s034_netns_forward.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-2-3",
+              "description": "`POST /api/repos/{r}/branches/{b}/ports/expose` に `{internalPort: 5173}` を投げると hostPort が auto-allocate され、 mapping が作成される (response: `{hostPort, internalPort}`)",
+              "test": "[AC-S034-2-3] in tests/acceptance/s034_netns_forward.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-2-4",
+              "description": "`POST .../ports/expose` に `{internalPort: 5173, hostPort: 13000}` を投げると指定 hostPort で mapping が作成される (auto allocate せず明示値を使う)",
+              "test": "[AC-S034-2-4] in tests/acceptance/s034_netns_forward.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-2-5",
+              "description": "公開後、 netns 内で `python -m http.server 5173` を立ち上げると `curl http://localhost:{hostPort}` がそのレスポンスを返す (inbound forward が機能)",
+              "test": "[AC-S034-2-5] in tests/acceptance/s034_netns_forward.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-2-6",
+              "description": "`DELETE .../ports/{hostPort}` で mapping が解除され、 以降 `curl http://localhost:{hostPort}` は connection refused になる",
+              "test": "[AC-S034-2-6] in tests/acceptance/s034_netns_forward.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-2-7",
+              "description": "`GET .../ports` が現在の mapping 一覧を `[{hostPort, internalPort, createdAt}]` で返す",
+              "test": "[AC-S034-2-7] in tests/acceptance/s034_netns_forward.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-2-8",
+              "description": "worktree close 時にその worktree に紐づく全 forward が自動解除される (リソースリークなし)",
+              "test": "[AC-S034-2-8] in tests/acceptance/s034_netns_forward.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-2-9",
+              "description": "重複した hostPort を expose しようとすると 409 Conflict を返す",
+              "test": "[AC-S034-2-9] in tests/acceptance/s034_netns_forward.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S034-2-1": {
+              "title": "BE: slirp4netns subprocess の lifecycle 管理",
+              "description": "netns 作成と同時に `slirp4netns --configure --mtu=65520 --disable-host-loopback --api-socket /tmp/palmux-slirp4-<wt>.sock <pid> tap0` を起動。 PID を `tmp/netns-state.json` に保存。 worktree close で SIGTERM",
+              "status": "pending"
+            },
+            "S034-2-2": {
+              "title": "BE: API socket 経由の `add_hostfwd` / `remove_hostfwd` ラップ",
+              "description": "`internal/netns/forward.go`。 slirp4netns API socket に JSON `{\"execute\": \"add_hostfwd\", \"arguments\": {\"proto\": \"tcp\", \"host_addr\": \"127.0.0.1\", \"host_port\": <h>, \"guest_addr\": \"10.0.2.100\", \"guest_port\": <g>}}` を送る。 remove も同様。 response でエラー検出",
+              "status": "pending"
+            },
+            "S034-2-3": {
+              "title": "BE: hostPort auto-allocate ロジック",
+              "description": "13000-13999 の範囲で空きを `net.Listen(\"tcp\", \":<port>\")` で probe。 すでに `tmp/netns-state.json` に登録済みのものは除外。 race-free にするためグローバル mutex",
+              "status": "pending"
+            },
+            "S034-2-4": {
+              "title": "BE: `POST/DELETE/GET /ports` handler 実装",
+              "description": "`internal/server/handler_ports.go` 新設。 ルート登録は branch 配下なので `internal/tab/provider.go` ではなく core router で。 認証は既存ミドルウェア流用",
+              "status": "pending"
+            },
+            "S034-2-5": {
+              "title": "BE: worktree close 時の forward 自動解除",
+              "description": "`netns.Manager.Destroy()` 内で対応する全 forward を remove + state file から削除",
+              "status": "pending"
+            },
+            "S034-2-6": {
+              "title": "Acceptance: `tests/acceptance/s034_netns_forward.py`",
+              "description": "outbound (curl https) / DNS / inbound (python http.server in ns + curl from host) / auto vs explicit hostPort / DELETE / GET list / 409 conflict / close cleanup を Linux で検証",
+              "status": "pending"
+            }
+          }
+        },
+        "S034-3": {
+          "title": "Listening port auto-discovery + WebSocket event",
+          "status": "pending",
+          "user_story": "分離 worktree で開発する開発者として、 netns 内で `npm run dev` を立ち上げた瞬間に palmux 側がそれを検知し、 UI に「:5173 で listen 中」と表示してほしい。 なぜなら、 何が何番でリッスンしているか手で把握するのは煩雑で、 忘れたまま放置すると後から接続できない場合があるからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S034-3-1",
+              "description": "isolation ON の worktree で `nsenter --net=... ss -tlnH` 相当の polling が 2 秒間隔で動作する",
+              "test": "[AC-S034-3-1] in tests/acceptance/s034_netns_discovery.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-3-2",
+              "description": "netns 内で `python -m http.server 5173` を起動すると、 数秒以内に WS event `netns.listenersChanged` が broadcast され、 payload に `{worktreeId, listeners: [{port: 5173, processName, pid}]}` が含まれる",
+              "test": "[AC-S034-3-2] in tests/acceptance/s034_netns_discovery.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-3-3",
+              "description": "リスナー停止後、 数秒以内に該当 listener が listeners 配列から消える",
+              "test": "[AC-S034-3-3] in tests/acceptance/s034_netns_discovery.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-3-4",
+              "description": "公開済み (port-forward 登録済み) ポートには listener entry に `exposed: true, hostPort: <h>` の metadata が付加される",
+              "test": "[AC-S034-3-4] in tests/acceptance/s034_netns_discovery.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-3-5",
+              "description": "`GET /api/repos/{r}/branches/{b}/listeners` が同じ payload を返す (REST fallback)",
+              "test": "[AC-S034-3-5] in tests/acceptance/s034_netns_discovery.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-3-6",
+              "description": "worktree close 時に polling goroutine が停止する (goroutine leak しない)",
+              "test": "[AC-S034-3-6] in tests/acceptance/s034_netns_discovery.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-3-7",
+              "description": "isolation OFF の worktree では polling されず、 `GET .../listeners` は 404 または空配列を返す (機能対象外であることが API 上明確)",
+              "test": "[AC-S034-3-7] in tests/acceptance/s034_netns_discovery.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S034-3-1": {
+              "title": "BE: `internal/netns/discovery.go` polling loop",
+              "description": "worktree open で goroutine 起動、 close で context cancel。 `nsenter --net=<path> ss -tlnH` を 2 秒 ticker で実行、 出力 parse → []Listener。 process name は `/proc/<pid>/comm` から取得",
+              "status": "pending"
+            },
+            "S034-3-2": {
+              "title": "BE: 差分検出 + WS broadcast",
+              "description": "前回 snapshot と diff、 変化があれば既存 events broker に `netns.listenersChanged` を投げる。 forward state と join して `exposed` flag を計算",
+              "status": "pending"
+            },
+            "S034-3-3": {
+              "title": "BE: `GET /listeners` REST handler",
+              "description": "現在の listeners snapshot を即時返す。 isolation OFF なら 404",
+              "status": "pending"
+            },
+            "S034-3-4": {
+              "title": "Acceptance: `tests/acceptance/s034_netns_discovery.py`",
+              "description": "ns 内で http.server を start/stop して event の到来 / 消失 / exposed metadata を WS subscriber で検証",
+              "status": "pending"
+            }
+          }
+        },
+        "S034-4": {
+          "title": "UI — opt-in toggle + Network panel (port management)",
+          "status": "pending",
+          "user_story": "分離 worktree で開発する開発者として、 worktree 作成時に「分離する」をワンクリックで指定し、 運用中に検出されたポートを 1 click で公開し、 現在の公開状況を一覧で見たい。 なぜなら、 CLI フラグや設定ファイル直編集を強いると、 せっかくのガードレールが日常で使われなくなるからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S034-4-1",
+              "description": "Drawer の新規 worktree 作成 dialog に「Isolate network」チェックボックスがあり、 デフォルトで checked。 値はその worktree の作成リクエストに含まれる",
+              "test": "[AC-S034-4-1] in tests/e2e/s034_netns_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-4-2",
+              "description": "Repository Settings UI に「Default: isolate network for new worktrees」トグルがあり、 デフォルトで ON。 トグル変更で `repos.json` の `isolateNetwork` が更新される (PATCH)",
+              "test": "[AC-S034-4-2] in tests/e2e/s034_netns_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-4-3",
+              "description": "isolation ON の worktree を開くと、 Header / Drawer のいずれかに「🛡 Isolated」バッジが表示される。 isolation OFF の worktree では非表示",
+              "test": "[AC-S034-4-3] in tests/e2e/s034_netns_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-4-4",
+              "description": "isolation ON の worktree に Network modal (右上 button or header の 🛡 バッジ click から開く) があり、 `Detected listeners` セクションに WS で受け取った listener 一覧 (port + processName + 「Expose」ボタン) が表示される",
+              "test": "[AC-S034-4-4] in tests/e2e/s034_netns_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-4-5",
+              "description": "Detected listener の「Expose」ボタンを click すると `POST /ports/expose` が走り、 成功時に Public ports セクションに `localhost:{hostPort} → :{internalPort}` が現れる。 listener 側には ✓ Exposed badge",
+              "test": "[AC-S034-4-5] in tests/e2e/s034_netns_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-4-6",
+              "description": "Public ports 行の「↗」アイコン click で `localhost:{hostPort}` が新規ブラウザタブで開く",
+              "test": "[AC-S034-4-6] in tests/e2e/s034_netns_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-4-7",
+              "description": "Public ports 行の「✕」 click で `DELETE /ports/{hostPort}` が走り、 行が消える",
+              "test": "[AC-S034-4-7] in tests/e2e/s034_netns_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-4-8",
+              "description": "isolation OFF の worktree では Network modal への entry point 自体が非表示 (Drawer に項目が出ない / button が disabled)",
+              "test": "[AC-S034-4-8] in tests/e2e/s034_netns_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-4-9",
+              "description": "slirp4netns 不在環境では Network modal 上部に「⚠ slirp4netns not found — running in compatibility mode」warning が表示され、 Expose ボタンは disabled",
+              "test": "[AC-S034-4-9] in tests/e2e/s034_netns_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-4-10",
+              "description": "isolation flag を変更した時、 「対象 worktree の全 tab を再起動する必要がある」 confirm dialog が出る",
+              "test": "[AC-S034-4-10] in tests/e2e/s034_netns_ui.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S034-4-1": {
+              "title": "FE: Zustand store `frontend/src/stores/netns.ts`",
+              "description": "per-worktree の `{listeners, publicPorts, isolateNetwork, slirp4netnsAvailable}` を保持。 WS event subscribe で listeners 更新。 actions: expose / unexpose / refresh",
+              "status": "pending"
+            },
+            "S034-4-2": {
+              "title": "FE: 新規 `network-panel.tsx`",
+              "description": "props: worktreeID。 2 セクション (Detected listeners + Public ports)。 prototype に従う (S034-4 prototype 段階で生成)。 slirp4netns 不在時の warning band も実装",
+              "status": "pending"
+            },
+            "S034-4-3": {
+              "title": "FE: Drawer の新規 worktree modal に Isolate network checkbox",
+              "description": "既存 worktree 作成 modal を拡張、 default checked。 repo-level default を読み取って初期値とする",
+              "status": "pending"
+            },
+            "S034-4-4": {
+              "title": "FE: Repository Settings UI に default toggle",
+              "description": "既存 repo settings 画面 (Drawer 内設定 or 設定モーダル) に項目追加、 PATCH `/api/repos/{repoId}` で永続化",
+              "status": "pending"
+            },
+            "S034-4-5": {
+              "title": "FE: Header / Drawer に「🛡 Isolated」バッジ",
+              "description": "isolateNetwork が ON の worktree のみ表示。 click で Network panel を open する shortcut",
+              "status": "pending"
+            },
+            "S034-4-6": {
+              "title": "FE: isolation flag 変更時の restart confirm dialog",
+              "description": "tab がアクティブな worktree で flag を toggle すると confirm。 OK で全 tab を kill + reopen",
+              "status": "pending"
+            },
+            "S034-4-7": {
+              "title": "E2E: `tests/e2e/s034_netns_ui.py`",
+              "description": "Linux でのみ実行。 Drawer create / settings toggle / Network panel / expose / open / unexpose / slirp4netns 不在 warning / restart confirm を Playwright で検証",
+              "status": "pending"
+            }
+          }
+        },
+        "S034-5": {
+          "title": "Caddy integration — FQDN + SSL termination for exposed ports",
+          "status": "pending",
+          "user_story": "リモートから palmux2 で開発する開発者として、 expose したポートに自動で FQDN が付いて HTTPS でアクセスできてほしい。 なぜなら、 `localhost:13000` だと SSH トンネルや SOCKS proxy のセットアップが必要で、 スマホやタブレットから素直に開けないからだ。 portman + Caddy で慣れているフローを netns 隔離下でも維持したい。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S034-5-1",
+              "description": "Global settings (`~/.config/palmux/settings.json`) に `caddy: {enabled, fqdnTemplate, configPath, reloadCmd}` が追加される。 デフォルト: `enabled: false` (明示 opt-in)、 `fqdnTemplate: \"{repo}-{branch}-{port}.dev.example.com\"` (placeholder)、 `configPath: \"~/.config/palmux/caddy/active.caddyfile\"`、 `reloadCmd: \"caddy reload --config /etc/caddy/Caddyfile\"`",
+              "test": "[AC-S034-5-1] in tests/acceptance/s034_caddy.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-5-2",
+              "description": "Caddy 連携が enabled で `POST /ports/expose` が成功すると、 `caddy.configPath` に reverse_proxy snippet が追記され、 `caddy.reloadCmd` が実行される。 snippet 形式は `<fqdn> { reverse_proxy localhost:<hostPort> }` の Caddyfile syntax",
+              "test": "[AC-S034-5-2] in tests/acceptance/s034_caddy.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-5-3",
+              "description": "`POST /ports/expose` のレスポンスに `publicUrl: \"https://<fqdn>\"` が含まれる (Caddy 連携 enabled 時のみ)",
+              "test": "[AC-S034-5-3] in tests/acceptance/s034_caddy.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-5-4",
+              "description": "`DELETE /ports/{hostPort}` で対応する Caddy snippet も削除され、 reload される",
+              "test": "[AC-S034-5-4] in tests/acceptance/s034_caddy.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-5-5",
+              "description": "FQDN template の placeholder `{repo}` `{branch}` `{port}` `{hostPort}` が repo / branch 名 / internal port / host port で置換される。 unsafe 文字はサニタイズ (`/` → `-`、 lowercase)",
+              "test": "[AC-S034-5-5] in tests/acceptance/s034_caddy.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-5-6",
+              "description": "`caddy` バイナリが PATH に無い、 または `reloadCmd` が失敗した場合、 expose 自体は成功させるが warning ログ + Network modal に「Caddy reload failed」インジケータを表示。 base port forward は機能継続",
+              "test": "[AC-S034-5-6] in tests/acceptance/s034_caddy.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-5-7",
+              "description": "worktree close 時に対応する Caddy snippet が全削除される (Caddy が孤児 reverse_proxy を持ったままにならない)",
+              "test": "[AC-S034-5-7] in tests/acceptance/s034_caddy.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-5-8",
+              "description": "Network modal の Public ports 行に FQDN 列が追加され、 `https://...` リンクが click で新規タブ open。 Caddy 無効時は列が表示されない",
+              "test": "[AC-S034-5-8] in tests/e2e/s034_netns_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-5-9",
+              "description": "Settings ページに Caddy 設定 (toggle + fqdnTemplate / configPath / reloadCmd 編集) が追加され、 PATCH `/api/settings` で永続化される",
+              "test": "[AC-S034-5-9] in tests/e2e/s034_netns_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S034-5-10",
+              "description": "起動時に `caddy version` を試行、 Caddy 未インストール環境では Settings の Caddy セクションに 「⚠ caddy binary not found」 と表示し、 toggle を disable",
+              "test": "[AC-S034-5-10] in tests/e2e/s034_netns_ui.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S034-5-1": {
+              "title": "BE: settings schema 拡張 — `caddy` セクション",
+              "description": "`internal/config/settings.go` に Caddy 構造体追加。 default 値はすべて off / placeholder (上記 AC-1)。 PATCH /api/settings で update 可能",
+              "status": "pending"
+            },
+            "S034-5-2": {
+              "title": "BE: `internal/netns/caddy.go` — Caddyfile snippet 生成 + reload 実行",
+              "description": "`AddRoute(fqdn, hostPort)` `RemoveRoute(fqdn)` `Reload()` を実装。 active.caddyfile を atomic write (tempfile + rename)。 Caddy snippet は per-route コメント `# palmux2 worktree=<wt> port=<host>:<int>` で識別、 削除時はコメント単位で除去",
+              "status": "pending"
+            },
+            "S034-5-3": {
+              "title": "BE: FQDN template 置換 + サニタイズ",
+              "description": "`{repo}` `{branch}` `{port}` `{hostPort}` を置換。 owner/repo の `/` → `-`、 branch 名の `/` → `-`、 全部 lowercase。 結果が `[a-z0-9.-]+` にマッチしない場合 422",
+              "status": "pending"
+            },
+            "S034-5-4": {
+              "title": "BE: forward.go と caddy.go の連動",
+              "description": "expose / unexpose / worktree close の各 path で Caddy 連携 enabled なら caddy.go を呼ぶ。 Caddy reload 失敗は warning ログ + state file に `caddyError` メタを残す (response にも反映)",
+              "status": "pending"
+            },
+            "S034-5-5": {
+              "title": "BE: 起動時 caddy 検出 + Settings レスポンスへの reflect",
+              "description": "`caddy version` を試行、 結果を `/api/settings` GET レスポンスの `caddy.binaryAvailable: bool` に反映",
+              "status": "pending"
+            },
+            "S034-5-6": {
+              "title": "FE: Network panel Public ports に FQDN 列追加",
+              "description": "`network-panel.tsx` で Caddy enabled かつ `publicUrl` がある行は `https://<fqdn>` 表示 + click で window.open。 Caddy 連携無効時は列ごと非表示",
+              "status": "pending"
+            },
+            "S034-5-7": {
+              "title": "FE: 新規 Settings page (`/settings/network`) — skeleton + Network section",
+              "description": "palmux2 にまだグローバル Settings ページが無いため、 React Router で `/settings/network` ルートを新設。 main pane に section-stack レイアウト (将来 sidebar 化可能な構造)。 Section 1: Caddy integration (toggle / fqdnTemplate + live preview / configPath / reloadCmd / caddy バイナリ検出表示)。 Section 2: Default isolation policy (global default toggle 「新規 repo の default を isolation ON にする」)。 既存モーダル (S032 palette commands 等) は移行しない — 将来 sprint で。 GET/PATCH `/api/settings` の caddy / network セクションを wire",
+              "status": "pending"
+            },
+            "S034-5-8": {
+              "title": "Acceptance + E2E: AC-S034-5-* のカバー",
+              "description": "tests/acceptance/s034_caddy.py で BE (snippet 生成 / reload / collision / cleanup)、 tests/e2e/s034_netns_ui.py に Settings UI + Public ports FQDN 列の検証を追加。 dev インスタンスは Caddy mock (or sandbox 内 caddy バイナリ) で検証",
+              "status": "pending"
+            },
+            "S034-5-9": {
+              "title": "FE: Settings ページへの導線整備 (Drawer footer から / 🛡 modal の \"Settings…\" link から)",
+              "description": "Drawer footer に小さな「Settings」 entry を追加 (既存 `Open Repository…` の隣)。 Network modal footer の「Settings…」リンクは `/settings/network#caddy` にナビ。 アクセシビリティ: ⌘, でも開ける (URL navigate)",
+              "status": "pending"
+            }
+          }
+        }
+      }
+    },
+    "S035": {
+      "title": "Unified Settings page — consolidate scattered global settings",
+      "status": "pending",
+      "description": "S034 で建てる最小 Settings page (`/settings/network`) のスケルトンを正式な「palmux2 のグローバル設定 hub」に拡張する。 これまで scatter していた設定エントリ — S032 palette commands modal、 settings.json 直編集の Toolbar / claudeMode / imageUploadDir、 ⌘K 経由の theme 切替、 等 — を 1 ページに集約する。\n\n**スコープ:**\n- Settings page に sidebar + section URL ルーティング (`/settings/<section>`) を追加\n- 既存モーダル / JSON 直編集だった設定を section として段階的に移植\n- ⌘, (`Cmd+,`) で前回の section に open\n- モバイルでは sidebar を dropdown 化\n\n**マイグレーション対象:**\n| 既存形態 | 移植後 |\n|---|---|\n| S032 palette commands modal | Settings → Palette commands section |\n| settings.json `toolbar.normalMode.rows` 直編集 | Settings → Toolbar editor (drag reorder + button type editor) |\n| settings.json `toolbar.claudeMode.rows` 直編集 | Settings → Toolbar editor の claude tab |\n| settings.json `imageUploadDir` 直編集 | Settings → General (input field) |\n| settings.json scrollback、 等の terminal 設定 | Settings → Terminal section |\n| ⌘K theme コマンド or システム自動 | Settings → Appearance (theme picker、 Light/Dark/System) |\n| (S034 で作成) Network / Caddy | そのまま Settings → Network |\n\n**スコープ外:**\n- CLI フラグ系 (`--token` / `--base-path` / `--max-connections` / `--tmux-prefix`) — 起動時オプション、 設定 hub の対象外\n- localStorage の device-specific 状態 (last-active branch 等)\n- per-repo settings は今回触らない (S034 で repo-level isolateNetwork toggle を追加した実績があるが、 repo 設定 hub の整備は別 sprint)\n- i18n (英日切替) — 将来需要が出たら別 sprint\n\n**設計判断:**\n- Settings page のレイアウトは「sidebar (180px) + main content」の 2 ペイン (Mac System Settings / VS Code Settings 風)\n- section 切替は URL path (`/settings/general`, `/settings/toolbar`, `/settings/palette-commands` など)、 React Router の nested route で表現\n- 各 section component は独立 (lazy load 可)、 PATCH /api/settings で部分更新\n- 既存モーダル (S032 palette commands modal) は **削除し Settings に統合**。 ⌘K → 「manage user commands」 は `/settings/palette-commands` に navigate するだけのコマンドに retro-fit\n- モバイル (<600px): sidebar が上部の sticky `<select>` 風 dropdown に collapse。 main content full width",
+      "milestone": true,
+      "stories": {
+        "S035-1": {
+          "title": "Settings page sidebar + URL routing + section anchor infrastructure",
+          "status": "pending",
+          "user_story": "palmux2 を使う開発者として、 設定を section ごとに左 sidebar から切り替えたい。 なぜなら、 個別モーダルや JSON 直編集だと「あの設定どこだっけ」が頻発するからだ。 1 ページで全部見えるとメンタルマップが効く。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S035-1-1",
+              "description": "`/settings` にアクセスすると左 sidebar (sections 一覧) + main content の 2 ペインレイアウトが表示される。 sidebar 幅は 180px (固定)、 main content は残り",
+              "test": "[AC-S035-1-1] in tests/e2e/s035_settings_unified.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S035-1-2",
+              "description": "sidebar に section エントリ: General / Appearance / Toolbar / Palette commands / Network / Terminal が縦並びで表示される。 click で対応 URL に navigate (`/settings/general` 等)",
+              "test": "[AC-S035-1-2] in tests/e2e/s035_settings_unified.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S035-1-3",
+              "description": "未指定 (`/settings`) で開くと最後に閲覧した section に redirect (localStorage に記憶)、 初回は `/settings/general`",
+              "test": "[AC-S035-1-3] in tests/e2e/s035_settings_unified.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S035-1-4",
+              "description": "⌘, (Cmd+,) ショートカットで Settings page を open (前回 section)。 既存タブ (Claude / Bash / Files / Git) からでも発火",
+              "test": "[AC-S035-1-4] in tests/e2e/s035_settings_unified.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S035-1-5",
+              "description": "モバイル (<600px) では sidebar が main content 上部の sticky dropdown (`<select>`) に collapse。 section 切替で URL 同期",
+              "test": "[AC-S035-1-5] in tests/e2e/s035_settings_unified.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S035-1-6",
+              "description": "S034 で作成済の Network section が `/settings/network` で従来通り表示される (regression なし)",
+              "test": "[AC-S035-1-6] in tests/e2e/s035_settings_unified.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S035-1-7",
+              "description": "Drawer footer の「Settings」エントリと Network modal footer の「Settings…」リンクが新 sidebar 経由でも動作する",
+              "test": "[AC-S035-1-7] in tests/e2e/s035_settings_unified.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S035-1-1": {
+              "title": "FE: Settings page を sidebar + content の 2 ペインに refactor",
+              "description": "`frontend/src/pages/settings/settings-page.tsx` (S034 で新設) に sidebar component を追加。 React Router の nested route (`<Route path=\"settings\"><Route path=\":section\" element={...}/></Route>`) で section 切替",
+              "status": "pending"
+            },
+            "S035-1-2": {
+              "title": "FE: section 一覧 + last-viewed section persistence",
+              "description": "section list は静的配列で定義、 各 section に icon / label / lazy-load element。 localStorage `palmux:settings:last-section` に最後に開いた section を記憶",
+              "status": "pending"
+            },
+            "S035-1-3": {
+              "title": "FE: ⌘, ショートカット",
+              "description": "global keydown listener で `e.metaKey && e.key === \",\"` を検出 → navigate(`/settings/<last-section>`)。 既存 ⌘K 等と衝突しないように useShortcuts hook 経由",
+              "status": "pending"
+            },
+            "S035-1-4": {
+              "title": "FE: モバイル sidebar collapse",
+              "description": "media query `<600px` で sidebar を `<select>` dropdown に切り替え。 dropdown の onChange で navigate",
+              "status": "pending"
+            },
+            "S035-1-5": {
+              "title": "E2E: AC-S035-1-* をカバー",
+              "description": "Playwright で sidebar 切替 / URL 同期 / ⌘, / mobile dropdown / S034 Network section 残存を検証",
+              "status": "pending"
+            }
+          }
+        },
+        "S035-2": {
+          "title": "Migrate S032 Palette commands modal → Settings section",
+          "status": "pending",
+          "user_story": "palmux2 を使う開発者として、 ⌘K で開くカスタムコマンドの管理を Settings page で行いたい。 なぜなら、 単発モーダルだと他の設定と分断されていて、 全体像が掴みにくいからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S035-2-1",
+              "description": "`/settings/palette-commands` に S032 で作った CRUD UI (一覧 + 追加 + 編集 + 削除) と同等の機能が移植されている",
+              "test": "[AC-S035-2-1] in tests/e2e/s035_palette_migration.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S035-2-2",
+              "description": "S032 の standalone モーダルは削除され、 ⌘K → 「manage user commands」 で起動するコマンドは `/settings/palette-commands` への navigate に置き換わっている (`palette.userCommands` schema は不変)",
+              "test": "[AC-S035-2-2] in tests/e2e/s035_palette_migration.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S035-2-3",
+              "description": "既存 user-defined commands (移行前に作成済) が新 UI でそのまま編集 / 削除できる (data 互換)",
+              "test": "[AC-S035-2-3] in tests/e2e/s035_palette_migration.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S035-2-4",
+              "description": "S032 で導入された stable IDs / typed validation error は新 UI でも維持される (backlog の関連 polish 項目を解消する機会として併合可)",
+              "test": "[AC-S035-2-4] in tests/e2e/s035_palette_migration.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S035-2-1": {
+              "title": "FE: `/settings/palette-commands` section component を作成",
+              "description": "S032 の `frontend/src/components/user-commands-modal.tsx` のロジックを section component に re-host。 modal Wrapper を剥がして Settings section レイアウトに合わせる",
+              "status": "pending"
+            },
+            "S035-2-2": {
+              "title": "FE: ⌘K の「manage user commands」コマンドを navigate に置き換え",
+              "description": "command palette 内のエントリの handler を `() => navigate('/settings/palette-commands')` に変更。 旧 modal の mount 経路を削除",
+              "status": "pending"
+            },
+            "S035-2-3": {
+              "title": "FE: 旧 modal component を削除 (death by deprecation)",
+              "description": "`user-commands-modal.tsx` を削除、 import の参照を全部 settings section に書き換え",
+              "status": "pending"
+            },
+            "S035-2-4": {
+              "title": "E2E: AC-S035-2-* をカバー",
+              "description": "S032 既存テストの修正 + 新フロー (⌘K → settings ナビ) の追加",
+              "status": "pending"
+            }
+          }
+        },
+        "S035-3": {
+          "title": "Toolbar editor (drag reorder + button type editor)",
+          "status": "pending",
+          "user_story": "palmux2 をモバイル / タッチで使う開発者として、 Toolbar のボタン構成を UI から編集したい。 なぜなら、 settings.json を直接編集するのはモバイルだと現実的でなく、 行を入れ替えたいだけでも MacBook を出さなくてはならないからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S035-3-1",
+              "description": "`/settings/toolbar` に 2 モードタブ (normal / claude) があり、 各モードの rows × buttons が visual editor で表示される",
+              "test": "[AC-S035-3-1] in tests/e2e/s035_toolbar_editor.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S035-3-2",
+              "description": "ボタンを drag で reorder できる (PC: mouse drag、 mobile: long-press → drag)。 row 内 / row 間どちらも可能",
+              "test": "[AC-S035-3-2] in tests/e2e/s035_toolbar_editor.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S035-3-3",
+              "description": "「+ Add button」で新規追加、 ボタン click で type 別 editor (modifier / key / ctrl-key / arrow / page / popup / fontsize / ime / speech / command の 10 種) を inline 表示",
+              "status": "pending",
+              "test": "[AC-S035-3-3] in tests/e2e/s035_toolbar_editor.py"
+            },
+            {
+              "id": "AC-S035-3-4",
+              "description": "「+ Add row」「Remove row」で row 構造そのものを編集できる",
+              "test": "[AC-S035-3-4] in tests/e2e/s035_toolbar_editor.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S035-3-5",
+              "description": "下部に live preview pane (実際の Toolbar が即時に再構築されて見える)",
+              "test": "[AC-S035-3-5] in tests/e2e/s035_toolbar_editor.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S035-3-6",
+              "description": "Save 押下で PATCH `/api/settings` が走り、 toolbar セクションだけ更新される (他設定への副作用なし)",
+              "test": "[AC-S035-3-6] in tests/e2e/s035_toolbar_editor.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S035-3-7",
+              "description": "「Reset to defaults」 で初期 rows に戻る",
+              "test": "[AC-S035-3-7] in tests/e2e/s035_toolbar_editor.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S035-3-8",
+              "description": "claude mode の `command` type ボタン (slash commands) は `/clear` `/compact` 等の既知コマンドを autocomplete で提示、 任意文字列も入力可",
+              "test": "[AC-S035-3-8] in tests/e2e/s035_toolbar_editor.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S035-3-1": {
+              "title": "FE: drag-reorder ライブラリ選定 + 導入",
+              "description": "`@dnd-kit/core` または `react-beautiful-dnd`。 mobile タッチ対応必須。 既存 S033 multi-select で long-press 検出を使った経験を流用",
+              "status": "pending"
+            },
+            "S035-3-2": {
+              "title": "FE: Toolbar editor component (mode tabs + row/button editors)",
+              "description": "`frontend/src/pages/settings/sections/toolbar-editor.tsx`。 各 button type に対応する inline editor を実装 (10 種)。 schema: `internal/config/settings.go` の Toolbar 構造体に揃える",
+              "status": "pending"
+            },
+            "S035-3-3": {
+              "title": "FE: live preview pane",
+              "description": "現行 Toolbar component を編集中の draft state で再 render。 既存 `frontend/src/components/toolbar/*` の controlled-mode 化が必要",
+              "status": "pending"
+            },
+            "S035-3-4": {
+              "title": "FE: slash command autocomplete (claude mode)",
+              "description": "既知の slash commands (`/clear`, `/compact`, `/help`, `/settings`, etc) を hardcoded list で autocomplete。 任意文字列も accept",
+              "status": "pending"
+            },
+            "S035-3-5": {
+              "title": "FE: Save / Reset の API 配線",
+              "description": "PATCH `/api/settings` の toolbar セクションのみ送信。 conflict 時の楽観ロック (etag or version) は今回 scope 外、 last-write-wins で十分",
+              "status": "pending"
+            },
+            "S035-3-6": {
+              "title": "E2E: AC-S035-3-* をカバー",
+              "description": "Playwright で drag reorder (mouse + touch)、 button type 切替、 live preview の同期、 Save/Reset を検証",
+              "status": "pending"
+            }
+          }
+        },
+        "S035-4": {
+          "title": "General + Appearance + Terminal sections",
+          "status": "pending",
+          "user_story": "palmux2 を使う開発者として、 image upload dir / scrollback / theme などのちょっとした設定を UI で変えたい。 なぜなら、 settings.json をエディタで開く手間や、 そもそも「どの key だっけ」を毎回調べる手間を減らしたいからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S035-4-1",
+              "description": "`/settings/general` に「Image upload directory」 input field がある (デフォルト `/tmp/palmux-uploads`)。 PATCH /api/settings で永続化、 既存のアップロード機能 (Claude タブの画像ペースト) が新 path を使う",
+              "test": "[AC-S035-4-1] in tests/e2e/s035_general_settings.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S035-4-2",
+              "description": "`/settings/terminal` に scrollback 行数 (default 5000)、 font size などの terminal 設定がある。 既存 xterm.js が新値を反映",
+              "test": "[AC-S035-4-2] in tests/e2e/s035_general_settings.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S035-4-3",
+              "description": "`/settings/appearance` に theme picker (Light / Dark / System) がある。 切替で `data-theme` 属性が即時更新、 localStorage `palmux:theme` に保存",
+              "test": "[AC-S035-4-3] in tests/e2e/s035_general_settings.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S035-4-4",
+              "description": "「System」選択時は `prefers-color-scheme` media query を聴いて自動切替",
+              "test": "[AC-S035-4-4] in tests/e2e/s035_general_settings.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S035-4-1": {
+              "title": "FE: 3 section component を作成 (general / appearance / terminal)",
+              "description": "簡素な input + toggle + select の組み合わせ。 共通 SettingsField wrapper を活用",
+              "status": "pending"
+            },
+            "S035-4-2": {
+              "title": "FE: theme store + system preference listener",
+              "description": "Zustand store `stores/theme.ts`。 `matchMedia('(prefers-color-scheme: dark)')` の change を listen",
+              "status": "pending"
+            },
+            "S035-4-3": {
+              "title": "BE: terminal 設定の schema 追加 (scrollback / fontSize)",
+              "description": "`internal/config/settings.go` に Terminal 構造体追加 (scrollback int, fontSize int 等)。 default は現行の hardcode を踏襲",
+              "status": "pending"
+            },
+            "S035-4-4": {
+              "title": "E2E: AC-S035-4-* をカバー",
+              "description": "image upload dir change 後の実際のアップロード先確認 / scrollback 反映 / theme 切替の DOM 確認",
+              "status": "pending"
+            }
+          }
+        }
+      }
     }
   },
   "dependencies": {
@@ -5119,6 +5902,12 @@
     "S033": {
       "depends_on": [],
       "reason": "S033 は Files タブの自前 CRUD 機能追加で、 既存 S010/S011/S026/S027 の Files 基盤 (browser.go の resolveSafePath / FileInfo / WriteFile / EtagFor) の上に乗せる。 S030〜S032 とは独立"
+    },
+    "S035": {
+      "depends_on": [
+        "S034"
+      ],
+      "reason": "S035 expands the Settings page skeleton built in S034"
     }
   },
   "backlog": [

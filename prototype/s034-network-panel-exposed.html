@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S034-5 · Network modal — some exposed, some not</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .netSection {
+      padding: 14px 0;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .netSection:last-child { border-bottom: 0; }
+    .netSection h3 {
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--color-fg-dim);
+      font-weight: 600;
+      margin: 0 0 10px;
+    }
+    .netEmpty {
+      font-size: 12px;
+      color: var(--color-fg-muted);
+      line-height: 1.55;
+      padding: 4px 0;
+    }
+    .netRow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 0;
+      border-bottom: 1px dotted var(--color-border);
+    }
+    .netRow:last-child { border-bottom: 0; }
+    .netRowPort {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--color-accent-light);
+      font-weight: 600;
+      min-width: 52px;
+    }
+    .netRowProc {
+      font-size: 11px;
+      color: var(--color-fg-muted);
+      font-family: var(--font-mono);
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .netExposeBtn {
+      font-size: 11px;
+      padding: 3px 8px;
+      background: transparent;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      color: var(--color-fg-muted);
+      white-space: nowrap;
+    }
+    .netExposeBtn:hover { color: var(--color-accent-light); border-color: rgba(124, 138, 255, 0.4); background: rgba(124,138,255,0.05); }
+    .netExposedBadge {
+      font-size: 11px;
+      padding: 2px 7px;
+      background: rgba(100, 210, 160, 0.10);
+      border: 1px solid rgba(100, 210, 160, 0.25);
+      border-radius: 3px;
+      color: var(--color-success);
+      font-family: var(--font-mono);
+      white-space: nowrap;
+    }
+    .netRowOpen, .netRowClose {
+      background: transparent;
+      border: 0;
+      padding: 2px 5px;
+      color: var(--color-fg-muted);
+      font-size: 14px;
+      border-radius: var(--radius-sm);
+      line-height: 1;
+    }
+    .netRowOpen:hover { color: var(--color-accent-light); }
+    .netRowClose:hover { color: var(--color-error); }
+    /* Public port group — two rows: localhost + Caddy FQDN */
+    .netPublicGroup {
+      padding: 9px 0;
+      border-bottom: 1px dotted var(--color-border);
+    }
+    .netPublicGroup:last-child { border-bottom: 0; }
+    .netPublicRow {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+    .netPublicRow + .netPublicRow { margin-top: 4px; }
+    .netPublicHost {
+      color: var(--color-fg);
+      font-weight: 600;
+    }
+    .netPublicHostHttps {
+      color: var(--color-success);
+      font-weight: 600;
+      font-size: 11px;
+    }
+    .netPublicArrow {
+      color: var(--color-fg-dim);
+      font-size: 11px;
+    }
+    .netPublicTarget {
+      color: var(--color-fg-muted);
+      flex: 1;
+    }
+    .netHttpsLock {
+      font-size: 10px;
+      color: var(--color-success);
+      letter-spacing: 0;
+    }
+    .modalHeaderRow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 18px 12px;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .modalHeaderTitle {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--color-fg);
+      flex: 1;
+      margin: 0;
+    }
+    .modalCloseBtn {
+      background: transparent;
+      border: 0;
+      color: var(--color-fg-muted);
+      font-size: 16px;
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+      line-height: 1;
+    }
+    .modalCloseBtn:hover { color: var(--color-fg); background: var(--color-surface); }
+    .settingsLink {
+      font-size: 12px;
+      color: var(--color-accent-light);
+      margin-right: auto;
+    }
+    .settingsLink:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <!-- App shell behind the modal -->
+  <div class="app" aria-hidden="true">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>feat/billing</b> / bash</span>
+      <span class="headerSpacer"></span>
+      <button class="headerBtn" style="color:var(--color-accent-light);border-color:rgba(124,138,255,0.3);background:rgba(124,138,255,0.06);">🛡 Isolated</button>
+      <button class="headerBtn">⌘K</button>
+      <button class="headerBtn">🔔</button>
+    </header>
+
+    <aside class="drawer">
+      <div class="statusStrip"><span class="brand">PALMUX</span></div>
+      <div class="section"><span class="sectionTitle">Repositories</span></div>
+      <ul class="repos">
+        <li class="repo">
+          <div class="repoRow">
+            <span class="repoNum">1</span>
+            <button class="repoName"><span class="scope">tjst-t/</span>palmux2</button>
+            <button class="starBtn" data-on="true">★</button>
+            <button class="addBranchBtn">+</button>
+            <button class="moreBtn">⋯</button>
+          </div>
+          <ul class="branches">
+            <li><button class="branch"><span><span class="ghqMark">⌂</span>main</span><span class="primaryTag">primary</span></button></li>
+            <li><button class="branch branchActive"><span><span class="ghqMark">⌂</span>feat/billing</span><span style="font-size:10px;margin-left:4px;color:var(--color-accent);">🛡</span></button></li>
+          </ul>
+        </li>
+      </ul>
+    </aside>
+
+    <main class="main">
+      <div class="tabBar">
+        <button class="tab"><span class="tabIcon">◆</span> Claude</button>
+        <button class="tab tabActive"><span class="tabIcon">$</span> bash</button>
+        <button class="tab"><span class="tabIcon">📁</span> Files</button>
+        <button class="tab"><span class="tabIcon">⎇</span> Git</button>
+      </div>
+      <div class="claudeShell">
+        <div class="claudeStream" style="padding:16px 20px;font-family:var(--font-mono);font-size:13px;color:var(--color-fg);">
+          <div style="color:var(--color-success);">$ npm run dev</div>
+          <div style="color:var(--color-fg-muted);">  ➜  Local:   http://localhost:5173/</div>
+          <div style="color:var(--color-fg-muted);margin-top:10px;">$ go run ./cmd/palmux --port 8080</div>
+          <div style="color:var(--color-fg-muted);">  listening on :8080</div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Network modal -->
+  <div class="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="net-modal-title">
+    <div class="modalCard" style="width:min(600px,92vw);" data-testid="network-modal">
+
+      <div class="modalHeaderRow">
+        <h2 class="modalHeaderTitle" id="net-modal-title">Network · <span style="color:var(--color-accent-light);">🛡 Isolated</span></h2>
+        <button class="modalCloseBtn" title="Close">✕</button>
+      </div>
+
+      <div class="modalBody">
+        <div class="netSection">
+          <h3>Detected listeners</h3>
+
+          <!-- :5173 is exposed — badge instead of button -->
+          <div class="netRow" data-testid="network-listener-row">
+            <span class="netRowPort">:5173</span>
+            <span class="netRowProc">node <span style="color:var(--color-fg-dim);">(vite)</span></span>
+            <span class="netExposedBadge" title="Forwarded to localhost:13000">✓ :13000</span>
+          </div>
+
+          <!-- :8080 not yet exposed -->
+          <div class="netRow" data-testid="network-listener-row">
+            <span class="netRowPort">:8080</span>
+            <span class="netRowProc">go <span style="color:var(--color-fg-dim);">(palmux2)</span></span>
+            <button class="netExposeBtn" data-testid="network-listener-expose-btn" title="Expose :8080 on a host port">Expose</button>
+          </div>
+        </div>
+
+        <div class="netSection">
+          <h3>Public ports</h3>
+
+          <!-- Each public port shows TWO rows: local host:port AND Caddy-fronted https FQDN -->
+          <div class="netPublicGroup" data-testid="network-public-row">
+            <div class="netPublicRow">
+              <span class="netPublicHost">localhost:13000</span>
+              <span class="netPublicArrow">→</span>
+              <span class="netPublicTarget">:5173</span>
+              <button class="netRowOpen" data-testid="network-public-open-btn" title="Open in browser">↗</button>
+              <button class="netRowClose" data-testid="network-public-close-btn" title="Stop forwarding">✕</button>
+            </div>
+            <div class="netPublicRow">
+              <span class="netHttpsLock">🔒</span>
+              <span class="netPublicHostHttps">palmux2-feat-billing-5173.dev.example.com</span>
+              <button class="netRowOpen" data-testid="network-public-open-https-btn" title="Open https URL in browser">↗</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="netSection" style="padding-bottom:8px;">
+          <h3>Caddy integration</h3>
+          <div style="font-size: 11px; color: var(--color-fg-muted); line-height: 1.55;">
+            <span class="netHttpsLock" style="margin-right:4px;">🔒</span>
+            Active · template <code style="color:var(--color-fg-dim);">{repo}-{branch}-{port}.dev.example.com</code>
+            <a href="s034-settings-caddy.html" style="color: var(--color-accent-light); margin-left: 6px;">edit…</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="modalFooter">
+        <a href="s034-settings-caddy.html" class="settingsLink">Settings…</a>
+        <button class="btn">Close</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

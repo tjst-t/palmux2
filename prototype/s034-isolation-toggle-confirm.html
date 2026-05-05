@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S034-7 · Isolation toggle — restart confirm dialog</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Background app shell (blurred) -->
+  <div class="app" aria-hidden="true" style="filter: blur(0.5px);">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>feat/billing</b> / Claude</span>
+      <span class="headerSpacer"></span>
+      <button class="headerBtn">⌘K</button>
+      <button class="headerBtn">🔔</button>
+    </header>
+
+    <aside class="drawer">
+      <div class="statusStrip"><span class="brand">PALMUX</span></div>
+      <div class="section"><span class="sectionTitle">Repositories</span></div>
+      <ul class="repos">
+        <li class="repo">
+          <div class="repoRow">
+            <span class="repoNum">1</span>
+            <button class="repoName"><span class="scope">tjst-t/</span>palmux2</button>
+            <button class="starBtn" data-on="true">★</button>
+            <button class="addBranchBtn">+</button>
+            <button class="moreBtn">⋯</button>
+          </div>
+          <ul class="branches">
+            <li><button class="branch"><span><span class="ghqMark">⌂</span>main</span><span class="primaryTag">primary</span></button></li>
+            <li><button class="branch branchActive"><span><span class="ghqMark">⌂</span>feat/billing</span></button></li>
+          </ul>
+        </li>
+      </ul>
+    </aside>
+
+    <main class="main">
+      <div class="tabBar">
+        <button class="tab tabActive"><span class="tabIcon">◆</span> Claude</button>
+        <button class="tab"><span class="tabIcon">$</span> bash</button>
+        <button class="tab"><span class="tabIcon">📁</span> Files</button>
+        <button class="tab"><span class="tabIcon">⎇</span> Git</button>
+      </div>
+      <div class="claudeShell">
+        <div class="claudeStream" style="padding:20px;color:var(--color-fg-dim);font-size:13px;">
+          Claude session running — tabs will be restarted to apply the new isolation setting.
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Restart confirm dialog -->
+  <div class="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="iso-confirm-title" data-testid="isolation-toggle-confirm-modal">
+    <div class="modalCard" style="width: min(460px, 92vw);">
+      <div class="modalHeader">
+        <h2 class="modalTitle" id="iso-confirm-title">Restart all tabs in this worktree?</h2>
+      </div>
+      <div class="modalBody">
+        <div class="warnBanner">
+          <span class="warnIcon">⚠</span>
+          <span>
+            Switching network isolation requires the worktree's tabs (Claude, Bash) to be restarted.
+            Unsaved terminal scrollback will be lost; the worktree files are not affected.
+          </span>
+        </div>
+
+        <div style="
+          background: var(--color-bg);
+          border: 1px solid var(--color-border);
+          border-radius: var(--radius-sm);
+          padding: 10px 12px;
+          font-size: 12px;
+          font-family: var(--font-mono);
+          color: var(--color-fg-muted);
+        ">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <span style="color:var(--color-fg-dim);font-size:10px;text-transform:uppercase;letter-spacing:0.1em;">Worktree</span>
+            <span style="color:var(--color-fg);">feat/billing</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <span style="color:var(--color-fg-dim);font-size:10px;text-transform:uppercase;letter-spacing:0.1em;">Tabs affected</span>
+            <span style="color:var(--color-fg);">Claude, bash</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="color:var(--color-fg-dim);font-size:10px;text-transform:uppercase;letter-spacing:0.1em;">Change</span>
+            <span style="color:var(--color-fg-muted);text-decoration:line-through;opacity:0.7;">isolated</span>
+            <span style="color:var(--color-fg-dim);">→</span>
+            <span style="color:var(--color-fg);">host network</span>
+          </div>
+        </div>
+      </div>
+      <div class="modalFooter">
+        <button class="btn btnGhost" data-testid="isolation-toggle-confirm-cancel">Cancel</button>
+        <button class="btn btnDanger" data-testid="isolation-toggle-confirm-submit">Restart and toggle</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

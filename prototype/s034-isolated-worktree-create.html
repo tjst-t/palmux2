@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S034-1 · New worktree — Isolate network checkbox</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Checkbox row in the modal body */
+    .checkRow {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 12px;
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      margin-bottom: 8px;
+    }
+    .checkRow input[type="checkbox"] {
+      margin-top: 1px;
+      accent-color: var(--color-accent);
+      width: 15px;
+      height: 15px;
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+    .checkRowBody {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+    .checkRowLabel {
+      font-size: 13px;
+      color: var(--color-fg);
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .checkRowHelp {
+      font-size: 11px;
+      color: var(--color-fg-dim);
+      line-height: 1.5;
+    }
+    .checkRowInherit {
+      font-size: 11px;
+      color: var(--color-fg-faint);
+      margin-top: 4px;
+    }
+    .isolateBadge {
+      font-size: 10px;
+      color: var(--color-accent-light);
+      background: rgba(124, 138, 255, 0.10);
+      border: 1px solid rgba(124, 138, 255, 0.22);
+      border-radius: 3px;
+      padding: 1px 5px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+    .select {
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      color: var(--color-fg);
+      padding: 8px 10px;
+      font-size: 13px;
+      font-family: var(--font-mono);
+      width: 100%;
+    }
+    .select:focus { outline: 1px solid var(--color-accent); border-color: var(--color-accent); }
+  </style>
+</head>
+<body>
+  <!-- Background app shell (blurred to indicate modal context) -->
+  <div class="app" aria-hidden="true" style="filter: blur(0.5px);">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b> / Claude</span>
+      <span class="headerSpacer"></span>
+      <button class="headerBtn">⌘K</button>
+      <button class="headerBtn">🔔</button>
+    </header>
+
+    <aside class="drawer">
+      <div class="statusStrip">
+        <span class="brand">PALMUX</span>
+        <span class="statusMeta"><span><b>2</b> open</span><span><b>5</b> total</span></span>
+      </div>
+      <div class="section">
+        <span class="sectionTitle">Repositories</span>
+        <span class="sectionCount">2</span>
+      </div>
+      <ul class="repos">
+        <li class="repo">
+          <div class="repoRow">
+            <span class="repoNum">1</span>
+            <button class="repoName"><span class="scope">tjst-t/</span>palmux2</button>
+            <button class="starBtn" data-on="true">★</button>
+            <button class="addBranchBtn" title="Add branch" style="color: var(--color-accent-light);">+</button>
+            <button class="moreBtn">⋯</button>
+          </div>
+          <ul class="branches">
+            <li>
+              <button class="branch branchActive">
+                <span><span class="ghqMark">⌂</span>main</span>
+                <span class="primaryTag">primary</span>
+              </button>
+            </li>
+            <li>
+              <button class="branch">
+                <span><span class="ghqMark">⌂</span>feature/sprint-runner</span>
+              </button>
+            </li>
+          </ul>
+        </li>
+        <li class="repo">
+          <div class="repoRow">
+            <span class="repoNum">2</span>
+            <button class="repoName"><span class="scope">tjst-t/</span>port-manager</button>
+            <button class="starBtn">☆</button>
+            <button class="addBranchBtn">+</button>
+            <button class="moreBtn">⋯</button>
+          </div>
+          <div class="glanceLine">⌂ main <span class="glanceArrow">›</span></div>
+        </li>
+      </ul>
+      <div class="drawerFooter">
+        <button class="addRepoBtn">
+          <span style="color:var(--color-fg-muted);">📂</span>
+          <span>Open Repository…</span>
+        </button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="tabBar">
+        <button class="tab tabActive"><span class="tabIcon">◆</span> Claude</button>
+        <button class="tab"><span class="tabIcon">$</span> bash</button>
+        <button class="tab"><span class="tabIcon">📁</span> Files</button>
+        <button class="tab"><span class="tabIcon">⎇</span> Git</button>
+      </div>
+      <div class="claudeShell">
+        <div class="claudeStream"></div>
+      </div>
+    </main>
+  </div>
+
+  <!-- New Worktree Modal -->
+  <div class="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="wt-create-title" data-testid="worktree-create-modal">
+    <div class="modalCard">
+      <div class="modalHeader">
+        <h2 class="modalTitle" id="wt-create-title">New Worktree</h2>
+        <p class="modalSub">Create a new branch worktree for <strong>tjst-t/palmux2</strong>.</p>
+      </div>
+      <div class="modalBody">
+        <div class="field">
+          <label class="label" for="wt-branch-name">Branch name</label>
+          <input
+            class="input"
+            id="wt-branch-name"
+            type="text"
+            value="feat/billing"
+            placeholder="e.g. feat/new-ui"
+            style="width: 100%;"
+          >
+        </div>
+
+        <div class="field">
+          <label class="label" for="wt-base-branch">Base branch</label>
+          <select class="select" id="wt-base-branch">
+            <option selected>main</option>
+            <option>feature/sprint-runner</option>
+            <option>autopilot/main/S034</option>
+          </select>
+        </div>
+
+        <div class="checkRow" data-testid="worktree-create-isolate-checkbox">
+          <input type="checkbox" id="wt-isolate" checked>
+          <div class="checkRowBody">
+            <label class="checkRowLabel" for="wt-isolate">
+              Isolate network
+              <span class="isolateBadge">🛡 recommended</span>
+            </label>
+            <span class="checkRowHelp">
+              Run this worktree's processes in a separate network namespace.
+              Ports inside don't conflict with other worktrees.
+            </span>
+            <span class="checkRowInherit">(Inherits 🛡 default from repo settings)</span>
+          </div>
+        </div>
+      </div>
+      <div class="modalFooter">
+        <button class="btn btnGhost">Cancel</button>
+        <button class="btn btnPrimary" data-testid="worktree-create-submit">Create worktree</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

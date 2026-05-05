@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S034-6 · Network modal — slirp4netns missing</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .netSection {
+      padding: 14px 0;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .netSection:last-child { border-bottom: 0; }
+    .netSection h3 {
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--color-fg-dim);
+      font-weight: 600;
+      margin: 0 0 10px;
+    }
+    .netEmpty {
+      font-size: 12px;
+      color: var(--color-fg-muted);
+      line-height: 1.55;
+      padding: 4px 0;
+    }
+    .netRow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 0;
+      border-bottom: 1px dotted var(--color-border);
+    }
+    .netRow:last-child { border-bottom: 0; }
+    .netRowPort {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--color-accent-light);
+      font-weight: 600;
+      min-width: 52px;
+    }
+    .netRowProc {
+      font-size: 11px;
+      color: var(--color-fg-muted);
+      font-family: var(--font-mono);
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    /* Disabled expose button when slirp missing */
+    .netExposeBtnDisabled {
+      font-size: 11px;
+      padding: 3px 8px;
+      background: transparent;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      color: var(--color-fg-faint);
+      white-space: nowrap;
+      cursor: not-allowed;
+      opacity: 0.5;
+      position: relative;
+    }
+    .netExposeBtnDisabled[data-tip]::after {
+      content: attr(data-tip);
+      position: absolute;
+      bottom: calc(100% + 4px);
+      right: 0;
+      background: var(--color-elevated);
+      color: var(--color-fg);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      padding: 4px 8px;
+      font-size: 11px;
+      white-space: nowrap;
+      font-family: var(--font-ui);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s 0.4s;
+      z-index: 10;
+    }
+    .netExposeBtnDisabled[data-tip]:hover::after { opacity: 1; }
+    .modalHeaderRow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 18px 12px;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .modalHeaderTitle {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--color-fg);
+      flex: 1;
+      margin: 0;
+    }
+    .modalCloseBtn {
+      background: transparent;
+      border: 0;
+      color: var(--color-fg-muted);
+      font-size: 16px;
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+      line-height: 1;
+    }
+    .modalCloseBtn:hover { color: var(--color-fg); background: var(--color-surface); }
+    .settingsLink {
+      font-size: 12px;
+      color: var(--color-accent-light);
+      margin-right: auto;
+    }
+    .settingsLink:hover { text-decoration: underline; }
+    /* Warning band — sits at top of modal body, full-width flush */
+    .netWarnBand {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 10px 18px;
+      background: rgba(245, 158, 11, 0.08);
+      border-bottom: 1px solid rgba(245, 158, 11, 0.25);
+      font-size: 12px;
+      color: var(--color-warning);
+      line-height: 1.5;
+      margin: -16px -18px 16px;
+    }
+    .netWarnIcon { font-size: 13px; flex-shrink: 0; margin-top: 1px; }
+  </style>
+</head>
+<body>
+  <!-- App shell behind the modal -->
+  <div class="app" aria-hidden="true">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>feat/billing</b> / bash</span>
+      <span class="headerSpacer"></span>
+      <!-- Compatibility mode badge — amber instead of accent -->
+      <button class="headerBtn" style="color:var(--color-warning);border-color:rgba(245,158,11,0.3);background:rgba(245,158,11,0.06);">⚠ Compatibility mode</button>
+      <button class="headerBtn">⌘K</button>
+      <button class="headerBtn">🔔</button>
+    </header>
+
+    <aside class="drawer">
+      <div class="statusStrip"><span class="brand">PALMUX</span></div>
+      <div class="section"><span class="sectionTitle">Repositories</span></div>
+      <ul class="repos">
+        <li class="repo">
+          <div class="repoRow">
+            <span class="repoNum">1</span>
+            <button class="repoName"><span class="scope">tjst-t/</span>palmux2</button>
+            <button class="starBtn" data-on="true">★</button>
+            <button class="addBranchBtn">+</button>
+            <button class="moreBtn">⋯</button>
+          </div>
+          <ul class="branches">
+            <li><button class="branch"><span><span class="ghqMark">⌂</span>main</span><span class="primaryTag">primary</span></button></li>
+            <li><button class="branch branchActive"><span><span class="ghqMark">⌂</span>feat/billing</span></button></li>
+          </ul>
+        </li>
+      </ul>
+    </aside>
+
+    <main class="main">
+      <div class="tabBar">
+        <button class="tab"><span class="tabIcon">◆</span> Claude</button>
+        <button class="tab tabActive"><span class="tabIcon">$</span> bash</button>
+        <button class="tab"><span class="tabIcon">📁</span> Files</button>
+        <button class="tab"><span class="tabIcon">⎇</span> Git</button>
+      </div>
+      <div class="claudeShell">
+        <div class="claudeStream" style="padding:16px 20px;font-family:var(--font-mono);font-size:13px;color:var(--color-fg);">
+          <div style="color:var(--color-success);">$ npm run dev</div>
+          <div style="color:var(--color-fg-muted);">  ➜  Local:   http://localhost:5173/</div>
+          <div style="color:var(--color-fg-muted);margin-top:10px;">$ redis-server</div>
+          <div style="color:var(--color-fg-muted);">  listening on port 6379</div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Network modal — compatibility mode (slirp4netns missing) -->
+  <div class="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="net-modal-title">
+    <div class="modalCard" style="width:min(600px,92vw);" data-testid="network-modal">
+
+      <div class="modalHeaderRow">
+        <h2 class="modalHeaderTitle" id="net-modal-title">Network · <span style="color:var(--color-warning);">⚠ Compatibility mode</span></h2>
+        <button class="modalCloseBtn" title="Close">✕</button>
+      </div>
+
+      <div class="modalBody">
+        <!-- Amber warning band at top of body -->
+        <div class="netWarnBand" data-testid="network-modal-slirp-missing-warning">
+          <span class="netWarnIcon">⚠</span>
+          <span>
+            <strong>slirp4netns not found</strong> — running in compatibility mode.
+            Install slirp4netns to enable network isolation and port forwarding.
+            See <span style="font-family:var(--font-mono);font-size:11px;">docs/INSTALL.md</span>.
+          </span>
+        </div>
+
+        <div class="netSection">
+          <h3>Detected listeners</h3>
+          <div style="margin-bottom:8px;font-size:11px;color:var(--color-fg-dim);">
+            Listening on host network — port forwarding unavailable without slirp4netns.
+          </div>
+
+          <div class="netRow" data-testid="network-listener-row">
+            <span class="netRowPort">:5173</span>
+            <span class="netRowProc">node <span style="color:var(--color-fg-dim);">(vite)</span></span>
+            <button class="netExposeBtnDisabled" data-tip="slirp4netns required" disabled>Expose</button>
+          </div>
+
+          <div class="netRow" data-testid="network-listener-row">
+            <span class="netRowPort">:8080</span>
+            <span class="netRowProc">go <span style="color:var(--color-fg-dim);">(palmux2)</span></span>
+            <button class="netExposeBtnDisabled" data-tip="slirp4netns required" disabled>Expose</button>
+          </div>
+
+          <div class="netRow" data-testid="network-listener-row">
+            <span class="netRowPort">:6379</span>
+            <span class="netRowProc">redis-server</span>
+            <button class="netExposeBtnDisabled" data-tip="slirp4netns required" disabled>Expose</button>
+          </div>
+        </div>
+
+        <div class="netSection">
+          <h3>Public ports</h3>
+          <p class="netEmpty">Port forwarding requires slirp4netns.</p>
+        </div>
+      </div>
+
+      <div class="modalFooter">
+        <a href="s034-settings-caddy.html" class="settingsLink">Settings…</a>
+        <button class="btn">Close</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

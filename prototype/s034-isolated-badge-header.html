@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S034-8 · Header — Isolated badge</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Isolated pill in header */
+    .isolatedPill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: var(--color-accent-light);
+      background: rgba(124, 138, 255, 0.08);
+      border: 1px solid rgba(124, 138, 255, 0.28);
+      border-radius: 12px;
+      padding: 3px 10px;
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+      transition: background 0.14s, border-color 0.14s;
+    }
+    .isolatedPill:hover {
+      background: rgba(124, 138, 255, 0.14);
+      border-color: rgba(124, 138, 255, 0.45);
+    }
+    /* Tooltip wrapper */
+    .isolatedPillWrap {
+      position: relative;
+    }
+    .isolatedPillWrap::after {
+      content: "Network isolation active — click to manage public ports";
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      background: var(--color-elevated);
+      color: var(--color-fg);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      padding: 5px 9px;
+      font-size: 11px;
+      white-space: nowrap;
+      font-family: var(--font-ui);
+      font-weight: 400;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s 0.5s;
+      z-index: 50;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+    .isolatedPillWrap:hover::after { opacity: 1; }
+
+    /* Network modal (toggled by badge click) */
+    .netSection {
+      padding: 14px 0;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .netSection:last-child { border-bottom: 0; }
+    .netSection h3 {
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--color-fg-dim);
+      font-weight: 600;
+      margin: 0 0 10px;
+    }
+    .netRow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 0;
+      border-bottom: 1px dotted var(--color-border);
+    }
+    .netRow:last-child { border-bottom: 0; }
+    .netRowPort {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--color-accent-light);
+      font-weight: 600;
+      min-width: 52px;
+    }
+    .netRowProc {
+      font-size: 11px;
+      color: var(--color-fg-muted);
+      font-family: var(--font-mono);
+      flex: 1;
+    }
+    .netExposeBtn {
+      font-size: 11px;
+      padding: 3px 8px;
+      background: transparent;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      color: var(--color-fg-muted);
+      white-space: nowrap;
+    }
+    .netExposeBtn:hover { color: var(--color-accent-light); border-color: rgba(124,138,255,0.4); background: rgba(124,138,255,0.05); }
+    .modalHeaderRow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 18px 12px;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .modalHeaderTitle {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--color-fg);
+      flex: 1;
+      margin: 0;
+    }
+    .modalCloseBtn {
+      background: transparent;
+      border: 0;
+      color: var(--color-fg-muted);
+      font-size: 16px;
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+      line-height: 1;
+    }
+    .modalCloseBtn:hover { color: var(--color-fg); background: var(--color-surface); }
+    .settingsLink {
+      font-size: 12px;
+      color: var(--color-accent-light);
+      margin-right: auto;
+    }
+
+    /* Demo note banner */
+    .demoBanner {
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--color-elevated);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      padding: 10px 16px;
+      font-size: 12px;
+      color: var(--color-fg-muted);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+      z-index: 200;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .demoBanner strong { color: var(--color-fg); }
+  </style>
+</head>
+<body>
+  <div class="app" id="appShell">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <!-- Breadcrumb -->
+      <span class="headerCrumb">
+        <span style="color:var(--color-fg-muted);">tjst-t/palmux2</span>
+        <span style="color:var(--color-fg-faint);margin:0 4px;">/</span>
+        <b>feat/billing</b>
+      </span>
+      <span class="headerSpacer"></span>
+
+      <!-- Isolated badge — click opens Network modal -->
+      <div class="isolatedPillWrap">
+        <button
+          class="isolatedPill"
+          data-testid="isolated-badge"
+          title="Network isolation active — click to manage public ports"
+          onclick="toggleNetModal()"
+        >
+          🛡 Isolated
+        </button>
+      </div>
+
+      <button class="headerBtn">⌘K</button>
+      <button class="headerBtn">🔔</button>
+    </header>
+
+    <aside class="drawer">
+      <div class="statusStrip">
+        <span class="brand">PALMUX</span>
+        <span class="statusMeta"><span><b>2</b> open</span></span>
+      </div>
+      <div class="section"><span class="sectionTitle">Repositories</span></div>
+      <ul class="repos">
+        <li class="repo">
+          <div class="repoRow">
+            <span class="repoNum">1</span>
+            <button class="repoName"><span class="scope">tjst-t/</span>palmux2</button>
+            <button class="starBtn" data-on="true">★</button>
+            <button class="addBranchBtn">+</button>
+            <button class="moreBtn">⋯</button>
+          </div>
+          <ul class="branches">
+            <li><button class="branch"><span><span class="ghqMark">⌂</span>main</span><span class="primaryTag">primary</span></button></li>
+            <li>
+              <!-- feat/billing branch — has isolation badge in drawer too -->
+              <button class="branch branchActive">
+                <span>
+                  <span class="ghqMark">⌂</span>feat/billing
+                  <span style="font-size:10px;margin-left:4px;color:var(--color-accent);">🛡</span>
+                </span>
+              </button>
+            </li>
+          </ul>
+        </li>
+        <li class="repo">
+          <div class="repoRow">
+            <span class="repoNum">2</span>
+            <button class="repoName"><span class="scope">tjst-t/</span>port-manager</button>
+            <button class="starBtn">☆</button>
+            <button class="addBranchBtn">+</button>
+            <button class="moreBtn">⋯</button>
+          </div>
+          <div class="glanceLine">⌂ main <span class="glanceArrow">›</span></div>
+        </li>
+      </ul>
+      <div class="drawerFooter">
+        <button class="addRepoBtn">
+          <span style="color:var(--color-fg-muted);">📂</span>
+          <span>Open Repository…</span>
+        </button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="tabBar">
+        <button class="tab tabActive"><span class="tabIcon">◆</span> Claude</button>
+        <button class="tab"><span class="tabIcon">$</span> bash</button>
+        <button class="tab"><span class="tabIcon">📁</span> Files</button>
+        <button class="tab"><span class="tabIcon">⎇</span> Git</button>
+        <button class="tab"><span class="tabIcon">▶</span> Sprint</button>
+      </div>
+
+      <div class="claudeShell">
+        <div class="claudeToolbar">
+          <span class="claudeToolbarTitle">claude · <b>palmux2 / feat/billing</b></span>
+          <span class="toolbarSpacer"></span>
+          <button class="iconBtn">🔍 Find</button>
+          <button class="iconBtn">/compact</button>
+          <button class="iconBtn">⋯</button>
+        </div>
+        <div class="claudeStream">
+          <div class="claudeMsgUser">
+            Implement the billing module — Stripe webhook + DB models.
+          </div>
+          <div class="claudeMsgAssistant">
+            I'll start with the webhook handler. Let me read the existing API structure first…
+          </div>
+        </div>
+        <div class="claudeComposer">
+          <div class="claudeComposerInner">Type your prompt or drop a file…</div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Network modal — hidden until badge is clicked -->
+  <div
+    id="netModalOverlay"
+    class="modalOverlay"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="net-modal-title"
+    style="display:none;"
+    onclick="if(event.target===this) closeNetModal()"
+  >
+    <div class="modalCard" style="width:min(600px,92vw);" data-testid="network-modal">
+      <div class="modalHeaderRow">
+        <h2 class="modalHeaderTitle" id="net-modal-title">Network · <span style="color:var(--color-accent-light);">🛡 Isolated</span></h2>
+        <button class="modalCloseBtn" title="Close" onclick="closeNetModal()">✕</button>
+      </div>
+      <div class="modalBody">
+        <div class="netSection">
+          <h3>Detected listeners</h3>
+          <div class="netRow" data-testid="network-listener-row">
+            <span class="netRowPort">:5173</span>
+            <span class="netRowProc">node <span style="color:var(--color-fg-dim);">(vite)</span></span>
+            <button class="netExposeBtn" data-testid="network-listener-expose-btn">Expose</button>
+          </div>
+          <div class="netRow" data-testid="network-listener-row">
+            <span class="netRowPort">:8080</span>
+            <span class="netRowProc">go <span style="color:var(--color-fg-dim);">(palmux2)</span></span>
+            <button class="netExposeBtn" data-testid="network-listener-expose-btn">Expose</button>
+          </div>
+        </div>
+        <div class="netSection">
+          <h3>Public ports</h3>
+          <p style="font-size:12px;color:var(--color-fg-muted);padding:4px 0;">
+            Nothing public yet. Click Expose on a listener above.
+          </p>
+        </div>
+      </div>
+      <div class="modalFooter">
+        <a href="s034-settings-caddy.html" class="settingsLink">Settings…</a>
+        <button class="btn" onclick="closeNetModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Demo note -->
+  <div class="demoBanner" id="demoBanner">
+    Hover the <strong>🛡 Isolated</strong> pill to see tooltip &nbsp;·&nbsp; Click it to open the Network modal
+  </div>
+
+  <script>
+    function toggleNetModal() {
+      var overlay = document.getElementById('netModalOverlay');
+      var isOpen = overlay.style.display !== 'none';
+      if (isOpen) { closeNetModal(); } else { openNetModal(); }
+    }
+    function openNetModal() {
+      var overlay = document.getElementById('netModalOverlay');
+      overlay.style.display = 'flex';
+      document.getElementById('appShell').setAttribute('aria-hidden', 'true');
+      document.getElementById('demoBanner').style.display = 'none';
+    }
+    function closeNetModal() {
+      var overlay = document.getElementById('netModalOverlay');
+      overlay.style.display = 'none';
+      document.getElementById('appShell').removeAttribute('aria-hidden');
+      document.getElementById('demoBanner').style.display = '';
+    }
+  </script>
+</body>
+</html>

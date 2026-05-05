@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>palmux2 prototype — S030 / S031 / S032</title>
+  <title>palmux2 prototype — S030 / S031 / S032 / S034</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -12,7 +12,8 @@
       <h1>palmux2 prototype</h1>
       <p>
         Static HTML mockups for <b>S030</b> (ghq Repository CRUD),
-        <b>S031</b> (Command palette redesign), and <b>S032</b> (User-defined palette commands).
+        <b>S031</b> (Command palette redesign), <b>S032</b> (User-defined palette commands),
+        and <b>S034</b> (Per-worktree network namespace isolation).
         These are the visual reference for sprint run — implementation matches markup, classes, and
         <code>data-testid</code>s. Open any card to see its screen.
       </p>
@@ -147,8 +148,59 @@
       </div>
     </section>
 
+    <section class="indexSection">
+      <h2>S034 · Per-worktree network namespace isolation</h2>
+      <div class="cardGrid">
+        <a class="card" href="s034-isolated-worktree-create.html">
+          <span class="cardLabel">S034-1</span>
+          <div class="cardTitle">New worktree · Isolate network checkbox</div>
+          <p class="cardDesc">Creation dialog with "Isolate network" checkbox (default checked), help text, and "Inherits from repo settings" hint.</p>
+        </a>
+        <a class="card" href="s034-repo-settings-isolate-default.html">
+          <span class="cardLabel">S034-2</span>
+          <div class="cardTitle">Repo Settings · Default isolate toggle</div>
+          <p class="cardDesc">Repository Settings page with the "Default: isolate network for new worktrees" toggle and slirp4netns availability status row.</p>
+        </a>
+        <a class="card" href="s034-network-panel-empty.html">
+          <span class="cardLabel">S034-3</span>
+          <div class="cardTitle">Network modal · empty state</div>
+          <p class="cardDesc">Centered modal overlay. 🛡 Isolated badge in header triggers the modal. Empty "Detected listeners" and "Public ports" sections.</p>
+        </a>
+        <a class="card" href="s034-network-panel-listeners.html">
+          <span class="cardLabel">S034-4</span>
+          <div class="cardTitle">Network modal · listeners detected</div>
+          <p class="cardDesc">Three listeners (:5173 node, :8080 go, :6379 redis) with Expose buttons. Public ports still empty. Footer: Settings… link + Close.</p>
+        </a>
+        <a class="card" href="s034-network-panel-exposed.html">
+          <span class="cardLabel">S034-5</span>
+          <div class="cardTitle">Network modal · some exposed</div>
+          <p class="cardDesc">:5173 exposed → :13000 (success badge). :8080 not yet exposed. Public ports: two rows per entry — localhost:13000 AND Caddy https FQDN.</p>
+        </a>
+        <a class="card" href="s034-network-panel-slirp-missing.html">
+          <span class="cardLabel">S034-6</span>
+          <div class="cardTitle">Network modal · slirp4netns missing</div>
+          <p class="cardDesc">Amber warning band at top of modal body. Expose buttons disabled (tooltip: "slirp4netns required"). Compatibility mode in modal title.</p>
+        </a>
+        <a class="card" href="s034-isolation-toggle-confirm.html">
+          <span class="cardLabel">S034-7</span>
+          <div class="cardTitle">Isolation toggle · restart confirm</div>
+          <p class="cardDesc">Modal warning that switching isolation restarts all tabs. Cancel + Restart and toggle (danger). Worktree / tabs / change summary block.</p>
+        </a>
+        <a class="card" href="s034-isolated-badge-header.html">
+          <span class="cardLabel">S034-8</span>
+          <div class="cardTitle">Header · 🛡 Isolated badge</div>
+          <p class="cardDesc">Pill in header with accent border. Hover for tooltip. Click to open the Network modal (centered overlay). Branch in drawer also shows 🛡 glyph.</p>
+        </a>
+        <a class="card" href="s034-settings-caddy.html">
+          <span class="cardLabel">S034-9</span>
+          <div class="cardTitle">Settings / Network — Caddy + Default isolation</div>
+          <p class="cardDesc">Global Settings page at <code>/settings/network</code>. Standard repo drawer. Two sections: Caddy integration (toggle, FQDN template + preview, configPath, reloadCmd) and Default isolation global toggle. Save/Reset actions.</p>
+        </a>
+      </div>
+    </section>
+
     <footer class="indexSection" style="opacity:0.5;font-size:11px;margin-top:48px;">
-      Generated 2026-05-04 · palmux2 v0.3.1 · Fog palette v2.1
+      Generated 2026-05-05 · palmux2 v0.3.1 · Fog palette v2.1
     </footer>
   </div>
 </body>

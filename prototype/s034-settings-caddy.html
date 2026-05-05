@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S034 · Settings / Network</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .settingsSection { margin-bottom: 36px; }
+    .settingsSection + .settingsSection {
+      padding-top: 8px;
+    }
+    .settingsSectionTitle {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--color-fg);
+      margin: 0 0 4px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .settingsSectionSub {
+      font-size: 13px;
+      color: var(--color-fg-muted);
+      margin: 0 0 20px;
+      line-height: 1.55;
+    }
+    .settingsRow {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .settingsRow:last-child { border-bottom: 0; }
+    .settingsRowBody { flex: 1; min-width: 0; }
+    .settingsRowLabel {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--color-fg);
+      margin-bottom: 4px;
+    }
+    .settingsRowHelp {
+      font-size: 12px;
+      color: var(--color-fg-dim);
+      line-height: 1.55;
+    }
+    /* Toggle switch */
+    .toggle {
+      position: relative;
+      width: 40px;
+      height: 22px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggleTrack {
+      position: absolute;
+      inset: 0;
+      background: var(--color-fg-ghost);
+      border-radius: 22px;
+      cursor: pointer;
+      transition: background 0.18s;
+    }
+    .toggle input:checked + .toggleTrack { background: var(--color-accent); }
+    .toggleTrack::after {
+      content: '';
+      position: absolute;
+      top: 3px; left: 3px;
+      width: 16px; height: 16px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.18s;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+    }
+    .toggle input:checked + .toggleTrack::after { transform: translateX(18px); }
+    /* Status pill */
+    .statusPill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      font-weight: 500;
+      border: 1px solid var(--color-border);
+    }
+    .statusPillOk {
+      color: var(--color-success);
+      border-color: rgba(100,210,160,0.3);
+      background: rgba(100,210,160,0.08);
+    }
+    /* Settings input field */
+    .settingsField {
+      width: 100%;
+      max-width: 400px;
+      background: var(--color-bg);
+      color: var(--color-fg);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      padding: 7px 10px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      margin-top: 6px;
+    }
+    .settingsField:focus { outline: none; border-color: var(--color-accent); }
+    /* Placeholder token badges */
+    .placeholderToken {
+      color: var(--color-accent-light);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      background: rgba(124,138,255,0.08);
+      padding: 1px 5px;
+      border-radius: 3px;
+      border: 1px solid rgba(124,138,255,0.2);
+    }
+    /* FQDN preview box */
+    .previewBox {
+      margin-top: 10px;
+      padding: 10px 12px;
+      background: var(--color-bg);
+      border: 1px dashed var(--color-border);
+      border-radius: var(--radius-sm);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--color-success);
+      max-width: 400px;
+    }
+    /* Save/Reset bar */
+    .settingsActions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      padding-top: 16px;
+      margin-top: 8px;
+      border-top: 1px solid var(--color-border);
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">Settings / Network</span>
+      <span class="headerSpacer"></span>
+      <button class="headerBtn">⌘K</button>
+      <button class="headerBtn">🔔</button>
+    </header>
+
+    <!-- Standard palmux2 drawer showing Repositories -->
+    <aside class="drawer">
+      <div class="statusStrip">
+        <span class="brand">PALMUX</span>
+        <span class="statusMeta"><span><b>2</b> open</span></span>
+      </div>
+      <div class="section"><span class="sectionTitle">Repositories</span></div>
+      <ul class="repos">
+        <li class="repo">
+          <div class="repoRow">
+            <span class="repoNum">1</span>
+            <button class="repoName"><span class="scope">tjst-t/</span>palmux2</button>
+            <button class="starBtn" data-on="true">★</button>
+            <button class="addBranchBtn">+</button>
+            <button class="moreBtn">⋯</button>
+          </div>
+          <ul class="branches">
+            <li><button class="branch"><span><span class="ghqMark">⌂</span>main</span><span class="primaryTag">primary</span></button></li>
+            <li><button class="branch"><span><span class="ghqMark">⌂</span>feat/billing</span><span style="font-size:10px;margin-left:4px;color:var(--color-accent);">🛡</span></button></li>
+          </ul>
+        </li>
+        <li class="repo">
+          <div class="repoRow">
+            <span class="repoNum">2</span>
+            <button class="repoName"><span class="scope">tjst-t/</span>port-manager</button>
+            <button class="starBtn">☆</button>
+            <button class="addBranchBtn">+</button>
+            <button class="moreBtn">⋯</button>
+          </div>
+          <div class="glanceLine">⌂ main <span class="glanceArrow">›</span></div>
+        </li>
+      </ul>
+      <div class="drawerFooter">
+        <button class="addRepoBtn">
+          <span style="color:var(--color-fg-muted);">📂</span>
+          <span>Open Repository…</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main pane — no tabBar, this is the global settings page -->
+    <main class="main">
+      <div class="mainBody" style="max-width: 720px; padding: 24px 32px;">
+
+        <!-- ── Section 1: Caddy integration ── -->
+        <section class="settingsSection" id="caddy">
+          <h2 class="settingsSectionTitle">Network · Caddy integration</h2>
+          <p class="settingsSectionSub">
+            Reverse-proxy exposed worktree ports through Caddy with automatic HTTPS.
+            Optional — base port forwarding (<code>localhost:&lt;hostPort&gt;</code>) works with or without Caddy.
+          </p>
+
+          <!-- Enable Caddy toggle -->
+          <div class="settingsRow">
+            <div class="settingsRowBody">
+              <div class="settingsRowLabel">Enable Caddy reverse proxy</div>
+              <div class="settingsRowHelp">
+                When enabled, every <b>Expose</b> action also writes a <code>reverse_proxy</code> snippet
+                to <code>configPath</code> below and runs <code>reloadCmd</code>. The snippet maps the
+                FQDN from the template to the host port allocated by palmux2.
+              </div>
+            </div>
+            <label class="toggle" data-testid="settings-caddy-enabled-toggle" title="Toggle Caddy integration">
+              <input type="checkbox" checked>
+              <span class="toggleTrack"></span>
+            </label>
+          </div>
+
+          <!-- caddy binary availability -->
+          <div class="settingsRow">
+            <div class="settingsRowBody">
+              <div class="settingsRowLabel" style="color:var(--color-fg-muted);font-weight:400;">caddy binary</div>
+              <div class="settingsRowHelp">
+                Detected at server startup. If missing, the toggle above is disabled.
+              </div>
+            </div>
+            <span class="statusPill statusPillOk" style="margin-top:2px;" data-testid="settings-caddy-status">
+              🔒 Available — caddy v2.7.6
+            </span>
+          </div>
+
+          <!-- FQDN template -->
+          <div class="settingsRow">
+            <div class="settingsRowBody">
+              <div class="settingsRowLabel">FQDN template</div>
+              <div class="settingsRowHelp">
+                Host name template for new public ports. Available placeholders:
+                <span class="placeholderToken">{repo}</span>
+                <span class="placeholderToken">{branch}</span>
+                <span class="placeholderToken">{port}</span>
+                <span class="placeholderToken">{hostPort}</span>
+                — slashes are converted to <code>-</code> and the result is lowercased.
+              </div>
+              <input
+                class="settingsField"
+                type="text"
+                value="{repo}-{branch}-{port}.dev.example.com"
+                data-testid="settings-caddy-fqdn-template"
+              >
+              <div class="previewBox" data-testid="settings-caddy-fqdn-preview">
+                <span style="color:var(--color-fg-muted);">Preview · </span>
+                palmux2-feat-billing-5173.dev.example.com
+              </div>
+            </div>
+          </div>
+
+          <!-- configPath -->
+          <div class="settingsRow">
+            <div class="settingsRowBody">
+              <div class="settingsRowLabel">Config path</div>
+              <div class="settingsRowHelp">
+                Caddy snippet file. palmux2 owns this file (atomic write). Your main Caddyfile must
+                <code>import</code> it — see <a href="#" style="color:var(--color-accent-light);">docs/INSTALL.md</a>.
+              </div>
+              <input
+                class="settingsField"
+                type="text"
+                value="~/.config/palmux/caddy/active.caddyfile"
+                data-testid="settings-caddy-config-path"
+              >
+            </div>
+          </div>
+
+          <!-- reloadCmd -->
+          <div class="settingsRow">
+            <div class="settingsRowBody">
+              <div class="settingsRowLabel">Reload command</div>
+              <div class="settingsRowHelp">
+                Run after each snippet update. Default uses caddy's reload-without-downtime endpoint.
+                Configure to match your deployment (systemd unit, docker container, etc).
+              </div>
+              <input
+                class="settingsField"
+                type="text"
+                value="caddy reload --config /etc/caddy/Caddyfile"
+                data-testid="settings-caddy-reload-cmd"
+              >
+            </div>
+          </div>
+        </section>
+
+        <!-- ── Section 2: Default isolation ── -->
+        <section class="settingsSection" id="isolation-default">
+          <h2 class="settingsSectionTitle">Network · Default isolation</h2>
+          <p class="settingsSectionSub">
+            Controls the global default for network isolation. Per-repo settings override this;
+            per-worktree overrides per-repo.
+          </p>
+
+          <div class="settingsRow">
+            <div class="settingsRowBody">
+              <div class="settingsRowLabel">Default: isolate network for new worktrees in newly-added repositories</div>
+              <div class="settingsRowHelp">
+                When enabled, newly-added repositories default to "isolate network" for new worktrees.
+                Existing repositories and worktrees are not affected.
+                Per-repo settings override this; per-worktree overrides per-repo.
+              </div>
+            </div>
+            <label class="toggle" data-testid="settings-isolation-default-toggle" title="Toggle global default isolation">
+              <input type="checkbox" checked>
+              <span class="toggleTrack"></span>
+            </label>
+          </div>
+        </section>
+
+        <!-- Save / Reset actions -->
+        <div class="settingsActions">
+          <button class="btn btnGhost">Reset</button>
+          <button class="btn btnPrimary">Save changes</button>
+        </div>
+
+      </div>
+    </main>
+  </div>
+</body>
+</html>
