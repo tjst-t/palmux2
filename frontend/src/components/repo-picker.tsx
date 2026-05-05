@@ -11,12 +11,26 @@
 // Clone error matches prototype/open-repo-modal-clone-error.html.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { api } from '../lib/api'
 import type { Repository } from '../lib/api'
 import { usePalmuxStore } from '../stores/palmux-store'
 
 import styles from './repo-picker.module.css'
+
+// hotfix: after a successful open / clone we navigate to the opened
+// repo so the user lands on the freshly-Open repository instead of
+// staying wherever they were. Pick the primary branch's claude tab,
+// fall back to the first available tab.
+function urlForRepo(repo: Repository): string | null {
+  const branch = repo.openBranches.find((b) => b.isPrimary) ?? repo.openBranches[0]
+  if (!branch) return null
+  const tab =
+    branch.tabSet.tabs.find((t) => t.type === 'claude') ?? branch.tabSet.tabs[0]
+  if (!tab) return null
+  return `/${encodeURIComponent(repo.id)}/${encodeURIComponent(branch.id)}/${encodeURIComponent(tab.id)}`
+}
 
 interface Props {
   open: boolean
@@ -67,6 +81,7 @@ export function RepoPicker({ open, onClose, onRequestDelete }: Props) {
   const repos = usePalmuxStore((s) => s.availableRepos)
   const openRepo = usePalmuxStore((s) => s.openRepo)
   const reloadRepos = usePalmuxStore((s) => s.reloadRepos)
+  const navigate = useNavigate()
 
   const [filter, setFilter] = useState('')
   const [active, setActive] = useState(0)
@@ -115,7 +130,13 @@ export function RepoPicker({ open, onClose, onRequestDelete }: Props) {
     setPending(id)
     setError(null)
     try {
-      await openRepo(id)
+      const repo = await openRepo(id)
+      // hotfix: navigate the user to the freshly-opened repo so the
+      // drawer focus + main-area both reflect their action. Without
+      // this, the modal closes and the user is left wherever they
+      // were before — the new repo only shows up in the drawer list.
+      const target = urlForRepo(repo)
+      if (target) navigate(target)
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -139,18 +160,14 @@ export function RepoPicker({ open, onClose, onRequestDelete }: Props) {
       )
       // Auto-open the repo (it was already opened server-side, just reload).
       await reloadRepos()
-      // Open the primary branch if available.
-      try {
-        const reloadedRepos = usePalmuxStore.getState().repos
-        const repo: Repository | undefined = reloadedRepos.find((r) => r.id === result.repoId)
-        if (repo) {
-          const primary = repo.openBranches.find((b) => b.isPrimary)
-          if (primary) {
-            // Branch already opened server-side; just reload to get tabs.
-          }
-        }
-      } catch {
-        // best-effort
+      // hotfix: navigate to the cloned repo's primary branch claude tab
+      // so the user lands on the new repo immediately. Mirrors the same
+      // post-open jump that browse-mode pick() performs.
+      const reloadedRepos = usePalmuxStore.getState().repos
+      const repo = reloadedRepos.find((r) => r.id === result.repoId)
+      if (repo) {
+        const target = urlForRepo(repo)
+        if (target) navigate(target)
       }
       onClose()
     } catch (err) {
