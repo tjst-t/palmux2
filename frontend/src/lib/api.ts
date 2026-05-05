@@ -64,6 +64,10 @@ export interface Repository {
    *  one click. Empty / undefined means "no remembered branch" (first
    *  open, or the previous branch was reconciled away). */
   lastActiveBranch?: string
+  /** S034: network isolation setting for this repo.
+   *  "on" = isolate new worktrees by default; "off" = no isolation;
+   *  undefined = legacy repo (treated as "off"). */
+  isolateNetwork?: 'on' | 'off'
 }
 
 export type BranchCategory = 'user' | 'unmanaged' | 'subagent'

@@ -1,0 +1,174 @@
+/* Settings page styles — S034 */
+
+.page {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 32px 24px 80px;
+}
+
+.pageTitle {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-fg);
+  margin: 0 0 32px;
+}
+
+.settingsSection {
+  margin-bottom: 36px;
+}
+.settingsSection + .settingsSection {
+  padding-top: 8px;
+}
+
+.settingsSectionTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-fg);
+  margin: 0 0 4px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.settingsSectionSub {
+  font-size: 13px;
+  color: var(--color-fg-muted);
+  margin: 0 0 20px;
+  line-height: 1.55;
+}
+
+.settingsRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.settingsRow:last-child {
+  border-bottom: 0;
+}
+
+.settingsRowBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.settingsRowLabel {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-fg);
+  margin-bottom: 4px;
+}
+
+.settingsRowHelp {
+  font-size: 12px;
+  color: var(--color-fg-dim);
+  line-height: 1.55;
+}
+
+/* Toggle switch */
+.toggle {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.toggleTrack {
+  position: absolute;
+  inset: 0;
+  background: var(--color-fg-ghost);
+  border-radius: 22px;
+  cursor: pointer;
+  transition: background 0.18s;
+}
+.toggle input:checked + .toggleTrack {
+  background: var(--color-accent);
+}
+.toggleTrack::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.18s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+.toggle input:checked + .toggleTrack::after {
+  transform: translateX(18px);
+}
+
+/* Status pill for Caddy availability */
+.statusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+.statusOk {
+  background: rgba(100, 210, 160, 0.1);
+  color: var(--color-success);
+  border: 1px solid rgba(100, 210, 160, 0.25);
+}
+.statusWarning {
+  background: rgba(245, 158, 11, 0.08);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+/* Input field */
+.settingsInput {
+  width: 100%;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--color-fg);
+  box-sizing: border-box;
+  margin-top: 6px;
+}
+.settingsInput:focus {
+  outline: none;
+  border-color: rgba(124, 138, 255, 0.5);
+}
+.settingsInput::placeholder {
+  color: var(--color-fg-dim);
+}
+
+/* Save button */
+.saveBtn {
+  margin-top: 20px;
+  padding: 8px 20px;
+  background: var(--color-accent);
+  color: #fff;
+  border: 0;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.saveBtn:hover {
+  background: var(--color-accent-dark);
+}
+.saveBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.savedMsg {
+  font-size: 12px;
+  color: var(--color-success);
+  margin-top: 8px;
+}

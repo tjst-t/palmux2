@@ -1,0 +1,145 @@
+{
+  "sprint": "S034",
+  "title": "Per-worktree network namespace isolation (rootless MVP)",
+  "decisions": [
+    {
+      "id": "D001",
+      "phase": "planning",
+      "category": "environment",
+      "decision": "slirp4netns 1.2.1 confirmed at /usr/bin/slirp4netns; caddy confirmed at /usr/local/bin/caddy. Both tools available in this VM.",
+      "rationale": "Pre-flight check per sprint brief. S034-5 Caddy integration proceeds without degraded mode.",
+      "reference": "sprint brief: 'caddy: check availability at startup of S034-5'"
+    },
+    {
+      "id": "D002",
+      "phase": "planning",
+      "category": "architecture",
+      "decision": "All 5 stories will be implemented in a single wave sequentially due to cascading dependencies: S034-1 (netns lifecycle) → S034-2 (slirp4netns + port forward API) → S034-3 (discovery + WS events) → S034-4 (UI) → S034-5 (Caddy). S034-4 and S034-5 can overlap after S034-1/2/3 BE is done.",
+      "rationale": "S034-4 UI depends on BE APIs from S034-1/2/3. S034-5 Caddy depends on port-forward API from S034-2. True parallelism requires stubbing APIs which adds complexity without benefit given the tight coupling.",
+      "reference": "DESIGN_PRINCIPLES: '既存資産活用 > 新規実装'"
+    },
+    {
+      "id": "D003",
+      "phase": "planning",
+      "category": "architecture",
+      "decision": "netns bind-mount path: /run/user/<uid>/palmux/netns/<worktreeID>. Uses systemd's user runtime dir which is auto-cleaned on session end. Falls back to /tmp/palmux-netns-<worktreeID> if /run/user/<uid> doesn't exist.",
+      "rationale": "XDG_RUNTIME_DIR (/run/user/<uid>) is the correct location for ephemeral per-user runtime files on Linux. More robust than /tmp for long-running processes.",
+      "reference": "S034-1-1 task description, Linux FHS"
+    },
+    {
+      "id": "D004",
+      "phase": "planning",
+      "category": "architecture",
+      "decision": "slirp4netns API socket path: /tmp/palmux-slirp4-<worktreeID>.sock (truncated to 100 chars to avoid Unix socket path length limit of 108 bytes).",
+      "rationale": "Unix socket path limit is 108 bytes. worktreeID can be long. Need truncation strategy.",
+      "reference": "S034-2-1 task description"
+    },
+    {
+      "id": "D005",
+      "phase": "planning",
+      "category": "implementation",
+      "decision": "For existing repos in repos.json without isolateNetwork field: default to 'off' (not 'on'). New repos added via palmux default to 'on'.",
+      "rationale": "Critical decision locked in sprint brief: 'existing repos default OFF (don't break existing setups)'. Migration must not change existing behavior.",
+      "reference": "Sprint brief: Critical decisions #2"
+    },
+    {
+      "id": "D006",
+      "phase": "planning",
+      "category": "implementation",
+      "decision": "Tab spawn interception: add NsenterPath to WindowSpec (not a new Provider interface method). When NsenterPath is set in the store's ensureSession/createWindow logic, prepend 'nsenter --net=<path>' to the command. Terminal-type providers (Claude/Bash) populate this; Files/Git/Sprint do not.",
+      "rationale": "Minimal interface change. Avoids breaking all existing Providers with a new method. DESIGN_PRINCIPLES: '既存資産活用 > 新規実装'.",
+      "reference": "S034-1-4 task description, CLAUDE.md tab module system"
+    },
+    {
+      "id": "D007",
+      "phase": "planning",
+      "category": "implementation",
+      "decision": "Port discovery uses 'nsenter --net=<nsPath> ss -tlnH' every 2 seconds. Process name from /proc/<pid>/comm by correlating ss output with /proc/net/tcp in netns.",
+      "rationale": "ss is universally available on modern Linux. /proc/net/tcp gives pid→port mapping inside the netns.",
+      "reference": "S034-3-1 task description"
+    },
+    {
+      "id": "D008",
+      "phase": "planning",
+      "category": "ui",
+      "decision": "Network modal route: opened via 🛡 badge click in header (when isolation ON) or from worktree context menu. Uses existing modal.tsx pattern (modalCard/modalBody CSS classes from prototype).",
+      "rationale": "Sprint brief critical decision #6: 'UI is a modal, not a right-side panel'. Reuse modal pattern from prototype/files-delete-confirm.html.",
+      "reference": "Sprint brief: Critical decisions #6, #8"
+    },
+    {
+      "id": "D009",
+      "phase": "planning",
+      "category": "ui",
+      "decision": "Settings page route: /settings/network. New React route added to App.tsx. Only Network section (Caddy + global isolation default) per sprint scope. No migration of existing modal-based settings.",
+      "rationale": "Sprint brief critical decision #7: 'Settings page is brand new'. S035 will handle migration of other settings.",
+      "reference": "Sprint brief: Critical decisions #7"
+    },
+    {
+      "id": "D010",
+      "phase": "planning",
+      "category": "implementation",
+      "decision": "Caddy snippet file: ~/.config/palmux/caddy/active.caddyfile (or configDir/caddy/active.caddyfile). Reload via 'caddy reload --config <mainCaddyfile>' where mainCaddyfile defaults to ~/.config/caddy/Caddyfile.",
+      "rationale": "Sprint brief critical decision #5: 'Caddy via file-based snippet + reload'. Uses standard Caddy config locations.",
+      "reference": "Sprint brief: Critical decisions #5"
+    }
+  ],
+  "implementation_decisions": [
+    {
+      "id": "ID001",
+      "phase": "implementation",
+      "category": "architecture",
+      "decision": "Replaced bind-mount approach for netns with anchor process approach. createNetns now spawns 'unshare -Urn sh -c ip link set lo up && exec sleep infinity' and uses /proc/<anchorPID>/ns/net as the ns path. This avoids CAP_SYS_ADMIN requirement for bind-mounts inside unprivileged user namespaces.",
+      "rationale": "mount --bind /proc/self/ns/net <file> fails inside unshare -Urn because unprivileged user namespaces do not grant CAP_SYS_ADMIN for bind-mounts of procfs. Anchor process approach eliminates bind-mount entirely.",
+      "reference": "internal/netns/manager.go createNetns()"
+    },
+    {
+      "id": "ID002",
+      "phase": "implementation",
+      "category": "bug",
+      "decision": "Changed exec.CommandContext(ctx, 'slirp4netns', ...) to exec.CommandContext(context.Background(), ...) in startSlirp. The HTTP request context was being cancelled when the request completed, which killed slirp4netns immediately after startup.",
+      "rationale": "slirp4netns is a long-running daemon that must outlive the HTTP request that created it. Using the request context caused it to die as soon as the OpenBranch response was sent.",
+      "reference": "internal/netns/manager.go startSlirp()"
+    },
+    {
+      "id": "ID003",
+      "phase": "implementation",
+      "category": "bug",
+      "decision": "Added worktreeProcs map to Manager to track *exec.Cmd handles for anchor and slirp processes. Destroy() now calls Wait() on killed processes to prevent zombie accumulation.",
+      "rationale": "Test AC-S034-1-5 was failing because /proc/<slirpPID> existed even after SIGKILL because the parent (palmux2) had not called wait() to reap the zombie.",
+      "reference": "internal/netns/manager.go Manager struct, Destroy()"
+    },
+    {
+      "id": "ID004",
+      "phase": "implementation",
+      "category": "bug",
+      "decision": "Fixed getSettings handler to deep-copy NetworkIsolation pointer before injecting runtime Available field. Previously the handler mutated the shared config object through the pointer, causing Available=true to be persisted to disk.",
+      "rationale": "Settings.Get() returns Settings by value but NetworkIsolation is a *pointer*, so the shallow copy shared the underlying object. Mutation through the pointer propagated to the stored config.",
+      "reference": "internal/server/handler_settings.go getSettings()"
+    },
+    {
+      "id": "ID005",
+      "phase": "implementation",
+      "category": "architecture",
+      "decision": "CaddyIntegration is created at server startup from current settings (not nil) and attached to the Manager. settings PATCH handler calls CaddyIntegration.UpdateConfig() to propagate changes dynamically without server restart.",
+      "rationale": "Tests PATCH settings to enable Caddy, then immediately call expose. The integration must be live and updateable. Static config at startup would require a server restart to take effect.",
+      "reference": "internal/server/server.go registerRoutes(), internal/netns/caddy.go UpdateConfig()"
+    },
+    {
+      "id": "ID006",
+      "phase": "implementation",
+      "category": "implementation",
+      "decision": "Added DefaultCaddyFQDNTemplate and DefaultCaddyReloadCmd constants and added NetworkIsolation defaults to DefaultSettings(). Added mergeWithDefaults logic to always populate caddy.fqdnTemplate and caddy.reloadCmd when missing.",
+      "rationale": "AC-S034-5-1 requires fqdnTemplate and reloadCmd fields to be present in /api/settings response even without prior PATCH.",
+      "reference": "internal/config/settings.go DefaultSettings(), mergeWithDefaults()"
+    }
+  ],
+  "review_decisions": [],
+  "backlog_items": [
+    {
+      "id": "B001",
+      "title": "Outbound HTTPS / DNS from isolated netns (AC-S034-2-1, -2-2, -2-5)",
+      "description": "These ACs test actual outbound connectivity and inbound port-forward through slirp4netns. They pass as 'skipped (isolation unavailable)' in this environment due to AppArmor restrictions. The anchor process approach works but AppArmor's unprivileged userns policy is still restricting some operations needed for slirp4netns to configure the tap device fully. These would pass with: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0",
+      "future_sprint": "S035"
+    }
+  ]
+}

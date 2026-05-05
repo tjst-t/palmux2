@@ -1,0 +1,188 @@
+/* Network modal styles — S034 */
+
+.netSection {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.netSection:last-child {
+  border-bottom: 0;
+}
+.netSectionTitle {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-fg-dim);
+  font-weight: 600;
+  margin: 0 0 10px;
+}
+
+.netEmpty {
+  font-size: 12px;
+  color: var(--color-fg-muted);
+  line-height: 1.55;
+  padding: 4px 0;
+}
+
+.netRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px dotted var(--color-border);
+}
+.netRow:last-child {
+  border-bottom: 0;
+}
+
+.netRowPort {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-accent-light);
+  font-weight: 600;
+  min-width: 52px;
+}
+
+.netRowProc {
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  font-family: var(--font-mono);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.netExposeBtn {
+  font-size: 11px;
+  padding: 3px 8px;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-fg-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.netExposeBtn:hover {
+  color: var(--color-accent-light);
+  border-color: rgba(124, 138, 255, 0.4);
+  background: rgba(124, 138, 255, 0.05);
+}
+
+.netExposedBadge {
+  font-size: 11px;
+  padding: 2px 7px;
+  background: rgba(100, 210, 160, 0.1);
+  border: 1px solid rgba(100, 210, 160, 0.25);
+  border-radius: 3px;
+  color: var(--color-success);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.netRowOpen,
+.netRowClose {
+  background: transparent;
+  border: 0;
+  padding: 2px 5px;
+  color: var(--color-fg-muted);
+  font-size: 14px;
+  border-radius: var(--radius-sm);
+  line-height: 1;
+  cursor: pointer;
+}
+.netRowOpen:hover {
+  color: var(--color-accent-light);
+}
+.netRowClose:hover {
+  color: var(--color-error);
+}
+
+.netFqdn {
+  font-size: 11px;
+  color: var(--color-accent-light);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+.netFqdn:hover {
+  text-decoration: underline;
+}
+
+.modalHeaderRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modalHeaderTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-fg);
+  flex: 1;
+  margin: 0;
+}
+
+.modalCloseBtn {
+  background: transparent;
+  border: 0;
+  color: var(--color-fg-muted);
+  font-size: 16px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  line-height: 1;
+  cursor: pointer;
+}
+.modalCloseBtn:hover {
+  color: var(--color-fg);
+  background: var(--color-surface);
+}
+
+.settingsLink {
+  font-size: 12px;
+  color: var(--color-accent-light);
+  text-decoration: none;
+  margin-right: auto;
+}
+.settingsLink:hover {
+  text-decoration: underline;
+}
+
+.slirpWarning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--color-warning, #f59e0b);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.isolatedPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--color-accent-light);
+  background: rgba(124, 138, 255, 0.08);
+  border: 1px solid rgba(124, 138, 255, 0.28);
+  border-radius: 12px;
+  padding: 3px 10px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: background 0.14s, border-color 0.14s;
+}
+.isolatedPill:hover {
+  background: rgba(124, 138, 255, 0.14);
+  border-color: rgba(124, 138, 255, 0.45);
+}

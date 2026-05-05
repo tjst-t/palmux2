@@ -17,6 +17,9 @@ type Repository struct {
 	Starred          bool      `json:"starred"`
 	OpenBranches     []*Branch `json:"openBranches"`
 	LastActiveBranch string    `json:"lastActiveBranch,omitempty"`
+	// IsolateNetwork (S034) mirrors repos.json#isolateNetwork.
+	// "on" | "off" | "" (empty = off, shown as absent in JSON).
+	IsolateNetwork string `json:"isolateNetwork,omitempty"`
 }
 
 // Branch represents an open branch — by definition a branch with a worktree

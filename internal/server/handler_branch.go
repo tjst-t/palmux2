@@ -60,7 +60,11 @@ func (h *handlers) branchPicker(w http.ResponseWriter, r *http.Request) {
 }
 
 type openBranchRequest struct {
-	BranchName string `json:"branchName"`
+	BranchName     string `json:"branchName"`
+	// IsolateNetwork (S034) overrides the repo-level isolateNetwork flag for
+	// this specific worktree at creation time. Empty string = inherit from repo.
+	// "on" / "off" = explicit override stored in tmp/netns-state.json.
+	IsolateNetwork string `json:"isolateNetwork,omitempty"`
 }
 
 func (h *handlers) openBranch(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +73,14 @@ func (h *handlers) openBranch(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	branch, err := h.store.OpenBranch(r.Context(), r.PathValue("repoId"), req.BranchName)
+	// S034: pass isolateNetwork override if the client specified one.
+	var branch *domain.Branch
+	var err error
+	if req.IsolateNetwork != "" {
+		branch, err = h.store.OpenBranchWithIsolate(r.Context(), r.PathValue("repoId"), req.BranchName, req.IsolateNetwork)
+	} else {
+		branch, err = h.store.OpenBranch(r.Context(), r.PathValue("repoId"), req.BranchName)
+	}
 	if err != nil {
 		writeErr(w, err)
 		return

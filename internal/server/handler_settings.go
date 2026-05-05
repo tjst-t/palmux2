@@ -6,11 +6,26 @@ import (
 	"strings"
 
 	"github.com/tjst-t/palmux2/internal/config"
+	"github.com/tjst-t/palmux2/internal/netns"
 	"github.com/tjst-t/palmux2/internal/store"
 )
 
 func (h *handlers) getSettings(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, h.store.Settings().Get())
+	s := h.store.Settings().Get()
+	// S034: inject runtime caddy availability into the response.
+	// The Available field is not persisted — it reflects whether the caddy
+	// binary was found at startup. We always surface a networkIsolation section
+	// so the frontend can read caddy.available without nil checks.
+	// IMPORTANT: deep-copy the NetworkIsolation pointer before mutating so
+	// we do not accidentally write the runtime field back into the store.
+	if s.NetworkIsolation == nil {
+		s.NetworkIsolation = &config.NetworkIsolationSettings{}
+	} else {
+		copy := *s.NetworkIsolation
+		s.NetworkIsolation = &copy
+	}
+	s.NetworkIsolation.Caddy.Available = h.caddyAvailable
+	writeJSON(w, http.StatusOK, s)
 }
 
 func (h *handlers) patchSettings(w http.ResponseWriter, r *http.Request) {
@@ -28,6 +43,16 @@ func (h *handlers) patchSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		writeErr(w, err)
 		return
+	}
+	// S034: propagate Caddy config changes to the live CaddyIntegration.
+	if h.caddy != nil && updated.NetworkIsolation != nil {
+		c := updated.NetworkIsolation.Caddy
+		h.caddy.UpdateConfig(netns.CaddyConfig{
+			Enabled:      c.Enabled,
+			FQDNTemplate: c.FQDNTemplate,
+			ConfigPath:   c.ConfigPath,
+			ReloadCmd:    c.ReloadCmd,
+		})
 	}
 	h.store.Hub().Publish(store.Event{Type: store.EventSettings, Payload: updated})
 	writeJSON(w, http.StatusOK, updated)

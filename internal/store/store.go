@@ -22,6 +22,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/domain"
 	"github.com/tjst-t/palmux2/internal/ghq"
 	"github.com/tjst-t/palmux2/internal/gwq"
+	"github.com/tjst-t/palmux2/internal/netns"
 	"github.com/tjst-t/palmux2/internal/tab"
 	"github.com/tjst-t/palmux2/internal/tmux"
 	"github.com/tjst-t/palmux2/internal/worktree"
@@ -54,6 +55,9 @@ type Deps struct {
 	// MaxConnsPerBranch caps simultaneous WS attachments per branch. 0 means
 	// unlimited. Wired from the --max-connections CLI flag.
 	MaxConnsPerBranch int
+	// Netns (S034) manages per-worktree network namespace isolation.
+	// Nil means isolation is disabled (no slirp4netns).
+	Netns *netns.Manager
 }
 
 // Store is concurrency-safe.
@@ -188,6 +192,28 @@ func (s *Store) PopulateTabs(ctx context.Context) {
 // Hub returns the broadcaster.
 func (s *Store) Hub() *EventHub { return s.hub }
 
+// Netns returns the netns.Manager wired into the Store, or nil if not configured.
+func (s *Store) Netns() *netns.Manager { return s.deps.Netns }
+
+// startNetnsDiscovery starts a polling loop inside the netns for the given
+// branch and broadcasts netns.listenersChanged events via the store hub.
+func (s *Store) startNetnsDiscovery(ctx context.Context, repoID, branchID string) {
+	if s.deps.Netns == nil {
+		return
+	}
+	s.deps.Netns.StartDiscovery(ctx, branchID, func(worktreeID string, listeners []netns.Listener) {
+		s.hub.Publish(Event{
+			Type:     EventNetnsListenersChanged,
+			RepoID:   repoID,
+			BranchID: branchID,
+			Payload: map[string]any{
+				"worktreeId": worktreeID,
+				"listeners":  listeners,
+			},
+		})
+	})
+}
+
 // Tmux returns the tmux client wired into the Store. Tab providers use it
 // to perform live tmux operations from their HTTP handlers.
 func (s *Store) Tmux() tmux.Client { return s.deps.Tmux }
@@ -205,7 +231,7 @@ func (s *Store) GHQClient() *ghq.Client { return s.deps.GHQ }
 // OpenBranchInternal exposes the internal open-branch path to server handlers.
 // markUserOpened controls whether the branch is recorded in repos.json#userOpenedBranches.
 func (s *Store) OpenBranchInternal(ctx context.Context, repoID, branchName string, markUserOpened bool) (*domain.Branch, error) {
-	return s.openBranchInternal(ctx, repoID, branchName, markUserOpened)
+	return s.openBranchInternal(ctx, repoID, branchName, markUserOpened, "")
 }
 
 // Repos returns a snapshot of every Open repository, sorted by GHQPath.
@@ -276,6 +302,7 @@ func (s *Store) hydrate(ctx context.Context) error {
 			FullPath:         full,
 			Starred:          e.Starred,
 			LastActiveBranch: e.LastActiveBranch,
+			IsolateNetwork:   e.IsolateNetwork,
 		}
 		// Best-effort: enumerate worktrees. Failures here just mean the repo
 		// shows up empty and the sync loop will retry.
@@ -573,11 +600,17 @@ func (s *Store) OpenRepo(ctx context.Context, ghqPath string) (*domain.Repositor
 	if _, err := s.deps.RepoStore.Add(config.RepoEntry{ID: repoID, GHQPath: ghqPath}); err != nil {
 		return nil, err
 	}
+	// Re-read the entry after Add to get defaults applied (e.g. isolateNetwork="on").
+	isolateNetwork := ""
+	if entry, ok := s.deps.RepoStore.Get(repoID); ok {
+		isolateNetwork = entry.IsolateNetwork
+	}
 
 	repo := &domain.Repository{
-		ID:       repoID,
-		GHQPath:  ghqPath,
-		FullPath: full,
+		ID:             repoID,
+		GHQPath:        ghqPath,
+		FullPath:       full,
+		IsolateNetwork: isolateNetwork,
 	}
 	if wts, err := worktree.List(ctx, full); err == nil {
 		for _, wt := range wts {
@@ -715,6 +748,28 @@ func (s *Store) SetStarred(repoID string, starred bool) error {
 		evt = EventRepoStarred
 	}
 	s.hub.Publish(Event{Type: evt, RepoID: repoID})
+	return nil
+}
+
+// SetIsolateNetwork (S034) updates the isolateNetwork flag for a repo.
+// value must be "on" or "off".
+func (s *Store) SetIsolateNetwork(repoID, value string) error {
+	if value != "on" && value != "off" {
+		return fmt.Errorf("%w: isolateNetwork must be 'on' or 'off'", ErrInvalidArg)
+	}
+	s.mu.Lock()
+	repo, ok := s.repos[repoID]
+	if !ok {
+		s.mu.Unlock()
+		return ErrRepoNotFound
+	}
+	// Update in-memory immediately so subsequent Repo() calls see the new value.
+	repo.IsolateNetwork = value
+	s.mu.Unlock()
+	if _, err := s.deps.RepoStore.SetIsolateNetwork(repoID, value); err != nil {
+		return err
+	}
+	s.hub.Publish(Event{Type: EventRepoOpened, RepoID: repoID}) // trigger Drawer refresh
 	return nil
 }
 

@@ -13,6 +13,18 @@ interface Props {
   onClose: () => void
 }
 
+// S034: label style for isolate checkbox.
+const isolateLabelStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '7px',
+  fontSize: '12px',
+  color: 'var(--color-fg-muted)',
+  userSelect: 'none',
+  cursor: 'pointer',
+  marginTop: '4px',
+}
+
 export function BranchPicker({ open, repoId, onClose }: Props) {
   const reload = usePalmuxStore((s) => s.reloadBranchPicker)
   const picker = usePalmuxStore((s) => s.branchPicker)
@@ -24,6 +36,11 @@ export function BranchPicker({ open, repoId, onClose }: Props) {
   const [pending, setPending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [draftName, setDraftName] = useState('')
+  // S034: isolate-network checkbox for new worktrees.
+  // Default based on repo's isolateNetwork setting.
+  const repos = usePalmuxStore((s) => s.repos)
+  const repo = repos.find((r) => r.id === repoId)
+  const [isolateNew, setIsolateNew] = useState(repo?.isolateNetwork === 'on')
 
   useEffect(() => {
     if (!open || !repoId) return
@@ -44,11 +61,13 @@ export function BranchPicker({ open, repoId, onClose }: Props) {
     return out
   }, [filtered])
 
-  const select = async (name: string) => {
+  const select = async (name: string, isolateOverride?: string) => {
     setPending(name)
     setError(null)
     try {
-      const branch = await openBranch(repoId, name)
+      // S034: pass isolateNetwork for new branch creation.
+      // For existing branches, we just open without override.
+      const branch = await openBranch(repoId, name, isolateOverride)
       onClose()
       navigate(`/${repoId}/${branch.id}/${branch.tabSet.tabs[0]?.id ?? 'claude'}${location.search}`)
     } catch (err) {
@@ -60,7 +79,9 @@ export function BranchPicker({ open, repoId, onClose }: Props) {
 
   const createNew = async () => {
     if (!draftName.trim()) return
-    await select(draftName.trim())
+    // S034: pass isolateNetwork override if user explicitly toggled it.
+    // The store's openBranch sends this in the POST body.
+    await select(draftName.trim(), isolateNew ? 'on' : 'off')
   }
 
   return (
@@ -96,6 +117,21 @@ export function BranchPicker({ open, repoId, onClose }: Props) {
           Create
         </button>
       </div>
+      {/* S034: isolate network checkbox (shown only for new branch creation) */}
+      {draftName.trim() && (
+        <label style={isolateLabelStyle} data-testid="isolate-network-checkbox-label">
+          <input
+            type="checkbox"
+            checked={isolateNew}
+            onChange={(e) => setIsolateNew(e.target.checked)}
+            data-testid="isolate-network-checkbox"
+          />
+          🛡 Isolate network
+          <span style={{ color: 'var(--color-fg-dim)', fontSize: '11px' }}>
+            (separate localhost from other worktrees)
+          </span>
+        </label>
+      )}
     </Modal>
   )
 }

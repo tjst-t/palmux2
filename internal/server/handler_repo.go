@@ -33,6 +33,16 @@ func (h *handlers) listRepos(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, h.store.Repos())
 }
 
+// getRepo returns a single repository by ID (S034).
+func (h *handlers) getRepo(w http.ResponseWriter, r *http.Request) {
+	repo, err := h.store.Repo(r.PathValue("repoId"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, repo)
+}
+
 func (h *handlers) availableRepos(w http.ResponseWriter, r *http.Request) {
 	all, err := h.store.AvailableRepos(r.Context())
 	if err != nil {
@@ -93,6 +103,24 @@ func (h *handlers) star(w http.ResponseWriter, r *http.Request) {
 
 func (h *handlers) unstar(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.SetStarred(r.PathValue("repoId"), false); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// setIsolateNetwork (S034) handles PATCH /api/repos/{repoId}/isolate-network.
+// Body: {"isolateNetwork": "on" | "off"}
+func (h *handlers) setIsolateNetwork(w http.ResponseWriter, r *http.Request) {
+	repoID := r.PathValue("repoId")
+	var body struct {
+		IsolateNetwork string `json:"isolateNetwork"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+		return
+	}
+	if err := h.store.SetIsolateNetwork(repoID, body.IsolateNetwork); err != nil {
 		writeErr(w, err)
 		return
 	}

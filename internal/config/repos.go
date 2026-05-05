@@ -45,6 +45,13 @@ type RepoEntry struct {
 	UserOpenedBranches []string                      `json:"userOpenedBranches,omitempty"`
 	TabOverrides       map[string]BranchTabOverrides `json:"tabOverrides,omitempty"`
 	LastActiveBranch   string                        `json:"last_active_branch,omitempty"`
+	// IsolateNetwork (S034) controls whether new worktrees of this repo get
+	// per-worktree network namespace isolation by default.
+	// "on"  → isolate (default for newly added repos)
+	// "off" → no isolation (legacy; default for repos present before S034)
+	// ""    → not set; treated as "off" for existing repos to preserve
+	//         backward compatibility (see migration in Add()).
+	IsolateNetwork string `json:"isolateNetwork,omitempty"`
 }
 
 // BranchTabOverrides is the per-branch payload of TabOverrides.
@@ -135,6 +142,11 @@ func (s *RepoStore) Get(id string) (RepoEntry, bool) {
 
 // Add inserts (or returns the existing) repo entry. Returns true if newly
 // inserted, false if it already existed.
+//
+// S034: newly added repos default to isolateNetwork="on" so new repos get
+// network isolation by default. Existing repos (present before S034) have
+// an empty isolateNetwork field which is treated as "off" (preserves
+// backward compatibility — existing setups are not disrupted).
 func (s *RepoStore) Add(e RepoEntry) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -142,6 +154,10 @@ func (s *RepoStore) Add(e RepoEntry) (bool, error) {
 		if existing.ID == e.ID {
 			return false, nil
 		}
+	}
+	// S034: new repos default to isolation ON.
+	if e.IsolateNetwork == "" {
+		e.IsolateNetwork = "on"
 	}
 	s.entries = append(s.entries, e)
 	sortEntries(s.entries)
@@ -439,6 +455,33 @@ func (s *RepoStore) LastActiveBranch(repoID string) string {
 		}
 	}
 	return ""
+}
+
+// SetIsolateNetwork (S034) sets the isolateNetwork flag for a repo.
+// Returns false if the repo is not found.
+func (s *RepoStore) SetIsolateNetwork(id, value string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.entries {
+		if s.entries[i].ID == id {
+			s.entries[i].IsolateNetwork = value
+			return true, s.save()
+		}
+	}
+	return false, nil
+}
+
+// IsolatesNetwork (S034) returns the effective isolation setting for a repo.
+// Empty / missing → "off" (backward-compatible default for pre-S034 repos).
+func (s *RepoStore) IsolatesNetwork(id string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, e := range s.entries {
+		if e.ID == id {
+			return e.IsolateNetwork == "on"
+		}
+	}
+	return false
 }
 
 // SetStarred toggles the starred flag on a repo. Returns false if absent.

@@ -26,6 +26,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/domain"
 	"github.com/tjst-t/palmux2/internal/ghq"
 	"github.com/tjst-t/palmux2/internal/gwq"
+	"github.com/tjst-t/palmux2/internal/netns"
 	"github.com/tjst-t/palmux2/internal/notify"
 	"github.com/tjst-t/palmux2/internal/portman"
 	"github.com/tjst-t/palmux2/internal/server"
@@ -123,6 +124,43 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		return err
 	}
 
+	// S034: Network namespace manager. Uses a "tmp/" subdirectory as state dir.
+	// dataDir mirrors the configDir convention but lives under tmp/ (ephemeral).
+	dataDir := filepath.Join(configDir, "..", "tmp")
+	if configDir == defaultConfigDir() {
+		// Dev default: ./tmp
+		dataDir = "tmp"
+	}
+	_ = os.MkdirAll(dataDir, 0o755)
+	netnsManager, err := netns.New(dataDir, slog.Default())
+	if err != nil {
+		slog.Warn("netns: failed to initialize manager, isolation disabled", "err", err)
+		netnsManager = nil
+	}
+
+	// S034: wire Caddy integration if settings have it enabled.
+	if netnsManager != nil {
+		s := settingsStore.Get()
+		if s.NetworkIsolation != nil && s.NetworkIsolation.Caddy.Enabled {
+			caddy := netns.NewCaddyIntegration(netns.CaddyConfig{
+				Enabled:      s.NetworkIsolation.Caddy.Enabled,
+				FQDNTemplate: s.NetworkIsolation.Caddy.FQDNTemplate,
+				ConfigPath:   s.NetworkIsolation.Caddy.ConfigPath,
+				ReloadCmd:    s.NetworkIsolation.Caddy.ReloadCmd,
+			}, slog.Default())
+			netnsManager.SetCaddy(caddy)
+		}
+		// Reconcile orphaned netns entries from previous runs.
+		netnsManager.Reconcile(context.Background())
+	}
+
+	// S034: check caddy availability and populate runtime field.
+	caddyAvailable := netns.CheckCaddy() == nil
+	if !caddyAvailable {
+		slog.Warn("caddy not found in PATH — Caddy integration disabled")
+	}
+	_ = caddyAvailable // used by healthDetail below
+
 	registry := tab.NewRegistry()
 	st, err := store.New(store.Deps{
 		Tmux:              tmuxClient,
@@ -133,6 +171,7 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		Registry:          registry,
 		Logger:            slog.Default(),
 		MaxConnsPerBranch: maxConns,
+		Netns:             netnsManager,
 	})
 	if err != nil {
 		return err
@@ -245,6 +284,7 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		StaticFS: palmux2.StaticFS,
 		BasePath: basePath,
 		Logger:   slog.Default(),
+		Netns:    netnsManager,
 		HealthDetail: map[string]any{
 			"version":    "phase-10",
 			"open":       authn.Open(),

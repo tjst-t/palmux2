@@ -12,6 +12,8 @@ import { useEventStream } from './hooks/use-event-stream'
 import { useVisualViewport } from './hooks/use-visual-viewport'
 import { usePalmuxStore } from './stores/palmux-store'
 import { TestHarness } from './tabs/claude-agent/test-harness'
+// S034: Global settings page.
+import { NetworkSettingsPage } from './tabs/settings/settings-page'
 
 function App() {
   const bootstrap = usePalmuxStore((s) => s.bootstrap)
@@ -49,6 +51,8 @@ function App() {
             ConversationList + Read-preview surface from synthetic data
             so E2E doesn't need a live claude CLI. */}
         <Route path="/__test/claude" element={<TestHarness />} />
+        {/* S034: Global settings pages */}
+        <Route path="/settings/network" element={<NetworkSettingsPage />} />
         <Route path="/:repoId/:branchId/:tabId/*" element={<MainLayout />} />
       </Routes>
       <ContextMenuRenderer />

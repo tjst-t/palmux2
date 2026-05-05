@@ -12,6 +12,7 @@ import {
   type Tab,
 } from '../lib/api'
 import type { ToolbarConfig } from '../types/toolbar'
+import { useNetnsStore, type Listener as NetnsListener } from './netns'
 
 export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected'
 export type FocusedPanel = 'left' | 'right'
@@ -119,6 +120,18 @@ export interface GlobalSettings {
   /** S032: palette-specific settings (user-defined commands etc.) */
   palette?: {
     userCommands?: UserCommand[]
+  }
+  /** S034: network isolation + Caddy settings. */
+  networkIsolation?: {
+    defaultIsolate?: boolean
+    caddy?: {
+      enabled?: boolean
+      fqdnTemplate?: string
+      configPath?: string
+      reloadCmd?: string
+      /** Runtime field — not persisted, set by server at startup. */
+      available?: boolean
+    }
   }
 }
 
@@ -229,6 +242,7 @@ interface PalmuxStoreState {
   // Actions ────────────────────────────────────────────────────────────────
   bootstrap: () => Promise<void>
   reloadRepos: () => Promise<void>
+  reloadSettings: () => Promise<void>
   reloadAvailableRepos: () => Promise<void>
   reloadBranchPicker: (repoId: string) => Promise<void>
   reloadOrphanSessions: () => Promise<void>
@@ -244,7 +258,7 @@ interface PalmuxStoreState {
   closeRepo: (repoId: string) => Promise<void>
   starRepo: (repoId: string, starred: boolean) => Promise<void>
 
-  openBranch: (repoId: string, branchName: string) => Promise<Branch>
+  openBranch: (repoId: string, branchName: string, isolateNetwork?: string) => Promise<Branch>
   closeBranch: (repoId: string, branchId: string) => Promise<void>
 
   addTab: (repoId: string, branchId: string, type: string, name?: string) => Promise<Tab>
@@ -288,6 +302,10 @@ interface PalmuxStoreState {
     repoId: string,
     branchId: string,
   ) => Promise<{ branch: Branch; destination: string }>
+
+  /** S034: toggle per-repo network isolation default.
+   *  value: 'on' | 'off' — persisted in repos.json. */
+  setIsolateNetwork: (repoId: string, value: 'on' | 'off') => Promise<void>
 }
 
 export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
@@ -340,6 +358,15 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
       set({ repos })
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) })
+    }
+  },
+
+  reloadSettings: async () => {
+    try {
+      const settings = await api.get<GlobalSettings>('/api/settings')
+      set({ globalSettings: settings })
+    } catch {
+      // ignore
     }
   },
 
@@ -466,6 +493,14 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
       }
     }
 
+    // S034: netns listeners changed — dispatch to netns store.
+    if (ev.type === 'netns.listenersChanged' && ev.branchId && ev.payload) {
+      const payload = ev.payload as { worktreeId?: string; listeners?: NetnsListener[] }
+      if (payload.listeners) {
+        useNetnsStore.getState().setListeners(ev.branchId, payload.listeners)
+      }
+    }
+
     // Claude tab cross-tab events. Each branch maintains a tiny state
     // record so the Drawer pip / Inbox / @-workspace switcher can show
     // status without opening their own WS.
@@ -576,10 +611,12 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
     }))
   },
 
-  openBranch: async (repoId, branchName) => {
+  openBranch: async (repoId, branchName, isolateNetwork) => {
+    const body: Record<string, unknown> = { branchName }
+    if (isolateNetwork) body.isolateNetwork = isolateNetwork
     const branch = await api.post<Branch>(
       `/api/repos/${encodeURIComponent(repoId)}/branches/open`,
-      { branchName },
+      body,
     )
     await get().reloadRepos()
     return branch
@@ -789,6 +826,20 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
       ),
     }))
     return res
+  },
+
+  // S034: toggle per-repo network isolation default.
+  setIsolateNetwork: async (repoId, value) => {
+    await api.patch(
+      `/api/repos/${encodeURIComponent(repoId)}/isolate-network`,
+      { isolateNetwork: value },
+    )
+    // Optimistic update so the Drawer context menu reflects the change immediately.
+    set((state) => ({
+      repos: state.repos.map((r) =>
+        r.id === repoId ? { ...r, isolateNetwork: value } : r,
+      ),
+    }))
   },
 }))
 

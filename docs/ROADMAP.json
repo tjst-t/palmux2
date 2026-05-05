@@ -2,10 +2,10 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 33,
+    "sprints_done": 34,
     "sprints_total": 35,
-    "percent": 94,
-    "current_sprint": "S034"
+    "percent": 97,
+    "current_sprint": null
   },
   "execution_order": [
     "S001",
@@ -4995,74 +4995,74 @@
     },
     "S034": {
       "title": "Per-worktree network namespace isolation (rootless MVP)",
-      "status": "pending",
+      "status": "done",
       "description": "同一 VM で複数レポを並行開発するときに dev server のポート (8080 / 3000 / 5173 等) が衝突する問題を構造的に解決する。 Linux network namespace で worktree (= TabSet) 単位にネットワーク空間を隔離し、 各 worktree がそれぞれ独立した lo を持つようにする。 これにより全 worktree が同時に `localhost:8080` に bind しても物理的に衝突しない。 ホストから見せたいポートだけ明示的に port forward で公開する。\n\n**設計方針:**\n- 特権要件を抑えるため **rootless approach** (`unshare -Urn` + `slirp4netns`) を MVP として採用。 podman rootless と同じ枠組みで実績あり、 palmux2 はユーザー権限のまま動く\n- 性能要求が出たら Phase 2 で veth + iptables + 特権 daemon (palmux-netd) 案へ昇格 (本 sprint スコープ外)\n- **Linux only** (macOS は対象外)\n- 分離単位は **TabSet (= worktree)**。 同 TabSet 内の Claude / Bash が同じ netns を共有することで、 Claude が立てた dev server を別 tab の curl で叩く動線が保たれる\n- Files / Git / Sprint タブは netns に入らない (REST のみで port を持たない)\n- 切替時は対象 worktree の全 tab を restart 必要 (UI に明示)\n\n**opt-in 設計 (必須要件):**\n- **デフォルトは isolation ON** (ユーザー指定により変更)\n- repo-level 設定 (`repos.json` の `isolateNetwork: \"on\" | \"off\"`) で「このレポの新規 worktree のデフォルト」を制御\n- worktree-level 上書きが可能 (per-worktree state file `tmp/netns-state.json`)\n- 新規 worktree 作成 UI に「Isolate network」チェックボックス (デフォルト チェック済)\n- `slirp4netns` バイナリが見つからない場合は **自動的に OFF + warning ログ** を出してフォールバック (graceful degradation)。 `repos.json` の設定値は保持\n\n**永続化:**\n- `repos.json`: repo-level flag (グローバル設定)\n- `tmp/netns-state.json`: live state (host_port allocation、 active netns 一覧、 reconcile 用)\n- palmux 再起動時に kernel 状態と差分があれば再構築 (reconcile pattern)\n\n**新規 BE パッケージ:**\n- `internal/netns/manager.go` — netns lifecycle + slirp4netns subprocess 管理\n- `internal/netns/discovery.go` — listening port polling\n- `internal/netns/forward.go` — port forward (slirp4netns API socket 経由)\n- `internal/netns/state.go` — `tmp/netns-state.json` SSOT\n\n**新規 BE endpoint:**\n- `POST /api/repos/{repoId}/branches/{branchId}/ports/expose` — `{internalPort, hostPort?}` (auto-allocate option)\n- `DELETE /api/repos/{repoId}/branches/{branchId}/ports/{hostPort}`\n- `GET /api/repos/{repoId}/branches/{branchId}/ports` — 公開中マッピング一覧\n- `GET /api/repos/{repoId}/branches/{branchId}/listeners` — 検出 listener 一覧 (REST fallback)\n- WS event: `netns.listenersChanged`\n\n****UI architecture (S034 リファイン):**\n- Network 操作はモーダル (右サイドパネルでなく)。 既存 modal pattern を再利用、 新規レイアウト pattern を増やさない\n- グローバル Settings ページ (`/settings/network`) を新設 — palmux2 初の global settings page。 Network セクションのみ (Caddy + global isolation default)。 既存モーダル系設定 (palette commands 等) は移行せず、 将来別 sprint で\n\n新規 FE component:**\n- `frontend/src/components/network-modal.tsx + settings/settings-page.tsx` — Detected listeners + Public ports 一覧\n- `frontend/src/stores/netns.ts` — Zustand store\n- 既存 Drawer の新規 worktree modal に Isolate network チェック追加\n- 既存 Repository Settings UI に default toggle 追加\n\n**スコープ外 (Backlog 候補):**\n- 特権 daemon (`palmux-netd`) と veth + iptables 高性能版 (Phase 2)\n- IPv6 対応\n- Tab 単位の細粒度分離\n- Files/Git/Sprint タブが分離 worktree 内のファイルを netns 越しに read する経路の最適化\n- macOS 向け fallback (palmux2 全体として macOS は対象外)\n\n**外部依存:**\n- `slirp4netns` バイナリ (機能 ON 時のみ必須)。 palmux 起動時に存在チェック。 不在時は警告のみで起動は継続",
       "milestone": true,
       "stories": {
         "S034-1": {
           "title": "Rootless netns lifecycle + per-repo/per-worktree opt-in flag",
-          "status": "pending",
+          "status": "done",
           "user_story": "Palmux2 の運用者として、 レポジトリ単位またはワークツリー単位でネットワーク分離の有無を切り替えたい。 なぜなら、 portman に頼った cooperative なポート規約では、 Claude や手動操作が他レポの dev server を kill してしまう事故を防げないからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S034-1-1",
               "description": "`repos.json` に `isolateNetwork: \"on\" | \"off\"` フィールドが追加され、 新規 repo の追加時はデフォルトで `on` がセットされる",
               "test": "[AC-S034-1-1] in tests/acceptance/s034_netns_lifecycle.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-1-2",
               "description": "worktree-level の上書きが `tmp/netns-state.json` の `worktrees[].isolateNetwork` で可能 (未設定時は repo-level flag を継承)",
               "test": "[AC-S034-1-2] in tests/acceptance/s034_netns_lifecycle.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-1-3",
               "description": "isolation ON の worktree open 時に `unshare -Urn` でユーザー netns が作成され、 lo が up している (検証: `nsenter --net=... ip addr show lo` で UP 表示)",
               "test": "[AC-S034-1-3] in tests/acceptance/s034_netns_lifecycle.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-1-4",
               "description": "isolation ON の worktree で起動された terminal 系タブ (Claude / Bash) のプロセスが対応する netns に属している (`readlink /proc/<pid>/ns/net` で host と異なる inode)",
               "test": "[AC-S034-1-4] in tests/acceptance/s034_netns_lifecycle.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-1-5",
               "description": "worktree close 時に netns + slirp4netns subprocess が cleanup され、 リソースリークしない (close 後に対応する `/proc/<pid>` が消える)",
               "test": "[AC-S034-1-5] in tests/acceptance/s034_netns_lifecycle.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-1-6",
               "description": "isolation OFF の worktree は netns を作成せず、 従来通り host network で tab が起動する (機能 OFF が完全に従来動作と同一)",
               "test": "[AC-S034-1-6] in tests/acceptance/s034_netns_lifecycle.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-1-7",
               "description": "`slirp4netns` バイナリが PATH に無い環境で palmux 起動時に warning ログが出力され、 isolation ON 設定の worktree は自動的に OFF にフォールバック (`repos.json` の値は変更せずランタイム挙動のみ degrade)",
               "test": "[AC-S034-1-7] in tests/acceptance/s034_netns_lifecycle.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-1-8",
               "description": "palmux 再起動時に `tmp/netns-state.json` と kernel 実状態を reconcile し、 orphan netns を cleanup する (再起動前に立ててた netns は再構築 or cleanup)",
               "test": "[AC-S034-1-8] in tests/acceptance/s034_netns_lifecycle.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-1-9",
               "description": "AppArmor restriction が有効な環境で palmux 起動 + isolation ON の worktree open を試みると、 docs/INSTALL.md を指す具体的なエラーメッセージが出力される (`run \"sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0\" or install AppArmor profile — see docs/INSTALL.md` 等)",
               "test": "[AC-S034-1-9] in tests/acceptance/s034_netns_lifecycle.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-1-10",
               "description": "subagent worktree (S015 / S021 で導入) を open するとき、 起点 worktree (parent) と同じ netns を共有する。 subagent worktree の inode は親と同一 (ip netns identify で同一名)。 `isolateNetwork: \"own\"` 指定時のみ独立 netns",
               "test": "[AC-S034-1-10] in tests/acceptance/s034_netns_lifecycle.py",
-              "status": "pending"
+              "status": "done"
             }
           ],
           "tasks": {
@@ -5115,62 +5115,62 @@
         },
         "S034-2": {
           "title": "Outbound networking (slirp4netns) + port-forward API",
-          "status": "pending",
+          "status": "done",
           "user_story": "分離 worktree で開発する開発者として、 netns 内の dev server を VM ホストの明示したポートからアクセスしたい。 なぜなら、 外から完全に隔離されると VS Code やブラウザから dev server が見えず、 開発体験が成立しないからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S034-2-1",
               "description": "isolation ON の worktree で slirp4netns subprocess が起動し、 netns 内から `curl https://example.com` が成功する (outbound HTTPS 通る)",
               "test": "[AC-S034-2-1] in tests/acceptance/s034_netns_forward.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-2-2",
               "description": "netns 内から `dig example.com` が解決する (DNS が通る)",
               "test": "[AC-S034-2-2] in tests/acceptance/s034_netns_forward.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-2-3",
               "description": "`POST /api/repos/{r}/branches/{b}/ports/expose` に `{internalPort: 5173}` を投げると hostPort が auto-allocate され、 mapping が作成される (response: `{hostPort, internalPort}`)",
               "test": "[AC-S034-2-3] in tests/acceptance/s034_netns_forward.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-2-4",
               "description": "`POST .../ports/expose` に `{internalPort: 5173, hostPort: 13000}` を投げると指定 hostPort で mapping が作成される (auto allocate せず明示値を使う)",
               "test": "[AC-S034-2-4] in tests/acceptance/s034_netns_forward.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-2-5",
               "description": "公開後、 netns 内で `python -m http.server 5173` を立ち上げると `curl http://localhost:{hostPort}` がそのレスポンスを返す (inbound forward が機能)",
               "test": "[AC-S034-2-5] in tests/acceptance/s034_netns_forward.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-2-6",
               "description": "`DELETE .../ports/{hostPort}` で mapping が解除され、 以降 `curl http://localhost:{hostPort}` は connection refused になる",
               "test": "[AC-S034-2-6] in tests/acceptance/s034_netns_forward.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-2-7",
               "description": "`GET .../ports` が現在の mapping 一覧を `[{hostPort, internalPort, createdAt}]` で返す",
               "test": "[AC-S034-2-7] in tests/acceptance/s034_netns_forward.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-2-8",
               "description": "worktree close 時にその worktree に紐づく全 forward が自動解除される (リソースリークなし)",
               "test": "[AC-S034-2-8] in tests/acceptance/s034_netns_forward.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-2-9",
               "description": "重複した hostPort を expose しようとすると 409 Conflict を返す",
               "test": "[AC-S034-2-9] in tests/acceptance/s034_netns_forward.py",
-              "status": "pending"
+              "status": "done"
             }
           ],
           "tasks": {
@@ -5208,50 +5208,50 @@
         },
         "S034-3": {
           "title": "Listening port auto-discovery + WebSocket event",
-          "status": "pending",
+          "status": "done",
           "user_story": "分離 worktree で開発する開発者として、 netns 内で `npm run dev` を立ち上げた瞬間に palmux 側がそれを検知し、 UI に「:5173 で listen 中」と表示してほしい。 なぜなら、 何が何番でリッスンしているか手で把握するのは煩雑で、 忘れたまま放置すると後から接続できない場合があるからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S034-3-1",
               "description": "isolation ON の worktree で `nsenter --net=... ss -tlnH` 相当の polling が 2 秒間隔で動作する",
               "test": "[AC-S034-3-1] in tests/acceptance/s034_netns_discovery.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-3-2",
               "description": "netns 内で `python -m http.server 5173` を起動すると、 数秒以内に WS event `netns.listenersChanged` が broadcast され、 payload に `{worktreeId, listeners: [{port: 5173, processName, pid}]}` が含まれる",
               "test": "[AC-S034-3-2] in tests/acceptance/s034_netns_discovery.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-3-3",
               "description": "リスナー停止後、 数秒以内に該当 listener が listeners 配列から消える",
               "test": "[AC-S034-3-3] in tests/acceptance/s034_netns_discovery.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-3-4",
               "description": "公開済み (port-forward 登録済み) ポートには listener entry に `exposed: true, hostPort: <h>` の metadata が付加される",
               "test": "[AC-S034-3-4] in tests/acceptance/s034_netns_discovery.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-3-5",
               "description": "`GET /api/repos/{r}/branches/{b}/listeners` が同じ payload を返す (REST fallback)",
               "test": "[AC-S034-3-5] in tests/acceptance/s034_netns_discovery.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-3-6",
               "description": "worktree close 時に polling goroutine が停止する (goroutine leak しない)",
               "test": "[AC-S034-3-6] in tests/acceptance/s034_netns_discovery.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-3-7",
               "description": "isolation OFF の worktree では polling されず、 `GET .../listeners` は 404 または空配列を返す (機能対象外であることが API 上明確)",
               "test": "[AC-S034-3-7] in tests/acceptance/s034_netns_discovery.py",
-              "status": "pending"
+              "status": "done"
             }
           ],
           "tasks": {
@@ -5279,68 +5279,68 @@
         },
         "S034-4": {
           "title": "UI — opt-in toggle + Network panel (port management)",
-          "status": "pending",
+          "status": "done",
           "user_story": "分離 worktree で開発する開発者として、 worktree 作成時に「分離する」をワンクリックで指定し、 運用中に検出されたポートを 1 click で公開し、 現在の公開状況を一覧で見たい。 なぜなら、 CLI フラグや設定ファイル直編集を強いると、 せっかくのガードレールが日常で使われなくなるからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S034-4-1",
               "description": "Drawer の新規 worktree 作成 dialog に「Isolate network」チェックボックスがあり、 デフォルトで checked。 値はその worktree の作成リクエストに含まれる",
               "test": "[AC-S034-4-1] in tests/e2e/s034_netns_ui.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-4-2",
               "description": "Repository Settings UI に「Default: isolate network for new worktrees」トグルがあり、 デフォルトで ON。 トグル変更で `repos.json` の `isolateNetwork` が更新される (PATCH)",
               "test": "[AC-S034-4-2] in tests/e2e/s034_netns_ui.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-4-3",
               "description": "isolation ON の worktree を開くと、 Header / Drawer のいずれかに「🛡 Isolated」バッジが表示される。 isolation OFF の worktree では非表示",
               "test": "[AC-S034-4-3] in tests/e2e/s034_netns_ui.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-4-4",
               "description": "isolation ON の worktree に Network modal (右上 button or header の 🛡 バッジ click から開く) があり、 `Detected listeners` セクションに WS で受け取った listener 一覧 (port + processName + 「Expose」ボタン) が表示される",
               "test": "[AC-S034-4-4] in tests/e2e/s034_netns_ui.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-4-5",
               "description": "Detected listener の「Expose」ボタンを click すると `POST /ports/expose` が走り、 成功時に Public ports セクションに `localhost:{hostPort} → :{internalPort}` が現れる。 listener 側には ✓ Exposed badge",
               "test": "[AC-S034-4-5] in tests/e2e/s034_netns_ui.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-4-6",
               "description": "Public ports 行の「↗」アイコン click で `localhost:{hostPort}` が新規ブラウザタブで開く",
               "test": "[AC-S034-4-6] in tests/e2e/s034_netns_ui.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-4-7",
               "description": "Public ports 行の「✕」 click で `DELETE /ports/{hostPort}` が走り、 行が消える",
               "test": "[AC-S034-4-7] in tests/e2e/s034_netns_ui.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-4-8",
               "description": "isolation OFF の worktree では Network modal への entry point 自体が非表示 (Drawer に項目が出ない / button が disabled)",
               "test": "[AC-S034-4-8] in tests/e2e/s034_netns_ui.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-4-9",
               "description": "slirp4netns 不在環境では Network modal 上部に「⚠ slirp4netns not found — running in compatibility mode」warning が表示され、 Expose ボタンは disabled",
               "test": "[AC-S034-4-9] in tests/e2e/s034_netns_ui.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-4-10",
               "description": "isolation flag を変更した時、 「対象 worktree の全 tab を再起動する必要がある」 confirm dialog が出る",
               "test": "[AC-S034-4-10] in tests/e2e/s034_netns_ui.py",
-              "status": "pending"
+              "status": "done"
             }
           ],
           "tasks": {
@@ -5383,68 +5383,68 @@
         },
         "S034-5": {
           "title": "Caddy integration — FQDN + SSL termination for exposed ports",
-          "status": "pending",
+          "status": "done",
           "user_story": "リモートから palmux2 で開発する開発者として、 expose したポートに自動で FQDN が付いて HTTPS でアクセスできてほしい。 なぜなら、 `localhost:13000` だと SSH トンネルや SOCKS proxy のセットアップが必要で、 スマホやタブレットから素直に開けないからだ。 portman + Caddy で慣れているフローを netns 隔離下でも維持したい。",
           "acceptance_criteria": [
             {
               "id": "AC-S034-5-1",
               "description": "Global settings (`~/.config/palmux/settings.json`) に `caddy: {enabled, fqdnTemplate, configPath, reloadCmd}` が追加される。 デフォルト: `enabled: false` (明示 opt-in)、 `fqdnTemplate: \"{repo}-{branch}-{port}.dev.example.com\"` (placeholder)、 `configPath: \"~/.config/palmux/caddy/active.caddyfile\"`、 `reloadCmd: \"caddy reload --config /etc/caddy/Caddyfile\"`",
               "test": "[AC-S034-5-1] in tests/acceptance/s034_caddy.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-5-2",
               "description": "Caddy 連携が enabled で `POST /ports/expose` が成功すると、 `caddy.configPath` に reverse_proxy snippet が追記され、 `caddy.reloadCmd` が実行される。 snippet 形式は `<fqdn> { reverse_proxy localhost:<hostPort> }` の Caddyfile syntax",
               "test": "[AC-S034-5-2] in tests/acceptance/s034_caddy.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-5-3",
               "description": "`POST /ports/expose` のレスポンスに `publicUrl: \"https://<fqdn>\"` が含まれる (Caddy 連携 enabled 時のみ)",
               "test": "[AC-S034-5-3] in tests/acceptance/s034_caddy.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-5-4",
               "description": "`DELETE /ports/{hostPort}` で対応する Caddy snippet も削除され、 reload される",
               "test": "[AC-S034-5-4] in tests/acceptance/s034_caddy.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-5-5",
               "description": "FQDN template の placeholder `{repo}` `{branch}` `{port}` `{hostPort}` が repo / branch 名 / internal port / host port で置換される。 unsafe 文字はサニタイズ (`/` → `-`、 lowercase)",
               "test": "[AC-S034-5-5] in tests/acceptance/s034_caddy.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-5-6",
               "description": "`caddy` バイナリが PATH に無い、 または `reloadCmd` が失敗した場合、 expose 自体は成功させるが warning ログ + Network modal に「Caddy reload failed」インジケータを表示。 base port forward は機能継続",
               "test": "[AC-S034-5-6] in tests/acceptance/s034_caddy.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-5-7",
               "description": "worktree close 時に対応する Caddy snippet が全削除される (Caddy が孤児 reverse_proxy を持ったままにならない)",
               "test": "[AC-S034-5-7] in tests/acceptance/s034_caddy.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-5-8",
               "description": "Network modal の Public ports 行に FQDN 列が追加され、 `https://...` リンクが click で新規タブ open。 Caddy 無効時は列が表示されない",
               "test": "[AC-S034-5-8] in tests/e2e/s034_netns_ui.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-5-9",
               "description": "Settings ページに Caddy 設定 (toggle + fqdnTemplate / configPath / reloadCmd 編集) が追加され、 PATCH `/api/settings` で永続化される",
               "test": "[AC-S034-5-9] in tests/e2e/s034_netns_ui.py",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S034-5-10",
               "description": "起動時に `caddy version` を試行、 Caddy 未インストール環境では Settings の Caddy セクションに 「⚠ caddy binary not found」 と表示し、 toggle を disable",
               "test": "[AC-S034-5-10] in tests/e2e/s034_netns_ui.py",
-              "status": "pending"
+              "status": "done"
             }
           ],
           "tasks": {

@@ -3,9 +3,11 @@ import { useParams } from 'react-router-dom'
 
 import { useViewport } from '../hooks/use-viewport'
 import { selectBranchById, selectRepoById, usePalmuxStore } from '../stores/palmux-store'
+import { useNetnsStore } from '../stores/netns'
 
 import { useCommandPaletteStore } from './command-palette/store'
 import { ActivityInbox } from './inbox/activity-inbox'
+import { IsolatedBadge, NetworkModal } from './network-modal'
 import styles from './header.module.css'
 
 const SPLIT_MIN_WIDTH = 900
@@ -29,6 +31,17 @@ export function Header() {
   const viewport = useViewport()
   const mobile = viewport === 'mobile'
 
+  // S034: network isolation badge + modal
+  const netnsModalOpen = useNetnsStore((s) => s.modalOpen)
+  const netnsModalBranchId = useNetnsStore((s) => s.modalBranchId)
+  const netnsModalRepoId = useNetnsStore((s) => s.modalRepoId)
+  const openNetnsModal = useNetnsStore((s) => s.openModal)
+  const closeNetnsModal = useNetnsStore((s) => s.closeModal)
+  // Determine isolation state: branch has isolation active if we have a listener
+  // entry for it OR the repo's isolateNetwork === 'on'. Use listeners presence
+  // as the runtime indicator (populated after branch open).
+  const isIsolated = repo?.isolateNetwork === 'on' || (branchId ? branchId in useNetnsStore.getState().listeners : false)
+
   const onToggleDrawer = () => {
     if (mobile) {
       setMobileDrawerOpen(!mobileDrawerOpen)
@@ -37,7 +50,14 @@ export function Header() {
     }
   }
 
+  const handleIsolatedBadgeClick = () => {
+    if (repoId && branchId) {
+      openNetnsModal(repoId, branchId)
+    }
+  }
+
   return (
+    <>
     <header className={styles.header}>
       <div className={styles.left}>
         <button
@@ -58,6 +78,10 @@ export function Header() {
         )}
       </div>
       <div className={styles.right}>
+        {/* S034: show isolated badge when in an isolated worktree */}
+        {isIsolated && repoId && branchId && (
+          <IsolatedBadge onClick={handleIsolatedBadgeClick} />
+        )}
         <ActivityInbox />
         <button
           className={styles.iconBtn}
@@ -103,6 +127,17 @@ export function Header() {
         <span className={`${styles.dot} ${styles[status]}`} title={status} />
       </div>
     </header>
+
+    {/* S034: Network modal, opened by isolated badge or worktree context menu */}
+    {netnsModalOpen && netnsModalRepoId && netnsModalBranchId && (
+      <NetworkModal
+        repoId={netnsModalRepoId}
+        branchId={netnsModalBranchId}
+        branchName={branch?.name ?? netnsModalBranchId}
+        onClose={closeNetnsModal}
+      />
+    )}
+    </>
   )
 }
 

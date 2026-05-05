@@ -315,6 +315,7 @@ function RepoItem({
   const star = usePalmuxStore((s) => s.starRepo)
   const closeRepo = usePalmuxStore((s) => s.closeRepo)
   const setLastActiveBranch = usePalmuxStore((s) => s.setLastActiveBranch)
+  const setIsolateNetwork = usePalmuxStore((s) => s.setIsolateNetwork)
   const listStaleSubagentWorktrees = usePalmuxStore(
     (s) => s.listStaleSubagentWorktrees,
   )
@@ -388,12 +389,21 @@ function RepoItem({
   }, [repo.openBranches])
 
   const showMenuAt = (x: number, y: number) => {
+    const isIsolated = repo.isolateNetwork === 'on'
     showContextMenu(
       [
         { type: 'heading', label: repoDisplayName(repo) },
         {
           label: repo.starred ? 'Unstar' : 'Star',
           onClick: () => star(repo.id, !repo.starred),
+        },
+        { type: 'separator' },
+        // S034: per-repo network isolation default toggle.
+        {
+          label: isIsolated
+            ? '🛡 Isolation ON (new worktrees) — click to turn OFF'
+            : '🔓 Isolation OFF (new worktrees) — click to turn ON',
+          onClick: () => void setIsolateNetwork(repo.id, isIsolated ? 'off' : 'on'),
         },
         { type: 'separator' },
         {

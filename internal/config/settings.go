@@ -137,6 +137,44 @@ type Settings struct {
 	// Palette (S032) holds palette-specific settings, currently just
 	// user-defined commands shown in ⌘K '>' mode.
 	Palette *PaletteSettings `json:"palette,omitempty"`
+
+	// NetworkIsolation (S034) holds global network isolation settings.
+	// Per-repo defaults are stored in repos.json; this controls the
+	// Caddy reverse-proxy integration and global default behaviour.
+	NetworkIsolation *NetworkIsolationSettings `json:"networkIsolation,omitempty"`
+}
+
+// NetworkIsolationSettings holds global network isolation configuration (S034).
+type NetworkIsolationSettings struct {
+	// DefaultIsolate is the global default for isolateNetwork on new repos.
+	// Repo-level setting in repos.json overrides this.
+	DefaultIsolate bool `json:"defaultIsolate"`
+
+	// Caddy holds Caddy reverse-proxy integration settings.
+	Caddy CaddySettings `json:"caddy"`
+}
+
+// CaddySettings holds configuration for the optional Caddy reverse-proxy
+// integration that gives exposed ports a stable FQDN + TLS. (S034-5)
+type CaddySettings struct {
+	// Enabled controls whether Caddy snippets are written on port-expose.
+	Enabled bool `json:"enabled"`
+
+	// FQDNTemplate is a Go template with placeholders {repo} {branch} {port} {hostPort}.
+	// Example: "{repo}-{branch}-{port}.example.com"
+	FQDNTemplate string `json:"fqdnTemplate,omitempty"`
+
+	// ConfigPath is the path where palmux writes the Caddy snippet file.
+	// Default: ~/.config/palmux/caddy/active.caddyfile
+	ConfigPath string `json:"configPath,omitempty"`
+
+	// ReloadCmd is the shell command to reload Caddy after snippet changes.
+	// Default: "caddy reload --config ~/.config/caddy/Caddyfile"
+	ReloadCmd string `json:"reloadCmd,omitempty"`
+
+	// Available indicates whether the caddy binary was found at startup.
+	// This is a runtime field — not persisted.
+	Available bool `json:"available,omitempty"`
 }
 
 // DefaultAttachmentUploadDir is the fallback when the user has not
@@ -183,6 +221,14 @@ const DefaultReadPreviewLineCount = 50
 // completed runs surface promptly.
 const DefaultSubagentStaleAfterDays = 7
 
+// DefaultCaddyFQDNTemplate is the default FQDN template for the optional
+// Caddy reverse-proxy integration. Placeholders: {{.branch}} {{.port}} {{.repo}}.
+const DefaultCaddyFQDNTemplate = "{{.branch}}-{{.port}}.example.com"
+
+// DefaultCaddyReloadCmd is the default command used to reload Caddy after
+// a snippet change.
+const DefaultCaddyReloadCmd = "caddy reload"
+
 // DefaultSettings returns a Settings populated with built-in defaults.
 func DefaultSettings() Settings {
 	return Settings{
@@ -191,6 +237,12 @@ func DefaultSettings() Settings {
 		AttachmentTtlDays:        DefaultAttachmentTtlDays,
 		MaxClaudeTabsPerBranch:   DefaultMaxClaudeTabsPerBranch,
 		MaxBashTabsPerBranch:     DefaultMaxBashTabsPerBranch,
+		NetworkIsolation: &NetworkIsolationSettings{
+			Caddy: CaddySettings{
+				FQDNTemplate: DefaultCaddyFQDNTemplate,
+				ReloadCmd:    DefaultCaddyReloadCmd,
+			},
+		},
 		PreviewMaxBytes:          DefaultPreviewMaxBytes,
 		AutoWorktreePathPatterns: append([]string(nil), DefaultAutoWorktreePathPatterns...),
 		ReadPreviewLineCount:     DefaultReadPreviewLineCount,
@@ -349,6 +401,27 @@ func (s *SettingsStore) Patch(update Settings) (Settings, error) {
 		}
 		s.settings.Palette.UserCommands = update.Palette.UserCommands
 	}
+	// S034: network isolation + Caddy settings.
+	if update.NetworkIsolation != nil {
+		if s.settings.NetworkIsolation == nil {
+			s.settings.NetworkIsolation = &NetworkIsolationSettings{}
+		}
+		ni := update.NetworkIsolation
+		s.settings.NetworkIsolation.DefaultIsolate = ni.DefaultIsolate
+		if ni.Caddy.FQDNTemplate != "" {
+			s.settings.NetworkIsolation.Caddy.FQDNTemplate = ni.Caddy.FQDNTemplate
+		}
+		if ni.Caddy.ConfigPath != "" {
+			s.settings.NetworkIsolation.Caddy.ConfigPath = ni.Caddy.ConfigPath
+		}
+		if ni.Caddy.ReloadCmd != "" {
+			s.settings.NetworkIsolation.Caddy.ReloadCmd = ni.Caddy.ReloadCmd
+		}
+		// enabled/disabled is always written (bool field).
+		s.settings.NetworkIsolation.Caddy.Enabled = ni.Caddy.Enabled
+		// Available is a runtime-only field; never persist client-supplied value.
+		s.settings.NetworkIsolation.Caddy.Available = false
+	}
 	if err := s.save(); err != nil {
 		return Settings{}, err
 	}
@@ -402,6 +475,19 @@ func mergeWithDefaults(s *Settings, d Settings) {
 	// — is honoured as "user opted out of auto detection".
 	if s.AutoWorktreePathPatterns == nil {
 		s.AutoWorktreePathPatterns = append([]string(nil), d.AutoWorktreePathPatterns...)
+	}
+	// S034: Caddy defaults — always provide networkIsolation.caddy section.
+	if s.NetworkIsolation == nil {
+		s.NetworkIsolation = d.NetworkIsolation
+	} else {
+		if s.NetworkIsolation.Caddy.FQDNTemplate == "" {
+			s.NetworkIsolation.Caddy.FQDNTemplate = DefaultCaddyFQDNTemplate
+		}
+		if s.NetworkIsolation.Caddy.ReloadCmd == "" {
+			s.NetworkIsolation.Caddy.ReloadCmd = DefaultCaddyReloadCmd
+		}
+		// Runtime-only field: never carry it through from stored data.
+		s.NetworkIsolation.Caddy.Available = false
 	}
 }
 

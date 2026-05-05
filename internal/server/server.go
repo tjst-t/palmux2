@@ -15,6 +15,7 @@ import (
 
 	"github.com/tjst-t/palmux2/internal/auth"
 	"github.com/tjst-t/palmux2/internal/commands"
+	"github.com/tjst-t/palmux2/internal/netns"
 	"github.com/tjst-t/palmux2/internal/notify"
 	"github.com/tjst-t/palmux2/internal/portman"
 	"github.com/tjst-t/palmux2/internal/store"
@@ -34,6 +35,9 @@ type Deps struct {
 	BasePath     string
 	Logger       *slog.Logger
 	HealthDetail map[string]any // optional fields appended to /api/health
+	// Netns (S034) manages per-worktree network namespace isolation.
+	// Nil = isolation not available on this host.
+	Netns *netns.Manager
 }
 
 // NewMux builds the top-level mux: /auth, /api/* (auth-required) and the SPA
@@ -50,6 +54,14 @@ func NewMux(deps Deps) *http.ServeMux {
 	registerRoutes(apiMux, deps)
 	if deps.Tmux != nil {
 		registerTerminalWS(apiMux, deps)
+	}
+	// S034: port management + listener discovery endpoints.
+	if deps.Netns != nil {
+		ph := &portHandlers{netns: deps.Netns}
+		apiMux.HandleFunc("POST /api/repos/{repoId}/branches/{branchId}/ports/expose", ph.exposePort)
+		apiMux.HandleFunc("DELETE /api/repos/{repoId}/branches/{branchId}/ports/{hostPort}", ph.unexposePort)
+		apiMux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/ports", ph.listPorts)
+		apiMux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/listeners", ph.listListeners)
 	}
 
 	// Let registered tab providers attach their REST endpoints under their
@@ -77,13 +89,36 @@ func NewMux(deps Deps) *http.ServeMux {
 // registerRoutes attaches every Phase 1 API endpoint to the mux. Phase 2+
 // add their handlers in their own files but use the same mux.
 func registerRoutes(mux *http.ServeMux, deps Deps) {
+	// S034: check caddy availability at registration time and create a live
+	// CaddyIntegration that the settings PATCH handler can update dynamically.
+	caddyAvailable := false
+	var caddyInteg *netns.CaddyIntegration
+	if deps.Netns != nil {
+		caddyAvailable = netns.CheckCaddy() == nil
+		// Build initial CaddyConfig from current settings.
+		initial := deps.Store.Settings().Get()
+		var caddyCfg netns.CaddyConfig
+		if initial.NetworkIsolation != nil {
+			c := initial.NetworkIsolation.Caddy
+			caddyCfg = netns.CaddyConfig{
+				Enabled:      c.Enabled,
+				FQDNTemplate: c.FQDNTemplate,
+				ConfigPath:   c.ConfigPath,
+				ReloadCmd:    c.ReloadCmd,
+			}
+		}
+		caddyInteg = netns.NewCaddyIntegration(caddyCfg, deps.Logger)
+		deps.Netns.SetCaddy(caddyInteg)
+	}
 	h := &handlers{
-		store:        deps.Store,
-		logger:       deps.Logger,
-		healthDetail: deps.HealthDetail,
-		commands:     deps.Commands,
-		notify:       deps.Notify,
-		portman:      deps.Portman,
+		store:          deps.Store,
+		logger:         deps.Logger,
+		healthDetail:   deps.HealthDetail,
+		commands:       deps.Commands,
+		notify:         deps.Notify,
+		portman:        deps.Portman,
+		caddyAvailable: caddyAvailable,
+		caddy:          caddyInteg,
 	}
 
 	mux.HandleFunc("GET /api/health", h.health)
@@ -92,10 +127,13 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("GET /api/repos/available", h.availableRepos)
 	// S030: clone must be registered BEFORE {repoId}/open to avoid ambiguity.
 	mux.HandleFunc("POST /api/repos/clone", h.cloneRepo)
+	mux.HandleFunc("GET /api/repos/{repoId}", h.getRepo) // S034: singular repo by ID
 	mux.HandleFunc("POST /api/repos/{repoId}/open", h.openRepo)
 	mux.HandleFunc("POST /api/repos/{repoId}/close", h.closeRepo)
 	mux.HandleFunc("POST /api/repos/{repoId}/star", h.star)
 	mux.HandleFunc("POST /api/repos/{repoId}/unstar", h.unstar)
+	// S034: per-repo isolateNetwork flag.
+	mux.HandleFunc("PATCH /api/repos/{repoId}/isolate-network", h.setIsolateNetwork)
 	// S030: delete-preview and permanent delete.
 	mux.HandleFunc("GET /api/repos/{repoId}/delete-preview", h.deletePreview)
 	mux.HandleFunc("DELETE /api/repos/{repoId}", h.deleteRepo)
@@ -156,12 +194,14 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 
 // handlers groups every handler that needs Store access.
 type handlers struct {
-	store        *store.Store
-	logger       *slog.Logger
-	healthDetail map[string]any
-	commands     *commands.Detector
-	notify       *notify.Hub
-	portman      *portman.Client
+	store          *store.Store
+	logger         *slog.Logger
+	healthDetail   map[string]any
+	commands       *commands.Detector
+	notify         *notify.Hub
+	portman        *portman.Client
+	caddyAvailable bool             // S034: runtime check, not persisted
+	caddy          *netns.CaddyIntegration // S034: nil when Caddy unavailable; live config update target
 }
 
 // helpers ────────────────────────────────────────────────────────────────────

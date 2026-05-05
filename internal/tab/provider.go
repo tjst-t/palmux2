@@ -19,6 +19,11 @@ type WindowSpec struct {
 	Command string   // optional command to run; empty = default shell
 	Cwd     string   // optional cwd; empty = branch.WorktreePath
 	Env     []string // optional env additions
+	// NsenterPath (S034), if non-empty, causes the Store to prepend
+	// "nsenter --net=<NsenterPath> --" before the command when creating
+	// or attaching to this tmux window. Only terminal-type tabs (Claude /
+	// Bash) set this; Files / Git / Sprint tabs leave it empty.
+	NsenterPath string
 }
 
 // ProviderResult is what OnBranchOpen returns: the tabs to add to the

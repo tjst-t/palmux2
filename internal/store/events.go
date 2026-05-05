@@ -68,6 +68,11 @@ const (
 	// Other clients use this to refresh their Drawer's collapsed-repo
 	// header click target without forcing a full /api/repos refetch.
 	EventBranchLastActiveChanged EventType = "branch.lastActiveChanged"
+
+	// S034: emitted when the set of TCP listeners inside a worktree's netns
+	// changes. Payload: `{ worktreeId, listeners: [{port, processName, pid,
+	// exposed, hostPort}] }`.
+	EventNetnsListenersChanged EventType = "netns.listenersChanged"
 )
 
 // Event is one broadcastable change.

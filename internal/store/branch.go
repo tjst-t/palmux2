@@ -22,7 +22,13 @@ import (
 // Auto-registration of CLI-created worktrees goes through OpenBranchAuto
 // instead, which does NOT touch userOpenedBranches.
 func (s *Store) OpenBranch(ctx context.Context, repoID, branchName string) (*domain.Branch, error) {
-	return s.openBranchInternal(ctx, repoID, branchName, true)
+	return s.openBranchInternal(ctx, repoID, branchName, true, "")
+}
+
+// OpenBranchWithIsolate is like OpenBranch but accepts an isolateNetwork override.
+// isolateOverride: "on" | "off" | "" (empty = inherit repo-level setting).
+func (s *Store) OpenBranchWithIsolate(ctx context.Context, repoID, branchName, isolateOverride string) (*domain.Branch, error) {
+	return s.openBranchInternal(ctx, repoID, branchName, true, isolateOverride)
 }
 
 // OpenBranchAuto registers a branch the same way as OpenBranch but does
@@ -30,10 +36,10 @@ func (s *Store) OpenBranch(ctx context.Context, repoID, branchName string) (*dom
 // CLI-created worktrees stay in the `unmanaged` (or `subagent`) Drawer
 // section until the user explicitly promotes them.
 func (s *Store) OpenBranchAuto(ctx context.Context, repoID, branchName string) (*domain.Branch, error) {
-	return s.openBranchInternal(ctx, repoID, branchName, false)
+	return s.openBranchInternal(ctx, repoID, branchName, false, "")
 }
 
-func (s *Store) openBranchInternal(ctx context.Context, repoID, branchName string, markUserOpened bool) (*domain.Branch, error) {
+func (s *Store) openBranchInternal(ctx context.Context, repoID, branchName string, markUserOpened bool, isolateOverride string) (*domain.Branch, error) {
 	branchName = strings.TrimSpace(branchName)
 	if branchName == "" {
 		return nil, fmt.Errorf("%w: branchName empty", ErrInvalidArg)
@@ -64,10 +70,44 @@ func (s *Store) openBranchInternal(ctx context.Context, repoID, branchName strin
 		TabSet:       domain.TabSet{TmuxSession: sessionName},
 	}
 
-	// 3. Run each Provider's OnBranchOpen to gather windows + tab metadata.
+	// 3. Network namespace lifecycle (S034). If isolation is enabled for this
+	//    repo and the netns manager is available, create (or recover) the ns
+	//    before spawning tmux windows so the first window's command can be
+	//    wrapped with nsenter.
+	// isolateOverride ("on"|"off"|"") takes precedence over repo-level flag.
+	shouldIsolate := s.deps.RepoStore.IsolatesNetwork(repoID)
+	if isolateOverride == "on" {
+		shouldIsolate = true
+	} else if isolateOverride == "off" {
+		shouldIsolate = false
+	}
+	var nsenterPath string
+	if s.deps.Netns != nil && shouldIsolate {
+		ws, nsErr := s.deps.Netns.Create(ctx, branchID, "")
+		if nsErr != nil {
+			s.logger.Warn("openBranch: netns.Create failed, falling back to host network",
+				"branch", branchID, "err", nsErr)
+		} else if ws != nil && ws.IsolateNetwork {
+			nsenterPath = ws.NetnsPath
+			// Start port-discovery loop; events are broadcast via the store hub.
+			s.startNetnsDiscovery(ctx, repoID, branchID)
+		}
+	}
+
+	// 3b. Run each Provider's OnBranchOpen to gather windows + tab metadata.
 	specs, err := s.collectOpenSpecs(ctx, branch, false)
 	if err != nil {
 		return nil, err
+	}
+
+	// 3c. Inject nsenterPath into terminal-type windows so they launch inside
+	//     the netns. REST-only windows (NeedsTmuxWindow=false) are unaffected.
+	if nsenterPath != "" {
+		for i := range specs {
+			if specs[i].NsenterPath == "" {
+				specs[i].NsenterPath = nsenterPath
+			}
+		}
 	}
 
 	// 4. Bring up the tmux session with these windows. Idempotent: if the
@@ -173,6 +213,14 @@ func (s *Store) CloseBranch(ctx context.Context, repoID, branchID string) error 
 			s.logger.Warn("OnBranchClose error", "provider", p.Type(), "err", err)
 		}
 	}
+
+	// S034: tear down netns + slirp4netns for this worktree.
+	if s.deps.Netns != nil {
+		if err := s.deps.Netns.Destroy(ctx, branchID); err != nil {
+			s.logger.Warn("CloseBranch: netns.Destroy failed", "branch", branchID, "err", err)
+		}
+	}
+
 	s.hub.Publish(Event{Type: EventBranchClosed, RepoID: repoID, BranchID: branchID})
 	return nil
 }
@@ -282,7 +330,7 @@ func (s *Store) ensureSession(ctx context.Context, branch *domain.Branch, window
 			Name:       branch.TabSet.TmuxSession,
 			WindowName: first.Name,
 			Cwd:        firstNonEmpty(first.Cwd, cwd),
-			Command:    first.Command,
+			Command:    wrapWithNsenter(first.Command, first.NsenterPath),
 			Env:        first.Env,
 		})
 		if err != nil {
@@ -306,7 +354,7 @@ func (s *Store) ensureSession(ctx context.Context, branch *domain.Branch, window
 		err := s.deps.Tmux.NewWindow(ctx, branch.TabSet.TmuxSession, tmux.NewWindowOpts{
 			Name:    w.Name,
 			Cwd:     firstNonEmpty(w.Cwd, cwd),
-			Command: w.Command,
+			Command: wrapWithNsenter(w.Command, w.NsenterPath),
 			Env:     w.Env,
 		})
 		if err != nil {
@@ -314,6 +362,16 @@ func (s *Store) ensureSession(ctx context.Context, branch *domain.Branch, window
 		}
 	}
 	return nil
+}
+
+// wrapWithNsenter prepends `nsenter --net=<path> --` to a command string when
+// nsenterPath is non-empty. If command is empty, returns an empty string so
+// tmux opens a bare shell (nsenter cannot be applied to an empty command).
+func wrapWithNsenter(command, nsenterPath string) string {
+	if nsenterPath == "" || command == "" {
+		return command
+	}
+	return "nsenter --net=" + nsenterPath + " -- " + command
 }
 
 func firstNonEmpty(values ...string) string {
