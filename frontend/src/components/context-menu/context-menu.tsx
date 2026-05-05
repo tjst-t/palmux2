@@ -15,17 +15,25 @@ export function ContextMenuRenderer() {
   const ref = useRef<HTMLDivElement | null>(null)
   const [pos, setPos] = useState({ x: 0, y: 0 })
 
-  // Recompute clamped position once the menu has measured itself, so the
-  // popover always fits inside the viewport (flips at the right/bottom edge).
+  // hotfix: Windows-style cursor-anchored flip. Default places the
+  // cursor at the menu's top-left (menu extends right + down). When
+  // the menu would overflow:
+  //   - right edge → cursor at top-right (extend left + down)
+  //   - bottom edge → cursor at bottom-left (extend right + up)
+  //   - both → cursor at bottom-right (extend left + up)
+  // The previous behaviour clamped the menu so it always fit, which
+  // could push the menu well away from the cursor near the edges.
   useLayoutEffect(() => {
     if (!open || !ref.current) return
     const r = ref.current.getBoundingClientRect()
     const vw = window.innerWidth
     const vh = window.innerHeight
-    let x = requestedX
-    let y = requestedY
-    if (x + r.width + EDGE_PADDING > vw) x = vw - r.width - EDGE_PADDING
-    if (y + r.height + EDGE_PADDING > vh) y = vh - r.height - EDGE_PADDING
+    const flipsRight = requestedX + r.width + EDGE_PADDING > vw
+    const flipsDown = requestedY + r.height + EDGE_PADDING > vh
+    let x = flipsRight ? requestedX - r.width : requestedX
+    let y = flipsDown ? requestedY - r.height : requestedY
+    // Last-resort clamp so a menu taller / wider than the viewport
+    // is at least visible at one edge rather than off-screen.
     if (x < EDGE_PADDING) x = EDGE_PADDING
     if (y < EDGE_PADDING) y = EDGE_PADDING
     setPos({ x, y })

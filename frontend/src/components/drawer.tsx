@@ -35,7 +35,7 @@
 // branch is the canonical primary, `[main]` badge, and stat icon
 // (● fresh / ◍ stale) for sub-branches.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { useLongPress } from '../hooks/use-long-press'
@@ -306,21 +306,9 @@ function RepoItem({
     else if (cat === 'subagent') setActiveChip('subagent')
   }, [activeRepo, activeBranch, repo.id, repo.openBranches])
 
-  const [overflowOpen, setOverflowOpen] = useState(false)
-  const overflowRef = useRef<HTMLDivElement>(null)
-
-  // Close overflow menu when clicking outside.
-  useEffect(() => {
-    if (!overflowOpen) return
-    const handler = (e: MouseEvent) => {
-      if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
-        setOverflowOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [overflowOpen])
-
+  // hotfix: overflow menu state retired — the ⋯ button now dispatches
+  // through the shared ContextMenuRenderer (portal at body level,
+  // Windows-style flip positioning).
   const [cleanupOpen, setCleanupOpen] = useState(false)
   const [cleanupLoading, setCleanupLoading] = useState(false)
   const [cleanupCandidates, setCleanupCandidates] = useState<
@@ -481,84 +469,62 @@ function RepoItem({
         >
           +
         </button>
-        <div ref={overflowRef} className={styles.overflowMenuWrap}>
-          <button
-            type="button"
-            className={`${styles.moreBtn} ${overflowOpen ? styles.moreBtnActive : ''}`}
-            onClick={(e) => {
-              e.stopPropagation()
-              setOverflowOpen((v) => !v)
-            }}
-            aria-label="More options"
-            title="More options"
-            data-testid="repo-more-btn"
-          >
-            ⋯
-          </button>
-          {overflowOpen && (
-            <div className={styles.overflowMenu} role="menu" data-testid="repo-overflow-menu">
-              <button
-                className={styles.overflowItem}
-                role="menuitem"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setOverflowOpen(false)
-                  star(repo.id, !repo.starred)
-                }}
-              >
-                <span>{repo.starred ? '★' : '☆'}</span>
-                <span>{repo.starred ? 'Unstar' : 'Pin to top'}</span>
-              </button>
-              <button
-                className={styles.overflowItem}
-                role="menuitem"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setOverflowOpen(false)
-                  void navigator.clipboard.writeText(repo.ghqPath).catch(() => {})
-                }}
-              >
-                <span>📋</span>
-                <span>Copy ghq path</span>
-              </button>
-              <div className={styles.overflowDivider} />
-              {/* Close: remove from Palmux's management. ghq directory and
-                  worktrees stay on disk. Cheap, reversible. */}
-              <button
-                className={styles.overflowItem}
-                role="menuitem"
-                data-testid="repo-close-item"
-                onClick={async (e) => {
-                  e.stopPropagation()
-                  setOverflowOpen(false)
-                  const ok = await confirmDialog.ask({
-                    title: 'Close repository?',
-                    message: `${repo.ghqPath} will be removed from Palmux. The ghq directory and any worktrees stay on disk — reopen any time from "Open Repository…".`,
-                    confirmLabel: 'Close',
-                  })
-                  if (ok) await closeRepo(repo.id)
-                }}
-              >
-                <span>✕</span>
-                <span>Close repository</span>
-              </button>
-              {/* Delete: destructive — removes ghq directory + all worktrees. */}
-              <button
-                className={`${styles.overflowItem} ${styles.overflowItemDanger}`}
-                role="menuitem"
-                data-testid="repo-delete-item"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setOverflowOpen(false)
-                  onDeleteRepo()
-                }}
-              >
-                <span>🗑</span>
-                <span>Delete repository…</span>
-              </button>
-            </div>
-          )}
-        </div>
+        <button
+          type="button"
+          className={styles.moreBtn}
+          onClick={(e) => {
+            e.stopPropagation()
+            // hotfix: route through the shared ContextMenuRenderer
+            // (portal-rendered at body level, Windows-style flip
+            // positioning) instead of the in-drawer absolute popover
+            // that was confined to the drawer column. The cursor
+            // becomes the anchor and the menu can spill into the
+            // main pane like a real OS context menu.
+            const rect = (e.target as HTMLElement).getBoundingClientRect()
+            showContextMenu(
+              [
+                { type: 'heading', label: repoDisplayName(repo) },
+                {
+                  label: repo.starred ? 'Unstar' : 'Pin to top',
+                  onClick: () => star(repo.id, !repo.starred),
+                },
+                {
+                  label: 'Copy ghq path',
+                  onClick: () => {
+                    void navigator.clipboard.writeText(repo.ghqPath).catch(() => {})
+                  },
+                },
+                { type: 'separator' },
+                {
+                  label: 'Close repository',
+                  onClick: async () => {
+                    const ok = await confirmDialog.ask({
+                      title: 'Close repository?',
+                      message: `${repo.ghqPath} will be removed from Palmux. The ghq directory and any worktrees stay on disk — reopen any time from "Open Repository…".`,
+                      confirmLabel: 'Close',
+                    })
+                    if (ok) await closeRepo(repo.id)
+                  },
+                },
+                {
+                  label: 'Delete repository…',
+                  danger: true,
+                  onClick: () => onDeleteRepo(),
+                },
+              ],
+              // Anchor the menu just below the ⋯ button's right edge,
+              // so the menu's top-left starts at that point and the
+              // shared positioning logic flips it left when needed.
+              rect.right - 4,
+              rect.bottom + 2,
+            )
+          }}
+          aria-label="More options"
+          title="More options"
+          data-testid="repo-more-btn"
+        >
+          ⋯
+        </button>
       </div>
 
       {/* Glance line — only visible when collapsed. */}
