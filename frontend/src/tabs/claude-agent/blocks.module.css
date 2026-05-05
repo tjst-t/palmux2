@@ -5,7 +5,7 @@
   white-space: pre-wrap;
   word-wrap: break-word;
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.55;
   color: var(--color-fg);
 }
 
@@ -16,8 +16,29 @@
   margin-bottom: 0;
 }
 
+/* react-markdown + remark-gfm wraps each <li>'s content in <p> when
+   any blank line separates items (a "loose" list). Without this
+   override the paragraph carries the 8px block gap above and the
+   bullets visually drift apart by a full line-height — much sparser
+   than Claude's app, which keeps bullets tight regardless of source
+   blank lines. Strip the inner-block margin so loose lists render
+   with the same density as tight lists. */
+.text li > :is(p, ul, ol) {
+  margin: 0;
+}
+/* Then add a small inter-item gap so they don't fuse — roughly the
+   visual density of Claude's official app (~5px between bullets). */
+.text li + li {
+  margin-top: 5px;
+}
+/* For nested lists the block-level child needs a small top margin
+   so the sub-list separates from its parent's text line. */
+.text li > :is(ul, ol) {
+  margin-top: 4px;
+}
+
 .text h1, .text h2, .text h3, .text h4 {
-  margin: var(--space-3) 0 var(--space-2);
+  margin: var(--space-2) 0 6px;
   font-weight: 600;
   line-height: 1.3;
 }
@@ -456,6 +477,10 @@
 .toolResultMarkdown ul,
 .toolResultMarkdown ol { padding-left: 1.4em; margin: var(--space-1) 0; }
 .toolResultMarkdown li { margin: 2px 0; }
+/* Same loose-list fix as `.text`: <p> wrapped inside <li> shouldn't
+   carry the block gap. */
+.toolResultMarkdown li > :is(p, ul, ol) { margin: 0; }
+.toolResultMarkdown li > :is(ul, ol) { margin-top: 2px; }
 .toolResultMarkdown code {
   background: var(--color-bg);
   padding: 1px 4px;
