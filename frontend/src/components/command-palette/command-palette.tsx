@@ -704,6 +704,18 @@ function PaletteInner({
     }
 
     if (mode === 'all') {
+      // hotfix: rank command-kind items by matchScore in `all` mode too,
+      // so a plain query like `make serve` (no `>` prefix) puts the
+      // exact `make serve` at the top of the commands cap rather than
+      // returning a few alphabetically-first hits like
+      // `make build-storage-servers`. capByKind preserves input order
+      // within each bucket, so we sort the cmd items in place here.
+      if (needle) {
+        const cmds = out.filter((it) => it.kind === 'command')
+        const others = out.filter((it) => it.kind !== 'command')
+        cmds.sort((a, b) => matchScore(a.searchable, needle) - matchScore(b.searchable, needle))
+        out.splice(0, out.length, ...others, ...cmds)
+      }
       // Cap each kind so the list stays scannable.
       return capByKind(out, 6)
     }
