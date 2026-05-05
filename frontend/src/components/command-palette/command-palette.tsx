@@ -79,6 +79,36 @@ function fuzzyContains(haystack: string, needle: string): boolean {
   return tokens.every((t) => lh.includes(t))
 }
 
+// Lower score = better match. Used to rank command-mode results so the
+// closest match is at the top — `>make serve` should put `make serve`
+// above `make serve-storage` and way above `make build-storage-servers`.
+//
+// Tier 1 (0–9999): the full needle appears as a contiguous substring
+//   (e.g. "make serve" is in both "make serve" and "make serve-storage").
+//   Score by the substring's position, with shorter haystacks winning
+//   the tiebreak so the most-exact match floats to the top.
+//
+// Tier 2 (10000+): the tokens match individually but not contiguously
+//   (e.g. "make build-storage-servers" matches "make" + "serve" via
+//   "servers"). Score by the sum of each token's earliest position.
+function matchScore(haystack: string, needle: string): number {
+  const lh = haystack.toLowerCase()
+  const ln = needle.toLowerCase().trim()
+  if (!ln) return 0
+  const exactIdx = lh.indexOf(ln)
+  if (exactIdx >= 0) {
+    return exactIdx * 100 + Math.min(99, lh.length)
+  }
+  const tokens = ln.split(/\s+/).filter(Boolean)
+  let sum = 0
+  for (const t of tokens) {
+    const i = lh.indexOf(t)
+    if (i < 0) return Number.POSITIVE_INFINITY
+    sum += i
+  }
+  return 10000 + sum * 100 + Math.min(99, lh.length)
+}
+
 export function CommandPalette() {
   const open = useCommandPaletteStore((s) => s.open)
   const initialQuery = useCommandPaletteStore((s) => s.initialQuery)
@@ -592,9 +622,16 @@ function PaletteInner({
 
       // S032: cap command mode at 40 items so a large Makefile + user cmds +
       // builtins doesn't flood the list and stays scrollable.
+      // hotfix: rank cmdItems by matchScore so `> make serve` puts
+      // `make serve` above `make serve-storage` / `make build-storage
+      // -servers`. Builtins / user / Make / npm all flow through the
+      // same scorer using their `searchable` field.
       if (mode === 'command') {
         const cmdItems = out.filter((it) => it.kind === 'command')
         const others = out.filter((it) => it.kind !== 'command')
+        if (needle) {
+          cmdItems.sort((a, b) => matchScore(a.searchable, needle) - matchScore(b.searchable, needle))
+        }
         return [...others, ...cmdItems.slice(0, 40)]
       }
     }
