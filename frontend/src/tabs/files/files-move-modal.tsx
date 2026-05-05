@@ -57,10 +57,17 @@ export function FilesMoveModal({ items, apiBase, onClose, onCompleted }: Props) 
   const debounceRef = useRef<number | null>(null)
 
   // Derived preview: what each item's destination path will be.
+  // hotfix: a trailing `/` in single-item mode means "move into this
+  // directory, keep the basename" — same behaviour as `mv foo bar/`
+  // in shell. Without this, `to: "test/"` was silently stripped to
+  // `to: "test"` and the backend tried to rename hogehoge → test,
+  // colliding with the existing directory.
   const getDestPath = (item: Entry): string => {
     if (!isBatch) {
-      // Single: inputVal IS the full destination path
-      return inputVal.trim() || item.path
+      const t = inputVal.trim()
+      if (!t) return item.path
+      if (t.endsWith('/')) return `${t}${basename(item.path)}`
+      return t
     }
     // Batch: target dir + basename
     const dir = inputVal.trim().replace(/\/$/, '')
@@ -141,9 +148,15 @@ export function FilesMoveModal({ items, apiBase, onClose, onCompleted }: Props) 
           target: target.replace(/\/$/, ''),
         })
       } else {
+        // hotfix: trailing `/` → move into directory, preserve basename
+        // (shell `mv foo bar/` semantics). Otherwise the backend would
+        // rename foo → bar and collide with the existing directory.
+        const toPath = target.endsWith('/')
+          ? `${target}${basename(items[0].path)}`
+          : target
         await api.post<unknown>(`${apiBase}/move`, {
           from: items[0].path,
-          to: target.replace(/\/$/, ''),
+          to: toPath,
         })
       }
       onCompleted()
