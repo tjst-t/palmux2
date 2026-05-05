@@ -175,12 +175,31 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
     if (handle) handle.scrollToBottom('instant')
   }, [state.turns, state.status])
 
-  // Bridge scroll events from List → autoFollow flag.
+  // Bridge scroll events from List → autoFollow flag. We only flip
+  // autoFollow off in response to USER-driven scrolls (wheel / touch
+  // / keys). Programmatic scrolls — our own scrollToBottom call
+  // during streaming, scroll-restore on session load — are tagged
+  // isUserDriven=false and don't downgrade autoFollow even if they
+  // land a few pixels short of the bottom (react-window's
+  // scrollToRow uses estimated row heights, so undershoot during
+  // streaming is normal). Programmatic scrolls that *do* land near
+  // the bottom can still re-enable autoFollow, which keeps the
+  // user's choice stable.
   const onListScroll = useCallback(
-    (scrollTop: number, scrollHeight: number, clientHeight: number) => {
+    (
+      scrollTop: number,
+      scrollHeight: number,
+      clientHeight: number,
+      isUserDriven: boolean,
+    ) => {
       const atBottom = scrollHeight - scrollTop - clientHeight < 32
-      autoFollowRef.current = atBottom
-      setAutoFollow(atBottom)
+      if (isUserDriven) {
+        autoFollowRef.current = atBottom
+        setAutoFollow(atBottom)
+      } else if (atBottom) {
+        autoFollowRef.current = true
+        setAutoFollow(true)
+      }
       // Also keep containerRef in sync so the persist/restore hooks
       // resolve the live element each render.
       const el = listHandleRef.current?.element() ?? null

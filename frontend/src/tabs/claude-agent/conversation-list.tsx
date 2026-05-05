@@ -91,10 +91,20 @@ interface ConversationListProps {
    *  row heights — measurements from a different conversation are
    *  meaningless. Pass `''` until the first system/init lands. */
   sessionKey: string
-  /** Notified when the user scrolls. The parent uses this to maintain
-   *  the auto-follow flag (true = at-bottom, paint new turns;
-   *  false = leave alone). */
-  onScroll?: (scrollTop: number, scrollHeight: number, clientHeight: number) => void
+  /** Notified when the scroll position changes. `isUserDriven` is
+   *  true when the change was triggered by a recent wheel / touchmove
+   *  / keydown — i.e. the user actually moved the scrollbar. It is
+   *  false for programmatic scrolls (our own scrollToBottom call,
+   *  scroll-restore, etc). The parent uses this to avoid unsetting
+   *  autoFollow when a programmatic scroll lands a few pixels short
+   *  of the absolute bottom (which happens during streaming because
+   *  react-window scrolls against estimated row heights). */
+  onScroll?: (
+    scrollTop: number,
+    scrollHeight: number,
+    clientHeight: number,
+    isUserDriven: boolean,
+  ) => void
 }
 
 export const ConversationList = forwardRef<ConversationListHandle, ConversationListProps>(
@@ -159,17 +169,45 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
     // parent so it can update auto-follow without us having to
     // duplicate that state here. Depends on the resolved element so it
     // attaches the moment react-window mounts the container.
+    //
+    // We deliberately do NOT fire onScroll on attach: react-window's
+    // initial scrollTop is 0, but the parent treats autoFollow as
+    // "user wants to follow latest" — defaulting that to true is the
+    // right thing on session load (the auto-follow effect will scroll
+    // to bottom as soon as turns arrive). Firing onScroll once here
+    // would set autoFollow=false against the freshly mounted top
+    // position and break auto-follow on the very first AI chunk.
+    //
+    // To let the parent distinguish "user dragged the scrollbar" from
+    // "we just programmatically scrolled to bottom and react-window's
+    // estimate landed a few pixels short", we tag the scroll event
+    // with isUserDriven: true if a wheel/touchmove/keydown fired on
+    // the scroll container within the last 250ms. Otherwise false.
     useEffect(() => {
       if (!scrollEl || !onScroll) return
-      const handler = () => {
-        onScroll(scrollEl.scrollTop, scrollEl.scrollHeight, scrollEl.clientHeight)
+      let lastUserInputAt = 0
+      const markUser = () => {
+        lastUserInputAt = performance.now()
       }
-      scrollEl.addEventListener('scroll', handler)
-      // Fire once so the parent can sync atBottom against the resting
-      // scroll position (otherwise the auto-follow flag stays at its
-      // initial value until the user scrolls).
-      onScroll(scrollEl.scrollTop, scrollEl.scrollHeight, scrollEl.clientHeight)
-      return () => scrollEl.removeEventListener('scroll', handler)
+      const onScrollEvt = () => {
+        const isUserDriven = performance.now() - lastUserInputAt < 250
+        onScroll(
+          scrollEl.scrollTop,
+          scrollEl.scrollHeight,
+          scrollEl.clientHeight,
+          isUserDriven,
+        )
+      }
+      scrollEl.addEventListener('wheel', markUser, { passive: true })
+      scrollEl.addEventListener('touchmove', markUser, { passive: true })
+      scrollEl.addEventListener('keydown', markUser)
+      scrollEl.addEventListener('scroll', onScrollEvt)
+      return () => {
+        scrollEl.removeEventListener('wheel', markUser)
+        scrollEl.removeEventListener('touchmove', markUser)
+        scrollEl.removeEventListener('keydown', markUser)
+        scrollEl.removeEventListener('scroll', onScrollEvt)
+      }
     }, [scrollEl, onScroll])
 
     return (

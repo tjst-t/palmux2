@@ -222,9 +222,19 @@ export function TestHarness() {
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const [autoFollow, setAutoFollow] = useState(true)
+  // Mirror claude-agent-view's logic: only user-driven scrolls flip
+  // autoFollow off; programmatic ones can only confirm (set true) but
+  // not unset.
   const onListScroll = useCallback(
-    (scrollTop: number, scrollHeight: number, clientHeight: number) => {
-      setAutoFollow(scrollHeight - scrollTop - clientHeight < 32)
+    (
+      scrollTop: number,
+      scrollHeight: number,
+      clientHeight: number,
+      isUserDriven: boolean,
+    ) => {
+      const atBottom = scrollHeight - scrollTop - clientHeight < 32
+      if (isUserDriven) setAutoFollow(atBottom)
+      else if (atBottom) setAutoFollow(true)
     },
     [],
   )
