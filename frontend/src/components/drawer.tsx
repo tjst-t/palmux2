@@ -116,6 +116,27 @@ export function Drawer() {
     return map
   }, [sortedRepos])
 
+  // hotfix: basename collisions among the currently-open repos.
+  // RepoItem renders the owner prefix (`tjst-t/`) only when the
+  // repo's basename appears in this set — most users have unique
+  // basenames so the drawer reads as `cirrus`, `palmux2`, …
+  // rather than `tjst-t/cirrus`, `tjst-t/palmux2`. When two
+  // open repos share a basename (e.g. `tjst-t/blog` +
+  // `hiroto/blog`), both show the full owner/repo to disambiguate.
+  const duplicateBasenames = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const r of sortedRepos) {
+      const parts = r.ghqPath.split('/')
+      const base = parts[parts.length - 1]
+      counts.set(base, (counts.get(base) ?? 0) + 1)
+    }
+    return new Set(
+      Array.from(counts.entries())
+        .filter(([, n]) => n > 1)
+        .map(([base]) => base),
+    )
+  }, [sortedRepos])
+
   // Status-strip metrics.
   const { activeCount, totalCount } = useMemo(() => {
     let active = 0
@@ -150,6 +171,7 @@ export function Drawer() {
           count={sortedRepos.length}
           repos={sortedRepos}
           numbering={numbering}
+          duplicateBasenames={duplicateBasenames}
           expandedRepoId={expandedRepoId}
           setExpandedRepoId={handleSetExpanded}
           onAddBranch={(repoId) => setPickerType({ branchOf: repoId })}
@@ -227,6 +249,7 @@ function DrawerSection({
   count,
   repos,
   numbering,
+  duplicateBasenames,
   expandedRepoId,
   setExpandedRepoId,
   onAddBranch,
@@ -236,6 +259,10 @@ function DrawerSection({
   count: number
   repos: Repository[]
   numbering: Map<string, number>
+  /** Set of basenames that occur on more than one repo — those rows
+   *  show the owner prefix to disambiguate. Unique basenames render
+   *  bare (just `cirrus`, not `tjst-t/cirrus`). */
+  duplicateBasenames: Set<string>
   expandedRepoId: string | null
   setExpandedRepoId: (id: string | null) => void
   onAddBranch: (repoId: string) => void
@@ -253,6 +280,7 @@ function DrawerSection({
             key={repo.id}
             repo={repo}
             number={numbering.get(repo.id) ?? 0}
+            duplicateBasenames={duplicateBasenames}
             expanded={expandedRepoId === repo.id}
             onSetExpanded={setExpandedRepoId}
             onAddBranch={() => onAddBranch(repo.id)}
@@ -267,6 +295,7 @@ function DrawerSection({
 function RepoItem({
   repo,
   number,
+  duplicateBasenames,
   expanded,
   onSetExpanded,
   onAddBranch,
@@ -274,6 +303,7 @@ function RepoItem({
 }: {
   repo: Repository
   number: number
+  duplicateBasenames: Set<string>
   expanded: boolean
   onSetExpanded: (id: string | null) => void
   onAddBranch: () => void
@@ -443,7 +473,15 @@ function RepoItem({
           data-action="repo-toggle"
           title={repo.ghqPath}
         >
-          {scope && <span className={styles.scope}>{scope}/</span>}
+          {/* hotfix: hide owner scope when the basename is unique
+             across the open repos. Show full `owner/name` only when
+             two or more repos share the same basename (e.g.
+             tjst-t/blog + hiroto/blog) so the user can tell them
+             apart. The full ghqPath is still in the title= for
+             on-hover discovery. */}
+          {scope && duplicateBasenames.has(name) && (
+            <span className={styles.scope}>{scope}/</span>
+          )}
           {name}
         </button>
         <button
