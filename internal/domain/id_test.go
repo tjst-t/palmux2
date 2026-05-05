@@ -47,7 +47,9 @@ func TestBranchSlugID(t *testing.T) {
 	}{
 		{"/x/y/repo", "main", "main--"},
 		{"/x/y/repo", "feature/new-ui", "feature--new-ui--"},
-		{"/x/y/repo", "hotfix/v1.2", "hotfix--v1.2--"},
+		{"/x/y/repo", "hotfix/v1.2", "hotfix--v1_2--"},
+		{"/x/y/palmux2", "v0.5", "v0_5--"},
+		{"/x/y/palmux2", "release/2.3", "release--2_3--"},
 	}
 	for _, c := range cases {
 		got := BranchSlugID(c.repo, c.branch)
@@ -73,8 +75,11 @@ func TestSanitizeSlug(t *testing.T) {
 	if got := sanitizeSlug("foo/bar"); got != "foo_bar" {
 		t.Errorf("sanitizeSlug = %q, want foo_bar", got)
 	}
-	if got := sanitizeSlug("ok.name-1_2"); got != "ok.name-1_2" {
-		t.Errorf("sanitizeSlug should leave allowed chars alone, got %q", got)
+	if got := sanitizeSlug("ok.name-1_2"); got != "ok_name-1_2" {
+		t.Errorf("sanitizeSlug should sanitize '.' for tmux compat, got %q", got)
+	}
+	if got := sanitizeSlug("v0.5"); got != "v0_5" {
+		t.Errorf("sanitizeSlug(v0.5) = %q, want v0_5", got)
 	}
 }
 

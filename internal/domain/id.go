@@ -15,7 +15,9 @@ import (
 // human-readable IDs with negligible collision risk in practice.
 const hashLen = 4
 
-var nonSlugRune = regexp.MustCompile(`[^a-zA-Z0-9._-]`)
+// `.` is excluded so branch/repo names like "v0.5" or "next.js" produce slugs
+// that are valid tmux session names (tmux forbids period/colon/space).
+var nonSlugRune = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
 
 // RepoSlugID converts a ghq-relative path (e.g. "github.com/tjst-t/palmux")
 // into a human-readable, URL-safe ID like "tjst-t--palmux--a1b2".
