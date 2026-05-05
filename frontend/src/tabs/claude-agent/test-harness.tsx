@@ -135,6 +135,11 @@ export function TestHarness() {
   const showCompactBoundary = params.get('compactBoundary') === '1'
   const showCompactingSpinner = params.get('compacting') === '1'
   const showRewind = params.get('rewind') === '1'
+  // Hotfix probe: wire onScroll → autoFollow + render the
+  // "scroll-to-latest" button so E2E can verify the bug where the
+  // button never appeared (because ConversationList's scroll listener
+  // wasn't getting attached).
+  const showAutoFollow = params.get('autofollow') === '1'
 
   const baseTurns = useMemo(
     () => syntheticTurns(turnsCount, readLines, showCompactBoundary),
@@ -216,6 +221,13 @@ export function TestHarness() {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
+  const [autoFollow, setAutoFollow] = useState(true)
+  const onListScroll = useCallback(
+    (scrollTop: number, scrollHeight: number, clientHeight: number) => {
+      setAutoFollow(scrollHeight - scrollTop - clientHeight < 32)
+    },
+    [],
+  )
 
   // S018: Cmd+F search wiring. Always created so the harness can be
   // queried by E2E even when search=0 — but the bar only renders when
@@ -385,8 +397,42 @@ export function TestHarness() {
             turns={displayTurns}
             sessionKey={sessionId}
             renderTurn={renderTurn}
+            onScroll={showAutoFollow ? onListScroll : undefined}
           />
         </ClaudeSearchProvider>
+        {showAutoFollow && !autoFollow && (
+          <button
+            type="button"
+            data-testid="harness-scroll-to-bottom"
+            data-autofollow="false"
+            onClick={() => {
+              listHandleRef.current?.scrollToBottom('instant')
+              setAutoFollow(true)
+            }}
+            style={{
+              position: 'absolute',
+              bottom: 16,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              padding: '6px 12px',
+              borderRadius: 16,
+              border: '1px solid var(--color-border)',
+              background: 'var(--color-elevated)',
+              color: 'var(--color-fg)',
+              cursor: 'pointer',
+              zIndex: 5,
+            }}
+          >
+            ↓ Scroll to latest
+          </button>
+        )}
+        {showAutoFollow && (
+          <div
+            data-testid="harness-autofollow"
+            data-value={autoFollow ? 'true' : 'false'}
+            style={{ display: 'none' }}
+          />
+        )}
       </div>
     </div>
   )

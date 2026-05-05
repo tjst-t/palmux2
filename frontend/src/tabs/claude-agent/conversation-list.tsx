@@ -23,6 +23,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
 } from 'react'
 import {
   List,
@@ -98,7 +99,19 @@ interface ConversationListProps {
 
 export const ConversationList = forwardRef<ConversationListHandle, ConversationListProps>(
   function ConversationList({ turns, renderTurn, sessionKey, onScroll }, ref) {
-    const listRef = useRef<ListImperativeAPI>(null)
+    // Use a callback ref + useState combo so the component re-renders
+    // when react-window's imperative API actually becomes ready. Plain
+    // useRef + a useEffect with stable deps wouldn't see the API land:
+    // List stores its container DOM in its own useState(null) and only
+    // populates it via a ref callback during commit, so listRef.current
+    // is empty on the first useEffect tick — and stable-dep effects
+    // never re-run to pick up the second render.
+    const listRef = useRef<ListImperativeAPI | null>(null)
+    const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
+    const setListApi = useCallback((api: ListImperativeAPI | null) => {
+      listRef.current = api
+      setScrollEl(api?.element ?? null)
+    }, [])
     // 200px is a reasonable initial guess for an unmeasured turn
     // (one short user message + a tool block). Real heights replace
     // it as soon as ResizeObserver fires.
@@ -144,20 +157,24 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
 
     // Wire scroll events from the inner scroll container up to the
     // parent so it can update auto-follow without us having to
-    // duplicate that state here.
+    // duplicate that state here. Depends on the resolved element so it
+    // attaches the moment react-window mounts the container.
     useEffect(() => {
-      const el = listRef.current?.element ?? null
-      if (!el || !onScroll) return
+      if (!scrollEl || !onScroll) return
       const handler = () => {
-        onScroll(el.scrollTop, el.scrollHeight, el.clientHeight)
+        onScroll(scrollEl.scrollTop, scrollEl.scrollHeight, scrollEl.clientHeight)
       }
-      el.addEventListener('scroll', handler)
-      return () => el.removeEventListener('scroll', handler)
-    }, [onScroll])
+      scrollEl.addEventListener('scroll', handler)
+      // Fire once so the parent can sync atBottom against the resting
+      // scroll position (otherwise the auto-follow flag stays at its
+      // initial value until the user scrolls).
+      onScroll(scrollEl.scrollTop, scrollEl.scrollHeight, scrollEl.clientHeight)
+      return () => scrollEl.removeEventListener('scroll', handler)
+    }, [scrollEl, onScroll])
 
     return (
       <List
-        listRef={listRef}
+        listRef={setListApi}
         rowComponent={Row}
         rowCount={turns.length}
         rowHeight={dynamicHeight}
