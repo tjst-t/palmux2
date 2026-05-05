@@ -206,6 +206,39 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
           }
           return
         }
+        // hotfix: splat doesn't exist (404 / not found). Most common
+        // cause is the user moved or deleted the path they were
+        // viewing — walk up the tree to the first ancestor that
+        // still exists and navigate there so the URL stays in sync
+        // with on-disk reality. Fall through to the error path only
+        // if even the worktree root has gone (very unusual).
+        let walked = dirnameOf(splat)
+        let resolvedAncestor: { path: string; entries: Entry[] } | null = null
+        while (walked) {
+          try {
+            const dir = await api.get<DirResponse>(`${apiBase}?path=${encodeURIComponent(walked)}`)
+            resolvedAncestor = { path: walked, entries: dir.entries ?? [] }
+            break
+          } catch {
+            walked = dirnameOf(walked)
+          }
+        }
+        if (resolvedAncestor === null && walked === '') {
+          // root probe — should always succeed unless the worktree itself is gone
+          try {
+            const dir = await api.get<DirResponse>(`${apiBase}?path=`)
+            resolvedAncestor = { path: '', entries: dir.entries ?? [] }
+          } catch {
+            // give up, fall through
+          }
+        }
+        if (!cancelled && resolvedAncestor !== null) {
+          // Replace the URL so the next render is consistent with what
+          // we actually loaded — the user shouldn't be left looking at
+          // a dead splat in the address bar.
+          goToDir(resolvedAncestor.path)
+          return
+        }
         if (!cancelled) {
           setEntries([])
           setError(msg)
@@ -217,7 +250,7 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
     return () => {
       cancelled = true
     }
-  }, [isUrlPanel, apiBase, splat, refreshTick])
+  }, [isUrlPanel, apiBase, splat, refreshTick, goToDir])
 
   useEffect(() => {
     if (isUrlPanel) return
