@@ -25,6 +25,12 @@ export class ReconnectingWebSocket {
   private retryCount = 0
   private retryTimer: ReturnType<typeof setTimeout> | null = null
   private intentionallyClosed = false
+  // hotfix: queue sends issued before the socket reaches OPEN. The
+  // ⌘K → run-on-Bash flow synchronously sends `make foo\r` right
+  // after navigate(), which fires before terminal-view has finished
+  // mounting and opening the WS. Without this buffer the input was
+  // silently dropped (send() returned false).
+  private sendBuffer: (string | ArrayBuffer | Blob)[] = []
 
   constructor(opts: ReconnectingWSOptions) {
     this.opts = {
@@ -48,6 +54,13 @@ export class ReconnectingWebSocket {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(data)
       return true
+    }
+    // hotfix: queue while connecting / closed-pending-reconnect.
+    // Cap the buffer to avoid runaway memory if the socket never
+    // opens — 64 frames is generous for a single user typing /
+    // pasting commands.
+    if (this.sendBuffer.length < 64) {
+      this.sendBuffer.push(data)
     }
     return false
   }
@@ -81,6 +94,12 @@ export class ReconnectingWebSocket {
     ws.onopen = () => {
       this.retryCount = 0
       this.setState('open')
+      // Flush anything queued while the socket was connecting.
+      if (this.sendBuffer.length > 0) {
+        const queued = this.sendBuffer
+        this.sendBuffer = []
+        for (const data of queued) ws.send(data)
+      }
     }
     ws.onmessage = (ev) => this.opts.onMessage(ev)
     ws.onerror = (ev) => this.opts.onError(ev)

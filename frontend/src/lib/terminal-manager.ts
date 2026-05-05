@@ -28,9 +28,16 @@ export interface ManagedTerminal {
 class TerminalManager {
   private active = new Map<string, ManagedTerminal>()
   private cached: ManagedTerminal[] = [] // LRU: index 0 = oldest
+  // hotfix: pending inputs accumulated for terminals that aren't
+  // registered yet. Flushed on acquire(). Lets ⌘K's `> make serve`
+  // from the Claude tab actually run on the Bash tab — the navigate
+  // is synchronous but the bash terminal-view mount + ws connect
+  // happen on the next paint, so sendInput would otherwise drop the
+  // command silently.
+  private pending = new Map<string, string[]>()
 
   /** Register a freshly-mounted terminal as Active. Promotes from Cached if
-   *  it was already known. */
+   *  it was already known. Flushes any inputs that arrived before mount. */
   acquire(t: ManagedTerminal): void {
     const cachedIdx = this.cached.findIndex((c) => c.key === t.key)
     if (cachedIdx >= 0) {
@@ -38,9 +45,23 @@ class TerminalManager {
       // have a live one. Caller is expected to check exists() first.
       const existing = this.cached.splice(cachedIdx, 1)[0]
       this.active.set(t.key, existing)
+      this.flushPending(t.key)
       return
     }
     this.active.set(t.key, t)
+    this.flushPending(t.key)
+  }
+
+  /** Send any queued sendInput payloads now that the terminal is live. */
+  private flushPending(key: string): void {
+    const queue = this.pending.get(key)
+    if (!queue || queue.length === 0) return
+    const m = this.active.get(key)
+    if (!m) return
+    for (const data of queue) {
+      m.ws.send(JSON.stringify({ type: 'input', data }))
+    }
+    this.pending.delete(key)
   }
 
   /** Move an Active terminal into Cached. Triggered when a tab becomes
@@ -63,6 +84,7 @@ class TerminalManager {
 
   /** Drop a terminal entirely. Used when a tab is removed by the user. */
   remove(key: string): void {
+    this.pending.delete(key)
     const fromActive = this.active.get(key)
     if (fromActive) {
       this.active.delete(key)
@@ -94,11 +116,19 @@ class TerminalManager {
     return { active: this.active.size, cached: this.cached.length }
   }
 
-  /** Send the same JSON input frame TerminalView uses. Returns true if the
-   *  terminal exists and the message was queued; false otherwise. */
+  /** Send the same JSON input frame TerminalView uses. If the terminal
+   *  isn't registered yet (e.g. ⌘K → Bash command from a Claude tab
+   *  while the Bash terminal-view hasn't mounted), the input is queued
+   *  and flushed in acquire(). Always returns true (the caller treats
+   *  this as fire-and-forget). */
   sendInput(key: string, data: string): boolean {
     const m = this.get(key)
-    if (!m) return false
+    if (!m) {
+      const q = this.pending.get(key) ?? []
+      q.push(data)
+      this.pending.set(key, q)
+      return true
+    }
     m.ws.send(JSON.stringify({ type: 'input', data }))
     return true
   }
