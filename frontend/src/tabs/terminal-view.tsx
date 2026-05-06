@@ -136,10 +136,33 @@ function buildTheme(): Terminal['options']['theme'] {
     foreground: readThemeVar('--color-fg', '#d4d4d8'),
     cursor: readThemeVar('--color-accent', '#7c8aff'),
     selectionBackground: 'rgba(124, 138, 255, 0.3)',
-    green: readThemeVar('--color-terminal-green', '#64d2a0'),
-    yellow: readThemeVar('--color-terminal-yellow', '#e8b45a'),
-    blue: readThemeVar('--color-terminal-blue', '#7c8aff'),
-    brightGreen: readThemeVar('--color-terminal-green', '#64d2a0'),
+    // Full 16-colour ANSI palette, Fog-aligned. The previous theme set
+    // only green/yellow/blue/brightGreen and let xterm.js fall back to
+    // its built-in defaults for everything else — but xterm's defaults
+    // (black: #2e3436, brightBlack: #555753) are nearly invisible on
+    // our #0c0e14 terminal background, so any tool output that uses
+    // \e[90m (brightBlack) or \e[2m (dim) — npm script headers, vite
+    // "transforming…" progress, Make echo lines — silently rendered
+    // unreadable. The palette below tracks the design tokens in
+    // theme.css where they exist (green / yellow / blue / gray) and
+    // fills the remaining slots with Fog-family tunings tuned for the
+    // dark terminal bg.
+    black:         '#2a2d36',
+    red:           readThemeVar('--color-error', '#ef4444'),
+    green:         readThemeVar('--color-terminal-green', '#64d2a0'),
+    yellow:        readThemeVar('--color-terminal-yellow', '#e8b45a'),
+    blue:          readThemeVar('--color-terminal-blue', '#7c8aff'),
+    magenta:       '#b794f6',
+    cyan:          '#5dd5d7',
+    white:         readThemeVar('--color-fg', '#d4d4d8'),
+    brightBlack:   readThemeVar('--color-terminal-gray', '#6b6f7b'),
+    brightRed:     '#fb7185',
+    brightGreen:   readThemeVar('--color-terminal-green', '#64d2a0'),
+    brightYellow:  '#fcd34d',
+    brightBlue:    readThemeVar('--color-accent-light', '#9ba6ff'),
+    brightMagenta: '#d6bcfa',
+    brightCyan:    '#a5f3fc',
+    brightWhite:   '#f4f4f5',
   }
 }
 
