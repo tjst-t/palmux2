@@ -16,6 +16,8 @@
 
 import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 
+import { splitTextWithAttachments, uploadURLForPath } from './blocks'
+import blockStyles from './blocks.module.css'
 import type { Turn, TurnVersion } from './types'
 import styles from './user-turn-editor.module.css'
 
@@ -386,7 +388,9 @@ export function UserTurnEditor({
         </div>
       )}
       <div className={styles.userBubbleWrap} data-testid={`user-bubble-${turn.id}`}>
-        <div className={styles.userBubbleText}>{displayedText}</div>
+        <div className={styles.userBubbleText}>
+          <UserBubbleContent text={displayedText} />
+        </div>
         <button
           type="button"
           className={styles.editPencil}
@@ -415,6 +419,49 @@ export function UserTurnEditor({
         <ArchivedVersionHint version={versions[activeVersionIndex]} />
       )}
     </div>
+  )
+}
+
+/** Render the user bubble's text + inline image thumbnails for any
+ *  `[image: /abs/path]` markers Composer inlined when the user attached
+ *  images. Mirrors what TextBlock does for assistant prose so a
+ *  freshly-pasted screenshot shows as a thumbnail in the user's own
+ *  message instead of a noisy `[image: …]` line. */
+function UserBubbleContent({ text }: { text: string }) {
+  const { text: prose, images } = splitTextWithAttachments(text)
+  if (!images.length) {
+    return <>{text}</>
+  }
+  return (
+    <>
+      {prose && <span>{prose}</span>}
+      {images.length > 0 && (
+        <div className={blockStyles.inlineAttachments}>
+          {images.map((p, i) => {
+            const url = uploadURLForPath(p)
+            if (!url) {
+              return (
+                <span key={i} className={blockStyles.inlineAttachmentMissing}>
+                  [image: {p}]
+                </span>
+              )
+            }
+            return (
+              <a
+                key={i}
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                className={blockStyles.inlineAttachment}
+                title={p}
+              >
+                <img src={url} alt={p} className={blockStyles.inlineAttachmentImg} />
+              </a>
+            )
+          })}
+        </div>
+      )}
+    </>
   )
 }
 

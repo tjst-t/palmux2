@@ -147,7 +147,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: 6px;
 }
 
 /* S017: on mobile the side padding shrinks so we get more reading
@@ -270,7 +270,7 @@
   padding: 8px 14px;
   max-width: 78%;
   font-size: 14px;
-  line-height: 1.55;
+  line-height: 1.5;
   white-space: pre-wrap;
   word-wrap: break-word;
 }
@@ -284,7 +284,7 @@
   /* No avatar, no bubble — assistant prose flows naturally. */
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: 6px;
   min-width: 0;
 }
 

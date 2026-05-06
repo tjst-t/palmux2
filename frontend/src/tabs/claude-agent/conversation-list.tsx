@@ -78,7 +78,7 @@ function Row({
     <div style={style} {...ariaAttributes}>
       {/* Inner wrapper is what the ResizeObserver measures. We add a
           tiny bottom gap so consecutive turns don't visually fuse. */}
-      <div style={{ paddingBottom: 10 }}>{renderTurn(turn, index)}</div>
+      <div style={{ paddingBottom: 6 }}>{renderTurn(turn, index)}</div>
     </div>
   )
 }

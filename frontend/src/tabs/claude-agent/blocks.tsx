@@ -263,7 +263,7 @@ export type { Turn }
 // splitTextWithAttachments strips `[image: /abs/path]` lines (the format
 // Composer inlines when the user attaches images) out of the prose and
 // returns the matched paths separately so we can render thumbnails.
-function splitTextWithAttachments(text: string): { text: string; images: string[] } {
+export function splitTextWithAttachments(text: string): { text: string; images: string[] } {
   const images: string[] = []
   // Repeatedly match per-line image tags and strip them out.
   const cleaned = text.replace(/^\s*\[image:\s+(\S.*?)\]\s*$/gim, (_, p) => {
@@ -279,7 +279,7 @@ function splitTextWithAttachments(text: string): { text: string; images: string[
 // route keys on the basename and the server's locator walks the per-
 // branch directories under the root, so any uploaded file resolves
 // regardless of which branch it landed in.
-function uploadURLForPath(path: string): string | null {
+export function uploadURLForPath(path: string): string | null {
   if (!path) return null
   // Take the last path segment (POSIX or Windows-ish). filename only.
   const idx = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
