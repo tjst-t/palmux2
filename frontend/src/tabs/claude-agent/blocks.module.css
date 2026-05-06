@@ -9,6 +9,19 @@
   color: var(--color-fg);
 }
 
+/* `.text` has `white-space: pre-wrap` so streamed plain text retains its
+   newlines while ReactMarkdown is still parsing. The catch: pre-wrap is
+   *inherited*, so the `\n` characters react-markdown emits between
+   sibling block elements (e.g. `<li>\n<li>`) render as literal newlines
+   — adding a full line-height of empty space between every bullet, on
+   top of our `li + li { margin-top }`. Reset white-space to normal on
+   block-level children so source-formatting whitespace collapses again.
+   `<pre>` and inline `<code>` keep their own white-space (set below)
+   because they need to preserve content whitespace. */
+.text :is(ul, ol, li, h1, h2, h3, h4, h5, h6, blockquote, table, thead, tbody, tr, th, td) {
+  white-space: normal;
+}
+
 .text :is(p, ul, ol) {
   margin: 0 0 5px 0;
 }
@@ -616,6 +629,13 @@
   font-size: 14px;
   line-height: 1.5;
   color: var(--color-fg);
+}
+
+/* Same fix as .text — pre-wrap inheritance turns the source-code `\n`
+   between sibling `<li>` (and other block) tags into literal newlines.
+   See the comment over `.text :is(ul, ol, li, …)` for the details. */
+.planBody :is(ul, ol, li, h1, h2, h3, h4, h5, h6, blockquote, table, thead, tbody, tr, th, td) {
+  white-space: normal;
 }
 
 .planBody :is(p, ul, ol) {
