@@ -286,11 +286,20 @@ export function TestHarness() {
   }, [sessionId, turns.length])
 
   const storageKey = scrollStorageKey('test', 'harness', sessionId)
+  const turnIds = useMemo(() => turns.map((t) => t.id), [turns])
+  const harnessScrollToRow = useCallback((index: number) => {
+    listHandleRef.current?.scrollToRow(index, {
+      align: 'start',
+      behavior: 'instant',
+    })
+  }, [])
   useScrollRestore({
     sessionId,
     storageKey,
     containerRef: containerRef as React.RefObject<HTMLDivElement | null>,
     hasTurns: turns.length > 0,
+    turnIds,
+    scrollToRow: harnessScrollToRow,
   })
   usePersistScroll({
     sessionId,

@@ -264,14 +264,29 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
     return () => { if (id) window.clearTimeout(id) }
   }, [state.sessionId])
 
-  // S017: scroll position persistence. Reload-resilient via
-  // localStorage keyed by sessionId so a session swap doesn't
-  // accidentally restore the wrong offset.
+  // S017: scroll position persistence. We anchor the persisted
+  // record to a specific turn (turnId + pixel offset of its top
+  // edge above the viewport top) instead of an absolute scrollTop —
+  // virtualised row heights converge across mounts so the same
+  // "place in the conversation" maps to a different scrollTop each
+  // time. The turn-id anchor is invariant.
+  const turnIds = useMemo(
+    () => topLevelTurns.map((t) => t.id),
+    [topLevelTurns],
+  )
+  const restoreScrollToRow = useCallback((index: number) => {
+    listHandleRef.current?.scrollToRow(index, {
+      align: 'start',
+      behavior: 'instant',
+    })
+  }, [])
   useScrollRestore({
     sessionId: state.sessionId,
     storageKey,
     containerRef,
     hasTurns: topLevelTurns.length > 0,
+    turnIds,
+    scrollToRow: restoreScrollToRow,
   })
   usePersistScroll({
     sessionId: state.sessionId,
