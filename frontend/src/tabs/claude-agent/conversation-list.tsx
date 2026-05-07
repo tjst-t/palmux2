@@ -35,9 +35,10 @@ import {
 import type { Turn } from './types'
 
 interface ConversationListHandle {
-  /** Scroll the conversation so the row with `index` is fully
-   *  visible at the bottom. Called when the user is in auto-follow
-   *  mode and a new turn arrives. */
+  /** Scroll the conversation so the last data turn's measured bottom
+   *  edge aligns with the viewport bottom. Late content growth
+   *  (Shiki / images / mermaid / markdown) is followed for ~5s with
+   *  instant corrections so the smooth animation isn't fought. */
   scrollToBottom: (behavior?: 'auto' | 'instant' | 'smooth') => void
   /** Scroll the conversation so the row at `index` is centred in the
    *  viewport. Used by Cmd+F (S018) — when the user navigates to the
@@ -75,7 +76,11 @@ function Row({
   const turn = turns[index]
   if (!turn) return null
   return (
-    <div style={style} {...ariaAttributes}>
+    <div
+      style={style}
+      data-row-last={index === turns.length - 1 ? '1' : undefined}
+      {...ariaAttributes}
+    >
       {/* Inner wrapper is what the ResizeObserver measures. We add a
           tiny bottom gap so consecutive turns don't visually fuse. */}
       <div style={{ paddingBottom: 6 }}>{renderTurn(turn, index)}</div>
@@ -124,7 +129,11 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
     }, [])
     // 200px is a reasonable initial guess for an unmeasured turn
     // (one short user message + a tool block). Real heights replace
-    // it as soon as ResizeObserver fires.
+    // it as soon as ResizeObserver fires. The exact value doesn't
+    // matter much for "↓" correctness — `scrollToBottom` no longer
+    // depends on this estimate (it reads the last row's real DOM
+    // bottom directly). The estimate only affects the rendered
+    // window selection during initial scroll-to-row.
     const dynamicHeight = useDynamicRowHeight({
       defaultRowHeight: 200,
       // The session key forces a fresh measurement cache when the
@@ -142,11 +151,115 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       ref,
       () => ({
         scrollToBottom: (behavior = 'instant') => {
+          // Two-phase scroll-to-bottom.
+          //
+          // Why this is hard: react-window's `scrollToRow({behavior:'smooth'})`
+          // pins its scroll target at click time using the cumulative
+          // row-height cache, where unrendered middle rows are 200px
+          // estimates. The browser's smooth scroll then runs to that
+          // *fixed* target. As the animation progresses, intermediate
+          // rows render and ResizeObserver measures real heights, the
+          // cache and sentinel update, and the *true* bottom shifts.
+          // But the animation's destination doesn't follow — and
+          // re-aiming via `scrollTo` restarts the animation, so a
+          // re-aim per measurement never converges. The user observes
+          // smooth motion stopping at a position that is 20–30%
+          // short of the actual bottom. Worse, the last row never
+          // enters the render window, so any DOM-based correction
+          // (querySelector for `[data-row-last="1"]`) finds nothing
+          // to align to.
+          //
+          // Strategy:
+          //   1. Visible animation: `api.scrollToRow` with the
+          //      requested behavior. Lands at whatever the cache
+          //      thought "bottom" was at click time.
+          //   2. Iterative settle (after the animation lands):
+          //      `el.scrollTop = el.scrollHeight` — the browser
+          //      clamps to the current real `scrollHeight - clientHeight`,
+          //      so this immediately puts us at the *current* bottom
+          //      (not the click-time bottom). That render commit also
+          //      pulls the last row into the DOM. Wait one rAF + a
+          //      short timer, repeat until `scrollHeight` stabilises
+          //      (i.e. no more measurements changing the total). Each
+          //      pop is invisible if the previous pop already landed
+          //      at bottom; visible only as a tiny adjustment when a
+          //      late measurement (Shiki / image / mermaid) actually
+          //      grew the content.
+          //   3. Aborts on user wheel/touch/keys.
           const api = listRef.current
           if (!api) return
           const lastIndex = turns.length - 1
           if (lastIndex < 0) return
+          const el = api.element
+          if (!el) return
+
           api.scrollToRow({ index: lastIndex, align: 'end', behavior })
+
+          let aborted = false
+          const abort = () => { aborted = true }
+          el.addEventListener('wheel', abort, { once: true, passive: true })
+          el.addEventListener('touchmove', abort, { once: true, passive: true })
+          el.addEventListener('keydown', abort, { once: true })
+
+          // Browsers run the default smooth-scroll for ~300–500ms.
+          // 550ms covers that comfortably. For instant we skip the
+          // wait entirely.
+          const animationBudget = behavior === 'smooth' ? 550 : 0
+
+          window.setTimeout(() => {
+            if (aborted) return
+            // Iterative settle. `el.scrollTop = el.scrollHeight` asks
+            // the browser to clamp to the current scrollable max,
+            // which in turn forces react-window to render the bottom
+            // rows. ResizeObserver measures them; cache and sentinel
+            // update. We loop until scrollTop matches the new max
+            // AND scrollHeight has stopped changing. The 50ms delay
+            // gives ResizeObserver and react-window's render commit
+            // time to land before we re-check.
+            let prevHeight = -1
+            const settle = () => {
+              if (aborted) return
+              const max = Math.max(0, el.scrollHeight - el.clientHeight)
+              if (el.scrollTop < max) el.scrollTop = max
+              if (el.scrollHeight === prevHeight) return  // converged
+              prevHeight = el.scrollHeight
+              window.setTimeout(settle, 50)
+            }
+            settle()
+
+            // Tail tracker for very-late content (1–3s post-click for
+            // images, mermaid, Shiki). Cheap because it only fires
+            // when scrollHeight actually moves; we just keep clamping
+            // scrollTop to the new max.
+            let lastH = el.scrollHeight
+            const tail = () => {
+              if (aborted) return
+              if (el.scrollHeight === lastH) return
+              lastH = el.scrollHeight
+              const max = Math.max(0, el.scrollHeight - el.clientHeight)
+              if (el.scrollTop < max) el.scrollTop = max
+            }
+            let ro: ResizeObserver | null = null
+            if (typeof ResizeObserver !== 'undefined') {
+              ro = new ResizeObserver(tail)
+              const observe = () => {
+                if (!ro) return
+                const sentinel = el.lastElementChild as HTMLElement | null
+                if (sentinel && sentinel.style.zIndex === '-1') ro.observe(sentinel)
+              }
+              observe()
+              const reobserve = window.setInterval(observe, 250)
+              window.setTimeout(() => window.clearInterval(reobserve), 5000)
+            }
+            const intervalId = window.setInterval(tail, 100)
+            window.setTimeout(() => {
+              window.clearInterval(intervalId)
+              if (ro) ro.disconnect()
+              el.removeEventListener('wheel', abort)
+              el.removeEventListener('touchmove', abort)
+              el.removeEventListener('keydown', abort)
+            }, 5200 - animationBudget)
+          }, animationBudget)
         },
         scrollToRow: (index, opts) => {
           const api = listRef.current
@@ -238,6 +351,18 @@ export function scrollStorageKey(repoId: string, branchId: string, tabId: string
 interface PersistedScroll {
   sessionId: string
   top: number
+  /** True when the user was within the auto-follow threshold (32px)
+   *  of the bottom at save time. The view uses this to initialise
+   *  `autoFollow` on remount: stale "bottom" sessions resume in
+   *  follow-latest mode, while a user who'd scrolled up to read keeps
+   *  their position. Older records without this field are treated as
+   *  atBottom=true to preserve the pre-fix behaviour. */
+  atBottom?: boolean
+}
+
+interface PersistedScrollRecord {
+  top: number
+  atBottom: boolean
 }
 
 /** Read the persisted scroll offset for a tab, returning null when
@@ -247,7 +372,7 @@ interface PersistedScroll {
 export function readPersistedScroll(
   key: string,
   expectedSessionId: string,
-): number | null {
+): PersistedScrollRecord | null {
   if (typeof localStorage === 'undefined') return null
   try {
     const raw = localStorage.getItem(key)
@@ -255,7 +380,7 @@ export function readPersistedScroll(
     const parsed = JSON.parse(raw) as PersistedScroll
     if (parsed.sessionId !== expectedSessionId) return null
     if (typeof parsed.top !== 'number' || parsed.top < 0) return null
-    return parsed.top
+    return { top: parsed.top, atBottom: parsed.atBottom !== false }
   } catch {
     return null
   }
@@ -268,11 +393,12 @@ export function writePersistedScroll(
   key: string,
   sessionId: string,
   top: number,
+  atBottom: boolean,
 ): void {
   if (typeof localStorage === 'undefined') return
   if (!sessionId) return
   try {
-    const payload: PersistedScroll = { sessionId, top }
+    const payload: PersistedScroll = { sessionId, top, atBottom }
     localStorage.setItem(key, JSON.stringify(payload))
   } catch {
     // Ignore quota errors — losing scroll restoration on one reload
@@ -298,11 +424,20 @@ export function useScrollRestore(opts: {
   useLayoutEffect(() => {
     if (!sessionId || !hasTurns) return
     if (restoredFor.current === sessionId) return
-    const target = readPersistedScroll(storageKey, sessionId)
-    if (target == null) {
+    const stored = readPersistedScroll(storageKey, sessionId)
+    if (stored == null) {
       restoredFor.current = sessionId
       return
     }
+    // Skip restore when the user was at the bottom — the parent's
+    // auto-follow effect will scroll-to-bottom on the next state
+    // change, and that reflects the latest content (which may have
+    // grown while the tab was in the background).
+    if (stored.atBottom) {
+      restoredFor.current = sessionId
+      return
+    }
+    const target = stored.top
     // The persisted offset matters but the underlying scroll
     // container may not be wired up yet (the List installs its DOM
     // asynchronously). We retry on a short interval (capped at ~1.2s)
@@ -350,32 +485,51 @@ export function useScrollRestore(opts: {
 /** usePersistScroll throttles writes of the live scrollTop to
  *  localStorage. We don't write on every scroll event (would burn
  *  the main thread on autopilot floods); a 250ms trailing-edge
- *  debounce is plenty for restore-on-reload accuracy. */
+ *  debounce is plenty for restore-on-reload accuracy.
+ *
+ *  Two subtleties:
+ *  1. We mirror the latest scrollTop / atBottom into closure-local
+ *     refs in the scroll handler. That way unmount-cleanup can flush
+ *     without touching the DOM — which has already been removed by
+ *     the time React tears down the parent's effects, so reading
+ *     scrollHeight off the detached element returns 0 and would
+ *     persist a corrupted record.
+ *  2. The cleanup ALWAYS flushes the latest known offset. Without
+ *     this, a user who scrolls and then switches tabs inside the
+ *     250ms debounce window loses their position. */
 export function usePersistScroll(opts: {
   sessionId: string
   storageKey: string
   containerRef: React.RefObject<HTMLDivElement | null>
 }) {
   const { sessionId, storageKey, containerRef } = opts
-  // Stable callback so we don't re-install listeners on every render.
-  const persist = useCallback(() => {
-    const el = containerRef.current
-    if (!el || !sessionId) return
-    writePersistedScroll(storageKey, sessionId, el.scrollTop)
-  }, [containerRef, sessionId, storageKey])
 
   useEffect(() => {
     if (!sessionId) return
     let timer: number | undefined
     let installedEl: HTMLDivElement | null = null
     let attached = false
+    let latestTop = -1
+    let latestAtBottom = true
+    const flush = () => {
+      if (latestTop < 0) return
+      writePersistedScroll(storageKey, sessionId, latestTop, latestAtBottom)
+    }
+    const sample = (el: HTMLDivElement) => {
+      latestTop = el.scrollTop
+      latestAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 32
+    }
     const onScroll = () => {
+      if (!installedEl) return
+      sample(installedEl)
       if (timer) window.clearTimeout(timer)
-      timer = window.setTimeout(persist, 250)
+      timer = window.setTimeout(flush, 250)
     }
     // Containers can become available AFTER this effect first runs,
-    // so we poll briefly for ~2s until we find one. Once attached we
-    // stop polling.
+    // so we poll briefly until we find one. Once attached we stop
+    // polling and capture the initial position so an unmount before
+    // any user scroll still persists the (likely-correct) starting
+    // offset.
     const poll = window.setInterval(() => {
       const el = containerRef.current
       if (!el || attached) return
@@ -383,11 +537,13 @@ export function usePersistScroll(opts: {
       installedEl = el
       attached = true
       window.clearInterval(poll)
+      sample(el)
     }, 80)
     return () => {
       window.clearInterval(poll)
       if (installedEl) installedEl.removeEventListener('scroll', onScroll)
       if (timer) window.clearTimeout(timer)
+      flush()
     }
-  }, [persist, containerRef, sessionId])
+  }, [containerRef, sessionId, storageKey])
 }

@@ -12,6 +12,7 @@ import { ConversationExportDialog } from './conversation-export'
 import {
   ConversationList,
   type ConversationListHandle,
+  readPersistedScroll,
   scrollStorageKey,
   usePersistScroll,
   useScrollRestore,
@@ -52,14 +53,47 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
   const historyButtonRef = useRef<HTMLButtonElement | null>(null)
   const mcpButtonRef = useRef<HTMLButtonElement | null>(null)
   const [modes, setModes] = useState<PermissionModesResp>(FALLBACK_PERMISSION_MODES)
-  const [autoFollow, setAutoFollow] = useState(true)
+  // Stable storage key for scroll restoration. tabId can be empty in
+  // legacy URLs — fold to a constant so the key shape is stable.
+  // Hoisted above autoFollow so the lazy useState initialiser below
+  // can read the persisted record on first render (tab-switch path).
+  const storageKey = scrollStorageKey(repoId, branchId, tabId || 'claude')
+  // Initialise autoFollow from the persisted record so a user who
+  // was scrolled up reading earlier in the conversation, then
+  // switched tabs, doesn't get yanked back to bottom on remount.
+  // The cache hit in useAgent guarantees state.sessionId is already
+  // populated when this runs on the tab-switch path. On a cold page
+  // reload, state.sessionId starts empty here — the effect below
+  // recovers the autoFollow flag once the WS init lands.
+  const [autoFollow, setAutoFollow] = useState<boolean>(() => {
+    if (!state.sessionId) return true
+    const stored = readPersistedScroll(storageKey, state.sessionId)
+    if (!stored) return true
+    return stored.atBottom
+  })
   // Mirror autoFollow synchronously. The auto-follow effect below
   // reads this ref, not the state, because React batches the
   // setAutoFollow(false) update from a user scroll behind the next
   // streaming chunk's setState — leaving the effect with a stale
   // autoFollow=true that yanks the user back to the bottom right
   // after they scrolled up to read.
-  const autoFollowRef = useRef(true)
+  const autoFollowRef = useRef<boolean>(autoFollow)
+  // Cold-load recovery: when state.sessionId becomes available
+  // *after* mount (cache miss → WS init), re-check the persisted
+  // record once and downgrade autoFollow if the user had been
+  // scrolled up. Guarded by a ref so this fires at most once per
+  // session.
+  const autoFollowSyncedFor = useRef<string>('')
+  useEffect(() => {
+    if (!state.sessionId) return
+    if (autoFollowSyncedFor.current === state.sessionId) return
+    autoFollowSyncedFor.current = state.sessionId
+    const stored = readPersistedScroll(storageKey, state.sessionId)
+    if (!stored) return
+    if (stored.atBottom) return
+    autoFollowRef.current = false
+    setAutoFollow(false)
+  }, [state.sessionId, storageKey])
   const [historyOpen, setHistoryOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [mcpOpen, setMcpOpen] = useState(false)
@@ -98,9 +132,6 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
     )
     return splitTurnTree(turnsForDisplay)
   }, [state.turns, state.archivedTurnsById, state.activeVersionByTurnId])
-  // Stable storage key for scroll restoration. tabId can be empty in
-  // legacy URLs — fold to a constant so the key shape is stable.
-  const storageKey = scrollStorageKey(repoId, branchId, tabId || 'claude')
   // planDecisions tracks the optimistic UI flip on click. The server
   // echoes plan.decided afterwards which makes the decision durable
   // (block.planDecision) — the optimistic state is only there to hide

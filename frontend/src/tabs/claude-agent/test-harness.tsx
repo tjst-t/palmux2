@@ -140,6 +140,11 @@ export function TestHarness() {
   // button never appeared (because ConversationList's scroll listener
   // wasn't getting attached).
   const showAutoFollow = params.get('autofollow') === '1'
+  // E2E knob — pass `behavior=smooth` to make the harness button use
+  // smooth animation, matching the real Claude tab's ↓ button.
+  // Without this, harness tests only cover the 'instant' path and
+  // miss smooth-specific regressions.
+  const buttonBehavior = (params.get('behavior') === 'smooth' ? 'smooth' : 'instant') as ScrollBehavior
 
   const baseTurns = useMemo(
     () => syntheticTurns(turnsCount, readLines, showCompactBoundary),
@@ -416,7 +421,7 @@ export function TestHarness() {
             data-testid="harness-scroll-to-bottom"
             data-autofollow="false"
             onClick={() => {
-              listHandleRef.current?.scrollToBottom('instant')
+              listHandleRef.current?.scrollToBottom(buttonBehavior)
               setAutoFollow(true)
             }}
             style={{

@@ -75,6 +75,18 @@ function categoryKey(category: BranchCategory | undefined): CategoryKey {
 //   v0.5.1-4-g3082711-dirty          → v0.5.1+4*
 //   v0.5.1-dirty                     → v0.5.1*
 // `*` always means a dirty worktree, `+N` means N commits past the tag.
+// Mirror of `palmux:lastTab:{repoId}/{branchId}` writer in
+// main-layout.tsx — read-only side. Returns null when no record yet
+// exists or localStorage is unavailable; the caller decides the
+// fallback (typically `branch.tabSet.tabs[0]`).
+function readLastTabFor(repoId: string, branchId: string): string | null {
+  try {
+    return localStorage.getItem(`palmux:lastTab:${repoId}/${branchId}`)
+  } catch {
+    return null
+  }
+}
+
 function formatCompactVersion(raw: string): string {
   const dirty = raw.endsWith('-dirty')
   const core = dirty ? raw.slice(0, -'-dirty'.length) : raw
@@ -443,7 +455,18 @@ function RepoItem({
   const longPress = useLongPress((x, y) => showMenuAt(x, y))
 
   const navigateToBranch = (branch: Branch, tabId?: string) => {
-    const target = tabId ?? branch.tabSet.tabs[0]?.id ?? 'claude'
+    // Per-branch last-tab restore. main-layout.tsx writes
+    // `palmux:lastTab:{repoId}/{branchId}` on every URL update, so we
+    // can land the user back on whatever they were doing in this
+    // branch (Bash session, Files path, etc.) instead of always
+    // bouncing to claude. Validate the remembered id still matches a
+    // live tab — it can be stale after a Bash tab close.
+    const remembered = readLastTabFor(repo.id, branch.id)
+    const rememberedTab = remembered
+      ? branch.tabSet.tabs.find((t) => t.id === remembered)
+      : undefined
+    const target =
+      tabId ?? rememberedTab?.id ?? branch.tabSet.tabs[0]?.id ?? 'claude'
     void setLastActiveBranch(repo.id, branch.name)
     navigate(`/${repo.id}/${branch.id}/${encodeURIComponent(target)}${location.search}`)
   }
