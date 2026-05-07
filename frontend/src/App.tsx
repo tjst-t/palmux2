@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Route, Routes } from 'react-router-dom'
+import { Route, Routes, useNavigate } from 'react-router-dom'
 
 import { CommandPalette } from './components/command-palette/command-palette'
 import { ConfirmDialogRenderer } from './components/context-menu/confirm-dialog'
@@ -16,6 +16,7 @@ import { TestHarness } from './tabs/claude-agent/test-harness'
 import { NetworkSettingsPage } from './tabs/settings/settings-page'
 
 function App() {
+  const navigate = useNavigate()
   const bootstrap = usePalmuxStore((s) => s.bootstrap)
   const error = usePalmuxStore((s) => s.error)
   const theme = usePalmuxStore((s) => s.deviceSettings.theme)
@@ -27,6 +28,28 @@ function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
   }, [theme])
+
+  // S034 hotfix: ⌘, / Ctrl+, opens Settings page globally.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+        const target = e.target as HTMLElement | null
+        // Don't intercept when typing in an input / textarea.
+        if (
+          target &&
+          (target.tagName === 'INPUT' ||
+            target.tagName === 'TEXTAREA' ||
+            target.isContentEditable)
+        ) {
+          return
+        }
+        e.preventDefault()
+        navigate('/settings/network')
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [navigate])
 
   useEventStream()
   useVisualViewport()

@@ -37,10 +37,16 @@ export function Header() {
   const netnsModalRepoId = useNetnsStore((s) => s.modalRepoId)
   const openNetnsModal = useNetnsStore((s) => s.openModal)
   const closeNetnsModal = useNetnsStore((s) => s.closeModal)
-  // Determine isolation state: branch has isolation active if we have a listener
-  // entry for it OR the repo's isolateNetwork === 'on'. Use listeners presence
-  // as the runtime indicator (populated after branch open).
-  const isIsolated = repo?.isolateNetwork === 'on' || (branchId ? branchId in useNetnsStore.getState().listeners : false)
+  // S034 hotfix: subscribe to listeners reactively (was using getState, which
+  // captured the snapshot at render time and never re-rendered when WS events
+  // updated the store).
+  const allListeners = useNetnsStore((s) => s.listeners)
+  const branchListeners = branchId ? allListeners[branchId] ?? [] : []
+  // isolated when the repo defaults isolation on, OR when listeners have been
+  // detected for this branch (which means the netns + ss-polling is actually
+  // running for this branch).
+  const isIsolated = repo?.isolateNetwork === 'on' || branchListeners.length > 0
+  const listenerCount = branchListeners.length
 
   const onToggleDrawer = () => {
     if (mobile) {
@@ -80,7 +86,7 @@ export function Header() {
       <div className={styles.right}>
         {/* S034: show isolated badge when in an isolated worktree */}
         {isIsolated && repoId && branchId && (
-          <IsolatedBadge onClick={handleIsolatedBadgeClick} />
+          <IsolatedBadge onClick={handleIsolatedBadgeClick} count={listenerCount} />
         )}
         <ActivityInbox />
         <button

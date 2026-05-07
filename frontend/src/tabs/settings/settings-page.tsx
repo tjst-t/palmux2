@@ -10,12 +10,14 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { api } from '../../lib/api'
 import { usePalmuxStore } from '../../stores/palmux-store'
 import styles from './settings-page.module.css'
 
 export function NetworkSettingsPage() {
+  const navigate = useNavigate()
   const globalSettings = usePalmuxStore((s) => s.globalSettings)
   const reloadSettings = usePalmuxStore((s) => s.reloadSettings)
 
@@ -49,35 +51,68 @@ export function NetworkSettingsPage() {
     setReloadCmd(globalSettings.networkIsolation?.caddy?.reloadCmd ?? '')
   }, [globalSettings])
 
-  const handleSave = useCallback(async () => {
-    setSaving(true)
-    setSavedMsg('')
-    try {
-      await api.patch('/api/settings', {
-        networkIsolation: {
-          defaultIsolate,
-          caddy: {
-            enabled: caddyEnabled,
-            fqdnTemplate,
-            configPath,
-            reloadCmd,
-          },
-        },
-      })
-      // Trigger a reload so the WS event or direct fetch updates the store.
-      if (reloadSettings) await reloadSettings()
-      setSavedMsg('Saved!')
-      setTimeout(() => setSavedMsg(''), 2500)
-    } catch (e) {
-      setSavedMsg(`Error: ${(e as Error).message}`)
-    } finally {
-      setSaving(false)
+  // S034 hotfix: Esc closes the settings page.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        navigate(-1)
+      }
     }
-  }, [defaultIsolate, caddyEnabled, fqdnTemplate, configPath, reloadCmd, reloadSettings])
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [navigate])
+
+  const handleSave = useCallback(
+    async (closeAfter: boolean) => {
+      setSaving(true)
+      setSavedMsg('')
+      try {
+        await api.patch('/api/settings', {
+          networkIsolation: {
+            defaultIsolate,
+            caddy: {
+              enabled: caddyEnabled,
+              fqdnTemplate,
+              configPath,
+              reloadCmd,
+            },
+          },
+        })
+        if (reloadSettings) await reloadSettings()
+        if (closeAfter) {
+          navigate(-1)
+          return
+        }
+        setSavedMsg('Saved!')
+        setTimeout(() => setSavedMsg(''), 2500)
+      } catch (e) {
+        setSavedMsg(`Error: ${(e as Error).message}`)
+      } finally {
+        setSaving(false)
+      }
+    },
+    [defaultIsolate, caddyEnabled, fqdnTemplate, configPath, reloadCmd, reloadSettings, navigate]
+  )
+
+  const handleCancel = useCallback(() => {
+    navigate(-1)
+  }, [navigate])
 
   return (
     <div className={styles.page} data-testid="settings-network-page">
-      <h1 className={styles.pageTitle}>Settings → Network</h1>
+      <div className={styles.pageHeader}>
+        <h1 className={styles.pageTitle}>Settings → Network</h1>
+        <button
+          className={styles.closeBtn}
+          onClick={handleCancel}
+          data-testid="settings-close-btn"
+          title="Close (Esc)"
+          aria-label="Close settings"
+        >
+          ✕
+        </button>
+      </div>
 
       {/* Network Isolation section */}
       <div className={styles.settingsSection}>
@@ -218,14 +253,24 @@ export function NetworkSettingsPage() {
         )}
       </div>
 
-      <button
-        className={styles.saveBtn}
-        onClick={handleSave}
-        disabled={saving}
-        data-testid="settings-save-btn"
-      >
-        {saving ? 'Saving…' : 'Save changes'}
-      </button>
+      <div className={styles.actionBar}>
+        <button
+          className={styles.cancelBtn}
+          onClick={handleCancel}
+          disabled={saving}
+          data-testid="settings-cancel-btn"
+        >
+          Cancel
+        </button>
+        <button
+          className={styles.saveBtn}
+          onClick={() => void handleSave(true)}
+          disabled={saving}
+          data-testid="settings-save-btn"
+        >
+          {saving ? 'Saving…' : 'Save & Close'}
+        </button>
+      </div>
       {savedMsg && (
         <p className={styles.savedMsg} data-testid="settings-saved-msg">
           {savedMsg}

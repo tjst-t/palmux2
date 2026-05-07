@@ -117,21 +117,20 @@ export function BranchPicker({ open, repoId, onClose }: Props) {
           Create
         </button>
       </div>
-      {/* S034: isolate network checkbox (shown only for new branch creation) */}
-      {draftName.trim() && (
-        <label style={isolateLabelStyle} data-testid="isolate-network-checkbox-label">
-          <input
-            type="checkbox"
-            checked={isolateNew}
-            onChange={(e) => setIsolateNew(e.target.checked)}
-            data-testid="isolate-network-checkbox"
-          />
-          🛡 Isolate network
-          <span style={{ color: 'var(--color-fg-dim)', fontSize: '11px' }}>
-            (separate localhost from other worktrees)
-          </span>
-        </label>
-      )}
+      {/* S034: isolate network checkbox — always visible so user knows the
+          option is there before they start typing a branch name (hotfix). */}
+      <label style={isolateLabelStyle} data-testid="isolate-network-checkbox-label">
+        <input
+          type="checkbox"
+          checked={isolateNew}
+          onChange={(e) => setIsolateNew(e.target.checked)}
+          data-testid="isolate-network-checkbox"
+        />
+        🛡 Isolate network
+        <span style={{ color: 'var(--color-fg-dim)', fontSize: '11px' }}>
+          (separate localhost from other worktrees)
+        </span>
+      </label>
     </Modal>
   )
 }

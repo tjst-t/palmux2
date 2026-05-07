@@ -70,6 +70,7 @@ function categoryKey(category: BranchCategory | undefined): CategoryKey {
 }
 
 export function Drawer() {
+  const navigate = useNavigate()
   const repos = usePalmuxStore((s) => s.repos)
   const drawerWidth = usePalmuxStore((s) => s.deviceSettings.drawerWidth)
   const setDeviceSetting = usePalmuxStore((s) => s.setDeviceSetting)
@@ -198,6 +199,16 @@ export function Drawer() {
         >
           <span style={{ color: 'var(--color-fg-muted)' }}>📂</span>
           <span>Open Repository…</span>
+        </button>
+        {/* S034 hotfix: Settings entry — opens /settings/network. */}
+        <button
+          className={styles.addRepoBtn}
+          onClick={() => navigate('/settings/network')}
+          data-testid="drawer-settings-btn"
+          title="Settings (⌘,)"
+        >
+          <span style={{ color: 'var(--color-fg-muted)' }}>⚙</span>
+          <span>Settings</span>
         </button>
       </footer>
       <DrawerResizer

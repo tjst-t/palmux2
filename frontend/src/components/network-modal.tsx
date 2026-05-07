@@ -191,15 +191,19 @@ export function NetworkModal({ repoId, branchId, onClose }: NetworkModalProps) {
 }
 
 /** IsolatedBadge — shown in the header when isolation is active */
-export function IsolatedBadge({ onClick }: { onClick: () => void }) {
+export function IsolatedBadge({ onClick, count = 0 }: { onClick: () => void; count?: number }) {
   return (
     <button
       className={styles.isolatedPill}
       onClick={onClick}
-      title="Network isolation active — click to manage public ports"
+      title={
+        count > 0
+          ? `${count} listener${count === 1 ? '' : 's'} detected — click to manage public ports`
+          : 'Network isolation active — click to manage public ports'
+      }
       data-testid="isolated-badge"
     >
-      🛡 Isolated
+      🛡 Isolated{count > 0 ? ` · ${count}` : ''}
     </button>
   )
 }
