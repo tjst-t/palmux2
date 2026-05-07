@@ -328,8 +328,10 @@ func (m *Manager) allocateHostPortLocked() (int, error) {
 		if m.state.IsHostPortInUse(port) {
 			continue
 		}
-		// Probe with net.Listen to confirm the port is free on the host.
-		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		// Probe with net.Listen to confirm the port is free on the host
+		// across all interfaces (matches the bind addr used for the actual
+		// hostfwd, so the probe can't lie).
+		ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
 		if err != nil {
 			continue
 		}

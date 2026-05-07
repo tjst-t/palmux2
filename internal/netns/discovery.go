@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +20,7 @@ type Listener struct {
 	PID         int    `json:"pid,omitempty"`
 	Exposed     bool   `json:"exposed,omitempty"`
 	HostPort    int    `json:"hostPort,omitempty"`
+	inode       string // socket inode, populated by parseProcNetTCP for findProcessForInode lookup
 }
 
 // EventPublisher is called when the listener list changes.
@@ -78,22 +78,27 @@ func (dl *discoveryLoop) stop() {
 }
 
 func (dl *discoveryLoop) poll(ctx context.Context) {
-	listeners, err := scanListeners(ctx, dl.nsPath)
+	// Look up anchor PID from state — /proc/<anchorPID>/net/tcp is the
+	// listener source of truth for the netns and is readable without
+	// nsenter / sudo (only the netns's own userns ownership matters,
+	// which palmux satisfies as the parent process).
+	ws, ok := dl.state.Get(dl.worktreeID)
+	if !ok || ws.AnchorPID == 0 {
+		return
+	}
+	listeners, err := scanListenersFromProc(ctx, ws.AnchorPID)
 	if err != nil {
 		dl.logger.Debug("netns: discovery poll failed", "worktreeId", dl.worktreeID, "err", err)
 		return
 	}
 
 	// Join with port forward state to annotate exposed ports.
-	ws, ok := dl.state.Get(dl.worktreeID)
-	if ok {
-		for i, l := range listeners {
-			for _, pm := range ws.Ports {
-				if pm.InternalPort == l.Port {
-					listeners[i].Exposed = true
-					listeners[i].HostPort = pm.HostPort
-					break
-				}
+	for i, l := range listeners {
+		for _, pm := range ws.Ports {
+			if pm.InternalPort == l.Port {
+				listeners[i].Exposed = true
+				listeners[i].HostPort = pm.HostPort
+				break
 			}
 		}
 	}
@@ -119,88 +124,96 @@ func (dl *discoveryLoop) Snapshot() []Listener {
 	return out
 }
 
-// scanListeners runs `nsenter --net=<nsPath> ss -tlnH` and parses the output.
-func scanListeners(ctx context.Context, nsPath string) ([]Listener, error) {
-	cmd := exec.CommandContext(ctx, "nsenter", "--net="+nsPath, "--",
-		"ss", "-tlnH")
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("ss: %w", err)
+// scanListenersFromProc reads /proc/<anchorPID>/net/tcp{,6} which exposes
+// the netns's TCP socket table from outside the netns. This avoids the
+// `nsenter --net=...` route which fails with EPERM for unprivileged user
+// namespaces (we'd need both --user and --net plus sudo; reading the
+// netns's procfs view is privilege-free since the calling process owns
+// the anchor PID).
+func scanListenersFromProc(ctx context.Context, anchorPID int) ([]Listener, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
-	return parseSS(out), nil
+	seen := map[int]bool{}
+	var listeners []Listener
+	for _, path := range []string{
+		fmt.Sprintf("/proc/%d/net/tcp", anchorPID),
+		fmt.Sprintf("/proc/%d/net/tcp6", anchorPID),
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			// tcp6 is optional; tcp absence is real failure but we keep going
+			continue
+		}
+		for _, l := range parseProcNetTCP(data) {
+			if seen[l.Port] {
+				continue
+			}
+			seen[l.Port] = true
+			// Look up the process inside the netns by inode (best-effort —
+			// proc inode is global so we can scan /proc/<anchorPID>/task/...,
+			// or just use the inode+/proc/*/fd tour for quick names).
+			l.ProcessName, l.PID = findProcessForInode(l.inode, anchorPID)
+			listeners = append(listeners, l)
+		}
+	}
+	return listeners, nil
 }
 
-// parseSS parses `ss -tlnH` output.
-// Example line: LISTEN 0  128  0.0.0.0:8080  0.0.0.0:*
-func parseSS(b []byte) []Listener {
+// parseProcNetTCP parses /proc/<pid>/net/tcp{,6}. Format:
+//
+//	  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode ...
+//	   0: 00000000:1435 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 17491 ...
+//
+// state 0A = TCP_LISTEN. local_address is hex little-endian IP : hex port.
+func parseProcNetTCP(b []byte) []Listener {
 	var listeners []Listener
 	scanner := bufio.NewScanner(bytes.NewReader(b))
+	first := true
 	for scanner.Scan() {
-		line := scanner.Text()
-		fields := strings.Fields(line)
-		if len(fields) < 5 {
+		if first {
+			first = false
 			continue
 		}
-		// fields[3] is local address:port
-		localAddr := fields[3]
-		portStr := ""
-		if idx := strings.LastIndex(localAddr, ":"); idx >= 0 {
-			portStr = localAddr[idx+1:]
-		}
-		port, err := strconv.Atoi(portStr)
-		if err != nil || port <= 0 {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 10 {
 			continue
 		}
-		l := Listener{Port: port}
-		// Try to get process name via /proc.
-		l.ProcessName, l.PID = findProcessForPort(port)
-		listeners = append(listeners, l)
+		// fields[3] = state in hex; "0A" = LISTEN
+		if !strings.EqualFold(fields[3], "0A") {
+			continue
+		}
+		idx := strings.LastIndex(fields[1], ":")
+		if idx < 0 {
+			continue
+		}
+		port64, err := strconv.ParseInt(fields[1][idx+1:], 16, 32)
+		if err != nil || port64 <= 0 {
+			continue
+		}
+		listeners = append(listeners, Listener{
+			Port:  int(port64),
+			inode: fields[9],
+		})
 	}
 	return listeners
 }
 
-// findProcessForPort looks through /proc/*/net/tcp to find the pid owning a port.
-// This is best-effort; returns empty string if not found.
-func findProcessForPort(port int) (string, int) {
-	hexPort := fmt.Sprintf("%04X", port)
-
-	// Read /proc/net/tcp for the inode.
-	inode := findInodeForPort(hexPort, "/proc/net/tcp")
-	if inode == "" {
-		inode = findInodeForPort(hexPort, "/proc/net/tcp6")
-	}
+// findProcessForInode finds the process (PID + comm) that owns the given socket
+// inode by scanning /proc/*/fd. Restricts the search to processes inside the
+// same netns as anchorPID for faster + more accurate results — a socket inode
+// only matters within its netns, and any process listening on it must be in
+// that netns.
+func findProcessForInode(inode string, anchorPID int) (string, int) {
 	if inode == "" {
 		return "", 0
 	}
-
-	// Find the process with this inode.
-	return findProcessByInode(inode)
-}
-
-func findInodeForPort(hexPort, tcpFile string) string {
-	data, err := os.ReadFile(tcpFile)
-	if err != nil {
-		return ""
+	target := "socket:[" + inode + "]"
+	// Resolve the anchor's net ns inode so we can filter candidate processes.
+	var anchorNS string
+	if l, err := os.Readlink(fmt.Sprintf("/proc/%d/ns/net", anchorPID)); err == nil {
+		anchorNS = l
 	}
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	for scanner.Scan() {
-		line := scanner.Text()
-		fields := strings.Fields(line)
-		// Format: sl local_addr rem_addr st tx_queue rx_queue tr tm->when retrnsmt uid timeout inode
-		if len(fields) < 10 {
-			continue
-		}
-		localAddr := fields[1]
-		if idx := strings.LastIndex(localAddr, ":"); idx >= 0 {
-			if strings.EqualFold(localAddr[idx+1:], hexPort) {
-				return fields[9] // inode
-			}
-		}
-	}
-	return ""
-}
-
-func findProcessByInode(inode string) (string, int) {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return "", 0
@@ -213,6 +226,11 @@ func findProcessByInode(inode string) (string, int) {
 		if err != nil {
 			continue
 		}
+		if anchorNS != "" {
+			if l, err := os.Readlink(fmt.Sprintf("/proc/%d/ns/net", pid)); err != nil || l != anchorNS {
+				continue
+			}
+		}
 		fdDir := fmt.Sprintf("/proc/%d/fd", pid)
 		fds, err := os.ReadDir(fdDir)
 		if err != nil {
@@ -223,7 +241,7 @@ func findProcessByInode(inode string) (string, int) {
 			if err != nil {
 				continue
 			}
-			if link == "socket:["+inode+"]" {
+			if link == target {
 				comm, _ := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
 				return strings.TrimSpace(string(comm)), pid
 			}
@@ -231,6 +249,7 @@ func findProcessByInode(inode string) (string, int) {
 	}
 	return "", 0
 }
+
 
 func listenersEqual(a, b []Listener) bool {
 	if len(a) != len(b) {

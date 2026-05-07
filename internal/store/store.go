@@ -197,11 +197,18 @@ func (s *Store) Netns() *netns.Manager { return s.deps.Netns }
 
 // startNetnsDiscovery starts a polling loop inside the netns for the given
 // branch and broadcasts netns.listenersChanged events via the store hub.
-func (s *Store) startNetnsDiscovery(ctx context.Context, repoID, branchID string) {
+//
+// Uses context.Background() rather than the caller's ctx — the HTTP request
+// context that triggered branch open is canceled the moment the response is
+// sent, which would kill the goroutine before its first tick. The discovery
+// loop's lifetime is bound to the netns itself: it ends when StopDiscovery
+// is called from CloseBranch / CleanupAll. (Same fix shape as the
+// slirp4netns subprocess, which had the identical bug at MVP.)
+func (s *Store) startNetnsDiscovery(_ context.Context, repoID, branchID string) {
 	if s.deps.Netns == nil {
 		return
 	}
-	s.deps.Netns.StartDiscovery(ctx, branchID, func(worktreeID string, listeners []netns.Listener) {
+	s.deps.Netns.StartDiscovery(context.Background(), branchID, func(worktreeID string, listeners []netns.Listener) {
 		s.hub.Publish(Event{
 			Type:     EventNetnsListenersChanged,
 			RepoID:   repoID,

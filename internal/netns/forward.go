@@ -23,14 +23,20 @@ type slirpError struct {
 	Desc  string `json:"desc"`
 }
 
+// hostFwdBindAddr is the address slirp4netns binds the forwarded host port to.
+// "0.0.0.0" makes the port reachable from the LAN (matching palmux2's
+// "PC + mobile + tablet from anywhere on the network" mission). To restrict
+// to localhost-only, override via the (future) network.bindAddr setting.
+const hostFwdBindAddr = "0.0.0.0"
+
 // addHostFwd calls slirp4netns' add_hostfwd API to create a port forward
-// from host localhost:hostPort to guest 10.0.2.100:internalPort.
+// from host hostFwdBindAddr:hostPort to guest 10.0.2.100:internalPort.
 func addHostFwd(socketPath string, hostPort, internalPort int) (PortMapping, error) {
 	resp, err := slirpCall(socketPath, slirpRequest{
 		Execute: "add_hostfwd",
 		Arguments: map[string]any{
 			"proto":      "tcp",
-			"host_addr":  "127.0.0.1",
+			"host_addr":  hostFwdBindAddr,
 			"host_port":  hostPort,
 			"guest_addr": "10.0.2.100",
 			"guest_port": internalPort,
@@ -53,7 +59,7 @@ func removeHostFwd(socketPath string, hostPort, internalPort int) error {
 		Execute: "remove_hostfwd",
 		Arguments: map[string]any{
 			"proto":      "tcp",
-			"host_addr":  "127.0.0.1",
+			"host_addr":  hostFwdBindAddr,
 			"host_port":  hostPort,
 			"guest_addr": "10.0.2.100",
 			"guest_port": internalPort,
