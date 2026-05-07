@@ -69,12 +69,27 @@ function categoryKey(category: BranchCategory | undefined): CategoryKey {
   return 'my'
 }
 
+// `git describe --tags --always --dirty` → compact form for the drawer.
+//   v0.5.1                           → v0.5.1
+//   v0.5.1-4-g3082711                → v0.5.1+4
+//   v0.5.1-4-g3082711-dirty          → v0.5.1+4*
+//   v0.5.1-dirty                     → v0.5.1*
+// `*` always means a dirty worktree, `+N` means N commits past the tag.
+function formatCompactVersion(raw: string): string {
+  const dirty = raw.endsWith('-dirty')
+  const core = dirty ? raw.slice(0, -'-dirty'.length) : raw
+  const m = /^(.*)-(\d+)-g[0-9a-f]+$/.exec(core)
+  if (m) return `${m[1]}+${m[2]}${dirty ? '*' : ''}`
+  return `${core}${dirty ? '*' : ''}`
+}
+
 export function Drawer() {
   const repos = usePalmuxStore((s) => s.repos)
   const drawerWidth = usePalmuxStore((s) => s.deviceSettings.drawerWidth)
   const setDeviceSetting = usePalmuxStore((s) => s.setDeviceSetting)
   const orphanSessions = usePalmuxStore((s) => s.orphanSessions)
   const reloadOrphanSessions = usePalmuxStore((s) => s.reloadOrphanSessions)
+  const version = usePalmuxStore((s) => s.serverInfo.version)
 
   const [pickerType, setPickerType] = useState<'repo' | { branchOf: string } | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ repoId: string; ghqPath: string } | null>(null)
@@ -154,7 +169,18 @@ export function Drawer() {
     <aside className={styles.drawer} style={{ width: drawerWidth }}>
       <div className={styles.scroll}>
         <div className={styles.statusStrip} data-component="status-strip">
-          <span className={styles.brand}>Palmux</span>
+          <span className={styles.brand}>
+            Palmux
+            {version && (
+              <span
+                className={styles.version}
+                title={`palmux2 ${version}`}
+                data-component="palmux-version"
+              >
+                {formatCompactVersion(version)}
+              </span>
+            )}
+          </span>
           <span className={styles.statusMeta}>
             <span>
               <span className={styles.dot}>●</span>

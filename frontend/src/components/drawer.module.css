@@ -42,6 +42,30 @@
   letter-spacing: 0.2em;
   color: var(--color-fg);
   text-transform: uppercase;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Compact build tag, e.g. `v0.5.1+4*`. The `*` (dirty) and `+N` (N commits
+   past the tag) are intentionally terse — full string lives in the
+   tooltip. Coloured warning when the tree is dirty so accidental dirty
+   builds in production are immediately visible. */
+.version {
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--color-fg-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.version[title$="-dirty"] {
+  color: var(--color-warning);
 }
 .statusMeta {
   display: flex;
