@@ -5639,6 +5639,12 @@
       "description": "Items deferred from S033 sprint-level review (refer to docs/sprint-logs/S033/decisions.json review section): TOCTOU on CreateDir, rename-to-empty-basename validation, dir-only search maxResults, files-context-menu keyboard navigation (↑↓↵), Open-on-GitHub popup verification in tests, dirty-set useMemo (if not applied in fix-up).",
       "added_in": "S033",
       "reason": "Trade-off: low-impact polish, did not block core sprint completion"
+    },
+    {
+      "title": "Branch → Workspace 用語統一 [REFACTOR-ONLY]",
+      "description": "S1e8d02 で deferred された S1e8d02-4 (AC-4-1〜AC-4-4) の完遂。 (1) `internal/domain/` の `Branch` 型を `Workspace` にリネーム、 `BranchID` フィールド → `WorkspaceID`、 `OpenBranches` → `OpenWorkspaces` 等の helper も追従。 (2) Provider interface の `OnBranchOpen`/`OnBranchClose` を `OnWorkspaceOpen`/`OnWorkspaceClose` にリネーム、 既存 `OnBranchHeadChanged` capability も `OnWorkspaceHeadChanged` に揃える。 既存 Provider 実装 (claudeagent / bash / files / git / sprint) を全部追従。 (3) frontend 側の TS 型 (`Branch` → `Workspace`)、 Zustand store 内の名称 (`openBranches` → `openWorkspaces`)、 hook 名・component prop 名も合わせて rename。 URL の path segment 名 (`branches`) と CSS クラス名は当面維持。 (4) 構造化ログの key を `branch=` → `workspace=` に揃える。 新 `head=` key で現 branch 名を併記。 影響範囲: ~70 ファイル (Go ~50 + TS ~20)。 純粋な機械的 rename で機能変更なし。 着手タイミングは feature branch のマージ状況を見て判断 — 進行中の feature branch がある状態で実行すると merge conflict が大量発生するため、 主要 feature branch がすべて main に merge された (or close された) 段階で sprint 化することを推奨。",
+      "added_in": "S1e8d02",
+      "reason": "S1e8d02 の D1 決定により deferred。 incident fix の機能本体 (Stories 1/2/3/5) は merge 済みで、 残るのは pure mechanical rename。 ユーザ意図: feature branch との merge conflict 懸念があり、 状況が落ち着いてから手動で sprint 化する。 自動実行サイクルには乗せない (execution_order に追加していない)。 完遂時に S1e8d02 の sprint status を `partial` → `done` に更新し、 progress.sprints_done を bump する。"
     }
   ]
 }
