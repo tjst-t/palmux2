@@ -71,6 +71,74 @@ type MobilePane = 'changes' | 'history' | 'diff'
 
 const HISTORY_PAGE = 50
 
+// Resizable pane sizes — persisted per-device.
+const SIDEBAR_WIDTH_KEY = 'palmux:git:sidebarWidth'
+const CHANGES_HEIGHT_KEY = 'palmux:git:changesHeight'
+const SIDEBAR_DEFAULT = 320
+const SIDEBAR_MIN = 200
+const SIDEBAR_MAX = 720
+const CHANGES_DEFAULT = 280
+const CHANGES_MIN = 120
+const CHANGES_MAX_RESERVE = 120 // leave at least this much height for History
+
+function readStoredNumber(key: string, fallback: number): number {
+  if (typeof window === 'undefined') return fallback
+  const raw = window.localStorage.getItem(key)
+  if (raw == null) return fallback
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : fallback
+}
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, n))
+}
+
+// Pointer-drag splitter. `axis` selects which delta to track: `x` for a
+// vertical splitter (col-resize, drag left/right), `y` for a horizontal
+// one (row-resize, drag up/down).
+interface SplitterProps {
+  axis: 'x' | 'y'
+  onResize: (clientPos: number) => void
+  testid?: string
+}
+
+function Splitter({ axis, onResize, testid }: SplitterProps) {
+  const [active, setActive] = useState(false)
+
+  useEffect(() => {
+    if (!active) return
+    const onMove = (e: PointerEvent) => onResize(axis === 'x' ? e.clientX : e.clientY)
+    const onUp = () => setActive(false)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    document.body.style.cursor = axis === 'x' ? 'col-resize' : 'row-resize'
+    document.body.style.userSelect = 'none'
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+  }, [active, axis, onResize])
+
+  return (
+    <div
+      className={
+        axis === 'x'
+          ? `${styles.vSplitter} ${active ? styles.splitterActive : ''}`
+          : `${styles.hSplitter} ${active ? styles.splitterActive : ''}`
+      }
+      role="separator"
+      aria-orientation={axis === 'x' ? 'vertical' : 'horizontal'}
+      data-testid={testid}
+      onPointerDown={(e) => {
+        e.preventDefault()
+        setActive(true)
+      }}
+    />
+  )
+}
+
 export function GitView({ repoId, branchId }: Props) {
   const apiBase = `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/git`
   const [status, setStatus] = useState<StatusReport | null>(null)
@@ -82,6 +150,49 @@ export function GitView({ repoId, branchId }: Props) {
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
   const [reloadKey, setReloadKey] = useState(0)
   const [mobilePane, setMobilePane] = useState<MobilePane>('changes')
+
+  // Resizable layout state — pixel widths/heights persisted to localStorage.
+  // The body element drives the col-resize splitter (we measure dragged X
+  // relative to its left edge); the sidebar element drives the row-resize
+  // splitter inside it.
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const sidebarRef = useRef<HTMLDivElement>(null)
+  const [sidebarWidth, setSidebarWidth] = useState(() =>
+    readStoredNumber(SIDEBAR_WIDTH_KEY, SIDEBAR_DEFAULT),
+  )
+  const [changesHeight, setChangesHeight] = useState(() =>
+    readStoredNumber(CHANGES_HEIGHT_KEY, CHANGES_DEFAULT),
+  )
+  const persistSidebarWidth = useCallback((w: number) => {
+    setSidebarWidth(w)
+    try { window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(w)) } catch {}
+  }, [])
+  const persistChangesHeight = useCallback((h: number) => {
+    setChangesHeight(h)
+    try { window.localStorage.setItem(CHANGES_HEIGHT_KEY, String(h)) } catch {}
+  }, [])
+  const onSidebarResize = useCallback((clientX: number) => {
+    const el = bodyRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const next = clamp(
+      clientX - rect.left,
+      SIDEBAR_MIN,
+      Math.min(SIDEBAR_MAX, rect.width - 240),
+    )
+    persistSidebarWidth(Math.round(next))
+  }, [persistSidebarWidth])
+  const onChangesResize = useCallback((clientY: number) => {
+    const el = sidebarRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const next = clamp(
+      clientY - rect.top,
+      CHANGES_MIN,
+      Math.max(CHANGES_MIN, rect.height - CHANGES_MAX_RESERVE),
+    )
+    persistChangesHeight(Math.round(next))
+  }, [persistChangesHeight])
 
   // ---- Data fetchers ------------------------------------------------------
 
@@ -226,7 +337,12 @@ export function GitView({ repoId, branchId }: Props) {
   // ---- Render ------------------------------------------------------------
 
   const sidebar = (
-    <aside className={styles.sidebar} data-testid="git-sidebar">
+    <aside
+      className={styles.sidebar}
+      data-testid="git-sidebar"
+      ref={sidebarRef}
+      style={{ width: sidebarWidth }}
+    >
       {error && (
         <div className={styles.errorBanner} data-testid="git-error">
           {error}
@@ -261,39 +377,45 @@ export function GitView({ repoId, branchId }: Props) {
         />
       )}
 
-      <ChangesSection
-        changes={changes}
-        commitMessage={commitMessage}
-        committing={committing}
-        canCommit={changes.some((c) => c.staged) && commitMessage.trim().length > 0}
-        syncBusy={syncBusy}
-        ahead={headBranch?.ahead ?? 0}
-        behind={headBranch?.behind ?? 0}
-        selection={selection}
-        onSelect={(sel) => {
-          setSelection(sel)
-          if (sel.kind !== 'none') setMobilePane('diff')
-        }}
-        onStage={onStage}
-        onUnstage={onUnstage}
-        onCommitMessageChange={setCommitMessage}
-        onCommit={onCommit}
-        onPush={() => sync('push')}
-        onPull={() => sync('pull')}
-        onFetch={() => sync('fetch')}
-      />
+      <div className={styles.changesPane} style={{ height: changesHeight }}>
+        <ChangesSection
+          changes={changes}
+          commitMessage={commitMessage}
+          committing={committing}
+          canCommit={changes.some((c) => c.staged) && commitMessage.trim().length > 0}
+          syncBusy={syncBusy}
+          ahead={headBranch?.ahead ?? 0}
+          behind={headBranch?.behind ?? 0}
+          selection={selection}
+          onSelect={(sel) => {
+            setSelection(sel)
+            if (sel.kind !== 'none') setMobilePane('diff')
+          }}
+          onStage={onStage}
+          onUnstage={onUnstage}
+          onCommitMessageChange={setCommitMessage}
+          onCommit={onCommit}
+          onPush={() => sync('push')}
+          onPull={() => sync('pull')}
+          onFetch={() => sync('fetch')}
+        />
+      </div>
 
-      <HistorySection
-        log={log}
-        loading={logLoading}
-        exhausted={logExhausted}
-        selectedSha={selection.kind === 'commit' ? selection.sha : null}
-        onSelect={(entry) => {
-          setSelection({ kind: 'commit', sha: entry.hash, refs: entry.refs })
-          setMobilePane('diff')
-        }}
-        onLoadMore={() => fetchLog(log.length)}
-      />
+      <Splitter axis="y" onResize={onChangesResize} testid="git-splitter-h" />
+
+      <div className={styles.historyPane}>
+        <HistorySection
+          log={log}
+          loading={logLoading}
+          exhausted={logExhausted}
+          selectedSha={selection.kind === 'commit' ? selection.sha : null}
+          onSelect={(entry) => {
+            setSelection({ kind: 'commit', sha: entry.hash, refs: entry.refs })
+            setMobilePane('diff')
+          }}
+          onLoadMore={() => fetchLog(log.length)}
+        />
+      </div>
     </aside>
   )
 
@@ -378,8 +500,13 @@ export function GitView({ repoId, branchId }: Props) {
         </button>
       </nav>
 
-      <div className={styles.body} data-mobile-pane={mobilePane}>
+      <div
+        className={styles.body}
+        data-mobile-pane={mobilePane}
+        ref={bodyRef}
+      >
         {sidebar}
+        <Splitter axis="x" onResize={onSidebarResize} testid="git-splitter-v" />
         {main}
       </div>
 

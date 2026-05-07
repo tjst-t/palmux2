@@ -16,20 +16,27 @@
 
 .body {
   flex: 1 1 auto;
-  display: grid;
-  grid-template-columns: 320px 1fr;
+  display: flex;
+  flex-direction: row;
   min-height: 0;
-}
-
-@media (max-width: 899px) {
-  .body {
-    grid-template-columns: 280px 1fr;
-  }
+  min-width: 0;
 }
 
 @media (max-width: 599px) {
   .body {
-    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+  /* On mobile the splitters are inert; the JS-set inline width/height on
+     the sidebar and the changes pane is reset to "auto" so the sub-tab
+     mobile layout (one section at a time) can claim full width/height. */
+  .body .sidebar,
+  .body .changesPane {
+    width: auto !important;
+    height: auto !important;
+  }
+  .vSplitter,
+  .hSplitter {
+    display: none;
   }
   .body[data-mobile-pane='changes'] .main,
   .body[data-mobile-pane='history'] .main {
@@ -41,12 +48,36 @@
   /* On mobile the History section is shown only when the History
      sub-tab is active so the Changes section doesn't share the
      viewport with it. */
+  .body[data-mobile-pane='changes'] .historyPane,
   .body[data-mobile-pane='changes'] [data-testid='git-section-history'] {
     display: none;
   }
+  .body[data-mobile-pane='history'] .changesPane,
   .body[data-mobile-pane='history'] [data-testid='git-section-changes'] {
     display: none;
   }
+}
+
+/* ----- Splitters (S029-fix) ----- */
+
+.vSplitter,
+.hSplitter {
+  flex: 0 0 auto;
+  background: var(--color-border);
+  transition: background-color 120ms ease;
+}
+.vSplitter {
+  width: 4px;
+  cursor: col-resize;
+}
+.hSplitter {
+  height: 4px;
+  cursor: row-resize;
+}
+.vSplitter:hover,
+.hSplitter:hover,
+.splitterActive {
+  background: var(--color-accent);
 }
 
 /* ----- Mobile sub-tabs ----- */
@@ -86,21 +117,39 @@
   display: flex;
   flex-direction: column;
   background: var(--color-surface);
-  border-right: 1px solid var(--color-border);
   overflow: hidden;
   min-height: 0;
+  flex-shrink: 0;
+}
+
+/* Wrappers around the Changes / History sections that the splitter
+   resizes. The Changes pane has an explicit pixel height (set inline
+   from React state); History fills the remaining vertical space. */
+.changesPane {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.historyPane {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .section {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   min-height: 0;
   border-bottom: 1px solid var(--color-border);
 }
 
 .section:last-of-type {
   border-bottom: none;
-  flex: 1 1 auto;
 }
 
 .sectionHeader {
@@ -163,7 +212,7 @@
   margin: 0;
   padding: 0;
   overflow: auto;
-  max-height: 280px;
+  min-height: 0;
 }
 
 .fileRow,
