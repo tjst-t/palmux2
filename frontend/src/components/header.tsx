@@ -24,6 +24,7 @@ export function Header() {
   const mobileDrawerOpen = usePalmuxStore((s) => s.mobileDrawerOpen)
   const setMobileDrawerOpen = usePalmuxStore((s) => s.setMobileDrawerOpen)
   const portmanURL = usePalmuxStore((s) => s.serverInfo.portmanURL)
+  const version = usePalmuxStore((s) => s.serverInfo.version)
   const showPalette = useCommandPaletteStore((s) => s.show)
   const wide = useWideViewport(SPLIT_MIN_WIDTH)
   const viewport = useViewport()
@@ -48,7 +49,10 @@ export function Header() {
         >
           ☰
         </button>
-        <span className={styles.brand}>Palmux v2</span>
+        <span className={styles.brand}>
+          Palmux v2
+          {version && <span className={styles.version} title={`palmux2 ${version}`}>{version}</span>}
+        </span>
         {branch && repo && (
           <span className={styles.branch}>
             <span className={styles.repoName}>{repoLabel(repo.ghqPath)}</span>

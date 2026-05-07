@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -38,6 +39,43 @@ import (
 	"github.com/tjst-t/palmux2/internal/tab/sprint"
 	"github.com/tjst-t/palmux2/internal/tmux"
 )
+
+// Version is injected at build time via `-ldflags "-X main.Version=..."`
+// (see Makefile). When unset — e.g. `go run` from a worktree — we fall back
+// to the VCS info embedded by the Go toolchain.
+var Version = ""
+
+func resolveVersion() string {
+	if Version != "" {
+		return Version
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "dev"
+	}
+	if v := info.Main.Version; v != "" && v != "(devel)" {
+		return v
+	}
+	var rev, mod string
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.modified":
+			mod = s.Value
+		}
+	}
+	if rev == "" {
+		return "dev"
+	}
+	if len(rev) > 7 {
+		rev = rev[:7]
+	}
+	if mod == "true" {
+		rev += "-dirty"
+	}
+	return "dev-" + rev
+}
 
 func main() {
 	// Some Linux distros ship a slim mime DB that doesn't know about
@@ -246,7 +284,7 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		BasePath: basePath,
 		Logger:   slog.Default(),
 		HealthDetail: map[string]any{
-			"version":    "phase-10",
+			"version":    resolveVersion(),
 			"open":       authn.Open(),
 			"configDir":  configDir,
 			"portmanURL": portmanURL,

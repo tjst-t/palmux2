@@ -46,10 +46,17 @@ dev-frontend: ports
 		PALMUX2_API_PORT=$${$(API_PORT_VAR)} \
 		npm run dev -- --port $${$(FRONTEND_PORT_VAR)} --host 0.0.0.0 --strictPort
 
+# Version string injected into the binary via `-ldflags -X main.Version=...`.
+# Defaults to `git describe --tags --always --dirty` so a build from a tagged
+# commit prints the tag (`v0.5.1`) and an in-progress build prints something
+# like `v0.5.1-3-g0943bc8-dirty`. Override with `make build VERSION=...`.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS := -X main.Version=$(VERSION)
+
 # Production: embed-built frontend, single binary
 build: build-frontend
 	@mkdir -p $(BIN_DIR)
-	go build -o $(BIN_DIR)/palmux $(GO_PKG)
+	go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/palmux $(GO_PKG)
 
 build-frontend:
 	cd frontend && npm run build
@@ -65,11 +72,11 @@ prepare:
 
 build-linux: build-frontend
 	@mkdir -p $(BIN_DIR)
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o $(BIN_DIR)/palmux-linux-amd64 $(GO_PKG)
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/palmux-linux-amd64 $(GO_PKG)
 
 build-arm: build-frontend
 	@mkdir -p $(BIN_DIR)
-	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o $(BIN_DIR)/palmux-linux-arm64 $(GO_PKG)
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/palmux-linux-arm64 $(GO_PKG)
 
 # Background-run the production binary, keep its PID in $(SERVE_PID), kill
 # the previous process on re-run. Mirrors pattern 6 of port-manager's
