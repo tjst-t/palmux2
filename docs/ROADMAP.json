@@ -3,9 +3,9 @@
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
     "sprints_done": 33,
-    "sprints_total": 33,
-    "percent": 100,
-    "current_sprint": "S033"
+    "sprints_total": 34,
+    "percent": 97.1,
+    "current_sprint": "S1e8d02"
   },
   "execution_order": [
     "S001",
@@ -40,7 +40,8 @@
     "S030",
     "S031",
     "S032",
-    "S033"
+    "S033",
+    "S1e8d02"
   ],
   "sprints": {
     "S001": {
@@ -4990,6 +4991,319 @@
           }
         }
       }
+    },
+    "S1e8d02": {
+      "title": "Workspace-centric domain refactor (Phase 1-3) [BREAKING]",
+      "status": "todo",
+      "description": "**背景**: 2026-05-07 のインシデントで、KuraOS の autopilot 中に ghq dir 内で in-place `git checkout` が走り、 palmux2 の sync_worktree が 「`autopilot/main/S0ff37f` ブランチが消失」と判定して `CloseBranch` を発火、 Claude エージェントが kill され添付ディレクトリと永続タブ一覧が消去された。 ユーザの会話履歴 (resume UUID) は残ったが、 Drawer から該当エントリが消え、 「セッションが勝手に Clear された」と知覚される事故になった。\n\n**根本原因**: 現行ドメインは `Branch = git worktree の存在` と同一視しており、 Branch 名で identity を取っている。 同一 worktree path 上で `git checkout` が 起きると、 sync_worktree からは 「branch X 消失 + branch Y 出現」 にしか見えず `CloseBranch + OpenBranch` が連鎖し、 Claude / tmux / Files などすべてが再生成される。 しかし ghq 配下で branch を切り替えるのは git の正当な操作であり、 本来 palmux2 が追跡すべき identity は 「worktree の path」 (= 永続的な作業場所) であるべき。\n\n**ゴール**: identity を branch 名から worktree path に移し、 branch を Workspace の 動的属性に格下げする。 これで `git checkout` は **`workspace.head_changed` event** として表現され、 Drawer エントリは消えず・ URL は不変・ Claude / tmux / タブも生存。 non-primary worktree (gwq add したもの) 内の checkout も同じ規則で守られる。\n\n**3 Phase 構成**:\n- **Phase 1 (Story-1, Story-2)**: `BranchID` 計算ルールを branch 名 → worktree path 由来に差し替え、 sync_worktree に rename 検出を実装。 既存永続データ (sessions.json) を 起動時に新 ID 体系に migrate。\n- **Phase 2 (Story-3)**: API/URL の `/{repoId}/{branchId}/...` を `/{repoId}/{workspaceId}/...` に 切り替え (URL の path segment 名は `branches` のまま当面残し、 中身の値だけ workspaceId 化)。 旧 URL からは 302 redirect。\n- **Phase 3 (Story-4)**: ドメイン用語を Branch → Workspace に rename。 Go/TS 型名、 Provider interface (`OnBranchOpen/Close` → `OnWorkspaceOpen/Close`)、 ログ key、 ドキュメントまで一気に揃える。\n\n**スコープ外**: autopilot/sprint スキル側の `gwq add` 必須化 (claude-skills 側で別途対応)。 CLI コマンドとしての `palmux2 migrate` サブコマンド (起動時自動 migration で十分なため)。\n\n**主要影響ファイル**: `internal/domain/entities.go` (BranchID 生成 + 型 rename)、 `internal/store/sync_worktree.go` (rename 検出)、 `internal/store/branch.go` (in-place 更新)、 `internal/store/events.go` (新 event 種別)、 `internal/tab/*/provider.go` (Provider interface 更新)、 `frontend/src/stores/palmux-store.ts` (event 購読 + ラベル動的更新)、 `frontend/src/components/drawer.tsx` (label = workspace.headBranch)、 `docs/CLAUDE.md` + `docs/original-specs/01-architecture.md` (用語更新)。\n\n**互換性**: BREAKING。 sessions.json の key 体系が変わるため自動 migration を実装。 URL は旧 → 新の 302 redirect でブックマーク救済。 Provider interface 変更で 外部プラグインがあれば再ビルドが必要 (現状 in-tree のみなので影響なし)。",
+      "milestone": false,
+      "stories": {
+        "S1e8d02-1": {
+          "title": "Phase 1 core: BranchID を worktree path 由来にし、in-place checkout を rename として扱う",
+          "status": "todo",
+          "user_story": "palmux2 ユーザとして、 ghq 配下の primary worktree で `git checkout` (あるいは `git switch`) を実行しても、 Drawer のエントリが消えたり Claude エージェントが kill されたり URL が無効になったりしないようにしたい。 なぜなら、 ghq 配下で branch を切り替えるのは git の正当な操作であり、 そのたびにサブシステム全体を再生成されると会話履歴・添付・タブ状態が散逸し、 palmux2 を「壊れた IDE」として使う羽目になるからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S1e8d02-1-1",
+              "description": "primary worktree (ghq dir 直) で `git checkout other-branch` を実行した後、 当該 workspace に紐付く Claude エージェントプロセスが kill されず連続稼働する",
+              "test": "[AC-S1e8d02-1-1] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            },
+            {
+              "id": "AC-S1e8d02-1-2",
+              "description": "同操作で tmux session 名 (`_palmux_{repoId}_{workspaceId}`) が変わらない (workspaceId は worktree path 由来。 primary は repo dir 名 + hash4、 non-primary は worktree dirname + hash4)",
+              "test": "[AC-S1e8d02-1-2] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            },
+            {
+              "id": "AC-S1e8d02-1-3",
+              "description": "WS event hub から `workspace.head_changed` (Repo + WorkspaceID + new branch name) が発行され、 frontend store がエントリの label のみを書き換える (削除しない)",
+              "test": "[AC-S1e8d02-1-3] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            },
+            {
+              "id": "AC-S1e8d02-1-4",
+              "description": "Drawer 上の workspace エントリが checkout 後も同じ位置に残り、 表示ラベルが新 branch 名に更新される。 フォーカス中の workspace は active のまま、 URL も維持される",
+              "test": "[AC-S1e8d02-1-4] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            },
+            {
+              "id": "AC-S1e8d02-1-5",
+              "description": "non-primary worktree (gwq add で作ったもの) 内の `git checkout` でも同じ動作 (workspace 残存・ Claude 生存・ ラベル更新)",
+              "test": "[AC-S1e8d02-1-5] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            },
+            {
+              "id": "AC-S1e8d02-1-6",
+              "description": "`gwq add` で新 worktree が出現したとき・ `gwq remove` で消失したときは、 引き続き `branch.opened` / `branch.closed` (or 新名) が発火し open/close が走る (今回の改修は in-place rename だけを救済する)",
+              "test": "[AC-S1e8d02-1-6] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            }
+          ],
+          "tasks": {
+            "S1e8d02-1-1": {
+              "title": "domain: NewBranchID を worktree path 由来に差し替え",
+              "description": "`internal/domain/entities.go` の BranchID 生成を 'branch 名 + hash4' → 'worktree dirname + hash4' に変更。 primary worktree は repo dir 名 + hash4 で固定 (例: `KuraOS--xxxx`)。 non-primary は gwq の作る dirname + hash4。 BranchID の同一性は path に従うので、 同 path 上の checkout で ID は不変。 既存の `BranchID(name string)` 呼び出し箇所を `BranchIDFromPath(path string)` に統一。",
+              "status": "todo"
+            },
+            "S1e8d02-1-2": {
+              "title": "store: sync_worktree に rename 検出を実装",
+              "description": "`internal/store/sync_worktree.go` の reconcile を path-based に書き換え。 旧 `existing[branchName]` のマップを `existing[worktreePath]` に変える。 同 path 上で `wt.Branch` が変わったケースを検出し、 close/open ではなく `Branch.Name` を in-place 更新 + `EventBranchHeadChanged` (新規) を hub に publish。 close/open は path 単位の出現/消失のみで発火。",
+              "status": "todo"
+            },
+            "S1e8d02-1-3": {
+              "title": "store: EventBranchHeadChanged event 種別と payload 定義",
+              "description": "`internal/store/events.go` に `EventBranchHeadChanged EventType = \"branch.head_changed\"` を追加。 payload に `BranchID`, `OldBranch`, `NewBranch`, `WorktreePath` を含める。 publish 元は sync_worktree。",
+              "status": "todo"
+            },
+            "S1e8d02-1-4": {
+              "title": "store: Branch.Name の in-place 更新 helper",
+              "description": "`internal/store/branch.go` に `RenameBranch(repoID, branchID, newName)` を追加 (mutex 取得 + 名前更新 + 永続化)。 sync_worktree から呼ぶ。 OnBranchClose / OnBranchOpen の Provider hook は呼ばない (= タブ状態は不変)。",
+              "status": "todo"
+            },
+            "S1e8d02-1-5": {
+              "title": "frontend: workspace.head_changed event 購読 + Drawer ラベル動的更新",
+              "description": "`frontend/src/stores/palmux-store.ts` に branch.head_changed handler を追加し、 該当 branch エントリの `name` フィールドだけを書き換える (削除・追加しない)。 `frontend/src/components/drawer.tsx` の表示ラベルは既存の `branch.name` 経由。 React は再レンダのみ。",
+              "status": "todo"
+            },
+            "S1e8d02-1-6": {
+              "title": "test: domain NewBranchID の path 由来計算 unit test",
+              "description": "`internal/domain/entities_test.go` に primary / non-primary / 同名 branch 別 path のケースを追加。 path が同じなら ID 同じ、 違えば違う、 を検証。",
+              "status": "todo"
+            },
+            "S1e8d02-1-7": {
+              "title": "test: sync_worktree rename 検出 unit test (mock tmux + mock worktree.List)",
+              "description": "branch 名だけ変わったケース → CloseBranch が呼ばれない / RenameBranch が呼ばれる / EventBranchHeadChanged が hub に publish される、 を検証。",
+              "status": "todo"
+            }
+          }
+        },
+        "S1e8d02-2": {
+          "title": "Phase 1 cont.: 既存永続データの起動時 migration",
+          "status": "todo",
+          "user_story": "既存 palmux2 ユーザとして、 アップグレード後も既存の Claude session resume・ 添付ファイル・ per-branch prefs が引き続き使えるようにしたい。 なぜなら、 sessions.json の key 体系を変えると既存 user の作業履歴が黙って 壊れ、 「このバージョンで全部 reset された」 という最悪の体験になるからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S1e8d02-2-1",
+              "description": "起動時に旧形式 sessions.json (key = `{repoId}/{oldBranchId}/...`) を読み込み、 各 repo の `git worktree list` を引いて新 workspaceId を計算、 `active` / `branchTabs` / `branchPrefs` の key をすべて新 ID に書き換えて保存する",
+              "test": "[AC-S1e8d02-2-1] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            },
+            {
+              "id": "AC-S1e8d02-2-2",
+              "description": "migration は冪等。 2 回目以降の起動では既に新形式なので no-op。 `lastInit` に migration バージョンを記録",
+              "test": "[AC-S1e8d02-2-2] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            },
+            {
+              "id": "AC-S1e8d02-2-3",
+              "description": "既に worktree が消えた branch の旧 key は WARN ログ出して skip (entry を削除)、 起動を中断しない",
+              "test": "[AC-S1e8d02-2-3] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            },
+            {
+              "id": "AC-S1e8d02-2-4",
+              "description": "既存の `_palmux_{repoId}_{oldBranchId}` tmux session を `_palmux_{repoId}_{newWorkspaceId}` にリネームする (`tmux rename-session`)。 リネーム失敗時は捨てて recover loop に任せる",
+              "test": "[AC-S1e8d02-2-4] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            },
+            {
+              "id": "AC-S1e8d02-2-5",
+              "description": "migration 完了後、 旧バージョンで保存された Claude session UUID が新 workspaceId 経由で引き続き resume できる (cwd / project hash は変わっていないので Claude CLI 側の persistence は問題なし)",
+              "test": "[AC-S1e8d02-2-5] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            }
+          ],
+          "tasks": {
+            "S1e8d02-2-1": {
+              "title": "claudeagent.Store: migration ステップ実装",
+              "description": "`internal/tab/claudeagent/store.go` の Load 直後に `migrateLegacyTabKeys` と並んで `migrateLegacyBranchIDs` を追加。 引数で `func(repoID, oldBranchID string) (newWorkspaceID string, ok bool)` を受け取り、 active / branchTabs / branchPrefs の key を書き換える。 ok=false の entry は warn ログ出して削除。 `lastInit` map に `\"workspace_migration_v1\": <unix-ts>` を記録し冪等化。",
+              "status": "todo"
+            },
+            "S1e8d02-2-2": {
+              "title": "store: Resolver 提供 (oldBranchID → newWorkspaceID)",
+              "description": "起動時に各 repo の `git worktree list` を引き、 旧 BranchID 計算 (branch 名由来) → 新 WorkspaceID 計算 (path 由来) のマップを作る。 claudeagent.Store の migration callback として渡す。 `cmd/palmux/main.go` の起動順序に組み込む。",
+              "status": "todo"
+            },
+            "S1e8d02-2-3": {
+              "title": "tmux: 既存 session のリネーム",
+              "description": "起動時に tmux ListSessions → 旧名 (`_palmux_{repoId}_{oldBranchId}`) を新名 (`_palmux_{repoId}_{newWorkspaceId}`) にリネーム。 失敗時は warn のみ。 `internal/tmux/client.go` に `RenameSession(old, new)` を追加 (なければ)。",
+              "status": "todo"
+            },
+            "S1e8d02-2-4": {
+              "title": "test: migration 冪等性と障害ケース",
+              "description": "fixture の旧 sessions.json を喰わせて 1 回目で書き換わる、 2 回目で no-op。 worktree 消失 entry は削除されて warn ログが出る、 を unit test で検証。",
+              "status": "todo"
+            }
+          }
+        },
+        "S1e8d02-3": {
+          "title": "Phase 2: API/URL の workspaceId 化 + 旧 URL redirect",
+          "status": "todo",
+          "user_story": "palmux2 ユーザとして、 ブックマークや共有 URL が `git checkout` 1 発で 無効化されないようにしたい。 なぜなら、 旧 BranchID は branch 名に依存していて checkout のたびに URL の path segment が変わってしまい、 開きっぱなしのタブ・ 外部システム (Linear / Slack 等) に貼った URL がすべて切れるからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S1e8d02-3-1",
+              "description": "HTTP route `/api/repos/{repoId}/branches/{branchId}/...` の `branchId` パラメータが新 workspaceId として解釈・解決される。 path segment 名 (`branches`) は当面互換のため残す",
+              "test": "[AC-S1e8d02-3-1] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            },
+            {
+              "id": "AC-S1e8d02-3-2",
+              "description": "旧 BranchID (旧形式 = branch 名由来) を URL に含めてアクセスすると、 サーバ側で現在の workspaceId を解決し 302 redirect で新 URL に飛ばす",
+              "test": "[AC-S1e8d02-3-2] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            },
+            {
+              "id": "AC-S1e8d02-3-3",
+              "description": "frontend の React Router params `useParams()` が workspaceId を受け取り、 ストア lookup・ WS 接続・ tab 復元すべてが新 ID で動作する",
+              "test": "[AC-S1e8d02-3-3] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            },
+            {
+              "id": "AC-S1e8d02-3-4",
+              "description": "WS endpoint `/api/repos/{repoId}/branches/{branchId}/tabs/{tabId}/attach` および `/api/events` も新 ID で動作。 旧 ID は HTTP 426 か redirect で誘導",
+              "test": "[AC-S1e8d02-3-4] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            }
+          ],
+          "tasks": {
+            "S1e8d02-3-1": {
+              "title": "server: HTTP handler を workspaceId 解決に統一",
+              "description": "`internal/server/handler_branch.go` 等の `branchId` パラメータ解釈を新 ID 体系に切り替え。 `Store.LookupBranch(repoID, id)` が新旧両方を引き、 旧 ID にヒットしたら新 ID への redirect を返す helper を実装。",
+              "status": "todo"
+            },
+            "S1e8d02-3-2": {
+              "title": "server: 旧 URL → 新 URL の 302 redirect middleware",
+              "description": "`/api/repos/{repoId}/branches/{branchId}/...` で旧 ID が来たら、 `Location: /api/repos/{repoId}/branches/{newId}/...` を返す。 SPA フォールバック側 (`/{repoId}/{branchId}/{tabId}` URL) も同様に旧 ID → 新 ID redirect を server から返す。",
+              "status": "todo"
+            },
+            "S1e8d02-3-3": {
+              "title": "frontend: ストア・hook の id 解決を workspaceId に統一",
+              "description": "`frontend/src/lib/api.ts` の URL 構築・ `frontend/src/stores/palmux-store.ts` のキー lookup ・ React Router の loader 相当の hook がすべて workspaceId ベースで動くことを確認。 既存 `branchId` 変数名は維持 (中身が workspaceId に変わるだけ)。",
+              "status": "todo"
+            }
+          }
+        },
+        "S1e8d02-4": {
+          "title": "Phase 3: ドメイン用語 Branch → Workspace へリネーム",
+          "status": "todo",
+          "user_story": "palmux2 のメンテナとして、 コード上の名前を新しいドメインモデルに揃えたい。 なぜなら、 `Branch` という名前のまま意味だけ Workspace に変えると、 後で コードを読む人 (自分含む) が「Branch.Name と Branch.ID は何を表してるんだっけ？」 と混乱し、 PR レビューの認知負荷も上がるからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S1e8d02-4-1",
+              "description": "`internal/domain/entities.go` の `Branch` 型を `Workspace` にリネーム (`OpenBranches` → `OpenWorkspaces`、 `BranchID` フィールド → `WorkspaceID`、 helper 関数も同様)",
+              "test": "[AC-S1e8d02-4-1] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            },
+            {
+              "id": "AC-S1e8d02-4-2",
+              "description": "Provider interface の `OnBranchOpen` / `OnBranchClose` を `OnWorkspaceOpen` / `OnWorkspaceClose` にリネーム、 新 hook `OnWorkspaceHeadChanged(WorkspaceID, oldBranch, newBranch)` を追加 (実装は no-op default 可)",
+              "test": "[AC-S1e8d02-4-2] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            },
+            {
+              "id": "AC-S1e8d02-4-3",
+              "description": "frontend 側の TS 型 (`Branch` → `Workspace`)、 Zustand store 内の名称 (`openBranches` → `openWorkspaces` 等)、 hook 名も合わせて rename",
+              "test": "[AC-S1e8d02-4-3] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            },
+            {
+              "id": "AC-S1e8d02-4-4",
+              "description": "構造化ログの key を `branch=` → `workspace=` に揃える (sync_worktree, sync_tmux, claudeagent 全域)。 新 `head=` key で現 branch 名を併記",
+              "test": "[AC-S1e8d02-4-4] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            },
+            {
+              "id": "AC-S1e8d02-4-5",
+              "description": "`docs/CLAUDE.md` および `docs/original-specs/01-architecture.md` のドメインモデル節を更新し、 「Branch は Workspace の動的属性」 「Workspace ID は worktree path 由来」 の対応表を追加",
+              "test": "[AC-S1e8d02-4-5] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            }
+          ],
+          "tasks": {
+            "S1e8d02-4-1": {
+              "title": "domain rename (Go)",
+              "description": "`internal/domain/` の `Branch` → `Workspace` 一括 rename。 store / server / tab のすべての import 元も追従。 `gofmt + goimports + go build` まで通す。",
+              "status": "todo"
+            },
+            "S1e8d02-4-2": {
+              "title": "Provider interface rename + 新 hook",
+              "description": "`internal/tab/provider.go` の `OnBranchOpen/Close` → `OnWorkspaceOpen/Close`、 新 `OnWorkspaceHeadChanged` を default no-op で追加。 既存 Provider 実装 (claudeagent / bash / files / git / sprint) を全部追従。",
+              "status": "todo"
+            },
+            "S1e8d02-4-3": {
+              "title": "frontend rename (TS)",
+              "description": "`frontend/src/types/`, `frontend/src/stores/palmux-store.ts`, hooks, components 全域で `branch` → `workspace` に rename (URL の path segment と CSS クラス名は当面維持)。 `tsc --noEmit` まで通す。",
+              "status": "todo"
+            },
+            "S1e8d02-4-4": {
+              "title": "ログ key 統一",
+              "description": "`grep -rn 'log.*\"branch\"' internal/` で全 logger 呼び出しを洗い出し、 `\"branch\"` → `\"workspace\"` + 必要に応じて `\"head\"` を追加。",
+              "status": "todo"
+            },
+            "S1e8d02-4-5": {
+              "title": "docs 更新",
+              "description": "`docs/CLAUDE.md` のドメインモデル節を更新。 `docs/original-specs/01-architecture.md` の Repository → Branch → TabSet 図を Repository → Workspace → TabSet に書き換え、 「Branch (= HEAD ref) は Workspace の動的属性」 を追記。 旧用語 → 新用語の対応表を追加。",
+              "status": "todo"
+            }
+          }
+        },
+        "S1e8d02-5": {
+          "title": "回帰 E2E + Migration テスト",
+          "status": "todo",
+          "user_story": "palmux2 メンテナとして、 今回の `git checkout で Claude セッションが死ぬ` 事故が再発しないことを CI で保証したい。 なぜなら、 今後リファクタや別機能の 改修でドメインモデルに微妙な変更が入った時、 unit test だけでは sync_worktree 経路の リグレッションを捕まえきれず、 また同じインシデントが起きるからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S1e8d02-5-1",
+              "description": "E2E (Playwright + headless palmux2 INSTANCE=test): primary worktree で `git checkout other-branch` を 2 回起こしても、 Claude エージェントの PID と tmux session 名が連続稼働。 Drawer エントリも同一 ID で残存",
+              "test": "[AC-S1e8d02-5-1] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            },
+            {
+              "id": "AC-S1e8d02-5-2",
+              "description": "E2E: `tests/fixtures/legacy_sessions.json` (旧 ID 形式) を `--config-dir` に置いて起動 → migration ログ確認 → 起動後の Claude resume が成功 (旧 UUID で続きから会話できる)",
+              "test": "[AC-S1e8d02-5-2] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            },
+            {
+              "id": "AC-S1e8d02-5-3",
+              "description": "E2E: 旧 URL `/api/repos/{repoId}/branches/{oldBranchId}/...` に GET → 302 redirect で新 URL に飛ぶ (`Location` ヘッダ確認)",
+              "test": "[AC-S1e8d02-5-3] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            },
+            {
+              "id": "AC-S1e8d02-5-4",
+              "description": "E2E: gwq add で新 worktree → `branch.opened` 発火、 gwq remove → `branch.closed` (or 新名) 発火。 in-place checkout は `workspace.head_changed` のみ。 3 種の event が分離していることを WS で観測",
+              "test": "[AC-S1e8d02-5-4] in tests/e2e/s1e8d02_workspace.py",
+              "status": "todo"
+            },
+            {
+              "id": "AC-S1e8d02-5-5",
+              "description": "sprint verify で全 AC test が pass",
+              "test": "verify run output",
+              "status": "todo"
+            }
+          ],
+          "tasks": {
+            "S1e8d02-5-1": {
+              "title": "test fixture: 旧形式 sessions.json",
+              "description": "`tests/fixtures/legacy_sessions.json` を作成。 旧 BranchID (branch 名由来) で active / branchTabs / branchPrefs を持つ realistic な dataset。",
+              "status": "todo"
+            },
+            "S1e8d02-5-2": {
+              "title": "E2E: tests/e2e/s1e8d02_workspace.py 作成",
+              "description": "Python + Playwright headless で、 `make serve INSTANCE=test` で立てた dev インスタンスに対して [AC-S1e8d02-1-*] 〜 [AC-S1e8d02-5-*] の各シナリオを実行。 ghq fixture repo を作成・git checkout を CLI 経由で実行・WS event を購読して `workspace.head_changed` を待つ・ Claude の PID 不変を ps で検証、 など。",
+              "status": "todo"
+            },
+            "S1e8d02-5-3": {
+              "title": "sprint verify 整合",
+              "description": "AC tag → test の対応を `docs/sprint-logs/S1e8d02/acceptance-matrix.json` に記録。 sprint verify が pass することを確認。",
+              "status": "todo"
+            }
+          }
+        }
+      }
     }
   },
   "dependencies": {
@@ -5119,6 +5433,10 @@
     "S033": {
       "depends_on": [],
       "reason": "S033 は Files タブの自前 CRUD 機能追加で、 既存 S010/S011/S026/S027 の Files 基盤 (browser.go の resolveSafePath / FileInfo / WriteFile / EtagFor) の上に乗せる。 S030〜S032 とは独立"
+    },
+    "S1e8d02": {
+      "depends_on": [],
+      "reason": "ドメイン基盤の改修であり、 既存 Sprints とのデータ依存はない。 BREAKING change だが既存 Sprints は完了済みなので衝突しない。 完了後の今後の Sprints は新 Workspace モデルに自動的に乗る。"
     }
   },
   "backlog": [
