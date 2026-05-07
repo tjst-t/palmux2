@@ -25,6 +25,7 @@ import { FileList } from './file-list'
 import { FilesContextMenu } from './files-context-menu'
 import { FilesDeleteModal } from './files-delete-modal'
 import { FilesMoveModal } from './files-move-modal'
+import { FilesUploadModal } from './files-upload-modal'
 import { FilePreview } from './file-preview'
 import { FileSearch } from './file-search'
 import styles from './files-view.module.css'
@@ -336,36 +337,14 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
     setCreateError(null)
   }, [])
 
-  // ── hotfix: upload files/folder to current directory ──────────────────────
-  // The store survives tab switches, so uploads keep going if the user
-  // navigates elsewhere mid-flight. We snapshot `path` at click time.
+  // ── hotfix: upload — single modal handles files / folders / mix ──────────
+  // The Zustand uploads store keeps the queue alive across tab/branch
+  // switches; we just snapshot (repoId, branchId, dir) at submit time.
   const enqueueUploads = useUploadsStore((s) => s.enqueue)
-  const handleUploadFiles = useCallback(
-    (files: File[]) => {
-      enqueueUploads(
-        repoId,
-        branchId,
-        path,
-        files.map((f) => ({ file: f, relativePath: f.name })),
-      )
-    },
-    [enqueueUploads, repoId, branchId, path],
-  )
-  const handleUploadFolder = useCallback(
-    (files: File[]) => {
-      // webkitRelativePath looks like "<folderName>/sub/foo.txt".
-      // We keep that intact so the folder structure replicates inside
-      // the current dir (auto-mkdir on the server side).
-      enqueueUploads(
-        repoId,
-        branchId,
-        path,
-        files.map((f) => {
-          const fileWithPath = f as File & { webkitRelativePath?: string }
-          const rel = fileWithPath.webkitRelativePath || f.name
-          return { file: f, relativePath: rel }
-        }),
-      )
+  const [uploadModalOpen, setUploadModalOpen] = useState(false)
+  const handleUploadSubmit = useCallback(
+    (items: { file: File; relativePath: string }[]) => {
+      enqueueUploads(repoId, branchId, path, items)
     },
     [enqueueUploads, repoId, branchId, path],
   )
@@ -647,8 +626,7 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
             onRenameCancel={handleRenameCancel}
             onContextMenu={handleContextMenu}
             contextMenuTarget={ctxMenu?.entry.path}
-            onUploadFiles={handleUploadFiles}
-            onUploadFolder={handleUploadFolder}
+            onOpenUpload={() => setUploadModalOpen(true)}
           />
         </div>
         <div className={styles.dividerWrap}>
@@ -710,6 +688,14 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
           }}
         />
       )}
+
+      {/* Upload modal — single entry point for files / folders / any mix */}
+      <FilesUploadModal
+        open={uploadModalOpen}
+        targetDir={path}
+        onClose={() => setUploadModalOpen(false)}
+        onUpload={handleUploadSubmit}
+      />
     </div>
   )
 }

@@ -47,11 +47,10 @@ interface Props {
   onContextMenu: (e: React.MouseEvent, entry: Entry) => void
   contextMenuTarget?: string    // path with context-open highlight
 
-  // hotfix: upload — invoked when the user picks files/folder to upload
-  // into the current directory. Two callbacks because file & folder
-  // pickers are distinct <input> elements (webkitdirectory flag).
-  onUploadFiles: (files: File[]) => void
-  onUploadFolder: (files: File[]) => void
+  // hotfix: upload — clicked → parent opens the upload modal which
+  // accepts any mix of files and folders (drag-drop + click fallbacks
+  // inside the modal).
+  onOpenUpload: () => void
 }
 
 function fmtSize(n: number): string {
@@ -328,14 +327,11 @@ export function FileList({
   onRenameCancel,
   onContextMenu,
   contextMenuTarget,
-  onUploadFiles,
-  onUploadFolder,
+  onOpenUpload,
 }: Props) {
   const dirtySet = useMemo(() => new Set(dirtyPaths ?? []), [dirtyPaths])
   const anchorPath = useRef<string | null>(null)
   const createInputRef = useRef<HTMLInputElement>(null)
-  const uploadFilesInputRef = useRef<HTMLInputElement>(null)
-  const uploadFolderInputRef = useRef<HTMLInputElement>(null)
 
   // Auto-focus the create row input when it mounts.
   useEffect(() => {
@@ -418,57 +414,19 @@ export function FileList({
 
       {/* S033-1: compact icon CTA strip at bottom of list pane */}
       <div className={styles.ctaStrip} data-testid="files-list-ctas">
-        {/* hotfix: upload — two buttons (files / folder) to the left of
-            New file / New folder. Hidden inputs hold the file pickers;
-            the visible buttons trigger them via .click(). */}
-        <input
-          ref={uploadFilesInputRef}
-          type="file"
-          multiple
-          style={{ display: 'none' }}
-          data-testid="files-upload-files-input"
-          onChange={(e) => {
-            const files = Array.from(e.currentTarget.files ?? [])
-            // Reset so picking the same file again still triggers onChange.
-            e.currentTarget.value = ''
-            if (files.length > 0) onUploadFiles(files)
-          }}
-        />
-        <input
-          ref={uploadFolderInputRef}
-          type="file"
-          {...({
-            webkitdirectory: '',
-            directory: '',
-          } as Record<string, string>)}
-          multiple
-          style={{ display: 'none' }}
-          data-testid="files-upload-folder-input"
-          onChange={(e) => {
-            const files = Array.from(e.currentTarget.files ?? [])
-            e.currentTarget.value = ''
-            if (files.length > 0) onUploadFolder(files)
-          }}
-        />
+        {/* hotfix: single Upload button → modal that accepts any mix of
+            files & folders (drag-drop + click fallbacks). The browser's
+            <input type=file> can do multi-file XOR single-folder, never
+            both, so the modal owns this UX instead. */}
         <button
           className={styles.ctaBtn}
-          data-tip="Upload files"
-          aria-label="Upload files"
+          data-tip="Upload files & folders"
+          aria-label="Upload files and folders"
           disabled={!!createKind || !!renameTarget}
-          onClick={() => uploadFilesInputRef.current?.click()}
-          data-testid="files-upload-files-btn"
+          onClick={onOpenUpload}
+          data-testid="files-upload-btn"
         >
           <span className={styles.ctaGlyph}>📤</span>
-        </button>
-        <button
-          className={styles.ctaBtn}
-          data-tip="Upload folder"
-          aria-label="Upload folder"
-          disabled={!!createKind || !!renameTarget}
-          onClick={() => uploadFolderInputRef.current?.click()}
-          data-testid="files-upload-folder-btn"
-        >
-          <span className={styles.ctaGlyph}>📦</span>
         </button>
         <button
           className={styles.ctaBtn}

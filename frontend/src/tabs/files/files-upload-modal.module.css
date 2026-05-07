@@ -1,0 +1,104 @@
+.dest {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--color-fg-muted);
+}
+.destLabel {
+  font-weight: 500;
+}
+.destPath {
+  font-family: var(--font-mono);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  color: var(--color-fg);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.dropZone {
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  background: var(--color-bg);
+  transition: border-color 0.12s, background 0.12s;
+}
+.dropZoneActive {
+  border-color: var(--color-accent);
+  background: rgba(124, 138, 255, 0.08);
+}
+
+.dropTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-fg);
+}
+
+.dropHint {
+  font-size: 12px;
+  color: var(--color-fg-muted);
+  max-width: 360px;
+  line-height: 1.45;
+}
+
+.fallbackRow {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.fallbackBtn {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--color-fg);
+  cursor: pointer;
+  font-family: var(--font-ui);
+}
+.fallbackBtn:hover {
+  background: var(--color-elevated);
+  border-color: var(--color-accent);
+}
+.fallbackBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.error {
+  color: var(--color-error);
+  font-size: 12px;
+}
+
+.foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.cancelBtn {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 6px 14px;
+  font-size: 12px;
+  color: var(--color-fg-muted);
+  cursor: pointer;
+}
+.cancelBtn:hover {
+  color: var(--color-fg);
+  background: var(--color-surface);
+}
