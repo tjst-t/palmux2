@@ -382,6 +382,37 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
     if (domainEvents.has(ev.type)) {
       void get().reloadRepos()
     }
+    // S1e8d02: in-place `git checkout` rewrites only the branch's
+    // display name. The BranchID, tmux session, Claude agent process,
+    // tab list, and Drawer position are all preserved. Update the
+    // `name` field in place — no reload, no remove+add.
+    if (
+      ev.type === 'branch.head_changed' &&
+      ev.repoId &&
+      ev.branchId &&
+      ev.payload
+    ) {
+      const payload = ev.payload as {
+        oldBranch?: string
+        newBranch?: string
+        worktreePath?: string
+      }
+      const next = payload.newBranch ?? ''
+      if (next) {
+        set((state) => ({
+          repos: state.repos.map((r) =>
+            r.id !== ev.repoId
+              ? r
+              : {
+                  ...r,
+                  openBranches: r.openBranches.map((b) =>
+                    b.id === ev.branchId ? { ...b, name: next } : b,
+                  ),
+                },
+          ),
+        }))
+      }
+    }
     // S015: cross-client promote/demote. Apply locally (cheap) — a
     // background reloadRepos is unnecessary because category is the
     // only field that changed and the payload carries the new value.

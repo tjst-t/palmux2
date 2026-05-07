@@ -261,6 +261,15 @@ type roadmapProgressDoc struct {
 	InProgress    int     `json:"in_progress"`
 	Remaining     int     `json:"remaining"`
 	Percentage    float64 `json:"percentage"`
+	// Drift-tolerance: real ROADMAP.json files in the wild use
+	// `sprints_total` / `sprints_done` / `percent` (the sprint-runner
+	// emits both styles depending on its version). Accept either —
+	// the projection layer uses [Total] / [Done] / [Percentage] so
+	// these fall through into the canonical names if and only if
+	// the canonical ones are zero.
+	SprintsTotal int     `json:"sprints_total"`
+	SprintsDone  int     `json:"sprints_done"`
+	Percent      float64 `json:"percent"`
 }
 
 type roadmapSprintDoc struct {

@@ -14,8 +14,18 @@ import (
 const SyncWorktreeInterval = 30 * time.Second
 
 // SyncWorktree reconciles git worktree state with the Store:
-//   - new worktrees on disk are auto-registered as Open branches
+//   - new worktrees on disk are auto-registered as Open branches (via
+//     OpenBranchAuto)
 //   - vanished worktrees trigger a Close (tmux kill + Store removal)
+//   - **S1e8d02**: an existing worktree path whose checked-out branch
+//     changed in-place (= the user ran `git checkout other-branch`) is
+//     observed as a *rename*, not a close+open, and only the display
+//     name is updated. Tmux session, Claude agent, tab list, Drawer
+//     position, and the BranchID URL all stay alive.
+//
+// The reconciliation key is the **worktree path**, not the branch name.
+// This is the whole point of the S1e8d02 refactor: Branch name is a
+// dynamic attribute of the workspace (= worktree path), not its identity.
 func (s *Store) SyncWorktree(ctx context.Context) error {
 	s.mu.RLock()
 	repos := make([]*domain.Repository, 0, len(s.repos))
@@ -30,22 +40,28 @@ func (s *Store) SyncWorktree(ctx context.Context) error {
 			s.logger.Warn("sync_worktree: List", "repo", repo.GHQPath, "err", err)
 			continue
 		}
-		live := map[string]worktree.Worktree{} // branch -> worktree
+		live := map[string]worktree.Worktree{} // worktree path -> worktree
 		for _, wt := range wts {
 			if wt.Branch == "" || wt.IsDetached {
 				continue
 			}
-			live[wt.Branch] = wt
+			live[wt.Path] = wt
 		}
 
-		// Detect new worktrees.
+		// Snapshot existing branches indexed by their workspace path so we
+		// can compare path-by-path. Names are recorded so we can detect
+		// in-place rename without falling back to ID re-derivation.
 		s.mu.RLock()
 		current, ok := s.repos[repo.ID]
-		var existing map[string]string // branch name -> branchID
+		type existingEntry struct {
+			id   string
+			name string
+		}
+		var existing map[string]existingEntry // worktree path -> {id, name}
 		if ok {
-			existing = map[string]string{}
+			existing = map[string]existingEntry{}
 			for _, b := range current.OpenBranches {
-				existing[b.Name] = b.ID
+				existing[b.WorktreePath] = existingEntry{id: b.ID, name: b.Name}
 			}
 		}
 		s.mu.RUnlock()
@@ -53,28 +69,46 @@ func (s *Store) SyncWorktree(ctx context.Context) error {
 			continue
 		}
 
-		for branchName, wt := range live {
-			if _, found := existing[branchName]; found {
+		// 1. Detect new worktrees (path appeared on disk that we don't track yet).
+		for path, wt := range live {
+			if _, found := existing[path]; found {
 				continue
 			}
-			s.logger.Info("sync_worktree: detected new worktree", "branch", branchName, "path", wt.Path)
+			s.logger.Info("sync_worktree: detected new worktree",
+				"branch", wt.Branch, "path", path, "workspace", path)
 			// S015: auto-detected worktrees should NOT land in
 			// userOpenedBranches — they came from outside Palmux.
 			// Use OpenBranchAuto to keep them in `unmanaged` /
 			// `subagent` until the user promotes them.
-			if _, err := s.OpenBranchAuto(ctx, repo.ID, branchName); err != nil {
-				s.logger.Warn("sync_worktree: OpenBranchAuto", "branch", branchName, "err", err)
+			if _, err := s.OpenBranchAuto(ctx, repo.ID, wt.Branch); err != nil {
+				s.logger.Warn("sync_worktree: OpenBranchAuto",
+					"branch", wt.Branch, "path", path, "err", err)
 			}
 		}
 
-		// Detect removed worktrees.
-		for branchName, branchID := range existing {
-			if _, stillThere := live[branchName]; stillThere {
+		// 2. Detect rename / removal of existing worktrees.
+		for path, entry := range existing {
+			wt, stillThere := live[path]
+			if !stillThere {
+				s.logger.Info("sync_worktree: detected removed worktree",
+					"branch", entry.name, "path", path, "workspace", path)
+				if err := s.CloseBranch(ctx, repo.ID, entry.id); err != nil {
+					s.logger.Warn("sync_worktree: CloseBranch",
+						"branch", entry.name, "err", err)
+				}
 				continue
 			}
-			s.logger.Info("sync_worktree: detected removed worktree", "branch", branchName)
-			if err := s.CloseBranch(ctx, repo.ID, branchID); err != nil {
-				s.logger.Warn("sync_worktree: CloseBranch", "branch", branchName, "err", err)
+			// Path still alive. If the branch *name* changed under the
+			// same path, that's an in-place `git checkout`. Rename in
+			// place (no close+open).
+			if wt.Branch != entry.name {
+				s.logger.Info("sync_worktree: detected in-place head change",
+					"workspace", path, "old", entry.name, "new", wt.Branch,
+					"branchId", entry.id)
+				if err := s.RenameBranch(ctx, repo.ID, entry.id, wt.Branch); err != nil {
+					s.logger.Warn("sync_worktree: RenameBranch",
+						"workspace", path, "old", entry.name, "new", wt.Branch, "err", err)
+				}
 			}
 		}
 	}

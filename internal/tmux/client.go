@@ -62,6 +62,11 @@ type Client interface {
 	NewSession(ctx context.Context, opts NewSessionOpts) error
 	KillSession(ctx context.Context, name string) error
 	HasSession(ctx context.Context, name string) (bool, error)
+	// RenameSession changes the name of an existing session in place
+	// (S1e8d02 — used by the startup migration that rewrites
+	// `_palmux_{repoId}_{oldBranchId}` to the new workspace-ID form
+	// without disturbing the pty processes inside).
+	RenameSession(ctx context.Context, oldName, newName string) error
 
 	// Windows
 	ListWindows(ctx context.Context, session string) ([]Window, error)

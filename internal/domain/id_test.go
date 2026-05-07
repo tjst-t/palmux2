@@ -1,6 +1,9 @@
 package domain
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestRepoSlugID(t *testing.T) {
 	cases := []struct {
@@ -68,6 +71,53 @@ func TestBranchSlugID_PerRepo(t *testing.T) {
 	b := BranchSlugID("/x/repo-b", "main")
 	if a == b {
 		t.Errorf("expected per-repo branch IDs to differ, both = %q", a)
+	}
+}
+
+// S1e8d02: WorkspaceSlugIDFromPath must be invariant under branch checkout
+// (path is fixed; branch name is irrelevant) and must distinguish primary
+// from non-primary worktrees by their basename.
+func TestWorkspaceSlugIDFromPath_PathInvariant(t *testing.T) {
+	repoFullPath := "/x/y/palmux2"
+	// Same primary path under any branch must yield the same ID.
+	a := WorkspaceSlugIDFromPath(repoFullPath, true, repoFullPath)
+	b := WorkspaceSlugIDFromPath(repoFullPath, true, repoFullPath)
+	if a != b {
+		t.Errorf("primary path-based ID not stable: %q vs %q", a, b)
+	}
+	// Slug must be the repo dir basename ("palmux2").
+	if !strings.HasPrefix(a, "palmux2--") {
+		t.Errorf("primary slug, got %q want prefix palmux2--", a)
+	}
+}
+
+func TestWorkspaceSlugIDFromPath_PrimaryVsLinked(t *testing.T) {
+	repoFullPath := "/ghq/github.com/tjst-t/palmux2"
+	primary := WorkspaceSlugIDFromPath(repoFullPath, true, repoFullPath)
+	// Linked worktree at sibling path gwq.dir/<repo>/<branch-slug>.
+	linked := WorkspaceSlugIDFromPath(
+		"/gwq/tjst-t/palmux2/feature-x", false, repoFullPath,
+	)
+	if primary == linked {
+		t.Errorf("primary and linked must differ, both = %q", primary)
+	}
+	// Linked slug uses worktree dir basename ("feature-x").
+	if !strings.HasPrefix(linked, "feature-x--") {
+		t.Errorf("linked slug, got %q want prefix feature-x--", linked)
+	}
+	// Primary slug uses repo dir basename ("palmux2").
+	if !strings.HasPrefix(primary, "palmux2--") {
+		t.Errorf("primary slug, got %q want prefix palmux2--", primary)
+	}
+}
+
+func TestWorkspaceSlugIDFromPath_DifferentLinkedSamePath(t *testing.T) {
+	// Two non-primary worktrees with same basename but different paths
+	// must differ (hash distinguishes them).
+	a := WorkspaceSlugIDFromPath("/gwq/repoA/x", false, "/x/repoA")
+	b := WorkspaceSlugIDFromPath("/gwq/repoB/x", false, "/x/repoB")
+	if a == b {
+		t.Errorf("different paths but same basename collided: %q", a)
 	}
 }
 

@@ -95,6 +95,23 @@ func (c *execClient) KillSession(ctx context.Context, name string) error {
 	return err
 }
 
+// RenameSession (S1e8d02) executes `tmux rename-session -t old new`. Used
+// by the startup migration to relabel `_palmux_{repoId}_{oldBranchId}`
+// sessions when palmux2 upgrades from the legacy branch-name-based ID
+// scheme to the path-based workspace ID scheme. The pty processes
+// inside survive untouched — that's the whole point of using
+// rename-session over kill-then-recreate.
+func (c *execClient) RenameSession(ctx context.Context, oldName, newName string) error {
+	if oldName == "" || newName == "" {
+		return fmt.Errorf("RenameSession: empty name")
+	}
+	if oldName == newName {
+		return nil
+	}
+	_, err := c.run(ctx, "rename-session", "-t", oldName, newName)
+	return err
+}
+
 func (c *execClient) HasSession(ctx context.Context, name string) (bool, error) {
 	if name == "" {
 		return false, fmt.Errorf("HasSession: empty name")

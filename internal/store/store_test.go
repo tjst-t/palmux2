@@ -79,14 +79,18 @@ func newStoreFixture(t *testing.T) (*Store, *tmux.MockClient) {
 
 // injectBranch wires a fake branch directly into the store map, bypassing
 // OpenBranch (which would touch real gwq/git). This is what unit tests use.
+//
+// S1e8d02: BranchID is now derived from worktree path. We allocate a
+// stable temp dir up-front and use [domain.WorkspaceSlugIDFromPath].
 func injectBranch(t *testing.T, s *Store, repoID, repoFullPath, branchName string, isPrimary bool) string {
 	t.Helper()
-	branchID := domain.BranchSlugID(repoFullPath, branchName)
+	worktreePath := t.TempDir()
+	branchID := domain.WorkspaceSlugIDFromPath(worktreePath, isPrimary, repoFullPath)
 	sessionName := domain.SessionName(repoID, branchID)
 	branch := &domain.Branch{
 		ID:           branchID,
 		Name:         branchName,
-		WorktreePath: t.TempDir(),
+		WorktreePath: worktreePath,
 		RepoID:       repoID,
 		IsPrimary:    isPrimary,
 		LastActivity: time.Now(),
@@ -294,4 +298,75 @@ func TestEventHub_DropsOnSlowSubscriber(t *testing.T) {
 		hub.Publish(Event{Type: EventNotification})
 	}
 	// If we got here without blocking, the drop logic worked.
+}
+
+// S1e8d02 [AC-S1e8d02-1-3, AC-S1e8d02-1-4]: RenameBranch updates only the
+// display name in-place, preserves the BranchID, and emits
+// EventBranchHeadChanged with the old/new pair so the FE can re-label the
+// Drawer entry without removing it.
+func TestRenameBranch_PreservesIDEmitsHeadChanged(t *testing.T) {
+	s, _ := newStoreFixture(t)
+	repoID := "tjst-t--demo--abcd"
+	branchID := injectBranch(t, s, repoID, "/tmp/repo-demo", "main", true)
+
+	ch, unsub := s.hub.Subscribe()
+	defer unsub()
+
+	if err := s.RenameBranch(context.Background(), repoID, branchID, "feature/x"); err != nil {
+		t.Fatalf("RenameBranch: %v", err)
+	}
+	// Branch entity in the store now reflects the new name; ID is unchanged.
+	got, err := s.Branch(repoID, branchID)
+	if err != nil {
+		t.Fatalf("Branch lookup after rename: %v", err)
+	}
+	if got.ID != branchID {
+		t.Errorf("ID changed: %q -> %q", branchID, got.ID)
+	}
+	if got.Name != "feature/x" {
+		t.Errorf("name not updated: got %q want %q", got.Name, "feature/x")
+	}
+
+	select {
+	case ev := <-ch:
+		if ev.Type != EventBranchHeadChanged {
+			t.Errorf("event type = %q, want %q", ev.Type, EventBranchHeadChanged)
+		}
+		if ev.BranchID != branchID {
+			t.Errorf("event BranchID = %q, want %q", ev.BranchID, branchID)
+		}
+		if p, ok := ev.Payload.(map[string]any); !ok {
+			t.Errorf("payload not a map: %T", ev.Payload)
+		} else {
+			if p["oldBranch"] != "main" {
+				t.Errorf("oldBranch = %v, want main", p["oldBranch"])
+			}
+			if p["newBranch"] != "feature/x" {
+				t.Errorf("newBranch = %v, want feature/x", p["newBranch"])
+			}
+		}
+	case <-time.After(time.Second):
+		t.Fatal("EventBranchHeadChanged not published within 1s")
+	}
+}
+
+// S1e8d02: a no-op rename (same name) silently succeeds without emitting
+// an event, so periodic worktree polls don't spam the event hub.
+func TestRenameBranch_NoOpForSameName(t *testing.T) {
+	s, _ := newStoreFixture(t)
+	repoID := "tjst-t--demo--abcd"
+	branchID := injectBranch(t, s, repoID, "/tmp/repo-demo", "main", true)
+
+	ch, unsub := s.hub.Subscribe()
+	defer unsub()
+
+	if err := s.RenameBranch(context.Background(), repoID, branchID, "main"); err != nil {
+		t.Fatalf("RenameBranch no-op: %v", err)
+	}
+	select {
+	case ev := <-ch:
+		t.Errorf("unexpected event for no-op rename: %+v", ev)
+	case <-time.After(50 * time.Millisecond):
+		// expected — no event
+	}
 }

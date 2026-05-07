@@ -257,6 +257,32 @@ func (s *Store) Branch(repoID, branchID string) (*domain.Branch, error) {
 	return nil, ErrBranchNotFound
 }
 
+// ResolveLegacyBranchID (S1e8d02) tries to interpret `id` as a pre-S1e8d02
+// branch-name-based ID and returns the current path-based ID for the
+// matching live branch. Used by HTTP handlers that want to issue a 302
+// redirect from old bookmarks/URLs to the new canonical location.
+//
+// Returns ok=false if:
+//   - the repo is not Open
+//   - no live branch's name re-derives to `id` via the legacy
+//     [domain.BranchSlugID] formula
+//
+// Cheap — runs in O(open branches in this repo), which is small.
+func (s *Store) ResolveLegacyBranchID(repoID, id string) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	r, ok := s.repos[repoID]
+	if !ok {
+		return "", false
+	}
+	for _, b := range r.OpenBranches {
+		if domain.BranchSlugID(r.FullPath, b.Name) == id {
+			return b.ID, true
+		}
+	}
+	return "", false
+}
+
 // hydrate loads repos.json and seeds the in-memory state. It does NOT call
 // out to tmux for resurrection — the sync loops handle that within 5s.
 func (s *Store) hydrate(ctx context.Context) error {
@@ -314,8 +340,12 @@ func (s *Store) resolveGHQRoot(ctx context.Context) (string, error) {
 // buildBranchFromWorktree builds a Branch entity from a worktree record.
 // The tabs list is computed from the current tmux session state (see
 // computeTabs).
+//
+// S1e8d02: BranchID is now path-derived (see [domain.WorkspaceSlugIDFromPath]).
+// In-place `git checkout` keeps the path fixed, hence keeps the ID fixed,
+// hence does NOT trigger close+open which used to destroy Claude/tmux/tabs.
 func (s *Store) buildBranchFromWorktree(repo *domain.Repository, wt worktree.Worktree) *domain.Branch {
-	branchID := domain.BranchSlugID(repo.FullPath, wt.Branch)
+	branchID := domain.WorkspaceSlugIDFromPath(wt.Path, wt.IsPrimary, repo.FullPath)
 	sessionName := domain.SessionName(repo.ID, branchID)
 	branch := &domain.Branch{
 		ID:           branchID,

@@ -72,7 +72,9 @@ Palmux は Web ベースのターミナルクライアント。tmux セッショ
 
 ```
 Repository (ghq, Open されたもの)
-└── Branch (git worktree の存在 = Open)
+└── Workspace (git worktree path = Open)   ← S1e8d02: 旧称 Branch
+    │  identity = worktree path (固定)
+    │  attribute: name = 現在の HEAD branch (動的)
     └── TabSet (タブは Provider が生成。順序 = 登録順)
         ├── Claude  (terminal — protected, 1つ固定)
         ├── Files   (REST view — protected, 1つ固定, tmux window なし)
@@ -80,6 +82,18 @@ Repository (ghq, Open されたもの)
         ├── Sprint  (REST view — Conditional: docs/ROADMAP.json があるときだけ生成, tmux window なし)
         └── Bash[]  (terminal — 1つ以上必須, 追加/削除可)
 ```
+
+### S1e8d02 用語対応表
+
+実装上の Go 型名・URL の path segment は当面 `Branch` のまま (rename は将来 Sprint で実施)。 ドキュメント・概念モデル上は **Workspace = worktree path identity** が正。
+
+| ドメイン語 | 実装 (Go) | URL path | 意味 |
+|---|---|---|---|
+| **Workspace** | `domain.Branch` | `/branches/{branchId}` | 1 worktree path = 1 identity |
+| **head branch** | `Branch.Name` | (URL には出ない) | 動的属性。in-place `git checkout` で変わる |
+| **WorkspaceID** | `Branch.ID` | `branchId` | path 由来 (`domain.WorkspaceSlugIDFromPath`) |
+
+**identity rule**: Workspace は worktree path で identity を取る。 同じ path の上で `git checkout other-branch` が起きても、 ID・ tmux session・ Claude エージェント・ タブ・ Drawer 位置・ URL すべて不変。 変わるのは `Branch.Name` (= 表示ラベル) のみで、 `branch.head_changed` event が発行される。 close/open は path の出現/消失でしか起きない。
 
 ### タブモジュールシステム
 
@@ -91,12 +105,23 @@ Repository (ghq, Open されたもの)
 
 Provider interface: `Type()`, `DisplayName()`, `Protected()`, `Multiple()`, `NeedsTmuxWindow()`, `OnBranchOpen()`, `OnBranchClose()`, `RegisterRoutes()`
 
+オプショナルな capability:
+- `tab.HeadChangedHook.OnBranchHeadChanged()` (S1e8d02) — 同 worktree 上で `git checkout` が走ったときに呼ばれる。 Provider が branch 名で内部 state を持っているなら実装する。 default 動作は no-op (= 何も実装しなくてよい)
+
 ### 2段階 Open モデル
 
 1. **Repository Open**: repos.json に登録。以降そのリポジトリの worktree 変更を追跡
-2. **Branch Open**: worktree が存在すれば Open。tmux セッションは worktree から導出
+2. **Workspace Open**: worktree が存在すれば Open。tmux セッションは worktree path から導出 (S1e8d02)
 
-ソースオブトゥルース: `repos.json`（Open リポジトリ）→ `git worktree list`（Open ブランチ）→ tmux（導出）
+ソースオブトゥルース: `repos.json`（Open リポジトリ）→ `git worktree list`（Open Workspace = path）→ tmux（導出）
+
+### sync_worktree のイベント分類 (S1e8d02)
+
+| ファイルシステム上の変化 | 発行される event | Drawer / Claude / tmux への影響 |
+|---|---|---|
+| 新 worktree path 出現 (`gwq add` など) | `branch.opened` | 新エントリ追加・ Provider の `OnBranchOpen` 起動 |
+| 既存 worktree path 消失 (`gwq remove` など) | `branch.closed` | エントリ削除・ tmux kill |
+| **同 path 上で `git checkout` (= head の付け替え)** | **`branch.head_changed`** | **エントリ残存・ Claude 生存・ ラベルのみ更新** |
 
 ## ディレクトリ構成（計画）
 
@@ -145,14 +170,18 @@ palmux/
 Slug+Hash 方式。人間可読 + 衝突回避。
 
 ```
-Repository ID: tjst-t--palmux--a1b2    (owner--repo--hash4)
-Branch ID:     feature--new-ui--7a8b   (branch_safe--hash4)
-Tab ID:        claude | files | git | bash:bash | bash:bash-2
+Repository ID:  tjst-t--palmux2--a1b2          (owner--repo--hash4)
+Workspace ID:   palmux2--7a8b   (primary)      (slug = repo dir name)   ← S1e8d02
+                feature-x--3c4d (linked)       (slug = worktree dir basename)
+Tab ID:         claude | files | git | bash:bash | bash:bash-2
 ```
 
-- hash4 = SHA256 先頭4文字
+- hash4 = SHA256 先頭4文字 (primary は repo path、 linked worktree は worktree path で hash)
+- **WorkspaceID は worktree path から導出する (S1e8d02)**。 path が固定なので `git checkout` で ID は変わらない
 - API URL にそのまま使える（スラッシュなし）
-- グローバルキー: `{repoId}/{branchId}` または `{repoId}/{branchId}/{tabId}`
+- グローバルキー: `{repoId}/{workspaceId}` または `{repoId}/{workspaceId}/{tabId}`
+- 既存 (pre-S1e8d02) の URL ・ sessions.json は起動時 migration + 302 redirect で互換維持
+- 旧 BranchID 計算 (`domain.BranchSlugID`) は migration の一回限りの参照用に残置されている。 新規コードは `domain.WorkspaceSlugIDFromPath` のみを呼ぶ
 
 ## tmux 命名規則
 

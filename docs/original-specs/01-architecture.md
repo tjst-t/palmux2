@@ -2,12 +2,14 @@
 
 > 作成日: 2026-04-03
 > ステータス: Draft v2（全検討項目反映済み）
+> 
+> **S1e8d02 update (2026-05-07)**: ドメイン階層の中段は **Workspace** (= worktree path identity) と呼び直す。 旧称の "Branch" は HEAD ref (= 現在チェックアウトされている branch 名) を指す動的属性に降格された。 詳細は § 2 末尾の「S1e8d02 用語対応表」参照。 本文中の `Branch` はコード上の Go 型名 `domain.Branch` を指し続ける (フル rename は将来 sprint で予定)。
 
 ## 1. 設計方針
 
 ### 1.1 コア原則
 
-1. **ドメインモデルファースト** — Repository > Branch > TabSet が一級概念。tmux はバックエンドの実装詳細として隠蔽する
+1. **ドメインモデルファースト** — Repository > Workspace (= worktree path) > TabSet が一級概念。tmux はバックエンドの実装詳細として隠蔽する。 **Workspace の identity は worktree path** であり、 `git checkout` で HEAD branch が変わっても identity は不変 (S1e8d02)
 2. **Tab Backend の抽象化** — ターミナルタブ（Bash/Claude）と UI タブ（Files/Git）を統一的な Tab インターフェースで扱う
 3. **シングルバイナリ** — Go embed.FS でフロントエンドを埋め込み
 4. **PC / モバイル両対応** — アダプティブレイアウト（画面幅に応じてモード切り替え）
@@ -16,7 +18,7 @@
 
 | 項目 | 現行 (v1) | 新設計 (v2) |
 |---|---|---|
-| 一級概念 | tmux session/window | Repository / Branch / TabSet |
+| 一級概念 | tmux session/window | Repository / Workspace (= worktree path) / TabSet |
 | Drawer | tmux セッション一覧 | Repository > Branch ツリー |
 | API URL | `/api/sessions/{session}/...` | `/api/repos/{repoId}/branches/{branchId}/...` |
 | ID 体系 | tmux セッション名 | Slug+Hash ID（人間可読 + 衝突回避） |
@@ -369,6 +371,20 @@ cwd: 常に worktree ルートディレクトリ（tmux の `-c` オプション
 - Files / Git / Claude タブなし
 - ターミナル attach のみ可能
 - ウィンドウの追加 / 削除 / リネーム対応
+
+### 2.9 S1e8d02 用語対応表
+
+2026-05-07 のインシデントで、 `Branch = git worktree の存在` 同一視のせいで in-place `git checkout` が `CloseBranch + OpenBranch` を発火し Claude エージェント・ tmux・ タブ全部が再生成される事故が起きた。 修正ではドメインモデル上 identity を **worktree path** に移し、 branch 名は HEAD ref を指す動的属性に格下げした。
+
+| ドメイン語 (新) | 旧称 / 実装 (Go) | URL path | 意味 |
+|---|---|---|---|
+| **Workspace** | `domain.Branch` | `/branches/{branchId}` | 1 worktree path = 1 identity。 ID は path 由来 |
+| **WorkspaceID** | `Branch.ID` (`domain.WorkspaceSlugIDFromPath`) | `branchId` | path 不変 → ID 不変 |
+| **head branch** | `Branch.Name` | (URL には出ない) | 動的属性。 `git checkout` で変わる |
+
+Go 型・ URL path segment の rename は将来 sprint で実施 (本 S1e8d02 では破壊的影響を最小化するため scope 外)。 イベント名のうち identity-event は `branch.opened` / `branch.closed` (path の出現/消失)、 head-event は `branch.head_changed` (in-place checkout) で分かれる。
+
+旧 BranchID (= branch 名由来) を URL に含む既存ブックマーク・ 共有リンクは server 側で 302 (GET/HEAD) または 307 (POST/PUT/DELETE/PATCH) redirect で新 ID に誘導される。 sessions.json は起動時に自動 migration (idempotent)。
 
 ## 3. バックエンドアーキテクチャ
 

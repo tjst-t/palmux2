@@ -1,0 +1,44 @@
+{
+  "sprint": "S1e8d02",
+  "title": "Workspace-centric domain refactor (Phase 1-3) [BREAKING]",
+  "started_at": "2026-05-07",
+  "decisions": [
+    {
+      "id": "D1",
+      "phase": "planning",
+      "decision": "Story 4 scope reduction — keep `Branch` Go type name as-is, only add `OnBranchHeadChanged` Provider hook (default no-op) and document the new semantics in CLAUDE.md + 01-architecture.md",
+      "rationale": "Full Branch->Workspace rename would touch ~50 Go files + 20 TS files (87 grep hits across BranchID/OnBranchOpen/domain.Branch). The functional fix (in-place checkout no longer destroys Claude/tmux/tabs) lives in S1e8d02-1/-2/-3 and works without any rename. Risk-of-half-done is high (CLAUDE.md spec change demands full rename consistency). Per DESIGN_PRINCIPLES priority 3 ('Phase 区切り > 半完成投入'), shipping a coherent functional change > a half-done rename on the same merge.",
+      "decision_basis": "DESIGN_PRINCIPLES priority 3 (Phase 区切り > 半完成投入); priority 6 (既存資産活用 > 新規実装 — rename = pure churn with no user value)",
+      "trade_off": "S1e8d02-4 acceptance criteria AC-S1e8d02-4-1/-2/-3/-4 will not pass; AC-S1e8d02-4-5 (docs) will pass. Logged as partial in roadmap with explicit follow-up backlog item to do the full rename in a dedicated future sprint where it is the only goal."
+    },
+    {
+      "id": "D2",
+      "phase": "planning",
+      "decision": "BranchID for primary worktree = `{repoSlug}--{hash4}` where slug = repo dir basename, hash4 = sha256(absolute worktree path)[:4]. Non-primary = `{worktreeDirSlug}--{hash4}`.",
+      "rationale": "Roadmap text says 'primary は repo dir 名 + hash4 (例: KuraOS--xxxx)'. Using `filepath.Base(repoFullPath)` yields a stable, human-readable slug. hash4 keyed on absolute path so different worktrees with same dir name (rare) still differ. Path is invariant under `git checkout`, so ID is invariant too — that's the whole fix.",
+      "decision_basis": "Roadmap S1e8d02-1-1 task description; AC-S1e8d02-1-2"
+    },
+    {
+      "id": "D3",
+      "phase": "planning",
+      "decision": "Event name `EventBranchHeadChanged` keeps the `branch.head_changed` wire string (not `workspace.head_changed`)",
+      "rationale": "The roadmap title says `workspace.head_changed` but the underlying event constant in store/events.go follows `branch.*` naming. Since we are NOT renaming Branch->Workspace in this sprint (D1), keeping the wire name consistent with the rest of `branch.*` events avoids mid-rename schizophrenia. The frontend payload-handler treats it as the head-rename signal regardless of name.",
+      "decision_basis": "DESIGN_PRINCIPLES priority 7 (明示的 > 暗黙的 — consistency in event-name namespace)",
+      "trade_off": "Diverges from roadmap text. AC-S1e8d02-1-3 will be tested with the actual emitted name `branch.head_changed`."
+    },
+    {
+      "id": "D4",
+      "phase": "planning",
+      "decision": "Legacy URL handling = lazy in-handler resolve, not middleware",
+      "rationale": "Roadmap says '302 redirect middleware'. But Go's http.ServeMux already routes by `{branchId}` — adding redirect logic into the existing branch-resolution helper (`Store.Branch(repoID, branchID)` accepts both new and legacy IDs) is cheaper than a wrapper middleware that has to re-parse the path. The HTTP layer wraps `ErrBranchNotFound` with a 302 if the legacy lookup hits.",
+      "decision_basis": "DESIGN_PRINCIPLES priority 6 (既存資産活用 > 新規実装)"
+    },
+    {
+      "id": "D5",
+      "phase": "planning",
+      "decision": "Migration runs from cmd/palmux/main.go AFTER store hydration but BEFORE PopulateTabs",
+      "rationale": "store.hydrate already enumerates worktrees, so by the time it returns we have repoFullPath -> [worktrees]. We can derive (oldBranchID -> newWorkspaceID) from that and pass the mapping to claudeagent.Store.MigrateLegacyBranchIDs. Doing it before PopulateTabs ensures the tab list is built with the new IDs.",
+      "decision_basis": "Roadmap S1e8d02-2-2 task description"
+    }
+  ]
+}

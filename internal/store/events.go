@@ -17,6 +17,14 @@ const (
 
 	EventBranchOpened EventType = "branch.opened"
 	EventBranchClosed EventType = "branch.closed"
+	// S1e8d02: emitted when sync_worktree observes that the same worktree
+	// path now points at a different branch (= the user ran `git checkout`
+	// in-place). This is the path-identity domain event that REPLACES the
+	// old `branch.closed + branch.opened` pair for in-place rename. The
+	// payload is `{ oldBranch, newBranch, worktreePath }`. The branch's
+	// ID, tmux session, Claude agent, tab list and Drawer position all
+	// remain unchanged — only the display label updates.
+	EventBranchHeadChanged EventType = "branch.head_changed"
 	// S015: emitted when a branch's drawer category changes (currently
 	// only my ↔ unmanaged via promote/demote; subagent is derived from
 	// path patterns and changes implicitly with settings updates). Payload

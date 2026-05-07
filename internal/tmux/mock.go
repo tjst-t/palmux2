@@ -92,6 +92,29 @@ func (m *MockClient) HasSession(_ context.Context, name string) (bool, error) {
 	return ok, nil
 }
 
+// RenameSession (S1e8d02) renames an existing session in place. Returns
+// an error if the source session does not exist or the target name is
+// already taken.
+func (m *MockClient) RenameSession(_ context.Context, oldName, newName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.record("RenameSession %s -> %s", oldName, newName)
+	if oldName == newName {
+		return nil
+	}
+	s, ok := m.sessions[oldName]
+	if !ok {
+		return fmt.Errorf("session %s not found", oldName)
+	}
+	if _, exists := m.sessions[newName]; exists {
+		return fmt.Errorf("session %s exists", newName)
+	}
+	s.name = newName
+	delete(m.sessions, oldName)
+	m.sessions[newName] = s
+	return nil
+}
+
 func (m *MockClient) ListWindows(_ context.Context, session string) ([]Window, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

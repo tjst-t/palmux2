@@ -6,6 +6,7 @@ package domain
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -37,13 +38,51 @@ func RepoSlugID(ghqRelPath string) string {
 	return slug + "--" + sha256Hex(ghqRelPath, hashLen)
 }
 
-// BranchSlugID derives a stable URL-safe ID for a branch within a repository.
-// Slashes in the branch name become "--" and other unsafe chars are replaced
-// with "_". A 4-char hash of repoFullPath:branchName is appended.
+// BranchSlugID derives a stable URL-safe ID for a branch within a repository
+// using the **legacy** branch-name based scheme (`{branchSlug}--{hash4}`).
+//
+// S1e8d02: this function is preserved only so the startup migration can
+// recompute the pre-S1e8d02 ID a previously persisted entry was filed
+// under and rewrite it to the new path-derived [WorkspaceSlugID] form.
+// New code MUST NOT call this for ID generation — it would re-introduce
+// the in-place-checkout-destroys-everything bug. Use
+// [WorkspaceSlugIDFromPath] instead.
 func BranchSlugID(repoFullPath, branchName string) string {
 	slug := strings.ReplaceAll(branchName, "/", "--")
 	slug = sanitizeSlug(slug)
 	return slug + "--" + sha256Hex(repoFullPath+":"+branchName, hashLen)
+}
+
+// WorkspaceSlugIDFromPath derives a stable, URL-safe ID for a Branch (= the
+// dynamic-attribute-on-a-Workspace per the S1e8d02 domain refactor) from
+// the **worktree path**, not from the branch name.
+//
+// Identity rule: same on-disk path → same ID, regardless of which git
+// branch happens to be checked out there at any moment. This is what
+// keeps `git checkout` from looking like "branch X disappeared + branch
+// Y appeared" to sync_worktree, and therefore keeps Claude / tmux / Files
+// alive across in-place checkouts (the S1e8d02 incident root-cause).
+//
+// Slug rules:
+//   - primary worktree (`isPrimary == true`): slug = repo dir basename,
+//     hash4 = sha256(absolute worktree path)[:4]. Yields stable IDs like
+//     `KuraOS--7a8b` regardless of HEAD.
+//   - non-primary worktree (gwq-managed linked worktree): slug = the
+//     worktree's own dir basename. hash4 still keyed on absolute path so
+//     two worktrees that happen to share a basename still differ.
+//
+// Punctuation in either basename is sanitized the same way [BranchSlugID]
+// sanitizes branch names so the result is safe to use as a tmux session
+// fragment and a URL path segment.
+func WorkspaceSlugIDFromPath(worktreePath string, isPrimary bool, repoFullPath string) string {
+	var slug string
+	if isPrimary {
+		slug = filepath.Base(repoFullPath)
+	} else {
+		slug = filepath.Base(worktreePath)
+	}
+	slug = sanitizeSlug(slug)
+	return slug + "--" + sha256Hex(worktreePath, hashLen)
 }
 
 // TabID returns the tab identifier used in API URLs and the URL bar.

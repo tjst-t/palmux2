@@ -43,15 +43,29 @@ func ParseRoadmap(src []byte) Roadmap {
 
 	rm.Title = doc.Project
 	rm.Description = doc.Description
+	// Accept both the original schema (total/done/percentage) and the
+	// post-S028 sprint-runner schema (sprints_total/sprints_done/percent).
+	total := doc.Progress.Total
+	done := doc.Progress.Done
+	percent := doc.Progress.Percentage
+	if total == 0 && doc.Progress.SprintsTotal > 0 {
+		total = doc.Progress.SprintsTotal
+	}
+	if done == 0 && doc.Progress.SprintsDone > 0 {
+		done = doc.Progress.SprintsDone
+	}
+	if percent == 0 && doc.Progress.Percent != 0 {
+		percent = doc.Progress.Percent
+	}
 	rm.Progress = Progress{
-		Total:      doc.Progress.Total,
-		Done:       doc.Progress.Done,
+		Total:      total,
+		Done:       done,
 		InProgress: doc.Progress.InProgress,
 		Remaining:  doc.Progress.Remaining,
-		Percent:    doc.Progress.Percentage,
+		Percent:    percent,
 	}
-	if doc.Progress.Percentage == 0 && doc.Progress.Total > 0 {
-		rm.Progress.Percent = float64(doc.Progress.Done) * 100 / float64(doc.Progress.Total)
+	if rm.Progress.Percent == 0 && rm.Progress.Total > 0 {
+		rm.Progress.Percent = float64(rm.Progress.Done) * 100 / float64(rm.Progress.Total)
 	}
 
 	if len(doc.ExecutionOrder) > 0 {

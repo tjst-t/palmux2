@@ -44,6 +44,33 @@ type CloseParams struct {
 	Branch *domain.Branch
 }
 
+// HeadChangedParams is what [HeadChangedHook.OnBranchHeadChanged] receives
+// (S1e8d02). `Branch` already carries the new name; `OldBranch` is provided
+// separately so providers that key off branch name can update their lookup
+// tables.
+type HeadChangedParams struct {
+	Branch    *domain.Branch
+	OldBranch string
+	NewBranch string
+}
+
+// HeadChangedHook is an optional capability a [Provider] may also implement
+// (S1e8d02). Providers that have per-branch in-memory state keyed off the
+// branch name (e.g. "we always run the foo-tracker for branch `main`")
+// implement this so the store can invoke them when an in-place
+// `git checkout` changes the head ref of a workspace whose ID and tmux
+// session both stay alive.
+//
+// This is intentionally NOT part of the core [Provider] interface so the
+// large set of existing implementations need no churn. The default — for
+// any provider that does NOT implement it — is a no-op, which is exactly
+// the desired behaviour for the canonical Claude / Bash / Files / Git /
+// Sprint providers (all derive their state from `branch.WorktreePath`,
+// not from `branch.Name`).
+type HeadChangedHook interface {
+	OnBranchHeadChanged(ctx context.Context, params HeadChangedParams) error
+}
+
 // InstanceLimits captures min/max constraints on how many tabs of a given
 // provider may exist on a single branch. The Settings dependency lets the
 // upper bound vary by user config (e.g. maxClaudeTabsPerBranch).

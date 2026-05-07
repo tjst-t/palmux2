@@ -38,7 +38,15 @@ import (
 	gittab "github.com/tjst-t/palmux2/internal/tab/git"
 	"github.com/tjst-t/palmux2/internal/tab/sprint"
 	"github.com/tjst-t/palmux2/internal/tmux"
+	"github.com/tjst-t/palmux2/internal/worktree"
 )
+
+// worktreeList is a tiny adapter so the migrate helpers can call into
+// the worktree package without each callsite repeating the import-by-
+// alias dance.
+func worktreeList(ctx context.Context, repoFullPath string) ([]worktree.Worktree, error) {
+	return worktree.List(ctx, repoFullPath)
+}
 
 // Version is injected at build time via `-ldflags "-X main.Version=..."`
 // (see Makefile). When unset — e.g. `go run` from a worktree — we fall back
@@ -244,6 +252,34 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// S1e8d02: migrate sessions.json keys from the legacy branch-name-based
+	// BranchID scheme to the new path-based WorkspaceID scheme. The
+	// resolver walks every Open repo's worktree list and computes the
+	// pre-S1e8d02 ID each branch would have had → maps it to the new
+	// path-based ID. Idempotent: lastInit.workspaceMigrationV1 is set
+	// after the first successful run, subsequent runs short-circuit.
+	{
+		resolver := buildLegacyBranchIDResolver(ctx, st)
+		rewritten, dropped, err := agentStore.MigrateLegacyBranchIDs(
+			resolver,
+			func(format string, args ...any) {
+				slog.Warn(fmt.Sprintf("[migrate-v1] "+format, args...))
+			},
+		)
+		if err != nil {
+			slog.Warn("workspace migration failed", "err", err)
+		} else if rewritten > 0 || dropped > 0 {
+			slog.Info("workspace migration complete",
+				"rewritten", rewritten, "dropped", dropped)
+		}
+		// Best-effort tmux session rename: walk live sessions, look for
+		// `_palmux_{repoId}_{oldBranchId}` shaped names that don't match
+		// any current Open branch's expected session name, and try to
+		// rename them to the new form. Failure is logged and ignored —
+		// the recover loop in sync_tmux will rebuild missing sessions.
+		renameLegacyTmuxSessions(ctx, tmuxClient, st)
+	}
 
 	// Build each branch's tab list now that every Provider is registered.
 	// Without this the first GET /api/repos can return tabs:null for
@@ -474,6 +510,98 @@ func (p eventPublisher) Publish(eventType, repoID, branchID string, payload any)
 		BranchID: branchID,
 		Payload:  payload,
 	})
+}
+
+// buildLegacyBranchIDResolver (S1e8d02) returns a closure that maps
+// `(repoID, oldBranchID)` to the new path-based workspace ID for every
+// Open repo's currently-alive worktree. Returns ok=false when no live
+// worktree corresponds to oldBranchID — caller drops the persisted
+// entry as stale.
+//
+// `oldBranchID` here is what BranchSlugID(repoFullPath, branchName)
+// produced before S1e8d02. We re-derive that ID for each live
+// (worktree.Path, worktree.Branch) pair and key the map on it.
+func buildLegacyBranchIDResolver(ctx context.Context, st *store.Store) func(string, string) (string, bool) {
+	type entry struct {
+		newID    string
+		legacyID string
+	}
+	// repoID -> oldBranchID -> newID
+	cache := map[string]map[string]string{}
+	for _, r := range st.Repos() {
+		live := map[string]string{}
+		// Use the same worktree.List path the store uses internally.
+		wts, err := worktreeList(ctx, r.FullPath)
+		if err != nil {
+			slog.Warn("[migrate-v1] worktree.List failed",
+				"repo", r.GHQPath, "err", err)
+		}
+		for _, e := range wts {
+			old := domain.BranchSlugID(r.FullPath, e.Branch)
+			newID := domain.WorkspaceSlugIDFromPath(e.Path, e.IsPrimary, r.FullPath)
+			live[old] = newID
+			_ = entry{} // keep the type alive in case future expansion is needed
+		}
+		cache[r.ID] = live
+	}
+	return func(repoID, oldBranchID string) (string, bool) {
+		m, ok := cache[repoID]
+		if !ok {
+			return "", false
+		}
+		newID, found := m[oldBranchID]
+		if !found {
+			return "", false
+		}
+		return newID, true
+	}
+}
+
+// renameLegacyTmuxSessions (S1e8d02) walks live tmux sessions and renames
+// any `_palmux_{repoId}_{oldBranchId}` shaped session to its new
+// `_palmux_{repoId}_{newWorkspaceId}` form so attached pty processes
+// (Claude / Bash) keep running across the upgrade. Failures are logged
+// and ignored — the recover loop in sync_tmux will rebuild missing
+// sessions.
+func renameLegacyTmuxSessions(ctx context.Context, t tmux.Client, st *store.Store) {
+	sessions, err := t.ListSessions(ctx)
+	if err != nil {
+		slog.Warn("[migrate-v1] ListSessions for rename failed", "err", err)
+		return
+	}
+	// Build a set of "expected" current session names so we don't try to
+	// rename a session that already matches the new layout.
+	expected := map[string]struct{}{}
+	for _, r := range st.Repos() {
+		for _, b := range r.OpenBranches {
+			expected[b.TabSet.TmuxSession] = struct{}{}
+		}
+	}
+	resolver := buildLegacyBranchIDResolver(ctx, st)
+	for _, s := range sessions {
+		if _, want := expected[s.Name]; want {
+			continue // already correct
+		}
+		if !domain.IsPalmuxSession(s.Name) {
+			continue
+		}
+		repoID, oldBranchID, ok := domain.ParseSessionName(s.Name)
+		if !ok {
+			continue
+		}
+		newID, ok := resolver(repoID, oldBranchID)
+		if !ok || newID == oldBranchID {
+			continue
+		}
+		newName := domain.SessionName(repoID, newID)
+		if err := t.RenameSession(ctx, s.Name, newName); err != nil {
+			slog.Warn("[migrate-v1] tmux rename-session failed",
+				"old", s.Name, "new", newName, "err", err)
+			continue
+		}
+		slog.Info("[migrate-v1] tmux session renamed",
+			"old", s.Name, "new", newName)
+	}
 }
 
 // listenLocalAddr converts "0.0.0.0:8080" into ":8080" for friendlier

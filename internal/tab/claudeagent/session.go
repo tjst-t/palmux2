@@ -26,12 +26,20 @@ type hookBlockRef struct {
 // InitInfo is the subset of the initialize control_response we surface to
 // the frontend. The CLI returns a much larger payload (account, plugins,
 // available skills, etc.) — we keep only what the UI actually consumes.
+//
+// S1e8d02: WorkspaceMigrationV1 is a non-CLI bookkeeping field — it is
+// the unix timestamp at which [Store.MigrateLegacyBranchIDs] last
+// rewrote sessions.json from the pre-S1e8d02 branch-name-based ID scheme
+// to the new path-based workspace ID scheme. Non-zero ⇒ migration done,
+// don't repeat. Stored on InitInfo so the persisted shape acquires the
+// marker without bumping the top-level schema.
 type InitInfo struct {
 	Commands              []SlashCommand    `json:"commands,omitempty"`
 	Agents                []NamedItem       `json:"agents,omitempty"`
 	Models                []ModelDescriptor `json:"models,omitempty"`
 	OutputStyle           string            `json:"outputStyle,omitempty"`
 	AvailableOutputStyles []string          `json:"availableOutputStyles,omitempty"`
+	WorkspaceMigrationV1  int64             `json:"workspaceMigrationV1,omitempty"`
 }
 
 // SlashCommand describes one CLI-provided slash command.

@@ -61,7 +61,12 @@ func NewMux(deps Deps) *http.ServeMux {
 
 	root := http.NewServeMux()
 	root.HandleFunc("/auth", deps.Auth.AuthHandler)
-	root.Handle("/api/", deps.Auth.Middleware(apiMux))
+	// S1e8d02: legacyBranchIDRedirect intercepts requests with a stale
+	// branch-name-derived ID and 302/307s to the new path-based
+	// canonical URL. Sits OUTSIDE auth so a bookmark for an old
+	// session correctly redirects (the new URL still goes through
+	// auth on the retry).
+	root.Handle("/api/", legacyBranchIDRedirect(deps.Store, deps.Auth.Middleware(apiMux)))
 	// S010: serve bundled OSS assets (currently the drawio webapp used by
 	// the Files-tab `.drawio` viewer) under `/static/`. No auth gate — the
 	// content is public and the SPA needs to reference it from an iframe

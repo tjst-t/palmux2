@@ -312,6 +312,148 @@ func (s *Store) SetBranchPrefs(repoID, branchID, tabID string, prefs BranchPrefs
 	return s.save()
 }
 
+// MigrateLegacyBranchIDs (S1e8d02) rewrites every map key in `Active`,
+// `BranchTabs`, `BranchPrefs`, and every `BranchID` field in `Sessions`
+// from the pre-S1e8d02 branch-name-based ID to the new path-based
+// workspace ID. The caller supplies a resolver that maps
+// `(repoID, oldBranchID) -> (newWorkspaceID, true)` for branches whose
+// worktrees are still alive on disk; entries the resolver cannot
+// resolve (worktree deleted while palmux2 was offline, etc.) are
+// dropped from the persisted shape and a warning is logged via
+// `warnf` (the function-form keeps Store free of an slog import).
+//
+// Idempotent. The first successful run records `lastInit` field
+// `workspace_migration_v1` (a unix timestamp). Subsequent runs short-
+// circuit when that marker is set, so `Migrate*` is safe to call on
+// every startup.
+//
+// Returns the count of entries rewritten and dropped (for logging).
+func (s *Store) MigrateLegacyBranchIDs(
+	resolve func(repoID, oldBranchID string) (newWorkspaceID string, ok bool),
+	warnf func(format string, args ...any),
+) (rewritten, dropped int, err error) {
+	if warnf == nil {
+		warnf = func(string, ...any) {}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data.LastInit != nil && s.data.LastInit.WorkspaceMigrationV1 > 0 {
+		return 0, 0, nil
+	}
+	rewriteTabKey := func(key string) (string, bool) {
+		// Format: `{repoId}/{oldBranchId}/{tabId}`. Tab segment may
+		// itself contain `:`. Take the first two `/`-separated tokens.
+		parts := strings.SplitN(key, "/", 3)
+		if len(parts) < 3 {
+			return "", false
+		}
+		repoID, oldBranchID, tab := parts[0], parts[1], parts[2]
+		newID, ok := resolve(repoID, oldBranchID)
+		if !ok {
+			return "", false
+		}
+		if newID == oldBranchID {
+			// Resolver says the ID hasn't changed — leave alone.
+			return key, true
+		}
+		return repoID + "/" + newID + "/" + tab, true
+	}
+	rewriteBranchKey := func(key string) (string, bool) {
+		parts := strings.SplitN(key, "/", 2)
+		if len(parts) < 2 {
+			return "", false
+		}
+		repoID, oldBranchID := parts[0], parts[1]
+		newID, ok := resolve(repoID, oldBranchID)
+		if !ok {
+			return "", false
+		}
+		if newID == oldBranchID {
+			return key, true
+		}
+		return repoID + "/" + newID, true
+	}
+
+	// Active map: tab-keyed.
+	{
+		newMap := make(map[string]string, len(s.data.Active))
+		for k, v := range s.data.Active {
+			nk, ok := rewriteTabKey(k)
+			if !ok {
+				warnf("migrate: dropping orphaned Active entry %q (worktree gone?)", k)
+				dropped++
+				continue
+			}
+			if nk != k {
+				rewritten++
+			}
+			newMap[nk] = v
+		}
+		s.data.Active = newMap
+	}
+	// BranchPrefs map: tab-keyed.
+	{
+		newMap := make(map[string]BranchPrefs, len(s.data.BranchPrefs))
+		for k, v := range s.data.BranchPrefs {
+			nk, ok := rewriteTabKey(k)
+			if !ok {
+				warnf("migrate: dropping orphaned BranchPrefs entry %q", k)
+				dropped++
+				continue
+			}
+			if nk != k {
+				rewritten++
+			}
+			newMap[nk] = v
+		}
+		s.data.BranchPrefs = newMap
+	}
+	// BranchTabs map: branch-keyed (no tab segment).
+	{
+		newMap := make(map[string][]string, len(s.data.BranchTabs))
+		for k, v := range s.data.BranchTabs {
+			nk, ok := rewriteBranchKey(k)
+			if !ok {
+				warnf("migrate: dropping orphaned BranchTabs entry %q", k)
+				dropped++
+				continue
+			}
+			if nk != k {
+				rewritten++
+			}
+			newMap[nk] = append([]string(nil), v...)
+		}
+		s.data.BranchTabs = newMap
+	}
+	// Session.BranchID values: rewrite in place.
+	for sid, m := range s.data.Sessions {
+		newID, ok := resolve(m.RepoID, m.BranchID)
+		if !ok {
+			// Don't drop the session — Claude CLI may still be able to
+			// resume by UUID alone. Just leave the (now stale) BranchID
+			// pointing at the old value; the active map has been
+			// cleaned up above.
+			continue
+		}
+		if newID != m.BranchID {
+			m.BranchID = newID
+			s.data.Sessions[sid] = m
+			rewritten++
+		}
+	}
+
+	// Record the migration so the next startup is a no-op.
+	if s.data.LastInit == nil {
+		s.data.LastInit = &InitInfo{}
+	}
+	s.data.LastInit.WorkspaceMigrationV1 = time.Now().Unix()
+
+	if err := s.save(); err != nil {
+		return rewritten, dropped, fmt.Errorf("migrate save: %w", err)
+	}
+	return rewritten, dropped, nil
+}
+
 // SetLastInit caches the most recent CLI initialize payload so the next
 // agent (after a server restart, before its CLI spawns) can hand it back
 // to the UI for the slash-command popup, model list, etc.

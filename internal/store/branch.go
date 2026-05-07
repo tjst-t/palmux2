@@ -50,8 +50,10 @@ func (s *Store) openBranchInternal(ctx context.Context, repoID, branchName strin
 		return nil, err
 	}
 
-	// 2. Build the Branch entity (does not yet touch tmux).
-	branchID := domain.BranchSlugID(repoFullPath, wt.Branch)
+	// 2. Build the Branch entity (does not yet touch tmux). S1e8d02:
+	//    BranchID is path-derived so a subsequent in-place `git checkout`
+	//    on the same worktree leaves the ID unchanged.
+	branchID := domain.WorkspaceSlugIDFromPath(wt.Path, wt.IsPrimary, repoFullPath)
 	sessionName := domain.SessionName(repoID, branchID)
 
 	branch := &domain.Branch{
@@ -125,6 +127,80 @@ func (s *Store) openBranchInternal(ctx context.Context, repoID, branchName strin
 
 	s.hub.Publish(Event{Type: EventBranchOpened, RepoID: repoID, BranchID: branchID, Payload: snap})
 	return snap, nil
+}
+
+// RenameBranch updates only the display name of an existing branch in-place
+// (S1e8d02). The branch's ID, tmux session, Claude agent process, tab list
+// and Drawer position are all preserved; this is the path-identity-stable
+// outcome of `git checkout other-branch` inside the same worktree.
+//
+// Caller passes the branchID (path-derived, so invariant under checkout)
+// and the new branch name observed by `git worktree list`. The store
+// publishes [EventBranchHeadChanged] so connected browsers can re-label
+// the Drawer entry without removing-and-re-adding it.
+//
+// `OnBranchClose` and `OnBranchOpen` Provider hooks are NOT invoked
+// (that's the entire point — tabs remain alive). Providers that want
+// to react to head changes implement [tab.Provider.OnBranchHeadChanged]
+// (S1e8d02-4, default no-op).
+//
+// Returns ErrRepoNotFound / ErrBranchNotFound if the IDs don't match.
+// A no-op rename (oldName == newName) is silently dropped.
+func (s *Store) RenameBranch(ctx context.Context, repoID, branchID, newName string) error {
+	s.mu.Lock()
+	repo, ok := s.repos[repoID]
+	if !ok {
+		s.mu.Unlock()
+		return ErrRepoNotFound
+	}
+	var branch *domain.Branch
+	for _, b := range repo.OpenBranches {
+		if b.ID == branchID {
+			branch = b
+			break
+		}
+	}
+	if branch == nil {
+		s.mu.Unlock()
+		return ErrBranchNotFound
+	}
+	oldName := branch.Name
+	if oldName == newName {
+		s.mu.Unlock()
+		return nil
+	}
+	branch.Name = newName
+	branch.LastActivity = time.Now()
+	worktreePath := branch.WorktreePath
+	// Categorisation (S015) is name-keyed via repos.json.userOpenedBranches.
+	// Recompute so a renamed branch lands in the right Drawer section.
+	s.applyCategoriesUnlocked(repo)
+	snap := cloneBranch(branch)
+	s.mu.Unlock()
+
+	// Notify Providers (default no-op for everyone except those that opt in).
+	for _, p := range s.registry.Providers() {
+		if hc, ok := p.(tab.HeadChangedHook); ok {
+			if err := hc.OnBranchHeadChanged(ctx, tab.HeadChangedParams{
+				Branch: snap, OldBranch: oldName, NewBranch: newName,
+			}); err != nil {
+				s.logger.Warn("OnBranchHeadChanged error", "provider", p.Type(), "err", err)
+			}
+		}
+	}
+
+	s.hub.Publish(Event{
+		Type:     EventBranchHeadChanged,
+		RepoID:   repoID,
+		BranchID: branchID,
+		Payload: map[string]any{
+			"oldBranch":    oldName,
+			"newBranch":    newName,
+			"worktreePath": worktreePath,
+			"branch":       snap,
+		},
+	})
+	return nil
 }
 
 // CloseBranch tears down a branch: kill tmux, gwq remove (unless primary),
