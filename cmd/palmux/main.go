@@ -262,6 +262,13 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 	// independent so a failure in one path does not affect the other.
 	st.ReconcileLastActiveBranches(ctx)
 
+	// S034: re-attach listener-discovery goroutines to surviving netnses
+	// from a previous palmux run. The netns + slirp4netns processes are
+	// detached children that outlive palmux, but the discovery loop runs
+	// in-process and dies with us. Without this, /api/listeners returns []
+	// for already-open isolated branches until the user closes/reopens.
+	st.RestoreNetnsDiscovery(ctx)
+
 	st.Run(ctx)
 
 	frontendFS, err := fs.Sub(palmux2.FrontendFS, "frontend/dist")

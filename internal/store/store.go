@@ -195,6 +195,37 @@ func (s *Store) Hub() *EventHub { return s.hub }
 // Netns returns the netns.Manager wired into the Store, or nil if not configured.
 func (s *Store) Netns() *netns.Manager { return s.deps.Netns }
 
+// RestoreNetnsDiscovery walks every open branch at startup and re-starts the
+// listener discovery goroutine for any branch whose netns is still alive.
+// Without this, after a palmux restart the netns + slirp4netns processes
+// survive (they're detached children) but the in-process discovery loop
+// dies, so /api/listeners returns [] until the user closes and reopens the
+// branch. Called from main.go after netns.Reconcile().
+func (s *Store) RestoreNetnsDiscovery(ctx context.Context) {
+	if s.deps.Netns == nil {
+		return
+	}
+	for _, repo := range s.deps.RepoStore.All() {
+		for _, branchName := range repo.UserOpenedBranches {
+			full := repo.GHQPath
+			if s.ghqRoot != "" {
+				full = filepath.Join(s.ghqRoot, repo.GHQPath)
+			}
+			branchID := domain.BranchSlugID(full, branchName)
+			if _, ok := s.deps.Netns.GetListeners(branchID); ok {
+				// Already running (paranoia); skip.
+				continue
+			}
+			ws, ok := s.deps.Netns.Get(branchID)
+			if !ok || !ws.IsolateNetwork || ws.NetnsPath == "" {
+				continue
+			}
+			s.startNetnsDiscovery(ctx, repo.ID, branchID)
+			s.logger.Info("netns: discovery restored after restart", "repo", repo.ID, "branch", branchID)
+		}
+	}
+}
+
 // startNetnsDiscovery starts a polling loop inside the netns for the given
 // branch and broadcasts netns.listenersChanged events via the store hub.
 //
