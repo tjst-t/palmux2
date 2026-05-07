@@ -85,6 +85,10 @@ export interface Branch {
    *  `autoWorktreePathPatterns`. `unmanaged` = otherwise. The FE
    *  remaps `user → my` for section titles. */
   category?: BranchCategory
+  /** S034: true when this branch has an active netns. Populated by
+   *  the BE from netns state — distinct from repo-level isolateNetwork
+   *  (which is the default for *new* worktrees, not runtime state). */
+  isolated?: boolean
 }
 
 export interface TabSet {

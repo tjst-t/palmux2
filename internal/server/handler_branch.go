@@ -13,7 +13,18 @@ func (h *handlers) listBranches(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, repo.OpenBranches)
+	out := make([]domain.Branch, len(repo.OpenBranches))
+	for i, b := range repo.OpenBranches {
+		out[i] = *b
+	}
+	if nm := h.store.Netns(); nm != nil {
+		for i := range out {
+			if ws, ok := nm.Get(out[i].ID); ok && ws.IsolateNetwork {
+				out[i].Isolated = true
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // branchPickerEntry is one row in `GET /api/repos/{repoId}/branch-picker`.
@@ -84,6 +95,11 @@ func (h *handlers) openBranch(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, err)
 		return
+	}
+	if nm := h.store.Netns(); nm != nil {
+		if ws, ok := nm.Get(branch.ID); ok && ws.IsolateNetwork {
+			branch.Isolated = true
+		}
 	}
 	writeJSON(w, http.StatusCreated, branch)
 }

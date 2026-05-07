@@ -44,6 +44,11 @@ type Branch struct {
 	TabSet       TabSet    `json:"tabSet"`
 	LastActivity time.Time `json:"lastActivity"`
 	Category     string    `json:"category,omitempty"` // S015
+	// Isolated (S034) is true when this branch has an active netns. Set at
+	// the handler layer, populated from netns state — NOT from repo-level
+	// isolateNetwork flag (which is the default for new worktrees, not the
+	// runtime state of existing ones).
+	Isolated bool `json:"isolated,omitempty"`
 }
 
 // TabSet is the collection of tabs for one branch.

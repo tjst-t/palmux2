@@ -40,13 +40,28 @@ export function BranchPicker({ open, repoId, onClose }: Props) {
   // Default based on repo's isolateNetwork setting.
   const repos = usePalmuxStore((s) => s.repos)
   const repo = repos.find((r) => r.id === repoId)
-  const [isolateNew, setIsolateNew] = useState(repo?.isolateNetwork === 'on')
+  const [isolateNew, setIsolateNew] = useState<boolean>(repo?.isolateNetwork === 'on')
+  const [isolateUserTouched, setIsolateUserTouched] = useState(false)
 
   useEffect(() => {
     if (!open || !repoId) return
     setError(null)
     void reload(repoId)
   }, [open, repoId, reload])
+
+  // S034 hotfix: re-sync the checkbox default when the repo data arrives or
+  // when the modal re-opens. Without this, the initial useState captures
+  // the value from before repos was hydrated, so the checkbox shows
+  // unchecked even when the repo defaults to isolation-on.
+  // Skip syncing if the user has already toggled the checkbox by hand.
+  useEffect(() => {
+    if (!open) {
+      setIsolateUserTouched(false)
+      return
+    }
+    if (isolateUserTouched) return
+    setIsolateNew(repo?.isolateNetwork === 'on')
+  }, [open, repo?.isolateNetwork, isolateUserTouched])
 
   const entries = picker?.repoId === repoId ? picker.entries : []
   const filtered = useMemo(() => {
@@ -123,7 +138,10 @@ export function BranchPicker({ open, repoId, onClose }: Props) {
         <input
           type="checkbox"
           checked={isolateNew}
-          onChange={(e) => setIsolateNew(e.target.checked)}
+          onChange={(e) => {
+            setIsolateNew(e.target.checked)
+            setIsolateUserTouched(true)
+          }}
           data-testid="isolate-network-checkbox"
         />
         🛡 Isolate network

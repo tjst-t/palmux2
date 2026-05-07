@@ -42,10 +42,12 @@ export function Header() {
   // updated the store).
   const allListeners = useNetnsStore((s) => s.listeners)
   const branchListeners = branchId ? allListeners[branchId] ?? [] : []
-  // isolated when the repo defaults isolation on, OR when listeners have been
-  // detected for this branch (which means the netns + ss-polling is actually
-  // running for this branch).
-  const isIsolated = repo?.isolateNetwork === 'on' || branchListeners.length > 0
+  // S034 hotfix: rely on the per-branch `isolated` field that the BE now
+  // populates from netns state — NOT the repo-level isolateNetwork flag,
+  // which is the default for *new* worktrees, not the runtime state of
+  // this specific branch. Keep listener-presence as a fallback indicator
+  // so the badge appears even before the next /api/branches refresh.
+  const isIsolated = branch?.isolated === true || branchListeners.length > 0
   const listenerCount = branchListeners.length
 
   const onToggleDrawer = () => {

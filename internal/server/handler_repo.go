@@ -30,7 +30,9 @@ type availableRepoEntry struct {
 }
 
 func (h *handlers) listRepos(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, h.store.Repos())
+	repos := h.store.Repos()
+	h.decorateBranchIsolation(repos)
+	writeJSON(w, http.StatusOK, repos)
 }
 
 // getRepo returns a single repository by ID (S034).
@@ -40,7 +42,28 @@ func (h *handlers) getRepo(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	h.decorateBranchIsolation([]*domain.Repository{repo})
 	writeJSON(w, http.StatusOK, repo)
+}
+
+// decorateBranchIsolation populates Branch.Isolated for every branch in
+// every repo from the netns state. Caller must pass cloned repos (Store
+// already does this via cloneRepo); we mutate the OpenBranches slice
+// in place.
+func (h *handlers) decorateBranchIsolation(repos []*domain.Repository) {
+	nm := h.store.Netns()
+	if nm == nil {
+		return
+	}
+	for _, r := range repos {
+		for b := range r.OpenBranches {
+			if ws, ok := nm.Get(r.OpenBranches[b].ID); ok && ws.IsolateNetwork {
+				r.OpenBranches[b].Isolated = true
+			} else {
+				r.OpenBranches[b].Isolated = false
+			}
+		}
+	}
 }
 
 func (h *handlers) availableRepos(w http.ResponseWriter, r *http.Request) {
