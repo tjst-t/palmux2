@@ -166,8 +166,17 @@ export function NetworkModal({ repoId, branchId, onClose }: NetworkModalProps) {
                   )}
                   <button
                     className={styles.netRowOpen}
-                    onClick={() => window.open(`http://localhost:${pm.hostPort}`, '_blank')}
-                    title={`Open localhost:${pm.hostPort}`}
+                    onClick={() => {
+                      // S034 hotfix: open via the palmux UI's hostname (not
+                      // "localhost"). When accessing palmux2 from a remote
+                      // machine, "localhost" points to the user's own
+                      // machine — not the server hosting the dev server.
+                      // Strip the palmux port (window.location.host includes
+                      // it) and use the host part with the forwarded port.
+                      const host = window.location.hostname
+                      window.open(`http://${host}:${pm.hostPort}`, '_blank')
+                    }}
+                    title={`Open ${window.location.hostname}:${pm.hostPort}`}
                     data-testid="network-port-open-btn"
                   >
                     ↗
