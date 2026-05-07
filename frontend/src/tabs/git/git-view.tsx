@@ -57,17 +57,29 @@ import type { TabViewProps } from '../../lib/tab-registry'
 
 type Props = TabViewProps
 
-// Selected pane describes what the right-hand Monaco diff is showing.
-// `working`  → working tree diff for one file (hot-edited by the user)
-// `commit`   → diff of one historical commit (shown after History click)
-// `none`     → no selection yet
+// Selected revision describes what the top-left files pane and the
+// right-hand Monaco diff are showing.
+//
+// `uncommitted` → the working tree (changes section). `path` selects
+//                 which file's diff to show; undefined means "pane
+//                 visible but no file picked yet".
+// `commit`      → a historical commit. `path` is the file inside that
+//                 commit currently shown in the diff (auto-selected to
+//                 the first file once the commit's file list arrives).
+//
+// The Git tab boots with `{ kind: 'uncommitted' }` so users land on
+// "what's about to ship" without an extra click.
 type Selection =
-  | { kind: 'none' }
-  | { kind: 'working'; path: string; staged: boolean }
-  | { kind: 'commit'; sha: string; refs?: string[] }
+  | { kind: 'uncommitted'; path?: string; staged?: boolean }
+  | { kind: 'commit'; sha: string; refs?: string[]; path?: string }
 
 // Mobile sub-tab.
 type MobilePane = 'changes' | 'history' | 'diff'
+
+interface CommitDiffFile {
+  oldPath: string
+  newPath: string
+}
 
 const HISTORY_PAGE = 50
 
@@ -147,9 +159,59 @@ export function GitView({ repoId, branchId }: Props) {
   const [logLoading, setLogLoading] = useState(false)
   const [branches, setBranches] = useState<BranchEntry[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [selection, setSelection] = useState<Selection>({ kind: 'none' })
+  const [selection, setSelection] = useState<Selection>({ kind: 'uncommitted' })
   const [reloadKey, setReloadKey] = useState(0)
   const [mobilePane, setMobilePane] = useState<MobilePane>('changes')
+
+  // File list for the currently-selected commit (kind === 'commit').
+  // Hoisted from the old CommitDiffPanel so the top-left pane can
+  // render it instead of the right pane, and so the parent can
+  // auto-pick the first file as the active diff target.
+  const [commitFiles, setCommitFiles] = useState<CommitDiffFile[]>([])
+  const [commitFilesLoading, setCommitFilesLoading] = useState(false)
+  const [commitFilesError, setCommitFilesError] = useState<string | null>(null)
+  const selectedSha = selection.kind === 'commit' ? selection.sha : null
+
+  useEffect(() => {
+    if (!selectedSha) {
+      setCommitFiles([])
+      setCommitFilesError(null)
+      return
+    }
+    let cancelled = false
+    setCommitFilesLoading(true)
+    setCommitFilesError(null)
+    api
+      .get<{ files: { oldPath: string; newPath: string }[] | null }>(
+        `${apiBase}/diff?sha=${encodeURIComponent(selectedSha)}`,
+      )
+      .then((res) => {
+        if (cancelled) return
+        const list = (res.files ?? []).map((f) => ({
+          oldPath: f.oldPath,
+          newPath: f.newPath,
+        }))
+        setCommitFiles(list)
+      })
+      .catch((e) => {
+        if (!cancelled) setCommitFilesError(e instanceof Error ? e.message : String(e))
+      })
+      .finally(() => {
+        if (!cancelled) setCommitFilesLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [apiBase, selectedSha, reloadKey])
+
+  // Auto-select the first file of a freshly-loaded commit so the diff
+  // pane isn't empty after the user clicks a commit row.
+  useEffect(() => {
+    if (selection.kind !== 'commit' || selection.path) return
+    if (commitFiles.length === 0) return
+    const first = commitFiles[0]
+    setSelection({ ...selection, path: first.newPath || first.oldPath })
+  }, [commitFiles, selection])
 
   // Resizable layout state — pixel widths/heights persisted to localStorage.
   // The body element drives the col-resize splitter (we measure dragged X
@@ -378,27 +440,42 @@ export function GitView({ repoId, branchId }: Props) {
       )}
 
       <div className={styles.changesPane} style={{ height: changesHeight }}>
-        <ChangesSection
-          changes={changes}
-          commitMessage={commitMessage}
-          committing={committing}
-          canCommit={changes.some((c) => c.staged) && commitMessage.trim().length > 0}
-          syncBusy={syncBusy}
-          ahead={headBranch?.ahead ?? 0}
-          behind={headBranch?.behind ?? 0}
-          selection={selection}
-          onSelect={(sel) => {
-            setSelection(sel)
-            if (sel.kind !== 'none') setMobilePane('diff')
-          }}
-          onStage={onStage}
-          onUnstage={onUnstage}
-          onCommitMessageChange={setCommitMessage}
-          onCommit={onCommit}
-          onPush={() => sync('push')}
-          onPull={() => sync('pull')}
-          onFetch={() => sync('fetch')}
-        />
+        {selection.kind === 'uncommitted' ? (
+          <ChangesSection
+            changes={changes}
+            commitMessage={commitMessage}
+            committing={committing}
+            canCommit={changes.some((c) => c.staged) && commitMessage.trim().length > 0}
+            syncBusy={syncBusy}
+            ahead={headBranch?.ahead ?? 0}
+            behind={headBranch?.behind ?? 0}
+            selection={selection}
+            onSelect={(sel) => {
+              setSelection(sel)
+              if (sel.kind === 'uncommitted' && sel.path) setMobilePane('diff')
+            }}
+            onStage={onStage}
+            onUnstage={onUnstage}
+            onCommitMessageChange={setCommitMessage}
+            onCommit={onCommit}
+            onPush={() => sync('push')}
+            onPull={() => sync('pull')}
+            onFetch={() => sync('fetch')}
+          />
+        ) : (
+          <CommitFilesPane
+            sha={selection.sha}
+            refs={selection.refs}
+            files={commitFiles}
+            loading={commitFilesLoading}
+            error={commitFilesError}
+            selectedPath={selection.path}
+            onSelectFile={(path) => {
+              setSelection({ ...selection, path })
+              setMobilePane('diff')
+            }}
+          />
+        )}
       </div>
 
       <Splitter axis="y" onResize={onChangesResize} testid="git-splitter-h" />
@@ -409,9 +486,15 @@ export function GitView({ repoId, branchId }: Props) {
           loading={logLoading}
           exhausted={logExhausted}
           selectedSha={selection.kind === 'commit' ? selection.sha : null}
+          uncommittedSelected={selection.kind === 'uncommitted'}
+          uncommittedCount={changes.length}
           onSelect={(entry) => {
             setSelection({ kind: 'commit', sha: entry.hash, refs: entry.refs })
-            setMobilePane('diff')
+            setMobilePane('changes')
+          }}
+          onSelectUncommitted={() => {
+            setSelection({ kind: 'uncommitted' })
+            setMobilePane('changes')
           }}
           onLoadMore={() => fetchLog(log.length)}
         />
@@ -421,12 +504,14 @@ export function GitView({ repoId, branchId }: Props) {
 
   const main = (
     <main className={styles.main} data-testid="git-main">
-      {selection.kind === 'none' && (
+      {selection.kind === 'uncommitted' && !selection.path && (
         <div className={styles.emptyMain}>
-          ファイルまたはコミットを選択してください
+          {changes.length === 0
+            ? 'No changes — working tree is clean'
+            : 'Select a file from Changes to view its diff'}
         </div>
       )}
-      {selection.kind === 'working' && (
+      {selection.kind === 'uncommitted' && selection.path && (
         <GitMonacoDiff
           apiBase={apiBase}
           path={selection.path}
@@ -435,11 +520,20 @@ export function GitView({ repoId, branchId }: Props) {
           onStaged={onStatusChanged}
         />
       )}
-      {selection.kind === 'commit' && (
-        <CommitDiffPanel
+      {selection.kind === 'commit' && !selection.path && (
+        <div className={styles.emptyMain}>
+          {commitFilesLoading
+            ? 'Loading…'
+            : commitFiles.length === 0
+              ? '(no changes — first commit or merge)'
+              : 'Select a file to view its diff'}
+        </div>
+      )}
+      {selection.kind === 'commit' && selection.path && (
+        <CommitFileDiff
           apiBase={apiBase}
           sha={selection.sha}
-          refs={selection.refs}
+          path={selection.path}
           reloadKey={reloadKey}
         />
       )}
@@ -455,7 +549,7 @@ export function GitView({ repoId, branchId }: Props) {
       onSwitch={async (name) => {
         try {
           await api.post(`${apiBase}/switch`, { name })
-          setSelection({ kind: 'none' })
+          setSelection({ kind: 'uncommitted' })
           await Promise.all([fetchStatus(), fetchLog(0), fetchBranches()])
         } catch (e) {
           setError(e instanceof Error ? e.message : String(e))
@@ -464,7 +558,7 @@ export function GitView({ repoId, branchId }: Props) {
       onCreate={async (name) => {
         try {
           await api.post(`${apiBase}/branches`, { name, checkout: true })
-          setSelection({ kind: 'none' })
+          setSelection({ kind: 'uncommitted' })
           await Promise.all([fetchStatus(), fetchLog(0), fetchBranches()])
         } catch (e) {
           setError(e instanceof Error ? e.message : String(e))
@@ -614,7 +708,7 @@ function ChangesSection({
             {changes.length === 0 && <li className={styles.empty}>No changes</li>}
             {changes.map((c) => {
               const selected =
-                selection.kind === 'working' &&
+                selection.kind === 'uncommitted' &&
                 selection.path === c.path &&
                 selection.staged === c.staged
               return (
@@ -625,12 +719,12 @@ function ChangesSection({
                   role="button"
                   tabIndex={0}
                   onClick={() =>
-                    onSelect({ kind: 'working', path: c.path, staged: c.staged })
+                    onSelect({ kind: 'uncommitted', path: c.path, staged: c.staged })
                   }
                   onKeyDown={(ev) => {
                     if (ev.key === 'Enter' || ev.key === ' ') {
                       ev.preventDefault()
-                      onSelect({ kind: 'working', path: c.path, staged: c.staged })
+                      onSelect({ kind: 'uncommitted', path: c.path, staged: c.staged })
                     }
                   }}
                 >
@@ -740,7 +834,10 @@ interface HistorySectionProps {
   loading: boolean
   exhausted: boolean
   selectedSha: string | null
+  uncommittedSelected: boolean
+  uncommittedCount: number
   onSelect: (entry: LogEntry) => void
+  onSelectUncommitted: () => void
   onLoadMore: () => void
 }
 
@@ -749,7 +846,10 @@ function HistorySection({
   loading,
   exhausted,
   selectedSha,
+  uncommittedSelected,
+  uncommittedCount,
   onSelect,
+  onSelectUncommitted,
   onLoadMore,
 }: HistorySectionProps) {
   return (
@@ -758,6 +858,31 @@ function HistorySection({
         <span className={styles.sectionLabel}>History</span>
       </header>
       <ul className={styles.historyList} data-testid="git-history-list">
+        <li
+          className={`${uncommittedSelected ? styles.historyRowActive : styles.historyRow} ${styles.uncommittedRow}`}
+          data-testid="git-history-row-uncommitted"
+          role="button"
+          tabIndex={0}
+          onClick={onSelectUncommitted}
+          onKeyDown={(ev) => {
+            if (ev.key === 'Enter' || ev.key === ' ') {
+              ev.preventDefault()
+              onSelectUncommitted()
+            }
+          }}
+        >
+          <span className={`${styles.dot} ${uncommittedCount > 0 ? styles.uncommittedDot : ''}`}>●</span>
+          <span className={`${styles.hash} ${styles.uncommittedHash}`}>WIP</span>
+          <span />
+          <span className={`${styles.subject} ${styles.uncommittedSubject}`}>
+            Uncommitted changes
+          </span>
+          <span className={styles.relTime}>
+            {uncommittedCount > 0
+              ? `${uncommittedCount} file${uncommittedCount === 1 ? '' : 's'}`
+              : 'clean'}
+          </span>
+        </li>
         {log.map((e) => {
           const short = e.hash.slice(0, 7)
           const selected = e.hash === selectedSha
@@ -826,96 +951,92 @@ function relTime(iso: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Commit diff panel — list of files in the commit + Monaco diff per file.
+// Commit files pane — list of files inside a selected commit, rendered
+// in the top-left sidebar pane (S029-fix). Replaces the old horizontal
+// `commitDiffFiles` strip that lived above the diff. Selection is owned
+// by the parent (selection.path), so this component is purely
+// presentational.
 // ---------------------------------------------------------------------------
 
-interface CommitDiffPanelProps {
-  apiBase: string
+interface CommitFilesPaneProps {
   sha: string
   refs?: string[]
-  reloadKey: number
+  files: CommitDiffFile[]
+  loading: boolean
+  error: string | null
+  selectedPath?: string
+  onSelectFile: (path: string) => void
 }
 
-interface CommitDiffFile {
-  oldPath: string
-  newPath: string
-}
-
-function CommitDiffPanel({ apiBase, sha, refs, reloadKey }: CommitDiffPanelProps) {
-  const [files, setFiles] = useState<CommitDiffFile[]>([])
-  const [activeIdx, setActiveIdx] = useState(0)
-  const [loadError, setLoadError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    setFiles([])
-    setActiveIdx(0)
-    setLoadError(null)
-    void api
-      .get<{ files: { oldPath: string; newPath: string }[] | null }>(
-        `${apiBase}/diff?sha=${encodeURIComponent(sha)}`,
-      )
-      .then((res) => {
-        if (cancelled) return
-        const list = (res.files ?? []).map((f) => ({
-          oldPath: f.oldPath,
-          newPath: f.newPath,
-        }))
-        setFiles(list)
-      })
-      .catch((e) => {
-        if (!cancelled) {
-          setLoadError(e instanceof Error ? e.message : String(e))
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [apiBase, sha, reloadKey])
-
-  const active = files[activeIdx]
-  const path = active ? active.newPath || active.oldPath : ''
-
+function CommitFilesPane({
+  sha,
+  refs,
+  files,
+  loading,
+  error,
+  selectedPath,
+  onSelectFile,
+}: CommitFilesPaneProps) {
   return (
-    <div className={styles.commitDiffPanel}>
-      <header className={styles.commitDiffHeader}>
-        <span className={styles.commitDiffSha} data-testid="git-commit-diff-sha">
-          {sha.slice(0, 12)}
-        </span>
-        {refs && refs.length > 0 && (
-          <span className={styles.commitDiffRefs}>
-            {refs.map((r) => (
-              <span key={r} className={styles.refChip}>{stripRef(r)}</span>
-            ))}
+    <section className={styles.section} data-testid="git-section-commit-files">
+      <header className={styles.sectionHeader}>
+        <span className={styles.sectionLabel}>
+          <span className={styles.commitDiffSha} data-testid="git-commit-diff-sha">
+            {sha.slice(0, 7)}
           </span>
-        )}
-        <span className={styles.commitDiffCount}>
-          {files.length} file{files.length === 1 ? '' : 's'}
+          {refs && refs.length > 0 && (
+            <span className={styles.commitDiffRefs}>
+              {refs.slice(0, 3).map((r) => (
+                <span key={r} className={styles.refChip} title={r}>{stripRef(r)}</span>
+              ))}
+            </span>
+          )}
         </span>
+        {files.length > 0 && <span className={styles.count}>{files.length}</span>}
       </header>
-      {loadError && <p className={styles.errorBanner}>{loadError}</p>}
-      {files.length === 0 && !loadError && (
-        <p className={styles.empty}>(no changes — first commit or merge with no diff)</p>
-      )}
-      {files.length > 1 && (
-        <nav className={styles.commitDiffFiles} data-testid="git-commit-diff-files">
-          {files.map((f, i) => (
-            <button
-              key={f.newPath || f.oldPath || i}
-              type="button"
-              className={i === activeIdx ? styles.commitDiffFileActive : styles.commitDiffFile}
-              onClick={() => setActiveIdx(i)}
+      {error && <p className={styles.errorBanner}>{error}</p>}
+      <ul className={styles.fileList} data-testid="git-commit-files-list">
+        {loading && <li className={styles.empty}>Loading…</li>}
+        {!loading && !error && files.length === 0 && (
+          <li className={styles.empty}>(no changes)</li>
+        )}
+        {files.map((f) => {
+          const path = f.newPath || f.oldPath
+          const status = commitFileStatus(f)
+          const selected = selectedPath === path
+          return (
+            <li
+              key={path}
+              className={selected ? styles.fileRowActive : styles.fileRow}
+              data-testid={`git-commit-file-${path}`}
+              role="button"
+              tabIndex={0}
+              onClick={() => onSelectFile(path)}
+              onKeyDown={(ev) => {
+                if (ev.key === 'Enter' || ev.key === ' ') {
+                  ev.preventDefault()
+                  onSelectFile(path)
+                }
+              }}
             >
-              {f.newPath || f.oldPath}
-            </button>
-          ))}
-        </nav>
-      )}
-      {active && (
-        <CommitFileDiff apiBase={apiBase} sha={sha} path={path} reloadKey={reloadKey} />
-      )}
-    </div>
+              <span className={`${styles.statusLetter} ${statusClass(status)}`}>
+                {status}
+              </span>
+              <span className={styles.filePath} title={path}>{path}</span>
+              <span />
+            </li>
+          )
+        })}
+      </ul>
+    </section>
   )
+}
+
+function commitFileStatus(f: CommitDiffFile): string {
+  if (!f.oldPath) return 'A'
+  if (!f.newPath) return 'D'
+  if (f.oldPath !== f.newPath) return 'R'
+  return 'M'
 }
 
 interface CommitFileDiffProps {

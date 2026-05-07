@@ -389,6 +389,25 @@
   font-size: 10px;
 }
 
+/* Synthetic "Uncommitted changes" row pinned at the top of the History
+   list (S029-fix). It mirrors the regular row layout so the eye lines
+   up, but the dot turns warning-colour when there are pending changes
+   and the subject is italicised so it doesn't read like a real commit. */
+.uncommittedRow {
+  border-bottom: 1px solid var(--color-border);
+}
+.uncommittedDot {
+  color: var(--color-warning);
+}
+.uncommittedHash {
+  font-style: italic;
+  color: var(--color-fg-muted);
+}
+.uncommittedSubject {
+  font-style: italic;
+  font-weight: 500;
+}
+
 .hash {
   font-family: 'Geist Mono', 'Cascadia Code', monospace;
   color: var(--color-fg-muted);
@@ -558,6 +577,8 @@
   font-family: 'Geist Mono', monospace;
   color: var(--color-accent-light);
   font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .commitDiffRefs {
