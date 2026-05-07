@@ -258,12 +258,31 @@ func (m *Manager) Get(worktreeID string) (*WorktreeState, bool) {
 
 // NsenterArgs returns the args to prepend before a command to run it inside
 // a worktree's netns. Returns nil if isolation is not active for this worktree.
+//
+// We need both --user= and --net= because the netns is owned by an
+// unprivileged user namespace; entering only the netns from outside the
+// userns hits EPERM. Entering an unprivileged userns from outside also
+// hits EPERM unless the caller has CAP_SYS_ADMIN (i.e. is root in the
+// init userns), so we wrap with sudo. The deployed user must have
+// passwordless sudo for `nsenter` (palmux's INSTALL.md documents this).
 func (m *Manager) NsenterArgs(worktreeID string) []string {
 	ws, ok := m.state.Get(worktreeID)
-	if !ok || !ws.IsolateNetwork || ws.NetnsPath == "" {
+	if !ok || !ws.IsolateNetwork || ws.NetnsPath == "" || ws.AnchorPID == 0 {
 		return nil
 	}
-	return []string{"nsenter", "--net=" + ws.NetnsPath, "--"}
+	userNS := fmt.Sprintf("/proc/%d/ns/user", ws.AnchorPID)
+	netNS := ws.NetnsPath
+	// `-S 1000:1000` would set uid/gid back to the user inside the netns,
+	// but uid_map maps 0→1000 so we want uid 0 inside (the unprivileged
+	// userns's "root", which is uid 1000 outside). Default of nsenter is
+	// to keep uid 0, which is correct here.
+	return []string{
+		"sudo", "-n", "--",
+		"nsenter",
+		"--user=" + userNS,
+		"--net=" + netNS,
+		"--",
+	}
 }
 
 // Reconcile checks state vs. actual kernel state and cleans up orphaned entries.

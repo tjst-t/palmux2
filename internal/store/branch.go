@@ -364,14 +364,35 @@ func (s *Store) ensureSession(ctx context.Context, branch *domain.Branch, window
 	return nil
 }
 
-// wrapWithNsenter prepends `nsenter --net=<path> --` to a command string when
-// nsenterPath is non-empty. If command is empty, returns an empty string so
-// tmux opens a bare shell (nsenter cannot be applied to an empty command).
+// wrapWithNsenter wraps a command so it runs inside an isolated worktree's
+// netns. Two cases:
+//
+//  1. command non-empty → `sudo -n -E -- nsenter --user= --net= -- <cmd>`
+//  2. command empty (tmux defaults to $SHELL) → explicit bash inside the ns
+//     so the window's shell ends up isolated. The empty-command path was
+//     the long-standing bug: prior code returned "" for empty commands,
+//     so tmux opened a bare shell IN THE HOST netns. Result: the user
+//     was looking at an "isolated" tab whose shell was actually on the
+//     host network. Detected when two isolated worktrees couldn't both
+//     bind :5173 from their bash tabs (they were both binding host:5173).
+//
+// Requires passwordless sudo for nsenter — see docs/INSTALL.md. We need
+// to enter both the user and net namespaces, and only root in the parent
+// userns (or the same userns) can do that for an unprivileged userns.
 func wrapWithNsenter(command, nsenterPath string) string {
-	if nsenterPath == "" || command == "" {
+	if nsenterPath == "" {
 		return command
 	}
-	return "nsenter --net=" + nsenterPath + " -- " + command
+	// Derive userPath from netPath: /proc/<pid>/ns/net → /proc/<pid>/ns/user
+	// (they share the anchor PID and only differ in the trailing component).
+	userPath := strings.TrimSuffix(nsenterPath, "/net") + "/user"
+	prefix := "sudo -n -E -- nsenter --user=" + userPath + " --net=" + nsenterPath + " --"
+	if command == "" {
+		// `bash -l` so the user's login profile (PATH, prompt, etc.) is
+		// sourced inside the netns shell.
+		return prefix + " bash -l"
+	}
+	return prefix + " " + command
 }
 
 func firstNonEmpty(values ...string) string {
