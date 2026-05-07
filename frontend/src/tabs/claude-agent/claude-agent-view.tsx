@@ -239,11 +239,29 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
     [],
   )
 
-  // Resolve containerRef on mount (List's element() lazy returns null
-  // until the first paint).
+  // Resolve containerRef on mount. react-window installs its scroll
+  // container asynchronously: List's `element()` returns null until
+  // its imperative-API callback fires, which happens AFTER this
+  // effect on a fresh mount. A single read here would lock
+  // containerRef to null until the user scrolls (which is what
+  // populates it via onListScroll). On a tab-switch remount, "until
+  // the user scrolls" defeats the whole point of scroll restoration —
+  // the restore hook polls for the element via containerRef and never
+  // sees a value because no other code is updating it. Poll briefly
+  // here so containerRef gets the live element within ~50ms of mount,
+  // before the restore hook's retry budget runs out.
   useEffect(() => {
-    const el = listHandleRef.current?.element() ?? null
-    containerRef.current = el
+    let id: number | undefined
+    const tryResolve = () => {
+      const el = listHandleRef.current?.element() ?? null
+      if (el) {
+        containerRef.current = el
+        return
+      }
+      id = window.setTimeout(tryResolve, 50)
+    }
+    tryResolve()
+    return () => { if (id) window.clearTimeout(id) }
   }, [state.sessionId])
 
   // S017: scroll position persistence. Reload-resilient via

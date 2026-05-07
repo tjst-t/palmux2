@@ -438,13 +438,23 @@ export function useScrollRestore(opts: {
       return
     }
     const target = stored.top
-    // The persisted offset matters but the underlying scroll
-    // container may not be wired up yet (the List installs its DOM
-    // asynchronously). We retry on a short interval (capped at ~1.2s)
-    // until either the element appears AND its scrollHeight has
-    // grown enough to honour the saved offset, or we give up.
+    // Restoring against a virtualised list is iterative because the
+    // height cache only fills as rows render. On a tab-switch
+    // remount, react-window starts with 200px estimates for every
+    // row, so scrollHeight can be far below the saved target.
+    // Setting scrollTop = clamp(target, max) lands at current max,
+    // which pulls more rows into the render window; ResizeObserver
+    // measures them, scrollHeight grows, and the next iteration
+    // can step further. We stop when:
+    //   - we actually reach the target (within 4px), or
+    //   - scrollHeight has stabilised across two consecutive ticks
+    //     (no new measurements landing — saved position is gone), or
+    //   - we exhaust the attempt budget.
     let cancelled = false
     let attempts = 0
+    let prevHeight = -1
+    let stableTicks = 0
+    const MAX_ATTEMPTS = 30  // ~3s at 100ms per attempt
     const tryRestore = () => {
       if (cancelled) return
       attempts++
@@ -452,17 +462,19 @@ export function useScrollRestore(opts: {
       if (el && el.scrollHeight > el.clientHeight) {
         const max = Math.max(0, el.scrollHeight - el.clientHeight)
         el.scrollTop = Math.min(target, max)
-        // Verify it stuck — measurement cache might still be
-        // converging, so leave restoredFor only set once we landed
-        // close. If we didn't, schedule another retry.
-        if (Math.abs(el.scrollTop - Math.min(target, max)) < 4 || attempts >= 12) {
+        const reached = el.scrollTop >= target - 4
+        if (el.scrollHeight === prevHeight) {
+          stableTicks++
+        } else {
+          stableTicks = 0
+          prevHeight = el.scrollHeight
+        }
+        if (reached || stableTicks >= 3 || attempts >= MAX_ATTEMPTS) {
           restoredFor.current = sessionId
           return
         }
       }
-      if (attempts >= 12) {
-        // Give up — the cache hasn't populated. Leaving restoredFor
-        // unset would cause us to thrash; mark done.
+      if (attempts >= MAX_ATTEMPTS) {
         restoredFor.current = sessionId
         return
       }
