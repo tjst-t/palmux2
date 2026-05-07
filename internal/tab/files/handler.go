@@ -433,6 +433,82 @@ func (h *handler) createFile(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// uploadFile handles `POST /api/repos/.../files/upload`.
+//
+// Multipart form fields:
+//
+//	file       binary file content (required)
+//	path       worktree-relative target path (required)
+//	overwrite  "1" replaces an existing file; default skips with 409
+//
+// Parent directories are auto-created. Payload cap defaults to 1 GiB
+// (per request) — large enough for typical asset uploads while keeping
+// a sane DoS guard. The body is streamed to disk via temp+rename so a
+// 500 MiB upload doesn't buffer fully in memory.
+func (h *handler) uploadFile(w http.ResponseWriter, r *http.Request) {
+	root, err := h.branchPath(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	const maxUpload = int64(1 << 30) // 1 GiB
+	r.Body = http.MaxBytesReader(w, r.Body, maxUpload)
+	// 32 MiB in-memory threshold; larger parts spill to a temp file.
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{
+				"error": "upload exceeds 1 GiB limit",
+			})
+			return
+		}
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	defer func() {
+		if r.MultipartForm != nil {
+			_ = r.MultipartForm.RemoveAll()
+		}
+	}()
+
+	target := strings.TrimSpace(r.FormValue("path"))
+	if target == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path required"})
+		return
+	}
+	overwrite := r.FormValue("overwrite") == "1"
+
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file field required"})
+		return
+	}
+	defer file.Close()
+
+	info, etag, err := UploadFile(root, target, file, overwrite)
+	if err != nil {
+		switch {
+		case errors.Is(err, os.ErrExist):
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		case errors.Is(err, os.ErrPermission):
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
+		case errors.Is(err, ErrInvalidPath):
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		default:
+			writeErr(w, err)
+		}
+		return
+	}
+	w.Header().Set("ETag", etag)
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"path":     info.Path,
+		"size":     info.Size,
+		"mime":     info.MIME,
+		"isBinary": info.IsBinary,
+		"etag":     etag,
+	})
+}
+
 func (h *handler) search(w http.ResponseWriter, r *http.Request) {
 	root, err := h.branchPath(r)
 	if err != nil {

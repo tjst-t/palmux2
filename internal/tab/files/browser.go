@@ -441,6 +441,105 @@ func CreateFile(worktreeRoot, relPath string, content []byte) (FileInfo, string,
 	return info, ComputeETag(st.ModTime(), st.Size()), nil
 }
 
+// UploadFile writes a file from a stream to relPath inside worktreeRoot,
+// auto-creating parent directories as needed. The write is atomic
+// (temp-file + rename). When overwrite is true an existing file at
+// relPath is replaced; when false an existing file causes os.ErrExist.
+//
+// Streaming the body (rather than ReadAll) lets the upload endpoint
+// handle multi-hundred-MB files without buffering the whole payload in
+// memory. The caller passes the multipart file reader directly.
+func UploadFile(worktreeRoot, relPath string, body io.Reader, overwrite bool) (FileInfo, string, error) {
+	abs, err := resolveSafePath(worktreeRoot, relPath)
+	if err != nil {
+		return FileInfo{}, "", err
+	}
+	// Conflict check up front. Race with a concurrent writer is fine —
+	// the rename below would clobber what's there but that's the same
+	// guarantee the rest of the Files tab gives.
+	st, statErr := os.Stat(abs)
+	if statErr == nil {
+		if st.IsDir() {
+			return FileInfo{}, "", fmt.Errorf("%w: %s is a directory", ErrInvalidPath, relPath)
+		}
+		if !overwrite {
+			return FileInfo{}, "", fmt.Errorf("upload %s: %w", relPath, os.ErrExist)
+		}
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return FileInfo{}, "", statErr
+	}
+
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		return FileInfo{}, "", err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(abs), ".palmux-upload-*")
+	if err != nil {
+		return FileInfo{}, "", err
+	}
+	tmpPath := tmp.Name()
+	cleanup := func() { _ = os.Remove(tmpPath) }
+	if _, err := io.Copy(tmp, body); err != nil {
+		_ = tmp.Close()
+		cleanup()
+		return FileInfo{}, "", err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		cleanup()
+		return FileInfo{}, "", err
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return FileInfo{}, "", err
+	}
+	// Preserve target permissions when overwriting; otherwise default 0o644.
+	mode := os.FileMode(0o644)
+	if statErr == nil {
+		mode = st.Mode().Perm()
+	}
+	if err := os.Chmod(tmpPath, mode); err != nil {
+		cleanup()
+		return FileInfo{}, "", err
+	}
+	if err := os.Rename(tmpPath, abs); err != nil {
+		cleanup()
+		return FileInfo{}, "", err
+	}
+	newSt, err := os.Stat(abs)
+	if err != nil {
+		return FileInfo{}, "", err
+	}
+	// Sniff the MIME from a small head — for upload we only need it to
+	// surface a reasonable response; clients re-fetch listings anyway.
+	head, _ := readHead(abs, 512)
+	info := FileInfo{
+		Path:     relPath,
+		Size:     newSt.Size(),
+		IsBinary: looksBinary(head),
+		MIME:     detectMIME(relPath, head),
+	}
+	return info, ComputeETag(newSt.ModTime(), newSt.Size()), nil
+}
+
+// readHead returns up to n bytes from the start of the file at abs. Used
+// by UploadFile for MIME sniffing without re-buffering the whole body.
+func readHead(abs string, n int) ([]byte, error) {
+	f, err := os.Open(abs)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	buf := make([]byte, n)
+	read, err := io.ReadFull(f, buf)
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return buf[:read], nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return buf, nil
+}
+
 // CreateDir creates a directory (and any missing parents) at relPath inside
 // worktreeRoot. If the directory already exists it returns os.ErrExist so the
 // caller can map it to 409.

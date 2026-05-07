@@ -6,6 +6,7 @@ import { selectBranchById, selectRepoById, usePalmuxStore } from '../stores/palm
 
 import { useCommandPaletteStore } from './command-palette/store'
 import { ActivityInbox } from './inbox/activity-inbox'
+import { UploadsIndicator } from './uploads/uploads-indicator'
 import styles from './header.module.css'
 
 const SPLIT_MIN_WIDTH = 900
@@ -58,6 +59,7 @@ export function Header() {
         )}
       </div>
       <div className={styles.right}>
+        <UploadsIndicator />
         <ActivityInbox />
         <button
           className={styles.iconBtn}

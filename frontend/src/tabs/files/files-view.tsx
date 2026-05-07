@@ -18,6 +18,7 @@ import { api } from '../../lib/api'
 import type { TabViewProps } from '../../lib/tab-registry'
 import { isDirty as isDirtyFn, makeEditorKey, useEditorStore } from '../../stores/editor-store'
 import { usePalmuxStore } from '../../stores/palmux-store'
+import { useUploadsStore } from '../../stores/uploads-store'
 
 import { Breadcrumb } from './breadcrumb'
 import { FileList } from './file-list'
@@ -335,6 +336,59 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
     setCreateError(null)
   }, [])
 
+  // ── hotfix: upload files/folder to current directory ──────────────────────
+  // The store survives tab switches, so uploads keep going if the user
+  // navigates elsewhere mid-flight. We snapshot `path` at click time.
+  const enqueueUploads = useUploadsStore((s) => s.enqueue)
+  const handleUploadFiles = useCallback(
+    (files: File[]) => {
+      enqueueUploads(
+        repoId,
+        branchId,
+        path,
+        files.map((f) => ({ file: f, relativePath: f.name })),
+      )
+    },
+    [enqueueUploads, repoId, branchId, path],
+  )
+  const handleUploadFolder = useCallback(
+    (files: File[]) => {
+      // webkitRelativePath looks like "<folderName>/sub/foo.txt".
+      // We keep that intact so the folder structure replicates inside
+      // the current dir (auto-mkdir on the server side).
+      enqueueUploads(
+        repoId,
+        branchId,
+        path,
+        files.map((f) => {
+          const fileWithPath = f as File & { webkitRelativePath?: string }
+          const rel = fileWithPath.webkitRelativePath || f.name
+          return { file: f, relativePath: rel }
+        }),
+      )
+    },
+    [enqueueUploads, repoId, branchId, path],
+  )
+
+  // Refresh the dir listing when an upload job for the current dir
+  // makes progress (a new file lands). Tracking the count of "done"
+  // items for the current dir means we refresh once per file-completed
+  // event, never on each progress tick.
+  const allJobs = useUploadsStore((s) => s.jobs)
+  const lastDoneCountRef = useRef<number>(0)
+  useEffect(() => {
+    let doneCount = 0
+    for (const j of allJobs) {
+      if (j.repoId !== repoId || j.branchId !== branchId) continue
+      if (j.baseDir !== path) continue
+      for (const it of j.items) if (it.status === 'done') doneCount++
+    }
+    if (doneCount > lastDoneCountRef.current) {
+      lastDoneCountRef.current = doneCount
+      setRefreshTick((t) => t + 1)
+    }
+  }, [allJobs, repoId, branchId, path])
+
   // ── S033-2: inline rename ─────────────────────────────────────────────────
   const startRename = useCallback((entry: Entry) => {
     setRenameTarget(entry.path)
@@ -593,6 +647,8 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
             onRenameCancel={handleRenameCancel}
             onContextMenu={handleContextMenu}
             contextMenuTarget={ctxMenu?.entry.path}
+            onUploadFiles={handleUploadFiles}
+            onUploadFolder={handleUploadFolder}
           />
         </div>
         <div className={styles.dividerWrap}>

@@ -46,6 +46,12 @@ interface Props {
   // S033-2: context menu
   onContextMenu: (e: React.MouseEvent, entry: Entry) => void
   contextMenuTarget?: string    // path with context-open highlight
+
+  // hotfix: upload — invoked when the user picks files/folder to upload
+  // into the current directory. Two callbacks because file & folder
+  // pickers are distinct <input> elements (webkitdirectory flag).
+  onUploadFiles: (files: File[]) => void
+  onUploadFolder: (files: File[]) => void
 }
 
 function fmtSize(n: number): string {
@@ -322,10 +328,14 @@ export function FileList({
   onRenameCancel,
   onContextMenu,
   contextMenuTarget,
+  onUploadFiles,
+  onUploadFolder,
 }: Props) {
   const dirtySet = useMemo(() => new Set(dirtyPaths ?? []), [dirtyPaths])
   const anchorPath = useRef<string | null>(null)
   const createInputRef = useRef<HTMLInputElement>(null)
+  const uploadFilesInputRef = useRef<HTMLInputElement>(null)
+  const uploadFolderInputRef = useRef<HTMLInputElement>(null)
 
   // Auto-focus the create row input when it mounts.
   useEffect(() => {
@@ -408,6 +418,58 @@ export function FileList({
 
       {/* S033-1: compact icon CTA strip at bottom of list pane */}
       <div className={styles.ctaStrip} data-testid="files-list-ctas">
+        {/* hotfix: upload — two buttons (files / folder) to the left of
+            New file / New folder. Hidden inputs hold the file pickers;
+            the visible buttons trigger them via .click(). */}
+        <input
+          ref={uploadFilesInputRef}
+          type="file"
+          multiple
+          style={{ display: 'none' }}
+          data-testid="files-upload-files-input"
+          onChange={(e) => {
+            const files = Array.from(e.currentTarget.files ?? [])
+            // Reset so picking the same file again still triggers onChange.
+            e.currentTarget.value = ''
+            if (files.length > 0) onUploadFiles(files)
+          }}
+        />
+        <input
+          ref={uploadFolderInputRef}
+          type="file"
+          {...({
+            webkitdirectory: '',
+            directory: '',
+          } as Record<string, string>)}
+          multiple
+          style={{ display: 'none' }}
+          data-testid="files-upload-folder-input"
+          onChange={(e) => {
+            const files = Array.from(e.currentTarget.files ?? [])
+            e.currentTarget.value = ''
+            if (files.length > 0) onUploadFolder(files)
+          }}
+        />
+        <button
+          className={styles.ctaBtn}
+          data-tip="Upload files"
+          aria-label="Upload files"
+          disabled={!!createKind || !!renameTarget}
+          onClick={() => uploadFilesInputRef.current?.click()}
+          data-testid="files-upload-files-btn"
+        >
+          <span className={styles.ctaGlyph}>📤</span>
+        </button>
+        <button
+          className={styles.ctaBtn}
+          data-tip="Upload folder"
+          aria-label="Upload folder"
+          disabled={!!createKind || !!renameTarget}
+          onClick={() => uploadFolderInputRef.current?.click()}
+          data-testid="files-upload-folder-btn"
+        >
+          <span className={styles.ctaGlyph}>📦</span>
+        </button>
         <button
           className={styles.ctaBtn}
           data-tip="New file"

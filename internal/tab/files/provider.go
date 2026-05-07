@@ -70,6 +70,12 @@ func (p *Provider) RegisterRoutes(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("POST "+prefix+"/move", h.moveEntries)
 	// S033-2-2: delete one or more entries (files or directories).
 	mux.HandleFunc("POST "+prefix+"/batch-delete", h.batchDelete)
+	// hotfix: file/folder upload from the Files tab. Multipart body
+	// (file + path + optional overwrite). Parent directories are
+	// auto-created. Long-running uploads continue server-side even
+	// after the user navigates away (the FE keeps its fetch open via
+	// a cross-tab Zustand store).
+	mux.HandleFunc("POST "+prefix+"/upload", h.uploadFile)
 	// S026: HTML preview iframe loads files via a path-based URL so
 	// relative `<link href="style.css">` / `<script src="app.js">`
 	// resolve correctly. See `previewFile` for the full rationale.

@@ -1,0 +1,177 @@
+.wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.chip {
+  background: transparent;
+  border: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--color-fg);
+  font-family: var(--font-ui);
+}
+.chip:hover {
+  background: var(--color-elevated);
+}
+.chip[data-state="active"] {
+  color: var(--color-accent);
+}
+.chip[data-state="done"] {
+  color: var(--color-fg-muted);
+}
+
+.arrow {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.count {
+  font-weight: 700;
+  font-size: 11px;
+}
+.countError {
+  color: var(--color-error);
+  font-weight: 700;
+  font-size: 11px;
+}
+.countDone {
+  color: var(--color-success);
+  font-size: 12px;
+}
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  width: 380px;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.32);
+  z-index: 100;
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.dropdownHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border);
+  font-weight: 600;
+  color: var(--color-fg);
+}
+
+.linkBtn {
+  background: transparent;
+  border: 0;
+  color: var(--color-fg-muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+.linkBtn:hover {
+  color: var(--color-fg);
+  background: var(--color-surface);
+}
+
+.jobList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.job {
+  border-bottom: 1px solid var(--color-border);
+  padding: 6px 10px;
+}
+.job:last-child {
+  border-bottom: 0;
+}
+
+.jobHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  margin-bottom: 4px;
+  color: var(--color-fg);
+}
+
+.jobLabel {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.jobMeta {
+  color: var(--color-fg-muted);
+  font-size: 11px;
+}
+
+.itemList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.item {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  align-items: center;
+}
+
+.item[data-status="done"] {
+  color: var(--color-fg);
+}
+
+.item[data-status="error"] .itemStatus {
+  color: var(--color-error);
+}
+
+.item[data-status="uploading"] .itemStatus {
+  color: var(--color-accent);
+}
+
+.itemPath {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+.itemStatus {
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+
+.itemSize {
+  color: var(--color-fg-dim);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  min-width: 36px;
+  text-align: right;
+}
+
+.more {
+  padding: 2px 0;
+  color: var(--color-fg-dim);
+  font-size: 11px;
+  font-style: italic;
+}
