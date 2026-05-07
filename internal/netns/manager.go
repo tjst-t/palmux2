@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"sync"
 	"syscall"
+	"time"
 )
 
 const (
@@ -561,27 +562,54 @@ func (m *Manager) startSlirp(ctx context.Context, worktreeID string, anchorPID i
 	_ = os.Remove(socketPath)
 
 	// Start slirp4netns using the anchor process's PID as the target.
+	// We rendezvous on a pipe (--ready-fd) instead of polling the API
+	// socket: slirp4netns writes 1 byte after the netns is fully wired,
+	// which is the right moment to consider the netns "ready". The API
+	// socket file appears slightly earlier and is unreliable as a ready
+	// signal in rapid-succession scenarios.
+	readyR, readyW, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		return 0, "", nil, fmt.Errorf("ready-pipe: %w", pipeErr)
+	}
+	defer readyR.Close() // parent doesn't need to read after the wait
 	// Use context.Background() — slirp4netns is a long-running daemon that
 	// must outlive the HTTP request context that triggered its creation.
-	// Lifecycle is managed explicitly via Destroy().
 	slirpCmd := exec.CommandContext(context.Background(), "slirp4netns",
 		"--configure",
 		"--mtu=65520",
 		"--disable-host-loopback",
+		"--ready-fd=3",
 		"--api-socket", socketPath,
 		strconv.Itoa(anchorPID), "tap0",
 	)
 	slirpCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	slirpCmd.ExtraFiles = []*os.File{readyW} // FD 3 inside child = readyW
 
-	if err := slirpCmd.Start(); err != nil {
-		return 0, "", nil, fmt.Errorf("start slirp4netns: %w", err)
+	// Capture stderr to a per-worktree log file so a startup failure leaves
+	// a breadcrumb. Discarding it (the prior behaviour) made "didn't appear
+	// within Ns" timeouts impossible to root-cause.
+	logPath := slirpLogPath(worktreeID)
+	logFile, _ := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if logFile != nil {
+		slirpCmd.Stdout = logFile
+		slirpCmd.Stderr = logFile
+		// We don't keep the file handle around; slirp4netns inherits the FD.
+		defer logFile.Close()
 	}
 
-	// Wait for the API socket to appear (up to 5 seconds).
-	if err := waitForSocket(socketPath, 5); err != nil {
+	if err := slirpCmd.Start(); err != nil {
+		readyW.Close()
+		return 0, "", nil, fmt.Errorf("start slirp4netns: %w", err)
+	}
+	readyW.Close() // parent's copy; child holds FD 3
+
+	// Block until child writes the ready byte (or 15s elapses).
+	if err := waitForReady(readyR, 15*time.Second); err != nil {
+		// Best-effort cleanup. Include stderr tail to make timeouts
+		// debuggable in palmux.log.
 		_ = slirpCmd.Process.Kill()
 		_ = slirpCmd.Wait()
-		return 0, "", nil, fmt.Errorf("slirp4netns socket timeout: %w", err)
+		return 0, "", nil, fmt.Errorf("slirp4netns ready timeout: %w (log=%s)", err, logPath)
 	}
 
 	m.logger.Info("netns: slirp4netns started", "worktreeId", worktreeID, "slirpPID", slirpCmd.Process.Pid, "anchorPID", anchorPID)
@@ -604,4 +632,31 @@ func waitForSocket(path string, maxSecs int) error {
 		syscall.Nanosleep(&syscall.Timespec{Nsec: 100_000_000}, nil) // 100ms
 	}
 	return fmt.Errorf("socket %s did not appear within %ds", path, maxSecs)
+}
+
+// waitForReady reads one byte from the slirp4netns --ready-fd pipe with a
+// timeout. The byte is written after the netns is fully configured.
+func waitForReady(r *os.File, timeout time.Duration) error {
+	done := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 1)
+		_, err := r.Read(buf)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			return fmt.Errorf("read ready: %w", err)
+		}
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("ready signal not received within %s", timeout)
+	}
+}
+
+func slirpLogPath(worktreeID string) string {
+	if len(worktreeID) > 40 {
+		worktreeID = worktreeID[:40]
+	}
+	return fmt.Sprintf("/tmp/palmux-slirp4-%s.log", worktreeID)
 }
