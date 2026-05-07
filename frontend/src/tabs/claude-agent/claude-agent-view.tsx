@@ -280,6 +280,27 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
       behavior: 'instant',
     })
   }, [])
+  // Visibility gate: hide the conversation until the saved scroll
+  // position has been applied. Without this, the user sees the
+  // conversation paint at scrollTop=0 for ~50–200ms, then visibly
+  // jump to the saved anchor — which reads as a "scroll animation"
+  // even though every step uses behavior:'instant'. Default to
+  // visible (no gate) when there's nothing to restore.
+  const [restoreVisible, setRestoreVisible] = useState<boolean>(() => {
+    if (!state.sessionId) return true
+    const stored = readPersistedScroll(storageKey, state.sessionId)
+    return stored == null
+  })
+  // Safety net: even if onSettled never fires (effect cancelled
+  // mid-restore, sessionId changes, etc.), uncover the conversation
+  // after a short timeout so the user is never stuck staring at a
+  // blank panel.
+  useEffect(() => {
+    if (restoreVisible) return
+    const t = window.setTimeout(() => setRestoreVisible(true), 1500)
+    return () => window.clearTimeout(t)
+  }, [restoreVisible])
+  const onRestoreSettled = useCallback(() => setRestoreVisible(true), [])
   useScrollRestore({
     sessionId: state.sessionId,
     storageKey,
@@ -287,6 +308,7 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
     hasTurns: topLevelTurns.length > 0,
     turnIds,
     scrollToRow: restoreScrollToRow,
+    onSettled: onRestoreSettled,
   })
   usePersistScroll({
     sessionId: state.sessionId,
@@ -519,35 +541,52 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
             </p>
           </div>
         ) : (
-          <ClaudeSearchProvider
-            query={search.state.query}
-            openedBlocks={search.state.openedBlocks}
-            activeBlockId={activeBlockId}
+          // visibility:hidden (not display:none) keeps the list laid
+          // out so react-window can measure rows while the user
+          // doesn't see the pre-restore scrollTop=0 state. We flip
+          // to visible from the onSettled callback the moment the
+          // first scroll adjustment lands (or, for atBottom / no-record
+          // paths, immediately).
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              minWidth: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              visibility: restoreVisible ? 'visible' : 'hidden',
+            }}
           >
-            <ConversationList
-              ref={listHandleRef}
-              turns={topLevelTurns}
-              sessionKey={state.sessionId}
-              onScroll={onListScroll}
-              renderTurn={(turn) => (
-                <div className={styles.virtualTurnRow}>
-                  <TurnView
-                    turn={turn}
-                    activeVersionIndex={state.activeVersionByTurnId[turn.id] ?? -1}
-                    onSetVersion={(idx) => send.rewindSetVersion(turn.id, idx)}
-                    onRewind={send.rewind}
-                    onRewindApplyLocal={send.rewindApplyLocal}
-                    editingTurnId={editingTurnId}
-                    onEditingChange={onEditingChange}
-                    onRespondPermission={respondPermission}
-                    planHandlersFor={planHandlersFor}
-                    askHandlersFor={askHandlersFor}
-                    childrenByParent={childrenByParent}
-                  />
-                </div>
-              )}
-            />
-          </ClaudeSearchProvider>
+            <ClaudeSearchProvider
+              query={search.state.query}
+              openedBlocks={search.state.openedBlocks}
+              activeBlockId={activeBlockId}
+            >
+              <ConversationList
+                ref={listHandleRef}
+                turns={topLevelTurns}
+                sessionKey={state.sessionId}
+                onScroll={onListScroll}
+                renderTurn={(turn) => (
+                  <div className={styles.virtualTurnRow}>
+                    <TurnView
+                      turn={turn}
+                      activeVersionIndex={state.activeVersionByTurnId[turn.id] ?? -1}
+                      onSetVersion={(idx) => send.rewindSetVersion(turn.id, idx)}
+                      onRewind={send.rewind}
+                      onRewindApplyLocal={send.rewindApplyLocal}
+                      editingTurnId={editingTurnId}
+                      onEditingChange={onEditingChange}
+                      onRespondPermission={respondPermission}
+                      planHandlersFor={planHandlersFor}
+                      askHandlersFor={askHandlersFor}
+                      childrenByParent={childrenByParent}
+                    />
+                  </div>
+                )}
+              />
+            </ClaudeSearchProvider>
+          </div>
         )}
         {!autoFollow && state.turns.length > 0 && (
           <button

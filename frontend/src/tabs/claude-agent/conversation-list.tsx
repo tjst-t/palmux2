@@ -374,31 +374,40 @@ interface PersistedScroll {
 
 type PersistedScrollRecord = Omit<PersistedScroll, 'sessionId'>
 
-/** Find the topmost rendered turn that's at least partially visible.
- *  Returns null when nothing's rendered (the very initial mount,
- *  before react-window installs the row DOM). */
+/** Find the row the user is looking at as the "top of the
+ *  viewport" — the row whose top edge is at or just above the
+ *  viewport top (rect.top ≤ sRect.top < rect.bottom).
+ *
+ *  Returns null when no rendered row spans the viewport top. This
+ *  happens during transient render states (the user wheels rapidly
+ *  and react-window's rendered rows lag below the new scrollTop, or
+ *  ResizeObserver is mid-update). Callers should keep their
+ *  previous good anchor rather than overwrite with a transient
+ *  fallback that would produce a negative offset. */
 function findTopAnchor(
   scroller: HTMLElement,
 ): { turnId: string; offset: number } | null {
   const sRect = scroller.getBoundingClientRect()
-  // react-window absolute-positions rows so DOM order is not
-  // necessarily visual order — pick the row with the smallest top
-  // among those whose bottom is still below the viewport top.
   const rows = scroller.querySelectorAll<HTMLElement>('[data-turn-id]')
-  let best: HTMLElement | null = null
-  let bestTop = Infinity
+  // Among spanning candidates (rect.top ≤ sRect.top < rect.bottom)
+  // there's at most one in steady state. We pick the one with the
+  // largest top (= closest to sRect.top from above) defensively.
+  let spanning: HTMLElement | null = null
+  let spanningTop = -Infinity
   for (const row of Array.from(rows)) {
     const r = row.getBoundingClientRect()
     if (r.bottom <= sRect.top) continue
-    if (r.top < bestTop) {
-      bestTop = r.top
-      best = row
+    if (r.top > sRect.top) continue
+    if (r.top > spanningTop) {
+      spanningTop = r.top
+      spanning = row
     }
   }
-  if (!best) return null
-  const id = best.dataset.turnId
+  if (!spanning) return null
+  const id = spanning.dataset.turnId
   if (!id) return null
-  return { turnId: id, offset: sRect.top - bestTop }
+  const r = spanning.getBoundingClientRect()
+  return { turnId: id, offset: sRect.top - r.top }
 }
 
 /** Read the persisted record for a tab, returning null when none is
@@ -479,6 +488,13 @@ export function useScrollRestore(opts: {
   hasTurns: boolean
   turnIds: readonly string[]
   scrollToRow: (index: number) => void
+  /** Called once per (sessionId) when the first useful scroll
+   *  position has been applied — or determined to be unnecessary
+   *  (no record, atBottom path, anchor missing). The parent uses
+   *  this to flip a `visibility: hidden → visible` gate so the user
+   *  never sees the conversation paint at scrollTop=0 before
+   *  jumping to the saved position. */
+  onSettled?: () => void
 }) {
   const { sessionId, storageKey, containerRef, hasTurns } = opts
   const restoredFor = useRef<string>('')
@@ -486,22 +502,35 @@ export function useScrollRestore(opts: {
   turnIdsRef.current = opts.turnIds
   const scrollToRowRef = useRef(opts.scrollToRow)
   scrollToRowRef.current = opts.scrollToRow
+  const onSettledRef = useRef(opts.onSettled)
+  onSettledRef.current = opts.onSettled
 
   useLayoutEffect(() => {
     if (!sessionId || !hasTurns) return
     if (restoredFor.current === sessionId) return
+    const settle = () => {
+      const cb = onSettledRef.current
+      if (cb) cb()
+    }
     const stored = readPersistedScroll(storageKey, sessionId)
     if (stored == null) {
       restoredFor.current = sessionId
+      settle()
       return
     }
     if (stored.atBottom) {
-      // Auto-follow path: the parent's effect handles scroll-to-bottom.
+      // Auto-follow path: the parent's effect handles scroll-to-bottom
+      // in a useEffect that runs after the first paint. Defer settle
+      // by one rAF so the scrollToBottom call has actually fired
+      // before we make the conversation visible — otherwise the user
+      // sees a flash of scrollTop=0.
       restoredFor.current = sessionId
+      requestAnimationFrame(settle)
       return
     }
     if (!stored.anchor) {
       restoredFor.current = sessionId
+      settle()
       return
     }
     const { turnId, offset } = stored.anchor
@@ -509,6 +538,7 @@ export function useScrollRestore(opts: {
     if (index < 0) {
       // Anchor turn no longer present — caller will land at default.
       restoredFor.current = sessionId
+      settle()
       return
     }
 
@@ -521,18 +551,27 @@ export function useScrollRestore(opts: {
     let attempts = 0
     let prevHeight = -1
     let stableTicks = 0
+    let firstSettleFired = false
     const MAX_ATTEMPTS = 50  // ~5s at 100ms per attempt
     const escapeId =
       typeof CSS !== 'undefined' && CSS.escape
         ? CSS.escape(turnId)
         : turnId.replace(/"/g, '\\"')
+    const giveUp = () => {
+      restoredFor.current = sessionId
+      if (!firstSettleFired) {
+        firstSettleFired = true
+        const cb = onSettledRef.current
+        if (cb) cb()
+      }
+    }
     const tryAdjust = () => {
       if (cancelled) return
       attempts++
       const el = containerRef.current
       if (!el) {
         if (attempts < MAX_ATTEMPTS) window.setTimeout(tryAdjust, 100)
-        else restoredFor.current = sessionId
+        else giveUp()
         return
       }
       const row = el.querySelector<HTMLElement>(`[data-turn-id="${escapeId}"]`)
@@ -542,7 +581,7 @@ export function useScrollRestore(opts: {
         // ticks to settle when row heights are still being measured.
         scrollToRowRef.current(index)
         if (attempts < MAX_ATTEMPTS) window.setTimeout(tryAdjust, 100)
-        else restoredFor.current = sessionId
+        else giveUp()
         return
       }
       const sRect = el.getBoundingClientRect()
@@ -553,6 +592,17 @@ export function useScrollRestore(opts: {
       const delta = (rRect.top - sRect.top) + offset
       if (Math.abs(delta) > 0) {
         el.scrollTop = el.scrollTop + delta
+      }
+      // Fire onSettled the first time we successfully apply a
+      // scrollTop adjustment — even if the loop continues for late
+      // ResizeObserver measurements, the user-visible position is
+      // already approximately correct and the parent can flip the
+      // visibility gate. Subsequent fine-tunes are sub-pixel and
+      // imperceptible.
+      if (!firstSettleFired) {
+        firstSettleFired = true
+        const cb = onSettledRef.current
+        if (cb) cb()
       }
       const reached = Math.abs(delta) < 2
       if (el.scrollHeight === prevHeight) stableTicks++
@@ -621,13 +671,21 @@ export function usePersistScroll(opts: {
     }
     const sample = (el: HTMLDivElement) => {
       latestAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 32
-      // Skip anchor capture when at-bottom (auto-follow handles
-      // restoration). When mid-conversation, find the topmost
-      // visible turn — that's our stable reference point.
-      latestAnchor = latestAtBottom ? null : findTopAnchor(el)
-      // We've sampled at least once; cleanup may now flush.
-      // (Unless atBottom and no anchor — see flush guard below.)
-      if (latestAtBottom || latestAnchor) sampled = true
+      if (latestAtBottom) {
+        latestAnchor = null
+        sampled = true
+        return
+      }
+      // Mid-conversation. findTopAnchor returns null when no row
+      // spans the viewport top (transient render state — the user
+      // just wheeled and react-window hasn't re-rendered yet).
+      // Don't overwrite a previously-good anchor with a transient
+      // null; the next sample will set it once the layout settles.
+      const a = findTopAnchor(el)
+      if (a) {
+        latestAnchor = a
+        sampled = true
+      }
     }
     const onScroll = () => {
       if (!installedEl) return
