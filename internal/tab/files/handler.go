@@ -68,36 +68,31 @@ func mimeForPath(name string) string {
 // prevents the iframe from claiming our origin and reaching the
 // session cookie).
 //
-//   - `default-src 'self'`: same-origin assets only by default. The
-//     iframe is treated by the browser as a unique opaque origin
-//     because we deliberately omit `allow-same-origin`, so 'self'
-//     here means "the iframe's own origin" — i.e. nothing is loadable
-//     unless explicitly allowed below.
-//   - `script-src 'self' 'unsafe-inline' 'unsafe-eval'`: developer
-//     HTML almost always uses inline `<script>` blocks during local
-//     iteration; eval is needed by some popular libs (Vue templates,
-//     etc.). These are safe under sandbox-without-same-origin because
-//     anything the script does still cannot touch palmux2's session.
-//   - `style-src 'self' 'unsafe-inline'`: same reasoning for inline
-//     `<style>` tags.
-//   - `img-src 'self' data: blob:`: data: and blob: URLs are common in
-//     hand-rolled HTML; the iframe's same-origin resolves to its
-//     opaque origin so 'self' covers worktree-relative `<img src>`
-//     references.
-//   - `font-src` / `connect-src`: 'self' only — no covert exfiltration.
+// Hotfix (Mirante mock preview): the original S026 CSP was strict-
+// `'self'`-only and broke real-world HTML mocks that load React /
+// Babel / Tailwind / Google Fonts from public CDNs. The fix is to
+// allow `https:` for static-resource directives (script / style / img
+// / font / frame) so a mock with `<script src="https://unpkg.com/...">`
+// or `<link href="https://fonts.googleapis.com/...">` actually
+// renders. Session-theft protection still rests on the iframe sandbox
+// (no `allow-same-origin`), which makes the iframe a unique opaque
+// origin regardless of which scripts execute inside it.
 //
-// We intentionally do NOT whitelist any external CDN here. CDN hosting
-// is supported (the developer's own `<script src="https://cdn...">`
-// works because the browser fetches them directly) but our header
-// declares the strictest viable policy — the browser merges the
-// document's own CSP (if any) with this one using the most-restrictive
-// directive.
-const rawCSP = "default-src 'self'; " +
-	"script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
-	"style-src 'self' 'unsafe-inline'; " +
-	"img-src 'self' data: blob:; " +
-	"font-src 'self' data:; " +
-	"connect-src 'self'"
+// `connect-src 'self' https:` permits XHR / fetch to public APIs
+// (common in dashboard mocks) while still being scoped — without the
+// iframe sandbox's same-origin block, palmux2's session cookie would
+// be reachable, but the sandbox already prevents that for the iframe
+// path. The new-tab full-screen preview path (which DOES carry the
+// session cookie) accepts the same trade-off because the HTML lives
+// in the user's own worktree and is opened by an explicit click.
+const rawCSP = "default-src 'self' https: data: blob:; " +
+	"script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; " +
+	"style-src 'self' 'unsafe-inline' https:; " +
+	"img-src 'self' data: blob: https:; " +
+	"font-src 'self' data: https:; " +
+	"connect-src 'self' https:; " +
+	"frame-src 'self' https:; " +
+	"media-src 'self' data: blob: https:"
 
 const (
 	defaultReadLimit  = int64(2 << 20) // 2 MiB

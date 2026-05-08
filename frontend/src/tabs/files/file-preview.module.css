@@ -53,6 +53,10 @@
   color: var(--color-fg);
   cursor: pointer;
   white-space: nowrap;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
 }
 
 .editButton:hover:not(:disabled),

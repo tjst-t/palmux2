@@ -160,6 +160,16 @@ export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum, o
   // local state because the toggle is purely a UI concern; we do not
   // pushState it (URL changes only when navigating to a new file).
   const [htmlViewMode, setHtmlViewMode] = useState<'preview' | 'source'>('preview')
+
+  // hotfix (Mirante mock preview): build the same path-based preview
+  // URL the iframe uses, so the "Open in new tab" button can launch a
+  // full-window render of the same document. Path segments are encoded
+  // individually so spaces / parens (`Online Clinic v4 (Doctor).html`)
+  // round-trip without clobbering the path separators.
+  const previewUrl = useMemo(() => {
+    const segs = path.split('/').filter(Boolean).map(encodeURIComponent)
+    return `${apiBase}/preview/${segs.join('/')}`
+  }, [apiBase, path])
   // Reset the toggle whenever the path changes so opening a new HTML
   // file always starts in the configured default (preview).
   useEffect(() => {
@@ -486,6 +496,28 @@ export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum, o
           >
             Blame
           </button>
+          {/* hotfix (Mirante mock preview): "Open in new tab" — opens
+              the same /files/preview/<path> URL the iframe uses but
+              in a top-level browser tab. For HTML this gives the user
+              a full-window render free of the iframe sandbox (and of
+              the iframe's `allow-same-origin` block on `fetch('/api')`
+              etc.); for images it shows the image at native size; for
+              source files the browser surfaces the raw bytes with the
+              right Content-Type. We render it for every editable
+              viewer kind because the URL is generic — only `too-large`
+              is meaningless because the body wasn't loaded. */}
+          {viewerKind !== 'too-large' && (
+            <a
+              className={styles.editButton}
+              href={previewUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid="open-in-new-tab"
+              title="Open this file full-screen in a new browser tab"
+            >
+              ↗ Open
+            </a>
+          )}
           {/* S026: Source / Preview toggle for HTML files. Lives to
               the left of the Edit button so the spatial flow reads as
               "view mode → edit mode". The toggle is purely UI state
