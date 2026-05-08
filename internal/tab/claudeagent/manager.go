@@ -330,9 +330,14 @@ func (m *Manager) KillBranch(_ context.Context, repoID, branchID string) error {
 			}
 		}
 	}
-	// Forget the persisted tab list so a re-Open starts clean.
-	if err := m.store.SetBranchTabs(repoID, branchID, nil); err != nil {
-		m.logger.Warn("claudeagent: SetBranchTabs(nil) on KillBranch failed", "err", err)
+	// Forget every persisted trace of this branch — tab list, resume
+	// pointer, prefs, and session index. Without the resume-pointer purge
+	// the FE auto-resume path picks the lingering session_id back up on
+	// the next OpenBranch and silently revives the worktree (because
+	// OpenBranch → ensureWorktree runs gwq.Add). The user explicitly
+	// closed the branch; resurrection is a bug.
+	if err := m.store.ForgetBranch(repoID, branchID); err != nil {
+		m.logger.Warn("claudeagent: ForgetBranch on KillBranch failed", "err", err)
 	}
 	return nil
 }

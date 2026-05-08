@@ -249,6 +249,18 @@ func (s *Store) CloseBranch(ctx context.Context, repoID, branchID string) error 
 			s.logger.Warn("OnBranchClose error", "provider", p.Type(), "err", err)
 		}
 	}
+	// Drop the branch from `userOpenedBranches` so the Drawer's "my"
+	// section stops listing it. Without this the row stays pinned, the
+	// FE keeps polling/auto-attaching, and OpenBranch → ensureWorktree
+	// re-creates the worktree via gwq.Add — the branch silently
+	// resurrects after Close. Best-effort: a save failure here doesn't
+	// undo the close.
+	if !branch.IsPrimary && s.deps.RepoStore != nil && branch.Name != "" {
+		if _, err := s.deps.RepoStore.RemoveUserOpenedBranch(repoID, branch.Name); err != nil {
+			s.logger.Warn("CloseBranch: RemoveUserOpenedBranch",
+				"repo", repoID, "branch", branch.Name, "err", err)
+		}
+	}
 	s.hub.Publish(Event{Type: EventBranchClosed, RepoID: repoID, BranchID: branchID})
 	return nil
 }

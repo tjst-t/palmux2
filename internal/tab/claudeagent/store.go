@@ -247,6 +247,38 @@ func (s *Store) SetBranchTabs(repoID, branchID string, tabIDs []string) error {
 // branchID2Key returns the BranchTabs map key (branch-only, no tab).
 func branchID2Key(repoID, branchID string) string { return repoID + "/" + branchID }
 
+// ForgetBranch wipes every persisted trace of a branch from sessions.json:
+// the resume pointer (`active`), the tab layout (`branchTabs`), the
+// per-tab overrides (`branchPrefs`), and every SessionMeta whose
+// {RepoID, BranchID} matches. Called from KillBranch when the user
+// closes the branch via the Drawer — without this, the FE's auto-resume
+// path picks the lingering session_id back up on the next open and
+// silently revives the worktree (because OpenBranch → ensureWorktree
+// runs gwq.Add when the saved tab tries to attach).
+func (s *Store) ForgetBranch(repoID, branchID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	prefix := repoID + "/" + branchID + "/"
+	branchKey := branchID2Key(repoID, branchID)
+	for k := range s.data.Active {
+		if strings.HasPrefix(k, prefix) {
+			delete(s.data.Active, k)
+		}
+	}
+	for k := range s.data.BranchPrefs {
+		if strings.HasPrefix(k, prefix) {
+			delete(s.data.BranchPrefs, k)
+		}
+	}
+	delete(s.data.BranchTabs, branchKey)
+	for sid, meta := range s.data.Sessions {
+		if meta.RepoID == repoID && meta.BranchID == branchID {
+			delete(s.data.Sessions, sid)
+		}
+	}
+	return s.save()
+}
+
 // UpdateMeta merges a callback's changes into a SessionMeta entry. No-op if
 // the session is absent.
 func (s *Store) UpdateMeta(sessionID string, fn func(*SessionMeta)) error {
