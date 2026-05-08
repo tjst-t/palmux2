@@ -37,6 +37,10 @@ import type { InitInfo, ModelDescriptor } from './types'
 interface ComposerProps {
   repoId: string
   branchId: string
+  /** S009: per-Claude-tab id (e.g. `claude:claude`, `claude:claude-2`).
+   *  Mixed into the draft localStorage key so two Claude tabs on the
+   *  same workspace don't share each other's in-progress messages. */
+  tabId: string
   /** Send the user's message body. The composer encodes attachments
    *  inline (`[image: <abspath>]` for images, `@<abspath>` otherwise)
    *  so the agent only sees text. addDirs is currently unused at the
@@ -123,6 +127,7 @@ export function Composer(props: ComposerProps) {
   const {
     repoId,
     branchId,
+    tabId,
     onSend,
     onInterrupt,
     isStreaming,
@@ -139,16 +144,28 @@ export function Composer(props: ComposerProps) {
   } = props
 
   // Draft persistence: the textarea contents survive tab/branch switches
-  // and full page reloads via localStorage keyed by `${repoId}/${branchId}`.
-  // Only the text is persisted — attachments hold blob URLs that don't
-  // round-trip safely, so they reset to empty on remount.
-  const draftKey = `palmux:claude-draft:${repoId}/${branchId}`
-  const [value, setValue] = useState(() => loadDraft(draftKey))
+  // and full page reloads via localStorage keyed by
+  // `${repoId}/${branchId}/${tabId}` so two Claude tabs in the same
+  // workspace each keep their own in-progress message instead of
+  // clobbering each other's drafts. Only the text is persisted —
+  // attachments hold blob URLs that don't round-trip safely, so they
+  // reset to empty on remount.
+  const tabKey = tabId || 'claude'
+  const draftKey = `palmux:claude-draft:${repoId}/${branchId}/${tabKey}`
+  // Pre-tabId draft key (single shared draft for the workspace). If the
+  // user upgraded mid-typing we hand the existing draft to the primary
+  // `claude:claude` tab and delete the legacy entry — secondary tabs
+  // start with a clean slate. Without this hop the in-progress message
+  // would silently vanish on first reload after the upgrade.
+  const legacyDraftKey = `palmux:claude-draft:${repoId}/${branchId}`
+  const [value, setValue] = useState(() =>
+    loadDraftWithMigration(draftKey, legacyDraftKey, tabKey === 'claude:claude'),
+  )
   // Re-load when the user switches branches without unmounting (rare, but
   // happens when the same Composer is reused for a different (repo, branch)).
   useEffect(() => {
-    setValue(loadDraft(draftKey))
-  }, [draftKey])
+    setValue(loadDraftWithMigration(draftKey, legacyDraftKey, tabKey === 'claude:claude'))
+  }, [draftKey, legacyDraftKey, tabKey])
   // Save on every keystroke. localStorage writes are cheap; debouncing
   // adds complexity for no measurable win at typing speeds.
   useEffect(() => {
@@ -744,13 +761,22 @@ export function Composer(props: ComposerProps) {
   )
 }
 
-// Draft persistence — single keystroke read/write per change. Empty
-// strings are removed entirely so localStorage doesn't grow stale keys
-// for branches the user briefly typed in and abandoned.
-function loadDraft(key: string): string {
+// One-time migration from the pre-tabId shared draft key. When the user
+// upgrades while a draft is in-flight we hand it to the primary
+// `claude:claude` tab (the only tab that existed under the old key) so
+// the in-progress message doesn't silently vanish, then drop the legacy
+// entry so it can never resurface on secondary tabs.
+function loadDraftWithMigration(key: string, legacyKey: string, isPrimaryTab: boolean): string {
   if (typeof localStorage === 'undefined') return ''
   try {
-    return localStorage.getItem(key) ?? ''
+    const current = localStorage.getItem(key)
+    if (current && current.length > 0) return current
+    if (!isPrimaryTab) return ''
+    const legacy = localStorage.getItem(legacyKey)
+    if (!legacy) return ''
+    localStorage.setItem(key, legacy)
+    localStorage.removeItem(legacyKey)
+    return legacy
   } catch {
     return ''
   }
