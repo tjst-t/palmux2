@@ -141,6 +141,11 @@ interface Props extends ViewerProps {
    *  like the rewind composer that want to grow with the content
    *  rather than fill a fixed pane. */
   onContentSizeChange?: (contentHeight: number) => void
+  /** Files-tab memory: the host writes the latest cursor line into
+   *  per-(repo, branch) localStorage so that switching tabs/workspaces
+   *  and coming back restores the user's exact scroll position. We
+   *  debounce internally so the host never has to. */
+  onCursorLineChange?: (line: number) => void
 }
 
 export function MonacoView({
@@ -152,6 +157,7 @@ export function MonacoView({
   onChange,
   onSave,
   onContentSizeChange,
+  onCursorLineChange,
 }: Props) {
   const theme = usePalmuxStore((s) => s.deviceSettings.theme)
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null)
@@ -161,6 +167,8 @@ export function MonacoView({
   onSaveRef.current = onSave
   const onSizeRef = useRef<typeof onContentSizeChange>(onContentSizeChange)
   onSizeRef.current = onContentSizeChange
+  const onCursorRef = useRef<typeof onCursorLineChange>(onCursorLineChange)
+  onCursorRef.current = onCursorLineChange
 
   // Scroll to the requested 1-based line whenever lineNum changes. We
   // can't just rely on Monaco's internal `revealLineInCenter` from the
@@ -228,6 +236,28 @@ export function MonacoView({
                 onSizeRef.current?.(ed.getContentHeight())
               }
             })
+          }
+          // Files-tab memory: report the cursor line back to the host
+          // (debounced) on every cursor change so it can persist the
+          // user's position across tab/workspace switches. We only watch
+          // `onDidChangeCursorPosition` — NOT raw scroll — because the
+          // restore path calls `revealLineInCenter(lineNum)` which
+          // triggers an `onDidScrollChange` whose topmost-visible-line
+          // is offset from the centered line, causing a drift of ~20
+          // lines per tab round-trip. Cursor moves are stable: pressing
+          // PageDown / clicking moves the caret in lockstep with what
+          // we save and restore.
+          if (onCursorRef.current) {
+            // Initial position so a "click into the file then immediately
+            // tab away" round-trip captures the line they actually saw.
+            onCursorRef.current(ed.getPosition()?.lineNumber ?? 1)
+            let pending = 0
+            const report = (line: number) => {
+              if (!onCursorRef.current || line <= 0) return
+              window.clearTimeout(pending)
+              pending = window.setTimeout(() => onCursorRef.current?.(line), 300)
+            }
+            ed.onDidChangeCursorPosition((e) => report(e.position.lineNumber))
           }
         }}
       />

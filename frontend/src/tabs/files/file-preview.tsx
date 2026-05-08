@@ -76,6 +76,11 @@ interface Props {
   path: string
   /** 1-based line to scroll to and briefly highlight (for grep results). */
   lineNum?: number
+  /** Forwarded to Monaco-backed viewers so the host tab can persist the
+   *  user's cursor position into Files-tab memory. Fires (debounced)
+   *  with the latest 1-based cursor line after the user moves their
+   *  cursor or scrolls. */
+  onCursorLineChange?: (line: number) => void
 }
 
 const DEFAULT_PREVIEW_MAX_BYTES = 10 * 1024 * 1024
@@ -103,7 +108,7 @@ function isEditable(kind: ViewerKind): boolean {
   )
 }
 
-export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum }: Props) {
+export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum, onCursorLineChange }: Props) {
   const previewMaxBytes = usePalmuxStore(
     (s) => s.globalSettings.previewMaxBytes ?? DEFAULT_PREVIEW_MAX_BYTES,
   )
@@ -603,6 +608,7 @@ export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum }:
               mode={mode}
               onChange={(v) => setDraft(editorKey, v)}
               onSave={() => onMonacoSaveRef.current?.()}
+              onCursorLineChange={onCursorLineChange}
             />
           )}
           {viewerKind === 'image' && (
@@ -625,6 +631,7 @@ export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum }:
               mode={mode}
               onChange={(v) => setDraft(editorKey, v)}
               onSave={() => onMonacoSaveRef.current?.()}
+              onCursorLineChange={onCursorLineChange}
             />
           )}
           {viewerKind === 'drawio' && (
@@ -670,6 +677,7 @@ export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum }:
               mode={mode}
               onChange={(v) => setDraft(editorKey, v)}
               onSave={() => onMonacoSaveRef.current?.()}
+              onCursorLineChange={onCursorLineChange}
             />
           )}
         </Suspense>

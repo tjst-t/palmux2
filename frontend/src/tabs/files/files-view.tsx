@@ -28,6 +28,7 @@ import { FilesMoveModal } from './files-move-modal'
 import { FilesUploadModal } from './files-upload-modal'
 import { FilePreview } from './file-preview'
 import { FileSearch } from './file-search'
+import { buildRestoreUrl, readFilesMemory, writeFilesMemory } from './files-memory'
 import styles from './files-view.module.css'
 import type { Entry } from './types'
 
@@ -57,6 +58,12 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
   const [localPath, setLocalPath] = useState('')
   const [localSelected, setLocalSelected] = useState<string | null>(null)
   const [localLine, setLocalLine] = useState<number | undefined>(undefined)
+
+  // Latest 1-based cursor line tracked from the Monaco editor — written to
+  // localStorage along with the URL so a tab/workspace switch round-trip
+  // restores the user's exact scroll position, not just the file. Updated
+  // (debounced inside MonacoView) on every cursor move.
+  const cursorLineRef = useRef<number | undefined>(undefined)
 
   const [resolvedDir, setResolvedDir] = useState('')
   const [resolvedSelected, setResolvedSelected] = useState<string | null>(null)
@@ -273,6 +280,82 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
       cancelled = true
     }
   }, [isUrlPanel, apiBase, localPath, refreshTick])
+
+  // ── Per-(repo, branch) Files-tab location memory ────────────────────────
+  // The TabBar's `goToTab` navigates to `/{repoId}/{branchId}/files` with no
+  // splat, so switching to Bash/Claude and back lands on the worktree root.
+  // We mirror the latest URL into localStorage on every change, then on
+  // remount with an empty splat we replace-navigate to the saved URL — the
+  // dir listing effect above then runs against the restored splat.
+  //
+  // Restoration is gated on `splat === ''` AND no `?line=` query, so an
+  // explicit click on the breadcrumb root (which legitimately wants the
+  // top dir) doesn't loop through the saved state. Once the user is sitting
+  // at root we persist `{pathname:'.../files', search:''}` and the next
+  // restore is a no-op.
+  const hasRestoredRef = useRef('')
+  useEffect(() => {
+    if (!isUrlPanel) return
+    // Reset the once-per-(repo, branch) latch when the workspace identity
+    // changes — switching from workspace A → B → A should restore A's
+    // saved state on the way back, not stay stuck because we already
+    // restored once for A on initial mount.
+    const key = `${repoId}/${branchId}`
+    if (hasRestoredRef.current === key) return
+    hasRestoredRef.current = key
+    // Only restore when the user landed on a bare `/files` (no path).
+    // We deliberately ignore `location.search` — the TabBar's `goToTab`
+    // carries `?line=N` across tab clicks, so a Files-restore arriving
+    // via a tab click would otherwise be skipped because of an inherited
+    // line-query. A line-without-a-file is meaningless anyway, so we
+    // overwrite.
+    if (splat !== '') return
+    const mem = readFilesMemory(repoId, branchId)
+    if (!mem) return
+    const target = buildRestoreUrl(mem)
+    // Compare against the current URL so we don't churn the router on a
+    // saved-but-trivial `/files` (no splat) state.
+    if (target === location.pathname + location.search) return
+    navigate(target, { replace: true })
+  }, [isUrlPanel, splat, location.search, location.pathname, repoId, branchId, navigate])
+
+  // Whenever the URL we're showing changes — initial mount, navigation
+  // inside the tab, restore — write it to localStorage. We deliberately
+  // pull `pathname` and `search` from `location` (not from `splat`) so
+  // the restore round-trip writes the canonical URL the router produced.
+  useEffect(() => {
+    if (!isUrlPanel) return
+    writeFilesMemory(repoId, branchId, {
+      pathname: location.pathname,
+      search: location.search,
+      cursorLine: cursorLineRef.current,
+    })
+  }, [isUrlPanel, repoId, branchId, location.pathname, location.search])
+
+  // Cursor-line tracking — Monaco fires `onCursorLineChange` (debounced
+  // inside MonacoView) whenever the user moves their cursor or scrolls.
+  // We store it in a ref + write to localStorage, but DON'T touch the URL
+  // — pushing `?line=N` on every keystroke would fight Monaco's own
+  // `revealLineInCenter` effect and reset the cursor column.
+  const handleCursorLineChange = useCallback(
+    (line: number) => {
+      cursorLineRef.current = line
+      if (!isUrlPanel) return
+      writeFilesMemory(repoId, branchId, {
+        pathname: location.pathname,
+        search: location.search,
+        cursorLine: line,
+      })
+    },
+    [isUrlPanel, repoId, branchId, location.pathname, location.search],
+  )
+
+  // Reset the cached cursor line when the selected file changes — the line
+  // number from a previous file shouldn't bleed into the next one. Monaco
+  // will report a fresh value as soon as it mounts.
+  useEffect(() => {
+    cursorLineRef.current = undefined
+  }, [selected])
 
   const onPick = (entry: Entry) => {
     if (entry.isDir) {
@@ -647,6 +730,7 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
               tabId={tabId}
               path={selected}
               lineNum={selectedLine}
+              onCursorLineChange={handleCursorLineChange}
             />
           ) : (
             <p className={styles.empty}>Pick a file to preview.</p>
