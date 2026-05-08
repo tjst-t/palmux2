@@ -44,15 +44,28 @@ func (c *Client) Add(ctx context.Context, repoDir, branchName string, newBranch 
 
 // Remove deletes a worktree by branch-name pattern. Does NOT delete the
 // branch itself (matches gwq default behaviour).
+//
+// Always passes `-f` so the removal isn't blocked by uncommitted edits or
+// untracked files. Without `-f`, gwq aborts with "contains modified or
+// untracked files" when ANY untracked file is present — including
+// innocuous things like a `bin/` build artefact, a nested `tmp/` from a
+// `make serve` instance, or even the user's own scratch files. The
+// caller (CloseBranch) only invokes this after the user has explicitly
+// confirmed the close in the UI ("tmux session will be killed and its
+// worktree removed"), so silently leaving the worktree on disk because
+// of a stray file is a worse outcome than the close being permanent.
+// Without -f the worktree survived the close and reappeared as
+// `unmanaged` on the next sync_worktree tick — the v0.5 resurrection
+// bug.
 func (c *Client) Remove(ctx context.Context, repoDir, pattern string) error {
 	if pattern == "" {
 		return fmt.Errorf("gwq.Remove: empty pattern")
 	}
-	cmd := exec.CommandContext(ctx, c.bin, "remove", pattern)
+	cmd := exec.CommandContext(ctx, c.bin, "remove", "-f", pattern)
 	cmd.Dir = repoDir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("gwq remove %s: %s", pattern, strings.TrimSpace(string(out)))
+		return fmt.Errorf("gwq remove -f %s: %s", pattern, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
