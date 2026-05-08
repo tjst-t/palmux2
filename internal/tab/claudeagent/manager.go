@@ -468,6 +468,15 @@ type Agent struct {
 	// browser answers. The map lives behind a.mu.
 	permWaiters map[string]chan canUseToolResponse
 
+	// askInputs caches the original AskUserQuestion tool input (the
+	// `questions` array etc.) keyed by permission_id. AnswerAskQuestion
+	// reads it to build the CLI-bound updatedInput, since the CLI's
+	// AskUserQuestion tool body indexes its `answers` map by question
+	// text — so we must preserve the questions verbatim and emit
+	// `answers: { questionText: "label1, label2" }` rather than a bare
+	// `questionAnswers` array. Lives behind a.mu.
+	askInputs map[string]json.RawMessage
+
 	// intentionalRespawn is flipped on by respawnClient before it kills the
 	// current Client. watchClient checks it to suppress the "Claude CLI
 	// exited" error event that would otherwise alarm the user.
@@ -919,6 +928,19 @@ func (a *Agent) requestAskAnswer(toolName string, input json.RawMessage, toolUse
 	a.session.RegisterAskPermission(permID, toolUseID)
 	turnID, blockID := a.session.AttachAskPermission(toolUseID, permID)
 
+	// Stash the original tool input so AnswerAskQuestion can build the
+	// CLI-bound updatedInput with the questions preserved + answers
+	// keyed by question text. Without the questions field the CLI tool
+	// body crashes on `H.map`; without an answers map keyed by question
+	// text the tool returns an empty "User has answered: " content
+	// string and Claude perceives the round-trip as a no-op.
+	a.mu.Lock()
+	if a.askInputs == nil {
+		a.askInputs = map[string]json.RawMessage{}
+	}
+	a.askInputs[permID] = input
+	a.mu.Unlock()
+
 	a.session.SetStatus(StatusAwaitingPermission)
 	a.broadcastStatus(StatusAwaitingPermission)
 
@@ -1235,21 +1257,24 @@ func (a *Agent) AnswerAskQuestion(frame AskRespondFrame) error {
 		a.broadcast(ev)
 	}
 
-	// Build the CLI-bound updatedInput. We preserve the original
-	// `questions` array verbatim and add `questionAnswers` — the field
-	// name AskUserQuestion's TS implementation reads to retrieve the
-	// chosen labels at run time. (See the SDK source if a future CLI
-	// build renames it.)
-	updated := buildAskUpdatedInput(frame.Answers)
-
-	// Resolve the waiter so RequestPermission returns and the MCP layer
-	// answers the CLI's tools/call.
+	// Build the CLI-bound updatedInput. We must preserve the original
+	// `questions` array (the CLI tool body crashes on `H.map` without
+	// it) and emit an `answers` field keyed by question text — that's
+	// the shape the AskUserQuestion CLI tool reads at run time
+	// (verified against claude CLI 2.1.133 by tracing the
+	// `mapToolResultToToolResultBlockParam` path in the binary). The
+	// older `questionAnswers` array shape is silently ignored.
 	a.mu.Lock()
+	origInput, hasOrig := a.askInputs[frame.PermissionID]
+	if hasOrig {
+		delete(a.askInputs, frame.PermissionID)
+	}
 	ch, ok := a.permWaiters[frame.PermissionID]
 	if ok {
 		delete(a.permWaiters, frame.PermissionID)
 	}
 	a.mu.Unlock()
+	updated := buildAskUpdatedInput(origInput, frame.Answers)
 	if ok {
 		ch <- canUseToolResponse{
 			Behavior:     "allow",
@@ -1264,25 +1289,68 @@ func (a *Agent) AnswerAskQuestion(frame AskRespondFrame) error {
 }
 
 // buildAskUpdatedInput packages the chosen labels into the tool input
-// shape the AskUserQuestion CLI handler reads. The underlying tool
-// expects an updatedInput that contains the chosen answers. Today the
-// CLI's permission_prompt path discards the original input and replaces
-// it with what we send back, so we ship a self-contained object whose
-// shape is stable across CLI versions.
-func buildAskUpdatedInput(answers [][]string) json.RawMessage {
-	if answers == nil {
-		answers = [][]string{}
+// shape the AskUserQuestion CLI handler reads. The CLI replaces the
+// tool input with our updatedInput before calling the tool body, so we
+// must:
+//
+//  1. Preserve the original `questions` array verbatim — the tool body
+//     iterates over it via `questions.map(...)` and crashes
+//     ("undefined is not an object (evaluating 'H.map')") if it's
+//     missing.
+//  2. Add an `answers` field that is a Record<questionText, string> —
+//     the answer for question Q is found by looking up `answers[Q.text]`.
+//     For multi-select questions, the value is the chosen labels joined
+//     with ", " (matches the CLI doc: "multi-select answers are
+//     comma-separated").
+//
+// origInput is the original tool input (containing `questions`) as
+// received by the permission_prompt MCP call; rawAnswers is the
+// per-question label list captured from the user (one []string per
+// question, in order).
+func buildAskUpdatedInput(origInput json.RawMessage, rawAnswers [][]string) json.RawMessage {
+	if rawAnswers == nil {
+		rawAnswers = [][]string{}
 	}
-	body := map[string]any{
-		"questionAnswers": answers,
+	// Decode the original input as a generic map so unknown fields
+	// (annotations, metadata, future additions) round-trip unchanged.
+	merged := map[string]json.RawMessage{}
+	if len(origInput) > 0 {
+		_ = json.Unmarshal(origInput, &merged)
 	}
-	raw, err := json.Marshal(body)
+	// Pull just the question text out of each `questions[i]` so we can
+	// build the answers map keyed by question text. We don't need the
+	// full Question shape — only the `question` field.
+	type qShape struct {
+		Question string `json:"question"`
+	}
+	var questions []qShape
+	if raw, ok := merged["questions"]; ok && len(raw) > 0 {
+		_ = json.Unmarshal(raw, &questions)
+	}
+	answers := map[string]string{}
+	for i, ans := range rawAnswers {
+		if i >= len(questions) {
+			break
+		}
+		qtext := questions[i].Question
+		if qtext == "" {
+			continue
+		}
+		answers[qtext] = strings.Join(ans, ", ")
+	}
+	answersRaw, err := json.Marshal(answers)
 	if err != nil {
-		// Should never happen; ship empty so the CLI surfaces a clean
-		// "no answer" tool_result rather than crashing the Agent.
-		return json.RawMessage(`{"questionAnswers":[]}`)
+		answersRaw = json.RawMessage(`{}`)
 	}
-	return raw
+	merged["answers"] = answersRaw
+	out, err := json.Marshal(merged)
+	if err != nil {
+		// Should never happen; ship a minimal valid shape so the CLI's
+		// AskUserQuestion tool surfaces a clean "no answer" tool_result
+		// rather than crashing the Agent.
+		return json.RawMessage(`{"questions":[],"answers":{}}`)
+	}
+	return out
 }
 
 // extractAskQuestionsRaw returns the `questions` field of an

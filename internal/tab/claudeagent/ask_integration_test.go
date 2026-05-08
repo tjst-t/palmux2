@@ -58,7 +58,9 @@ func TestAskUserQuestion_FullRoundTrip(t *testing.T) {
 	}
 
 	// 5. Verify the permission response: behavior=allow, updatedInput
-	//    carries questionAnswers=[["blue"]].
+	//    preserves the original `questions` array AND carries an
+	//    `answers` map keyed by question text — the shape the CLI's
+	//    AskUserQuestion tool body actually reads (CLI 2.1.133 traced).
 	var got respWithErr
 	select {
 	case got = <-respCh:
@@ -78,14 +80,21 @@ func TestAskUserQuestion_FullRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(got.resp.UpdatedInput, &updated); err != nil {
 		t.Fatalf("unmarshal updatedInput: %v", err)
 	}
-	answers, ok := updated["questionAnswers"]
-	if !ok {
-		t.Fatalf("updatedInput missing questionAnswers key: %v", updated)
+	// `questions` must round-trip unchanged so the CLI tool body's
+	// `questions.map(...)` doesn't crash.
+	if _, ok := updated["questions"]; !ok {
+		t.Fatalf("updatedInput missing questions key: %v", updated)
 	}
-	// Round-trip via JSON to verify shape.
-	answersJSON, _ := json.Marshal(answers)
-	if got, want := string(answersJSON), `[["blue"]]`; got != want {
-		t.Fatalf("questionAnswers = %s, want %s", got, want)
+	answersAny, ok := updated["answers"]
+	if !ok {
+		t.Fatalf("updatedInput missing answers key: %v", updated)
+	}
+	answers, ok := answersAny.(map[string]any)
+	if !ok {
+		t.Fatalf("answers is not an object: %T = %v", answersAny, answersAny)
+	}
+	if got, want := answers["Pick a color"], "blue"; got != want {
+		t.Fatalf("answers[Pick a color] = %v, want %q", got, want)
 	}
 
 	// 6. Verify the ask.decided event fanned out with the user's answer
@@ -166,12 +175,27 @@ func TestAskUserQuestion_MultiSelectRoundTrip(t *testing.T) {
 	if got.err != nil {
 		t.Fatalf("err: %v", got.err)
 	}
-	if !strings.Contains(string(got.resp.UpdatedInput), `"cheese"`) ||
-		!strings.Contains(string(got.resp.UpdatedInput), `"basil"`) {
-		t.Fatalf("updatedInput should contain cheese and basil, got %s", got.resp.UpdatedInput)
+	// Multi-select labels are joined with ", " under the `answers` map
+	// keyed by question text — the CLI's documented shape ("multi-select
+	// answers are comma-separated").
+	var updated map[string]any
+	if err := json.Unmarshal(got.resp.UpdatedInput, &updated); err != nil {
+		t.Fatalf("unmarshal updatedInput: %v", err)
 	}
-	if strings.Contains(string(got.resp.UpdatedInput), `"olives"`) {
-		t.Fatalf("updatedInput should NOT contain olives (unselected): %s", got.resp.UpdatedInput)
+	answersAny, ok := updated["answers"]
+	if !ok {
+		t.Fatalf("updatedInput missing answers: %v", updated)
+	}
+	answers, ok := answersAny.(map[string]any)
+	if !ok {
+		t.Fatalf("answers is not an object: %T", answersAny)
+	}
+	val, _ := answers["Pick toppings"].(string)
+	if !strings.Contains(val, "cheese") || !strings.Contains(val, "basil") {
+		t.Fatalf("answers[Pick toppings] should contain cheese and basil, got %q", val)
+	}
+	if strings.Contains(val, "olives") {
+		t.Fatalf("answers[Pick toppings] should NOT contain olives (unselected): %q", val)
 	}
 }
 
