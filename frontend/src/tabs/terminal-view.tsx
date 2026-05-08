@@ -199,6 +199,14 @@ export function TerminalView({
       lineHeight: 1.2,
       scrollback: scrollbackLines,
       allowProposedApi: true,
+      // Auto-bump any cell whose fg/bg pair doesn't meet this ratio. Without
+      // this, chalk's `\e[2m` dim attribute (vite "dist/assets/...", file
+      // sizes, "→" prefixes, npm script echo lines) renders at half-alpha on
+      // our `#0c0e14` terminal bg and is effectively invisible. 4.5 ≈ WCAG
+      // AA for normal text — high enough to surface dim/gray output, low
+      // enough that the palette's intent (color-coded tool output) still
+      // reads through.
+      minimumContrastRatio: 4.5,
       theme: buildTheme(),
     })
 
