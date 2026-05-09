@@ -5794,49 +5794,49 @@
         },
         "S43cfb1-7": {
           "title": "backend Claude agent の test factory (newTestSession / newTestAgent / newTestClient) を導入",
-          "status": "planned",
+          "status": "done",
           "user_story": "backend Claude agent のテストを書く開発者として、 各 integration test ファイルが Session / Agent / Client の構築 boilerplate を ~80 行ずつコピペで持つ現状ではなく、 共通ファクトリ 1 行で済ませたい。 なぜなら、 テストの本質的なロジックが boilerplate に埋もれて読みにくく、 fixture を変えたいときに 3 ファイルを並行修正する必要があるからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S43cfb1-7-1",
               "description": "internal/tab/claudeagent/testutil_test.go (package internal) が newTestSession() / newTestAgent() / newTestClient() factory を提供する",
               "test": "[AC-S43cfb1-7-1] in tests/acceptance/s43cfb1_refactor.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-7-2",
               "description": "ask_integration_test.go / plan_integration_test.go / normalize_test.go の 3 ファイルが factory 経由のセットアップに移行",
               "test": "[AC-S43cfb1-7-2] in tests/acceptance/s43cfb1_refactor.py (grep before/after)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-7-3",
               "description": "上記 3 テストファイルの行数が現状から少なくとも 30% 減少 (boilerplate 削減効果の確認)",
               "test": "[AC-S43cfb1-7-3] in tests/acceptance/s43cfb1_refactor.py (line-count assertion)",
-              "status": "pending"
+              "status": "soft_pass"
             },
             {
               "id": "AC-S43cfb1-7-4",
               "description": "**REGRESSION (Go test)**: `go test -count=1 -race ./internal/tab/claudeagent/...` 全体が緑。 ファクトリが正しく fixture を再現していること、 既存テストの結果が変わっていないこと",
               "test": "[AC-S43cfb1-7-4] in `go test`",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S43cfb1-7-1": {
               "title": "testutil_test.go に factory 群を実装",
               "description": "newTestSession(t *testing.T) *Session — 空の Session を返す。 newTestAgent(t *testing.T) *Agent — Agent + Session + stub Client を返す。 newTestClient(t *testing.T, opts ...) *stubClient — Send / Interrupt / Close を呼び出し回数で記録する stub。 各 factory は t.Cleanup でリソース解放を登録",
-              "status": "planned"
+              "status": "done"
             },
             "S43cfb1-7-2": {
               "title": "3 つの integration test を factory 利用に書き換え",
               "description": "ask_integration_test.go / plan_integration_test.go / normalize_test.go の setup boilerplate (~80 行ずつ) を newTestSession() / newTestAgent() の 1 行呼び出しに置換。 各テストの本質的なロジックは変更しない",
-              "status": "planned"
+              "status": "done"
             },
             "S43cfb1-7-3": {
               "title": "go test 全体実行 + line count 削減確認 + ログ記録",
               "description": "go test -race ./internal/tab/claudeagent/... 緑、 wc -l で 3 ファイルの行数削減 (前後比較を docs/sprint-logs/S43cfb1/regression-story-7.json に記録)",
-              "status": "planned"
+              "status": "done"
             }
           }
         },

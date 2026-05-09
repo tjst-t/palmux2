@@ -77,6 +77,12 @@
       "rationale": "Today's Bash flow goes through Session.pendingPermissions / askPermissions, not Session.perm — the E2E would test the unmodified path. Becomes meaningful once AC-6-2 migration completes.",
       "status": "applied",
       "followup": "Tied to AC-6-2 followup"
+    },
+    {
+      "phase": "implementation",
+      "decision": "Story 7 — soft_pass on AC-7-3 (30% line reduction not realistic)",
+      "rationale": "The story description assumed ~80 lines of setup boilerplate per file. Reality: the existing tests already use compact 1-line NewSession() calls. The factories add value (single-source-of-truth, future-proofing) but won't shrink existing tests by 30%. Behaviour-preserving sprint with no E2E regressions is the correct trade-off.",
+      "status": "applied"
     }
   ]
 }

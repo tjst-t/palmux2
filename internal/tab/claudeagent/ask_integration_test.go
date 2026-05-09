@@ -15,7 +15,7 @@ import (
 // CLI-shaped updatedInput. Mirrors the live S007 behaviour at the
 // boundary between RequestPermission and the WS handler.
 func TestAskUserQuestion_FullRoundTrip(t *testing.T) {
-	a := newStandaloneAskAgent(t)
+	a := newTestAgent(t)
 
 	events, unsub := a.Subscribe()
 	defer unsub()
@@ -132,7 +132,7 @@ func TestAskUserQuestion_FullRoundTrip(t *testing.T) {
 // TestAskUserQuestion_MultiSelectRoundTrip checks that multi-select
 // questions ship multiple labels per question intact.
 func TestAskUserQuestion_MultiSelectRoundTrip(t *testing.T) {
-	a := newStandaloneAskAgent(t)
+	a := newTestAgent(t)
 	events, unsub := a.Subscribe()
 	defer unsub()
 
@@ -199,21 +199,8 @@ func TestAskUserQuestion_MultiSelectRoundTrip(t *testing.T) {
 	}
 }
 
-// newStandaloneAskAgent spins up an Agent with no Client / Manager —
-// enough to exercise RequestPermission ↔ AnswerAskQuestion. The Manager
-// fields that publishEvent / publishNotification reach into are nil, so
-// those calls are no-ops (logged as such in publishEvent itself).
-func newStandaloneAskAgent(t *testing.T) *Agent {
-	t.Helper()
-	deps := agentDeps{
-		repoID:   "repo",
-		branchID: "branch",
-		worktree: "/tmp/fake",
-	}
-	a := newAgent(deps)
-	a.deps.manager = &Manager{} // empty so publishEvent / publishNotification short-circuit
-	return a
-}
+// (newStandaloneAskAgent moved to testutil_test.go in S43cfb1-7
+// as newTestAgent — the two helpers were doing the same thing.)
 
 // waitForAskQuestion drains the events channel until an ask.question
 // frame appears (or the timeout fires). Returns the contained
