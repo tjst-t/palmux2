@@ -22,6 +22,11 @@
     "iOS/Android ネイティブアプリ — PWA は範囲内",
     "Claude Code 以外のエージェント単独サポート — Phase 6 候補としての Provider 抽象化はあるが、需要が出てから"
   ],
+  "process_constraints": [
+    "テスト (自動・ MANUAL SMOKE 問わず) は ROADMAP に書かれた全 AC を実行する。 'skipped' で done 確定するのは禁止 — 詳細は DESIGN_PRINCIPLES priority_rule 0",
+    "autopilot / sprint auto が人間不在を理由に MANUAL SMOKE を skip するのは違反。 milestone でユーザに差し戻して実機目視を取る",
+    "やむを得ず skip した場合は sprint 完了報告の冒頭に skip 一覧と理由を明示し、 milestone でユーザ確認を取る"
+  ],
   "tech_constraints": [
     "言語: Go 1.25 (バックエンド) / TypeScript + React 19 (フロントエンド)",
     "配布: 単一バイナリ（フロントエンドは embed.FS）",

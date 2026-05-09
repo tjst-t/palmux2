@@ -170,12 +170,20 @@ export function useScrollAutoFollow(args: UseScrollAutoFollowArgs): UseScrollAut
     // re-fires the effect.
   }, [turns, status, listHandleRef])
 
-  // Bridge scroll events from List → autoFollow flag. We only flip
-  // autoFollow off in response to USER-driven scrolls (wheel / touch
-  // / keys). Programmatic scrolls — our own scrollToBottom call
-  // during streaming, scroll-restore on session load — are tagged
-  // isUserDriven=false and don't downgrade autoFollow even if they
-  // land a few pixels short of the bottom.
+  // Bridge scroll events from List → autoFollow flag. autoFollow is
+  // strictly USER-OWNED: only user-driven scrolls (wheel / touch /
+  // keys / mousedown) toggle it. Programmatic scrolls — our own
+  // scrollToBottom call, scroll-restore on session load, react-window
+  // layout adjustments when a row's height changes (= user opens the
+  // edit editor) — must NEVER change autoFollow. The previous "land
+  // at bottom + isUserDriven=false → re-engage" path silently flipped
+  // autoFollow back on whenever a programmatic scroll happened to
+  // land at the bottom (e.g. layout adjustment after a streaming
+  // chunk landed exactly at scrollHeight, or react-window's row
+  // estimate happened to put us within 32 px of max). That broke the
+  // "I scrolled up and the AI keeps yanking me back" invariant in
+  // edge cases that the regular wheel-then-stream test missed
+  // (S43cfb1 manual smoke AC-2-7 / AC-4-5).
   const onListScroll = useCallback(
     (
       scrollTop: number,
@@ -183,13 +191,10 @@ export function useScrollAutoFollow(args: UseScrollAutoFollowArgs): UseScrollAut
       clientHeight: number,
       isUserDriven: boolean,
     ) => {
-      const atBottom = scrollHeight - scrollTop - clientHeight < 32
       if (isUserDriven) {
+        const atBottom = scrollHeight - scrollTop - clientHeight < 32
         autoFollowRef.current = atBottom
         setAutoFollow(atBottom)
-      } else if (atBottom) {
-        autoFollowRef.current = true
-        setAutoFollow(true)
       }
       // Also keep containerRef in sync so the persist/restore hooks
       // resolve the live element each render.

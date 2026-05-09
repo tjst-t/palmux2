@@ -5380,7 +5380,7 @@
               "id": "AC-S43cfb1-1-4",
               "description": "blocks/ 配下のファイル間に循環依存がない (madge --circular で 0 件)",
               "test": "[AC-S43cfb1-1-4] in tests/acceptance/s43cfb1_refactor.py",
-              "status": "skipped"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-1-5",

@@ -1,6 +1,11 @@
 {
   "priority_rules": [
     {
+      "priority": 0,
+      "rule": "テストは絶対にスキップしない (= 全 AC を実行する)",
+      "detail": "ROADMAP の Acceptance Criteria は、 自動 E2E・ unit test・ MANUAL SMOKE (人間が実機で目視) のいずれであっても 'skipped' で完了させない。 自動テストでは拾い切れないことが分かっているからこそ MANUAL SMOKE が書かれている。 autopilot / sprint auto は人間がいない理由で AC を skip しない — milestone でユーザに差し戻して人間に実行してもらう。 どうしても skip しなければならない正当事由 (= AC 自体が誤りで、 別 AC で完全に代替できる、 等) がある場合は、 (1) sprint 完了報告で **冒頭に SKIP したテスト名と理由をすべて列挙**、 (2) milestone でユーザに明示確認、 (3) skip 内容を decisions.json に記録、 を必ず行う。 過去にこれを守らずユーザ可視リグレッションを混入させた事故あり (S43cfb1, 2026-05-09)。 'skip = 黙って done' は最重大の禁則行為。"
+    },
+    {
       "priority": 1,
       "rule": "CLI が真実 > Palmux が真実",
       "detail": "会話履歴・権限設定・skills/agents は claude 側で管理する。Palmux はミラー描画と入力中継に徹し、CLI が持つべき状態を独自に持たない"
@@ -102,6 +107,7 @@
     "IsPrimary worktree を gwq remove しない（リポ本体の close は tmux kill のみ、worktree は消さない）",
     "~/.claude/ 配下を勝手に書き換えない（UI 経由の明示同意フロー必須）",
     "ホスト用 palmux2 をフォアグラウンドで再起動して Claude セッションを巻き込まない（host は make serve バックグラウンド、開発は別 worktree + INSTANCE=）",
-    "マルチユーザ前提のコード（ユーザ別 namespace、共有制御）を入れない（VISION でスコープ外宣言済み）"
+    "マルチユーザ前提のコード（ユーザ別 namespace、共有制御）を入れない（VISION でスコープ外宣言済み）",
+    "AC を 'skipped' で done 確定しない (priority_rule 0 参照) — 自動テスト・ MANUAL SMOKE のいずれも skip 禁止。 skip した場合は sprint 完了報告の冒頭に明示。"
   ]
 }

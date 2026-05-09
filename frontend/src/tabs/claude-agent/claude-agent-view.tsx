@@ -209,6 +209,42 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
   const activeBlockId =
     search.state.matches[search.state.active]?.blockId
 
+  // Memoise the per-row renderer so ConversationList's `rowProps` doesn't
+  // invalidate every parent render. An inline closure here ages out the
+  // memoised `rowProps` in conversation-list.tsx whenever any unrelated
+  // state (typing, hover, scroll throttle) re-runs the parent — which
+  // forces react-window to re-render every row and can interact badly
+  // with `useDynamicRowHeight`'s ResizeObserver pass.
+  const renderTurn = useCallback(
+    (turn: import('./types').Turn) => (
+      <div className={styles.virtualTurnRow}>
+        <TurnView
+          turn={turn}
+          activeVersionIndex={state.activeVersionByTurnId[turn.id] ?? -1}
+          onSetVersion={(idx) => send.rewindSetVersion(turn.id, idx)}
+          onRewind={send.rewind}
+          onRewindApplyLocal={send.rewindApplyLocal}
+          editingTurnId={editingTurnId}
+          onEditingChange={onEditingChange}
+          onRespondPermission={respondPermission}
+          planHandlersFor={planHandlersFor}
+          askHandlersFor={askHandlersFor}
+          childrenByParent={childrenByParent}
+        />
+      </div>
+    ),
+    [
+      state.activeVersionByTurnId,
+      send,
+      editingTurnId,
+      onEditingChange,
+      respondPermission,
+      planHandlersFor,
+      askHandlersFor,
+      childrenByParent,
+    ],
+  )
+
   return (
     <div className={styles.wrap} ref={wrapRef}>
       <TopBar
@@ -345,23 +381,7 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
                 sessionKey={state.sessionId}
                 onScroll={onListScroll}
                 onUserInput={onUserInput}
-                renderTurn={(turn) => (
-                  <div className={styles.virtualTurnRow}>
-                    <TurnView
-                      turn={turn}
-                      activeVersionIndex={state.activeVersionByTurnId[turn.id] ?? -1}
-                      onSetVersion={(idx) => send.rewindSetVersion(turn.id, idx)}
-                      onRewind={send.rewind}
-                      onRewindApplyLocal={send.rewindApplyLocal}
-                      editingTurnId={editingTurnId}
-                      onEditingChange={onEditingChange}
-                      onRespondPermission={respondPermission}
-                      planHandlersFor={planHandlersFor}
-                      askHandlersFor={askHandlersFor}
-                      childrenByParent={childrenByParent}
-                    />
-                  </div>
-                )}
+                renderTurn={renderTurn}
               />
             </ClaudeSearchProvider>
           </div>
