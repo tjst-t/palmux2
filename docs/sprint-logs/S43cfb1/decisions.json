@@ -63,6 +63,20 @@
       "decision": "Story 5 — accept 483-line composer/index.tsx (target 400)",
       "rationale": "index.tsx still owns: textarea + draft state + completions wiring + drag-drop event handlers + JSX body. Pushing further (e.g. extracting drag-drop helpers, JSX into sub-component) would increase prop-drilling and harm readability for marginal line-count gain. Behaviour preserved verbatim. AC-5-2 line count is informational not load-bearing.",
       "status": "applied"
+    },
+    {
+      "phase": "implementation",
+      "decision": "Story 6 — partial AC-6-2",
+      "rationale": "Sprint description carves the scope: \"PermissionState を切り出すだけにとどめ、 Agent / Session 構造体自体は触らない\". Full call-site migration (deleting Agent.permWaiters + Session permission maps) would touch 50+ access points in manager.go (1930 lines) + session.go (1397 lines). PermissionState is fully tested and safe for new code; migration backlogged.",
+      "status": "applied",
+      "followup": "Migrate Agent.permWaiters + 5 Session permission maps to Session.perm in a follow-up sprint"
+    },
+    {
+      "phase": "implementation",
+      "decision": "Story 6 — skip AC-6-6 new bash perm round-trip E2E",
+      "rationale": "Today's Bash flow goes through Session.pendingPermissions / askPermissions, not Session.perm — the E2E would test the unmodified path. Becomes meaningful once AC-6-2 migration completes.",
+      "status": "applied",
+      "followup": "Tied to AC-6-2 followup"
     }
   ]
 }
