@@ -197,7 +197,6 @@ export function TestHarness() {
       return prev === turnId ? null : prev
     })
   }, [])
-  const displayTurns = overrideTurns ?? turns
   const onRewindLocal = async (turnId: string, newMessage: string): Promise<void> => {
     // Mirror BE behaviour: archive the active version + truncate
     // subsequent turns. Then update overrideTurns so the harness
@@ -227,6 +226,14 @@ export function TestHarness() {
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const [autoFollow, setAutoFollow] = useState(true)
+  const autoFollowRef = useRef<boolean>(true)
+  // Hotfix: mirror claude-agent-view's user-input timestamp so the
+  // streaming auto-follow effect below skips yank-to-bottom while
+  // the user is actively scrolling.
+  const lastUserInputAtRef = useRef<number>(0)
+  const onUserInput = useCallback(() => {
+    lastUserInputAtRef.current = performance.now()
+  }, [])
   // Mirror claude-agent-view's logic: only user-driven scrolls flip
   // autoFollow off; programmatic ones can only confirm (set true) but
   // not unset.
@@ -238,11 +245,54 @@ export function TestHarness() {
       isUserDriven: boolean,
     ) => {
       const atBottom = scrollHeight - scrollTop - clientHeight < 32
-      if (isUserDriven) setAutoFollow(atBottom)
-      else if (atBottom) setAutoFollow(true)
+      if (isUserDriven) {
+        autoFollowRef.current = atBottom
+        setAutoFollow(atBottom)
+      } else if (atBottom) {
+        autoFollowRef.current = true
+        setAutoFollow(true)
+      }
     },
     [],
   )
+
+  // Hotfix regression knob: `?stream=N` appends a new dummy assistant
+  // turn every N ms so an E2E test can reproduce the race where a
+  // streaming chunk commits in the same React batch as a user wheel
+  // (the wheel's deferred `scroll` event fires after the auto-follow
+  // effect, leaving autoFollowRef stale-true and yanking the user
+  // back to bottom). Mirrors the parent's auto-follow effect with
+  // the same guards (autoFollowRef + lastUserInputAtRef).
+  const streamRate = Math.max(0, parseInt(params.get('stream') ?? '0', 10) || 0)
+  const [streamCount, setStreamCount] = useState(0)
+  useEffect(() => {
+    if (streamRate <= 0) return
+    const id = window.setInterval(() => {
+      setStreamCount((n) => n + 1)
+    }, streamRate)
+    return () => window.clearInterval(id)
+  }, [streamRate])
+  const streamedTurns = useMemo(() => {
+    if (streamRate <= 0) return null
+    const extras: Turn[] = []
+    for (let i = 0; i < streamCount; i++) {
+      extras.push({
+        id: `stream-${i}`,
+        role: 'assistant',
+        blocks: [{ id: `stream-b-${i}`, kind: 'text', text: `streamed line ${i}`, done: true }],
+      })
+    }
+    return [...turns, ...extras]
+  }, [streamRate, streamCount, turns])
+  const effectiveDisplayTurns = streamedTurns ?? overrideTurns ?? turns
+
+  // Mirror parent's auto-follow effect for the streaming case.
+  useEffect(() => {
+    if (streamRate <= 0) return
+    if (!autoFollowRef.current) return
+    if (performance.now() - lastUserInputAtRef.current < 250) return
+    listHandleRef.current?.scrollToBottom('instant')
+  }, [streamCount, streamRate])
 
   // S018: Cmd+F search wiring. Always created so the harness can be
   // queried by E2E even when search=0 — but the bar only renders when
@@ -418,10 +468,11 @@ export function TestHarness() {
               // Resolve the underlying scroll element so persist/restore hooks fire.
               containerRef.current = h?.element() ?? null
             }}
-            turns={displayTurns}
+            turns={effectiveDisplayTurns}
             sessionKey={sessionId}
             renderTurn={renderTurn}
             onScroll={showAutoFollow ? onListScroll : undefined}
+            onUserInput={showAutoFollow ? onUserInput : undefined}
           />
         </ClaudeSearchProvider>
         {showAutoFollow && !autoFollow && (

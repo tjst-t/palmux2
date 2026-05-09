@@ -196,12 +196,34 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
     return () => { cancelled = true }
   }, [])
 
+  // Hotfix: timestamp of the most-recent user input on the scroll
+  // container (wheel / touchmove / keydown / mousedown). Updated
+  // synchronously by ConversationList's `onUserInput` the moment the
+  // event fires, BEFORE the browser applies the scroll and BEFORE
+  // the resulting `scroll` event reaches `onListScroll`. The
+  // auto-follow effect uses it to skip yank-to-bottom while the
+  // user is touching the scrollbar — without this, a streaming
+  // chunk that commits in the same React batch as the user's wheel
+  // gesture would fire the effect against a stale autoFollowRef
+  // (`scroll` events are deferred until the next paint, so
+  // `onListScroll` hasn't yet been able to flip autoFollowRef to
+  // false). The 250 ms guard mirrors the existing isUserDriven
+  // window in ConversationList.
+  const lastUserInputAtRef = useRef<number>(0)
+  const onUserInput = useCallback(() => {
+    lastUserInputAtRef.current = performance.now()
+  }, [])
+
   // S017: auto-scroll routes through the ConversationList imperative
   // API. We can't just bump scrollTop on the wrapper because the
   // wrapper isn't the scroll container any more — react-window owns
   // the scroller and only it knows the precomputed total height.
   useEffect(() => {
     if (!autoFollowRef.current) return
+    // Hotfix: defer to active user input. If the user wheeled /
+    // touched / pressed a key in the last 250 ms, they're trying
+    // to scroll — don't fight them by yanking back to bottom.
+    if (performance.now() - lastUserInputAtRef.current < 250) return
     const handle = listHandleRef.current
     if (handle) handle.scrollToBottom('instant')
   }, [state.turns, state.status])
@@ -567,6 +589,7 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
                 turns={topLevelTurns}
                 sessionKey={state.sessionId}
                 onScroll={onListScroll}
+                onUserInput={onUserInput}
                 renderTurn={(turn) => (
                   <div className={styles.virtualTurnRow}>
                     <TurnView

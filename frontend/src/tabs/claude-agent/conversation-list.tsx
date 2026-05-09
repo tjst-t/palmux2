@@ -111,10 +111,20 @@ interface ConversationListProps {
     clientHeight: number,
     isUserDriven: boolean,
   ) => void
+  /** Hotfix: notified the moment a wheel / touchmove / keydown fires
+   *  on the scroll container — synchronously, BEFORE the browser
+   *  applies the scroll and BEFORE the resulting `scroll` event
+   *  reaches `onScroll`. The parent uses it as a "user is touching
+   *  the scrollbar right now" signal so its auto-follow effect can
+   *  skip the next yank-to-bottom even when a streaming chunk
+   *  commits in the same React batch (the `scroll` event arrives
+   *  after the next paint, by which point the effect has already
+   *  fired and read a stale autoFollowRef). */
+  onUserInput?: () => void
 }
 
 export const ConversationList = forwardRef<ConversationListHandle, ConversationListProps>(
-  function ConversationList({ turns, renderTurn, sessionKey, onScroll }, ref) {
+  function ConversationList({ turns, renderTurn, sessionKey, onScroll, onUserInput }, ref) {
     // Use a callback ref + useState combo so the component re-renders
     // when react-window's imperative API actually becomes ready. Plain
     // useRef + a useEffect with stable deps wouldn't see the API land:
@@ -201,6 +211,10 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
           el.addEventListener('wheel', abort, { once: true, passive: true })
           el.addEventListener('touchmove', abort, { once: true, passive: true })
           el.addEventListener('keydown', abort, { once: true })
+          // Hotfix: also bail on `mousedown` so a scrollbar-drag — which
+          // doesn't fire wheel/touchmove/keydown — kills the tail loop
+          // and stops the user being yanked back to bottom.
+          el.addEventListener('mousedown', abort, { once: true })
 
           // Browsers run the default smooth-scroll for ~300–500ms.
           // 550ms covers that comfortably. For instant we skip the
@@ -259,6 +273,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
               el.removeEventListener('wheel', abort)
               el.removeEventListener('touchmove', abort)
               el.removeEventListener('keydown', abort)
+              el.removeEventListener('mousedown', abort)
             }, 5200 - animationBudget)
           }, animationBudget)
         },
@@ -298,12 +313,18 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
     // with isUserDriven: true if a wheel/touchmove/keydown fired on
     // the scroll container within the last 250ms. Otherwise false.
     useEffect(() => {
-      if (!scrollEl || !onScroll) return
+      if (!scrollEl) return
       let lastUserInputAt = 0
       const markUser = () => {
         lastUserInputAt = performance.now()
+        // Hotfix: also notify the parent synchronously so its
+        // auto-follow effect can see the user is touching the
+        // scrollbar right now — without waiting for the browser to
+        // emit the deferred `scroll` event.
+        onUserInput?.()
       }
       const onScrollEvt = () => {
+        if (!onScroll) return
         const isUserDriven = performance.now() - lastUserInputAt < 250
         onScroll(
           scrollEl.scrollTop,
@@ -315,14 +336,16 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       scrollEl.addEventListener('wheel', markUser, { passive: true })
       scrollEl.addEventListener('touchmove', markUser, { passive: true })
       scrollEl.addEventListener('keydown', markUser)
+      scrollEl.addEventListener('mousedown', markUser)
       scrollEl.addEventListener('scroll', onScrollEvt)
       return () => {
         scrollEl.removeEventListener('wheel', markUser)
         scrollEl.removeEventListener('touchmove', markUser)
         scrollEl.removeEventListener('keydown', markUser)
+        scrollEl.removeEventListener('mousedown', markUser)
         scrollEl.removeEventListener('scroll', onScrollEvt)
       }
-    }, [scrollEl, onScroll])
+    }, [scrollEl, onScroll, onUserInput])
 
     return (
       <List
