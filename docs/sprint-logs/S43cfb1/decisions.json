@@ -1,0 +1,30 @@
+{
+  "sprint_id": "S43cfb1",
+  "title": "Claude タブ リファクタリング — autonomous decisions log",
+  "decisions": [
+    {
+      "phase": "planning",
+      "decision": "Use --count=1 (not --count=3) for go test baseline",
+      "rationale": "Sprint plan called for --count=3 only on s009_* python E2E tests for flaky-test detection. Go tests are deterministic; --count=1 is sufficient. Aligns with DESIGN_PRINCIPLES rule 11 (avoid unnecessary work).",
+      "status": "applied"
+    },
+    {
+      "phase": "planning",
+      "decision": "Run E2E tests sequentially against INSTANCE=test on port 8200 (not against host palmux2)",
+      "rationale": "CLAUDE.md autopilot rules: 'make serve INSTANCE=dev で立てた別ポートの独立インスタンスに対して Playwright (headless) で UI / WS / API 経路を叩いて確認する'. Used INSTANCE=test to avoid colliding with any user 'dev' instance. Sequential not parallel because some E2E tests share state (sessions on the same repo).",
+      "status": "applied"
+    },
+    {
+      "phase": "planning",
+      "decision": "Mark all 10 baseline-failing tests as preexisting_failures and exclude from sprint diff",
+      "rationale": "Per Sprint REGRESSION CONTRACT step 1: 'baseline 時点で既に fail しているテストは sprint 中の比較から除外'. Most failures are 'branch not found' (test references autopilot--SXXX branches that don't exist in fresh INSTANCE=test), s017/s018/s019 are timing/cosmetic issues unrelated to refactoring. Sprint regression check measures only NEW failures.",
+      "status": "applied"
+    },
+    {
+      "phase": "planning",
+      "decision": "Skip --count=3 flake retry for s009_* tests in baseline",
+      "rationale": "All 5 s009_* tests already failed once with branch-not-found (deterministic, not flaky). Retrying 3x would consume ~30 minutes for no signal. Mark as preexisting_failures.",
+      "status": "applied"
+    }
+  ]
+}

@@ -5310,44 +5310,44 @@
     },
     "S43cfb1": {
       "title": "Claude タブ リファクタリング (blocks 分割 + view hook 抽出 + permission state 集約)",
-      "status": "planned",
+      "status": "in_progress",
       "milestone": false,
       "description": "S001〜S031 のインクリメンタル機能追加で Claude タブの主要ファイルが肥大化した: blocks.tsx 1720 行 / claude-agent-view.tsx 1154 行 / composer.tsx 827 行 / backend manager.go 1930 行 + session.go 1397 行。 直近のスクロール周り hotfix 4 連発 (93f2f78, bb1d963, 7410582, b6d5517) はすべて claude-agent-view.tsx 同一ファイルへの差し込みで、 race condition 見落としを生む温床になっている。\n\n本 sprint は **user-facing 変更ゼロの純粋なリファクタリング**。 レビュー (本会話) で挙げた優先度 高 / 中 / 低 をすべて Story 化し、 behavior preservation を 既存 E2E + 手動 smoke + baseline 比較 で担保する。\n\n## REGRESSION CONTRACT (本 sprint で必ず守る)\n\n**1. ベースライン記録**: Story を 1 つも実行する前に、 下記の **Master Regression Suite** を全実行し、 結果 (pass/fail/skip + 各テスト所要時間) を `docs/sprint-logs/S43cfb1/regression-baseline.json` に記録する。 baseline 時点で既に fail しているテストは sprint 中の比較から除外 (新規 fail かどうかの判定基準にする)。\n\n**2. Story 完了ゲート**: 各 Story の AC に列挙された該当テストが全部緑 + 該当する手動 smoke が通ること。 Story 内の Task が全部 done でも、 regression テストが 1 本でも壊れていたら Story は incomplete 扱い。\n\n**3. Sprint done ゲート**: 最後の Story 完了直後に Master Regression Suite を全実行し、 結果を `docs/sprint-logs/S43cfb1/regression-final.json` に記録。 baseline と diff を取り、 **新規 fail がゼロ** であることを確認 (新規 pass が増えるのは OK)。 1 本でも regression があれば sprint done を保留し、 該当 Story に差し戻す。\n\n## Master Regression Suite\n\n**Backend (go test)**: `go test -count=1 ./internal/tab/claudeagent/...` (全 9 個の test file: ask_integration_test, plan_integration_test, normalize_test, store_test, store_migrate_test, mcp_servers_test, settings_view_test, add_dirs_test, +今後追加されるもの)\n\n**Backend (build sanity)**: `go build ./...` がエラーゼロ\n\n**Frontend (build sanity)**: `npm --prefix frontend run build` がエラーゼロ + `npm --prefix frontend run lint` がエラーゼロ\n\n**Frontend (bundle size sanity)**: 主要 chunk (index, lib, files-view, editor.api2) のサイズが baseline ±5% 以内 (純粋なリファクタリングなので大きく増えるはずがない)\n\n**Python E2E (Claude タブ関連 17 本)**:\n- tests/e2e/hotfix_claude_scroll_button.py\n- tests/e2e/hotfix_claude_scroll_yank_during_stream.py\n- tests/e2e/s001_refine_plan.py (Plan モード)\n- tests/e2e/s004_mcp_indicator.py (MCP)\n- tests/e2e/s005_hook_cli_wire.py + s005_hook_events.py (hooks)\n- tests/e2e/s006_add_dir_file.py (--add-dir)\n- tests/e2e/s007_ask_question.py (AskUserQuestion)\n- tests/e2e/s008_upload_routes.py (image upload)\n- tests/e2e/s009_multi_tab.py + s009_fix_lifecycle.py + s009_fix_lifecycle_v2.py + s009_fix_periodic_check.py + s009_fix4_ui_monitor.py (multi-tab)\n- tests/e2e/s017_long_session.py (virtualization + scroll)\n- tests/e2e/s018_conv_utils.py (search + export + /compact)\n- tests/e2e/s019_rewind.py (rewind + version arrows)\n\n**手動 smoke (Story 1, 2, 4, 5 の done 時に必須)**:\n1. make serve INSTANCE=dev で立ち上げ、 KuraOS など実セッションがある repo を開く\n2. Claude タブを開いて 「hi」 と送信、 reply が描画されることを確認\n3. 過去 turn を 5 個以上スクロールして読み返す (yank しないこと)\n4. ブラウザ reload → スクロール位置が復元されること\n5. tab を一旦別タブ (Files/Bash) に切り替えて Claude タブに戻る → 同じスクロール位置のままであること\n6. Story 5 のみ追加: 画像を paste、 `/` でスラッシュ補完、 `@filename` で file 補完\n\n結果は `docs/sprint-logs/S43cfb1/manual-smoke-{StoryID}.md` にチェックリスト形式で記録。\n\n## 触るファイル\n\n**FE**: frontend/src/tabs/claude-agent/{blocks.tsx → blocks/, claude-agent-view.tsx, conversation-list.tsx, composer.tsx → composer/, test-harness.tsx, hooks/ 新規, scroll-hooks.ts 新規}\n**BE**: internal/tab/claudeagent/{manager.go, session.go, permstate.go 新規, testutil_test.go 新規, ask_integration_test.go, plan_integration_test.go, normalize_test.go}\n\n## ジャンル / 並列性 / スコープ外\n\n**ジャンル**: 構造改善のみ (機能追加なし) → gui-spec / prototype フェーズはスキップ\n**並列実行**: Story 1 / 3 / 5 / 6 / 7 は独立 (sub-agent worktree で並列可)。 Story 4 は Story 2 待ち\n**スコープ外**: backend manager.go / session.go の更なる分割 (PermissionState を切り出すだけにとどめ、 Agent / Session 構造体自体は触らない)、 composer の draft persistence の振る舞い変更、 reducer 構造変更 (agent-state.ts は綺麗なので触らない)、 FE unit test (vitest) 導入 (本 sprint のスコープ外。 別 Sprint で議論)",
       "stories": {
         "S43cfb1-0": {
           "title": "Regression baseline 記録 (sprint 開始ゲート)",
-          "status": "planned",
+          "status": "done",
           "user_story": "Claude タブ リファクタリング sprint を実行する開発者として、 sprint を 1 mm でも進める前に 「今何が緑で何が壊れているか」 のスナップショットを記録しておきたい。 なぜなら、 sprint 中盤で何かが fail したときに 「自分のリファクタリングで壊した」 のか 「元から壊れていた」 のかを判別する基準が無いと、 デバッグに時間が溶けるからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S43cfb1-0-1",
               "description": "docs/sprint-logs/S43cfb1/regression-baseline.json が作成され、 Master Regression Suite (Backend go test / FE build / lint / 17 本の Python E2E) の **生の出力** + pass/fail/skip サマリ + 各テスト所要時間 が記録されている。 **flaky test 対策**: `s009_*` 系 5 本 (s009_multi_tab + s009_fix_lifecycle + s009_fix_lifecycle_v2 + s009_fix_periodic_check + s009_fix4_ui_monitor) は `--count=3` 連続緑必須 (1 本でも fail なら preexisting_failures に追加し、 sprint 中の差分比較から除外)",
               "test": "[AC-S43cfb1-0-1] in tests/acceptance/s43cfb1_refactor.py (file existence + JSON schema check)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-0-2",
               "description": "baseline 時点で既に fail / skip しているテストは regression-baseline.json の `preexisting_failures` 配列に列挙されている (sprint 中の差分比較から除外する基準になる)",
               "test": "[AC-S43cfb1-0-2] in tests/acceptance/s43cfb1_refactor.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-0-3",
               "description": "baseline FE bundle サイズ (npm run build 後の dist/assets/{index, lib, files-view, editor.api2}.js の bytes) が regression-baseline.json に記録されている (Story 5 完了時の比較基準)",
               "test": "[AC-S43cfb1-0-3] in tests/acceptance/s43cfb1_refactor.py",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S43cfb1-0-1": {
               "title": "Master Regression Suite を実行 + JSON ログ出力",
               "description": "scripts/sprint-regression-baseline.sh (新規) で go test / npm build / lint / 17 本の E2E を順次実行し、 結果を JSON にまとめる。 各テストの stdout/stderr は別ファイル (sprint-logs/S43cfb1/baseline-stdout/) に保存。 既存の hotfix で立てた `make serve INSTANCE=dev` を活用",
-              "status": "planned"
+              "status": "done"
             },
             "S43cfb1-0-2": {
               "title": "preexisting_failures を識別して baseline JSON に記録",
               "description": "実行結果から fail / skip したテストを抽出し regression-baseline.json の preexisting_failures に記録。 GitHub の README にも 「sprint 開始時点の baseline」 として一行記載",
-              "status": "planned"
+              "status": "done"
             }
           }
         },
