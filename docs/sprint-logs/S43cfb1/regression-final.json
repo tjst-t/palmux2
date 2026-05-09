@@ -1,0 +1,176 @@
+{
+  "sprint_id": "S43cfb1",
+  "phase": "final",
+  "go_test": {
+    "result": "pass",
+    "passes": 57,
+    "fails": 0,
+    "race_enabled": true
+  },
+  "go_build": {
+    "result": "pass"
+  },
+  "frontend_build": {
+    "result": "pass",
+    "bundle_chunk_bytes": {
+      "lib": 153300,
+      "editor.api2": 3626915,
+      "files-view": 51249,
+      "index": 890082
+    }
+  },
+  "frontend_lint": {
+    "result": "fail",
+    "errors": 85,
+    "warnings": 7,
+    "delta_from_baseline": "errors -4 (89\u219285), warnings -2 (9\u21927); refactor incidentally cleaned up some pre-existing lint"
+  },
+  "e2e_results": [
+    {
+      "name": "hotfix_claude_scroll_button",
+      "result": "pass",
+      "exit": 0,
+      "duration_s": 3
+    },
+    {
+      "name": "hotfix_claude_scroll_yank_during_stream",
+      "result": "pass",
+      "exit": 0,
+      "duration_s": 4
+    },
+    {
+      "name": "s001_refine_plan",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 1
+    },
+    {
+      "name": "s004_mcp_indicator",
+      "result": "pass",
+      "exit": 0,
+      "duration_s": 2
+    },
+    {
+      "name": "s005_hook_cli_wire",
+      "result": "pass",
+      "exit": 0,
+      "duration_s": 5
+    },
+    {
+      "name": "s005_hook_events",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 1
+    },
+    {
+      "name": "s006_add_dir_file",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 1
+    },
+    {
+      "name": "s007_ask_question",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 1
+    },
+    {
+      "name": "s008_upload_routes",
+      "result": "pass",
+      "exit": 0,
+      "duration_s": 1
+    },
+    {
+      "name": "s009_multi_tab",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 0
+    },
+    {
+      "name": "s009_fix_lifecycle",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 1
+    },
+    {
+      "name": "s009_fix_lifecycle_v2",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 0
+    },
+    {
+      "name": "s009_fix_periodic_check",
+      "result": "pass",
+      "exit": 0,
+      "duration_s": 181
+    },
+    {
+      "name": "s009_fix4_ui_monitor",
+      "result": "pass",
+      "exit": 0,
+      "duration_s": 181
+    },
+    {
+      "name": "s017_long_session",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 4
+    },
+    {
+      "name": "s018_conv_utils",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 2
+    },
+    {
+      "name": "s019_rewind",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 3
+    }
+  ],
+  "diff_against_baseline": {
+    "new_failures": [],
+    "new_passes": [],
+    "bundle_delta": {
+      "lib": {
+        "baseline": 153300,
+        "final": 153300,
+        "delta_bytes": 0,
+        "delta_pct": 0.0,
+        "within_5pct": true
+      },
+      "editor.api2": {
+        "baseline": 3626915,
+        "final": 3626915,
+        "delta_bytes": 0,
+        "delta_pct": 0.0,
+        "within_5pct": true
+      },
+      "files-view": {
+        "baseline": 51249,
+        "final": 51249,
+        "delta_bytes": 0,
+        "delta_pct": 0.0,
+        "within_5pct": true
+      },
+      "index": {
+        "baseline": 889209,
+        "final": 890082,
+        "delta_bytes": 873,
+        "delta_pct": 0.098,
+        "within_5pct": true
+      }
+    },
+    "verdict": "no_regressions"
+  },
+  "summary": {
+    "go_total": 57,
+    "go_delta": "baseline=46, final=57, +11 new permstate tests",
+    "e2e_total": 17,
+    "e2e_pass": 7,
+    "e2e_fail": 10,
+    "e2e_pass_baseline": 7,
+    "e2e_fail_baseline": 10
+  }
+}
