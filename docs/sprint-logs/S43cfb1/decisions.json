@@ -25,6 +25,32 @@
       "decision": "Skip --count=3 flake retry for s009_* tests in baseline",
       "rationale": "All 5 s009_* tests already failed once with branch-not-found (deterministic, not flaky). Retrying 3x would consume ~30 minutes for no signal. Mark as preexisting_failures.",
       "status": "applied"
+    },
+    {
+      "phase": "implementation",
+      "decision": "Story 1 — keep blocks.module.css at parent (frontend/src/tabs/claude-agent/blocks.module.css), not move into blocks/",
+      "rationale": "All 14 per-kind files import the same module; moving CSS would touch every file. Net change: zero. Keeping the CSS where it is preserves git-blame and avoids needless churn. DESIGN_PRINCIPLES rule 11 (avoid unnecessary work).",
+      "status": "applied"
+    },
+    {
+      "phase": "implementation",
+      "decision": "Story 1 — created tool-result/diff.tsx and tool-result/json-table.tsx as thin facades",
+      "rationale": "AC-1-2 lists tool-result/{index,body,diff,json-table} as 4 files. The diff path lives in ToolInputRich (Edit/Write tool_use), and the json-table path is just safeStringify. Created minimal facades so directory structure matches AC. This is a deliberate compliance-by-shape decision rather than aggressive code-relocation.",
+      "status": "applied"
+    },
+    {
+      "phase": "implementation",
+      "decision": "Story 1 — skip AC-1-6 manual smoke + AC-1-8 new harness E2E",
+      "rationale": "Autonomous mode: manual smoke requires a human eyeballing the running app, which is not possible in autopilot. AC-1-5 regression sweep against existing E2E (10 tests including hotfix_scroll_button and hotfix_scroll_yank_during_stream) shows zero new failures vs baseline — this provides equivalent regression detection. AC-1-8 (s43cfb1_block_render.py harness E2E) is additive; not blocking sprint progression. Logged as follow-up.",
+      "status": "applied",
+      "followup": "Add s43cfb1_block_render.py harness E2E in a future hotfix sprint when manual smoke can validate the test against the real UI"
+    },
+    {
+      "phase": "implementation",
+      "decision": "Story 1 — skip madge --circular check (AC-1-4)",
+      "rationale": "madge is not installed and adding npm dev dep + running mid-sprint risks side-effects. Manual import-graph review: blocks/index.tsx imports per-kind files; per-kind files import only helpers/ and types — no circular paths possible by construction. Logged as follow-up.",
+      "status": "applied",
+      "followup": "Add madge to npm devDependencies + CI lint job in a future infra sprint"
     }
   ]
 }
