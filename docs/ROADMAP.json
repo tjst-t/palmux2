@@ -2,10 +2,10 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 33,
+    "sprints_done": 34,
     "sprints_total": 35,
-    "percent": 94.3,
-    "current_sprint": "S1e8d02"
+    "percent": 97.1,
+    "current_sprint": "S43cfb1"
   },
   "execution_order": [
     "S001",
@@ -4995,7 +4995,7 @@
     },
     "S1e8d02": {
       "title": "Workspace-centric domain refactor (Phase 1-3) [BREAKING]",
-      "status": "in-progress",
+      "status": "done",
       "completion_notes": "Implemented 2026-05-07 on autopilot/main/S1e8d02. Functional core (stories 1-3, 5) complete and E2E-verified (16/16 pass against `make serve INSTANCE=test`). Story 4 deliberately scope-reduced per decisions.json D1: full Branch->Workspace rename across Go types + TS types + URL paths is deferred to a dedicated future sprint to avoid coupling the BREAKING ID-derivation fix with a 70+ file mechanical rename. Provider HeadChangedHook (the new behavioural extension) and docs term-mapping table are in place; Go type names remain `domain.Branch` for now.",
       "description": "**背景**: 2026-05-07 のインシデントで、KuraOS の autopilot 中に ghq dir 内で in-place `git checkout` が走り、 palmux2 の sync_worktree が 「`autopilot/main/S0ff37f` ブランチが消失」と判定して `CloseBranch` を発火、 Claude エージェントが kill され添付ディレクトリと永続タブ一覧が消去された。 ユーザの会話履歴 (resume UUID) は残ったが、 Drawer から該当エントリが消え、 「セッションが勝手に Clear された」と知覚される事故になった。\n\n**根本原因**: 現行ドメインは `Branch = git worktree の存在` と同一視しており、 Branch 名で identity を取っている。 同一 worktree path 上で `git checkout` が 起きると、 sync_worktree からは 「branch X 消失 + branch Y 出現」 にしか見えず `CloseBranch + OpenBranch` が連鎖し、 Claude / tmux / Files などすべてが再生成される。 しかし ghq 配下で branch を切り替えるのは git の正当な操作であり、 本来 palmux2 が追跡すべき identity は 「worktree の path」 (= 永続的な作業場所) であるべき。\n\n**ゴール**: identity を branch 名から worktree path に移し、 branch を Workspace の 動的属性に格下げする。 これで `git checkout` は **`workspace.head_changed` event** として表現され、 Drawer エントリは消えず・ URL は不変・ Claude / tmux / タブも生存。 non-primary worktree (gwq add したもの) 内の checkout も同じ規則で守られる。\n\n**3 Phase 構成**:\n- **Phase 1 (Story-1, Story-2)**: `BranchID` 計算ルールを branch 名 → worktree path 由来に差し替え、 sync_worktree に rename 検出を実装。 既存永続データ (sessions.json) を 起動時に新 ID 体系に migrate。\n- **Phase 2 (Story-3)**: API/URL の `/{repoId}/{branchId}/...` を `/{repoId}/{workspaceId}/...` に 切り替え (URL の path segment 名は `branches` のまま当面残し、 中身の値だけ workspaceId 化)。 旧 URL からは 302 redirect。\n- **Phase 3 (Story-4)**: ドメイン用語を Branch → Workspace に rename。 Go/TS 型名、 Provider interface (`OnBranchOpen/Close` → `OnWorkspaceOpen/Close`)、 ログ key、 ドキュメントまで一気に揃える。\n\n**スコープ外**: autopilot/sprint スキル側の `gwq add` 必須化 (claude-skills 側で別途対応)。 CLI コマンドとしての `palmux2 migrate` サブコマンド (起動時自動 migration で十分なため)。\n\n**主要影響ファイル**: `internal/domain/entities.go` (BranchID 生成 + 型 rename)、 `internal/store/sync_worktree.go` (rename 検出)、 `internal/store/branch.go` (in-place 更新)、 `internal/store/events.go` (新 event 種別)、 `internal/tab/*/provider.go` (Provider interface 更新)、 `frontend/src/stores/palmux-store.ts` (event 購読 + ラベル動的更新)、 `frontend/src/components/drawer.tsx` (label = workspace.headBranch)、 `docs/CLAUDE.md` + `docs/original-specs/01-architecture.md` (用語更新)。\n\n**互換性**: BREAKING。 sessions.json の key 体系が変わるため自動 migration を実装。 URL は旧 → 新の 302 redirect でブックマーク救済。 Provider interface 変更で 外部プラグインがあれば再ビルドが必要 (現状 in-tree のみなので影響なし)。",
       "milestone": false,
