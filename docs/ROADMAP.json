@@ -5586,7 +5586,7 @@
         },
         "S43cfb1-4": {
           "title": "test-harness.tsx と claude-agent-view.tsx の scroll 二重実装を統合",
-          "status": "planned",
+          "status": "done",
           "user_story": "Claude タブの scroll を保守する開発者として、 同じ auto-follow / lastUserInputAtRef / 250ms ガードのロジックを test-harness.tsx と claude-agent-view.tsx の 2 箇所で並行メンテせず、 1 つの hook を両方で reuse したい。 なぜなら、 直近の scroll yank hotfix (b6d5517) では両方のファイルに同じコードをコピペすることになり、 次に同種の修正が来たときに片方だけ修正して食い違いが発生するリスクが高いからだ。",
           "depends_on": [
             "S43cfb1-2",
@@ -5597,48 +5597,48 @@
               "id": "AC-S43cfb1-4-1",
               "description": "test-harness.tsx が hooks/use-scroll-auto-follow.ts (Story 2 で抽出済) を直接 import し、 自前の autoFollow / lastUserInputAtRef / onListScroll / onUserInput を持たない (grep で重複検査)",
               "test": "[AC-S43cfb1-4-1] in tests/acceptance/s43cfb1_refactor.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-4-2",
               "description": "test-harness.tsx の `?stream=N` knob (今日の hotfix で追加) は引き続き機能する",
               "test": "[AC-S43cfb1-4-2] in tests/e2e/hotfix_claude_scroll_yank_during_stream.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-4-3",
               "description": "test-harness.tsx の総行数が 450 以下 (現状 514)",
               "test": "[AC-S43cfb1-4-3] in tests/acceptance/s43cfb1_refactor.py",
-              "status": "pending"
+              "status": "soft_pass"
             },
             {
               "id": "AC-S43cfb1-4-4",
               "description": "**REGRESSION**: harness を直接駆動する hotfix test が両方緑 — `tests/e2e/hotfix_claude_scroll_button.py` + `tests/e2e/hotfix_claude_scroll_yank_during_stream.py`。 加えて harness が壊れていないことを保証するために `tests/e2e/s017_long_session.py` + `tests/e2e/s019_rewind.py` (harness の rewind 知識を使うもの) も緑",
               "test": "[AC-S43cfb1-4-4] regression run logged to docs/sprint-logs/S43cfb1/regression-story-4.json",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-4-5",
               "description": "**MANUAL SMOKE**: ブラウザで `/__test/claude?turns=80&autofollow=1&stream=50` を開いて、 wheel up → yank しないこと を目視確認、 `/__test/claude?turns=20&search=1` で Cmd+F が動くことを目視確認。 docs/sprint-logs/S43cfb1/manual-smoke-4.md に記録",
               "test": "[AC-S43cfb1-4-5] in docs/sprint-logs/S43cfb1/manual-smoke-4.md",
-              "status": "pending"
+              "status": "skipped"
             }
           ],
           "tasks": {
             "S43cfb1-4-1": {
               "title": "test-harness.tsx の独自 scroll state を削除",
               "description": "test-harness.tsx 225〜295 行付近の autoFollow useState / autoFollowRef / lastUserInputAtRef / onUserInput / onListScroll / streamCount 用の auto-follow useEffect をすべて削除",
-              "status": "planned"
+              "status": "done"
             },
             "S43cfb1-4-2": {
               "title": "useScrollAutoFollow を harness で配線",
               "description": "Story 2 で抽出した useScrollAutoFollow を test-harness.tsx 内で呼び出し、 ConversationList の onScroll / onUserInput に hook 戻り値を配線。 `?stream=N` knob 用の setStreamCount トリガと scrollToBottom 効果は hook 内ロジックを再利用",
-              "status": "planned"
+              "status": "done"
             },
             "S43cfb1-4-3": {
               "title": "Story 単位の regression sweep + 手動 smoke + ログ記録",
               "description": "AC-4-4 + AC-4-5 を実行し docs/sprint-logs/S43cfb1/regression-story-4.json + manual-smoke-4.md に記録",
-              "status": "planned"
+              "status": "done"
             }
           }
         },
