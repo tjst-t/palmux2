@@ -4,7 +4,6 @@ import { confirmDialog } from '../../components/context-menu/confirm-dialog'
 import { api } from '../../lib/api'
 import type { TabViewProps } from '../../lib/tab-registry'
 
-import { BlockView } from './blocks'
 import styles from './claude-agent-view.module.css'
 import { ClaudeRunButton } from './claude-run-button'
 import { Composer } from './composer'
@@ -12,11 +11,10 @@ import { ConversationExportDialog } from './conversation-export'
 import {
   ConversationList,
   type ConversationListHandle,
-  readPersistedScroll,
-  scrollStorageKey,
-  usePersistScroll,
-  useScrollRestore,
 } from './conversation-list'
+import { useScrollAutoFollow } from './hooks/use-scroll-auto-follow'
+import { usePermissionHandlers } from './hooks/use-permission-handlers'
+import { useTurnTree } from './hooks/use-turn-tree'
 import {
   ConversationSearchBar,
   useConversationSearch,
@@ -26,9 +24,9 @@ import { HistoryPopup } from './history-popup'
 import { MCPPopup } from './mcp-popup'
 import { rollupTone, statusTone, type MCPStatusTone } from './mcp-status'
 import { SettingsPopup } from './settings-popup'
-import type { AgentStatus, MCPServerInfo, Turn } from './types'
+import { TurnView } from './turn-view'
+import type { AgentStatus, MCPServerInfo } from './types'
 import { useAgent } from './use-agent'
-import { UserTurnEditor } from './user-turn-editor'
 
 // Fallback list — only used until /api/claude/modes responds. The labels
 // mirror the order we ask the server for: safest → most permissive.
@@ -53,47 +51,7 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
   const historyButtonRef = useRef<HTMLButtonElement | null>(null)
   const mcpButtonRef = useRef<HTMLButtonElement | null>(null)
   const [modes, setModes] = useState<PermissionModesResp>(FALLBACK_PERMISSION_MODES)
-  // Stable storage key for scroll restoration. tabId can be empty in
-  // legacy URLs — fold to a constant so the key shape is stable.
-  // Hoisted above autoFollow so the lazy useState initialiser below
-  // can read the persisted record on first render (tab-switch path).
-  const storageKey = scrollStorageKey(repoId, branchId, tabId || 'claude')
-  // Initialise autoFollow from the persisted record so a user who
-  // was scrolled up reading earlier in the conversation, then
-  // switched tabs, doesn't get yanked back to bottom on remount.
-  // The cache hit in useAgent guarantees state.sessionId is already
-  // populated when this runs on the tab-switch path. On a cold page
-  // reload, state.sessionId starts empty here — the effect below
-  // recovers the autoFollow flag once the WS init lands.
-  const [autoFollow, setAutoFollow] = useState<boolean>(() => {
-    if (!state.sessionId) return true
-    const stored = readPersistedScroll(storageKey, state.sessionId)
-    if (!stored) return true
-    return stored.atBottom
-  })
-  // Mirror autoFollow synchronously. The auto-follow effect below
-  // reads this ref, not the state, because React batches the
-  // setAutoFollow(false) update from a user scroll behind the next
-  // streaming chunk's setState — leaving the effect with a stale
-  // autoFollow=true that yanks the user back to the bottom right
-  // after they scrolled up to read.
-  const autoFollowRef = useRef<boolean>(autoFollow)
-  // Cold-load recovery: when state.sessionId becomes available
-  // *after* mount (cache miss → WS init), re-check the persisted
-  // record once and downgrade autoFollow if the user had been
-  // scrolled up. Guarded by a ref so this fires at most once per
-  // session.
-  const autoFollowSyncedFor = useRef<string>('')
-  useEffect(() => {
-    if (!state.sessionId) return
-    if (autoFollowSyncedFor.current === state.sessionId) return
-    autoFollowSyncedFor.current = state.sessionId
-    const stored = readPersistedScroll(storageKey, state.sessionId)
-    if (!stored) return
-    if (stored.atBottom) return
-    autoFollowRef.current = false
-    setAutoFollow(false)
-  }, [state.sessionId, storageKey])
+
   const [historyOpen, setHistoryOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [mcpOpen, setMcpOpen] = useState(false)
@@ -110,11 +68,6 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
     })
   }, [])
 
-  // S017: virtualisation. Resolve the inner scroll container from the
-  // List's imperative API so scroll-restore / persist hooks can hang
-  // listeners off it. The element only exists after the first render
-  // of List, so we re-resolve on every render — cheap.
-  const containerRef = useRef<HTMLDivElement | null>(null)
   // Top-level turns + parent→children map. Sub-agent (Task) turns
   // aren't virtualised separately; they nest inline via TaskTreeBlock.
   //
@@ -122,24 +75,12 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
   // we splice the archived turn's subsequentTurnIds into the list AT
   // the position of that user turn (replacing the live tail) so the
   // version arrow effectively scrolls back to the abandoned thread.
-  // The base set of turns (state.turns + archivedTurnsById) goes
-  // through `splitTurnTree` so sub-agent nesting still works.
-  const { topLevelTurns, childrenByParent } = useMemo(() => {
-    const turnsForDisplay = applyVersionView(
-      state.turns,
-      state.archivedTurnsById,
-      state.activeVersionByTurnId,
-    )
-    return splitTurnTree(turnsForDisplay)
-  }, [state.turns, state.archivedTurnsById, state.activeVersionByTurnId])
-  // planDecisions tracks the optimistic UI flip on click. The server
-  // echoes plan.decided afterwards which makes the decision durable
-  // (block.planDecision) — the optimistic state is only there to hide
-  // the action row immediately on click while the WS round-trip
-  // happens. Reset on unmount; cleared as soon as durable state lands.
-  const [planDecisions, setPlanDecisions] = useState<
-    Record<string, { decided: 'approved' | 'rejected'; targetMode?: string }>
-  >({})
+  // S43cfb1-2: extracted into useTurnTree.
+  const { topLevelTurns, childrenByParent, turnIds } = useTurnTree({
+    turns: state.turns,
+    archivedTurnsById: state.archivedTurnsById,
+    activeVersionByTurnId: state.activeVersionByTurnId,
+  })
 
   // ⌘H / Ctrl+H opens the session history popup.
   useEffect(() => {
@@ -196,146 +137,26 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
     return () => { cancelled = true }
   }, [])
 
-  // Hotfix: timestamp of the most-recent user input on the scroll
-  // container (wheel / touchmove / keydown / mousedown). Updated
-  // synchronously by ConversationList's `onUserInput` the moment the
-  // event fires, BEFORE the browser applies the scroll and BEFORE
-  // the resulting `scroll` event reaches `onListScroll`. The
-  // auto-follow effect uses it to skip yank-to-bottom while the
-  // user is touching the scrollbar — without this, a streaming
-  // chunk that commits in the same React batch as the user's wheel
-  // gesture would fire the effect against a stale autoFollowRef
-  // (`scroll` events are deferred until the next paint, so
-  // `onListScroll` hasn't yet been able to flip autoFollowRef to
-  // false). The 250 ms guard mirrors the existing isUserDriven
-  // window in ConversationList.
-  const lastUserInputAtRef = useRef<number>(0)
-  const onUserInput = useCallback(() => {
-    lastUserInputAtRef.current = performance.now()
-  }, [])
-
-  // S017: auto-scroll routes through the ConversationList imperative
-  // API. We can't just bump scrollTop on the wrapper because the
-  // wrapper isn't the scroll container any more — react-window owns
-  // the scroller and only it knows the precomputed total height.
-  useEffect(() => {
-    if (!autoFollowRef.current) return
-    // Hotfix: defer to active user input. If the user wheeled /
-    // touched / pressed a key in the last 250 ms, they're trying
-    // to scroll — don't fight them by yanking back to bottom.
-    if (performance.now() - lastUserInputAtRef.current < 250) return
-    const handle = listHandleRef.current
-    if (handle) handle.scrollToBottom('instant')
-  }, [state.turns, state.status])
-
-  // Bridge scroll events from List → autoFollow flag. We only flip
-  // autoFollow off in response to USER-driven scrolls (wheel / touch
-  // / keys). Programmatic scrolls — our own scrollToBottom call
-  // during streaming, scroll-restore on session load — are tagged
-  // isUserDriven=false and don't downgrade autoFollow even if they
-  // land a few pixels short of the bottom (react-window's
-  // scrollToRow uses estimated row heights, so undershoot during
-  // streaming is normal). Programmatic scrolls that *do* land near
-  // the bottom can still re-enable autoFollow, which keeps the
-  // user's choice stable.
-  const onListScroll = useCallback(
-    (
-      scrollTop: number,
-      scrollHeight: number,
-      clientHeight: number,
-      isUserDriven: boolean,
-    ) => {
-      const atBottom = scrollHeight - scrollTop - clientHeight < 32
-      if (isUserDriven) {
-        autoFollowRef.current = atBottom
-        setAutoFollow(atBottom)
-      } else if (atBottom) {
-        autoFollowRef.current = true
-        setAutoFollow(true)
-      }
-      // Also keep containerRef in sync so the persist/restore hooks
-      // resolve the live element each render.
-      const el = listHandleRef.current?.element() ?? null
-      containerRef.current = el
-    },
-    [],
-  )
-
-  // Resolve containerRef on mount. react-window installs its scroll
-  // container asynchronously: List's `element()` returns null until
-  // its imperative-API callback fires, which happens AFTER this
-  // effect on a fresh mount. A single read here would lock
-  // containerRef to null until the user scrolls (which is what
-  // populates it via onListScroll). On a tab-switch remount, "until
-  // the user scrolls" defeats the whole point of scroll restoration —
-  // the restore hook polls for the element via containerRef and never
-  // sees a value because no other code is updating it. Poll briefly
-  // here so containerRef gets the live element within ~50ms of mount,
-  // before the restore hook's retry budget runs out.
-  useEffect(() => {
-    let id: number | undefined
-    const tryResolve = () => {
-      const el = listHandleRef.current?.element() ?? null
-      if (el) {
-        containerRef.current = el
-        return
-      }
-      id = window.setTimeout(tryResolve, 50)
-    }
-    tryResolve()
-    return () => { if (id) window.clearTimeout(id) }
-  }, [state.sessionId])
-
-  // S017: scroll position persistence. We anchor the persisted
-  // record to a specific turn (turnId + pixel offset of its top
-  // edge above the viewport top) instead of an absolute scrollTop —
-  // virtualised row heights converge across mounts so the same
-  // "place in the conversation" maps to a different scrollTop each
-  // time. The turn-id anchor is invariant.
-  const turnIds = useMemo(
-    () => topLevelTurns.map((t) => t.id),
-    [topLevelTurns],
-  )
-  const restoreScrollToRow = useCallback((index: number) => {
-    listHandleRef.current?.scrollToRow(index, {
-      align: 'start',
-      behavior: 'instant',
-    })
-  }, [])
-  // Visibility gate: hide the conversation until the saved scroll
-  // position has been applied. Without this, the user sees the
-  // conversation paint at scrollTop=0 for ~50–200ms, then visibly
-  // jump to the saved anchor — which reads as a "scroll animation"
-  // even though every step uses behavior:'instant'. Default to
-  // visible (no gate) when there's nothing to restore.
-  const [restoreVisible, setRestoreVisible] = useState<boolean>(() => {
-    if (!state.sessionId) return true
-    const stored = readPersistedScroll(storageKey, state.sessionId)
-    return stored == null
-  })
-  // Safety net: even if onSettled never fires (effect cancelled
-  // mid-restore, sessionId changes, etc.), uncover the conversation
-  // after a short timeout so the user is never stuck staring at a
-  // blank panel.
-  useEffect(() => {
-    if (restoreVisible) return
-    const t = window.setTimeout(() => setRestoreVisible(true), 1500)
-    return () => window.clearTimeout(t)
-  }, [restoreVisible])
-  const onRestoreSettled = useCallback(() => setRestoreVisible(true), [])
-  useScrollRestore({
+  // S43cfb1-2: scroll auto-follow + scroll-restore wiring extracted
+  // into useScrollAutoFollow. The hook owns autoFollow state, the
+  // user-input timestamp ref, the scroll-to-bottom effect, the
+  // containerRef polling effect, and the visibility gate.
+  const {
+    autoFollow,
+    onListScroll,
+    onUserInput,
+    restoreVisible,
+    scrollToLatest,
+  } = useScrollAutoFollow({
+    repoId,
+    branchId,
+    tabId,
     sessionId: state.sessionId,
-    storageKey,
-    containerRef,
+    turns: state.turns,
+    status: state.status,
     hasTurns: topLevelTurns.length > 0,
     turnIds,
-    scrollToRow: restoreScrollToRow,
-    onSettled: onRestoreSettled,
-  })
-  usePersistScroll({
-    sessionId: state.sessionId,
-    storageKey,
-    containerRef,
+    listHandleRef,
   })
 
   // y / n shortcut for pending permission, only when composer doesn't have focus.
@@ -374,82 +195,16 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
     [send],
   )
 
-  // Resolve the active plan block — the most recent kind:"plan" block
-  // that has a permission_id stamped (from plan.question) and is not
-  // already decided. Earlier plans, plans without a permission_id (CLI
-  // hasn't routed the permission_prompt through to us yet), and plans
-  // already decided are all read-only. We no longer condition on
-  // state.permissionMode == "plan" because the moment the user clicks
-  // Approve we issue a SetPermissionMode and that flips the mode
-  // before the plan.decided event lands — see S001-refine docs.
-  const planAuthority = useMemo(
-    () => findActivePlan(state.turns, state.pendingPlanByBlock),
-    [state.turns, state.pendingPlanByBlock],
-  )
-
-  // resolveDefaultMode picks the dropdown's initial value: "auto" if
-  // the CLI advertises it, otherwise the CLI default (excluding
-  // "plan"), otherwise "auto" as a last resort.
-  const resolveDefaultMode = (): string => {
-    const supports = (m: string) => modes.modes.includes(m)
-    if (supports('auto')) return 'auto'
-    if (modes.default && modes.default !== 'plan') return modes.default
-    return 'auto'
-  }
-
-  const planHandlersFor = (blockId: string | undefined): PlanHandlersForView | undefined => {
-    if (!blockId) return undefined
-    const optimistic = planDecisions[blockId]
-    const isActive = blockId === planAuthority?.blockId
-    const permissionId = planAuthority?.permissionId
-    const decisionFromBlock = findPlanBlockById(state.turns, blockId)?.planDecision
-    const targetModeFromBlock = findPlanBlockById(state.turns, blockId)?.planTargetMode
-    const decided = optimistic?.decided ?? decisionFromBlock
-    const targetMode = optimistic?.targetMode ?? targetModeFromBlock
-    return {
-      decided,
-      targetMode,
-      canActOnPlan: isActive && !decided && !!permissionId,
-      modes: modes.modes.filter((m) => m !== 'plan'),
-      defaultMode: resolveDefaultMode(),
-      onApprove: (mode: string, editedPlan?: string) => {
-        if (!permissionId) return
-        setPlanDecisions((prev) => ({
-          ...prev,
-          [blockId]: { decided: 'approved', targetMode: mode },
-        }))
-        send.planRespond(permissionId, 'approve', {
-          targetMode: mode,
-          editedPlan: editedPlan ?? '',
-        })
-      },
-      onReject: () => {
-        if (!permissionId) return
-        setPlanDecisions((prev) => ({
-          ...prev,
-          [blockId]: { decided: 'rejected' },
-        }))
-        send.planRespond(permissionId, 'reject')
-      },
-    }
-  }
-
-  // askHandlersFor returns the AskUserQuestion action wiring for one
-  // kind:"ask" block. Looks up the active permission_id by block id and
-  // — if found — exposes onRespond which ships the chosen labels to the
-  // server. Blocks without a registered permission (already answered or
-  // not yet permission_prompt'd) get canRespond:false so the action row
-  // is disabled.
-  const askHandlersFor = (blockId: string | undefined): AskHandlersForView | undefined => {
-    if (!blockId) return undefined
-    const entry = Object.entries(state.pendingAskByBlock).find(([, bid]) => bid === blockId)
-    if (!entry) return { canRespond: false, onRespond: () => {} }
-    const [permissionId] = entry
-    return {
-      canRespond: true,
-      onRespond: (answers) => send.askRespond(permissionId, answers),
-    }
-  }
+  // S43cfb1-2: plan + ask permission handler factories extracted into
+  // usePermissionHandlers. The hook owns planDecisions optimistic
+  // state, planAuthority lookup, and the per-block handler builders.
+  const { planHandlersFor, askHandlersFor } = usePermissionHandlers({
+    turns: state.turns,
+    pendingPlanByBlock: state.pendingPlanByBlock,
+    pendingAskByBlock: state.pendingAskByBlock,
+    modes,
+    send,
+  })
 
   const activeBlockId =
     search.state.matches[search.state.active]?.blockId
@@ -618,11 +373,7 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
             data-testid="scroll-to-bottom"
             aria-label="Scroll to latest"
             title="Scroll to latest"
-            onClick={() => {
-              listHandleRef.current?.scrollToBottom('smooth')
-              autoFollowRef.current = true
-              setAutoFollow(true)
-            }}
+            onClick={() => scrollToLatest('smooth')}
           >
             <svg
               width="20"
@@ -675,283 +426,11 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
   )
 }
 
-type RespondPermissionFn = (
-  permissionId: string,
-  decision: 'allow' | 'deny',
-  scope: 'once' | 'session' | 'always',
-  reason?: string,
-  updatedInput?: unknown,
-) => void
+// TurnView and RespondPermissionFn moved to ./turn-view.tsx in S43cfb1-2.
 
-interface PlanHandlersForView {
-  decided?: 'approved' | 'rejected'
-  targetMode?: string
-  canActOnPlan: boolean
-  onApprove: (mode: string, editedPlan?: string) => void
-  onReject: () => void
-  modes: string[]
-  defaultMode: string
-}
-
-interface AskHandlersForView {
-  canRespond: boolean
-  onRespond: (answers: string[][]) => void
-}
-
-function TurnView({
-  turn,
-  activeVersionIndex,
-  onSetVersion,
-  onRewind,
-  onRewindApplyLocal,
-  editingTurnId,
-  onEditingChange,
-  onRespondPermission,
-  planHandlersFor,
-  askHandlersFor,
-  childrenByParent,
-}: {
-  turn: Turn
-  activeVersionIndex?: number
-  onSetVersion?: (index: number) => void
-  onRewind?: (turnId: string, newMessage: string) => Promise<void>
-  onRewindApplyLocal?: (turnId: string, newContent: string) => void
-  /** Lifted edit-state. The id of the user turn whose UserTurnEditor
-   *  is currently in edit mode (or null when nothing is being edited).
-   *  Lifted out of UserTurnEditor so the state survives row unmount
-   *  caused by react-window when the row scrolls out of view. */
-  editingTurnId?: string | null
-  onEditingChange?: (turnId: string, editing: boolean) => void
-  onRespondPermission: RespondPermissionFn
-  planHandlersFor: (blockId: string | undefined) => PlanHandlersForView | undefined
-  askHandlersFor: (blockId: string | undefined) => AskHandlersForView | undefined
-  /** Map of toolUseId → child turns produced by sub-agents the CLI
-   *  spawned via that Task tool block. When a block in this turn has
-   *  a non-empty entry in this map, it is rendered as a TaskTree with
-   *  the children inlined underneath. */
-  childrenByParent?: Map<string, Turn[]>
-}) {
-  if (turn.role === 'user') {
-    // S019: hand off to UserTurnEditor when the parent supplied
-    // rewind handlers. Falls back to the simple bubble for callers
-    // (e.g. printing-only views, sub-agent turns) that didn't pass
-    // them through.
-    if (onRewind && onRewindApplyLocal && onSetVersion) {
-      return (
-        <div className={styles.turnUser}>
-          <UserTurnEditor
-            turn={turn}
-            activeVersionIndex={activeVersionIndex ?? -1}
-            onSetVersion={onSetVersion}
-            onRewind={onRewind}
-            onRewindApplyLocal={onRewindApplyLocal}
-            editing={editingTurnId === turn.id}
-            onEditingChange={onEditingChange}
-          />
-        </div>
-      )
-    }
-    return (
-      <div className={styles.turnUser}>
-        <div className={styles.userBubble}>
-          {turn.blocks.map((b) => (
-            <BlockView key={b.id} block={b} />
-          ))}
-        </div>
-      </div>
-    )
-  }
-  // tool / hook / assistant turns share the same prose-flow layout — hook
-  // turns are visually similar enough to tool result groups that we
-  // reuse the same chrome rather than introducing a third style. The
-  // HookBlock itself is what gives the row its distinct identity.
-  const cls =
-    turn.role === 'tool' || turn.role === 'hook'
-      ? styles.turnTool
-      : styles.turnAssistant
-  return (
-    <div className={cls}>
-      {turn.blocks.map((b) => {
-        const handlers =
-          b.kind === 'permission' && !b.decision && b.permissionId
-            ? {
-                onAllow: (scope: 'once' | 'session' | 'always', updatedInput?: unknown) =>
-                  onRespondPermission(b.permissionId!, 'allow', scope, undefined, updatedInput),
-                onDeny: (reason?: string) =>
-                  onRespondPermission(b.permissionId!, 'deny', 'once', reason),
-              }
-            : undefined
-        const planHandlers = b.kind === 'plan' ? planHandlersFor(b.id) : undefined
-        const askHandlers = b.kind === 'ask' ? askHandlersFor(b.id) : undefined
-        // Sub-agent child turns: only relevant for tool_use blocks
-        // (today only `Task` spawns sub-agents, but the linkage is
-        // generic so any future tool that emits sub-agents nests too).
-        const childTurns =
-          b.kind === 'tool_use' && b.toolUseId
-            ? childrenByParent?.get(b.toolUseId)
-            : undefined
-        const renderTaskChildren =
-          childTurns && childTurns.length > 0
-            ? () =>
-                childTurns.map((child) => (
-                  <TurnView
-                    key={child.id}
-                    turn={child}
-                    onRespondPermission={onRespondPermission}
-                    planHandlersFor={planHandlersFor}
-                    askHandlersFor={askHandlersFor}
-                    childrenByParent={childrenByParent}
-                  />
-                ))
-            : undefined
-        return (
-          <BlockView
-            key={b.id}
-            block={b}
-            permissionHandlers={handlers}
-            planHandlers={planHandlers}
-            askHandlers={askHandlers}
-            renderTaskChildren={renderTaskChildren}
-          />
-        )
-      })}
-    </div>
-  )
-}
-
-// splitTurnTree partitions the flat turns list into top-level turns
-// (the units of virtualisation) and a parent→children map for
-// sub-agent (Task) turns. Children render inline inside TaskTreeBlock
-// rather than as their own virtual rows because the parent Task
-// block already owns the collapsing chrome and child transcripts are
-// typically short — splitting them across rows would couple row
-// heights in a way that defeats clean ResizeObserver measurement.
-// applyVersionView (S019) returns a virtual turn list that reflects
-// the user's currently-selected version for each user turn. When all
-// `activeVersionByTurnId` entries are `-1` (or missing), this is
-// just the input. When a user turn has a non-active version selected,
-// we replace its blocks[0].text with the archived version's content,
-// drop the live tail (turns past it), and splice in the archived
-// `subsequentTurnIds` (looked up from `archivedTurnsById`) instead.
-//
-// Idempotent / side-effect-free; does NOT mutate state.turns. Used
-// only for rendering — `state.turns` remains the canonical "live"
-// thread.
-function applyVersionView(
-  turns: Turn[],
-  archivedById: Record<string, Turn>,
-  activeByTurnId: Record<string, number>,
-): Turn[] {
-  // Fast path: no version overrides, return the input verbatim.
-  let needRewrite = false
-  for (const k in activeByTurnId) {
-    if (activeByTurnId[k] >= 0) {
-      needRewrite = true
-      break
-    }
-  }
-  if (!needRewrite) return turns
-
-  // Find the EARLIEST user turn whose version is non-active. That's
-  // where the rewrite begins — every subsequent turn after it is
-  // discarded and replaced by the archived continuation.
-  let pivotIdx = -1
-  let pivotVersion = -1
-  for (let i = 0; i < turns.length; i++) {
-    const t = turns[i]
-    if (t.role !== 'user') continue
-    const ver = activeByTurnId[t.id]
-    if (ver === undefined || ver < 0) continue
-    if (!t.versions || ver >= t.versions.length) continue
-    pivotIdx = i
-    pivotVersion = ver
-    break
-  }
-  if (pivotIdx < 0) return turns
-
-  const pivotTurn = turns[pivotIdx]
-  const archivedVersion = pivotTurn.versions![pivotVersion]
-  const out: Turn[] = turns.slice(0, pivotIdx)
-  // Replace the user turn's text with the archived version's content
-  // and clear its `versions[]` for the rendered copy (the editor uses
-  // the original turn from state.turns to know how many versions exist).
-  const rewrittenPivot: Turn = {
-    ...pivotTurn,
-    blocks:
-      pivotTurn.blocks.length > 0
-        ? [
-            { ...pivotTurn.blocks[0], text: archivedVersion.content, done: true },
-            ...pivotTurn.blocks.slice(1),
-          ]
-        : [],
-  }
-  out.push(rewrittenPivot)
-  for (const id of archivedVersion.subsequentTurnIds) {
-    const t = archivedById[id]
-    if (t) out.push(t)
-  }
-  return out
-}
-
-function splitTurnTree(turns: Turn[]): {
-  topLevelTurns: Turn[]
-  childrenByParent: Map<string, Turn[]>
-} {
-  const childrenByParent = new Map<string, Turn[]>()
-  const topLevelTurns: Turn[] = []
-  for (const t of turns) {
-    if (t.parentToolUseId) {
-      const arr = childrenByParent.get(t.parentToolUseId) ?? []
-      arr.push(t)
-      childrenByParent.set(t.parentToolUseId, arr)
-    } else {
-      topLevelTurns.push(t)
-    }
-  }
-  return { topLevelTurns, childrenByParent }
-}
-
-// findActivePlan walks the turns newest-first and returns the most
-// recent kind:"plan" block that:
-//   - has a permission_id stamped (= the backend has issued a
-//     plan.question and is awaiting our reply), and
-//   - has not yet been decided.
-// That block — and only that block — is the one whose action row we
-// enable. The map argument is `pendingPlanByBlock` from agent-state.
-function findActivePlan(
-  turns: Turn[],
-  pendingPlanByBlock: Record<string, string>,
-): { blockId: string; permissionId: string } | undefined {
-  // Build a reverse index for O(1) blockId → permissionId lookup.
-  const byBlock = new Map<string, string>()
-  for (const [permId, blockId] of Object.entries(pendingPlanByBlock)) {
-    byBlock.set(blockId, permId)
-  }
-  for (let i = turns.length - 1; i >= 0; i--) {
-    const t = turns[i]
-    for (let j = t.blocks.length - 1; j >= 0; j--) {
-      const b = t.blocks[j]
-      if (b.kind !== 'plan') continue
-      if (b.planDecision) continue
-      const permId = byBlock.get(b.id) ?? b.permissionId
-      if (!permId) continue
-      return { blockId: b.id, permissionId: permId }
-    }
-  }
-  return undefined
-}
-
-// findPlanBlockById returns the kind:"plan" Block whose id matches, or
-// undefined. Used to read planDecision/planTargetMode for the read-only
-// post-decision label.
-function findPlanBlockById(turns: Turn[], blockId: string) {
-  for (const t of turns) {
-    for (const b of t.blocks) {
-      if (b.id === blockId && b.kind === 'plan') return b
-    }
-  }
-  return undefined
-}
+// applyVersionView / splitTurnTree / findActivePlan / findPlanBlockById
+// were moved to ./hooks/use-turn-tree.ts and
+// ./hooks/use-permission-handlers.ts in S43cfb1-2.
 
 interface TopBarProps {
   status: AgentStatus

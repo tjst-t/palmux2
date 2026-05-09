@@ -28,10 +28,8 @@ import { UserTurnEditor } from './user-turn-editor'
 import {
   ConversationList,
   type ConversationListHandle,
-  scrollStorageKey,
-  usePersistScroll,
-  useScrollRestore,
 } from './conversation-list'
+import { useScrollAutoFollow } from './hooks/use-scroll-auto-follow'
 import {
   ConversationSearchBar,
   useConversationSearch,
@@ -222,47 +220,17 @@ export function TestHarness() {
   const onRewindApplyLocalNoop = () => { /* harness applies directly via onRewindLocal */ }
 
   const listHandleRef = useRef<ConversationListHandle | null>(null)
-  const containerRef = useRef<HTMLDivElement | null>(null)
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
-  const [autoFollow, setAutoFollow] = useState(true)
-  const autoFollowRef = useRef<boolean>(true)
-  // Hotfix: mirror claude-agent-view's user-input timestamp so the
-  // streaming auto-follow effect below skips yank-to-bottom while
-  // the user is actively scrolling.
-  const lastUserInputAtRef = useRef<number>(0)
-  const onUserInput = useCallback(() => {
-    lastUserInputAtRef.current = performance.now()
-  }, [])
-  // Mirror claude-agent-view's logic: only user-driven scrolls flip
-  // autoFollow off; programmatic ones can only confirm (set true) but
-  // not unset.
-  const onListScroll = useCallback(
-    (
-      scrollTop: number,
-      scrollHeight: number,
-      clientHeight: number,
-      isUserDriven: boolean,
-    ) => {
-      const atBottom = scrollHeight - scrollTop - clientHeight < 32
-      if (isUserDriven) {
-        autoFollowRef.current = atBottom
-        setAutoFollow(atBottom)
-      } else if (atBottom) {
-        autoFollowRef.current = true
-        setAutoFollow(true)
-      }
-    },
-    [],
-  )
 
   // Hotfix regression knob: `?stream=N` appends a new dummy assistant
   // turn every N ms so an E2E test can reproduce the race where a
-  // streaming chunk commits in the same React batch as a user wheel
-  // (the wheel's deferred `scroll` event fires after the auto-follow
-  // effect, leaving autoFollowRef stale-true and yanking the user
-  // back to bottom). Mirrors the parent's auto-follow effect with
-  // the same guards (autoFollowRef + lastUserInputAtRef).
+  // streaming chunk commits in the same React batch as a user wheel.
+  // S43cfb1-4: the auto-follow + scroll-restore wiring is now provided
+  // by useScrollAutoFollow (same hook the real Claude tab uses), so
+  // the "yank only when user hasn't touched the scrollbar" guard is
+  // shared across the harness and the production view — no more
+  // double-maintained logic.
   const streamRate = Math.max(0, parseInt(params.get('stream') ?? '0', 10) || 0)
   const [streamCount, setStreamCount] = useState(0)
   useEffect(() => {
@@ -285,14 +253,28 @@ export function TestHarness() {
     return [...turns, ...extras]
   }, [streamRate, streamCount, turns])
   const effectiveDisplayTurns = streamedTurns ?? overrideTurns ?? turns
+  const turnIds = useMemo(() => effectiveDisplayTurns.map((t) => t.id), [effectiveDisplayTurns])
 
-  // Mirror parent's auto-follow effect for the streaming case.
-  useEffect(() => {
-    if (streamRate <= 0) return
-    if (!autoFollowRef.current) return
-    if (performance.now() - lastUserInputAtRef.current < 250) return
-    listHandleRef.current?.scrollToBottom('instant')
-  }, [streamCount, streamRate])
+  // S43cfb1-4: replace the harness-local autoFollow state +
+  // user-input timestamp + onListScroll + scroll-to-bottom effect
+  // with the shared hook, so a future fix to the scroll race
+  // doesn't have to be applied to two files.
+  const {
+    autoFollow,
+    onListScroll,
+    onUserInput,
+    scrollToLatest,
+  } = useScrollAutoFollow({
+    repoId: 'test',
+    branchId: 'harness',
+    tabId: sessionId,
+    sessionId,
+    turns: effectiveDisplayTurns,
+    status: streamRate > 0 ? 'thinking' : 'idle',
+    hasTurns: effectiveDisplayTurns.length > 0,
+    turnIds,
+    listHandleRef,
+  })
 
   // S018: Cmd+F search wiring. Always created so the harness can be
   // queried by E2E even when search=0 — but the bar only renders when
@@ -321,41 +303,8 @@ export function TestHarness() {
     return () => window.removeEventListener('keydown', onKey, true)
   }, [search])
 
-  // Re-resolve the underlying scroll element whenever the list re-mounts
-  // (sessionId change). The ref callback alone fires before the List
-  // has installed its DOM, so on first mount element() is still null —
-  // a useEffect after paint catches the populated element.
-  useEffect(() => {
-    const tick = () => {
-      const el = listHandleRef.current?.element() ?? null
-      if (el) containerRef.current = el
-    }
-    tick()
-    const t = window.setTimeout(tick, 50)
-    return () => window.clearTimeout(t)
-  }, [sessionId, turns.length])
-
-  const storageKey = scrollStorageKey('test', 'harness', sessionId)
-  const turnIds = useMemo(() => turns.map((t) => t.id), [turns])
-  const harnessScrollToRow = useCallback((index: number) => {
-    listHandleRef.current?.scrollToRow(index, {
-      align: 'start',
-      behavior: 'instant',
-    })
-  }, [])
-  useScrollRestore({
-    sessionId,
-    storageKey,
-    containerRef: containerRef as React.RefObject<HTMLDivElement | null>,
-    hasTurns: turns.length > 0,
-    turnIds,
-    scrollToRow: harnessScrollToRow,
-  })
-  usePersistScroll({
-    sessionId,
-    storageKey,
-    containerRef: containerRef as React.RefObject<HTMLDivElement | null>,
-  })
+  // S43cfb1-4: scroll restore + persist now wired through
+  // useScrollAutoFollow above (same as the real Claude tab).
 
   const renderTurn = (turn: Turn) => {
     if (showRewind && turn.role === 'user') {
@@ -463,11 +412,7 @@ export function TestHarness() {
           activeBlockId={activeBlockId}
         >
           <ConversationList
-            ref={(h) => {
-              listHandleRef.current = h
-              // Resolve the underlying scroll element so persist/restore hooks fire.
-              containerRef.current = h?.element() ?? null
-            }}
+            ref={listHandleRef}
             turns={effectiveDisplayTurns}
             sessionKey={sessionId}
             renderTurn={renderTurn}
@@ -480,10 +425,7 @@ export function TestHarness() {
             type="button"
             data-testid="harness-scroll-to-bottom"
             data-autofollow="false"
-            onClick={() => {
-              listHandleRef.current?.scrollToBottom(buttonBehavior)
-              setAutoFollow(true)
-            }}
+            onClick={() => scrollToLatest(buttonBehavior)}
             style={{
               position: 'absolute',
               bottom: 16,

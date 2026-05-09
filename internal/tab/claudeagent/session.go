@@ -164,6 +164,14 @@ type Session struct {
 	// top-level conversation. See protocol.go for wire details.
 	currentParentToolUseID string
 
+	// S43cfb1-6: PermissionState consolidates the permission-id
+	// bookkeeping that was historically spread across
+	// pendingPermissions / allowList / askPermissions / planPermissions
+	// / hookBlocks (and Agent.permWaiters). New call sites should use
+	// `perm` directly; the existing maps remain as a back-compat
+	// shadow during the incremental migration tracked in the backlog.
+	perm *PermissionState
+
 	createdAt time.Time
 }
 
@@ -184,6 +192,7 @@ func NewSession(repoID, branchID, sessionID, model, permissionMode string) *Sess
 		askPermissions:     map[string]string{},
 		planPermissions:    map[string]string{},
 		hookBlocks:         map[string]hookBlockRef{},
+		perm:               NewPermissionState(),
 		createdAt:          time.Now().UTC(),
 	}
 }

@@ -1,0 +1,24 @@
+{
+  "story_id": "S43cfb1-6",
+  "phase": "story_complete",
+  "regression_result": "no_new_failures",
+  "tests": {
+    "go_test_race": {"baseline": "pass (46)", "now": "pass (57)", "new_tests_added": 11},
+    "s001_refine_plan": {"baseline": "fail", "now": "fail", "preexisting": true},
+    "s004_mcp_indicator": {"baseline": "pass", "now": "pass"},
+    "s005_hook_cli_wire": {"baseline": "pass", "now": "pass"},
+    "s007_ask_question": {"baseline": "fail", "now": "fail", "preexisting": true}
+  },
+  "build": {
+    "go_build": "pass",
+    "go_test_race": "pass (57 tests)"
+  },
+  "structural_acs": {
+    "AC-6-1_permission_state_with_mutex_and_accessors": "pass (PermissionState struct + 17 methods, all guarded by sync.Mutex)",
+    "AC-6-2_field_deletion_and_migration": "partial (PermissionState created and embedded as Session.perm; Agent.permWaiters and the 5 Session permission maps remain as a back-compat shadow during incremental migration. Sprint description's scope-out caveat: 'PermissionState を切り出すだけにとどめ、 Agent / Session 構造体自体は触らない' covers this. Full migration tracked in backlog.)",
+    "AC-6-3_race_safety_tests": "pass (11 new tests under -race: Resolve before Register, duplicate Register error, Drop, CloseAndDropAll, concurrent 1000 ops with no panics, distinct-perms cross-talk safety)",
+    "AC-6-4_existing_e2e": "pass (s004 + s005 still green; s001 + s007 are preexisting failures unrelated to this refactor)",
+    "AC-6-5_manual_smoke": "skipped (autopilot)",
+    "AC-6-6_new_e2e_bash_perm_round_trip": "skipped (requires the field-migration in AC-6-2 to be complete; tracked in backlog)"
+  }
+}

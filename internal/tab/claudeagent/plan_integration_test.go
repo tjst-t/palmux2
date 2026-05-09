@@ -20,7 +20,7 @@ import (
 // block in the session for the plan permission, and the kind:"plan"
 // block carries the decision instead.
 func TestExitPlanMode_FullRoundTrip(t *testing.T) {
-	a := newStandaloneAskAgent(t) // re-using helper from ask_integration_test.go
+	a := newTestAgent(t) // re-using helper from ask_integration_test.go
 	events, unsub := a.Subscribe()
 	defer unsub()
 
@@ -123,7 +123,7 @@ func TestExitPlanMode_FullRoundTrip(t *testing.T) {
 // "User chose to keep planning" message; the plan block flips to
 // planDecision="rejected".
 func TestExitPlanMode_RejectKeepsPlanMode(t *testing.T) {
-	a := newStandaloneAskAgent(t)
+	a := newTestAgent(t)
 	events, unsub := a.Subscribe()
 	defer unsub()
 

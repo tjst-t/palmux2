@@ -8,7 +8,7 @@ import (
 )
 
 func TestStreamEvents_TextStream(t *testing.T) {
-	s := NewSession("repo", "branch", "", "sonnet", "default")
+	s := newTestSession(t)
 
 	// message_start should produce turn.start + status.change
 	evs := processStreamMessage(s, parse(t, `{"type":"stream_event","event":{"type":"message_start"}}`))
@@ -167,7 +167,7 @@ func TestExitPlanMode_NormalizesToPlanBlockAndSuppressesToolResult(t *testing.T)
 }
 
 func TestAskUserQuestion_NormalizesToAskBlockAndSuppressesToolResult(t *testing.T) {
-	s := NewSession("repo", "branch", "", "sonnet", "default")
+	s := newTestSession(t)
 
 	// message_start opens an assistant turn.
 	if evs := processStreamMessage(s, parse(t, `{"type":"stream_event","event":{"type":"message_start"}}`)); len(evs) != 2 {
@@ -226,7 +226,7 @@ func TestAskUserQuestion_AssistantFallback(t *testing.T) {
 	// The assistant-envelope-only fallback path (no per-block stream
 	// events) should also re-tag AskUserQuestion to kind:"ask" and
 	// remember the tool_use_id so the tool_result is suppressed.
-	s := NewSession("repo", "branch", "", "sonnet", "default")
+	s := newTestSession(t)
 	body := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_ask_2","name":"AskUserQuestion","input":{"questions":[{"question":"Q","options":[{"label":"yes"}]}]}}]}}`
 	processStreamMessage(s, parse(t, body))
 
@@ -253,7 +253,7 @@ func TestAskUserQuestion_AssistantFallback(t *testing.T) {
 // falls through to append, and the user sees the AskUserQuestion rendered
 // twice in the UI.
 func TestAskUserQuestion_StreamThenAssistantEnvelope_NoDuplicate(t *testing.T) {
-	s := NewSession("repo", "branch", "", "sonnet", "default")
+	s := newTestSession(t)
 
 	processStreamMessage(s, parse(t, `{"type":"stream_event","event":{"type":"message_start"}}`))
 	processStreamMessage(s, parse(t, `{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_ask_dup","name":"AskUserQuestion","input":{"questions":[{"question":"Pick","options":[{"label":"A"}]}]}}}}`))
@@ -308,7 +308,7 @@ func TestExitPlanMode_StreamThenAssistantEnvelope_NoDuplicate(t *testing.T) {
 // frontend sees `final: {}` at block.end, the input panel renders nothing,
 // and the orphan check (block.done && !hasContent) hides the block.
 func TestFinalizeBlock_PromotesStreamedInputOverPlaceholder(t *testing.T) {
-	s := NewSession("repo", "branch", "", "sonnet", "default")
+	s := newTestSession(t)
 
 	processStreamMessage(s, parse(t, `{"type":"stream_event","event":{"type":"message_start"}}`))
 	// content_block_start with the placeholder {} — typical for tool_use.
@@ -418,7 +418,7 @@ func TestStreamEvents_ParentToolUseIDPropagatesToTurn(t *testing.T) {
 	// spawned via the Task tool), every Turn the message creates must
 	// carry that ID so the frontend can render it nested under the
 	// parent Task block.
-	s := NewSession("repo", "branch", "", "sonnet", "default")
+	s := newTestSession(t)
 
 	// First, a normal top-level message_start should produce a turn
 	// with no parent linkage.
@@ -467,7 +467,7 @@ func TestProcessStreamMessage_ParentClearedAfterDispatch(t *testing.T) {
 	// After processing a sub-agent envelope, the session's stamped
 	// parent_tool_use_id must be cleared so unrelated background
 	// activity (e.g. system messages) doesn't accidentally inherit it.
-	s := NewSession("repo", "branch", "", "sonnet", "default")
+	s := newTestSession(t)
 	body := `{"type":"stream_event","parent_tool_use_id":"toolu_task_2","event":{"type":"message_start"}}`
 	processStreamMessage(s, parse(t, body))
 	if got := s.CurrentParentToolUseID(); got != "" {
@@ -567,7 +567,7 @@ func TestLoadTranscriptTurns_RetagsExitPlanModeAndDropsToolResult(t *testing.T) 
 //
 // Wire shape captured live from claude CLI 2.1.123 (see decisions.md).
 func TestHookEvents_StartedAndResponseProduceHookBlock(t *testing.T) {
-	s := NewSession("repo", "branch", "", "sonnet", "default")
+	s := newTestSession(t)
 
 	// 1. hook_started — should open a fresh kind:"hook" block in a
 	//    role:"hook" turn, broadcast as a BlockStart.
@@ -626,7 +626,7 @@ func TestHookEvents_StartedAndResponseProduceHookBlock(t *testing.T) {
 // the UI groups them visually, instead of fragmenting into one turn per
 // hook. Both blocks must be addressable independently via their hook_id.
 func TestHookEvents_MultipleHooksInSameTurn(t *testing.T) {
-	s := NewSession("repo", "branch", "", "sonnet", "default")
+	s := newTestSession(t)
 	processStreamMessage(s, parse(t, `{"type":"system","subtype":"hook_started","hook_id":"pre","hook_event":"PreToolUse","hook_name":"PreToolUse:Bash"}`))
 	processStreamMessage(s, parse(t, `{"type":"system","subtype":"hook_response","hook_id":"pre","hook_event":"PreToolUse","hook_name":"PreToolUse:Bash","stdout":"PRE","exit_code":0,"outcome":"success"}`))
 	processStreamMessage(s, parse(t, `{"type":"system","subtype":"hook_started","hook_id":"post","hook_event":"PostToolUse","hook_name":"PostToolUse:Bash"}`))

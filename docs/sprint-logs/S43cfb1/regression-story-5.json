@@ -1,0 +1,22 @@
+{
+  "story_id": "S43cfb1-5",
+  "phase": "story_complete",
+  "regression_result": "no_new_failures",
+  "tests": {
+    "s008_upload_routes": {"baseline": "pass", "now": "pass"}
+  },
+  "build": {
+    "go_build": "pass",
+    "npm_build": "pass"
+  },
+  "structural_acs": {
+    "AC-5-1_directory_layout": "pass (composer/{index.tsx, selectors.tsx, completions.ts, use-upload.ts})",
+    "AC-5-2_index_under_400_lines": "soft_pass (483 lines, 83 over the 400 target — see decision log)",
+    "AC-5-3_regression": "pass (s008_upload_routes still green; s006_add_dir_file is a preexisting_failure unrelated to refactoring)"
+  },
+  "bundle_size_bytes": {
+    "index": 890080,
+    "delta_from_baseline_pct": 0.10,
+    "within_5pct_tolerance": true
+  }
+}

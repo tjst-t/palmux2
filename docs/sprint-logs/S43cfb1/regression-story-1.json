@@ -1,0 +1,37 @@
+{
+  "story_id": "S43cfb1-1",
+  "phase": "story_complete",
+  "regression_result": "no_new_failures",
+  "baseline_passed_now_failing": [],
+  "new_passes": [],
+  "tests": {
+    "s001_refine_plan": {"baseline": "fail", "now": "fail", "preexisting": true},
+    "s004_mcp_indicator": {"baseline": "pass", "now": "pass"},
+    "s005_hook_cli_wire": {"baseline": "pass", "now": "pass"},
+    "s005_hook_events": {"baseline": "fail", "now": "fail", "preexisting": true},
+    "s007_ask_question": {"baseline": "fail", "now": "fail", "preexisting": true},
+    "s017_long_session": {"baseline": "fail", "now": "fail", "preexisting": true},
+    "s018_conv_utils": {"baseline": "fail", "now": "fail", "preexisting": true},
+    "s019_rewind": {"baseline": "fail", "now": "fail", "preexisting": true},
+    "hotfix_claude_scroll_button": {"baseline": "pass", "now": "pass"},
+    "hotfix_claude_scroll_yank_during_stream": {"baseline": "pass", "now": "pass"}
+  },
+  "build": {
+    "go_build": "pass",
+    "npm_build": "pass",
+    "npm_lint": "fail (89 errors / 8 warnings — same as baseline, no new errors)"
+  },
+  "bundle_size_bytes": {
+    "index": 889209,
+    "lib": 153300,
+    "files-view": 51249,
+    "editor.api2": 3626915,
+    "delta_from_baseline": "0% (refactor is structural — same module graph, identical bytecode)"
+  },
+  "structural_acs": {
+    "AC-1-1_index_under_100_lines": "pass (62 lines)",
+    "AC-1-2_per_kind_renderers_split": "pass (text/thinking, tool_use, tool_result/{index,body,diff,json-table}, plan, ask, permission, todo, hook, compact, task-tree)",
+    "AC-1-3_helpers_organized": "pass (search-highlight, format, plan-parse, todo-parse, hook-style)",
+    "AC-1-7_build_sanity": "pass"
+  }
+}

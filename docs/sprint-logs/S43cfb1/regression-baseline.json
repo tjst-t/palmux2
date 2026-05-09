@@ -1,0 +1,233 @@
+{
+  "sprint_id": "S43cfb1",
+  "phase": "baseline",
+  "recorded_at": "2026-05-09",
+  "go_test": {
+    "result": "pass",
+    "passes": 46,
+    "fails": 0,
+    "skips": 0
+  },
+  "go_build": {
+    "result": "pass"
+  },
+  "frontend_build": {
+    "result": "pass",
+    "bundle_chunk_bytes": {
+      "lib": 153300,
+      "editor.api2": 3626915,
+      "files-view": 51249,
+      "index": 889209
+    }
+  },
+  "frontend_lint": {
+    "result": "fail",
+    "errors": 89,
+    "warnings": 8,
+    "note": "Pre-existing lint debt unrelated to S43cfb1 refactoring scope. Recorded as baseline failure; sprint must not introduce NEW lint errors but is not required to fix existing ones."
+  },
+  "e2e_results": [
+    {
+      "name": "hotfix_claude_scroll_button",
+      "result": "pass",
+      "exit": 0,
+      "duration_s": 3
+    },
+    {
+      "name": "hotfix_claude_scroll_yank_during_stream",
+      "result": "pass",
+      "exit": 0,
+      "duration_s": 3
+    },
+    {
+      "name": "s001_refine_plan",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 1
+    },
+    {
+      "name": "s004_mcp_indicator",
+      "result": "pass",
+      "exit": 0,
+      "duration_s": 2
+    },
+    {
+      "name": "s005_hook_cli_wire",
+      "result": "pass",
+      "exit": 0,
+      "duration_s": 7
+    },
+    {
+      "name": "s005_hook_events",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 1
+    },
+    {
+      "name": "s006_add_dir_file",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 0
+    },
+    {
+      "name": "s007_ask_question",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 1
+    },
+    {
+      "name": "s008_upload_routes",
+      "result": "pass",
+      "exit": 0,
+      "duration_s": 2
+    },
+    {
+      "name": "s009_multi_tab",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 0
+    },
+    {
+      "name": "s009_fix_lifecycle",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 0
+    },
+    {
+      "name": "s009_fix_lifecycle_v2",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 0
+    },
+    {
+      "name": "s009_fix_periodic_check",
+      "result": "pass",
+      "exit": 0,
+      "duration_s": 182
+    },
+    {
+      "name": "s009_fix4_ui_monitor",
+      "result": "pass",
+      "exit": 0,
+      "duration_s": 180
+    },
+    {
+      "name": "s017_long_session",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 4
+    },
+    {
+      "name": "s018_conv_utils",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 3
+    },
+    {
+      "name": "s019_rewind",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 2
+    }
+  ],
+  "preexisting_failures": [
+    {
+      "test": "s001_refine_plan",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 1,
+      "category": "e2e"
+    },
+    {
+      "test": "s005_hook_events",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 1,
+      "category": "e2e"
+    },
+    {
+      "test": "s006_add_dir_file",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 0,
+      "category": "e2e"
+    },
+    {
+      "test": "s007_ask_question",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 1,
+      "category": "e2e"
+    },
+    {
+      "test": "s009_multi_tab",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 0,
+      "category": "e2e"
+    },
+    {
+      "test": "s009_fix_lifecycle",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 0,
+      "category": "e2e"
+    },
+    {
+      "test": "s009_fix_lifecycle_v2",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 0,
+      "category": "e2e"
+    },
+    {
+      "test": "s017_long_session",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 4,
+      "category": "e2e"
+    },
+    {
+      "test": "s018_conv_utils",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 3,
+      "category": "e2e"
+    },
+    {
+      "test": "s019_rewind",
+      "result": "fail",
+      "exit": 1,
+      "duration_s": 2,
+      "category": "e2e"
+    },
+    {
+      "test": "npm run lint",
+      "result": "fail",
+      "errors": 89,
+      "warnings": 8,
+      "category": "lint"
+    }
+  ],
+  "preexisting_failures_summary": {
+    "e2e_fails": [
+      "s001_refine_plan",
+      "s005_hook_events",
+      "s006_add_dir_file",
+      "s007_ask_question",
+      "s009_multi_tab",
+      "s009_fix_lifecycle",
+      "s009_fix_lifecycle_v2",
+      "s017_long_session",
+      "s018_conv_utils",
+      "s019_rewind"
+    ],
+    "rationale": "Many E2E tests reference branches/worktrees that don't exist in a fresh INSTANCE=test instance (s001, s005-events, s006, s007, s009-multi-tab, s009-fix-lifecycle, s009-fix-lifecycle-v2 \u2014 all show 'branch not found' or WS 404). These were likely passing in the CI/dev env where the expected branches are set up. s017 (scroll restore timing), s018 (export filename .json vs .md), s019 (mobile pencil hit-area size) are real but unrelated to refactoring scope. All listed tests are excluded from sprint-internal regression diff per REGRESSION CONTRACT step 1."
+  },
+  "summary": {
+    "go_total": 46,
+    "e2e_total": 17,
+    "e2e_pass": 7,
+    "e2e_fail": 10
+  }
+}
