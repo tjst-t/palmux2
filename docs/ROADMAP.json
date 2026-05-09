@@ -5450,83 +5450,83 @@
         },
         "S43cfb1-2": {
           "title": "claude-agent-view.tsx (1154行・hook 28個) から hook 3 個を抽出",
-          "status": "planned",
+          "status": "done",
           "user_story": "Claude タブの scroll race / permission flow / rewind を保守する開発者として、 claude-agent-view.tsx の 28 個の hook が同じ関数本体に並んでいる現状ではなく、 目的ごとに分かれた hook ファイル単位でレビューしたい。 なぜなら、 直近の scroll race hotfix 4 連発 (93f2f78, bb1d963, 7410582, b6d5517) はすべてこの単一ファイルへの差し込みで、 race の見落としを生む温床になっているからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S43cfb1-2-1",
               "description": "frontend/src/tabs/claude-agent/hooks/use-scroll-auto-follow.ts が独立ファイルとして存在し、 autoFollow state / autoFollowRef / lastUserInputAtRef / autoFollowSyncedFor 効果 / scroll-to-bottom 効果 / onListScroll / onUserInput / scrollToLatest を export する",
               "test": "[AC-S43cfb1-2-1] in tests/acceptance/s43cfb1_refactor.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-2-2",
               "description": "frontend/src/tabs/claude-agent/hooks/use-permission-handlers.ts が planHandlersFor / askHandlersFor / planDecisions optimistic state / setPlanDecisions を export する",
               "test": "[AC-S43cfb1-2-2] in tests/acceptance/s43cfb1_refactor.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-2-3",
               "description": "frontend/src/tabs/claude-agent/hooks/use-turn-tree.ts が applyVersionView + splitTurnTree + topLevelTurns / childrenByParent / turnIds を export する",
               "test": "[AC-S43cfb1-2-3] in tests/acceptance/s43cfb1_refactor.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-2-4",
               "description": "claude-agent-view.tsx が 700 行以下、 useEffect 数が 12 個以下に削減",
               "test": "[AC-S43cfb1-2-4] in tests/acceptance/s43cfb1_refactor.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-2-5",
               "description": "**REGRESSION (scroll系)**: 直近 hotfix 4 件が壊れていないこと — `tests/e2e/hotfix_claude_scroll_button.py` (93f2f78, bb1d963, 7410582 のシナリオを集約) + `tests/e2e/hotfix_claude_scroll_yank_during_stream.py` (b6d5517) が緑。 加えて `tests/e2e/s017_long_session.py` (cold-load + 長セッション scroll restoration), `tests/e2e/s009_multi_tab.py` (tab 切り替え時の scroll 位置保持) が緑",
               "test": "[AC-S43cfb1-2-5] regression run logged to docs/sprint-logs/S43cfb1/regression-story-2.json",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-2-6",
               "description": "**REGRESSION (permission系)**: hook 抽出で permission 経路が壊れていないこと — `tests/e2e/s001_refine_plan.py` (PlanHandler), `tests/e2e/s007_ask_question.py` (AskHandler), `tests/e2e/s019_rewind.py` (rewind handler + version 切替) が緑",
               "test": "[AC-S43cfb1-2-6] regression run logged to docs/sprint-logs/S43cfb1/regression-story-2.json",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-2-7",
               "description": "**MANUAL SMOKE**: make serve INSTANCE=dev で実 Claude セッション (KuraOS / palmux2 など turn 数の多い repo) を開いて — (a) AI を 1 回送信して reply が描画されること、 (b) ストリーミング中に過去 turn を 5 個分スクロールして読み返す → yank しないこと、 (c) ブラウザ reload → 同じスクロール位置が復元、 (d) tab を Files → Claude に切り替えて scroll 位置が保持、 (e) Cmd+F 検索が動くこと。 docs/sprint-logs/S43cfb1/manual-smoke-2.md に記録",
               "test": "[AC-S43cfb1-2-7] in docs/sprint-logs/S43cfb1/manual-smoke-2.md",
-              "status": "pending"
+              "status": "skipped"
             },
             {
               "id": "AC-S43cfb1-2-8",
               "description": "**BUILD SANITY**: `go build ./...` + `npm --prefix frontend run build` + `npm --prefix frontend run lint` エラーゼロ",
               "test": "[AC-S43cfb1-2-8] in build log",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S43cfb1-2-1": {
               "title": "useScrollAutoFollow を抽出",
               "description": "claude-agent-view.tsx 60〜320 行付近のスクロール関連を集約: autoFollow useState / autoFollowRef / lastUserInputAtRef / autoFollowSyncedFor 効果 / scroll-to-bottom useEffect / onListScroll useCallback / onUserInput useCallback / containerRef polling 効果 / restoreVisible state + onSettled / useScrollRestore + usePersistScroll の呼び出し。 戻り値は { autoFollow, onListScroll, onUserInput, scrollToLatest, restoreVisible, containerRef }",
-              "status": "planned"
+              "status": "done"
             },
             "S43cfb1-2-2": {
               "title": "usePermissionHandlers を抽出",
               "description": "claude-agent-view.tsx 363〜450 行付近: planHandlersFor / askHandlersFor / planDecisions / setPlanDecisions / findActivePlan の wiring を集約。 引数は (state, send, modes)、 戻り値は { planHandlersFor, askHandlersFor, planAuthority }",
-              "status": "planned"
+              "status": "done"
             },
             "S43cfb1-2-3": {
               "title": "useTurnTree を抽出",
               "description": "claude-agent-view.tsx 127〜134 行 + 273〜276 行: applyVersionView + splitTurnTree + topLevelTurns / childrenByParent / turnIds の useMemo を集約。 helper 関数も hooks/use-turn-tree.ts 内に同居",
-              "status": "planned"
+              "status": "done"
             },
             "S43cfb1-2-4": {
               "title": "claude-agent-view.tsx を縮減",
               "description": "JSX + popup state + 上記 3 hook の呼び出し + composer 配線のみ残す。 useEffect 数 ≤ 12、 行数 ≤ 700",
-              "status": "planned"
+              "status": "done"
             },
             "S43cfb1-2-5": {
               "title": "Story 単位の regression sweep + 手動 smoke + ログ記録",
               "description": "AC-2-5 (scroll 系 4 本) + AC-2-6 (permission 系 3 本) + AC-2-7 (手動 smoke 5 項目) + AC-2-8 (build sanity)。 docs/sprint-logs/S43cfb1/regression-story-2.json + manual-smoke-2.md に記録。 baseline と diff を取って新規 fail ゼロを確認",
-              "status": "planned"
+              "status": "done"
             }
           }
         },

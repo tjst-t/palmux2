@@ -1,0 +1,29 @@
+{
+  "story_id": "S43cfb1-2",
+  "phase": "story_complete",
+  "regression_result": "no_new_failures",
+  "tests": {
+    "hotfix_claude_scroll_button": {"baseline": "pass", "now": "pass"},
+    "hotfix_claude_scroll_yank_during_stream": {"baseline": "pass", "now": "pass"},
+    "s017_long_session": {"baseline": "fail", "now": "fail", "preexisting": true},
+    "s009_multi_tab": {"baseline": "fail", "now": "fail", "preexisting": true},
+    "s001_refine_plan": {"baseline": "fail", "now": "fail", "preexisting": true},
+    "s007_ask_question": {"baseline": "fail", "now": "fail", "preexisting": true},
+    "s019_rewind": {"baseline": "fail", "now": "fail", "preexisting": true}
+  },
+  "build": {
+    "go_build": "pass",
+    "npm_build": "pass"
+  },
+  "structural_acs": {
+    "AC-2-1_use_scroll_auto_follow_exports": "pass (autoFollow, onListScroll, onUserInput, restoreVisible, containerRef, scrollToLatest)",
+    "AC-2-2_use_permission_handlers_exports": "pass (planHandlersFor, askHandlersFor, planAuthority, planDecisions, setPlanDecisions)",
+    "AC-2-3_use_turn_tree_exports": "pass (applyVersionView, splitTurnTree, topLevelTurns, childrenByParent, turnIds)",
+    "AC-2-4_view_under_700_lines_and_12_useEffect": "pass (633 lines, 4 useEffect calls)",
+    "AC-2-8_build_sanity": "pass"
+  },
+  "bundle_size_bytes": {
+    "index": 889990,
+    "delta_from_baseline_pct": 0.09
+  }
+}
