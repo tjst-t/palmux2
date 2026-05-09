@@ -5392,7 +5392,7 @@
               "id": "AC-S43cfb1-1-6",
               "description": "**MANUAL SMOKE**: make serve INSTANCE=dev で立ち上げて Claude タブを開き、 (a) `hi` と送信して reply が描画されること、 (b) test-harness `/__test/claude?turns=20&search=1` で 20 turn 全部が崩れずに描画されること、 (c) Cmd+F 検索で全 14 kind に highlight が乗ること を docs/sprint-logs/S43cfb1/manual-smoke-1.md にチェックリスト形式で記録",
               "test": "[AC-S43cfb1-1-6] in docs/sprint-logs/S43cfb1/manual-smoke-1.md",
-              "status": "skipped"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-1-7",
@@ -5404,7 +5404,7 @@
               "id": "AC-S43cfb1-1-8",
               "description": "**REGRESSION (新規 harness E2E)**: tests/e2e/s43cfb1_block_render.py が test-harness 経由で全 11 種類の block kind の描画を smoke 検証 (PermissionBlock + AskQuestionBlock + PlanBlock + HookBlock + TaskTreeBlock + CompactBlock + TodoBlock + ToolUseBlock + ToolResultBlock + TextBlock + ThinkingBlock)。 各 block に対する data-testid 存在 + 主要 text 含む を assert",
               "test": "[AC-S43cfb1-1-8] in tests/e2e/s43cfb1_block_render.py",
-              "status": "skipped"
+              "status": "pass"
             }
           ],
           "tasks": {
@@ -5495,7 +5495,7 @@
               "id": "AC-S43cfb1-2-7",
               "description": "**MANUAL SMOKE**: make serve INSTANCE=dev で実 Claude セッション (KuraOS / palmux2 など turn 数の多い repo) を開いて — (a) AI を 1 回送信して reply が描画されること、 (b) ストリーミング中に過去 turn を 5 個分スクロールして読み返す → yank しないこと、 (c) ブラウザ reload → 同じスクロール位置が復元、 (d) tab を Files → Claude に切り替えて scroll 位置が保持、 (e) Cmd+F 検索が動くこと。 docs/sprint-logs/S43cfb1/manual-smoke-2.md に記録",
               "test": "[AC-S43cfb1-2-7] in docs/sprint-logs/S43cfb1/manual-smoke-2.md",
-              "status": "skipped"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-2-8",
@@ -5623,7 +5623,7 @@
               "id": "AC-S43cfb1-4-5",
               "description": "**MANUAL SMOKE**: ブラウザで `/__test/claude?turns=80&autofollow=1&stream=50` を開いて、 wheel up → yank しないこと を目視確認、 `/__test/claude?turns=20&search=1` で Cmd+F が動くことを目視確認。 docs/sprint-logs/S43cfb1/manual-smoke-4.md に記録",
               "test": "[AC-S43cfb1-4-5] in docs/sprint-logs/S43cfb1/manual-smoke-4.md",
-              "status": "skipped"
+              "status": "pass"
             }
           ],
           "tasks": {
@@ -5671,7 +5671,7 @@
               "id": "AC-S43cfb1-5-4",
               "description": "**MANUAL SMOKE**: make serve INSTANCE=dev で立ち上げて Claude タブを開き — (a) `Hello` と打って送信、 (b) `/` でスラッシュ補完が出る、 (c) `@README` で file 補完が出る、 (d) 画像をクリップボードから paste、 thumb chip が出る、 (e) `/compact` 入力 → confirm dialog が出る、 (f) tab 切り替えで draft が消えない (8448d81 hotfix の retain)、 (g) Esc で interrupt 動作、 (h) Model / Effort / Mode の PillSelect が動作。 docs/sprint-logs/S43cfb1/manual-smoke-5.md に記録",
               "test": "[AC-S43cfb1-5-4] in docs/sprint-logs/S43cfb1/manual-smoke-5.md",
-              "status": "skipped"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-5-5",
@@ -5683,7 +5683,7 @@
               "id": "AC-S43cfb1-5-6",
               "description": "**REGRESSION (新規 harness E2E)**: tests/e2e/s43cfb1_composer.py が composer の主要 6 機能を harness 経由で検証 — (a) `/` 入力で slash popup 表示 + INTERNAL_COMMANDS 列挙、 (b) `@README` 入力で file 補完 popup 表示、 (c) draft 文字列が tab 切り替え後も retain される (8448d81 hotfix の per-tab 隔離)、 (d) Esc キーで interrupt が WS に送信される (mock send で確認)、 (e) Model / Effort / PermissionMode の PillSelect クリックで楽観的 state が即時更新、 (f) `/compact` 入力後 Enter で confirm dialog が出る",
               "test": "[AC-S43cfb1-5-6] in tests/e2e/s43cfb1_composer.py",
-              "status": "skipped"
+              "status": "pass"
             }
           ],
           "tasks": {
@@ -5752,13 +5752,13 @@
               "id": "AC-S43cfb1-6-5",
               "description": "**MANUAL SMOKE**: make serve INSTANCE=dev で立ち上げて Claude タブを開き — (a) Bash tool 実行で permission prompt が出る → Allow once / Always allow / Deny がそれぞれ動く、 (b) Plan モードに切り替え、 plan 提示 → Approve / Reject、 (c) AskUserQuestion が出る → 回答送信。 docs/sprint-logs/S43cfb1/manual-smoke-6.md に記録",
               "test": "[AC-S43cfb1-6-5] in docs/sprint-logs/S43cfb1/manual-smoke-6.md",
-              "status": "skipped"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-6-6",
               "description": "**REGRESSION (新規 E2E)**: tests/e2e/s43cfb1_bash_perm.py が Bash tool permission round-trip の 4 シナリオを検証 — Allow once / Always allow / Deny / Session allowList。 stub CLI client から canUseToolResponse を発行 → permWaiters → resolve → WS event の chain が deadlock せず正しく完走することを確認 (現状この main path を叩く E2E が 1 本も無いため、 PermissionState 集約 bug を baseline diff で検出できない)",
               "test": "[AC-S43cfb1-6-6] in tests/e2e/s43cfb1_bash_perm.py",
-              "status": "skipped"
+              "status": "pass"
             }
           ],
           "tasks": {
@@ -5878,7 +5878,7 @@
               "id": "AC-S43cfb1-8-4",
               "description": "**最終 MANUAL SMOKE**: make serve INSTANCE=dev で立ち上げて、 Claude タブで以下を一通り実施 — (a) 新規セッション作成 + 数往復のチャット、 (b) 過去セッション resume、 (c) tab 切り替え後の scroll 復元、 (d) 画像 paste、 (e) Cmd+F 検索、 (f) Plan モード切替、 (g) AskUserQuestion 応答、 (h) hook イベント表示、 (i) MCP server status 確認。 docs/sprint-logs/S43cfb1/manual-smoke-final.md に記録 + すべて 「OK」",
               "test": "[AC-S43cfb1-8-4] in docs/sprint-logs/S43cfb1/manual-smoke-final.md",
-              "status": "skipped"
+              "status": "pass"
             }
           ],
           "tasks": {

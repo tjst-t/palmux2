@@ -9,7 +9,14 @@ interface Props {
 export function InlineCompletionPopup({ state, onPick }: Props) {
   if (!state.activeTrigger) return null
   return (
-    <div className={styles.popup} role="listbox" aria-label={state.activeTrigger.name}>
+    <div
+      className={styles.popup}
+      role="listbox"
+      aria-label={state.activeTrigger.name}
+      data-testid="inline-completion-popup"
+      data-trigger-name={state.activeTrigger.name}
+      data-trigger-char={state.activeTrigger.char}
+    >
       <div className={styles.head}>{state.activeTrigger.name}</div>
       {state.options.length === 0 ? (
         <div className={styles.empty}>{state.loading ? 'Loading…' : 'No matches.'}</div>
@@ -21,6 +28,8 @@ export function InlineCompletionPopup({ state, onPick }: Props) {
               className={`${styles.item} ${i === state.selected ? styles.active : ''}`.trim()}
               role="option"
               aria-selected={i === state.selected}
+              data-testid={`inline-completion-option-${i}`}
+              data-option-label={opt.label}
               onMouseDown={(e) => {
                 // Prevent the textarea from losing focus before onClick fires.
                 e.preventDefault()

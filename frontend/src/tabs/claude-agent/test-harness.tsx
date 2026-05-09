@@ -18,11 +18,39 @@
 //                    `< 1/2 >` arrows render. Edit + submit are stubbed
 //                    locally (no real backend) so the optimistic apply
 //                    still exercises through.
+//   blocks=all     — S43cfb1-1-8: synthesise one Turn per Block kind so an
+//                    E2E test can verify every renderer mounts with a
+//                    deterministic data-testid="block-{kind}-{id}" wrapper.
+//                    Composes with `composer=1` for a full kitchen-sink
+//                    surface.
+//   composer=1     — S43cfb1-5-6: mount the real Composer below the
+//                    ConversationList with stubbed onSend / onInterrupt
+//                    handlers that surface their last invocation via
+//                    `[data-testid="harness-composer-state"]` so an
+//                    E2E test can drive slash / mention / paste / Esc /
+//                    Cmd+Enter without a live WS backend. The composer's
+//                    repoId / branchId are synthetic so the @-mention
+//                    fetch goes through the stub Files API exposed via
+//                    `composerRepoId` + `composerBranchId` query params.
+//   composerRepoId=...    — repoId passed to the composer (defaults to
+//                    `harness-repo`). The harness installs a fetch
+//                    interceptor for `/api/repos/.../files/search` that
+//                    returns README + a couple of fake hits so the
+//                    `@README` mention test can go green without any
+//                    real BE.
+//   composerBranchId=...  — branchId passed to the composer (defaults to
+//                    `harness-branch`).
+//   composerTabIds=a,b   — comma-separated tab ids to render side-by-side
+//                    so a tab-switch test can verify per-tab draft
+//                    isolation. The harness shows a button row to switch
+//                    which tab id is "active" (which composer is mounted)
+//                    so localStorage isolation can be exercised end-to-end.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { BlockView } from './blocks'
+import { Composer } from './composer'
 import { ConversationExportDialog } from './conversation-export'
 import { UserTurnEditor } from './user-turn-editor'
 import {
@@ -96,6 +124,194 @@ function syntheticTurns(n: number, readLines: number, withCompactBoundary: boole
   return out
 }
 
+/** S43cfb1-1-8 kitchen sink: one synthetic Turn per Block kind so E2E
+ *  can verify every renderer mounts. Each block's payload is the
+ *  minimum that exercises a non-empty rendering path — e.g. the
+ *  permission block needs `toolName`, the ask block needs `input`, the
+ *  task-tree needs a Task tool_use with a child sub-agent turn. */
+function syntheticAllBlocksTurns(): Turn[] {
+  const out: Turn[] = []
+  // 1) text — assistant prose
+  out.push({
+    role: 'assistant',
+    id: 'turn-text',
+    blocks: [
+      makeBlock('b-text', 'text', {
+        text: 'kitchen-sink-text-payload Hello from harness.',
+        done: true,
+      }),
+    ],
+  })
+  // 2) thinking — assistant thinking
+  out.push({
+    role: 'assistant',
+    id: 'turn-thinking',
+    blocks: [
+      makeBlock('b-thinking', 'thinking', {
+        text: 'kitchen-sink-thinking-payload reasoning step',
+        done: true,
+      }),
+    ],
+  })
+  // 3) tool_use — Bash invocation, finished
+  out.push({
+    role: 'assistant',
+    id: 'turn-tooluse',
+    blocks: [
+      makeBlock('b-tooluse', 'tool_use', {
+        name: 'Bash',
+        input: { command: 'echo kitchen-sink-tooluse-payload', description: 'echo a sentinel' },
+        done: true,
+      }),
+    ],
+  })
+  // 4) tool_result — Bash output
+  out.push({
+    role: 'tool',
+    id: 'turn-toolresult',
+    blocks: [
+      makeBlock('b-toolresult', 'tool_result', {
+        output: 'kitchen-sink-toolresult-payload\nsecond line',
+        done: true,
+      }),
+    ],
+  })
+  // 5) plan — ExitPlanMode block. Plan extractor reads `text` (markdown).
+  out.push({
+    role: 'assistant',
+    id: 'turn-plan',
+    blocks: [
+      makeBlock('b-plan', 'plan', {
+        text: '# kitchen-sink-plan-payload\n\n1. step one\n2. step two',
+        done: true,
+        // Mark the plan as decided so the action row stays hidden — the
+        // harness has no real handler wiring.
+        planDecision: 'approved',
+        planTargetMode: 'auto',
+      }),
+    ],
+  })
+  // 6) permission — pending Bash permission prompt
+  out.push({
+    role: 'assistant',
+    id: 'turn-permission',
+    blocks: [
+      makeBlock('b-permission', 'permission', {
+        toolName: 'Bash',
+        input: { command: 'rm -rf kitchen-sink-permission-payload' },
+        permissionId: 'perm-harness',
+        // Mark decided=allow so the actions don't render (no handler).
+        decision: 'allow',
+        done: true,
+      }),
+    ],
+  })
+  // 7) ask — AskUserQuestion. The body parses block.input.questions.
+  out.push({
+    role: 'assistant',
+    id: 'turn-ask',
+    blocks: [
+      makeBlock('b-ask', 'ask', {
+        name: 'AskUserQuestion',
+        input: {
+          questions: [
+            {
+              question: 'kitchen-sink-ask-payload pick one',
+              options: [
+                { label: 'option-a', description: 'first choice' },
+                { label: 'option-b', description: 'second choice' },
+              ],
+            },
+          ],
+        },
+        // Pre-decided so the buttons don't need a handler.
+        askAnswers: [['option-a']],
+        done: true,
+      }),
+    ],
+  })
+  // 8) todo — TodoBlock reads block.todos
+  out.push({
+    role: 'assistant',
+    id: 'turn-todo',
+    blocks: [
+      makeBlock('b-todo', 'todo', {
+        todos: [
+          { content: 'kitchen-sink-todo-payload first', activeForm: 'doing first', status: 'completed' },
+          { content: 'second item', activeForm: 'doing second', status: 'in_progress' },
+          { content: 'third item', activeForm: 'doing third', status: 'pending' },
+        ],
+        done: true,
+      }),
+    ],
+  })
+  // 9) hook — CLI hook lifecycle event
+  out.push({
+    role: 'hook',
+    id: 'turn-hook',
+    blocks: [
+      makeBlock('b-hook', 'hook', {
+        hookId: 'hook-harness',
+        hookEvent: 'PreToolUse',
+        hookName: 'PreToolUse:Bash',
+        hookStdout: 'kitchen-sink-hook-payload stdout',
+        hookStderr: '',
+        hookExitCode: 0,
+        hookOutcome: 'ok',
+        done: true,
+      }),
+    ],
+  })
+  // 10) task-tree — Task tool_use with a child sub-agent turn. The
+  //     dispatcher produces a TaskTreeBlock when `renderTaskChildren`
+  //     is supplied. We render the child as a plain text turn.
+  const taskParentToolUseId = 'tool-harness-task'
+  out.push({
+    role: 'assistant',
+    id: 'turn-task',
+    blocks: [
+      makeBlock('b-task', 'tool_use', {
+        name: 'Task',
+        toolUseId: taskParentToolUseId,
+        input: {
+          description: 'kitchen-sink-task-payload',
+          subagent_type: 'general',
+          prompt: 'do the thing',
+        },
+        done: true,
+      }),
+    ],
+  })
+  // child sub-agent turn
+  out.push({
+    role: 'assistant',
+    id: 'turn-task-child-1',
+    parentToolUseId: taskParentToolUseId,
+    blocks: [
+      makeBlock('b-task-child-1', 'text', {
+        text: 'kitchen-sink-task-child-payload sub-agent reply',
+        done: true,
+      }),
+    ],
+  })
+  // 11) compact — synthetic role:"system" boundary
+  out.push({
+    role: 'system',
+    id: 'turn-compact',
+    blocks: [
+      makeBlock('b-compact', 'compact', {
+        compactTrigger: 'manual',
+        compactPreTokens: 12000,
+        compactPostTokens: 600,
+        compactDurationMs: 5000,
+        compactTurns: 8,
+        done: true,
+      }),
+    ],
+  })
+  return out
+}
+
 /** Inject a few "needle" turns into the snapshot so search has
  *  something deterministic to find. Returns the modified turns. */
 function injectSearchNeedles(turns: Turn[]): Turn[] {
@@ -125,7 +341,14 @@ function injectSearchNeedles(turns: Turn[]): Turn[] {
 
 export function TestHarness() {
   const [params] = useSearchParams()
-  const turnsCount = Math.max(0, parseInt(params.get('turns') ?? '20', 10) || 0)
+  const blocksMode = params.get('blocks') === 'all'
+  // When `blocks=all` is set, we ignore `turns=N` (which would otherwise
+  // default to 20 synthetic loremipsum pairs) so the kitchen-sink list
+  // is the only content rendered. The E2E test asserts presence by
+  // data-testid, so a deterministic small list is what we want.
+  const turnsCount = blocksMode
+    ? 0
+    : Math.max(0, parseInt(params.get('turns') ?? '20', 10) || 0)
   const readLines = Math.max(0, parseInt(params.get('readLines') ?? '0', 10) || 0)
   const sessionId = params.get('sessionId') ?? `harness-${turnsCount}-${readLines}`
   const showSearch = params.get('search') === '1'
@@ -133,6 +356,13 @@ export function TestHarness() {
   const showCompactBoundary = params.get('compactBoundary') === '1'
   const showCompactingSpinner = params.get('compacting') === '1'
   const showRewind = params.get('rewind') === '1'
+  const showComposer = params.get('composer') === '1'
+  const composerRepoId = params.get('composerRepoId') ?? 'harness-repo'
+  const composerBranchId = params.get('composerBranchId') ?? 'harness-branch'
+  const composerTabIdsParam = params.get('composerTabIds') ?? ''
+  const composerTabIds = composerTabIdsParam
+    ? composerTabIdsParam.split(',').map((s) => s.trim()).filter(Boolean)
+    : ['claude:claude']
   // Hotfix probe: wire onScroll → autoFollow + render the
   // "scroll-to-latest" button so E2E can verify the bug where the
   // button never appeared (because ConversationList's scroll listener
@@ -145,8 +375,11 @@ export function TestHarness() {
   const buttonBehavior = (params.get('behavior') === 'smooth' ? 'smooth' : 'instant') as ScrollBehavior
 
   const baseTurns = useMemo(
-    () => syntheticTurns(turnsCount, readLines, showCompactBoundary),
-    [turnsCount, readLines, showCompactBoundary],
+    () =>
+      blocksMode
+        ? syntheticAllBlocksTurns()
+        : syntheticTurns(turnsCount, readLines, showCompactBoundary),
+    [blocksMode, turnsCount, readLines, showCompactBoundary],
   )
   // S019: when rewind=1, inject a versions[] entry on the first user
   // turn so the `< 1/2 >` arrows render and an archived version is
@@ -219,6 +452,98 @@ export function TestHarness() {
   }
   const onRewindApplyLocalNoop = () => { /* harness applies directly via onRewindLocal */ }
 
+  // S43cfb1-5-6: composer test surface. Stub the WS-bound handlers and
+  // record their last invocation so an E2E test can assert that
+  // Cmd+Enter sent text and Esc fired interrupt without a real
+  // backend. We expose state via a hidden DOM element so Playwright
+  // can read attributes synchronously.
+  const [composerState, setComposerState] = useState<{
+    activeTabId: string
+    lastSendBody: string | null
+    lastSendAt: number | null
+    lastInterruptAt: number | null
+    sendCount: number
+    interruptCount: number
+    isStreaming: boolean
+  }>({
+    activeTabId: composerTabIds[0] ?? 'claude:claude',
+    lastSendBody: null,
+    lastSendAt: null,
+    lastInterruptAt: null,
+    sendCount: 0,
+    interruptCount: 0,
+    // Default to streaming=true so the Esc-interrupt path is reachable
+    // out of the box. The E2E test toggles this via the
+    // `harness-toggle-streaming` button when it needs the non-streaming
+    // path (e.g. to test Cmd+Enter submit).
+    isStreaming: params.get('composerStreaming') !== '0',
+  })
+
+  // S43cfb1-5-6: install a fetch interceptor for the Files API search
+  // endpoint so the @-mention completion popup gets deterministic
+  // results without a live BE. Restored on unmount.
+  useEffect(() => {
+    if (!showComposer) return
+    const original = window.fetch.bind(window)
+    const stubMatch = new RegExp(
+      `^/api/repos/${composerRepoId.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}/branches/[^/]+/files/search`,
+    )
+    const stubUploadMatch = new RegExp(
+      `^/api/repos/${composerRepoId.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}/branches/[^/]+/upload`,
+    )
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (stubMatch.test(url)) {
+        const u = new URL(url, window.location.origin)
+        const q = (u.searchParams.get('query') || '').toLowerCase()
+        const candidates = [
+          { path: 'README.md', isDir: false },
+          { path: 'README.harness.md', isDir: false },
+          { path: 'docs/README.md', isDir: false },
+          { path: 'src/index.ts', isDir: false },
+        ]
+        const results = candidates.filter((c) => !q || c.path.toLowerCase().includes(q))
+        return Promise.resolve(
+          new Response(JSON.stringify({ results }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+        )
+      }
+      if (stubUploadMatch.test(url)) {
+        // Return a fake upload response so paste / drop attachments
+        // resolve to "ready". The `path` is synthetic but realistic.
+        let name = 'pasted'
+        let kind: 'image' | 'file' = 'file'
+        let mime = 'application/octet-stream'
+        if (init?.body instanceof FormData) {
+          const f = init.body.get('file')
+          if (f instanceof File) {
+            name = f.name || (f.type.startsWith('image/') ? 'pasted.png' : 'pasted')
+            mime = f.type || mime
+            if (mime.startsWith('image/')) kind = 'image'
+          }
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              path: `/tmp/palmux-uploads/harness-${Date.now()}-${name}`,
+              originalName: name,
+              name,
+              mime,
+              kind,
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+        )
+      }
+      return original(input as RequestInfo, init)
+    }) as typeof window.fetch
+    return () => {
+      window.fetch = original
+    }
+  }, [showComposer, composerRepoId])
+
   const listHandleRef = useRef<ConversationListHandle | null>(null)
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
@@ -252,7 +577,22 @@ export function TestHarness() {
     }
     return [...turns, ...extras]
   }, [streamRate, streamCount, turns])
-  const effectiveDisplayTurns = streamedTurns ?? overrideTurns ?? turns
+  const rawDisplayTurns = streamedTurns ?? overrideTurns ?? turns
+  // S43cfb1-1-8: in blocks=all mode, hide sub-agent (parentToolUseId)
+  // child turns from the top-level list — they're rendered nested
+  // under the Task block via renderTaskChildren. Without this filter
+  // the child turn would render twice (once flat, once inside the
+  // tree) AND occupy a virtualised row slot.
+  const effectiveDisplayTurns = useMemo(
+    () =>
+      blocksMode
+        ? rawDisplayTurns.filter((t) => !t.parentToolUseId)
+        : rawDisplayTurns,
+    [blocksMode, rawDisplayTurns],
+  )
+  // Full turn list (including child sub-agent turns) so renderTaskChildren
+  // can find them by parentToolUseId lookup.
+  const allTurnsForChildLookup = rawDisplayTurns
   const turnIds = useMemo(() => effectiveDisplayTurns.map((t) => t.id), [effectiveDisplayTurns])
 
   // S43cfb1-4: replace the harness-local autoFollow state +
@@ -306,6 +646,49 @@ export function TestHarness() {
   // S43cfb1-4: scroll restore + persist now wired through
   // useScrollAutoFollow above (same as the real Claude tab).
 
+  // S43cfb1-1-8: in blocks=all mode the harness renders a special
+  // "task-tree" combination where the assistant turn carrying the
+  // Task tool_use block is rendered with renderTaskChildren wired so
+  // the TaskTreeBlock dispatches (vs the flat ToolUseBlock renderer
+  // that's used by default). We surface child sub-agent turns by
+  // looking up `parentToolUseId === block.toolUseId` in the displayed
+  // turns list.
+  const renderBlockWithTestId = (_turn: Turn, b: Block, allTurns: Turn[]): React.ReactNode => {
+    const renderTaskChildren =
+      blocksMode && b.kind === 'tool_use' && (b.name || '').toLowerCase() === 'task' && b.toolUseId
+        ? () => {
+            const children = allTurns.filter(
+              (t) => t.parentToolUseId && b.toolUseId && t.parentToolUseId === b.toolUseId,
+            )
+            return (
+              <>
+                {children.map((c) => (
+                  <div key={c.id} data-testid={`harness-task-child-${c.id}`}>
+                    {c.blocks.map((cb) => (
+                      <div key={cb.id} data-testid={`block-${cb.kind}-${cb.id}`}>
+                        <BlockView block={cb} />
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </>
+            )
+          }
+        : undefined
+    // The TaskTreeBlock dispatcher only kicks in when renderTaskChildren
+    // is supplied; otherwise the same Block rendered as a tool_use stays
+    // a flat ToolUseBlock. We tag the wrapper as `task-tree` only when
+    // the dispatcher actually produces a TaskTreeBlock — i.e. when
+    // renderTaskChildren is supplied — so the E2E selector matches the
+    // renderer that ran.
+    const testIdKind = renderTaskChildren ? 'task-tree' : b.kind
+    return (
+      <div key={b.id} data-testid={`block-${testIdKind}-${b.id}`}>
+        <BlockView block={b} renderTaskChildren={renderTaskChildren} />
+      </div>
+    )
+  }
+
   const renderTurn = (turn: Turn) => {
     if (showRewind && turn.role === 'user') {
       return (
@@ -333,9 +716,7 @@ export function TestHarness() {
     }
     return (
       <div className={styles.virtualTurnRow} data-testid={`harness-turn-${turn.id}`}>
-        {turn.blocks.map((b) => (
-          <BlockView key={b.id} block={b} />
-        ))}
+        {turn.blocks.map((b) => renderBlockWithTestId(turn, b, allTurnsForChildLookup))}
       </div>
     )
   }
@@ -451,6 +832,132 @@ export function TestHarness() {
           />
         )}
       </div>
+      {showComposer && (
+        <div data-testid="harness-composer-wrap">
+          <div
+            style={{
+              display: 'flex',
+              gap: 4,
+              padding: '4px 8px',
+              borderTop: '1px solid var(--color-border)',
+              background: 'var(--color-surface)',
+              fontSize: 11,
+            }}
+          >
+            <button
+              type="button"
+              data-testid="harness-toggle-streaming"
+              data-streaming={composerState.isStreaming ? 'true' : 'false'}
+              onClick={() =>
+                setComposerState((prev) => ({ ...prev, isStreaming: !prev.isStreaming }))
+              }
+              style={{
+                padding: '2px 8px',
+                borderRadius: 4,
+                border: '1px solid var(--color-border)',
+                background: 'var(--color-elevated)',
+                color: 'var(--color-fg)',
+                cursor: 'pointer',
+              }}
+            >
+              {composerState.isStreaming ? 'streaming=true' : 'streaming=false'}
+            </button>
+          </div>
+          {composerTabIds.length > 1 && (
+            <div
+              data-testid="harness-composer-tabs"
+              style={{
+                display: 'flex',
+                gap: 4,
+                padding: '4px 8px',
+                borderTop: '1px solid var(--color-border)',
+                background: 'var(--color-surface)',
+              }}
+            >
+              {composerTabIds.map((tid) => (
+                <button
+                  key={tid}
+                  type="button"
+                  data-testid={`harness-tab-${tid}`}
+                  data-active={composerState.activeTabId === tid ? 'true' : 'false'}
+                  onClick={() =>
+                    setComposerState((prev) => ({ ...prev, activeTabId: tid }))
+                  }
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: 4,
+                    border: '1px solid var(--color-border)',
+                    background:
+                      composerState.activeTabId === tid
+                        ? 'var(--color-elevated)'
+                        : 'transparent',
+                    color: 'var(--color-fg)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {tid}
+                </button>
+              ))}
+            </div>
+          )}
+          <Composer
+            // The Composer's draft persistence is keyed by tabId, so
+            // remounting on activeTabId change restores that tab's
+            // draft from localStorage. We KEY by tabId to force the
+            // remount (otherwise React reuses the textarea state and
+            // the typed text from tab A leaks into tab B).
+            key={composerState.activeTabId}
+            repoId={composerRepoId}
+            branchId={composerBranchId}
+            tabId={composerState.activeTabId}
+            onSend={(content: string) => {
+              // eslint-disable-next-line no-console
+              console.log('[harness] composer.onSend', content)
+              setComposerState((prev) => ({
+                ...prev,
+                lastSendBody: content,
+                lastSendAt: Date.now(),
+                sendCount: prev.sendCount + 1,
+              }))
+            }}
+            onInterrupt={() => {
+              // eslint-disable-next-line no-console
+              console.log('[harness] composer.onInterrupt')
+              setComposerState((prev) => ({
+                ...prev,
+                lastInterruptAt: Date.now(),
+                interruptCount: prev.interruptCount + 1,
+              }))
+            }}
+            isStreaming={composerState.isStreaming}
+            disabled={false}
+            connState="open"
+            model="sonnet"
+            effort=""
+            permissionMode="default"
+            permissionModes={['default', 'plan', 'acceptEdits']}
+            onModelChange={() => undefined}
+            onEffortChange={() => undefined}
+            onPermissionModeChange={() => undefined}
+            initInfo={{
+              commands: [
+                { name: 'help', description: 'Show help' },
+                { name: 'plan', description: 'Enter plan mode' },
+              ],
+            }}
+          />
+          <div
+            data-testid="harness-composer-state"
+            data-active-tab={composerState.activeTabId}
+            data-last-send-body={composerState.lastSendBody ?? ''}
+            data-last-send-at={composerState.lastSendAt ?? ''}
+            data-last-interrupt-at={composerState.lastInterruptAt ?? ''}
+            data-send-count={composerState.sendCount}
+            data-interrupt-count={composerState.interruptCount}
+            style={{ display: 'none' }}
+          />
+        </div>
+      )}
     </div>
   )
 }
