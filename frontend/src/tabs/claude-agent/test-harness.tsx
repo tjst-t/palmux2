@@ -28,10 +28,12 @@ import { UserTurnEditor } from './user-turn-editor'
 import {
   ConversationList,
   type ConversationListHandle,
+} from './conversation-list'
+import {
   scrollStorageKey,
   usePersistScroll,
   useScrollRestore,
-} from './conversation-list'
+} from './scroll-hooks'
 import {
   ConversationSearchBar,
   useConversationSearch,

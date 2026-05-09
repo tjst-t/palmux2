@@ -12,11 +12,13 @@ import { ConversationExportDialog } from './conversation-export'
 import {
   ConversationList,
   type ConversationListHandle,
+} from './conversation-list'
+import {
   readPersistedScroll,
   scrollStorageKey,
   usePersistScroll,
   useScrollRestore,
-} from './conversation-list'
+} from './scroll-hooks'
 import {
   ConversationSearchBar,
   useConversationSearch,

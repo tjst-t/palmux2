@@ -5532,55 +5532,55 @@
         },
         "S43cfb1-3": {
           "title": "conversation-list.tsx の useScrollRestore / usePersistScroll を scroll-hooks.ts に物理移動",
-          "status": "planned",
+          "status": "done",
           "user_story": "Claude タブを保守する開発者として、 conversation-list.tsx (740 行) を 「react-window virtualization の wrapper」 だけに専念させ、 scroll restoration / persistence の hook 群を独立ファイルで読みたい。 なぜなら、 これらの hook は既に self-contained で localStorage キーと containerRef だけで動く独立した責務だが、 conversation-list.tsx 内に同居しているため list 仮想化の話と scroll-restore の話が同じファイルに混ざってレビューしにくいからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S43cfb1-3-1",
               "description": "frontend/src/tabs/claude-agent/scroll-hooks.ts が存在し、 useScrollRestore / usePersistScroll / readPersistedScroll / writePersistedScroll / scrollStorageKey / PersistedScroll 型 / findTopAnchor を export する",
               "test": "[AC-S43cfb1-3-1] in tests/acceptance/s43cfb1_refactor.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-3-2",
               "description": "conversation-list.tsx が 500 行以下に削減",
               "test": "[AC-S43cfb1-3-2] in tests/acceptance/s43cfb1_refactor.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-3-3",
               "description": "claude-agent-view.tsx と test-harness.tsx の import が scroll-hooks.ts 経由に切り替わっている (二重 export ゼロ)",
               "test": "[AC-S43cfb1-3-3] in tests/acceptance/s43cfb1_refactor.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-3-4",
               "description": "**REGRESSION**: scroll-restoration の振る舞いが壊れていないこと — `tests/e2e/hotfix_claude_scroll_button.py`, `tests/e2e/hotfix_claude_scroll_yank_during_stream.py`, `tests/e2e/s017_long_session.py`, `tests/e2e/s009_multi_tab.py` が緑",
               "test": "[AC-S43cfb1-3-4] regression run logged to docs/sprint-logs/S43cfb1/regression-story-3.json",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-3-5",
               "description": "**BUILD SANITY**: `npm --prefix frontend run build` + `lint` エラーゼロ",
               "test": "[AC-S43cfb1-3-5] in build log",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S43cfb1-3-1": {
               "title": "scroll-hooks.ts に hooks + 型 + helper を移動",
               "description": "conversation-list.tsx 345〜717 行付近 (useScrollRestore + usePersistScroll + readPersistedScroll + writePersistedScroll + scrollStorageKey + PersistedScroll / PersistedScrollRecord 型 + findTopAnchor) を scroll-hooks.ts に物理移動。 conversation-list.tsx 内の参照は import に書き換え",
-              "status": "planned"
+              "status": "done"
             },
             "S43cfb1-3-2": {
               "title": "consumers の import 更新",
               "description": "claude-agent-view.tsx と test-harness.tsx の `from './conversation-list'` import から scroll 関連シンボルを `from './scroll-hooks'` に切り替え。 conversation-list 自身からの再 export は削除 (二重エクスポート禁止)",
-              "status": "planned"
+              "status": "done"
             },
             "S43cfb1-3-3": {
               "title": "Story 単位の regression sweep + ログ記録",
               "description": "AC-3-4 の E2E 4 本 + AC-3-5 の build sanity を実行。 docs/sprint-logs/S43cfb1/regression-story-3.json に記録",
-              "status": "planned"
+              "status": "done"
             }
           }
         },

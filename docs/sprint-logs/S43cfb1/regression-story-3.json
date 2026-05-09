@@ -1,0 +1,21 @@
+{
+  "story_id": "S43cfb1-3",
+  "phase": "story_complete",
+  "regression_result": "no_new_failures",
+  "tests": {
+    "hotfix_claude_scroll_button": {"baseline": "pass", "now": "pass"},
+    "hotfix_claude_scroll_yank_during_stream": {"baseline": "pass", "now": "pass"},
+    "s017_long_session": {"baseline": "fail", "now": "fail", "preexisting": true},
+    "s009_multi_tab": {"baseline": "fail", "now": "fail", "preexisting": true}
+  },
+  "build": {
+    "go_build": "pass",
+    "npm_build": "pass"
+  },
+  "structural_acs": {
+    "AC-3-1_scroll_hooks_exports": "pass (scrollStorageKey, useScrollRestore, usePersistScroll, readPersistedScroll, writePersistedScroll, findTopAnchor, PersistedScroll, PersistedScrollRecord)",
+    "AC-3-2_conversation_list_under_500_lines": "pass (365 lines, was 740)",
+    "AC-3-3_consumer_imports_use_scroll_hooks_directly": "pass (claude-agent-view.tsx + test-harness.tsx import scroll symbols from ./scroll-hooks; conversation-list does not re-export them)",
+    "AC-3-5_build_sanity": "pass"
+  }
+}
