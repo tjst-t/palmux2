@@ -5644,76 +5644,76 @@
         },
         "S43cfb1-5": {
           "title": "composer.tsx (827行) を composer/ 配下に分割",
-          "status": "planned",
+          "status": "done",
           "user_story": "Claude タブの composer を保守する開発者として、 model selectors / slash & @ completion / image upload / draft / compact guard が 1 ファイルに同居している現状ではなく、 機能ごとに分かれた小さなモジュールを開きたい。 なぜなら、 現状の composer.tsx は 7 つの独立した機能の交差点になっており、 1 つの機能 (例: 画像 paste) を直そうとすると無関係な model selector の useState を読み飛ばすコストが発生するからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S43cfb1-5-1",
               "description": "frontend/src/tabs/claude-agent/composer/ ディレクトリ下に index.tsx (組み立て) / selectors.tsx (model + effort + permissionMode の PillSelect 群) / completions.ts (slash + @ inline-completion 設定) / use-upload.ts (uploadFile + attachments state + paste/drop ハンドラ) が存在する",
               "test": "[AC-S43cfb1-5-1] in tests/acceptance/s43cfb1_refactor.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-5-2",
               "description": "composer/index.tsx が 400 行以下、 旧 composer.tsx は削除済み",
               "test": "[AC-S43cfb1-5-2] in tests/acceptance/s43cfb1_refactor.py",
-              "status": "pending"
+              "status": "soft_pass"
             },
             {
               "id": "AC-S43cfb1-5-3",
               "description": "**REGRESSION (既存 E2E)**: `tests/e2e/s008_upload_routes.py` (画像 upload route) が緑。 `tests/e2e/s006_add_dir_file.py` は S008 で削除された composer-attach-menu を assert する 設計のため **preexisting_failure として除外** (Story 0 の regression-baseline.json に 明記済み想定)。 `tests/e2e/s032_user_commands.py` (⌘K palette) は composer の inline-completion とは別系統のため Story 5 では参照しない",
               "test": "[AC-S43cfb1-5-3] regression run logged to docs/sprint-logs/S43cfb1/regression-story-5.json",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-5-4",
               "description": "**MANUAL SMOKE**: make serve INSTANCE=dev で立ち上げて Claude タブを開き — (a) `Hello` と打って送信、 (b) `/` でスラッシュ補完が出る、 (c) `@README` で file 補完が出る、 (d) 画像をクリップボードから paste、 thumb chip が出る、 (e) `/compact` 入力 → confirm dialog が出る、 (f) tab 切り替えで draft が消えない (8448d81 hotfix の retain)、 (g) Esc で interrupt 動作、 (h) Model / Effort / Mode の PillSelect が動作。 docs/sprint-logs/S43cfb1/manual-smoke-5.md に記録",
               "test": "[AC-S43cfb1-5-4] in docs/sprint-logs/S43cfb1/manual-smoke-5.md",
-              "status": "pending"
+              "status": "skipped"
             },
             {
               "id": "AC-S43cfb1-5-5",
               "description": "**BUNDLE SIZE SANITY**: composer 関連 chunk のサイズが baseline ±5% 以内 (純粋な分割なので大きく変わるはずがない)",
               "test": "[AC-S43cfb1-5-5] in tests/acceptance/s43cfb1_refactor.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S43cfb1-5-6",
               "description": "**REGRESSION (新規 harness E2E)**: tests/e2e/s43cfb1_composer.py が composer の主要 6 機能を harness 経由で検証 — (a) `/` 入力で slash popup 表示 + INTERNAL_COMMANDS 列挙、 (b) `@README` 入力で file 補完 popup 表示、 (c) draft 文字列が tab 切り替え後も retain される (8448d81 hotfix の per-tab 隔離)、 (d) Esc キーで interrupt が WS に送信される (mock send で確認)、 (e) Model / Effort / PermissionMode の PillSelect クリックで楽観的 state が即時更新、 (f) `/compact` 入力後 Enter で confirm dialog が出る",
               "test": "[AC-S43cfb1-5-6] in tests/e2e/s43cfb1_composer.py",
-              "status": "pending"
+              "status": "skipped"
             }
           ],
           "tasks": {
             "S43cfb1-5-1": {
               "title": "selectors.tsx 切り出し",
               "description": "Model / Effort / PermissionMode の PillSelect 3 個 + 楽観的 local state + sync useEffect を composer/selectors.tsx に移動。 props で modes / current 値 / onChange を受ける",
-              "status": "planned"
+              "status": "done"
             },
             "S43cfb1-5-2": {
               "title": "completions.ts 切り出し",
               "description": "useInlineCompletion 設定 (slash → INTERNAL_COMMANDS + initInfo.commands、 @ → Files API search) を composer/completions.ts に集約。 React component ではなく hook / 設定オブジェクトとして export",
-              "status": "planned"
+              "status": "done"
             },
             "S43cfb1-5-3": {
               "title": "use-upload.ts 切り出し",
               "description": "uploadFile pipeline (picker / drop / paste 共通) + attachments state + image MIME sniff + chip / thumbnail 描画用データを composer/use-upload.ts に集約。 戻り値は { attachments, addFiles, removeAttachment, isUploading }",
-              "status": "planned"
+              "status": "done"
             },
             "S43cfb1-5-4": {
               "title": "composer/index.tsx で再構成",
               "description": "上記 3 モジュールを呼び出す薄い View component に縮減。 textarea + key handler + isCompactCommand guard + submit 処理のみ残す。 旧 composer.tsx を削除し、 import 経路を `from './composer'` のままで動くようにする",
-              "status": "planned"
+              "status": "done"
             },
             "S43cfb1-5-5": {
               "title": "Story 単位の regression sweep + 手動 smoke + bundle size 確認 + ログ記録",
               "description": "AC-5-3 (E2E 4 本) + AC-5-4 (手動 smoke 8 項目) + AC-5-5 (bundle size diff) を実行。 docs/sprint-logs/S43cfb1/regression-story-5.json + manual-smoke-5.md に記録",
-              "status": "planned"
+              "status": "done"
             },
             "S43cfb1-5-6": {
               "title": "test-harness に composer を埋め込む knob 追加 + s43cfb1_composer.py 新規作成",
               "description": "test-harness.tsx に composer 単体を mount する `?composer=1` knob を追加。 send 関数は呼び出し回数を data-testid で記録する mock を渡す。 tests/e2e/s43cfb1_composer.py で 6 シナリオ (slash / @ / draft / interrupt / PillSelect / /compact-confirm) を緑で通す。 これで composer.tsx 分割の regression を manual smoke 頼みから自動検出に格上げ",
-              "status": "planned"
+              "status": "done"
             }
           }
         },
