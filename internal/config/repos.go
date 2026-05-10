@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+
+	"github.com/tjst-t/palmux2/internal/runtime"
 )
 
 // RepoEntry is one row in repos.json.
@@ -45,6 +47,21 @@ type RepoEntry struct {
 	UserOpenedBranches []string                      `json:"userOpenedBranches,omitempty"`
 	TabOverrides       map[string]BranchTabOverrides `json:"tabOverrides,omitempty"`
 	LastActiveBranch   string                        `json:"last_active_branch,omitempty"`
+
+	// DefaultRuntime (Sdd4ce1) records the per-repo runtime override the user
+	// picked when this repo was Opened. Sits in the priority chain between
+	// per-Workspace and global. nil = not set (fall through to global).
+	//
+	// AC-Sdd4ce1-6-3 — design §9.1 "primary Workspace に適用 + per-repo
+	// default として記録".
+	DefaultRuntime *runtime.Config `json:"defaultRuntime,omitempty"`
+
+	// BranchRuntimes (Sdd4ce1) records per-Workspace runtime overrides keyed
+	// by the worktree path's basename (the human-readable Branch.Name, not
+	// the BranchID). nil/missing entry = inherit DefaultRuntime → global.
+	//
+	// AC-Sdd4ce1-6-1 — design §14.5 example layout.
+	BranchRuntimes map[string]*runtime.Config `json:"branchRuntimes,omitempty"`
 }
 
 // BranchTabOverrides is the per-branch payload of TabOverrides.
@@ -456,4 +473,151 @@ func (s *RepoStore) SetStarred(id string, starred bool) (bool, error) {
 
 func sortEntries(entries []RepoEntry) {
 	sort.SliceStable(entries, func(i, j int) bool { return entries[i].GHQPath < entries[j].GHQPath })
+}
+
+// ----- Sdd4ce1: per-repo / per-Workspace runtime config helpers -----
+
+// SetDefaultRuntime (Sdd4ce1) records the per-repo runtime default. Pass a
+// zero-value Config (or nil-equivalent) to clear. Returns (changed, error).
+//
+// AC-Sdd4ce1-6-3.
+func (s *RepoStore) SetDefaultRuntime(repoID string, cfg *runtime.Config) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.entries {
+		if s.entries[i].ID != repoID {
+			continue
+		}
+		// Detect a no-op write to keep callers from racing each other on
+		// startup (the open-repo flow may set the same default twice).
+		old := s.entries[i].DefaultRuntime
+		if runtimeConfigEqual(old, cfg) {
+			return false, nil
+		}
+		s.entries[i].DefaultRuntime = cfg
+		return true, s.save()
+	}
+	return false, fmt.Errorf("config: SetDefaultRuntime: repo %q not found", repoID)
+}
+
+// DefaultRuntime returns the per-repo default runtime config (a copy so the
+// caller can mutate freely). Returns nil if absent.
+func (s *RepoStore) DefaultRuntime(repoID string) *runtime.Config {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, e := range s.entries {
+		if e.ID != repoID {
+			continue
+		}
+		if e.DefaultRuntime == nil {
+			return nil
+		}
+		copyC := *e.DefaultRuntime
+		return &copyC
+	}
+	return nil
+}
+
+// SetBranchRuntime (Sdd4ce1) records a per-Workspace runtime override.
+// Pass nil to clear. The branch is identified by **branch name** (not
+// BranchID) for the same reason TabOverrides keys on the name — it stays
+// readable and survives an ID-hash regeneration. Returns (changed, error).
+//
+// AC-Sdd4ce1-6-1.
+func (s *RepoStore) SetBranchRuntime(repoID, branchName string, cfg *runtime.Config) (bool, error) {
+	if branchName == "" {
+		return false, fmt.Errorf("config: SetBranchRuntime: empty branch name")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.entries {
+		if s.entries[i].ID != repoID {
+			continue
+		}
+		if s.entries[i].BranchRuntimes == nil {
+			s.entries[i].BranchRuntimes = map[string]*runtime.Config{}
+		}
+		old := s.entries[i].BranchRuntimes[branchName]
+		if runtimeConfigEqual(old, cfg) {
+			return false, nil
+		}
+		if cfg == nil {
+			delete(s.entries[i].BranchRuntimes, branchName)
+			if len(s.entries[i].BranchRuntimes) == 0 {
+				s.entries[i].BranchRuntimes = nil
+			}
+		} else {
+			cp := *cfg
+			s.entries[i].BranchRuntimes[branchName] = &cp
+		}
+		return true, s.save()
+	}
+	return false, fmt.Errorf("config: SetBranchRuntime: repo %q not found", repoID)
+}
+
+// BranchRuntime returns the per-Workspace runtime override (a copy) or nil.
+func (s *RepoStore) BranchRuntime(repoID, branchName string) *runtime.Config {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, e := range s.entries {
+		if e.ID != repoID {
+			continue
+		}
+		if e.BranchRuntimes == nil {
+			return nil
+		}
+		c := e.BranchRuntimes[branchName]
+		if c == nil {
+			return nil
+		}
+		copyC := *c
+		return &copyC
+	}
+	return nil
+}
+
+// runtimeConfigEqual reports whether two *runtime.Config values are equal,
+// treating nil as "no value" and equal to nil. Used by setters to avoid
+// rewriting repos.json when the user re-confirms the same default.
+func runtimeConfigEqual(a, b *runtime.Config) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+// ResolveBranchRuntime (Sdd4ce1) walks the priority chain for the given
+// (repoID, branchName) and returns the resolved Config. The order is:
+//
+//	per-Workspace → per-repo → global → built-in (host fallback)
+//
+// `globalDefault` is the caller-supplied global default (typically the
+// Settings store's DefaultRuntime). If every layer is empty, the result has
+// Kind=KindHost — mirroring AC-Sdd4ce1-7-1 (existing repos that have no
+// runtime field at all open as host).
+//
+// AC-Sdd4ce1-6-1 / AC-Sdd4ce1-7-1.
+func (s *RepoStore) ResolveBranchRuntime(repoID, branchName string, globalDefault runtime.Config) runtime.Config {
+	perWS := s.BranchRuntime(repoID, branchName)
+	perRepo := s.DefaultRuntime(repoID)
+
+	// Built-in fallback at the very bottom of the chain.
+	hostFallback := runtime.Config{Kind: runtime.KindHost}
+
+	// Compose most-specific to least-specific. Each WithDefaults call only
+	// fills *empty* fields, so per-WS wins, per-repo fills the holes, then
+	// global, then host.
+	var resolved runtime.Config
+	if perWS != nil {
+		resolved = *perWS
+	}
+	if perRepo != nil {
+		resolved = resolved.WithDefaults(*perRepo)
+	}
+	resolved = resolved.WithDefaults(globalDefault)
+	resolved = resolved.WithDefaults(hostFallback)
+	return resolved
 }

@@ -41,6 +41,29 @@ type Branch struct {
 	TabSet       TabSet    `json:"tabSet"`
 	LastActivity time.Time `json:"lastActivity"`
 	Category     string    `json:"category,omitempty"` // S015
+
+	// Runtime (Sdd4ce1) reports the *resolved* runtime kind + state for the
+	// Workspace, surfaced via the API to drive the Header chip and the Drawer
+	// state badges (AC-Sdd4ce1-5-4 / AC-Sdd4ce1-5-5). Resolved means the
+	// priority-chain output (per-Workspace → per-repo → global → host
+	// fallback). The state is best-effort — host runtime always reports
+	// "ready"; lxd-* surfaces real container state when implemented.
+	Runtime *BranchRuntimeView `json:"runtime,omitempty"`
+}
+
+// BranchRuntimeView is the public shape of Branch.Runtime exposed to the FE.
+// It deliberately mirrors only what the UI needs — image/network/etc are
+// reachable via /api/repos/{repoId}/branches/{branchId}/runtime when needed.
+type BranchRuntimeView struct {
+	// Kind is the runtime kind (host / lxd-container / lxd-vm / ...).
+	Kind string `json:"kind"`
+	// State is one of "stopped" / "starting" / "ready" / "stopping" /
+	// "failed". host runtime always reports "ready" once Open.
+	State string `json:"state"`
+	// Address is best-effort — "localhost" for host, container IP otherwise.
+	Address string `json:"address,omitempty"`
+	// Error carries the most recent failure reason for State=="failed".
+	Error string `json:"error,omitempty"`
 }
 
 // TabSet is the collection of tabs for one branch.

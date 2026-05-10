@@ -90,7 +90,7 @@ func (s *Store) openBranchInternal(ctx context.Context, repoID, branchName strin
 		if existing.ID == branchID {
 			s.recomputeTabs(ctx, existing)
 			s.applyCategoriesUnlocked(repo)
-			snap := cloneBranch(existing)
+			snap := s.snapshotBranch(existing)
 			s.mu.Unlock()
 			// S015-1-6: only the *explicit* drawer path records this as
 			// user-opened. The auto path (sync_worktree) leaves it
@@ -107,7 +107,7 @@ func (s *Store) openBranchInternal(ctx context.Context, repoID, branchName strin
 	sortBranches(repo.OpenBranches)
 	s.recomputeTabs(ctx, branch)
 	s.applyCategoriesUnlocked(repo)
-	snap := cloneBranch(branch)
+	snap := s.snapshotBranch(branch)
 	s.mu.Unlock()
 
 	if markUserOpened {
@@ -175,7 +175,7 @@ func (s *Store) RenameBranch(ctx context.Context, repoID, branchID, newName stri
 	// Categorisation (S015) is name-keyed via repos.json.userOpenedBranches.
 	// Recompute so a renamed branch lands in the right Drawer section.
 	s.applyCategoriesUnlocked(repo)
-	snap := cloneBranch(branch)
+	snap := s.snapshotBranch(branch)
 	s.mu.Unlock()
 
 	// Notify Providers (default no-op for everyone except those that opt in).

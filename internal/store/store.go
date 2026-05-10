@@ -22,6 +22,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/domain"
 	"github.com/tjst-t/palmux2/internal/ghq"
 	"github.com/tjst-t/palmux2/internal/gwq"
+	"github.com/tjst-t/palmux2/internal/runtime"
 	"github.com/tjst-t/palmux2/internal/tab"
 	"github.com/tjst-t/palmux2/internal/tmux"
 	"github.com/tjst-t/palmux2/internal/worktree"
@@ -54,6 +55,13 @@ type Deps struct {
 	// MaxConnsPerBranch caps simultaneous WS attachments per branch. 0 means
 	// unlimited. Wired from the --max-connections CLI flag.
 	MaxConnsPerBranch int
+
+	// RuntimeRegistry (Sdd4ce1) is the optional registry that maps
+	// (repoID, branchID) → live runtime.Runtime. The store consults this
+	// only to populate Branch.Runtime in the JSON snapshots it emits;
+	// when nil, the runtime view falls back to the resolved kind +
+	// state="ready" (host runtime semantics).
+	RuntimeRegistry runtime.Registry
 }
 
 // Store is concurrency-safe.
@@ -195,6 +203,10 @@ func (s *Store) Tmux() tmux.Client { return s.deps.Tmux }
 // Settings returns the live SettingsStore.
 func (s *Store) Settings() *config.SettingsStore { return s.deps.Settings }
 
+// RepoStore returns the live RepoStore (Sdd4ce1: handlers consult it for
+// per-repo / per-Workspace runtime config).
+func (s *Store) RepoStore() *config.RepoStore { return s.deps.RepoStore }
+
 // Registry returns the TabProvider registry.
 func (s *Store) Registry() *tab.Registry { return s.registry }
 
@@ -219,7 +231,7 @@ func (s *Store) Repos() []*domain.Repository {
 	s.applyCategoriesAllUnlocked()
 	out := make([]*domain.Repository, 0, len(s.repos))
 	for _, r := range s.repos {
-		out = append(out, cloneRepo(r))
+		out = append(out, s.snapshotRepo(r))
 	}
 	s.mu.Unlock()
 	sort.Slice(out, func(i, j int) bool { return out[i].GHQPath < out[j].GHQPath })
@@ -235,7 +247,7 @@ func (s *Store) Repo(id string) (*domain.Repository, error) {
 		return nil, ErrRepoNotFound
 	}
 	s.applyCategoriesUnlocked(r)
-	cp := cloneRepo(r)
+	cp := s.snapshotRepo(r)
 	s.mu.Unlock()
 	return cp, nil
 }
@@ -251,7 +263,7 @@ func (s *Store) Branch(repoID, branchID string) (*domain.Branch, error) {
 	s.applyCategoriesUnlocked(r)
 	for _, b := range r.OpenBranches {
 		if b.ID == branchID {
-			return cloneBranch(b), nil
+			return s.snapshotBranch(b), nil
 		}
 	}
 	return nil, ErrBranchNotFound
@@ -767,7 +779,75 @@ func cloneBranch(b *domain.Branch) *domain.Branch {
 	cp := *b
 	cp.TabSet = domain.TabSet{TmuxSession: b.TabSet.TmuxSession}
 	cp.TabSet.Tabs = append([]domain.Tab(nil), b.TabSet.Tabs...)
+	if b.Runtime != nil {
+		rv := *b.Runtime
+		cp.Runtime = &rv
+	}
 	return &cp
+}
+
+// snapshotBranch returns a deep copy of b with the Runtime view populated.
+// All public snapshot paths should use this helper so the FE always sees
+// a populated `runtime` field.
+func (s *Store) snapshotBranch(b *domain.Branch) *domain.Branch {
+	cp := cloneBranch(b)
+	s.populateRuntimeView(cp)
+	return cp
+}
+
+// snapshotRepo returns a deep copy of r with every Branch's Runtime view
+// populated.
+func (s *Store) snapshotRepo(r *domain.Repository) *domain.Repository {
+	cp := cloneRepo(r)
+	if cp == nil {
+		return nil
+	}
+	for _, b := range cp.OpenBranches {
+		s.populateRuntimeView(b)
+	}
+	return cp
+}
+
+// populateRuntimeView (Sdd4ce1) fills the Branch.Runtime view by:
+//  1. Resolving the runtime kind via RepoStore.ResolveBranchRuntime (per-WS
+//     → per-repo → global → host fallback).
+//  2. Asking the RuntimeRegistry for the live Runtime; if present its
+//     Status() drives State/Address/Error; otherwise State defaults to
+//     "ready" for kind=host (no async bring-up) or "stopped" for non-host
+//     kinds (the user has selected a runtime but it hasn't been Started).
+//
+// AC-Sdd4ce1-1-1 / AC-Sdd4ce1-7-1.
+func (s *Store) populateRuntimeView(b *domain.Branch) {
+	if b == nil {
+		return
+	}
+	global := runtime.Config{}
+	if s.deps.Settings != nil {
+		global = s.deps.Settings.DefaultRuntime()
+	}
+	cfg := s.deps.RepoStore.ResolveBranchRuntime(b.RepoID, b.Name, global)
+	view := &domain.BranchRuntimeView{Kind: string(cfg.Kind)}
+	if s.deps.RuntimeRegistry != nil {
+		if rt := s.deps.RuntimeRegistry.Get(b.RepoID, b.ID); rt != nil {
+			st := rt.Status()
+			view.State = string(st.State)
+			view.Address = st.Address
+			view.Error = st.Error
+		}
+	}
+	if view.State == "" {
+		// Sensible defaults when no live Runtime is registered:
+		// host has no bring-up — report ready immediately. Non-host
+		// kinds without a registered Runtime are surfaced as "stopped"
+		// so the FE can render the lazy-spawn UX (priority_rule 4).
+		if cfg.Kind == runtime.KindHost || cfg.Kind == "" {
+			view.State = string(runtime.StateReady)
+			view.Address = "localhost"
+		} else {
+			view.State = string(runtime.StateStopped)
+		}
+	}
+	b.Runtime = view
 }
 
 func sortBranches(branches []*domain.Branch) {
