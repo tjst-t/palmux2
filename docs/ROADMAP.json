@@ -5,7 +5,7 @@
     "sprints_done": 35,
     "sprints_total": 39,
     "percent": 89,
-    "current_sprint": "S0f6866",
+    "current_sprint": "Sdd4ce1",
     "done": 37,
     "in_progress": 0,
     "total": 39,
@@ -6454,14 +6454,32 @@
             },
             {
               "id": "AC-Sdd4ce1-5-3",
-              "description": "`Don't ask again, use default for all repos` チェックは settings.json の `defaultRuntime` を更新するショートカット (§9.1)",
+              "description": "Open Repository / Workspace creation modal の Runtime selector は毎回必ず表示される。 settings の `defaultRuntime` は modal 結果からは更新されず Settings 画面からのみ編集可能 (`Don't ask again` チェックは廃止)",
               "test": "[AC-Sdd4ce1-5-3] in tests/e2e/sdd4ce1_runtime_modal.py",
               "status": "pending"
             },
             {
               "id": "AC-Sdd4ce1-5-4",
-              "description": "Drawer の Workspace 行に runtime kind icon を表示 (§9.3)、 起動中は spinner / ready 点灯 / failed 警告",
+              "description": "Drawer の Workspace 行は通常通り (runtime kind icon は出さない)。 starting/failed 状態のみ右側に小さな state tag (spinner/red dot) を表示し、 ready は何も表示しない (prototype round-2 準拠)",
               "test": "[AC-Sdd4ce1-5-4] in tests/e2e/sdd4ce1_runtime_modal.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sdd4ce1-5-5",
+              "description": "active Workspace の runtime kind は Header の chip (text-only label, 例 `lxd-container · ready`) として表示する。 Drawer 行には runtime icon を出さない (S028 設計準拠)",
+              "test": "[AC-Sdd4ce1-5-5] in tests/e2e/sdd4ce1_runtime_modal.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sdd4ce1-5-6",
+              "description": "runtime kind 切替時にアクティブな Bash/Claude タブが 1 つ以上あれば確認 modal を出す。 modal は Claude/Bash tab の list と 'Stop tabs & switch' (danger) / 'Cancel' を出す。 Workspace に tab が無ければ確認なしで切替",
+              "test": "[AC-Sdd4ce1-5-6] in tests/e2e/sdd4ce1_runtime_modal.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sdd4ce1-5-7",
+              "description": "Mobile (<600px) では `Change runtime…` は flyout submenu ではなく full-screen sheet として開く (S022 mobile parity)",
+              "test": "[AC-Sdd4ce1-5-7] in tests/e2e/sdd4ce1_runtime_modal.py",
               "status": "pending"
             }
           ],
