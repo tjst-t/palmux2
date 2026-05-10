@@ -1,0 +1,160 @@
+{
+  "sprint": "S9fd775",
+  "verified_at": "2026-05-10T11:18:00Z",
+  "verifier": "autopilot (Opus 4.7) — sprint auto S9fd775",
+  "summary": "All 12 acceptance criteria across 4 stories pass. Unit (11 cases), Python acceptance (9 cases), and VM-based Makefile-equivalent end-to-end (1 script) all green.",
+  "stories": {
+    "S9fd775-1": {
+      "title": "internal/port allocator (Allocate / Free / List + 永続化)",
+      "acs": [
+        {
+          "id": "AC-S9fd775-1-1",
+          "description": "Allocate / Free / List (idempotent within scope, separated by scope)",
+          "test_target": "internal/port/allocator_test.go",
+          "tests": [
+            "TestAllocate_Idempotent_Global",
+            "TestAllocate_DifferentScopesDifferentPorts",
+            "TestList_AndFree",
+            "TestAllocate_Validation"
+          ],
+          "status": "pass"
+        },
+        {
+          "id": "AC-S9fd775-1-2",
+          "description": "Persist to ~/.config/palmux/ports.json, portman-shaped, --config-dir override",
+          "test_target": "internal/port/allocator_test.go",
+          "tests": [
+            "TestPersistence_PathAndShape",
+            "TestDefaultPath_Override",
+            "TestPersistence_RoundTrip"
+          ],
+          "status": "pass"
+        },
+        {
+          "id": "AC-S9fd775-1-3",
+          "description": "flock prevents concurrent-write corruption (server + CLI)",
+          "test_target": "internal/port/allocator_test.go",
+          "tests": [
+            "TestAllocate_ConcurrentInProcess",
+            "TestAllocate_FlockSerializesWriters"
+          ],
+          "status": "pass"
+        },
+        {
+          "id": "AC-S9fd775-1-4",
+          "description": "free port via net.Listen :0 → close → use; retry on TOCTOU",
+          "test_target": "internal/port/allocator_test.go",
+          "tests": [
+            "TestPickFreePort_AvoidsRecorded",
+            "TestAllocate_PortIsBindable"
+          ],
+          "status": "pass"
+        }
+      ]
+    },
+    "S9fd775-2": {
+      "title": "palmux port subcommand (exec / alloc / list / free)",
+      "acs": [
+        {
+          "id": "AC-S9fd775-2-1",
+          "description": "palmux port exec --name foo -- cmd --port {} substitutes & frees in step",
+          "test_target": "tests/acceptance/s9fd775_palmux_port.py",
+          "tests": [
+            "test_AC_S9fd775_2_1_exec_substitutes_placeholder",
+            "test_AC_S9fd775_2_1_exec_propagates_exit_code",
+            "test_AC_S9fd775_2_1_exec_lease_persistence"
+          ],
+          "status": "pass"
+        },
+        {
+          "id": "AC-S9fd775-2-2",
+          "description": "alloc / list / free verbs (incl. JSON, scopes)",
+          "test_target": "tests/acceptance/s9fd775_palmux_port.py",
+          "tests": [
+            "test_AC_S9fd775_2_2_alloc_returns_port",
+            "test_AC_S9fd775_2_2_alloc_json",
+            "test_AC_S9fd775_2_2_list_and_free"
+          ],
+          "status": "pass"
+        },
+        {
+          "id": "AC-S9fd775-2-3",
+          "description": "Works with palmux serve NOT running; flock serializes concurrent CLI",
+          "test_target": "tests/acceptance/s9fd775_palmux_port.py",
+          "tests": [
+            "test_AC_S9fd775_2_3_works_without_server",
+            "test_AC_S9fd775_2_3_concurrent_invocations",
+            "test_AC_S9fd775_2_3_ports_json_is_the_contract"
+          ],
+          "status": "pass"
+        }
+      ]
+    },
+    "S9fd775-3": {
+      "title": "Makefile portman → palmux port migration",
+      "acs": [
+        {
+          "id": "AC-S9fd775-3-1",
+          "description": "Makefile dev / serve / serve-stop / serve-logs use palmux port; INSTANCE=<name> works",
+          "test_target": "Makefile + local smoke + tests/acceptance/s9fd775_makefile_vm.sh on test VM",
+          "tests": [
+            "make ports INSTANCE=smoke (local) — 2 ports allocated, ports.json updated",
+            "make serve INSTANCE=accept (local) — server up on allocated port, HTTP 302 from /auth, stop drops the lease",
+            "ssh ubuntu@192.168.1.41 bash s9fd775_makefile_vm.sh — VM smoke (PASS)"
+          ],
+          "status": "pass"
+        },
+        {
+          "id": "AC-S9fd775-3-2",
+          "description": "On test VM: make serve up, HTTP request through, make serve-stop clean, ports.json drops the entry",
+          "test_target": "tests/acceptance/s9fd775_makefile_vm.sh on ubuntu@192.168.1.41",
+          "tests": [
+            "alloc port for palmux2-vm-acceptest → 42627 (varies)",
+            "boot palmux on that port → /auth returns HTTP 302",
+            "SIGTERM the PID; wait; lease freed → ports.json no longer mentions palmux2-vm-acceptest"
+          ],
+          "status": "pass"
+        },
+        {
+          "id": "AC-S9fd775-3-3",
+          "description": "go.mod has no portman dep; build clean",
+          "test_target": "go vet ./... ; go test ./... ; grep portman go.mod",
+          "tests": [
+            "grep portman go.mod → no match (verified)",
+            "go test ./... → all packages pass",
+            "go vet ./... → clean"
+          ],
+          "status": "pass"
+        }
+      ]
+    },
+    "S9fd775-4": {
+      "title": "README + CLAUDE.md updates",
+      "acs": [
+        {
+          "id": "AC-S9fd775-4-1",
+          "description": "README states port management is built in, portman remains available standalone",
+          "test_target": "README.md diff",
+          "tests": [
+            "Optional dependencies row for portman now reads 'No longer required ... standalone portman CLI remains available' (English + 日本語)",
+            "New 'Built-in port allocator (palmux port)' section with four-verb cheat sheet",
+            "--portman-url flag still documented as the way to link a portman dashboard"
+          ],
+          "status": "pass"
+        },
+        {
+          "id": "AC-S9fd775-4-2",
+          "description": "CLAUDE.md ポート rule + サーバー起動 section updated to palmux port; portman external reference link kept",
+          "test_target": "CLAUDE.md diff + docs/development.md diff",
+          "tests": [
+            "CLAUDE.md ポート rule rewritten to palmux port allocator (S9fd775)",
+            "サーバー起動 list now says 'palmux port alloc/exec', mentions tmp/ports.json",
+            "External portman CLAUDE_INTEGRATION.md link kept under '外部 reference'",
+            "docs/development.md table + ports section updated similarly"
+          ],
+          "status": "pass"
+        }
+      ]
+    }
+  }
+}

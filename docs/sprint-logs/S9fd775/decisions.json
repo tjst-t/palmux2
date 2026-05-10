@@ -1,0 +1,121 @@
+{
+  "sprint": "S9fd775",
+  "title": "Phase C: 内製 port allocator + `palmux port` CLI (portman 依存撤去)",
+  "branch": "autopilot/feat-workspace-runtime/S9fd775",
+  "executor": "Claude Opus 4.7 (1M context)",
+  "decisions": [
+    {
+      "story": "S9fd775-1",
+      "topic": "file lock library",
+      "decision": "syscall.Flock from the standard library",
+      "rationale": "DESIGN_PRINCIPLES priority 6 — 既存資産活用 > 新規実装. golang.org/x/sys is already an indirect dependency, but syscall.Flock alone covers Linux (the only OS palmux ships on for production). No new dep, no new abstraction layer. golang.org/x/sys/unix.Flock would behave identically here.",
+      "alternatives_rejected": [
+        "github.com/gofrs/flock — adds a third-party dep for a one-call wrapper",
+        "advisory locking via fcntl — same semantics, more boilerplate",
+        "in-memory mutex only — fails the cross-process AC explicitly (priority_rule 0 — can't skip AC-S9fd775-1-3)"
+      ]
+    },
+    {
+      "story": "S9fd775-1",
+      "topic": "ports.json shape",
+      "decision": "{ \"version\": 1, \"leases\": [...] } where each lease has portman's list --json keys (name, project, worktree, port, hostname, expose, status) PLUS our scope extension and allocated_at",
+      "rationale": "ROADMAP says 'portman 互換 format (key 名は portman と同じ)'. portman's actual storage is sqlite (portman.db), so 'compatible' must mean its public JSON shape — which is what `portman list --json` returns. We mirror those field names exactly so existing downstream readers (like internal/portman.Lease which deserializes that same JSON) work without re-mapping. Adding a top-level `version` lets us evolve the format later without breaking older readers. scope is the palmux extension required by AC-S9fd775-1-1.",
+      "alternatives_rejected": [
+        "duplicate portman's sqlite schema — overkill for a flat key→port map and would force a CGO sqlite driver (against build-agent's CGO_ENABLED=0 ethos)",
+        "use portman's `services.json` shape — that's a static reservation list, not a lease store"
+      ]
+    },
+    {
+      "story": "S9fd775-1",
+      "topic": "free port detection",
+      "decision": "net.Listen(\"tcp\", \":0\") → close → use the kernel-suggested port; retry on collision",
+      "rationale": "Per AC-S9fd775-1-4 — the AC explicitly accepts the TOCTOU window and asks for retry on failure. Same approach portman uses internally. Combined with our usedPorts set (from ports.json), we never return a port the kernel just told us is free AND that we already lent out, even if no process is listening on it.",
+      "alternatives_rejected": [
+        "scan a fixed range like portman's 8200-8999 — leaks state into config; deferred to a future Sprint if users want pinned ranges"
+      ]
+    },
+    {
+      "story": "S9fd775-2",
+      "topic": "exec lease lifetime",
+      "decision": "Default --keep (matches `portman exec`), opt in to --free-on-exit",
+      "rationale": "DESIGN_PRINCIPLES priority 7 — 明示的 > 暗黙的. The Makefile expects `make serve INSTANCE=foo` re-runs to land on the same port — that requires the lease to outlive the child. portman behaves the same way (its leases persist; you `release` to drop them). Sprint AC-S9fd775-2-1 only requires that the lease 'is freed in step with the child's lifecycle' — meeting that with an explicit --free-on-exit flag while preserving portman's persistence default is the right balance.",
+      "alternatives_rejected": [
+        "default to free-on-exit — would break `make serve` re-runs (each restart picks a new port); breaks DESIGN_PRINCIPLES priority 6 (existing scripts assume stable ports)"
+      ]
+    },
+    {
+      "story": "S9fd775-2",
+      "topic": "bootstrap path (server vs CLI)",
+      "decision": "Direct file access with flock; no RPC fast path to a running server today",
+      "rationale": "AC-S9fd775-2-3 requires `palmux port` to work without `palmux serve`. The simpler answer is direct file I/O guarded by flock — same code path whether the server is up or not. Adding an RPC short-circuit when serve is running is a measurable optimization (one syscall vs one HTTP roundtrip) but unnecessary right now: every CLI use case is interactive or one-shot Makefile, where the latency is invisible. We can add it in Phase B when the Ports panel UI starts hammering the allocator.",
+      "alternatives_rejected": [
+        "always go through palmux serve — fails the bootstrap AC outright",
+        "auto-spawn a serve daemon on first CLI call — surprising behavior, would break --config-dir isolation"
+      ]
+    },
+    {
+      "story": "S9fd775-2",
+      "topic": "subprocess group + signal forwarding",
+      "decision": "Setpgid:true on the child; forward SIGINT/SIGTERM/SIGHUP to the negative-pid (whole group)",
+      "rationale": "Required for `make serve-stop INSTANCE=foo` to kill the whole subtree spawned by `palmux port exec` (e.g., a dev server that forks workers). Standard Unix exec wrapper pattern. Keeps the parent process alive long enough to free the lease in the deferred cleanup path.",
+      "alternatives_rejected": [
+        "no signal handling — leaves orphan processes after Ctrl-C, surfaces as 'port already in use' on next run"
+      ]
+    },
+    {
+      "story": "S9fd775-3",
+      "topic": "Makefile: how to bootstrap palmux port before palmux exists",
+      "decision": "Add a `$(PALMUX_BIN)` target that does a plain `go build` (no frontend embed). dev/serve targets depend on it. Production `make build` rebuilds with the embedded frontend on top.",
+      "rationale": "The chicken-and-egg problem: `make serve` needs `palmux port` to allocate a port, but `palmux port` is part of the same binary. A two-step build (cheap binary first, embed binary later) is the cleanest answer that keeps `make dev` fast (no frontend build needed). Side benefit: a fresh checkout with no `npm install` can still run `make dev-api` to play with backend changes.",
+      "alternatives_rejected": [
+        "ship a separate palmux-port binary — doubles distribution size and goes against the single-binary VISION constraint",
+        "static port assignments in the Makefile — violates DESIGN_PRINCIPLES.forbidden 'ポート番号をソースに直接書かない'",
+        "keep portman as a fallback — defeats the whole point of S9fd775"
+      ]
+    },
+    {
+      "story": "S9fd775-3",
+      "topic": "drop the .portman.env file",
+      "decision": "Inline `palmux port alloc` calls, drop `tmp/palmux*.portman.env`",
+      "rationale": "The env-file pattern was a portman-ism — `portman env` writes a sourceable shell file because portman is one binary, the consumer is another. With the allocator in-process we can just call alloc twice in the same shell and capture the output. Simpler, fewer files, no name-mangling for `INSTANCE=` either.",
+      "alternatives_rejected": [
+        "keep generating ports.env for backward compat — no other consumer reads it; pure carry-over"
+      ]
+    },
+    {
+      "story": "S9fd775-3",
+      "topic": "VM acceptance harness",
+      "decision": "Ship a self-contained shell script (s9fd775_makefile_vm.sh) that exercises the same calls the migrated Makefile makes, against the prebuilt linux/amd64 binary. Run via SSH from local repo.",
+      "rationale": "The VM has no Go toolchain and no npm-built frontend, so `make build` won't run there. The AC's intent (AC-S9fd775-3-1/3-2) is to verify that the new allocator-driven flow works on a clean machine — which the shell script checks by allocating a port, booting palmux, hitting /auth (HTTP 302 = auth gate up = server reached), stopping the server, freeing the lease, asserting ports.json reflects the change. Functionally equivalent to running `make serve INSTANCE=vm-acceptest` on a machine with the toolchain.",
+      "alternatives_rejected": [
+        "install Go on the VM and `make build` there — slow, doesn't exercise anything new",
+        "skip the VM step — violates priority_rule 0 (no AC may be skipped silently)"
+      ]
+    },
+    {
+      "story": "S9fd775-3",
+      "topic": "go.mod portman dependency",
+      "decision": "No-op — palmux never had a Go module dependency on portman. The internal/portman package wraps the external `portman` CLI via os/exec for the dashboard read-only view; that stays.",
+      "rationale": "AC-S9fd775-3-3 says 'go.mod から portman 依存 (もしあれば) を削除'. Verified by inspecting go.mod — no portman entry. Per the ROADMAP description, portman repo is intentionally NOT deprecated; users who run a portman dashboard should still be able to point Palmux at it via --portman-url, and internal/portman is the read-only reader for that. Removing internal/portman would regress that surface area.",
+      "alternatives_rejected": [
+        "delete internal/portman — would break --portman-url dashboard linking; out of S9fd775's stated scope"
+      ]
+    },
+    {
+      "story": "S9fd775-4",
+      "topic": "README phrasing",
+      "decision": "Mark portman as 'no longer required' in the optional-deps table, link to portman repo as standalone-still-useful, note --portman-url remains for users running a portman dashboard. Add a new 'Built-in port allocator (palmux port)' section under Development with the four-verb cheat sheet.",
+      "rationale": "ROADMAP says portman repo stays without deprecation notice. The README should reflect 'palmux is self-contained AND portman remains independently valuable' — exactly the wording AC-S9fd775-4-1 requires. Bilingual update (English + 日本語) since the README has both halves.",
+      "alternatives_rejected": [
+        "remove the portman row entirely — confusingly omits a still-supported dashboard integration"
+      ]
+    }
+  ],
+  "out_of_scope_findings": [
+    {
+      "title": "internal/portman dashboard reader uses external portman CLI",
+      "description": "internal/portman.Client shells out to the `portman list --json` CLI to populate the in-app dashboard view. Now that we have an internal allocator, a future Sprint could read directly from ports.json instead — but the ROADMAP description for S9fd775 is explicit that this is OUT of scope (Phase B Ports panel will likely subsume it).",
+      "recommended_for": "backlog → consider during Phase B (Ports panel UI)"
+    }
+  ]
+}
