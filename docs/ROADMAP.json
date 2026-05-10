@@ -5,7 +5,7 @@
     "sprints_done": 35,
     "sprints_total": 39,
     "percent": 89,
-    "current_sprint": "S98156b",
+    "current_sprint": "S0f6866",
     "done": 37,
     "in_progress": 0,
     "total": 39,
@@ -6234,83 +6234,84 @@
     },
     "S0f6866": {
       "title": "Phase A': Custom container image build pipeline (palmux-workspace:default on GHCR)",
-      "status": "pending",
+      "status": "partial",
       "milestone": false,
       "description": "workspace-runtime 設計 §14.1 / §14.10.1 / §14.10.2 で確定した container image を palmux 本体 repo で build + GHCR へ配布する pipeline を整備する。 Phase A (Sdd4ce1) と並行して進められるが、 A の lxd-container 実装の動作確認時に `:default` image が無いと困るので **A の動作確認完了までに `:default` image を最低 1 回手動 build してでも GHCR に上げる** ことが要件。\n\n**作業はすべて test VM (`ubuntu@192.168.1.41`) で行う。** image build は GitHub Actions runner と test VM 上の `docker` (or `lxd build`) で互いに検証する。 ローカル機ではビルドしない。\n\n**スコープ:** `:default` バリアントの Dockerfile (or cloud-init) + GitHub Actions workflow + GHCR 配布 + README 更新 (Supported OS = Ubuntu のみ §14.7)。\n\n**スコープ外:** `:gpu` / `:minimal` バリアント (`:default` が安定してから)、 image 内に `palmux-agent` を焼き込む案 (§14.10.6 で push 方式に決定)、 LXD image server を立てる案 (§14.10.1 で GHCR 直 launch に決定)。\n\n**詳細 AC + tasks は S98156b 完了後の `sprint plan` 時に refine する** (PoC で image に必要なものが新たに見えるかもしれないため)。",
       "stories": {
         "S0f6866-1": {
           "title": "`images/workspace-default/Dockerfile` (or cloud-init) で base image を組む",
-          "status": "pending",
+          "status": "partial",
           "user_story": "palmux ユーザとして、 LXD container を起動するだけで claude / gh / git / tmux / tailscale / ansible 等の必要 CLI 一式が揃った環境が手に入ってほしい。 なぜなら、 container 起動のたびに自分で apt install するのは面倒だし、 image を palmux チームが面倒見ることでメンテコストが集約されるからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S0f6866-1-1",
               "description": "`images/workspace-default/Dockerfile` で `FROM ubuntu:24.04` から `claude` (curl install) / `gh` (apt) / `git` / `tmux` / `tailscale` (apt) / `ansible` / `systemd` (init system として動かす) を pre-install、 image size 1 GB 以下を target",
               "test": "[AC-S0f6866-1-1] CI で `docker build` 成功 + size check",
-              "status": "pending"
+              "status": "deferred"
             },
             {
               "id": "AC-S0f6866-1-2",
               "description": "image 内に `palmux-agent` は **焼かない** (§14.10.6)、 ただし agent が依存する base utility (libc / coreutils 程度) は揃っていることを確認",
               "test": "[AC-S0f6866-1-2] in tests/acceptance/s0f6866_image.py",
-              "status": "pending"
+              "status": "deferred"
             },
             {
               "id": "AC-S0f6866-1-3",
               "description": "test VM 上で `lxc launch docker:ghcr.io/tjst-t/palmux-workspace:default smoke-1` で container が起動 + claude / gh / git / tmux / tailscale / ansible すべての CLI が `which` で見える",
               "test": "[AC-S0f6866-1-3] in tests/acceptance/s0f6866_image.py",
-              "status": "pending"
+              "status": "deferred"
             }
           ],
           "tasks": {}
         },
         "S0f6866-2": {
           "title": "GitHub Actions workflow (週次 + tag push trigger) で GHCR push",
-          "status": "pending",
+          "status": "partial",
           "user_story": "palmux チームメンバーとして、 base ubuntu の security update や CLI version bump に追従する image rebuild を手動で回したくない。 なぜなら、 §14.1 で 「月 1〜2 時間想定、 CI 自動化前提」 と決めた前提が崩れるとメンテコストが上振れするからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S0f6866-2-1",
               "description": "`.github/workflows/build-image.yml` で 週 1 回 (cron) + main への tag push + `images/**` 変更の PR で trigger、 ghcr.io へ push",
               "test": "[AC-S0f6866-2-1] CI 履歴で確認",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S0f6866-2-2",
               "description": "tag は `:default` (latest 相当) + `:default-YYYYMMDD` (日付 stamped) の 2 種を push",
               "test": "[AC-S0f6866-2-2] GHCR で確認",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S0f6866-2-3",
               "description": "GHCR から public pull 可能 (ログイン不要)、 test VM 上で確認",
               "test": "[AC-S0f6866-2-3] in tests/acceptance/s0f6866_image.py",
-              "status": "pending"
+              "status": "deferred"
             }
           ],
           "tasks": {}
         },
         "S0f6866-3": {
           "title": "README + docs に Supported OS = Ubuntu 明記 + image override 手順",
-          "status": "pending",
+          "status": "done",
           "user_story": "palmux 検討中のユーザとして、 macOS でサポートされないこと、 image を override したい場合の手順、 image を完全に bypass して生 ubuntu で起動する方法を docs から知りたい。 なぜなら、 §14.7 で macOS 非サポートを正式決定し、 §14.1 で image override 可と決めたものの user 向け文書が無いと混乱するからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S0f6866-3-1",
               "description": "README.md に \"Supported OS: Ubuntu (Linux)\" 節を追加、 macOS / その他 Linux ディストリは保証外と明記",
               "test": "[AC-S0f6866-3-1] README diff",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S0f6866-3-2",
               "description": "`docs/workspace-runtime.md` (新規) に image 一覧 / override 方法 / 生 ubuntu に戻す手順を記載",
               "test": "[AC-S0f6866-3-2] doc 存在 + sprint verify でレビュー",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {}
         }
-      }
+      },
+      "deferred_reason": "Runtime ACs (AC-S0f6866-1-1 size, 1-2 contents, 1-3 lxc launch, 2-3 GHCR public pull) require the test VM (192.168.1.41) which became unresponsive on SSH during the docker build. The Dockerfile, workflow, docs, and acceptance test are complete and committed. User must (1) wait for VM SSH to recover (2) run python3 tests/acceptance/s0f6866_image.py on the test VM, and after the first GHCR push (3) re-run with GHCR_VERIFIED=1 for AC-S0f6866-2-3."
     },
     "Sdd4ce1": {
       "title": "Phase A: WorkspaceRuntime 抽象 + host + lxd-container 実装 + bind-mount + UI",

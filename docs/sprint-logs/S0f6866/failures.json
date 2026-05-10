@@ -1,0 +1,52 @@
+{
+  "sprint": "S0f6866",
+  "deferred_acs": [
+    {
+      "ac": "AC-S0f6866-1-1",
+      "type": "runtime-verification-blocked",
+      "what_was_tried": [
+        "1. Installed docker.io on test VM (ubuntu@192.168.1.41) via apt-get install -y docker.io.",
+        "2. scp'd images/workspace-default/Dockerfile to ~/palmux-image-build/workspace-default/Dockerfile on the VM.",
+        "3. Started `cd ~/palmux-image-build/workspace-default && sudo docker build -t palmux-workspace:local .` over ssh, with output captured via `tail -100`.",
+        "4. After ~20 minutes the build was still running (`ps -p <pid>` showed an alive ssh process whose elapsed time was climbing) but the VM stopped accepting new SSH connections — every attempt got 'Connection timed out during banner exchange' on port 22.",
+        "5. Killed the build's wrapping ssh from our side; the VM did NOT recover. Multiple ssh probes over the next ~10 minutes all timed out at banner exchange. ICMP (ping) still works, port 22 still accepts TCP connections, but sshd does not send a banner — consistent with sshd or its accept loop being starved by the docker build's resource use."
+      ],
+      "what_was_completed_anyway": [
+        "Dockerfile authored, syntax sanity-checked, committed (3280f10).",
+        "tests/acceptance/s0f6866_image.py:TestImageBuild.test_image_size_under_1gb covers AC-1-1 — once the VM recovers, running this test on it confirms the size limit."
+      ],
+      "next_step_for_human": "Once the test VM (192.168.1.41) is reachable on SSH again, run: python3 tests/acceptance/s0f6866_image.py TestImageBuild  -- the test checks image size ≤ 1 GB and surfaces the actual size in the failure message if it exceeds."
+    },
+    {
+      "ac": "AC-S0f6866-1-2",
+      "type": "runtime-verification-blocked",
+      "what_was_tried": "Same VM as AC-1-1 — SSH unreachable so docker run probes can't be issued.",
+      "what_was_completed_anyway": [
+        "Dockerfile deliberately omits palmux-agent (no ADD / COPY / curl that pulls it). Visual inspection of images/workspace-default/Dockerfile confirms compliance with §14.10.6.",
+        "tests/acceptance/s0f6866_image.py:TestImageContents.test_no_palmux_agent runs `docker run palmux-workspace:local sh -c 'test -f /usr/local/bin/palmux-agent && echo present || echo absent'` and asserts 'absent'.",
+        "Same file: test_libc_present and test_coreutils_present confirm the agent's runtime deps."
+      ],
+      "next_step_for_human": "Once VM reachable: python3 tests/acceptance/s0f6866_image.py TestImageContents."
+    },
+    {
+      "ac": "AC-S0f6866-1-3",
+      "type": "runtime-verification-blocked",
+      "what_was_tried": "Same VM. Couldn't even start an `lxc launch` smoke because `lxc image import` needs the docker image to exist locally first, and the build was still running when SSH froze.",
+      "what_was_completed_anyway": [
+        "Dockerfile pre-installs all six required CLIs (claude, gh, git, tmux, tailscale, ansible) — verifiable by reading the layered RUN steps.",
+        "tests/acceptance/s0f6866_image.py:TestLXDLaunch.test_launch_and_clis_present launches the local-built image via LXD and runs `which <cli>` for each — gates on `vm_has_local_image()` so it skips cleanly until the image is built."
+      ],
+      "next_step_for_human": "Once VM reachable AND image built: python3 tests/acceptance/s0f6866_image.py TestLXDLaunch."
+    },
+    {
+      "ac": "AC-S0f6866-2-3",
+      "type": "deferred-by-design",
+      "what_was_tried": "Workflow declared correctly + actionlint clean. Cannot trigger a real CI push without burning a real GHCR write that would be visible to the public; that's a deliberate user opt-in.",
+      "what_was_completed_anyway": [
+        ".github/workflows/build-image.yml has the GHCR push wiring and would publish on first trigger.",
+        "tests/acceptance/s0f6866_image.py:TestGHCRPullability gates on env GHCR_VERIFIED=1 — once the user explicitly triggers the workflow and sets the package visibility to Public in GHCR, this test passes."
+      ],
+      "next_step_for_human": "Trigger .github/workflows/build-image.yml manually (workflow_dispatch button or push a v* tag), then in the GHCR Packages UI set tjst-t/palmux-workspace package visibility to Public, then run: GHCR_VERIFIED=1 python3 tests/acceptance/s0f6866_image.py TestGHCRPullability."
+    }
+  ]
+}
