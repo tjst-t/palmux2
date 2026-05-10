@@ -129,13 +129,18 @@ def test_virtualization_500_turns(page) -> None:
     rendered = page.evaluate(
         "() => document.querySelectorAll(\"[data-testid^='harness-turn-']\").length"
     )
-    # 500 turns × 2 (user + assistant) = 1000 logical turns. Only a
-    # small slice (~ viewport height + overscan) should be in the DOM.
+    # 500 turns × 2 (user + assistant) = 1000 logical turns.
+    #
+    # Post-S43cfb1 commit bed812b: react-window virtualisation was
+    # intentionally dropped — full DOM render is now the contract,
+    # matching claude.ai. Native browser layout / scroll handles
+    # ~1000 turns fine. So we now require the full row count to be
+    # in the DOM, not a virtualised slice.
     assert_(rendered > 0, f"no rows rendered: {rendered}")
-    assert_(rendered < 60, f"too many rows in DOM (virtualisation broken): {rendered}")
-    ok("virt/500-turns", f"DOM rows={rendered}")
+    assert_(rendered >= 1000, f"full DOM render expected >= 1000, got {rendered}")
+    ok("dom/500-turns", f"DOM rows={rendered} (full render)")
 
-    # Scroll to ~ middle and verify only a different slice is present.
+    # Scroll to ~ middle and verify the count stays the same (full DOM).
     page.evaluate(
         "() => { const el = document.querySelector('[data-testid=harness-conversation] > div'); el.scrollTop = el.scrollHeight / 2; }"
     )
@@ -143,12 +148,11 @@ def test_virtualization_500_turns(page) -> None:
     rendered_mid = page.evaluate(
         "() => document.querySelectorAll(\"[data-testid^='harness-turn-']\").length"
     )
-    assert_(rendered_mid < 60, f"too many rows after scroll: {rendered_mid}")
+    assert_(rendered_mid == rendered, f"row count changed after scroll: {rendered}->{rendered_mid}")
 
     # Scroll responsiveness probe: 5 sequential scroll mutations should
-    # not block the event loop. We measure total wall time. A
-    # non-virtualised 1000-row layout typically takes seconds to
-    # reflow; virtualised lists land well under 300ms total.
+    # complete in a reasonable time even with full DOM. Generous bound
+    # because native layout of 1000 rows is still under ~3 s.
     elapsed_ms = page.evaluate(
         """async () => {
             const el = document.querySelector('[data-testid=harness-conversation] > div');
@@ -161,10 +165,10 @@ def test_virtualization_500_turns(page) -> None:
         }"""
     )
     assert_(
-        elapsed_ms < 1000,
-        f"scroll round-trips too slow ({elapsed_ms:.0f}ms) — virtualisation likely broken",
+        elapsed_ms < 3000,
+        f"scroll round-trips too slow ({elapsed_ms:.0f}ms)",
     )
-    ok("virt/scroll-perf", f"5 scrolls in {elapsed_ms:.0f}ms")
+    ok("dom/scroll-perf", f"5 scrolls in {elapsed_ms:.0f}ms")
 
 
 def test_read_preview_1000_lines(page) -> None:
@@ -320,6 +324,9 @@ def test_collapse_expand_round_trip(page) -> None:
 
 
 def test_mobile_virtualisation(page) -> None:
+    """Post-bed812b: react-window dropped. Mobile contract is now:
+    full DOM render of all rows + mobile padding rule applied + scroll
+    works. (Test name kept for AC tracking; semantics updated.)"""
     page.set_viewport_size({"width": 375, "height": 667})
     page.goto(
         f"{BASE_URL}/__test/claude?turns=300&sessionId=mobile-300",
@@ -334,7 +341,8 @@ def test_mobile_virtualisation(page) -> None:
     rendered = page.evaluate(
         "() => document.querySelectorAll(\"[data-testid^='harness-turn-']\").length"
     )
-    assert_(rendered < 60, f"mobile: too many rows in DOM: {rendered}")
+    # 300 turns × 2 (user+assistant) = 600 rows expected. Full DOM.
+    assert_(rendered >= 600, f"mobile: full DOM expected >= 600, got {rendered}")
 
     # Verify the @media (max-width: 600px) padding rule applied to a turn row.
     pad_left = page.evaluate(
@@ -357,8 +365,8 @@ def test_mobile_virtualisation(page) -> None:
     rendered_mid = page.evaluate(
         "() => document.querySelectorAll(\"[data-testid^='harness-turn-']\").length"
     )
-    assert_(rendered_mid < 60, f"mobile mid-scroll: too many rows: {rendered_mid}")
-    ok("mobile/virtualisation", f"rows@mobile={rendered}, padLeft={pad_left:.1f}px")
+    assert_(rendered_mid == rendered, f"mobile: row count changed after scroll: {rendered}->{rendered_mid}")
+    ok("mobile/full-dom", f"rows@mobile={rendered}, padLeft={pad_left:.1f}px")
 
 
 def test_scroll_restore(page) -> None:
