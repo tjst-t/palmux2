@@ -134,34 +134,29 @@ export function writePersistedScroll(
 }
 
 /** useScrollRestore re-anchors the conversation after a tab switch
- *  or page reload using a turn-id anchor. Behaviour:
+ *  or page reload using a turn-id anchor.
  *
- *    - atBottom=true → no-op. The parent's auto-follow effect will
- *      park us at the latest content (which may have grown while the
- *      tab was in the background — that's exactly what the user
- *      expects when they were following along).
- *    - atBottom=false + anchor present → ask react-window to render
- *      around the anchor turn (`scrollToRow(index, align:start)`),
- *      then iteratively adjust scrollTop so the anchor's top edge is
- *      `offset` pixels above the viewport top. Iteration is needed
- *      because rows above the anchor may still be measuring (height
- *      estimates → real heights), which shifts the anchor's
- *      offsetTop within the scroller. We re-aim each tick from
- *      live DOM rects, so we converge regardless of measurement
- *      timing.
+ *  Vastly simpler now that ConversationList renders all turns into
+ *  the DOM (no virtualisation): the anchor row's element is always
+ *  present, so we can find it directly and compute the scrollTop
+ *  delta in one shot. No polling, no estimation lag, no retries.
+ *
+ *    - atBottom=true → no-op. The parent's auto-follow effect parks
+ *      us at the latest content.
+ *    - atBottom=false + anchor present → find the row by
+ *      `[data-turn-id]`, scrollTop = (row.top - container.top) +
+ *      offset, done.
  *    - anchor turnId not in current list (rewound, truncated): give
  *      up. The user gets the default (top of list / auto-follow).
  *
- *  `turnIds` and `scrollToRow` are captured into refs so the effect
- *  doesn't re-run on every streaming chunk.
+ *  User-input abort listeners are kept as defense in depth even
+ *  though the restore window is now ~1 frame.
  */
 export function useScrollRestore(opts: {
   sessionId: string
   storageKey: string
   containerRef: React.RefObject<HTMLDivElement | null>
   hasTurns: boolean
-  turnIds: readonly string[]
-  scrollToRow: (index: number) => void
   /** Called once per (sessionId) when the first useful scroll
    *  position has been applied — or determined to be unnecessary
    *  (no record, atBottom path, anchor missing). The parent uses
@@ -172,10 +167,6 @@ export function useScrollRestore(opts: {
 }) {
   const { sessionId, storageKey, containerRef, hasTurns } = opts
   const restoredFor = useRef<string>('')
-  const turnIdsRef = useRef(opts.turnIds)
-  turnIdsRef.current = opts.turnIds
-  const scrollToRowRef = useRef(opts.scrollToRow)
-  scrollToRowRef.current = opts.scrollToRow
   const onSettledRef = useRef(opts.onSettled)
   onSettledRef.current = opts.onSettled
 
@@ -205,44 +196,13 @@ export function useScrollRestore(opts: {
       return
     }
     const { turnId, offset } = stored.anchor
-    const index = turnIdsRef.current.indexOf(turnId)
-    if (index < 0) {
-      // Anchor turn no longer present in the conversation.
-      settle()
-      return
-    }
 
-    // Best-effort one-shot anchor restore (replaces the previous 5s
-    // polling loop).
-    //
-    // Two design changes from the prior implementation:
-    //
-    // (a) ONE adjustment, not 50. The old loop ran for up to 5s
-    //     re-clamping scrollTop to the saved anchor every 100ms. That
-    //     fought the user's wheel for the entire 5-second window
-    //     after every mount, producing the "scroll up, get yanked
-    //     back, repeat" symptom. Now we pin once after react-window
-    //     has installed the inner DOM (2 rAF ticks), then accept the
-    //     result. Late-loading content (Shiki / mermaid / images)
-    //     may shift the row by a few pixels — that's fine; the user
-    //     was scrolled up, not pixel-precise about it.
-    //
-    // (b) USER-INPUT ABORT. If the user touches the scrollbar
-    //     (wheel / touchmove / keydown / mousedown) during the
-    //     ~30ms window between scrollToRow and the delta adjustment,
-    //     we skip the adjustment entirely. The user's intent
-    //     supersedes anything we saved. This is the defense-in-depth
-    //     even though (a) already shrinks the window dramatically.
-    //
-    // Why both: (a) makes the window small enough that user
-    // interference is rare; (b) handles the rare case correctly.
-    scrollToRowRef.current(index)
-
+    // One-shot anchor restore. With all turns rendered to the DOM,
+    // the anchor element is present immediately; we just measure and
+    // assign scrollTop.
     let cancelled = false
     let userAborted = false
-    const userAbort = () => {
-      userAborted = true
-    }
+    const userAbort = () => { userAborted = true }
     const elInit = containerRef.current
     if (elInit) {
       elInit.addEventListener('wheel', userAbort, { once: true, passive: true })
@@ -251,48 +211,42 @@ export function useScrollRestore(opts: {
       elInit.addEventListener('mousedown', userAbort, { once: true })
     }
 
-    let raf2 = 0
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => {
-        if (cancelled || userAborted) {
-          settle()
-          return
-        }
-        const el = containerRef.current
-        if (!el) {
-          settle()
-          return
-        }
-        const escapeId =
-          typeof CSS !== 'undefined' && CSS.escape
-            ? CSS.escape(turnId)
-            : turnId.replace(/"/g, '\\"')
-        const row = el.querySelector<HTMLElement>(`[data-turn-id="${escapeId}"]`)
-        if (!row) {
-          // react-window hasn't rendered the row in the 2 rAF window.
-          // Best-effort: settle without further adjustment. The user
-          // lands at scrollToRow's initial guess and can scroll from
-          // there — no polling, no fight.
-          settle()
-          return
-        }
-        const sRect = el.getBoundingClientRect()
-        const rRect = row.getBoundingClientRect()
-        // Saved invariant: rRect.top = sRect.top - offset
-        // delta = current - desired; scrolling by delta lands the
-        // row at the saved offset above the viewport top.
-        const delta = (rRect.top - sRect.top) + offset
-        if (Math.abs(delta) > 0) {
-          el.scrollTop = el.scrollTop + delta
-        }
+    // One rAF lets the browser commit the initial paint so
+    // getBoundingClientRect returns the correct positions.
+    const raf = requestAnimationFrame(() => {
+      if (cancelled || userAborted) {
         settle()
-      })
+        return
+      }
+      const el = containerRef.current
+      if (!el) {
+        settle()
+        return
+      }
+      const escapeId =
+        typeof CSS !== 'undefined' && CSS.escape
+          ? CSS.escape(turnId)
+          : turnId.replace(/"/g, '\\"')
+      const row = el.querySelector<HTMLElement>(`[data-turn-id="${escapeId}"]`)
+      if (!row) {
+        // Anchor row not present (turn was deleted / rewound).
+        settle()
+        return
+      }
+      const sRect = el.getBoundingClientRect()
+      const rRect = row.getBoundingClientRect()
+      // delta = current - desired; scrolling by delta lands the row
+      // at the saved offset above the viewport top.
+      const delta = (rRect.top - sRect.top) + offset
+      if (Math.abs(delta) > 0) {
+        el.scrollTop = el.scrollTop + delta
+      }
+      settle()
     })
 
     return () => {
       cancelled = true
-      cancelAnimationFrame(raf1)
-      if (raf2) cancelAnimationFrame(raf2)
+      cancelAnimationFrame(raf)
       if (elInit) {
         elInit.removeEventListener('wheel', userAbort)
         elInit.removeEventListener('touchmove', userAbort)

@@ -1,0 +1,18 @@
+/* Native scroll container — no virtualisation library, all turns are
+   in the DOM. Browser handles "skip rendering off-screen" via
+   `content-visibility: auto` on each turn. */
+.scroll {
+  height: 100%;
+  width: 100%;
+  overflow-y: auto;
+  /* Containment helps the browser optimise paint regions for the
+     content-visibility:auto children below. */
+  contain: size layout;
+}
+
+/* Each turn renders fully into the DOM. Browsers handle 100s of
+   turns at this DOM complexity without trouble (matches what
+   claude.ai does — full render, native scroll). */
+.turn {
+  padding-bottom: 6px;
+}
