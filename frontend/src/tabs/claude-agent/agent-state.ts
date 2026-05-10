@@ -60,6 +60,16 @@ export interface AgentState {
   activeVersionByTurnId: Record<string, number>
   /** ISO timestamp of the most-recently-applied event — debug only. */
   lastEventTs?: string
+  /** Monotonic counter, bumped by the reducer ONLY when an event of a
+   *  "content arrival" type is applied (turn.start / block.{start,
+   *  delta,end} / tool.result / permission.request / ask.question /
+   *  plan.question / user.message / rewind apply). The auto-follow
+   *  hook subscribes to this as the direct signal that the
+   *  conversation grew with NEW user-visible content. Status flips,
+   *  cost updates, mcp.update, init.info, etc. do NOT bump this even
+   *  though they touch other parts of state — so unrelated event
+   *  churn cannot trigger an auto-scroll. */
+  contentSeq: number
 }
 
 export interface AgentUsage {
@@ -88,6 +98,31 @@ export const initialState: AgentState = {
   compacting: false,
   archivedTurnsById: {},
   activeVersionByTurnId: {},
+  contentSeq: 0,
+}
+
+/** Returns true if a server-side WS event of this type produces new
+ *  user-visible content (a turn / block / tool result / permission UI
+ *  / question prompt / user message). Drives the contentSeq counter.
+ *
+ *  Kept inline rather than parameterising the reducer so the set is
+ *  visible right next to where it's read. Mirrors the EventType list
+ *  in internal/tab/claudeagent/events.go — keep them in sync. */
+function isContentEvent(type: string): boolean {
+  switch (type) {
+    case 'turn.start':
+    case 'block.start':
+    case 'block.delta':
+    case 'block.end':
+    case 'tool.result':
+    case 'permission.request':
+    case 'ask.question':
+    case 'plan.question':
+    case 'user.message':
+      return true
+    default:
+      return false
+  }
 }
 
 export type AgentAction =
@@ -156,12 +191,31 @@ export function reduce(state: AgentState, action: AgentAction): AgentState {
         // text without subsequent turns rather than re-displaying them.
         archivedTurnsById: {},
         activeVersionByTurnId: {},
+        // session.init / restore: a snapshot replay, not a "live new
+        // message". Bump the seq once so the auto-follow effect runs
+        // its initial scroll-to-bottom (if user was at bottom).
+        contentSeq: state.contentSeq + 1,
       }
     }
-    case 'event':
-      return applyEvent(state, action.ev)
-    case 'rewind.apply':
-      return applyRewind(state, action.turnId, action.newContent)
+    case 'event': {
+      const next = applyEvent(state, action.ev)
+      if (isContentEvent(action.ev.type)) {
+        next.contentSeq = state.contentSeq + 1
+      }
+      return next
+    }
+    case 'rewind.apply': {
+      // Rewind replaces a user turn's content + drops the tail. From
+      // the user's perspective, this IS new content arrival (their
+      // edited message + the AI's fresh reply is about to land). Bump
+      // so the auto-follow effect runs. applyRewind returns the same
+      // state object on a no-op (idempotent re-apply) — guard so we
+      // don't mutate the original.
+      const next = applyRewind(state, action.turnId, action.newContent)
+      if (next === state) return state
+      next.contentSeq = state.contentSeq + 1
+      return next
+    }
     case 'rewind.setVersion': {
       const next = { ...state.activeVersionByTurnId }
       if (action.versionIndex === -1) {

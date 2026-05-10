@@ -626,6 +626,14 @@ export function TestHarness() {
   // user-input timestamp + onListScroll + scroll-to-bottom effect
   // with the shared hook, so a future fix to the scroll race
   // doesn't have to be applied to two files.
+  //
+  // contentSeq simulates the reducer-side counter:
+  //   - Each `?stream=N` tick bumps it (= a new chunk landed).
+  //   - `?idlePulseMs=N` does NOT bump it (= unrelated state churn
+  //     that happens to mutate `turns` reference but doesn't
+  //     correspond to a content event). The auto-follow effect must
+  //     therefore never fire for idle pulses.
+  const contentSeq = streamCount  // grows monotonically with stream chunks
   const {
     autoFollow,
     onListScroll,
@@ -636,8 +644,7 @@ export function TestHarness() {
     branchId: 'harness',
     tabId: sessionId,
     sessionId,
-    turns: effectiveDisplayTurns,
-    status: streamRate > 0 ? 'thinking' : 'idle',
+    contentSeq,
     hasTurns: effectiveDisplayTurns.length > 0,
     turnIds,
     listHandleRef,

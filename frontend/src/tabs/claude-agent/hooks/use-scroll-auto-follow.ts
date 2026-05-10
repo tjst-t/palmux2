@@ -1,36 +1,51 @@
 /** useScrollAutoFollow — auto-follow + scroll-restore wiring for the
  *  Claude tab conversation list.
  *
- *  Encapsulates the scroll race-condition logic that used to live
- *  inline in claude-agent-view.tsx (28 hooks deep). Hotfixes 93f2f78,
- *  bb1d963, 7410582, and b6d5517 all added more state to the same
- *  spot — this hook isolates the moving parts so future tweaks don't
- *  touch unrelated code.
+ *  ## Mental model
  *
- *  Responsibilities:
- *    - autoFollow state + ref mirror (autoFollowRef so the
- *      scroll-to-bottom effect always sees the latest value, never a
- *      batched-stale React render)
- *    - lastUserInputAtRef + onUserInput: stamp the moment user
- *      gestures hit the scroller so an in-flight streaming chunk
- *      can defer to the user's intent
- *    - onListScroll: bridge react-window scroll events to autoFollow,
- *      distinguishing user-driven from programmatic scrolls (the
- *      programmatic ones can re-enable but never disable autoFollow)
- *    - scroll-to-bottom effect: parks the view at the latest content
- *      while autoFollow is on, AND defers when the user is actively
- *      scrolling (250ms guard mirrors ConversationList's own user
- *      window so the listener boundaries can't deadlock)
- *    - containerRef polling effect: react-window installs the scroll
- *      element asynchronously after the imperative-API callback fires
- *    - cold-load recovery: re-checks the persisted record once
- *      state.sessionId becomes available
- *    - useScrollRestore + usePersistScroll: turn-id anchored save/load
- *    - restoreVisible + onSettled: visibility gate so the user never
- *      sees a paint at scrollTop=0 before the saved anchor lands
+ *  Auto-follow is the composition of TWO orthogonal facts:
  *
- *  Returns the wiring the parent splices into ConversationList +
- *  the visibility gate value.
+ *    (1) "User wants to follow" ≡ "User is currently at the bottom of
+ *        the conversation". Tracked as `autoFollow` (state + ref mirror).
+ *        Updated EXCLUSIVELY by user-driven scrolls (wheel / touch /
+ *        keyboard / mousedown). Programmatic scrolls (our own pin,
+ *        scroll-restore on tab switch, react-window's row-measurement
+ *        layout adjustments) NEVER toggle it. The "↓ Scroll to latest"
+ *        button explicitly sets it true.
+ *
+ *    (2) "AI / user just produced new content" ≡ `state.contentSeq`
+ *        was bumped. The reducer bumps this counter ONLY when an
+ *        event of a content-arrival type is applied (turn.start /
+ *        block.{start,delta,end} / tool.result / permission.request /
+ *        ask.question / plan.question / user.message / rewind.apply /
+ *        session.init). Status flips, mcp.update, init.info, etc. do
+ *        NOT bump it. Idle ref churn does NOT bump it. The hook
+ *        therefore receives a clean direct signal — no "infer from
+ *        status" or "diff turns.length" or "watch scrollHeight" tricks.
+ *
+ *  Auto-follow trigger = (1) AND (2) AND no recent user input (the
+ *  250ms guard exists only to defuse a same-tick race where the user
+ *  wheels right as a chunk arrives — by the time the effect runs,
+ *  the wheel's `scroll` event hasn't fired yet, so autoFollow ref is
+ *  still stale-true; the timestamp guard catches that single edge).
+ *
+ *  ## What this hook does NOT do
+ *
+ *  - It does NOT inspect `status` — agent state churn doesn't matter.
+ *  - It does NOT diff `turns.length` — content arrival is signalled
+ *    explicitly by contentSeq.
+ *  - It does NOT use ResizeObserver — the imperative scrollToBottom in
+ *    ConversationList handles late row-measurement settling for each
+ *    pin call.
+ *
+ *  ## Other responsibilities
+ *
+ *  - useScrollRestore + usePersistScroll: turn-id anchored save/load
+ *    of scroll position across tab switches.
+ *  - restoreVisible visibility gate: prevents the user from seeing
+ *    a scrollTop=0 flash before the saved anchor lands.
+ *  - containerRef polling: react-window installs the scroll element
+ *    asynchronously after the imperative-API callback fires.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -49,24 +64,21 @@ interface UseScrollAutoFollowArgs {
   branchId: string
   tabId: string
   sessionId: string
-  /** Reactive list of top-level turns — used to determine when to
-   *  fire scroll-to-bottom (turns count change implies new content).
-   *  Pass the same array you hand to ConversationList. */
-  turns: { id: string }[]
-  /** Reactive agent status — also drives scroll-to-bottom (status
-   *  flipping from 'thinking' → 'idle' may end with content the user
-   *  hasn't seen yet). */
-  status: string
+  /** Monotonic counter from agent-state. Bumped by the reducer ONLY
+   *  on content-arrival events (turn.start / block.* / tool.result /
+   *  permission.request / ask.question / plan.question / user.message
+   *  / rewind / session.init). The pin effect runs once per change. */
+  contentSeq: number
   hasTurns: boolean
   turnIds: readonly string[]
-  /** Stable ref to ConversationList's imperative API. The hook reads
-   *  scrollToBottom / scrollToRow / element() through this. */
+  /** Stable ref to ConversationList's imperative API. */
   listHandleRef: React.RefObject<ConversationListHandle | null>
 }
 
 interface UseScrollAutoFollowResult {
-  /** Whether auto-follow is currently on. Drive the "scroll to
-   *  latest" button visibility off `!autoFollow`. */
+  /** True iff the user is currently at the bottom of the conversation
+   *  (= they want auto-follow). Drive the "↓ to latest" button
+   *  visibility off `!autoFollow`. */
   autoFollow: boolean
   /** Splat into <ConversationList onScroll={onListScroll} />. */
   onListScroll: (
@@ -77,17 +89,16 @@ interface UseScrollAutoFollowResult {
   ) => void
   /** Splat into <ConversationList onUserInput={onUserInput} />. */
   onUserInput: () => void
-  /** Whether the conversation should be visible yet — false until
-   *  the saved scroll anchor lands. Wrap ConversationList in a
+  /** Whether the conversation should be visible yet — false until the
+   *  saved scroll anchor has landed. Wrap ConversationList in
    *  `style={{ visibility: restoreVisible ? 'visible' : 'hidden' }}`. */
   restoreVisible: boolean
-  /** Live ref to the scroll container DOM element. Re-resolved on
-   *  every render so persist/restore hooks see the latest. */
+  /** Live ref to the scroll container DOM element. */
   containerRef: React.RefObject<HTMLDivElement | null>
-  /** Imperative scroll-to-latest, used by the "scroll to latest"
-   *  button. Also re-enables autoFollow.
-   *  @param behavior 'smooth' for the user button, 'instant' for
-   *                  programmatic resync. Defaults to 'smooth'. */
+  /** "↓ Scroll to latest" handler. Sets autoFollow=true and snaps to
+   *  bottom. Use behavior='instant' for the user button (matches the
+   *  Slack/Discord/Telegram pattern); 'smooth' is provided for callers
+   *  that want the animation. */
   scrollToLatest: (behavior?: 'smooth' | 'instant' | 'auto') => void
 }
 
@@ -97,8 +108,7 @@ export function useScrollAutoFollow(args: UseScrollAutoFollowArgs): UseScrollAut
     branchId,
     tabId,
     sessionId,
-    turns,
-    status,
+    contentSeq,
     hasTurns,
     turnIds,
     listHandleRef,
@@ -106,109 +116,95 @@ export function useScrollAutoFollow(args: UseScrollAutoFollowArgs): UseScrollAut
 
   const storageKey = scrollStorageKey(repoId, branchId, tabId || 'claude')
 
-  // Initialise autoFollow from the persisted record so a user who
-  // was scrolled up reading earlier in the conversation, then
-  // switched tabs, doesn't get yanked back to bottom on remount.
+  // autoFollow = "user is at bottom". Initialised from the persisted
+  // record so a tab switch back to a user who was reading earlier
+  // doesn't yank them to bottom on remount.
   const [autoFollow, setAutoFollow] = useState<boolean>(() => {
     if (!sessionId) return true
     const stored = readPersistedScroll(storageKey, sessionId)
     if (!stored) return true
     return stored.atBottom
   })
-  // Mirror autoFollow synchronously. The scroll-to-bottom effect
-  // reads this ref, not the state, because React batches the
-  // setAutoFollow(false) update from a user scroll behind the next
-  // streaming chunk's setState — leaving the effect with a stale
-  // autoFollow=true that yanks the user back to the bottom right
-  // after they scrolled up to read.
+  // Synchronous mirror — read by the pin effect without waiting for
+  // React's batched setState commit.
   const autoFollowRef = useRef<boolean>(autoFollow)
 
   // Cold-load recovery: when sessionId becomes available *after*
-  // mount (cache miss → WS init), re-check the persisted record
-  // once and downgrade autoFollow if the user had been scrolled up.
-  // Guarded by a ref so this fires at most once per session.
-  const autoFollowSyncedFor = useRef<string>('')
+  // mount (cache miss → WS init), re-check the persisted record once.
+  const syncedFor = useRef<string>('')
   useEffect(() => {
     if (!sessionId) return
-    if (autoFollowSyncedFor.current === sessionId) return
-    autoFollowSyncedFor.current = sessionId
+    if (syncedFor.current === sessionId) return
+    syncedFor.current = sessionId
     const stored = readPersistedScroll(storageKey, sessionId)
     if (!stored) return
-    if (stored.atBottom) return
-    autoFollowRef.current = false
-    setAutoFollow(false)
+    if (stored.atBottom === autoFollowRef.current) return
+    autoFollowRef.current = stored.atBottom
+    setAutoFollow(stored.atBottom)
   }, [sessionId, storageKey])
 
   const containerRef = useRef<HTMLDivElement | null>(null)
 
-  // Hotfix: timestamp of the most-recent user input on the scroll
-  // container (wheel / touchmove / keydown / mousedown). Updated
-  // synchronously by ConversationList's `onUserInput` the moment the
-  // event fires, BEFORE the browser applies the scroll and BEFORE
-  // the resulting `scroll` event reaches `onListScroll`. The 250ms
-  // guard mirrors the existing isUserDriven window in
-  // ConversationList so listener boundaries can't deadlock.
+  // 250ms input guard — synchronous mark of the user touching the
+  // scrollbar (wheel / touchmove / keydown / mousedown). Updated by
+  // ConversationList BEFORE the browser delivers the resulting `scroll`
+  // event, so the pin effect can defer when a wheel and chunk-arrival
+  // commit in the same React batch.
   const lastUserInputAtRef = useRef<number>(0)
   const onUserInput = useCallback(() => {
     lastUserInputAtRef.current = performance.now()
   }, [])
 
-  // Hotfix (idle yank): track whether this hook instance has ever
-  // performed an initial scroll-to-bottom, and the previous turns
-  // length. We re-fire scrollToBottom when:
-  //   - The hook hasn't fired yet (mount / tab-switch remount) — the
-  //     "open the tab and land at latest" behaviour
-  //   - The agent is actively producing output (streaming chunk)
-  //   - turns.length grew since last fire — new content arrived
-  //     (e.g. init event landing 80 turns at once after empty mount)
-  // We DON'T re-fire on idle ref churn (same length, status='idle')
-  // — those are unrelated WS events / state updates that shouldn't
-  // clobber the user's reading position.
-  const hasInitialFiredRef = useRef<boolean>(false)
-  const prevTurnsLenRef = useRef<number>(0)
-
-  // S017: auto-scroll routes through the ConversationList imperative
-  // API. We can't just bump scrollTop on the wrapper because the
-  // wrapper isn't the scroll container any more — react-window owns
-  // the scroller and only it knows the precomputed total height.
+  // Initial-mount landing: when the scroll element resolves (react-
+  // window installs it asynchronously after the imperative handle's
+  // callback fires), do a one-time scroll-to-bottom if autoFollow
+  // says we should be at the latest. The contentSeq effect below
+  // handles every subsequent content event, but on a fresh mount
+  // contentSeq may not change (no WS event arrives if the cache had
+  // already supplied turns) — so we need an explicit "first paint
+  // landing" path. Polls up to ~1s; aborts on session change.
   useEffect(() => {
-    if (!autoFollowRef.current) return
-    // Hotfix b6d5517: defer to active user input. If the user
-    // wheeled / touched / pressed a key in the last 250 ms, they're
-    // trying to scroll — don't fight them by yanking back to bottom.
-    if (performance.now() - lastUserInputAtRef.current < 250) return
-    const isStreaming =
-      status === 'thinking' ||
-      status === 'tool_running' ||
-      status === 'starting'
-    const currLen = turns.length
-    const grewSinceLast = currLen > prevTurnsLenRef.current
-    prevTurnsLenRef.current = currLen
-    // Idle yank guard: at idle, only fire if this is the initial run
-    // OR new content actually arrived. Skip pure ref churn.
-    if (hasInitialFiredRef.current && !isStreaming && !grewSinceLast) return
-    hasInitialFiredRef.current = true
-    const handle = listHandleRef.current
-    if (handle) handle.scrollToBottom('instant')
-    // We watch the input refs implicitly via the closure — but the
-    // dep array is `[turns, status]` so a new chunk / status change
-    // re-fires the effect.
-  }, [turns, status, listHandleRef])
+    let cancelled = false
+    let attempts = 0
+    const tryLand = () => {
+      if (cancelled) return
+      if (!autoFollowRef.current) return
+      const handle = listHandleRef.current
+      const el = handle?.element() ?? null
+      if (!el) {
+        attempts++
+        if (attempts < 20) window.setTimeout(tryLand, 50)
+        return
+      }
+      handle?.scrollToBottom('instant')
+    }
+    tryLand()
+    return () => { cancelled = true }
+  }, [sessionId, listHandleRef])
 
-  // Bridge scroll events from List → autoFollow flag. autoFollow is
-  // strictly USER-OWNED: only user-driven scrolls (wheel / touch /
-  // keys / mousedown) toggle it. Programmatic scrolls — our own
-  // scrollToBottom call, scroll-restore on session load, react-window
-  // layout adjustments when a row's height changes (= user opens the
-  // edit editor) — must NEVER change autoFollow. The previous "land
-  // at bottom + isUserDriven=false → re-engage" path silently flipped
-  // autoFollow back on whenever a programmatic scroll happened to
-  // land at the bottom (e.g. layout adjustment after a streaming
-  // chunk landed exactly at scrollHeight, or react-window's row
-  // estimate happened to put us within 32 px of max). That broke the
-  // "I scrolled up and the AI keeps yanking me back" invariant in
-  // edge cases that the regular wheel-then-stream test missed
-  // (S43cfb1 manual smoke AC-2-7 / AC-4-5).
+  // SOLE recurring auto-scroll trigger: contentSeq changed (= a
+  // content-arrival event was applied to the reducer). No status
+  // check, no length diff, no ResizeObserver, no 5.2s tail.
+  // Skips the very first dep value: on mount the initial-landing
+  // effect above already handles positioning; this effect should
+  // only fire for SUBSEQUENT content events.
+  const firstContentSeqRef = useRef<number>(contentSeq)
+  useEffect(() => {
+    if (contentSeq === firstContentSeqRef.current) return
+    if (!autoFollowRef.current) return
+    // Defer if the user touched the scrollbar in the last 250 ms.
+    // Falsy check: ref starts at 0; performance.now() right after
+    // mount can be < 250 and would otherwise spuriously trip.
+    if (
+      lastUserInputAtRef.current > 0 &&
+      performance.now() - lastUserInputAtRef.current < 250
+    ) return
+    listHandleRef.current?.scrollToBottom('instant')
+  }, [contentSeq, listHandleRef])
+
+  // Bridge scroll events from List → autoFollow. ONLY user-driven
+  // scrolls toggle the flag. Programmatic scrolls (our pin / scroll-
+  // restore / react-window layout adjustment) must never touch it.
   const onListScroll = useCallback(
     (
       scrollTop: number,
@@ -218,11 +214,11 @@ export function useScrollAutoFollow(args: UseScrollAutoFollowArgs): UseScrollAut
     ) => {
       if (isUserDriven) {
         const atBottom = scrollHeight - scrollTop - clientHeight < 32
-        autoFollowRef.current = atBottom
-        setAutoFollow(atBottom)
+        if (atBottom !== autoFollowRef.current) {
+          autoFollowRef.current = atBottom
+          setAutoFollow(atBottom)
+        }
       }
-      // Also keep containerRef in sync so the persist/restore hooks
-      // resolve the live element each render.
       const el = listHandleRef.current?.element() ?? null
       containerRef.current = el
     },
@@ -255,17 +251,15 @@ export function useScrollAutoFollow(args: UseScrollAutoFollowArgs): UseScrollAut
   }, [listHandleRef])
 
   // Visibility gate: hide the conversation until the saved scroll
-  // position has been applied. Default to visible (no gate) when
-  // there's nothing to restore.
+  // position has been applied. Default to visible when there's
+  // nothing to restore.
   const [restoreVisible, setRestoreVisible] = useState<boolean>(() => {
     if (!sessionId) return true
     const stored: PersistedScrollRecord | null = readPersistedScroll(storageKey, sessionId)
     return stored == null
   })
-  // Safety net: even if onSettled never fires (effect cancelled
-  // mid-restore, sessionId changes, etc.), uncover the conversation
-  // after a short timeout so the user is never stuck staring at a
-  // blank panel.
+  // Safety net: reveal after a short timeout even if onSettled never
+  // fires (effect cancelled mid-restore, sessionId changes, etc.).
   useEffect(() => {
     if (restoreVisible) return
     const t = window.setTimeout(() => setRestoreVisible(true), 1500)
@@ -288,11 +282,10 @@ export function useScrollAutoFollow(args: UseScrollAutoFollowArgs): UseScrollAut
     containerRef,
   })
 
-  const scrollToLatest = useCallback((behavior: 'smooth' | 'instant' | 'auto' = 'smooth') => {
-    const handle = listHandleRef.current
-    if (handle) handle.scrollToBottom(behavior)
+  const scrollToLatest = useCallback((behavior: 'smooth' | 'instant' | 'auto' = 'instant') => {
     autoFollowRef.current = true
     setAutoFollow(true)
+    listHandleRef.current?.scrollToBottom(behavior)
   }, [listHandleRef])
 
   return {

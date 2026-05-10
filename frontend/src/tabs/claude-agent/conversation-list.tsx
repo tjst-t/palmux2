@@ -137,6 +137,15 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       listRef.current = api
       setScrollEl(api?.element ?? null)
     }, [])
+    // Synchronous mark of "user is touching the scrollbar right now"
+    // (wheel / touchmove / keydown / mousedown). Read by both the
+    // scroll event handler (to tag isUserDriven) AND the imperative
+    // scrollToBottom API (to skip the pin entirely if a user gesture
+    // is in flight). Without the second use, scrollToBottom would
+    // unconditionally yank the user to bottom even when their wheel
+    // event was already queued, defeating the parent's auto-follow
+    // logic for the wheel-and-chunk-in-same-tick race.
+    const lastUserInputAtRef = useRef<number>(0)
     // 200px is a reasonable initial guess for an unmeasured turn
     // (one short user message + a tool block). Real heights replace
     // it as soon as ResizeObserver fires. The exact value doesn't
@@ -161,6 +170,23 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       ref,
       () => ({
         scrollToBottom: (behavior = 'instant') => {
+          // User-input guard: if the user touched the scrollbar in the
+          // last 250 ms, do nothing. They're trying to scroll, and a
+          // streaming chunk's auto-follow effect should not yank them
+          // back. This mirrors the parent hook's guard but is enforced
+          // INSIDE the imperative call so the unconditional initial
+          // `api.scrollToRow` below can't bypass it.
+          //
+          // Note the falsy check on lastUserInputAtRef.current: the ref
+          // is initialised to 0, and `performance.now()` shortly after
+          // page load can be smaller than 250 — blindly subtracting
+          // would block the very first scroll-to-bottom call after
+          // mount. We only apply the guard once a real user gesture
+          // has stamped the ref with a non-zero timestamp.
+          if (
+            lastUserInputAtRef.current > 0 &&
+            performance.now() - lastUserInputAtRef.current < 250
+          ) return
           // Two-phase scroll-to-bottom.
           //
           // Why this is hard: react-window's `scrollToRow({behavior:'smooth'})`
@@ -313,9 +339,8 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
     // the scroll container within the last 250ms. Otherwise false.
     useEffect(() => {
       if (!scrollEl) return
-      let lastUserInputAt = 0
       const markUser = () => {
-        lastUserInputAt = performance.now()
+        lastUserInputAtRef.current = performance.now()
         // Hotfix: also notify the parent synchronously so its
         // auto-follow effect can see the user is touching the
         // scrollbar right now — without waiting for the browser to
@@ -324,7 +349,16 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       }
       const onScrollEvt = () => {
         if (!onScroll) return
-        const isUserDriven = performance.now() - lastUserInputAt < 250
+        // Falsy check on the ref: a freshly-mounted component has
+        // ref=0, and `performance.now()` shortly after page load is
+        // smaller than 250 — so naïve subtraction would mis-classify
+        // the first programmatic scroll event as user-driven and the
+        // parent would flip autoFollow off based on a phantom user
+        // gesture. Only treat as user-driven once a real wheel /
+        // touchmove / keydown / mousedown has stamped the ref.
+        const isUserDriven =
+          lastUserInputAtRef.current > 0 &&
+          performance.now() - lastUserInputAtRef.current < 250
         onScroll(
           scrollEl.scrollTop,
           scrollEl.scrollHeight,
