@@ -1,50 +1,73 @@
 .PHONY: dev dev-api dev-frontend ports tmp serve serve-stop serve-logs build build-linux build-arm build-agent test lint clean e2e-cleanup e2e-cleanup-dry
 
 TMP_DIR := tmp
-ENV_FILE := $(TMP_DIR)/portman.env
 BIN_DIR := bin
 GO_PKG := ./cmd/palmux
 
+# `palmux port` is our built-in port allocator (S9fd775). It lives in the
+# same binary as the server, so we can self-bootstrap from a freshly built
+# `bin/palmux` without depending on the external `portman` CLI. The
+# bootstrap order is:
+#
+#   1. Build the binary (a `dev` / `serve` target's first dependency).
+#   2. Use the freshly built binary to allocate ports.
+#   3. Use the same binary to run the server.
+#
+# All allocator state lives in $(PORTS_FILE) — a JSON file keyed on
+# (scope, name). With the same name and scope you always get the same port
+# back, mirroring portman's lease semantics.
+PALMUX_BIN := $(BIN_DIR)/palmux
+PORT_CONFIG_DIR := $(TMP_DIR)
+PORTS_FILE := $(PORT_CONFIG_DIR)/ports.json
+
 # Optional instance suffix so a second palmux2 (e.g. in a `dev` worktree)
-# can run side-by-side with the host instance without sharing portman
-# names — and therefore without sharing ports. Default: blank → host
-# instance ("palmux2", "palmux2-api", "palmux2-frontend"). Override with
-# `make serve INSTANCE=dev` etc.
+# can run side-by-side with the host instance without sharing port leases.
+# Default: blank → host instance ("palmux2", "palmux2-api",
+# "palmux2-frontend"). Override with `make serve INSTANCE=dev` etc.
 INSTANCE ?=
 INSTANCE_SUFFIX := $(if $(INSTANCE),-$(INSTANCE),)
 SERVE_NAME    := palmux2$(INSTANCE_SUFFIX)
 API_NAME      := palmux2$(INSTANCE_SUFFIX)-api
 FRONTEND_NAME := palmux2$(INSTANCE_SUFFIX)-frontend
 
-# Re-lease ports each invocation. portman returns the same port for the same
-# project/branch/name combo, so this is stable across runs.
-ports: tmp
-	@portman env --expose --name $(API_NAME) --name $(FRONTEND_NAME) --output $(ENV_FILE)
-	@cat $(ENV_FILE)
+# `palmux port alloc` returns the same port for the same (scope, name)
+# combo, so the lease is stable across runs. Calling it multiple times in
+# one Makefile run is safe.
+PALMUX_PORT := $(PALMUX_BIN) port
 
 tmp:
 	@mkdir -p $(TMP_DIR)
 
+# Pre-flight: make sure the palmux binary is built before any port
+# allocation happens. We bootstrap with a plain `go build` (no frontend
+# embed) so a fresh checkout works without `npm install`. Production
+# `make build` rebuilds with frontend embed on top of this.
+$(PALMUX_BIN): $(shell find cmd/palmux internal -type f -name '*.go' 2>/dev/null) prepare
+	@mkdir -p $(BIN_DIR)
+	@go build -o $(PALMUX_BIN) $(GO_PKG)
+
+ports: $(PALMUX_BIN) tmp
+	@$(PALMUX_PORT) alloc --config-dir $(PORT_CONFIG_DIR) --name $(API_NAME)      >/dev/null
+	@$(PALMUX_PORT) alloc --config-dir $(PORT_CONFIG_DIR) --name $(FRONTEND_NAME) >/dev/null
+	@echo "API_PORT=$$($(PALMUX_PORT) alloc --config-dir $(PORT_CONFIG_DIR) --name $(API_NAME))"
+	@echo "FRONTEND_PORT=$$($(PALMUX_PORT) alloc --config-dir $(PORT_CONFIG_DIR) --name $(FRONTEND_NAME))"
+
 dev: ports
 	@$(MAKE) -j2 dev-api dev-frontend
 
-# portman env writes ports as PALMUX2_<NAME>_PORT, where <NAME> is the
-# uppercased portman name with hyphens turned into underscores. We compute
-# the variable names here so they track INSTANCE.
-API_PORT_VAR      := PALMUX2$(shell echo $(INSTANCE_SUFFIX) | tr 'a-z-' 'A-Z_')_API_PORT
-FRONTEND_PORT_VAR := PALMUX2$(shell echo $(INSTANCE_SUFFIX) | tr 'a-z-' 'A-Z_')_FRONTEND_PORT
-
-dev-api: ports
-	@. $(ENV_FILE) && \
+dev-api: $(PALMUX_BIN) tmp
+	@API_PORT=$$($(PALMUX_PORT) alloc --config-dir $(PORT_CONFIG_DIR) --name $(API_NAME)) && \
 		go run $(GO_PKG) \
-			--addr "0.0.0.0:$${$(API_PORT_VAR)}" \
+			--addr "0.0.0.0:$$API_PORT" \
 			--config-dir ./$(TMP_DIR) \
 			$(SERVE_TMUX_PREFIX)
 
-dev-frontend: ports
-	@. $(ENV_FILE) && cd frontend && \
-		PALMUX2_API_PORT=$${$(API_PORT_VAR)} \
-		npm run dev -- --port $${$(FRONTEND_PORT_VAR)} --host 0.0.0.0 --strictPort
+dev-frontend: $(PALMUX_BIN) tmp
+	@API_PORT=$$($(PALMUX_PORT) alloc --config-dir $(PORT_CONFIG_DIR) --name $(API_NAME)) && \
+		FRONTEND_PORT=$$($(PALMUX_PORT) alloc --config-dir $(PORT_CONFIG_DIR) --name $(FRONTEND_NAME)) && \
+		cd frontend && \
+		PALMUX2_API_PORT=$$API_PORT \
+		npm run dev -- --port $$FRONTEND_PORT --host 0.0.0.0 --strictPort
 
 # Version string injected into the binary via `-ldflags -X main.Version=...`.
 # Defaults to `git describe --tags --always --dirty` so a build from a tagged
@@ -96,8 +119,6 @@ build-agent:
 # CLAUDE_INTEGRATION.md so `make serve` returns to the shell promptly.
 SERVE_PID    := $(TMP_DIR)/palmux$(INSTANCE_SUFFIX).pid
 SERVE_LOG    := $(TMP_DIR)/palmux$(INSTANCE_SUFFIX).log
-SERVE_ENV    := $(TMP_DIR)/palmux$(INSTANCE_SUFFIX).portman.env
-SERVE_PORT_VAR := PALMUX2$(shell echo $(INSTANCE_SUFFIX) | tr 'a-z-' 'A-Z_')_PORT
 
 # S009-fix-3: when a non-empty INSTANCE is given, isolate the tmux session
 # namespace so this palmux process can't trample the host palmux2's
@@ -123,10 +144,7 @@ serve: build tmp
 	  fi; \
 	  rm -f $(SERVE_PID); \
 	fi
-	@portman env --name $(SERVE_NAME) --expose --output $(SERVE_ENV)
-	@portman sync >/dev/null
-	@. $(SERVE_ENV) && \
-	  PORT=$${$(SERVE_PORT_VAR)} && \
+	@PORT=$$($(PALMUX_PORT) alloc --config-dir $(PORT_CONFIG_DIR) --name $(SERVE_NAME)) && \
 	  echo "==> Starting palmux2 on port $$PORT (log: $(SERVE_LOG))" && \
 	  nohup ./$(BIN_DIR)/palmux \
 	    --addr "0.0.0.0:$$PORT" \
@@ -137,6 +155,9 @@ serve: build tmp
 	  echo "    PID: $$(cat $(SERVE_PID))"
 
 # Stop the background instance (no restart). Idempotent.
+# After killing the process we drop the lease so the next `make serve`
+# either reuses the same port (idempotent name → port mapping) or, if the
+# user freed it elsewhere, picks a fresh one.
 serve-stop:
 	@if [ -f $(SERVE_PID) ]; then \
 	  OLD_PID=$$(cat $(SERVE_PID)); \
@@ -151,6 +172,9 @@ serve-stop:
 	  rm -f $(SERVE_PID); \
 	else \
 	  echo "==> Nothing to stop."; \
+	fi
+	@if [ -x $(PALMUX_BIN) ] && [ -f $(PORTS_FILE) ]; then \
+	  $(PALMUX_PORT) free --config-dir $(PORT_CONFIG_DIR) --name $(SERVE_NAME) 2>/dev/null || true; \
 	fi
 
 # Tail the latest server log.
