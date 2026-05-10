@@ -55,14 +55,17 @@ def rpc_call(method: str, params=None, req_id=1) -> dict:
     """
     Send a single JSON-RPC request to the agent on the VM via SSH + python3 socket.
     Returns the parsed response dict.
+
+    Uses ssh stdin (`python3 -`) to feed the script — `python3 -c {repr(script)}`
+    is fragile across nested shell quoting and breaks on multi-line scripts with
+    embedded quotes.
     """
     req = json.dumps({"jsonrpc": "2.0", "method": method, "params": params, "id": req_id})
-    # Use python3 on the VM to talk to the UDS socket directly.
     script = f"""
-import json, socket, sys
+import json, socket
 sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-sock.connect('{REMOTE_SOCKET}')
-sock.sendall({repr(req.encode())} + b'\\n')
+sock.connect({REMOTE_SOCKET!r})
+sock.sendall({req.encode()!r} + b'\\n')
 data = b''
 while True:
     chunk = sock.recv(4096)
@@ -77,7 +80,10 @@ while True:
         pass
 sock.close()
 """
-    result = ssh(f"python3 -c {repr(script)}")
+    result = subprocess.run(
+        ["ssh", *SSH_OPTS, VM_HOST, "python3", "-"],
+        input=script, capture_output=True, text=True, check=True,
+    )
     return json.loads(result.stdout.strip())
 
 
@@ -246,10 +252,6 @@ class TestAgentOnVM(unittest.TestCase):
         self.assertIsNone(resp.get("error"), f"Walk failed: {resp.get('error')}")
         entries = resp.get("result", {}).get("entries", [])
         self.assertIsInstance(entries, list)
-
-
-class TestAgentMethodNotFound(unittest.TestCase):
-    """Method not found returns -32601."""
 
     def test_method_not_found(self):
         """[AC-S98156b-1-3] Unknown method returns JSON-RPC error -32601"""

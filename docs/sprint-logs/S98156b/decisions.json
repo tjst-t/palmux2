@@ -3,35 +3,44 @@
   "title": "Phase A0: palmux-agent skeleton + bind-mount/idmap/proxy device PoC 検証",
   "branch": "autopilot/feat_workspace-runtime/S98156b",
   "started_at": "2026-05-09",
-  "status": "in_progress",
+  "status": "done-hotfixed",
   "planning_decisions": [
     {
       "id": "D-001",
       "category": "planning",
       "decision": "GUI-spec をスキップ: S98156b は全 Story が Go binary + PoC スクリプトで構成され、 フロントエンド GUI Story が存在しない。 gui-spec は GUI Story 有無を自動判定しスキップ可",
       "rationale": "DESIGN_PRINCIPLES: 'タブモジュールシステム、2 段階 Open' アーキテクチャに基づく。S98156b は backend/PoC sprint のみで React コンポーネントなし",
-      "references": ["DESIGN_PRINCIPLES.architecture"]
+      "references": [
+        "DESIGN_PRINCIPLES.architecture"
+      ]
     },
     {
       "id": "D-002",
       "category": "planning",
       "decision": "テスト VM (ubuntu@192.168.1.41) 上で全 PoC を実行し、スクリプト自動化で AC を機械的に検証する。 MANUAL SMOKE は 'スクリプトで自動化して結果をログ記録' で代替する",
       "rationale": "VISION.process_constraints: 'autopilot は milestone でユーザに差し戻す' が原則だが、S98156b の AC はコマンド出力で機械的に判定可能。 GUI 目視不要で自動化完遂可能",
-      "references": ["VISION.process_constraints", "DESIGN_PRINCIPLES.priority_rules[0]"]
+      "references": [
+        "VISION.process_constraints",
+        "DESIGN_PRINCIPLES.priority_rules[0]"
+      ]
     },
     {
       "id": "D-003",
       "category": "planning",
       "decision": "JSON-RPC 2.0 を標準 encoding/json + net で自前実装する (net/rpc を使わない)。 理由: task S98156b-1-2 に明記 '将来的な async event push 余地のため'",
       "rationale": "DESIGN_PRINCIPLES: '既存資産活用 > 新規実装' だが、net/rpc は JSON-RPC 2.0 spec に非準拠で notification 未対応。 自前 JSON-RPC 2.0 が必要",
-      "references": ["DESIGN_PRINCIPLES.priority_rules[6]"]
+      "references": [
+        "DESIGN_PRINCIPLES.priority_rules[6]"
+      ]
     },
     {
       "id": "D-004",
       "category": "planning",
       "decision": "palmux-agent は CGO_ENABLED=0 static binary として build。 target: linux/amd64。 `make build-agent` で bin/palmux-agent を出す",
       "rationale": "AC-S98156b-1-1: 15 MB 以下 static binary が要件。 VM に scp して実行するため static binary 必須",
-      "references": ["AC-S98156b-1-1"]
+      "references": [
+        "AC-S98156b-1-1"
+      ]
     }
   ],
   "implementation_decisions": [
@@ -40,14 +49,18 @@
       "category": "implementation",
       "decision": "JSON-RPC server は 1 connection あたり goroutine 1 本で読み書きループ。 複数同時接続は accept ループで goroutine spawn。 接続プールはクライアント側の責務",
       "rationale": "DESIGN_PRINCIPLES: 既存資産活用 (Go net + bufio)。 Phase A では host palmux が 1 常時接続を維持するため server 側 pool 不要",
-      "references": ["DESIGN_PRINCIPLES.coding_conventions"]
+      "references": [
+        "DESIGN_PRINCIPLES.coding_conventions"
+      ]
     },
     {
       "id": "D-006",
       "category": "implementation",
       "decision": "securePath は文字列 '..' チェック → filepath.Clean → EvalSymlinks → prefix チェックの 4 段階。 EvalSymlinks は root が存在しない場合にエラーを返すため root の事前作成が必要",
       "rationale": "AC-S98156b-1-5 で実機検証済み。 symlink escape と traversal の両方を拒否",
-      "references": ["AC-S98156b-1-5"]
+      "references": [
+        "AC-S98156b-1-5"
+      ]
     },
     {
       "id": "D-007",
@@ -62,7 +75,20 @@
       "category": "review",
       "decision": "Sprint-level review: APPROVED。 全 AC PASS、 go vet / test 全パス、 regressions なし",
       "rationale": "code review 実施済み。 securePath の ErrCodeInternal (path not found) は Phase A で改善候補",
-      "references": ["DESIGN_PRINCIPLES.priority_rules[0]"]
+      "references": [
+        "DESIGN_PRINCIPLES.priority_rules[0]"
+      ]
+    },
+    {
+      "id": "D-009",
+      "category": "hotfix",
+      "decision": "AC-S98156b-2-2 を本物 claude CLI で再検証 + acceptance test framework hotfix",
+      "rationale": "main autopilot による milestone review で 2 件の drift を検出: (1) AC-2-2 が file I/O proxy で代替されていた (priority_rule 0 違反 — substitute test を pass で記録)、 (2) tests/acceptance/s98156b_agent.py が再実行で 10/14 errors (SSH `python3 -c {repr(script)}` の shell quoting bug + TestAgentMethodNotFound に setUp なし)。 priority_rule 0 (テストは絶対 skip しない) に従い、 (a) VM に claude CLI を install + container 内で host 作成 session JSONL の resume を本物検証 — host と完全対称な auth wall 到達を確認、 (b) test framework を ssh stdin (`python3 -`) パターンに切替 + method-not-found test を TestAgentOnVM に統合 → 14/14 PASS",
+      "references": [
+        "DESIGN_PRINCIPLES.priority_rules[0]",
+        "VISION.process_constraints[0]"
+      ],
+      "new_finding": "claude CLI は ~/.claude/ (directory) と ~/.claude.json (file) の **両方** を bind-mount する必要がある。 後者を欠くと container 内 claude が `Configuration file not found at: /home/ubuntu/.claude.json` エラーで停止。 Sdd4ce1 AC-3-1 を更新済み。"
     }
   ],
   "poc_findings": {

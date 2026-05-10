@@ -9,12 +9,73 @@
 | AC | Status | 実測結果 |
 |---|---|---|
 | AC-S98156b-2-1 | **PASS** | ~/.claude/ が container 内から ls 可能 (idmap 設定後) |
-| AC-S98156b-2-2 | **PASS** | bind-mount 双方向確認。claude CLI 未インストールだが path 機構検証済み |
+| AC-S98156b-2-2 | **PASS (hotfix-verified)** | claude CLI 実 install 後、 container で `claude --resume <UUID>` が host 作成セッションを発見 + auth wall まで到達 (host と完全対称)。 §AC-2-2 hotfix 節参照 |
 | AC-S98156b-2-3 | **PASS** | container 内の書き込みが host で即座に見える (同一 inode bind) |
 | AC-S98156b-2-4 | **PASS** | settings.json なし → 競合なし。戦略決定: ro bind + palmux inject |
 | AC-S98156b-2-5 | **PASS** | concurrent write 10/10 行生存 (Linux page-cache が小 append を直列化) |
 
 **総合: 全 5 AC PASS**
+
+---
+
+## AC-S98156b-2-2 hotfix 検証 (2026-05-10 milestone review)
+
+**当初の sub-agent 報告**: 「claude CLI 未インストール → file I/O bidirectionality で代替」。 これは priority_rule 0 違反 (substitute test) のため main autopilot が hotfix で本物テストを実施した。
+
+### 手順 (再現可能)
+
+```bash
+# VM (= "host") に claude CLI install
+sudo apt install -y nodejs npm
+sudo npm install -g @anthropic-ai/claude-code   # → 2.1.138
+
+# host 側で fake session JSONL 作成 (auth なしでも作れる)
+PROJ=/tmp/poc-claude-test
+KEY=-tmp-poc-claude-test
+SESSION=11111111-2222-3333-4444-555555555555
+mkdir -p ~/.claude/projects/$KEY
+cat > ~/.claude/projects/$KEY/$SESSION.jsonl <<EOF
+{"type":"summary","summary":"Test resume session","leafUuid":"$SESSION"}
+{"type":"user","sessionId":"$SESSION","cwd":"$PROJ","message":{"role":"user","content":[{"type":"text","text":"hello from host"}]},"uuid":"$SESSION","timestamp":"..."}
+EOF
+
+# container 起動 + bind-mount 2 個
+lxc launch ubuntu:24.04 poc-resume
+lxc config set poc-resume raw.idmap "both 1000 1000"
+lxc restart poc-resume
+lxc config device add poc-resume claude_dir disk source=/home/ubuntu/.claude path=/home/ubuntu/.claude
+lxc config device add poc-resume claude_json disk source=/home/ubuntu/.claude.json path=/home/ubuntu/.claude.json   # ← 重要
+
+# container に claude install
+lxc exec poc-resume -- bash -c "apt install -y nodejs npm && npm install -g @anthropic-ai/claude-code"
+
+# container で resume 実行
+lxc exec poc-resume -- sudo -u ubuntu bash -c \
+  "cd $PROJ && timeout 10 claude --resume $SESSION --print test < /dev/null"
+```
+
+### 結果
+
+| 試行 | 出力 | 解釈 |
+|---|---|---|
+| host: `claude --resume $SESSION --print x` | `Not logged in · Please run /login` | session JSONL 発見 + parse 成功 + API call 段階で auth wall |
+| container: bind は `~/.claude/` のみ | `Claude configuration file not found at: /home/ubuntu/.claude.json` | **新発見**: claude CLI は `~/.claude.json` (file) も要求 |
+| container: bind に `~/.claude.json` 追加 | `Not logged in · Please run /login` | **host と完全に同一の挙動** = resume 機構が container でも機能 |
+
+### Decision (Sdd4ce1 への申し送り)
+
+**bind-mount 戦略を更新** — 以下 **2 つの bind が必須**:
+
+1. `lxc config device add <inst> claude_dir disk source=$HOME/.claude path=$HOME/.claude` (rw)
+2. `lxc config device add <inst> claude_json disk source=$HOME/.claude.json path=$HOME/.claude.json` (rw or ro)
+
+`~/.claude/` ディレクトリだけでは不十分 — claude CLI は `~/.claude.json` (config file, OAuth token を含む) を **別途** 開く。 これを bind しないと container 内 claude は起動段階でエラー。
+
+→ **Sdd4ce1 AC-3-1 を更新**: bind device 追加を 2 つに明記。 ROADMAP.json で対応。
+
+### Auth scope の話
+
+container 内 claude が API 呼び出しまで到達できるかは VM の auth 状態に依存する (host VM は auth しなかったので両方 "Not logged in")。 本 PoC は **bind-mount + idmap + resume infrastructure が機能する** ことの実証であり、 OAuth flow 自体の検証ではない。 OAuth credentials を bind 越しに container 内 claude が使えるかは Sdd4ce1 で別途検証 (host で auth → 同 `~/.claude.json` を bind → container claude が auth 状態を継承するはず)。
 
 ---
 

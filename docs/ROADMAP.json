@@ -6371,7 +6371,7 @@
           "acceptance_criteria": [
             {
               "id": "AC-Sdd4ce1-3-1",
-              "description": "`internal/runtime/lxd/` に lxd-container 実装、 Start で `lxc launch <image> <inst>` → `raw.idmap \"uid 1000 1000\ngid 1000 1000\" (S98156b PoC: \"both 1000 1000 1\" は invalid; 2-value per line 形式が正)` → bind-mount (worktree / `~/.claude/skills` ro / `~/.claude/projects/<this>` rw / `~/.gitconfig` ro / `~/.config/gh` ro / SSH_AUTH_SOCK forward) → `lxc file push palmux-agent` → `systemd-run --unit palmux-agent` で agent 起動",
+              "description": "`internal/runtime/lxd/` に lxd-container 実装、 Start で `lxc launch <image> <inst>` → `raw.idmap \"both 1000 1000\"` (S98156b hotfix PoC: 3 引数 `both <host> <ctr>` 形式が正、 4 引数 `both 1000 1000 1` は LXD 5.21.4 で invalid) → bind-mount **2 つ**: (a) `~/.claude/` directory rw + (b) `~/.claude.json` **file** rw — S98156b hotfix で発見、 後者を欠くと container 内 claude CLI が起動段階で `Configuration file not found` エラー → さらに worktree / `~/.gitconfig` ro / `~/.config/gh` ro / SSH_AUTH_SOCK forward → cloud-init 完了待ち (`lxc exec -- id ubuntu` poll, max 60s) → `lxc file push palmux-agent` → `systemd-run --unit palmux-agent` で agent 起動",
               "test": "[AC-Sdd4ce1-3-1] in tests/e2e/sdd4ce1_lxd_container.py",
               "status": "pending"
             },

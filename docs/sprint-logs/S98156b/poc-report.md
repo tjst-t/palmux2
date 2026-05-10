@@ -66,7 +66,7 @@ P99:    0.24 ms
 | container 書き込み → host 即座可視 | PASS (同一 inode bind) |
 | concurrent write 10/10 行生存 | PASS |
 | settings.json 戦略決定 | PASS (ro bind + inject 方式) |
-| claude --resume (実 CLI) | 未確認 (claude CLI 未インストール) |
+| claude --resume (実 CLI) | **PASS (hotfix-verified)** — VM に claude CLI install 後、 container で host 作成 session JSONL を resume 可能 (auth wall まで到達)。 ただし `~/.claude.json` (file) も bind 必須 — poc-a.md §AC-2-2 hotfix 参照 |
 
 ### idmap フォーマット確定 (実機検証済み)
 
