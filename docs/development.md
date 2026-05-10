@@ -6,7 +6,7 @@
 
 palmux2 は tmux セッションを管理する。普段使いの palmux2（"ホスト用"）の中で `make serve` を打つと、ホスト用バイナリが再起動される。再起動時に **そこで動いている tmux セッション = 自分が今操作している Claude CLI が一緒に死ぬ**。これは明白な bootstrap 問題で、対話履歴が `claude --resume` で復活できる場面はあるが、permission 待ちなど in-flight なツール呼び出しは壊れる。
 
-→ **開発用 instance は別の portman 名・別の config dir で動かし、ホスト用 instance には触らない**。
+→ **開発用 instance は別の `palmux port` lease 名・別の config dir で動かし、ホスト用 instance には触らない**。
 
 ## 1 回だけやる準備
 
@@ -42,9 +42,9 @@ make dev INSTANCE=dev
 make serve INSTANCE=dev
 ```
 
-`INSTANCE=dev` は `Makefile` の portman 名 / PID ファイル / ログファイルにサフィックスを付ける:
+`INSTANCE=dev` は `Makefile` の `palmux port` lease 名 / PID ファイル / ログファイルにサフィックスを付ける:
 
-| ターゲット                | 通常の portman 名         | `INSTANCE=dev` 時             |
+| ターゲット                | 通常の lease 名           | `INSTANCE=dev` 時             |
 | ------------------------- | ------------------------- | ----------------------------- |
 | `make serve`              | `palmux2`                 | `palmux2-dev`                 |
 | `make dev` (api)          | `palmux2-api`             | `palmux2-dev-api`             |
@@ -54,23 +54,23 @@ make serve INSTANCE=dev
 | ----------------------- | ----------------------------- | ---------------------------------- |
 | serve PID               | `tmp/palmux.pid`              | `tmp/palmux-dev.pid`               |
 | serve ログ              | `tmp/palmux.log`              | `tmp/palmux-dev.log`               |
-| serve portman env       | `tmp/palmux.portman.env`      | `tmp/palmux-dev.portman.env`       |
+| port lease 共通         | `tmp/ports.json`              | `tmp/ports.json` (同じファイル、 lease 名で区別) |
 
-portman が同名に対しては毎回同じポートを返すので、開発用ポートも安定する。
+`palmux port alloc` は同 lease 名に対しては毎回同じポートを返すので、開発用ポートも安定する。
 
 `make serve` はバックグラウンド起動。再度 `make serve` を打つと PID ファイルから古いプロセスを kill してから新しく立ち上げる。停止だけしたいときは `make serve-stop`、ログを見たいときは `make serve-logs`。
 
 ### ブラウザで開く
 
-`make dev INSTANCE=dev` の出力（または `tmp/portman.env`）に、割り当てられたポートが `PALMUX2_DEV_FRONTEND_PORT` / `PALMUX2_DEV_API_PORT` として表示される。例:
+`make dev INSTANCE=dev` の出力に、割り当てられたポートが `API_PORT=...` / `FRONTEND_PORT=...` として表示される (詳細は `cat tmp/ports.json | jq` で確認可能)。例:
 
 ```
-PALMUX2_DEV_FRONTEND_PORT=53210
-PALMUX2_DEV_API_PORT=53211
+API_PORT=53210
+FRONTEND_PORT=53211
 ```
 
-vite dev の場合: `http://<host>:53210/` を開く。
-production 単体バイナリ (`make serve INSTANCE=dev`) の場合: portman が割り当てたポート 1 つだけ。
+vite dev の場合: `http://<host>:53211/` を開く。
+production 単体バイナリ (`make serve INSTANCE=dev`) の場合: `palmux port` が割り当てたポート 1 つだけ。
 
 ホスト用 palmux2 (8207 など) と完全に独立したポートなので、**両方のブラウザタブを並べて作業できる**。
 
@@ -89,7 +89,7 @@ git push origin main
 
 ### 「ポートが衝突する」
 
-`portman env --name palmux2-dev-api --name palmux2-dev-frontend --output -` で現在のリースを確認。`portman release --name palmux2-dev-api` で剥がせる。
+`./bin/palmux port list --config-dir ./tmp` で現在のリースを確認。`./bin/palmux port free --config-dir ./tmp --name palmux2-dev-api` で剥がせる (`palmux port` は `palmux serve` が止まっていても動く)。
 
 ### 「`gwq cd dev` で worktree が見つからない」
 

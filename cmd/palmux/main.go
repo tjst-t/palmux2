@@ -90,6 +90,13 @@ func main() {
 	// .webmanifest. Register the canonical type so PWAs install cleanly.
 	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
 
+	// `palmux port ...` (S9fd775) — built-in port allocator CLI. Dispatched
+	// before pflag.Parse so the subcommand can own its own flag set without
+	// conflicting with the server flags below.
+	if handled, code := dispatchPortCommand(); handled {
+		os.Exit(code)
+	}
+
 	addr := pflag.String("addr", "0.0.0.0:8080", "listen address (host:port)")
 	configDir := pflag.String("config-dir", defaultConfigDir(), "config directory (repos.json / settings.json)")
 	token := pflag.String("token", "", "auth token. empty = open access")

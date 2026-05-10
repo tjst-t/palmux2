@@ -29,23 +29,24 @@
 
 - **Go モジュールパス**: `github.com/tjst-t/palmux2`（リポジトリ名と一致。仕様書中の `github.com/tjst-t/palmux` は palmux v1 の名前で、v2 では palmux2 を使う）
 - **設定ファイル保存先**: 開発時は `./tmp/`（既存の本物 palmux と干渉させないため）。本番想定の `~/.config/palmux/` は CLI フラグ `--config-dir` で切り替える
-- **ポート**: dev サーバーは [portman](https://github.com/tjst-t/port-manager) 経由で起動する。`make dev` / `make serve` が `portman exec --name {svc} -- cmd --port {}` を呼ぶ。ソースにポート番号をハードコードしない
+- **ポート**: dev サーバーは Palmux 内蔵の `palmux port` allocator (S9fd775) 経由で起動する。`make dev` / `make serve` が `palmux port alloc --name {svc}` または `palmux port exec --name {svc} -- cmd --port {}` を呼ぶ。 永続化先は `./tmp/ports.json` (本番想定は `~/.config/palmux/ports.json`)。 ソースにポート番号をハードコードしない。 外部 reference として旧来の [portman](https://github.com/tjst-t/port-manager) もそのまま利用可 (palmux 自体は依存しないが、 portman dashboard を別途運用しているなら `--portman-url` で Palmux ヘッダからリンクできる)
 - **パッケージマネージャ**: npm（pnpm/bun も利用可だがデフォルトは npm）
 - **Toolbar モード数**: 2モード（normal / claude）。02-CLAUDE-rules には normal/shortcut/claude/command の4モード記載があるが、04-ui-requirements v2.1 で 2モード化されており **04 が正**
 
 ### サーバー起動
 
-- `make dev` — Vite dev + Go サーバー（hot reload）。portman 経由、フォアグラウンド実行
-- `make serve` — Go サーバー単体（embed 済みフロント）を **バックグラウンド** で起動して即シェルに戻る。再実行すると前のプロセスを kill してから起動しなおす。PID: `tmp/palmux.pid`、ログ: `tmp/palmux.log`
-- `make serve-stop` — バックグラウンド instance を停止
+- `make dev` — Vite dev + Go サーバー（hot reload）。`palmux port alloc` 経由でポート確保、フォアグラウンド実行
+- `make serve` — Go サーバー単体（embed 済みフロント）を **バックグラウンド** で起動して即シェルに戻る。再実行すると前のプロセスを kill してから起動しなおす。PID: `tmp/palmux.pid`、ログ: `tmp/palmux.log`、ポート lease: `tmp/ports.json`
+- `make serve-stop` — バックグラウンド instance を停止し、 `tmp/ports.json` から該当 lease を削除
 - `make serve-logs` — `tmp/palmux.log` を tail
-- `make {dev,serve,serve-stop,serve-logs} INSTANCE=<name>` — portman 名・PID/ログファイルにサフィックスを付け、ホスト用 instance と並走させる。**S009-fix-3 で `--tmux-prefix=_pmx_<name>_` も自動付与**。これでホスト用 palmux2 (`_palmux_*` セッション) と dev 用 palmux2 (`_pmx_dev_*` セッション) は tmux 名前空間が分離され、 双方の `sync_tmux` ループが互いのセッションを zombie として kill しあわない。詳細は [docs/development.md](docs/development.md)
-- サーバー起動スクリプトを作成・変更する場合は portman ガイドを参照: https://raw.githubusercontent.com/tjst-t/port-manager/main/docs/CLAUDE_INTEGRATION.md
+- `make {dev,serve,serve-stop,serve-logs} INSTANCE=<name>` — `palmux port` の lease 名・PID/ログファイルにサフィックスを付け、ホスト用 instance と並走させる。**S009-fix-3 で `--tmux-prefix=_pmx_<name>_` も自動付与**。これでホスト用 palmux2 (`_palmux_*` セッション) と dev 用 palmux2 (`_pmx_dev_*` セッション) は tmux 名前空間が分離され、 双方の `sync_tmux` ループが互いのセッションを zombie として kill しあわない。詳細は [docs/development.md](docs/development.md)
+- 内蔵 port allocator の使い方: `palmux port {exec,alloc,list,free} --help`。 portman の CLI 互換 (S9fd775)。 `palmux serve` が動いていなくても (= bootstrap 時) ports.json に直接 flock をかけて協調するので、 単独で動く
+- 外部 reference: portman を Palmux 以外で使い続けるなら https://raw.githubusercontent.com/tjst-t/port-manager/main/docs/CLAUDE_INTEGRATION.md を参照
 - `.env` ファイルは `.gitignore` に追加（git commit しない）
 
 ### palmux2 自身の中で palmux2 を開発するときの注意
 
-ホスト用 palmux2（普段 Claude CLI を動かしている方）の `make serve` は **その palmux2 が管理している tmux セッション ＝ 自分が今操作している Claude CLI** を巻き込んで死ぬ。bootstrap 問題なので、開発は `gwq add -b dev` で別ブランチの worktree を切り、`INSTANCE=dev` で別 portman 名・別ポートで起動する。具体的な手順は [docs/development.md](docs/development.md) を参照。
+ホスト用 palmux2（普段 Claude CLI を動かしている方）の `make serve` は **その palmux2 が管理している tmux セッション ＝ 自分が今操作している Claude CLI** を巻き込んで死ぬ。bootstrap 問題なので、開発は `gwq add -b dev` で別ブランチの worktree を切り、`INSTANCE=dev` で別 lease 名・別ポートで起動する (`palmux port` のキーは lease 名でユニーク)。具体的な手順は [docs/development.md](docs/development.md) を参照。
 
 ### autopilot / sprint auto でサブエージェントに実装を委譲するときのルール
 
