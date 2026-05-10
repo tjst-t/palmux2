@@ -79,5 +79,20 @@
       "rationale": "Same stance as S43cfb1 final (85 errors). Fixing all 83 = scope explosion outside refactor target. Must NOT make worse."
     }
   ],
-  "review_decisions": []
+  "review_decisions": [
+    {
+      "id": "RD-1",
+      "story": "S4b9df4-4",
+      "topic": "needs-user-input.json batch presentation (AC-S4b9df4-4-5)",
+      "decision": "All 6 NUI items are blocking: false. The autopilot/sprint-auto context cannot interactively prompt the user, so the batch presentation is rendered in the sprint completion report (returned to the calling skill / user) and persisted in needs-user-input.json. The user can review and accept/reject each item in the post-sprint review.",
+      "rationale": "Sprint description explicitly says: `blocking: true の項目があっても作業は止めず、 sprint 内で別 Task / 別 Story を継続。 sprint verify でまとめて提示`. All NUI items here are non-blocking (recommended path is documented for each); proceeding with sprint done is the documented behaviour."
+    },
+    {
+      "id": "RD-2",
+      "story": "S4b9df4 (sprint-level)",
+      "topic": "Sprint final outcome",
+      "decision": "Sprint S4b9df4 status = done. All 5 stories complete (S4b9df4-0..4). All 22 E2E pass. Lint debt -6 (refactor net win). Bundle delta -180 bytes (well under +5% tolerance).",
+      "rationale": "Master Regression Suite all-green at every gate (Story 0 baseline, Story 1, Story 2, Story 3, final). User-facing behaviour preserved (all 5 new E2E tests + 17 prior tests pass, manual-smoke surfaces covered automatically). Refactor goals achieved: claude-agent-view.tsx 654 → 413 lines (-37%), TopBar extracted, shortcuts unified, vestigial lift-up removed."
+    }
+  ]
 }
