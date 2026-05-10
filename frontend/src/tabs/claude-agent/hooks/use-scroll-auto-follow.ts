@@ -126,14 +126,22 @@ export function useScrollAutoFollow(args: UseScrollAutoFollowArgs): UseScrollAut
   // Resolve containerRef in a useLayoutEffect — children's
   // useImperativeHandle commits run BEFORE the parent's useLayoutEffects,
   // so by the time this fires `listHandleRef.current` is populated.
-  // Doing it during render (before commit) would always read null on
-  // the first mount, which silently broke useScrollRestore (it ran
-  // its one-shot useLayoutEffect with containerRef=null and gave up).
-  // The dep [listHandleRef] makes this a stable one-time assignment;
-  // listHandleRef itself is a ref object, never changes identity.
+  //
+  // Dep on `hasTurns`: in claude-agent-view the ConversationList is
+  // only mounted while `state.turns.length > 0` (the empty-state
+  // message is shown otherwise). On the very first mount of the
+  // Claude tab, turns is [] → ConversationList isn't rendered →
+  // listHandleRef.current is null. When the WS init lands and turns
+  // populates, ConversationList mounts, its useImperativeHandle
+  // assigns listHandleRef.current, and `hasTurns` flips false→true.
+  // Re-running this effect at that moment captures the now-live
+  // element into containerRef. Without the dep, the assignment
+  // would stay null forever and useScrollRestore would silently
+  // give up. Registered before useScrollRestore so it runs first
+  // when both effects trigger on the same dep change.
   useLayoutEffect(() => {
     containerRef.current = listHandleRef.current?.element() ?? null
-  }, [listHandleRef])
+  }, [hasTurns, listHandleRef])
 
   // 250ms input guard — synchronous mark of the user touching the
   // scrollbar. ConversationList sets this BEFORE the browser delivers
@@ -145,19 +153,22 @@ export function useScrollAutoFollow(args: UseScrollAutoFollowArgs): UseScrollAut
   }, [])
 
   // Initial-landing fire: scroll to bottom on mount if autoFollow
-  // says we should be at the latest. With native DOM the scroll
-  // element is available synchronously, so a single fire suffices.
-  // Re-runs on session change (tab switch back to a different
-  // conversation). Subsequent content events go through the
-  // contentSeq effect below.
+  // says we should be at the latest. useLayoutEffect (not useEffect)
+  // so the scroll happens BEFORE paint — otherwise the user briefly
+  // sees scrollTop=0 before the bottom-pin lands.
+  //
+  // Deps include hasTurns: ConversationList is only mounted when
+  // turns is non-empty, so the imperative handle isn't usable until
+  // turns populate. Re-running when hasTurns flips false → true
+  // captures the freshly-mounted handle and pins to bottom.
   const landedFor = useRef<string>('')
-  useEffect(() => {
-    if (!sessionId) return
+  useLayoutEffect(() => {
+    if (!sessionId || !hasTurns) return
     if (landedFor.current === sessionId) return
     landedFor.current = sessionId
     if (!autoFollowRef.current) return
     listHandleRef.current?.scrollToBottom('instant')
-  }, [sessionId, listHandleRef])
+  }, [sessionId, hasTurns, listHandleRef])
 
   // Recurring auto-scroll trigger: contentSeq changed (= a content-
   // arrival event was applied to the reducer). The first dep value
@@ -223,6 +234,7 @@ export function useScrollAutoFollow(args: UseScrollAutoFollowArgs): UseScrollAut
     sessionId,
     storageKey,
     containerRef,
+    hasTurns,
   })
 
   const scrollToLatest = useCallback((behavior: 'smooth' | 'instant' | 'auto' = 'instant') => {
