@@ -76,7 +76,7 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
   // the position of that user turn (replacing the live tail) so the
   // version arrow effectively scrolls back to the abandoned thread.
   // S43cfb1-2: extracted into useTurnTree.
-  const { topLevelTurns, childrenByParent, turnIds } = useTurnTree({
+  const { topLevelTurns, childrenByParent } = useTurnTree({
     turns: state.turns,
     archivedTurnsById: state.archivedTurnsById,
     activeVersionByTurnId: state.activeVersionByTurnId,
@@ -154,7 +154,6 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
     sessionId: state.sessionId,
     contentSeq: state.contentSeq,
     hasTurns: topLevelTurns.length > 0,
-    turnIds,
     listHandleRef,
   })
 
@@ -377,7 +376,6 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
               <ConversationList
                 ref={listHandleRef}
                 turns={topLevelTurns}
-                sessionKey={state.sessionId}
                 onScroll={onListScroll}
                 onUserInput={onUserInput}
                 renderTurn={renderTurn}

@@ -620,7 +620,6 @@ export function TestHarness() {
   // Full turn list (including child sub-agent turns) so renderTaskChildren
   // can find them by parentToolUseId lookup.
   const allTurnsForChildLookup = rawDisplayTurns
-  const turnIds = useMemo(() => effectiveDisplayTurns.map((t) => t.id), [effectiveDisplayTurns])
 
   // S43cfb1-4: replace the harness-local autoFollow state +
   // user-input timestamp + onListScroll + scroll-to-bottom effect
@@ -646,7 +645,6 @@ export function TestHarness() {
     sessionId,
     contentSeq,
     hasTurns: effectiveDisplayTurns.length > 0,
-    turnIds,
     listHandleRef,
   })
 
@@ -829,7 +827,6 @@ export function TestHarness() {
           <ConversationList
             ref={listHandleRef}
             turns={effectiveDisplayTurns}
-            sessionKey={sessionId}
             renderTurn={renderTurn}
             onScroll={showAutoFollow ? onListScroll : undefined}
             onUserInput={showAutoFollow ? onUserInput : undefined}
