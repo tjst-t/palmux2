@@ -6098,43 +6098,43 @@
         },
         "S4b9df4-3": {
           "title": "キーボードショートカットを単一フックに集約",
-          "status": "pending",
+          "status": "done",
           "user_story": "Claude タブのキーボードショートカットを増やしたい開発者として、 ⌘H / ⌘F / y/n のように 3 つの useEffect に散らばった登録ロジックを一箇所に統合したい。 なぜなら、 「textarea/input フォーカス時はガード」 のような共通ルールが各 useEffect でコピペされている現状は、 4 つ目のショートカットを追加するときにガード忘れを誘発し、 既存ショートカットの修正時も影響範囲が広がるからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S4b9df4-3-1",
               "description": "frontend/src/tabs/claude-agent/hooks/use-claude-shortcuts.ts が新規作成され、 ⌘H (history toggle) / ⌘F (search open) / y/n/Esc (pending permission respond) の 3 種ショートカットを 1 つのフックで管理。 引数で 「ガード対象 (textarea/input フォーカス時)」 を共通制御",
               "test": "[AC-S4b9df4-3-1] in tests/acceptance/s4b9df4_refactor.py (file existence + interface check)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S4b9df4-3-2",
               "description": "claude-agent-view.tsx 内のキーボード関連 useEffect (3 つ: l.86-98, l.110-126, l.161-176) が削除され、 useClaudeShortcuts 1 行の呼び出しに置換されている",
               "test": "[AC-S4b9df4-3-2] in tests/acceptance/s4b9df4_refactor.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S4b9df4-3-3",
               "description": "Story 3 完了時点で Master Regression Suite (Story 1 で拡張済み) **全件緑** + 手動 smoke (⌘H / ⌘F / y / n / Esc + composer フォーカス時の文字入力が素通し) も pass。 fail は pass まで自分で直す。 判断が必要な事項のみ needs-user-input.json に追記して Story 4 へ進む",
               "test": "[AC-S4b9df4-3-3] in tests/acceptance/s4b9df4_refactor.py",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S4b9df4-3-1": {
               "title": "hooks/use-claude-shortcuts.ts を実装",
               "description": "useClaudeShortcuts({ onToggleHistory, onOpenSearch, pendingPermission, send, wrapRef }) を作成。 内部で 3 つの useEffect を統合 (window.addEventListener('keydown') 1 回で済むよう dispatch)",
-              "status": "pending"
+              "status": "done"
             },
             "S4b9df4-3-2": {
               "title": "claude-agent-view.tsx 側の useEffect 3 つを削除し useClaudeShortcuts 呼び出しに置換",
               "description": "import を追加し、 元の useEffect ブロックを削除。 wrapRef の渡し方を整理",
-              "status": "pending"
+              "status": "done"
             },
             "S4b9df4-3-3": {
               "title": "Master Regression Suite + 手動 smoke を実行し全件緑化",
               "description": "結果を sprint-logs/S4b9df4/regression-after-story3.json と manual-smoke-S4b9df4-3.md に全件記録。 fail があれば pass まで自分で直す。 判断が必要な事項のみ needs-user-input.json に追記",
-              "status": "pending"
+              "status": "done"
             }
           }
         },

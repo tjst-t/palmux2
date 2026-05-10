@@ -11,6 +11,7 @@ import {
   ConversationList,
   type ConversationListHandle,
 } from './conversation-list'
+import { useClaudeShortcuts } from './hooks/use-claude-shortcuts'
 import { useScrollAutoFollow } from './hooks/use-scroll-auto-follow'
 import { usePermissionHandlers } from './hooks/use-permission-handlers'
 import { useTurnTree } from './hooks/use-turn-tree'
@@ -82,48 +83,15 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
     activeVersionByTurnId: state.activeVersionByTurnId,
   })
 
-  // ⌘H / Ctrl+H opens the session history popup.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'h' || e.key === 'H')) {
-        // Only intercept when not typing in a text field.
-        const target = e.target as HTMLElement | null
-        if (target?.tagName === 'TEXTAREA' || target?.tagName === 'INPUT') return
-        e.preventDefault()
-        setHistoryOpen((v) => !v)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
-
   // S018: in-conversation search (Cmd+F / Ctrl+F). Scrolls to the
   // matching row through the imperative List API so virtualisation
   // (S017) plays nicely — the row is realised before being centred.
   const search = useConversationSearch(topLevelTurns, (idx) => {
     listHandleRef.current?.scrollToRow(idx, { align: 'center', behavior: 'smooth' })
   })
-  // The search captures Cmd+F **before** the browser; we only do this
-  // when the Claude tab's wrapper currently contains the focused
-  // element. Outside, the user's normal browser Find still works.
+  // wrapRef is required by useClaudeShortcuts to gate Cmd+F to the
+  // currently-focused tab so the browser's Find still works elsewhere.
   const wrapRef = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return
-      if (e.key !== 'f' && e.key !== 'F') return
-      // Inside the Claude tab? If wrapRef contains the active element,
-      // we own this shortcut.
-      const wrap = wrapRef.current
-      if (!wrap) return
-      const active = document.activeElement
-      const inside = wrap.contains(active) || active === document.body
-      if (!inside) return
-      e.preventDefault()
-      search.open()
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [search])
 
   // Fetch CLI-supported permission modes once on mount.
   useEffect(() => {
@@ -157,23 +125,17 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
     listHandleRef,
   })
 
-  // y / n shortcut for pending permission, only when composer doesn't have focus.
-  useEffect(() => {
-    if (!state.pendingPermission) return
-    const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null
-      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return
-      if (e.key === 'y' || e.key === 'Y') {
-        e.preventDefault()
-        send.permissionRespond(state.pendingPermission!.permissionId, 'allow', 'once')
-      } else if (e.key === 'n' || e.key === 'N' || e.key === 'Escape') {
-        e.preventDefault()
-        send.permissionRespond(state.pendingPermission!.permissionId, 'deny', 'once')
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [state.pendingPermission, send])
+  // S4b9df4-3: the three keyboard shortcuts (⌘H toggle history,
+  // ⌘F open search, y/n/Escape respond to pending permission) are
+  // all dispatched by useClaudeShortcuts. Single keydown listener,
+  // shared textarea/input focus guard.
+  useClaudeShortcuts({
+    onToggleHistory: () => setHistoryOpen((v) => !v),
+    onOpenSearch: search.open,
+    wrapRef,
+    pendingPermission: state.pendingPermission,
+    send,
+  })
 
   const isStreaming =
     state.status === 'thinking' ||
