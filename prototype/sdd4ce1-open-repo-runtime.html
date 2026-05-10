@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sdd4ce1-5-1 · Open Repository — Runtime selector (LXD available)</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Sdd4ce1-specific tokens — extends styles.css */
+    .runtimeFieldset {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 8px 10px 6px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      background: var(--color-bg);
+    }
+    .runtimeOption {
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 4px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .runtimeOption:hover { background: var(--color-surface); }
+    .runtimeOption[data-selected="true"] {
+      background: rgba(124, 138, 255, 0.08);
+      border: 1px solid rgba(124, 138, 255, 0.28);
+      padding: 5px 3px;
+    }
+    .runtimeOption[data-disabled="true"] {
+      cursor: not-allowed;
+      opacity: 0.45;
+    }
+    .runtimeOption[data-disabled="true"]:hover { background: transparent; }
+    .runtimeRadio {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      border: 1.5px solid var(--color-fg-muted);
+      position: relative;
+      justify-self: center;
+    }
+    .runtimeOption[data-selected="true"] .runtimeRadio {
+      border-color: var(--color-accent);
+    }
+    .runtimeOption[data-selected="true"] .runtimeRadio::after {
+      content: "";
+      position: absolute;
+      inset: 3px;
+      border-radius: 50%;
+      background: var(--color-accent);
+    }
+    .runtimeName {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--color-fg);
+    }
+    .runtimeOption[data-disabled="true"] .runtimeName { color: var(--color-fg-muted); }
+    .runtimeBadge {
+      font-size: 9px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 2px;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    .runtimeBadgeDefault {
+      color: var(--color-accent-light);
+      background: rgba(124, 138, 255, 0.10);
+      border: 1px solid rgba(124, 138, 255, 0.28);
+    }
+    .runtimeBadgeWarn {
+      color: var(--color-warning);
+      background: rgba(245, 158, 11, 0.10);
+      border: 1px solid rgba(245, 158, 11, 0.28);
+    }
+    .runtimeDesc {
+      grid-column: 2 / 3;
+      font-size: 11px;
+      color: var(--color-fg-dim);
+      font-family: var(--font-ui);
+      margin-top: 1px;
+      line-height: 1.45;
+    }
+    .runtimeOption[data-selected="true"] .runtimeDesc { color: var(--color-fg-muted); }
+    .runtimeMeta {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--color-fg-muted);
+      letter-spacing: 0.04em;
+      text-align: right;
+    }
+    .runtimeOption[data-disabled="true"] .runtimeMeta {
+      color: var(--color-warning);
+    }
+    .selectedRepoChip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--color-fg);
+      width: 100%;
+    }
+    .selectedRepoChip .chipLabel {
+      font-size: 9px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-fg-dim);
+      font-weight: 600;
+    }
+    .selectedRepoChip .chipPath { color: var(--color-fg); flex: 1; }
+    .selectedRepoChip .chipChange {
+      background: transparent;
+      border: 0;
+      color: var(--color-accent-light);
+      font-size: 11px;
+      font-family: var(--font-ui);
+      cursor: pointer;
+    }
+    .selectedRepoChip .chipChange:hover { text-decoration: underline; }
+
+    .twoCol {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .selectField {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .selectInput {
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      color: var(--color-fg);
+      padding: 7px 10px;
+      font-size: 12px;
+      font-family: var(--font-mono);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .selectInput:hover { border-color: var(--color-border-hover); }
+    .selectInput .caret { color: var(--color-fg-dim); font-size: 9px; }
+    .footerCheck {
+      flex: 1;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--color-fg-muted);
+      font-family: var(--font-ui);
+      cursor: pointer;
+    }
+    .footerCheck input { margin: 0; accent-color: var(--color-accent); }
+  </style>
+</head>
+<body>
+  <!-- Background app shell, blurred to focus on the modal -->
+  <div class="app" aria-hidden="true" style="filter: blur(1px); opacity: 0.7;">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b></span>
+    </header>
+    <aside class="drawer">
+      <div class="statusStrip"><span class="brand">PALMUX</span></div>
+    </aside>
+    <main class="main"><div class="tabBar"><button class="tab tabActive">◆ Claude</button></div></main>
+  </div>
+
+  <div class="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="open-repo-title">
+    <div class="modalCard modalCardWide" data-testid="open-repo-runtime-modal" style="width: min(560px, 92vw);">
+      <div class="modalHeader">
+        <h2 class="modalTitle" id="open-repo-title">Open Repository</h2>
+        <p class="modalSub">Pick the runtime that will host the primary Workspace.</p>
+      </div>
+
+      <div class="modalBody">
+        <!-- Selected repo summary (after browse pick) -->
+        <div class="field">
+          <label class="label">Selected</label>
+          <div class="selectedRepoChip" data-testid="selected-repo">
+            <span class="chipLabel">REPO</span>
+            <span class="chipPath">github.com/tjst-t/palmux2</span>
+            <button class="chipChange" data-testid="selected-repo-change">Change…</button>
+          </div>
+        </div>
+
+        <!-- Runtime selector (AC-Sdd4ce1-5-1) -->
+        <div class="field">
+          <label class="label" for="runtime-list">Runtime</label>
+          <div id="runtime-list" class="runtimeFieldset" role="radiogroup" data-testid="runtime-radio-group">
+
+            <label class="runtimeOption" data-selected="true" data-runtime="lxd-container">
+              <span class="runtimeRadio" aria-hidden="true"></span>
+              <div>
+                <span class="runtimeName">lxd-container</span>
+                <span class="runtimeBadge runtimeBadgeDefault">DEFAULT</span>
+                <div class="runtimeDesc">Lightweight LXD system container. Host stays clean — package installs and dev servers are sandboxed.</div>
+              </div>
+              <span class="runtimeMeta">~1s start</span>
+            </label>
+
+            <label class="runtimeOption" data-runtime="lxd-vm">
+              <span class="runtimeRadio" aria-hidden="true"></span>
+              <div>
+                <span class="runtimeName">lxd-vm</span>
+                <div class="runtimeDesc">LXD virtual machine. Stronger isolation (own kernel) at the cost of memory and start time.</div>
+              </div>
+              <span class="runtimeMeta">~15s start</span>
+            </label>
+
+            <label class="runtimeOption" data-runtime="lxd-remote">
+              <span class="runtimeRadio" aria-hidden="true"></span>
+              <div>
+                <span class="runtimeName">lxd-remote: gpu-box</span>
+                <div class="runtimeDesc">Container on a remote LXD host (registered as <code>gpu-box</code>). Use for GPU / heavy build machines.</div>
+              </div>
+              <span class="runtimeMeta">remote</span>
+            </label>
+
+            <label class="runtimeOption" data-runtime="host">
+              <span class="runtimeRadio" aria-hidden="true"></span>
+              <div>
+                <span class="runtimeName">host</span>
+                <span class="runtimeBadge runtimeBadgeWarn">⚠ NO ISOLATION</span>
+                <div class="runtimeDesc">In-process on the host. Existing palmux behavior — useful for migration but exposes the host to dev-server ports and global installs.</div>
+              </div>
+              <span class="runtimeMeta">instant</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Network + Image -->
+        <div class="twoCol">
+          <div class="selectField">
+            <label class="label" for="net-select">Network</label>
+            <button class="selectInput" data-testid="network-select">
+              <span>bridged</span>
+              <span class="caret">▾</span>
+            </button>
+          </div>
+          <div class="selectField">
+            <label class="label" for="image-select">Image</label>
+            <button class="selectInput" data-testid="image-select">
+              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">ghcr.io/tjst-t/palmux-workspace:default</span>
+              <span class="caret">▾</span>
+            </button>
+          </div>
+        </div>
+
+        <p class="helpText" style="margin-top: 4px;">
+          The selected runtime applies to the <b>primary Workspace</b> and is recorded as the
+          <b>per-repo default</b> for any worktrees added later. You can change it anytime via
+          right-click → <i>Change runtime…</i>
+        </p>
+      </div>
+
+      <div class="modalFooter">
+        <span style="flex:1;font-size:11px;color:var(--color-fg-dim);font-family:var(--font-mono);">
+          You'll see this picker every time a Repository is opened.
+        </span>
+        <button class="btn btnGhost" data-testid="cancel-btn">Cancel</button>
+        <button class="btn btnPrimary" data-testid="open-btn">Open</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

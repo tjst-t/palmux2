@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sdd4ce1-5-4 · Drawer — runtime indication via header chip + state text</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Header runtime chip — shows the runtime of the active Workspace.
+       Drawer rows themselves stay unchanged from current production design. */
+    .runtimeChip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 2px 8px;
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 2px;
+      font-size: 11px;
+      color: var(--color-fg-muted);
+      font-family: var(--font-mono);
+      letter-spacing: 0.02em;
+      vertical-align: middle;
+    }
+    .runtimeChipKind { color: var(--color-fg); }
+    .runtimeChipState {
+      color: var(--color-fg-muted);
+      padding-left: 8px;
+      border-left: 1px solid var(--color-border);
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .runtimeChipState::before {
+      content: "";
+      display: inline-block;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--color-fg-muted);
+    }
+    .runtimeChipStateOk { color: var(--color-success); }
+    .runtimeChipStateOk::before { background: var(--color-success); }
+
+    /* Drawer state tags — only visible when row is non-ready.
+       For ready Workspaces nothing is shown (Drawer = current design). */
+    .branchStateTag {
+      font-size: 9px;
+      letter-spacing: 0.04em;
+      font-family: var(--font-mono);
+      padding: 0 6px;
+      border-radius: 2px;
+    }
+    .branchStateTagStarting {
+      color: var(--color-accent-light);
+      background: rgba(124, 138, 255, 0.10);
+      border: 1px solid rgba(124, 138, 255, 0.20);
+    }
+    .branchStateTagStarting::before {
+      content: "";
+      display: inline-block;
+      width: 7px; height: 7px;
+      margin-right: 4px;
+      border: 1.2px solid var(--color-accent);
+      border-top-color: transparent;
+      border-radius: 50%;
+      vertical-align: -1px;
+      animation: spin 0.9s linear infinite;
+    }
+    .branchStateTagFailed {
+      color: var(--color-error);
+      background: rgba(239, 68, 68, 0.08);
+      border: 1px solid rgba(239, 68, 68, 0.22);
+    }
+    .branchStateTagFailed::before {
+      content: "● ";
+      color: var(--color-error);
+    }
+
+    .branchInfoFooter {
+      grid-column: 1 / -1;
+      margin-left: 22px;
+      font-size: 9px;
+      color: var(--color-fg-dim);
+      font-family: var(--font-mono);
+      letter-spacing: 0.04em;
+      padding-top: 1px;
+      display: flex; gap: 8px; align-items: center;
+    }
+    .branchInfoFooter .infoErr { color: var(--color-error); }
+    .branchInfoFooter .infoLink {
+      color: var(--color-accent-light);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      cursor: pointer;
+    }
+
+    .demoLegend {
+      max-width: 580px;
+      margin: 60px auto 0;
+      padding: 18px 22px;
+      background: var(--color-elevated);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      font-size: 12px;
+      color: var(--color-fg-muted);
+      line-height: 1.7;
+    }
+    .demoLegend h3 {
+      margin: 0 0 10px;
+      font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--color-fg);
+    }
+    .demoLegend p { margin: 0 0 12px; }
+    .demoLegend .legendNote {
+      padding: 8px 10px;
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      font-size: 11px;
+      color: var(--color-fg-muted);
+      font-family: var(--font-mono);
+      line-height: 1.6;
+    }
+    .demoLegend .legendNote b { color: var(--color-fg); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>feat-runtime-selector</b></span>
+      <!-- Runtime chip for the *active* Workspace (Sdd4ce1-5-4 revision: row-level icon dropped, runtime shown here instead) -->
+      <span class="runtimeChip" data-testid="header-runtime-chip" data-runtime="lxd-container" data-state="ready">
+        <span class="runtimeChipKind">lxd-container</span>
+        <span class="runtimeChipState runtimeChipStateOk">ready</span>
+      </span>
+      <span class="headerSpacer"></span>
+      <button class="headerBtn" data-testid="ports-btn">P · 3</button>
+      <button class="headerBtn">⌘K</button>
+      <button class="headerBtn">🔔</button>
+    </header>
+
+    <aside class="drawer">
+      <div class="statusStrip">
+        <span class="brand">PALMUX</span>
+        <span class="statusMeta"><b>4</b> open · <b>1</b> starting · <b>1</b> failed</span>
+      </div>
+
+      <div class="section">
+        <span class="sectionTitle">Repositories</span>
+        <span class="sectionCount">1 / 5</span>
+      </div>
+
+      <ul class="repos">
+        <li class="repo">
+          <div class="repoRow">
+            <span class="repoNum">1</span>
+            <button class="repoName"><span class="scope">tjst-t/</span>palmux2</button>
+            <button class="starBtn" data-on="true">★</button>
+            <button class="addBranchBtn" title="New worktree (with runtime selector)">+</button>
+            <button class="moreBtn">⋯</button>
+          </div>
+
+          <ul class="branches">
+            <!-- ① Active · ready · lxd-container — Drawer row UNCHANGED from current design.
+                 Runtime is conveyed via the header chip above. -->
+            <li>
+              <button class="branch branchActive" data-testid="branch-row" data-runtime="lxd-container" data-state="ready">
+                <span>feat-runtime-selector</span>
+                <span class="primaryTag">PRIMARY</span>
+              </button>
+            </li>
+
+            <!-- ② starting · lxd-container — only state tag is shown on right side -->
+            <li>
+              <button class="branch" data-testid="branch-row" data-runtime="lxd-container" data-state="starting">
+                <span>feat/agent-mcp-tools</span>
+                <span class="branchStateTag branchStateTagStarting" data-testid="branch-state-starting">starting</span>
+              </button>
+              <div class="branchInfoFooter">
+                <span>cloud-init 32% — fetching python3-pip</span>
+              </div>
+            </li>
+
+            <!-- ③ ready · lxd-vm — looks identical to current Drawer (no runtime hint) -->
+            <li>
+              <button class="branch" data-testid="branch-row" data-runtime="lxd-vm" data-state="ready">
+                <span>spike/kernel-bpf-experiment</span>
+              </button>
+            </li>
+
+            <!-- ④ failed · lxd-container — failed tag + footer w/ retry/log -->
+            <li>
+              <button class="branch" data-testid="branch-row" data-runtime="lxd-container" data-state="failed">
+                <span style="color: var(--color-error);">feat/streaming-attachments</span>
+                <span class="branchStateTag branchStateTagFailed" data-testid="branch-state-failed">failed</span>
+              </button>
+              <div class="branchInfoFooter">
+                <span class="infoErr">image pull failed · 401 unauthorized</span>
+                <span class="infoLink">Retry</span>
+                <span class="infoLink">View log</span>
+              </div>
+            </li>
+
+            <!-- ⑤ host · ready — looks identical to current Drawer -->
+            <li>
+              <button class="branch" data-testid="branch-row" data-runtime="host" data-state="ready">
+                <span>main</span>
+              </button>
+            </li>
+
+            <!-- ⑥ lxd-remote · ready — also looks identical to current -->
+            <li>
+              <button class="branch" data-testid="branch-row" data-runtime="lxd-remote" data-state="ready">
+                <span>spike/cuda-build</span>
+              </button>
+            </li>
+          </ul>
+        </li>
+      </ul>
+
+      <div class="drawerFooter">
+        <button class="addRepoBtn">
+          <span>📂</span><span>Open Repository…</span>
+        </button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="tabBar">
+        <button class="tab tabActive">◆ Claude</button>
+        <button class="tab">📁 Files</button>
+        <button class="tab">⎇ Git</button>
+      </div>
+      <div class="mainBody">
+        <div class="demoLegend">
+          <h3>Drawer · runtime indication (Sdd4ce1-5-4, revised)</h3>
+          <p>
+            Drawer rows are unchanged from current production. No per-row runtime icon — that
+            felt cluttered with 4+ Workspaces visible at once. Runtime is surfaced in 3 less
+            intrusive places instead.
+          </p>
+          <div class="legendNote">
+            <b>1. Header chip</b> — the chip next to the breadcrumb shows the runtime of the
+            <i>active</i> Workspace ( <code>lxd-container · ready</code> ). Text-only — no
+            invented icon. Always visible, no extra clicks. The state dot color follows the
+            existing semantic palette: <span style="color:var(--color-success);">●</span> ready
+            / <span style="color:var(--color-accent-light);">●</span> starting
+            / <span style="color:var(--color-error);">●</span> failed.<br><br>
+            <b>2. Right-click row</b> — context menu shows current runtime + "Change runtime…"
+            submenu (separate prototype).<br><br>
+            <b>3. Non-ready badges</b> — <code>starting</code> spinner / <code>failed</code> tag appear on the right of the row
+            <i>only</i> when state ≠ ready, plus a glance footer with progress / error + retry. Ready rows show nothing — Drawer keeps its original look.
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

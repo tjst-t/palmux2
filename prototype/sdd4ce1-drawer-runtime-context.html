@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sdd4ce1-5-4 · Drawer — Change runtime context menu</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Header runtime chip (same as drawer-runtime-states) */
+    .runtimeChip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 2px 8px;
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 2px;
+      font-size: 11px;
+      color: var(--color-fg-muted);
+      font-family: var(--font-mono);
+      letter-spacing: 0.02em;
+    }
+    .runtimeChipKind { color: var(--color-fg); }
+    .runtimeChipState {
+      color: var(--color-fg-muted);
+      padding-left: 8px;
+      border-left: 1px solid var(--color-border);
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .runtimeChipState::before {
+      content: "";
+      display: inline-block;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--color-fg-muted);
+    }
+    .runtimeChipStateOk { color: var(--color-success); }
+    .runtimeChipStateOk::before { background: var(--color-success); }
+
+    /* Right-click context menu — anchored over the row visually.
+       Confirmation dialog (per round-1 feedback: A) is shown when switching
+       a runtime that has active Bash/Claude tabs. */
+    .ctxMenuFixed {
+      position: absolute;
+      top: 110px;
+      left: 220px;
+      z-index: 30;
+      min-width: 220px;
+      background: var(--color-elevated);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+      padding: 4px;
+      font-family: var(--font-ui);
+      font-size: 12px;
+    }
+    .ctxItem {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      background: transparent;
+      border: 0;
+      padding: 7px 10px;
+      color: var(--color-fg);
+      text-align: left;
+      border-radius: var(--radius-sm);
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .ctxItem:hover { background: var(--color-surface); }
+    .ctxItemDanger { color: var(--color-error); }
+    .ctxItemDanger:hover { background: rgba(239, 68, 68, 0.08); }
+    .ctxIcon {
+      width: 16px;
+      text-align: center;
+      color: var(--color-fg-muted);
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+    .ctxKbd {
+      margin-left: auto;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--color-fg-dim);
+    }
+    .ctxDivider {
+      height: 1px;
+      background: var(--color-border);
+      margin: 4px 0;
+    }
+    .ctxSubmenu {
+      position: relative;
+    }
+    .ctxSubmenu .ctxArrow {
+      margin-left: auto;
+      color: var(--color-fg-dim);
+      font-size: 10px;
+    }
+    .ctxSubmenuPanel {
+      position: absolute;
+      left: calc(100% + 4px);
+      top: -4px;
+      min-width: 240px;
+      background: var(--color-elevated);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+      padding: 4px;
+    }
+    .ctxRuntimeOption {
+      display: grid;
+      grid-template-columns: 14px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      background: transparent;
+      border: 0;
+      padding: 7px 10px;
+      color: var(--color-fg);
+      text-align: left;
+      border-radius: var(--radius-sm);
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      position: relative;
+    }
+    .ctxRuntimeOption:hover { background: var(--color-surface); }
+    .ctxRuntimeOption[data-current="true"] {
+      background: rgba(124, 138, 255, 0.08);
+    }
+    .ctxRuntimeCheck {
+      width: 14px;
+      text-align: center;
+      color: var(--color-accent-light);
+      font-size: 11px;
+    }
+    .ctxRuntimeName {
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+    .ctxRuntimeMeta {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--color-fg-dim);
+    }
+
+    /* Confirmation dialog overlay (round-1 feedback Q3 = A) */
+    .confirmDialog {
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: min(440px, 92vw);
+      background: var(--color-elevated);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
+      padding: 16px 18px;
+      z-index: 200;
+      font-family: var(--font-ui);
+    }
+    .confirmTitle {
+      margin: 0 0 6px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--color-fg);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .confirmTitle .warn {
+      color: var(--color-warning);
+      font-size: 16px;
+    }
+    .confirmBody {
+      font-size: 12px;
+      color: var(--color-fg-muted);
+      line-height: 1.6;
+      margin-bottom: 12px;
+    }
+    .confirmList {
+      list-style: none;
+      margin: 8px 0 0;
+      padding: 8px 10px;
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--color-fg);
+    }
+    .confirmList li {
+      padding: 2px 0;
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .confirmList .kind {
+      color: var(--color-fg-muted);
+      width: 50px;
+      flex-shrink: 0;
+    }
+    .confirmList .name { color: var(--color-fg); }
+    .confirmList .meta {
+      margin-left: auto;
+      color: var(--color-fg-dim);
+      font-size: 10px;
+    }
+    .confirmFooter {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>feat/agent-mcp-tools</b></span>
+      <!-- Header chip reflects the row that's right-clicked once that row is focused -->
+      <span class="runtimeChip" data-testid="header-runtime-chip" data-runtime="lxd-container" data-state="ready">
+        <span class="runtimeChipKind">lxd-container</span>
+        <span class="runtimeChipState runtimeChipStateOk">ready</span>
+      </span>
+      <span class="headerSpacer"></span>
+      <button class="headerBtn">P · 3</button>
+      <button class="headerBtn">⌘K</button>
+    </header>
+
+    <aside class="drawer" style="position: relative;">
+      <div class="statusStrip"><span class="brand">PALMUX</span></div>
+
+      <div class="section">
+        <span class="sectionTitle">Repositories</span>
+      </div>
+
+      <ul class="repos">
+        <li class="repo">
+          <div class="repoRow">
+            <span class="repoNum">1</span>
+            <button class="repoName"><span class="scope">tjst-t/</span>palmux2</button>
+            <button class="starBtn" data-on="true">★</button>
+            <button class="addBranchBtn">+</button>
+            <button class="moreBtn">⋯</button>
+          </div>
+
+          <ul class="branches">
+            <li>
+              <button class="branch branchActive">
+                <span>feat-runtime-selector</span>
+                <span class="primaryTag">PRIMARY</span>
+              </button>
+            </li>
+            <li>
+              <button class="branch" data-context-open="true" style="background: rgba(124, 138, 255, 0.10);">
+                <span>feat/agent-mcp-tools</span>
+              </button>
+            </li>
+            <li>
+              <button class="branch">
+                <span>main</span>
+              </button>
+            </li>
+          </ul>
+        </li>
+      </ul>
+
+      <!-- Right-click context menu (Sdd4ce1-5-4) -->
+      <div class="ctxMenuFixed" role="menu" data-testid="branch-context-menu">
+        <button class="ctxItem" role="menuitem">
+          <span class="ctxIcon">⊕</span>
+          <span>New Bash tab</span>
+          <span class="ctxKbd">B</span>
+        </button>
+        <button class="ctxItem" role="menuitem">
+          <span class="ctxIcon">⌖</span>
+          <span>Open in main panel</span>
+          <span class="ctxKbd">↵</span>
+        </button>
+        <div class="ctxDivider"></div>
+
+        <!-- The new Sdd4ce1 row -->
+        <div class="ctxSubmenu">
+          <button class="ctxItem" role="menuitem" aria-haspopup="true" aria-expanded="true" data-testid="change-runtime-trigger">
+            <span class="ctxIcon"></span>
+            <span>Change runtime…</span>
+            <span class="ctxArrow">▸</span>
+          </button>
+          <div class="ctxSubmenuPanel" role="menu" data-testid="change-runtime-submenu">
+            <button class="ctxRuntimeOption" role="menuitem" data-current="true">
+              <span class="ctxRuntimeCheck">✓</span>
+              <span class="ctxRuntimeName">lxd-container</span>
+              <span class="ctxRuntimeMeta">current</span>
+            </button>
+            <button class="ctxRuntimeOption" role="menuitem">
+              <span class="ctxRuntimeCheck"></span>
+              <span class="ctxRuntimeName">lxd-vm</span>
+              <span class="ctxRuntimeMeta">restart</span>
+            </button>
+            <button class="ctxRuntimeOption" role="menuitem">
+              <span class="ctxRuntimeCheck"></span>
+              <span class="ctxRuntimeName">lxd-remote: gpu-box</span>
+              <span class="ctxRuntimeMeta">restart</span>
+            </button>
+            <button class="ctxRuntimeOption" role="menuitem">
+              <span class="ctxRuntimeCheck"></span>
+              <span class="ctxRuntimeName">host</span>
+              <span class="ctxRuntimeMeta">⚠ no isolation</span>
+            </button>
+            <div class="ctxDivider"></div>
+            <div style="padding: 6px 10px; font-size: 11px; color: var(--color-fg-dim); line-height: 1.5;">
+              Worktree contents are preserved.
+            </div>
+          </div>
+        </div>
+
+        <button class="ctxItem" role="menuitem">
+          <span class="ctxIcon">⌥</span>
+          <span>Copy worktree path</span>
+        </button>
+        <div class="ctxDivider"></div>
+        <button class="ctxItem ctxItemDanger" role="menuitem">
+          <span class="ctxIcon">✕</span>
+          <span>Close Workspace…</span>
+        </button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="tabBar">
+        <button class="tab tabActive">◆ Claude</button>
+        <button class="tab">📁 Files</button>
+      </div>
+      <div class="mainBody"></div>
+    </main>
+  </div>
+
+  <!-- Confirmation dialog (Q3 = A): shown when switching runtime kills active tabs. -->
+  <div class="modalOverlay" style="background: rgba(15,17,23,0.65);">
+    <div class="confirmDialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" data-testid="change-runtime-confirm">
+      <div class="confirmTitle" id="confirm-title">
+        <span class="warn">⚠</span>
+        Stop active tabs to switch runtime?
+      </div>
+      <div class="confirmBody">
+        Switching <code style="font-family:var(--font-mono);">feat/agent-mcp-tools</code> from
+        <code style="font-family:var(--font-mono);">lxd-container</code> →
+        <code style="font-family:var(--font-mono);">lxd-vm</code> will stop the runtime
+        and kill the following active tabs. Worktree files on disk are preserved.
+        <ul class="confirmList" data-testid="confirm-tab-list">
+          <li>
+            <span class="kind">claude</span>
+            <span class="name">Claude</span>
+            <span class="meta">streaming · 4 turns</span>
+          </li>
+          <li>
+            <span class="kind">bash</span>
+            <span class="name">npm-watch</span>
+            <span class="meta">running 38 min</span>
+          </li>
+          <li>
+            <span class="kind">bash</span>
+            <span class="name">go-test</span>
+            <span class="meta">idle</span>
+          </li>
+        </ul>
+      </div>
+      <div class="confirmFooter">
+        <button class="btn btnGhost" data-testid="confirm-cancel">Cancel</button>
+        <button class="btn btnDanger" data-testid="confirm-switch">Stop tabs &amp; switch</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,176 @@
+{
+  "sprint_range": [
+    "S9fd775",
+    "S0f6866",
+    "Sdd4ce1"
+  ],
+  "milestone_boundary": "Sdd4ce1",
+  "generated_at": "2026-05-10",
+  "scope": "Only Sdd4ce1 contains GUI Stories (Sdd4ce1-5). S9fd775 is CLI-only (port allocator), S0f6866 is build pipeline / docs only.",
+  "screens": [
+    {
+      "file": "prototype/sdd4ce1-open-repo-runtime.html",
+      "story": "Sdd4ce1-5",
+      "ac": [
+        "AC-Sdd4ce1-5-1"
+      ],
+      "feedback_rounds": 1,
+      "approved": true,
+      "summary": "Open Repository modal extended with Runtime/Network/Image fieldset after repo selection. Radio-group: 4 options (lxd-container default, lxd-vm, lxd-remote, host). Footer hint: 'You'll see this picker every time a Repository is opened' — no 'Don't ask again' checkbox per round-1 feedback.",
+      "round1_changes": [
+        "Removed footer 'Don't ask again — use this as the global default' checkbox per user feedback (毎回選ぶ)",
+        "Added explanatory hint in footer: 'You'll see this picker every time'",
+        "Updated body text: 'You can change it anytime via right-click → Change runtime…'"
+      ]
+    },
+    {
+      "file": "prototype/sdd4ce1-open-repo-runtime-no-lxd.html",
+      "story": "Sdd4ce1-5",
+      "ac": [
+        "AC-Sdd4ce1-5-1"
+      ],
+      "feedback_rounds": 1,
+      "approved": true,
+      "summary": "Same modal on a host without LXD. lxd-* options disabled with 'requires LXD' badge + tooltip on hover (snap/apt install hint). host auto-selected as fallback. Network/Image disabled.",
+      "round1_changes": [
+        "Removed 'Don't ask again' footer checkbox per user feedback",
+        "Footer hint now explains the host-as-fallback behavior"
+      ]
+    },
+    {
+      "file": "prototype/sdd4ce1-workspace-create-runtime.html",
+      "story": "Sdd4ce1-5",
+      "ac": [
+        "AC-Sdd4ce1-5-2"
+      ],
+      "feedback_rounds": 0,
+      "approved": true,
+      "summary": "Workspace creation modal (gwq add). Default = per-repo default ('REPO DEFAULT' badge). Includes ssh-remote option. Path preview from branch name. VM extras (memory/CPU) hidden until lxd-vm selected. Unchanged in round 1.",
+      "round1_changes": []
+    },
+    {
+      "file": "prototype/sdd4ce1-drawer-runtime-states.html",
+      "story": "Sdd4ce1-5",
+      "ac": [
+        "AC-Sdd4ce1-5-4"
+      ],
+      "feedback_rounds": 1,
+      "approved": true,
+      "summary": "Drawer rows are unchanged from current production design — no runtime icon prefix. Runtime kind is shown in the header crumb chip for the active Workspace. State info (starting/failed) appears as a small tag on the right of the row only when state ≠ ready, plus a glance footer with progress / error + retry. Ready rows look identical to current.",
+      "round1_changes": [
+        "Removed all runtimeKind icon prefixes (⌂ ▣ ◆ ↗ ↳) from Drawer rows per user feedback ('煩雑な印象')",
+        "Added header runtime chip showing the active Workspace's runtime kind + state (▣ lxd-container · ready)",
+        "Added 'starting' (with spinner) and 'failed' (red) inline tags on the right of non-ready rows only",
+        "Updated legend: 3 places where runtime is surfaced — header chip, right-click context menu, non-ready badges"
+      ]
+    },
+    {
+      "file": "prototype/sdd4ce1-drawer-runtime-context.html",
+      "story": "Sdd4ce1-5",
+      "ac": [
+        "AC-Sdd4ce1-5-4"
+      ],
+      "feedback_rounds": 1,
+      "approved": true,
+      "summary": "Right-click context menu with 'Change runtime…' submenu. Current runtime marked ✓. Confirmation dialog appears when active Bash/Claude tabs would be killed (round-1 Q3=A). Header chip reflects the right-clicked Workspace's runtime.",
+      "round1_changes": [
+        "Removed runtimeKind icon prefixes from Drawer rows (mirroring drawer-runtime-states changes)",
+        "Added confirmation dialog overlay shown when switching runtime kills active tabs — lists Claude/Bash tabs with state, danger button 'Stop tabs & switch'"
+      ]
+    }
+  ],
+  "design_decisions": [
+    {
+      "decision": "Runtime kind is shown as plain text only — NO icon anywhere (modals, header chip, context menu)",
+      "rationale": "User feedback round 2: '何か一般的に使われているアイコンなのでしょうか? これを見てシステムコンテナだとかVMだとか一目でみんなわかる?'. The glyphs (⌂ ▣ ◆ ↗ ↳) were ad-hoc — Docker/LXD/VirtualBox/Hyper-V each use different raster icons; no single Unicode character is universally understood. Without a legend the icons are noise. Text labels (lxd-container / lxd-vm / lxd-remote / ssh-remote / host) are unambiguous on their own and read identically on any monitor / locale."
+    },
+    {
+      "decision": "Drawer rows are unchanged from current production design — no per-row runtime indicator",
+      "rationale": "User feedback round 1: 'Drawerのruntimeのグリフは煩雑な印象がある'. With 4+ Workspaces visible, an extra column added visual noise without helping the common case. Runtime kind is shown in the header chip for the active Workspace and via right-click for others."
+    },
+    {
+      "decision": "Header chip carries runtime kind + state for the active Workspace (text-only)",
+      "rationale": "Always-visible at the top, no extra clicks. 'lxd-container · ready' is more legible than any single-character glyph could be. The state dot (●) is kept since it's a universal status convention (green=OK, etc.) — and color alone is enough information once the label is text."
+    },
+    {
+      "decision": "Non-ready Drawer rows get a 'starting' / 'failed' tag on the right side; ready rows show nothing",
+      "rationale": "Keeps Drawer minimal in the steady state. Only deviation from current design appears for transient states the user MUST know about (cloud-init in progress, image pull failed). Spinner + red dot leverage existing styles.css patterns."
+    },
+    {
+      "decision": "Open Repository / Workspace creation modals do NOT have a 'Don't ask again' checkbox",
+      "rationale": "User feedback round 1: '毎回選ぶでOK'. Always asking for runtime per Repository Open is the simpler mental model — no hidden default-setting side effect. AC-Sdd4ce1-5-3 should be removed during sprint plan for Sdd4ce1 (TODO: ROADMAP edit deferred to sprint auto)."
+    },
+    {
+      "decision": "Switching runtime with active Bash/Claude tabs shows a confirmation dialog",
+      "rationale": "User feedback round 1 Q3 = A. Aligns with DESIGN_PRINCIPLES priority_rule 7 (明示的 > 暗黙的). Implicit kill of streaming Claude / long-running Bash would be a UX violation. Dialog lists each affected tab with its state, danger button to confirm."
+    },
+    {
+      "decision": "Mobile (<600px) 'Change runtime…' submenu opens as a full-screen sheet",
+      "rationale": "User feedback round 1 Q4 = A. Aligns with VISION priority 10 (mobile parity). Drawer is already modalized on mobile, so a full-screen sheet for the submenu matches the existing mobile pattern."
+    },
+    {
+      "decision": "Runtime change context-menu uses a submenu (not a modal-on-modal)",
+      "rationale": "Per spec §9.3. Matches existing 'right-click → action' pattern in S030 repo overflow menu. Inline submenu avoids modal-on-modal."
+    },
+    {
+      "decision": "host runtime is shown last in the radio list with '⚠ NO ISOLATION' badge",
+      "rationale": "Default for new repos is lxd-container (per VISION/PRINCIPLES — clean host). host stays available for migration / debugging but its position+badge nudges users toward isolation. The ⚠ symbol IS standard for warnings, so it's kept."
+    }
+  ],
+  "data_testid_contract": [
+    "open-repo-runtime-modal",
+    "selected-repo",
+    "selected-repo-change",
+    "runtime-radio-group",
+    "network-select",
+    "image-select",
+    "lxd-not-installed-banner",
+    "cancel-btn",
+    "open-btn",
+    "workspace-create-modal",
+    "ws-branch-input",
+    "ws-path-preview",
+    "create-btn",
+    "vm-extras",
+    "vm-mem-input",
+    "vm-cpu-input",
+    "branch-row",
+    "branch-state-starting",
+    "branch-state-failed",
+    "header-runtime-chip",
+    "branch-context-menu",
+    "change-runtime-trigger",
+    "change-runtime-submenu",
+    "change-runtime-confirm",
+    "confirm-tab-list",
+    "confirm-cancel",
+    "confirm-switch"
+  ],
+  "round1_user_feedback": {
+    "date": "2026-05-10",
+    "Q1_overall": "B (個別修正)",
+    "Q2_icon_customization": "Drawer icons removed entirely; question moot",
+    "Q3_change_runtime_confirm": "A (確認ダイアログを出す)",
+    "Q4_mobile_submenu": "A (フルスクリーン sheet)",
+    "extra": "Open Repository モーダルの 'Don't ask again' チェックボックス不要 — 毎回選ばせる"
+  },
+  "round2_user_feedback": {
+    "date": "2026-05-10",
+    "feedback": "各ランタイムのアイコンは一般的なものでもなく、 これを見てシステムコンテナだとか VM だとか一目でわからないなら不要",
+    "applied": "All ad-hoc Unicode glyphs (⌂ ▣ ◆ ↗ ↳) removed from modals, header chip, and context menu. Text-only labels everywhere. State dot (●) kept on header chip since color-coded dots are a universal status convention."
+  },
+  "open_questions_after_round1": [],
+  "todo_for_sprint_plan": [
+    "Remove AC-Sdd4ce1-5-3 from ROADMAP.json (the 'Don't ask again' AC) — user explicitly dropped this requirement",
+    "Add new AC: 'Open Repository / Workspace creation modal の Runtime selector は毎回必ず表示される (defaultRuntime は settings からのみ書き換え)'",
+    "Add new AC: 'runtime kind の active Workspace は header chip で表示 (Drawer 行には icon を出さない)'",
+    "Add new AC: 'runtime 切替時に Bash/Claude tab がアクティブなら確認ダイアログを表示し、 list と Stop tabs & switch ボタンを出す'",
+    "Mobile (<600px) で Change runtime submenu はフルスクリーン sheet 化する (新 AC または既存の 5-4 に追記)"
+  ],
+  "approval": {
+    "date": "2026-05-10",
+    "status": "approved",
+    "rounds": 2,
+    "notes": "User approved after round 2: text-only runtime labels, drawer rows unchanged, drop dont-ask-again, confirm dialog on runtime switch. proceed to sprint loop."
+  }
+}

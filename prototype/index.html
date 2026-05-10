@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>palmux2 prototype — S030 / S031 / S032</title>
+  <title>palmux2 prototype — workspace-runtime + S030 / S031 / S032</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -11,12 +11,72 @@
     <header class="indexHeader">
       <h1>palmux2 prototype</h1>
       <p>
-        Static HTML mockups for <b>S030</b> (ghq Repository CRUD),
-        <b>S031</b> (Command palette redesign), and <b>S032</b> (User-defined palette commands).
-        These are the visual reference for sprint run — implementation matches markup, classes, and
-        <code>data-testid</code>s. Open any card to see its screen.
+        Static HTML mockups. <b>Sdd4ce1</b> (Phase A — Runtime selector + Drawer icons) at the top —
+        currently <b>pending review</b>. Below: archived prototypes for shipped sprints
+        (<b>S030</b> ghq CRUD, <b>S031</b> palette redesign, <b>S032</b> user commands, Files CRUD).
+        Implementation matches markup, classes, and <code>data-testid</code>s.
       </p>
     </header>
+
+    <section class="indexSection">
+      <h2 style="color: var(--color-accent-light);">Sdd4ce1 · Phase A — WorkspaceRuntime selector & Drawer indication <span style="background: rgba(124,138,255,0.10); border: 1px solid rgba(124,138,255,0.28); color: var(--color-accent-light); font-size: 9px; padding: 2px 8px; border-radius: 2px; margin-left: 8px; letter-spacing: 0.08em;">REVISED · ROUND 2</span></h2>
+      <p style="font-size: 12px; color: var(--color-fg-muted); margin: 0 0 12px;">
+        Round-2 changes:
+        <b>(a)</b> All runtime glyphs (⌂ ▣ ◆ ↗ ↳) removed — they were ad-hoc, no industry standard,
+        not legible without a legend. Text labels ('lxd-container', 'lxd-vm', …) read clearly on their own.
+        <b>(b)</b> Drawer rows still unchanged from current production design.
+        <b>(c)</b> 'Don't ask again' checkbox dropped — picker shows every Open Repository.
+        <b>(d)</b> Runtime kind change adds confirmation dialog when active Bash/Claude tabs would be killed.
+      </p>
+      <div class="cardGrid">
+        <a class="card" href="sdd4ce1-open-repo-runtime.html">
+          <span class="cardLabel">Sdd4ce1-5-1</span>
+          <div class="cardTitle">Open Repository · Runtime selector (LXD available)</div>
+          <p class="cardDesc">
+            After a repo is picked, the modal extends with a Runtime / Network / Image fieldset.
+            Default = <code>lxd-container</code>. <code>host</code> is marked "⚠ no isolation".
+            <b>No "Don't ask again" checkbox</b> — picker is shown every time.
+          </p>
+        </a>
+        <a class="card" href="sdd4ce1-open-repo-runtime-no-lxd.html">
+          <span class="cardLabel">Sdd4ce1-5-1</span>
+          <div class="cardTitle">Open Repository · LXD not installed</div>
+          <p class="cardDesc">
+            All <code>lxd-*</code> options disabled with "requires LXD" badge + tooltip on hover
+            (install hint with <code>snap install lxd</code>). Falls back to <code>host</code> as default.
+            Network/Image fields disabled.
+          </p>
+        </a>
+        <a class="card" href="sdd4ce1-workspace-create-runtime.html">
+          <span class="cardLabel">Sdd4ce1-5-2</span>
+          <div class="cardTitle">New Workspace · Runtime selector + path preview</div>
+          <p class="cardDesc">
+            Worktree creation modal. Default = <code>per-repo default</code> with "REPO DEFAULT" badge.
+            Includes <code>ssh-remote</code> option. Path preview shows <code>~/worktrees/.../&lt;branch&gt;</code>.
+            Memory/CPU extras hidden until <code>lxd-vm</code> selected.
+          </p>
+        </a>
+        <a class="card" href="sdd4ce1-drawer-runtime-states.html">
+          <span class="cardLabel">Sdd4ce1-5-4</span>
+          <div class="cardTitle">Drawer (revised) · header chip + state-only badges</div>
+          <p class="cardDesc">
+            Drawer rows look identical to current production (no runtime icon prefix).
+            Active Workspace's runtime is shown via a text-only <i>header chip</i>
+            (<code>lxd-container · ready</code>). Non-ready rows show inline
+            <code>starting</code> / <code>failed</code> tags only.
+          </p>
+        </a>
+        <a class="card" href="sdd4ce1-drawer-runtime-context.html">
+          <span class="cardLabel">Sdd4ce1-5-4</span>
+          <div class="cardTitle">Drawer · "Change runtime…" + active-tab confirm</div>
+          <p class="cardDesc">
+            Right-click a Workspace row → submenu with all available runtimes.
+            <b>Confirmation dialog</b> appears if active Bash/Claude tabs would be killed —
+            lists each tab with its state, danger button to confirm.
+          </p>
+        </a>
+      </div>
+    </section>
 
     <section class="indexSection">
       <h2>S030 · ghq Repository CRUD</h2>

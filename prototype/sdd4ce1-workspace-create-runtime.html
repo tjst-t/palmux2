@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sdd4ce1-5-2 · Workspace creation — Runtime selector</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .runtimeFieldset {
+      display: flex; flex-direction: column; gap: 4px;
+      padding: 8px 10px 6px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      background: var(--color-bg);
+    }
+    .runtimeOption {
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 4px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .runtimeOption:hover { background: var(--color-surface); }
+    .runtimeOption[data-selected="true"] {
+      background: rgba(124, 138, 255, 0.08);
+      border: 1px solid rgba(124, 138, 255, 0.28);
+      padding: 5px 3px;
+    }
+    .runtimeRadio {
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      border: 1.5px solid var(--color-fg-muted);
+      position: relative; justify-self: center;
+    }
+    .runtimeOption[data-selected="true"] .runtimeRadio { border-color: var(--color-accent); }
+    .runtimeOption[data-selected="true"] .runtimeRadio::after {
+      content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--color-accent);
+    }
+    .runtimeName {
+      font-family: var(--font-mono);
+      font-size: 13px; font-weight: 500;
+      color: var(--color-fg);
+    }
+    .runtimeBadge {
+      font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
+      font-weight: 600; padding: 1px 6px; border-radius: 2px;
+      margin-left: 6px; vertical-align: middle;
+    }
+    .runtimeBadgeInherit {
+      color: var(--color-accent-light);
+      background: rgba(124, 138, 255, 0.10);
+      border: 1px solid rgba(124, 138, 255, 0.28);
+    }
+    .runtimeBadgeWarn {
+      color: var(--color-warning);
+      background: rgba(245, 158, 11, 0.10);
+      border: 1px solid rgba(245, 158, 11, 0.28);
+    }
+    .runtimeDesc {
+      grid-column: 2 / 3;
+      font-size: 11px;
+      color: var(--color-fg-dim);
+      font-family: var(--font-ui);
+      margin-top: 1px; line-height: 1.45;
+    }
+    .runtimeMeta {
+      font-family: var(--font-mono);
+      font-size: 10px; color: var(--color-fg-muted);
+      letter-spacing: 0.04em; text-align: right;
+    }
+
+    .twoCol { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .selectField { display: flex; flex-direction: column; gap: 4px; }
+    .selectInput {
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      color: var(--color-fg);
+      padding: 7px 10px;
+      font-size: 12px;
+      font-family: var(--font-mono);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .selectInput .caret { color: var(--color-fg-dim); font-size: 9px; }
+
+    .pathPreview {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--color-fg-muted);
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      margin-top: 4px;
+      display: flex; align-items: baseline; gap: 8px;
+    }
+    .pathPreview .pathLabel {
+      font-size: 9px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-fg-dim);
+      font-weight: 600;
+    }
+    .pathPreview .pathValue { color: var(--color-fg); }
+    .pathPreview .pathHi { color: var(--color-accent-light); }
+
+    .vmExtras {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 4px;
+      padding: 10px 12px;
+      background: var(--color-bg);
+      border: 1px dashed var(--color-border);
+      border-radius: var(--radius-sm);
+    }
+    .vmExtras .label { font-size: 11px; }
+    .vmExtras .input { padding: 6px 8px; font-size: 12px; }
+    .vmExtras .help {
+      grid-column: 1 / -1;
+      font-size: 10px;
+      color: var(--color-fg-dim);
+      font-family: var(--font-ui);
+    }
+  </style>
+</head>
+<body>
+  <div class="app" aria-hidden="true" style="filter: blur(1px); opacity: 0.7;">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b></span>
+    </header>
+    <aside class="drawer">
+      <div class="statusStrip"><span class="brand">PALMUX</span></div>
+    </aside>
+    <main class="main"><div class="tabBar"><button class="tab tabActive">◆ Claude</button></div></main>
+  </div>
+
+  <div class="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="ws-create-title">
+    <div class="modalCard modalCardWide" data-testid="workspace-create-modal" style="width: min(560px, 92vw);">
+      <div class="modalHeader">
+        <h2 class="modalTitle" id="ws-create-title">New Workspace</h2>
+        <p class="modalSub">Create a worktree under <code style="font-family:var(--font-mono);">tjst-t/palmux2</code> and pick its runtime.</p>
+      </div>
+
+      <div class="modalBody">
+        <!-- Branch / worktree name -->
+        <div class="field">
+          <label class="label" for="ws-branch">Branch / worktree name</label>
+          <input id="ws-branch" class="input" type="text" value="feat/runtime-selector"
+                 data-testid="ws-branch-input" autofocus
+                 style="font-family: var(--font-mono);">
+          <div class="pathPreview" data-testid="ws-path-preview">
+            <span class="pathLabel">PATH</span>
+            <span class="pathValue">~/worktrees/github.com/tjst-t/palmux2/<span class="pathHi">feat-runtime-selector</span></span>
+          </div>
+        </div>
+
+        <!-- Runtime selector (AC-Sdd4ce1-5-2: default = per-repo default → global default) -->
+        <div class="field">
+          <label class="label">Runtime</label>
+          <div class="runtimeFieldset" role="radiogroup" data-testid="runtime-radio-group">
+
+            <label class="runtimeOption" data-selected="true" data-runtime="lxd-container">
+              <span class="runtimeRadio" aria-hidden="true"></span>
+              <div>
+                <span class="runtimeName">lxd-container</span>
+                <span class="runtimeBadge runtimeBadgeInherit">REPO DEFAULT</span>
+                <div class="runtimeDesc">Inherits from <code>tjst-t/palmux2</code>'s per-repo default. Lightweight LXD system container.</div>
+              </div>
+              <span class="runtimeMeta">~1s start</span>
+            </label>
+
+            <label class="runtimeOption" data-runtime="lxd-vm">
+              <span class="runtimeRadio" aria-hidden="true"></span>
+              <div>
+                <span class="runtimeName">lxd-vm</span>
+                <div class="runtimeDesc">LXD virtual machine. Use for kernel-level experiments or stronger isolation.</div>
+              </div>
+              <span class="runtimeMeta">~15s start</span>
+            </label>
+
+            <label class="runtimeOption" data-runtime="lxd-remote">
+              <span class="runtimeRadio" aria-hidden="true"></span>
+              <div>
+                <span class="runtimeName">lxd-remote: gpu-box</span>
+                <div class="runtimeDesc">Container on remote LXD host <code>gpu-box</code>.</div>
+              </div>
+              <span class="runtimeMeta">remote</span>
+            </label>
+
+            <label class="runtimeOption" data-runtime="ssh-remote">
+              <span class="runtimeRadio" aria-hidden="true"></span>
+              <div>
+                <span class="runtimeName">ssh-remote</span>
+                <div class="runtimeDesc">Run directly on a remote machine via SSH (no LXD on the remote required).</div>
+              </div>
+              <span class="runtimeMeta">remote</span>
+            </label>
+
+            <label class="runtimeOption" data-runtime="host">
+              <span class="runtimeRadio" aria-hidden="true"></span>
+              <div>
+                <span class="runtimeName">host</span>
+                <span class="runtimeBadge runtimeBadgeWarn">⚠ NO ISOLATION</span>
+                <div class="runtimeDesc">In-process on the host. Use sparingly — exposes host to dev-server ports and global installs.</div>
+              </div>
+              <span class="runtimeMeta">instant</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Network + Image (visible when LXD/remote runtime selected) -->
+        <div class="twoCol">
+          <div class="selectField">
+            <label class="label">Network</label>
+            <button class="selectInput" data-testid="network-select">
+              <span>bridged</span>
+              <span class="caret">▾</span>
+            </button>
+          </div>
+          <div class="selectField">
+            <label class="label">Image</label>
+            <button class="selectInput" data-testid="image-select">
+              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                ghcr.io/tjst-t/palmux-workspace:default
+              </span>
+              <span class="caret">▾</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- VM extras (only shown when lxd-vm selected — included here for spec coverage) -->
+        <div class="vmExtras" data-testid="vm-extras" hidden>
+          <div class="selectField">
+            <label class="label">Memory</label>
+            <input class="input" type="text" value="2GB" data-testid="vm-mem-input">
+          </div>
+          <div class="selectField">
+            <label class="label">CPUs</label>
+            <input class="input" type="text" value="2" data-testid="vm-cpu-input">
+          </div>
+          <div class="help">Memory / CPU limits apply only to <code>lxd-vm</code> runtimes.</div>
+        </div>
+      </div>
+
+      <div class="modalFooter">
+        <span style="flex:1;font-size:11px;color:var(--color-fg-dim);font-family:var(--font-mono);">
+          gwq add · runtime: lxd-container · network: bridged
+        </span>
+        <button class="btn btnGhost" data-testid="cancel-btn">Cancel</button>
+        <button class="btn btnPrimary" data-testid="create-btn">Create Workspace</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

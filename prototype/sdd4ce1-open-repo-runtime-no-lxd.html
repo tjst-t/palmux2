@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sdd4ce1-5-1 · Open Repository — LXD not installed</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .runtimeFieldset {
+      display: flex; flex-direction: column; gap: 4px;
+      padding: 8px 10px 6px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      background: var(--color-bg);
+    }
+    .runtimeOption {
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 4px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 13px;
+      position: relative;
+    }
+    .runtimeOption:hover { background: var(--color-surface); }
+    .runtimeOption[data-selected="true"] {
+      background: rgba(124, 138, 255, 0.08);
+      border: 1px solid rgba(124, 138, 255, 0.28);
+      padding: 5px 3px;
+    }
+    .runtimeOption[data-disabled="true"] {
+      cursor: not-allowed;
+      opacity: 0.45;
+    }
+    .runtimeOption[data-disabled="true"]:hover { background: transparent; }
+    .runtimeOption[data-disabled="true"]:hover .lxdTooltip {
+      display: block;
+    }
+    .runtimeRadio {
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      border: 1.5px solid var(--color-fg-muted);
+      position: relative; justify-self: center;
+    }
+    .runtimeOption[data-selected="true"] .runtimeRadio { border-color: var(--color-accent); }
+    .runtimeOption[data-selected="true"] .runtimeRadio::after {
+      content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--color-accent);
+    }
+    .runtimeName {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--color-fg);
+    }
+    .runtimeOption[data-disabled="true"] .runtimeName { color: var(--color-fg-muted); }
+    .runtimeBadge {
+      font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
+      font-weight: 600; padding: 1px 6px; border-radius: 2px;
+      margin-left: 6px; vertical-align: middle;
+    }
+    .runtimeBadgeDefault {
+      color: var(--color-accent-light);
+      background: rgba(124, 138, 255, 0.10);
+      border: 1px solid rgba(124, 138, 255, 0.28);
+    }
+    .runtimeBadgeWarn {
+      color: var(--color-warning);
+      background: rgba(245, 158, 11, 0.10);
+      border: 1px solid rgba(245, 158, 11, 0.28);
+    }
+    .runtimeBadgeMissing {
+      color: var(--color-fg-muted);
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+    }
+    .runtimeDesc {
+      grid-column: 2 / 3;
+      font-size: 11px;
+      color: var(--color-fg-dim);
+      font-family: var(--font-ui);
+      margin-top: 1px; line-height: 1.45;
+    }
+    .runtimeOption[data-selected="true"] .runtimeDesc { color: var(--color-fg-muted); }
+    .runtimeMeta {
+      font-family: var(--font-mono);
+      font-size: 10px; color: var(--color-fg-muted);
+      letter-spacing: 0.04em; text-align: right;
+    }
+    .lxdTooltip {
+      display: none;
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 24px;
+      z-index: 5;
+      background: var(--color-elevated);
+      color: var(--color-fg);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+      padding: 8px 10px;
+      font-size: 11px;
+      font-family: var(--font-ui);
+      white-space: normal;
+      width: 260px;
+      line-height: 1.5;
+      opacity: 1;
+    }
+    .lxdTooltip code {
+      font-family: var(--font-mono);
+      background: var(--color-bg);
+      padding: 1px 5px;
+      border-radius: 2px;
+      color: var(--color-accent-light);
+      font-size: 10px;
+    }
+
+    .selectedRepoChip {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 10px;
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      font-family: var(--font-mono); font-size: 12px;
+      color: var(--color-fg); width: 100%;
+    }
+    .selectedRepoChip .chipLabel {
+      font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--color-fg-dim); font-weight: 600;
+    }
+    .selectedRepoChip .chipPath { color: var(--color-fg); flex: 1; }
+    .selectedRepoChip .chipChange {
+      background: transparent; border: 0;
+      color: var(--color-accent-light); font-size: 11px;
+      font-family: var(--font-ui); cursor: pointer;
+    }
+
+    .twoCol { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .selectField { display: flex; flex-direction: column; gap: 4px; }
+    .selectInput {
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      color: var(--color-fg);
+      padding: 7px 10px;
+      font-size: 12px;
+      font-family: var(--font-mono);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .selectInput[disabled] { opacity: 0.4; cursor: not-allowed; }
+    .selectInput .caret { color: var(--color-fg-dim); font-size: 9px; }
+
+    .footerCheck {
+      flex: 1; display: inline-flex; align-items: center; gap: 8px;
+      font-size: 12px; color: var(--color-fg-muted);
+      font-family: var(--font-ui); cursor: pointer;
+    }
+    .footerCheck input { margin: 0; accent-color: var(--color-accent); }
+  </style>
+</head>
+<body>
+  <div class="app" aria-hidden="true" style="filter: blur(1px); opacity: 0.7;">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b></span>
+    </header>
+    <aside class="drawer">
+      <div class="statusStrip"><span class="brand">PALMUX</span></div>
+    </aside>
+    <main class="main"><div class="tabBar"><button class="tab tabActive">◆ Claude</button></div></main>
+  </div>
+
+  <div class="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="open-repo-title">
+    <div class="modalCard modalCardWide" data-testid="open-repo-runtime-modal" data-lxd="not-installed" style="width: min(560px, 92vw);">
+      <div class="modalHeader">
+        <h2 class="modalTitle" id="open-repo-title">Open Repository</h2>
+        <p class="modalSub">LXD is not installed on this host — only host runtime is available.</p>
+      </div>
+
+      <div class="modalBody">
+        <div class="warnBanner" role="status" data-testid="lxd-not-installed-banner">
+          <span class="warnIcon">⚠</span>
+          <div>
+            <b>LXD not detected.</b>
+            Install LXD to enable container / VM runtimes. After install, restart palmux to refresh the list.
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="label">Selected</label>
+          <div class="selectedRepoChip" data-testid="selected-repo">
+            <span class="chipLabel">REPO</span>
+            <span class="chipPath">github.com/tjst-t/palmux2</span>
+            <button class="chipChange" data-testid="selected-repo-change">Change…</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="label">Runtime</label>
+          <div class="runtimeFieldset" role="radiogroup" data-testid="runtime-radio-group">
+
+            <label class="runtimeOption" data-disabled="true" data-runtime="lxd-container" tabindex="-1">
+              <span class="runtimeRadio" aria-hidden="true"></span>
+              <div>
+                <span class="runtimeName">lxd-container</span>
+                <span class="runtimeBadge runtimeBadgeMissing">requires LXD</span>
+                <div class="runtimeDesc">Lightweight LXD system container. Host stays clean — package installs and dev servers are sandboxed.</div>
+              </div>
+              <span class="runtimeMeta">unavailable</span>
+              <div class="lxdTooltip" role="tooltip">
+                LXD is not installed. Install with <code>snap install lxd</code> or
+                <code>apt install lxd</code>, then run <code>lxd init</code> and restart palmux.
+              </div>
+            </label>
+
+            <label class="runtimeOption" data-disabled="true" data-runtime="lxd-vm" tabindex="-1">
+              <span class="runtimeRadio" aria-hidden="true"></span>
+              <div>
+                <span class="runtimeName">lxd-vm</span>
+                <span class="runtimeBadge runtimeBadgeMissing">requires LXD</span>
+                <div class="runtimeDesc">LXD virtual machine. Stronger isolation (own kernel) at the cost of memory and start time.</div>
+              </div>
+              <span class="runtimeMeta">unavailable</span>
+              <div class="lxdTooltip" role="tooltip">
+                LXD is not installed. Install with <code>snap install lxd</code> or
+                <code>apt install lxd</code>, then run <code>lxd init</code> and restart palmux.
+              </div>
+            </label>
+
+            <label class="runtimeOption" data-disabled="true" data-runtime="lxd-remote" tabindex="-1">
+              <span class="runtimeRadio" aria-hidden="true"></span>
+              <div>
+                <span class="runtimeName">lxd-remote</span>
+                <span class="runtimeBadge runtimeBadgeMissing">no remotes</span>
+                <div class="runtimeDesc">Container on a remote LXD host. Register a remote via Settings → Runtime → LXD remotes.</div>
+              </div>
+              <span class="runtimeMeta">unavailable</span>
+              <div class="lxdTooltip" role="tooltip">
+                No LXD remotes registered. Add one in <b>Settings → Runtime → LXD remotes</b>
+                or via <code>lxc remote add</code>.
+              </div>
+            </label>
+
+            <label class="runtimeOption" data-selected="true" data-runtime="host">
+              <span class="runtimeRadio" aria-hidden="true"></span>
+              <div>
+                <span class="runtimeName">host</span>
+                <span class="runtimeBadge runtimeBadgeDefault">DEFAULT (FALLBACK)</span>
+                <div class="runtimeDesc">In-process on the host. Existing palmux behavior — selected because no isolation runtimes are available on this host.</div>
+              </div>
+              <span class="runtimeMeta">instant</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="twoCol">
+          <div class="selectField">
+            <label class="label">Network</label>
+            <button class="selectInput" data-testid="network-select" disabled>
+              <span>host (n/a)</span>
+              <span class="caret">▾</span>
+            </button>
+          </div>
+          <div class="selectField">
+            <label class="label">Image</label>
+            <button class="selectInput" data-testid="image-select" disabled>
+              <span style="color: var(--color-fg-dim);">— no image (host runtime)</span>
+              <span class="caret">▾</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="modalFooter">
+        <span style="flex:1;font-size:11px;color:var(--color-fg-dim);font-family:var(--font-mono);">
+          host is selected as a fallback — install LXD to enable container / VM runtimes.
+        </span>
+        <button class="btn btnGhost" data-testid="cancel-btn">Cancel</button>
+        <button class="btn btnPrimary" data-testid="open-btn">Open</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
