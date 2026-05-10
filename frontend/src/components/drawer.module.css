@@ -782,3 +782,48 @@
     padding: 4px 0;
   }
 }
+
+/* === Sdd4ce1-5-4: drawer state tags === */
+.runtimeStateTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 8px;
+  text-transform: lowercase;
+}
+
+.runtimeStateStarting {
+  color: var(--color-warning, #f59e0b);
+  background: rgba(245, 158, 11, 0.10);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+}
+
+.runtimeStateFailed {
+  color: var(--color-error, #ef4444);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.30);
+}
+
+.runtimeStateSpinner {
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid rgba(245, 158, 11, 0.30);
+  border-top-color: var(--color-warning, #f59e0b);
+  border-radius: 50%;
+  animation: drawerRuntimeSpin 0.9s linear infinite;
+}
+
+.runtimeStateDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-error, #ef4444);
+}
+
+@keyframes drawerRuntimeSpin {
+  to { transform: rotate(360deg); }
+}

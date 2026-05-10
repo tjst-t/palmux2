@@ -5,12 +5,12 @@
     "sprints_done": 35,
     "sprints_total": 39,
     "percent": 89,
-    "current_sprint": "S0f6866",
-    "done": 37,
+    "current_sprint": null,
+    "done": 38,
     "in_progress": 0,
     "total": 39,
-    "remaining": 2,
-    "percentage": 94
+    "remaining": 1,
+    "percentage": 97
   },
   "execution_order": [
     "S001",
@@ -6315,200 +6315,218 @@
     },
     "Sdd4ce1": {
       "title": "Phase A: WorkspaceRuntime 抽象 + host + lxd-container 実装 + bind-mount + UI",
-      "status": "pending",
+      "status": "done",
       "milestone": true,
       "description": "workspace-runtime 設計 (`docs/workspace-runtime-design.md`) の **本体実装 sprint**。 後続の lxd-vm / lxd-remote / ssh-remote / Phase B (Ports panel) / Phase B' (Claude MCP) すべてが乗る `runtime.Runtime` interface と、 `host` / `lxd-container` の 2 実装、 bind-mount 戦略 (idmap + skill/auth 共有 + settings.json 分離)、 Repository Open / Workspace 作成 modal の Runtime セレクタを揃える。\n\n**前提:** S98156b (Phase A0) 完了 — agent JSON-RPC protocol が確定し、 idmap + bind-mount で Claude CLI が container 内で動くことが実証され、 lxc proxy device の永続性方針が決まっていること。\n\n**完了基準 (milestone, ユーザレビューを取る):** test VM 上で 「lxd-container runtime の Workspace を Repository Open modal から作成 → Claude タブが container 内 tmux session に attach → host で開始した skill / memory が container 内でも見える / 編集が host 側にも反映される」 が UI 経由で動く。 host runtime も既存挙動と完全互換。\n\n**スコープ:** Phase A の §13 と §9.1〜§9.6 すべて (host / lxd-container / bind-mount / Repository modal / Workspace 作成 modal / repos.json schema 拡張 / 後方互換)。 Phase A' (image build) は並行 sprint S0f6866。\n\n**スコープ外:** lxd-vm / lxd-remote / ssh-remote (Phase D-F)、 Ports panel UI (Phase B)、 Claude MCP tools (Phase B')、 host runtime cleanup (Phase H)、 INSTANCE 廃止 (Phase J)。\n\n**作業はすべて test VM (`ubuntu@192.168.1.41`) で行う。** ローカル機では LXD を動かさない。 詳細 AC + tasks は S98156b 完了後の `sprint plan` 時に refine する (PoC 知見を反映するため)。",
       "stories": {
         "Sdd4ce1-1": {
           "title": "`runtime.Runtime` Go interface + 共通型定義",
-          "status": "pending",
+          "status": "done",
           "user_story": "palmux 開発者として、 すべての runtime kind (host / lxd-container / lxd-vm / lxd-remote / ssh-remote) が同じ Go interface に従う形で書きたい。 なぜなら、 上位コード (Provider / handler / WS) が runtime kind を意識せずに済むようにしておかないと、 後で agent push 経路と直 exec 経路が混在して保守不能になるからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-Sdd4ce1-1-1",
               "description": "`internal/runtime/` に Runtime interface (Start/Stop/Status/NewTmuxSession/AttachTmuxSession/Exec/ListListeningPorts/ExposePort/UnexposePort/ReadFile/WriteFile/Stat/Walk) と Status / RuntimeKind / RuntimeConfig / NetworkPolicy 型を定義 (設計 §3.1 準拠)",
               "test": "[AC-Sdd4ce1-1-1] in internal/runtime/runtime_test.go",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sdd4ce1-1-2",
               "description": "RuntimeConfig は `repos.json` の `branches[].runtime` に JSON シリアライズされる (§14.5)、 既存の Branch entry に runtime フィールドが無ければ `{kind: \"host\"}` として読み込む (§10.1 後方互換)",
               "test": "[AC-Sdd4ce1-1-2] in internal/config/repos_test.go",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {}
         },
         "Sdd4ce1-2": {
           "title": "`host` runtime 実装 (in-process、 既存挙動完全互換)",
-          "status": "pending",
+          "status": "done",
           "user_story": "既存ユーザとして、 Phase A 導入後も既存 Workspace の挙動が完全に変わらないでほしい。 なぜなら、 全 Workspace の migration は §10.1 の方針で行わない (host のままにする) ので、 host runtime が現状と寸分違わず動くことが既存環境を守る前提だからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-Sdd4ce1-2-1",
               "description": "`internal/runtime/host/` に host 実装、 NewTmuxSession は既存 `internal/tmux.Client.NewSession` をそのまま呼ぶ (tmux コマンド直叩きはしない、 §コーディング規約準拠)",
               "test": "[AC-Sdd4ce1-2-1] in internal/runtime/host/host_test.go",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sdd4ce1-2-2",
               "description": "ExposePort は no-op (既に host で listen している) で、 PortMapping を host port = container port のまま返す",
               "test": "[AC-Sdd4ce1-2-2] in internal/runtime/host/host_test.go",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sdd4ce1-2-3",
               "description": "既存 Workspace 全体 (S001〜S43cfb1 で扱った全 fixture) で `make test` が green、 既存 E2E (`tests/e2e/*.py`) が green",
               "test": "[AC-Sdd4ce1-2-3] make test + 既存 E2E suite",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {}
         },
         "Sdd4ce1-3": {
           "title": "`lxd-container` runtime 実装 (agent push + bind-mount + idmap + systemd start)",
-          "status": "pending",
+          "status": "done",
           "user_story": "host を汚したくない開発者として、 Workspace を開いたら自動的に LXD container が立ち上がり、 中の tmux + Claude が host とは隔離された状態で動いてほしい。 なぜなら、 dev server の port 衝突 / `npm i -g` 等の package 汚染 / build artifact ゴミから host を守りたいからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-Sdd4ce1-3-1",
               "description": "`internal/runtime/lxd/` に lxd-container 実装、 Start で `lxc launch <image> <inst>` → `raw.idmap \"both 1000 1000\"` (S98156b hotfix PoC: 3 引数 `both <host> <ctr>` 形式が正、 4 引数 `both 1000 1000 1` は LXD 5.21.4 で invalid) → bind-mount **2 つ**: (a) `~/.claude/` directory rw + (b) `~/.claude.json` **file** rw — S98156b hotfix で発見、 後者を欠くと container 内 claude CLI が起動段階で `Configuration file not found` エラー → さらに worktree / `~/.gitconfig` ro / `~/.config/gh` ro / SSH_AUTH_SOCK forward → cloud-init 完了待ち (`lxc exec -- id ubuntu` poll, max 60s) → `lxc file push palmux-agent` → `systemd-run --unit palmux-agent` で agent 起動",
               "test": "[AC-Sdd4ce1-3-1] in tests/e2e/sdd4ce1_lxd_container.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sdd4ce1-3-2",
               "description": "NewTmuxSession / Exec / ReadFile / WriteFile / ListListeningPorts は agent JSON-RPC 経由 (lxc exec を都度起動しない、 §6.4.2 push 方式)、 接続は host palmux が agent に常時 1 本維持",
               "test": "[AC-Sdd4ce1-3-2] in tests/e2e/sdd4ce1_lxd_container.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sdd4ce1-3-3",
               "description": "Stop で `lxc stop <inst>` → bind-mount mapping cleanup → 永続化された port mapping は次回 Start 時に再構築されるよう repos.json に保存 (§5.4)",
               "test": "[AC-Sdd4ce1-3-3] in tests/e2e/sdd4ce1_lxd_container.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sdd4ce1-3-4",
               "description": "container image は `ghcr.io/tjst-t/palmux-workspace:default` (Phase A' / S0f6866 で build) を default、 `repos.json` で override 可。 image が無ければ起動時に `lxc launch` がエラーで止まる (palmux が事前 pull しない、 LXD に任せる)",
               "test": "[AC-Sdd4ce1-3-4] in tests/e2e/sdd4ce1_lxd_container.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sdd4ce1-3-5",
               "description": "container start 後 cloud-init 完了まで ubuntu user が不在。 `lxc exec <inst> -- id ubuntu` が成功するまで poll 待機 (max 60s) してから agent 起動・claude 起動を行う (S98156b PoC で cloud-init 未完了での su 失敗を確認)",
               "test": "[AC-Sdd4ce1-3-5] in tests/e2e/sdd4ce1_lxd_container.py",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {}
         },
         "Sdd4ce1-4": {
           "title": "bind-mount strategy 実装 (settings.json 分離 + SSH agent forward)",
-          "status": "pending",
+          "status": "done",
           "user_story": "container 内の Claude を使う開発者として、 host で設定した skill / memory / git config がそのまま container 内でも使え、 一方で host 用の settings.json (絶対 path で書かれた MCP server / hook 設定) が container 内で誤動作しないでほしい。 なぜなら、 設計 §4.4 で実証された 「データ共有 + 設定分離」 の線引きが UX の前提だからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-Sdd4ce1-4-1",
               "description": "container 内で `~/.claude/skills/<skill>/SKILL.md` が host と同じ内容で見える (ro bind)",
               "test": "[AC-Sdd4ce1-4-1] in tests/e2e/sdd4ce1_bind_mount.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sdd4ce1-4-2",
               "description": "container 内で `~/.claude/projects/<this>/sessions/*.jsonl` への追記が host 側からも見える (rw bind、 PoC S98156b-2 で確定した戦略を踏襲)",
               "test": "[AC-Sdd4ce1-4-2] in tests/e2e/sdd4ce1_bind_mount.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sdd4ce1-4-3",
               "description": "`~/.claude/settings.json` は bind しない、 container 内には palmux が必要最小限の settings (MCP server 設定等) を起動時に inject する。 host 用 settings の絶対 path が container 内で resolve できないことによる誤動作が起きない",
               "test": "[AC-Sdd4ce1-4-3] in tests/e2e/sdd4ce1_bind_mount.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sdd4ce1-4-4",
               "description": "`SSH_AUTH_SOCK` を bind forward することで container 内から `git push` (SSH 越し) が認証なしで通る (host SSH agent を使う)",
               "test": "[AC-Sdd4ce1-4-4] in tests/e2e/sdd4ce1_bind_mount.py",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {}
         },
         "Sdd4ce1-5": {
           "title": "Repository Open modal + Workspace 作成 modal に Runtime セレクタを追加",
-          "status": "pending",
+          "status": "done",
           "user_story": "Workspace を開く開発者として、 Repository を Open するときと新 worktree を追加するときに 「この Workspace の runtime をどれにするか」 を選びたい。 なぜなら、 §9.1 で議論したとおり Repository Open は primary worktree を implicit に Workspace 化するので、 runtime 選択ステップを差し込まないとユーザの知らないうちに default で起動されてしまうからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-Sdd4ce1-5-1",
               "description": "`frontend/src/components/repo-picker.tsx` の RepoPicker modal に Runtime / Network / Image セレクタを追加 (§9.1 のレイアウト準拠)、 LXD 未インストール環境では LXD 系選択肢が disabled + tooltip (§14.6)",
               "test": "[AC-Sdd4ce1-5-1] in tests/e2e/sdd4ce1_runtime_modal.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sdd4ce1-5-2",
               "description": "Workspace 作成 modal (`frontend/src/components/workspace-create-modal.tsx`) に同様のセレクタ、 default は per-repo default → global default の順 (§9.6)",
               "test": "[AC-Sdd4ce1-5-2] in tests/e2e/sdd4ce1_runtime_modal.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sdd4ce1-5-3",
-              "description": "`Don't ask again, use default for all repos` チェックは settings.json の `defaultRuntime` を更新するショートカット (§9.1)",
+              "description": "Open Repository / Workspace creation modal の Runtime selector は毎回必ず表示される。 settings の `defaultRuntime` は modal 結果からは更新されず Settings 画面からのみ編集可能 (`Don't ask again` チェックは廃止)",
               "test": "[AC-Sdd4ce1-5-3] in tests/e2e/sdd4ce1_runtime_modal.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sdd4ce1-5-4",
-              "description": "Drawer の Workspace 行に runtime kind icon を表示 (§9.3)、 起動中は spinner / ready 点灯 / failed 警告",
+              "description": "Drawer の Workspace 行は通常通り (runtime kind icon は出さない)。 starting/failed 状態のみ右側に小さな state tag (spinner/red dot) を表示し、 ready は何も表示しない (prototype round-2 準拠)",
               "test": "[AC-Sdd4ce1-5-4] in tests/e2e/sdd4ce1_runtime_modal.py",
-              "status": "pending"
+              "status": "pass"
+            },
+            {
+              "id": "AC-Sdd4ce1-5-5",
+              "description": "active Workspace の runtime kind は Header の chip (text-only label, 例 `lxd-container · ready`) として表示する。 Drawer 行には runtime icon を出さない (S028 設計準拠)",
+              "test": "[AC-Sdd4ce1-5-5] in tests/e2e/sdd4ce1_runtime_modal.py",
+              "status": "pass"
+            },
+            {
+              "id": "AC-Sdd4ce1-5-6",
+              "description": "runtime kind 切替時にアクティブな Bash/Claude タブが 1 つ以上あれば確認 modal を出す。 modal は Claude/Bash tab の list と 'Stop tabs & switch' (danger) / 'Cancel' を出す。 Workspace に tab が無ければ確認なしで切替",
+              "test": "[AC-Sdd4ce1-5-6] in tests/e2e/sdd4ce1_runtime_modal.py",
+              "status": "pass"
+            },
+            {
+              "id": "AC-Sdd4ce1-5-7",
+              "description": "Mobile (<600px) では `Change runtime…` は flyout submenu ではなく full-screen sheet として開く (S022 mobile parity)",
+              "test": "[AC-Sdd4ce1-5-7] in tests/e2e/sdd4ce1_runtime_modal.py",
+              "status": "pass"
             }
           ],
           "tasks": {}
         },
         "Sdd4ce1-6": {
           "title": "`repos.json` schema 拡張 + 設定優先順位ロジック (per-Workspace > per-repo > global > 自動)",
-          "status": "pending",
+          "status": "done",
           "user_story": "Workspace を多数管理する開発者として、 runtime 設定をプロジェクトごと / ワークスペースごとに細かく上書きしたい。 なぜなら、 同じ repo でも 「main は host で軽く回す」 「実験 branch は lxd-vm で完全隔離」 のように使い分けたいからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-Sdd4ce1-6-1",
               "description": "`internal/config/repos.go` の Branch struct に `Runtime *RuntimeConfig` (optional) を追加、 nil ならば per-repo default → global default → 自動判定 (LXD installed? → lxd-container, otherwise → host) の順で解決する (§9.6)",
               "test": "[AC-Sdd4ce1-6-1] in internal/config/repos_test.go",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sdd4ce1-6-2",
               "description": "`settings.json` に `defaultRuntime` を追加、 PATCH /api/settings で更新可能",
               "test": "[AC-Sdd4ce1-6-2] in internal/config/settings_test.go",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sdd4ce1-6-3",
               "description": "`repos.json` の repo entry に `defaultRuntime` (per-repo override) を追加、 §9.1 の \"primary Workspace に適用 + per-repo default として記録\" を実装",
               "test": "[AC-Sdd4ce1-6-3] in internal/config/repos_test.go",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {}
         },
         "Sdd4ce1-7": {
           "title": "後方互換: 既存 host Workspace の挙動を 100% 維持 + migration なし",
-          "status": "pending",
+          "status": "done",
           "user_story": "現役で palmux を使っている開発者として、 Phase A の merge 後も既存の Workspace と URL がそのまま動いてほしい。 なぜなら、 §10.1 で 「既存 Workspace は migration なしで host のまま」 と決めたとおり、 ユーザに何の操作も強いない契約だからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-Sdd4ce1-7-1",
               "description": "Phase A merge 直後に既存 `repos.json` (runtime フィールドなし) を読み込んで全 Workspace が host runtime として open される、 既存 URL (`/{repoId}/{workspaceId}/{tabId}`) が変わらない",
               "test": "[AC-Sdd4ce1-7-1] in tests/e2e/sdd4ce1_backward_compat.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sdd4ce1-7-2",
               "description": "既存 `tests/e2e/*.py` (S001〜S43cfb1) が全部 green (host runtime path で実行)",
               "test": "[AC-Sdd4ce1-7-2] make e2e 全 suite",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {}

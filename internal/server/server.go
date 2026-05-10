@@ -144,6 +144,15 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("GET /api/connections", h.connections)
 	mux.HandleFunc("GET /api/orphan-sessions", h.orphanSessions)
 
+	// Sdd4ce1: WorkspaceRuntime endpoints. Drives the runtime selector
+	// modal (`/api/runtime/lxd/available`), per-repo default
+	// (`PATCH /api/repos/{repoId}/default-runtime`) and per-Workspace
+	// override (`{PATCH,GET} /api/repos/{repoId}/branches/{branchId}/runtime`).
+	mux.HandleFunc("GET /api/runtime/lxd/available", h.runtimeAvailableLXD)
+	mux.HandleFunc("PATCH /api/repos/{repoId}/default-runtime", h.patchRepoDefaultRuntime)
+	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/runtime", h.getBranchRuntime)
+	mux.HandleFunc("PATCH /api/repos/{repoId}/branches/{branchId}/runtime", h.patchBranchRuntime)
+
 	mux.HandleFunc("GET /api/notifications", h.listNotifications)
 	mux.HandleFunc("POST /api/notify", h.ingestNotification)
 	mux.HandleFunc("POST /api/notify/clear", h.clearNotifications)

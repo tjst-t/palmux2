@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 import { usePalmuxStore } from '../stores/palmux-store'
 
@@ -8,11 +8,19 @@ import { usePalmuxStore } from '../stores/palmux-store'
 // otherwise stays on `/` so the empty-state UI can show.
 export function HomeRedirect() {
   const navigate = useNavigate()
+  const location = useLocation()
   const repos = usePalmuxStore((s) => s.repos)
   const bootstrapped = usePalmuxStore((s) => s.bootstrapped)
 
   useEffect(() => {
     if (!bootstrapped) return
+    // Sdd4ce1: when the Open Repository → runtime selector flow is mid-
+    // way through, the picker stamps `?runtime-pending=1` on the URL so
+    // we don't auto-navigate away from the modal before the user confirms
+    // the runtime. Restore the original behaviour as soon as the sentinel
+    // is gone.
+    if (location.search.includes('runtime-pending=1')) return
+
     const last = readLast()
     if (last) {
       const [repoId, branchId, tabId] = last.split('/')
@@ -33,7 +41,7 @@ export function HomeRedirect() {
         }
       }
     }
-  }, [bootstrapped, repos, navigate])
+  }, [bootstrapped, repos, navigate, location.search])
 
   return null
 }

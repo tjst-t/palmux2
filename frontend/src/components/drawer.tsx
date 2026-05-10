@@ -798,11 +798,33 @@ function BranchItem({
             : branch.worktreePath
         }
       >
-        <span className={styles.branchName}>
+        <span className={styles.branchName} data-testid="branch-row">
           {branch.isPrimary && <span className={styles.ghqMark}>⌂</span>}
           {branch.name}
         </span>
         <span className={styles.branchTrailing}>
+          {/* Sdd4ce1-5-4: state tag for non-ready runtimes only.
+              Ready rows show nothing extra (Drawer stays minimal). */}
+          {branch.runtime && branch.runtime.state === 'starting' && (
+            <span
+              className={`${styles.runtimeStateTag} ${styles.runtimeStateStarting}`}
+              data-testid="branch-state-starting"
+              title={`runtime ${branch.runtime.kind} starting`}
+            >
+              <span className={styles.runtimeStateSpinner} aria-hidden />
+              starting
+            </span>
+          )}
+          {branch.runtime && branch.runtime.state === 'failed' && (
+            <span
+              className={`${styles.runtimeStateTag} ${styles.runtimeStateFailed}`}
+              data-testid="branch-state-failed"
+              title={branch.runtime.error || `runtime ${branch.runtime.kind} failed`}
+            >
+              <span className={styles.runtimeStateDot} aria-hidden />
+              failed
+            </span>
+          )}
           {agentPipClass && (
             <span
               className={`${styles.agentPip} ${agentPipClass}`}

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/tjst-t/palmux2/internal/runtime"
 )
 
 // UserCommandTarget specifies where a user-defined palette command is
@@ -137,6 +139,16 @@ type Settings struct {
 	// Palette (S032) holds palette-specific settings, currently just
 	// user-defined commands shown in ⌘K '>' mode.
 	Palette *PaletteSettings `json:"palette,omitempty"`
+
+	// DefaultRuntime (Sdd4ce1) is the global default runtime configuration
+	// applied when neither per-Workspace nor per-repo overrides are
+	// present. Empty/nil means "auto" — RepoStore.ResolveBranchRuntime
+	// falls through to the built-in host fallback.
+	//
+	// AC-Sdd4ce1-6-2 — design §14.5 example. Settings store is the only
+	// place this is mutable from the UI (modals do NOT write here per the
+	// prototype-review decision — see AC-Sdd4ce1-5-3).
+	DefaultRuntime *runtime.Config `json:"defaultRuntime,omitempty"`
 }
 
 // DefaultAttachmentUploadDir is the fallback when the user has not
@@ -349,6 +361,20 @@ func (s *SettingsStore) Patch(update Settings) (Settings, error) {
 		}
 		s.settings.Palette.UserCommands = update.Palette.UserCommands
 	}
+	// Sdd4ce1: defaultRuntime — validate Kind and persist. Pass an explicit
+	// {kind:""} payload to clear (decodes as a non-nil pointer with empty
+	// Kind, distinguishable from "leave alone" which leaves the field at nil).
+	if update.DefaultRuntime != nil {
+		if update.DefaultRuntime.Kind == "" {
+			s.settings.DefaultRuntime = nil
+		} else {
+			if !update.DefaultRuntime.Kind.IsValid() {
+				return Settings{}, fmt.Errorf("config: patch: invalid runtime kind %q", update.DefaultRuntime.Kind)
+			}
+			cp := *update.DefaultRuntime
+			s.settings.DefaultRuntime = &cp
+		}
+	}
 	if err := s.save(); err != nil {
 		return Settings{}, err
 	}
@@ -427,4 +453,18 @@ func (s *SettingsStore) SubagentStaleAfterDays() int {
 		return s.settings.SubagentStaleAfterDays
 	}
 	return DefaultSubagentStaleAfterDays
+}
+
+// DefaultRuntime (Sdd4ce1) returns a copy of the global default runtime
+// config or the zero Config{} when unset. Callers compose this with
+// per-repo / per-Workspace overrides via runtime.Config.WithDefaults.
+//
+// AC-Sdd4ce1-6-2.
+func (s *SettingsStore) DefaultRuntime() runtime.Config {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.settings.DefaultRuntime == nil {
+		return runtime.Config{}
+	}
+	return *s.settings.DefaultRuntime
 }

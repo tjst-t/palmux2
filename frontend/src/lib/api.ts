@@ -81,6 +81,47 @@ export interface Branch {
    *  `autoWorktreePathPatterns`. `unmanaged` = otherwise. The FE
    *  remaps `user → my` for section titles. */
   category?: BranchCategory
+  /** Sdd4ce1: resolved runtime view (kind + state). Drives the Header
+   *  chip and Drawer state badges. host runtime always reports
+   *  `state="ready"` once Open. */
+  runtime?: BranchRuntimeView
+}
+
+export type RuntimeKind = 'host' | 'lxd-container' | 'lxd-vm' | 'lxd-remote' | 'ssh-remote'
+export type RuntimeState = 'stopped' | 'starting' | 'ready' | 'stopping' | 'failed'
+
+/** Sdd4ce1: lifecycle snapshot the FE reads from `branch.runtime`. */
+export interface BranchRuntimeView {
+  kind: RuntimeKind | string
+  state: RuntimeState | string
+  address?: string
+  error?: string
+}
+
+/** Sdd4ce1: persisted runtime config entry stored in repos.json /
+ *  settings.json. Kind="" means "inherit from the parent layer"
+ *  (per-WS → per-repo → global → host fallback). */
+export interface RuntimeConfig {
+  kind: RuntimeKind | string
+  image?: string
+  network?: { mode?: string; tailnet_auth_key?: string }
+  remote?: string
+  resources?: { memory_mib?: number; cpu_count?: number }
+}
+
+/** Response from GET /api/runtime/lxd/available. */
+export interface LXDAvailability {
+  available: boolean
+  reason?: string
+}
+
+/** Response from GET /api/repos/{repoId}/branches/{branchId}/runtime. */
+export interface BranchRuntimeResponse {
+  resolved: RuntimeConfig
+  view: BranchRuntimeView | null
+  per_workspace?: RuntimeConfig
+  per_repo?: RuntimeConfig
+  global: RuntimeConfig
 }
 
 export interface TabSet {

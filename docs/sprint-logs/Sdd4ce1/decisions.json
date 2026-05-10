@@ -1,0 +1,92 @@
+{
+  "sprint": "Sdd4ce1",
+  "title": "Phase A: WorkspaceRuntime 抽象 + host + lxd-container 実装 + bind-mount + UI",
+  "started_at": "2026-05-10T12:15:00Z",
+  "milestone": true,
+  "branch": "autopilot/feat-workspace-runtime/Sdd4ce1",
+  "planning_decisions": [
+    {
+      "id": "P-1",
+      "decision": "AC-Sdd4ce1-5-3 を 'Don't ask again' チェックボックスから 'modal は毎回必ず表示される' に書き換え + 新 AC 5-5/5-6/5-7 追加",
+      "rationale": "prototype-review.json の design_decisions[4] で round-1 に user が '毎回選ぶでOK' と明示。 todo_for_sprint_plan の 4 項目すべてを反映。",
+      "source": "docs/sprint-logs/Sdd4ce1/prototype-review.json"
+    },
+    {
+      "id": "P-2",
+      "decision": "AC-Sdd4ce1-5-4 を 'runtime kind icon を表示' から 'icon は出さず state tag のみ' に書き換え",
+      "rationale": "prototype round 2 で全 runtime icon を削除 (user feedback: '一目で分かる universal な icon ではない')。 元の AC は prototype と矛盾するため AC-5-5 と整合させた。",
+      "source": "prototype-review.json design_decisions[0,1]"
+    }
+  ],
+  "implementation_decisions": [
+    {
+      "id": "I-1",
+      "decision": "lxd-container runtime は LXD CLI (`lxc`) shellout で実装。 LXD REST API (Unix socket) は Phase B 以降で検討",
+      "rationale": "DESIGN_PRINCIPLES priority 6 (既存資産活用 > 新規実装)。 lxc CLI が ground truth (priority 1) で、 stdlib net/http で REST 直叩きするより shellout の方が PoC 知見をそのまま流用できる。",
+      "alternatives_considered": ["LXD REST over /var/snap/lxd/common/lxd/unix.socket"],
+      "source": "VM PoC S98156b で lxc CLI が確立済み"
+    },
+    {
+      "id": "I-2",
+      "decision": "package layout: `internal/runtime/` (interface) + `internal/runtime/host/` + `internal/runtime/lxd/` (lxd-container)",
+      "rationale": "design doc §3 の構造に整合。 `lxdcontainer` ではなく `lxd` にしたのは、 後続 Phase D (lxd-vm), E (lxd-remote) も同 package に同居できるため (kind フィールドで分岐)。 Phase A では lxd-container のみ実装。",
+      "alternatives_considered": ["internal/runtime/lxdcontainer/"]
+    },
+    {
+      "id": "I-3",
+      "decision": "LXD detection は `exec.LookPath(\"lxc\")` + `lxc info --format=json` の exit code 判定で行う",
+      "rationale": "priority 7 (明示的 > 暗黙的)。 binary 存在 + connection check の 2 段で誤検出を避ける。 frontend には `/api/runtime/lxd/available` で boolean を返す。"
+    },
+    {
+      "id": "I-4",
+      "decision": "image pull strategy: LXD に任せる (palmux は事前 pull しない)",
+      "rationale": "AC-Sdd4ce1-3-4 で確定。 image が未存在なら `lxc launch` がエラーを返し UI でユーザに見せる。 palmux 側で image cache を持つと state mismatch のリスクが増える (priority 1: CLI が真実)。"
+    },
+    {
+      "id": "I-5",
+      "decision": "bind-mount idmap は per-instance `raw.idmap \"both 1000 1000\"` (3 引数) を採用",
+      "rationale": "S98156b PoC hotfix で確定。 4 引数 (`both 1000 1000 1`) は LXD 5.21.4 で invalid。 per-mount idmap は LXD 5.0+ の機能だが per-instance の方が単純。",
+      "source": "S98156b decisions.json + design doc §4.4 後段"
+    },
+    {
+      "id": "I-6",
+      "decision": "cloud-init wait は `lxc exec <inst> -- id ubuntu` poll (5s 間隔, 60s max)",
+      "rationale": "S98156b PoC で su が cloud-init 完了前に失敗するのを確認済み。 systemd target 待ちより exec poll のほうが実装が単純で、 per-image の差異 (cloud-init vs static image) に依存しない。",
+      "source": "S98156b PoC findings"
+    },
+    {
+      "id": "I-7",
+      "decision": "Active-tab detection (runtime 切替確認 dialog 用) は store の Branch.TabSet.Tabs を runtime kind 切替前に snapshot",
+      "rationale": "Bash + Claude provider の Multiple()=true タブを enumerate するだけで済む。 既存の domain.Tab/TabSet 機構をそのまま再利用 (priority 6)。",
+      "alternatives_considered": ["Per-provider OnRuntimeChange callback"]
+    },
+    {
+      "id": "I-8",
+      "decision": "Mobile breakpoint は CSS @media (max-width: 600px) で判定 (Zustand viewport store ではない)",
+      "rationale": "既存 drawer / bottom-sheet も CSS media query で mobile 判定している (S022)。 store に viewport を持つと SSR / resize race が増える。 priority 6。",
+      "source": "drawer.module.css + bottom-sheet/"
+    },
+    {
+      "id": "I-9",
+      "decision": "RepoEntry には `branches []BranchConfig` ではなく `defaultRuntime` (per-repo) + 別 store `BranchRuntimeStore` (per-Workspace) を持たせる",
+      "rationale": "現行 RepoEntry に Branch entry が無く、 UserOpenedBranches は string[] のみ。 per-Workspace runtime を RepoEntry の中に branches[] として持たせるとマイグレーション面積が膨らむ。 別ファイル `runtime-overrides.json` (path → RuntimeConfig) のほうが side-effect が小さい。",
+      "alternatives_considered": ["RepoEntry.Branches []BranchEntry に runtime を埋め込む"]
+    },
+    {
+      "id": "I-10",
+      "decision": "host runtime の AttachTmuxSession は既存 internal/tmux.Client.Attach を直接呼ぶ。 lxd-container は Phase A スコープでは agent 経由の tmux session 起動だけ実装し、 Claude tab の attach 経路は host と同じ pty 経路で維持",
+      "rationale": "scope 制御。 milestone gate は 'lxd-container Workspace で Claude タブが container 内 tmux に attach' まで。 Files / Git / Sprint タブは host fast-path のまま (design §14.3 の '将来 unify' 通り)。 Phase B でこの分離を統合する。"
+    }
+  ],
+  "vm_status_at_start": {
+    "host": "ubuntu@192.168.1.41",
+    "load_avg": "13.11 / 44.10 / 43.73",
+    "cpus": 1,
+    "ram": "1.9 GiB",
+    "disk_free": "119G / 127G",
+    "lxd_version": "5.21.4 LTS",
+    "leftover_cleanup": "Removed poc-idm-v2 LXD container + dazzling_greider docker container + 326MB docker image cache"
+  },
+  "skip_log": [],
+  "deferred_to_followup": []
+}

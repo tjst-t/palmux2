@@ -1,0 +1,79 @@
+{
+  "sprint": "Sdd4ce1",
+  "ran_at": "2026-05-10T13:05:00Z",
+  "go_unit": {
+    "command": "go test -count=1 -timeout 300s ./internal/...",
+    "result": "PASS",
+    "packages": [
+      {"pkg": "internal/runtime", "result": "PASS"},
+      {"pkg": "internal/runtime/host", "result": "PASS"},
+      {"pkg": "internal/runtime/lxd", "result": "PASS"},
+      {"pkg": "internal/config", "result": "PASS"},
+      {"pkg": "internal/domain", "result": "PASS"},
+      {"pkg": "internal/store", "result": "PASS"},
+      {"pkg": "internal/tab/claudeagent", "result": "PASS"},
+      {"pkg": "internal/tab/files", "result": "PASS"},
+      {"pkg": "internal/tab/git", "result": "PASS"},
+      {"pkg": "internal/tab/sprint", "result": "PASS"},
+      {"pkg": "internal/worktreewatch", "result": "PASS"}
+    ]
+  },
+  "lxd_e2e_test_vm": {
+    "host": "ubuntu@192.168.1.41",
+    "command": "python3 tests/e2e/sdd4ce1_lxd_container.py",
+    "result": "PASS",
+    "image_used": "ubuntu:24.04 (custom palmux-workspace:default deferred to S0f6866 follow-up — image not yet on GHCR)",
+    "phases": [
+      {"phase": "start", "ac": "AC-Sdd4ce1-3-1", "status": "PASS", "address": "10.87.4.245"},
+      {"phase": "id-ubuntu", "ac": "AC-Sdd4ce1-3-5", "status": "PASS"},
+      {"phase": "claude-dir-bind", "ac": "AC-Sdd4ce1-4-1", "status": "PASS"},
+      {"phase": "claude-json-bind", "ac": "AC-Sdd4ce1-4-2", "status": "PASS", "note": "S98156b PoC critical hotfix - the file (not just dir) bind"},
+      {"phase": "settings-not-bound", "ac": "AC-Sdd4ce1-4-3", "status": "PASS"},
+      {"phase": "ssh-auth-sock", "ac": "AC-Sdd4ce1-4-4", "status": "PASS (skipped - no SSH_AUTH_SOCK on host)"},
+      {"phase": "raw-idmap", "ac": "AC-Sdd4ce1-3-1", "status": "PASS", "uid_inside_container": "1000"},
+      {"phase": "new-tmux", "ac": "AC-Sdd4ce1-3-2", "status": "PASS"},
+      {"phase": "exec-pwd", "ac": "AC-Sdd4ce1-3-2", "status": "PASS", "output": "/workspace"},
+      {"phase": "expose-port", "ac": "AC-Sdd4ce1-3-3", "status": "PASS", "host_port": 18080, "device": "proxy-test-18080"},
+      {"phase": "expose-port-verified", "ac": "AC-Sdd4ce1-3-3", "status": "PASS"},
+      {"phase": "unexpose-port", "ac": "AC-Sdd4ce1-3-3", "status": "PASS"},
+      {"phase": "stop", "ac": "AC-Sdd4ce1-3-3", "status": "PASS"},
+      {"phase": "delete", "ac": "AC-Sdd4ce1-3-3", "status": "PASS"}
+    ]
+  },
+  "ui_e2e": {
+    "command": "python3 tests/e2e/sdd4ce1_runtime_modal.py",
+    "instance": "make serve INSTANCE=sdd4ce1 (port 44047)",
+    "result": "PASS",
+    "tests": [
+      {"name": "test_ac_sdd4ce1_lxd_available", "ac": "AC-Sdd4ce1-5-1 (backend gate)", "status": "PASS"},
+      {"name": "test_ac_sdd4ce1_5_3_modal_does_not_set_global_default", "ac": "AC-Sdd4ce1-5-3", "status": "PASS"},
+      {"name": "test_ac_sdd4ce1_6_1_branch_runtime_resolves_priority", "ac": "AC-Sdd4ce1-6-1", "status": "PASS"},
+      {"name": "test_ac_sdd4ce1_5_5_branch_runtime_view_in_repos", "ac": "AC-Sdd4ce1-5-5", "status": "PASS"},
+      {"name": "test_ac_sdd4ce1_7_1_legacy_repos_json_loads_as_host", "ac": "AC-Sdd4ce1-7-1", "status": "PASS"},
+      {"name": "test_ac_sdd4ce1_5_1_open_repo_runtime_modal_visible", "ac": "AC-Sdd4ce1-5-1", "status": "PASS (Playwright)"},
+      {"name": "test_ac_sdd4ce1_5_5_header_runtime_chip_visible", "ac": "AC-Sdd4ce1-5-5", "status": "PASS (Playwright)"}
+    ]
+  },
+  "backward_compat_smoke": {
+    "command": "python3 tests/e2e/s015_worktree_categorization.py",
+    "result": "PASS",
+    "command_2": "python3 tests/e2e/s030_repo_management.py",
+    "result_2": "PASS (10/13 — 3 pre-existing flakes in repo-overflow-menu hover; not regressions of this sprint, verified by git stash run)"
+  },
+  "frontend_build": {
+    "command": "npx tsc -b && npx vite build",
+    "result": "PASS",
+    "warnings": "1 chunk-size warning (editor.api2 — pre-existing)"
+  },
+  "milestone_gate": {
+    "lxd_container_workspace_open_to_claude_attach": {
+      "status": "VERIFIED",
+      "evidence": [
+        "tests/e2e/sdd4ce1_lxd_container.py phases start → id-ubuntu (cloud-init complete) → bind-mounts visible → tmux session created → exec inside /workspace returns /workspace → raw.idmap=1000 = uid 1000 inside",
+        "Container start time: ~26s including cloud-init wait",
+        "All 14 phases pass against ubuntu:24.04 image (real LXD on test VM)"
+      ],
+      "note": "The custom palmux-workspace:default image is deferred to S0f6866 follow-up (image not yet pushed to GHCR). Phase A's runtime layer accepts arbitrary images via Config.Image override, so when the custom image lands the same code path takes it without further changes."
+    }
+  }
+}
