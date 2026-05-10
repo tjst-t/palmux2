@@ -1,12 +1,4 @@
-/** Scroll restoration + persistence hooks for the Claude tab
- *  conversation list.
- *
- *  These were originally co-located with the virtualised list in
- *  conversation-list.tsx (S017). They're independent of react-window
- *  internals — only `containerRef` and the turn-id data attributes
- *  are needed — so S43cfb1-3 extracted them into their own module to
- *  separate "list virtualisation" concerns from "scroll position
- *  storage" concerns.
+/** Scroll save / restore for the Claude tab conversation list.
  *
  *  Public API:
  *    - scrollStorageKey(repoId, branchId, tabId) → localStorage key
@@ -23,17 +15,15 @@ export function scrollStorageKey(repoId: string, branchId: string, tabId: string
   return `palmux:claudeScroll:${repoId}/${branchId}/${tabId}`
 }
 
-/** Persistence record for the conversation scroll position. We do
- *  NOT store an absolute scrollTop — virtualised row heights start
- *  as estimates and converge as ResizeObserver fires, so the same
- *  "place in the conversation" maps to different scrollTop values
- *  across mounts. Instead we anchor to a specific turn (its
- *  human-readable position never changes) plus the pixel offset of
- *  that turn's top edge above the viewport top.
+/** Persistence record for the conversation scroll position. We store
+ *  a turn-id anchor (turn-id + offset of the turn's top edge above
+ *  the viewport top) rather than absolute scrollTop so the saved
+ *  position survives content changes between sessions (a new image
+ *  loading earlier in the conversation, a remeasurement, etc.).
  *
  *  - `atBottom`: the user was at/near the bottom — auto-follow
- *    semantics; on restore we don't touch the position and let the
- *    parent's auto-follow effect park us at the latest content.
+ *    semantics; on restore we don't compute an anchor, the parent's
+ *    auto-follow effect parks us at the latest content.
  *  - `anchor.turnId`: id of the topmost turn that intersected the
  *    viewport top at save time.
  *  - `anchor.offset`: pixels by which that turn's top edge sat above
@@ -48,16 +38,15 @@ export interface PersistedScroll {
 
 export type PersistedScrollRecord = Omit<PersistedScroll, 'sessionId'>
 
-/** Find the row the user is looking at as the "top of the
- *  viewport" — the row whose top edge is at or just above the
- *  viewport top (rect.top ≤ sRect.top < rect.bottom).
+/** Find the row at the top of the viewport — the one whose top edge
+ *  is at or just above the scroller's top edge
+ *  (rect.top ≤ sRect.top < rect.bottom).
  *
- *  Returns null when no rendered row spans the viewport top. This
- *  happens during transient render states (the user wheels rapidly
- *  and react-window's rendered rows lag below the new scrollTop, or
- *  ResizeObserver is mid-update). Callers should keep their
- *  previous good anchor rather than overwrite with a transient
- *  fallback that would produce a negative offset. */
+ *  All turns are in the DOM (no virtualisation), so in steady state
+ *  we always find a spanning row unless the user is at the very top
+ *  with all turns scrolled into view (rect.top > sRect.top for every
+ *  turn). In that edge case the caller keeps its previous anchor —
+ *  there's no meaningful one to record. */
 export function findTopAnchor(
   scroller: HTMLElement,
 ): { turnId: string; offset: number } | null {
@@ -136,11 +125,6 @@ export function writePersistedScroll(
 /** useScrollRestore re-anchors the conversation after a tab switch
  *  or page reload using a turn-id anchor.
  *
- *  Vastly simpler now that ConversationList renders all turns into
- *  the DOM (no virtualisation): the anchor row's element is always
- *  present, so we can find it directly and compute the scrollTop
- *  delta in one shot. No polling, no estimation lag, no retries.
- *
  *    - atBottom=true → no-op. The parent's auto-follow effect parks
  *      us at the latest content.
  *    - atBottom=false + anchor present → find the row by
@@ -150,7 +134,8 @@ export function writePersistedScroll(
  *      up. The user gets the default (top of list / auto-follow).
  *
  *  User-input abort listeners are kept as defense in depth even
- *  though the restore window is now ~1 frame.
+ *  though the restore window is now ~1 frame (one rAF for the
+ *  initial paint commit).
  */
 export function useScrollRestore(opts: {
   sessionId: string
@@ -185,9 +170,9 @@ export function useScrollRestore(opts: {
     }
     if (stored.atBottom) {
       // Auto-follow path: parent's auto-follow effect handles
-      // scroll-to-bottom on first paint. Defer settle by one rAF so
-      // the scrollToBottom has fired before we make the conversation
-      // visible — otherwise a flash of scrollTop=0 leaks through.
+      // scroll-to-bottom in its own useLayoutEffect (also commit
+      // phase). Defer settle by one rAF so visibility flips after
+      // paint, by which time the bottom-pin has already happened.
       requestAnimationFrame(settle)
       return
     }
@@ -197,9 +182,10 @@ export function useScrollRestore(opts: {
     }
     const { turnId, offset } = stored.anchor
 
-    // One-shot anchor restore. With all turns rendered to the DOM,
-    // the anchor element is present immediately; we just measure and
-    // assign scrollTop.
+    // One-shot anchor restore. With all turns in the DOM the anchor
+    // element is present immediately; we just measure and assign
+    // scrollTop. One rAF lets the browser commit the initial paint
+    // so getBoundingClientRect returns correct positions.
     let cancelled = false
     let userAborted = false
     const userAbort = () => { userAborted = true }
@@ -211,8 +197,6 @@ export function useScrollRestore(opts: {
       elInit.addEventListener('mousedown', userAbort, { once: true })
     }
 
-    // One rAF lets the browser commit the initial paint so
-    // getBoundingClientRect returns the correct positions.
     const raf = requestAnimationFrame(() => {
       if (cancelled || userAborted) {
         settle()
@@ -258,34 +242,42 @@ export function useScrollRestore(opts: {
 }
 
 /** usePersistScroll throttles writes of the live anchor + atBottom
- *  flag to localStorage. We don't write on every scroll event (would
- *  burn the main thread on autopilot floods); a 250ms trailing-edge
- *  debounce is plenty for restore-on-reload accuracy.
+ *  flag to localStorage on every scroll event (250 ms trailing-edge
+ *  debounce). Cleanup ALWAYS flushes the latest known sample so a
+ *  user who scrolls and then closes / switches inside the debounce
+ *  window doesn't lose their position.
  *
  *  Two subtleties:
- *  1. We mirror the latest sample into closure-local variables.
- *     That way unmount-cleanup can flush without touching the DOM —
- *     which has already been removed by the time React tears down
- *     the parent's effects, so reading rect off the detached element
- *     would return zeros and persist a corrupted record.
- *  2. The cleanup ALWAYS flushes the latest known sample. Without
- *     this, a user who scrolls and then switches tabs inside the
- *     250ms debounce window loses their position. */
+ *    1. We mirror the latest sample into closure-local variables
+ *       (latestAtBottom / latestAnchor). Unmount-cleanup flushes
+ *       from these vars without touching the DOM, which would
+ *       return zeros on a detached element and persist garbage.
+ *    2. The effect re-runs when `hasTurns` flips false → true. On
+ *       the very first mount of the Claude tab, ConversationList
+ *       isn't in the DOM yet (state.turns is []), so containerRef
+ *       is null and there's nothing to listen on. When the WS init
+ *       populates turns, ConversationList mounts, the parent's
+ *       useLayoutEffect updates containerRef, and this effect
+ *       re-runs to attach its scroll listener.
+ */
 export function usePersistScroll(opts: {
   sessionId: string
   storageKey: string
   containerRef: React.RefObject<HTMLDivElement | null>
+  hasTurns: boolean
 }) {
-  const { sessionId, storageKey, containerRef } = opts
+  const { sessionId, storageKey, containerRef, hasTurns } = opts
 
   useEffect(() => {
-    if (!sessionId) return
+    if (!sessionId || !hasTurns) return
+    const el = containerRef.current
+    if (!el) return
+
     let timer: number | undefined
-    let installedEl: HTMLDivElement | null = null
-    let attached = false
     let sampled = false
     let latestAtBottom = true
     let latestAnchor: { turnId: string; offset: number } | null = null
+
     const flush = () => {
       if (!sampled) return
       writePersistedScroll(storageKey, sessionId, {
@@ -293,49 +285,36 @@ export function usePersistScroll(opts: {
         anchor: latestAnchor ?? undefined,
       })
     }
-    const sample = (el: HTMLDivElement) => {
-      latestAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 32
+    const sample = (target: HTMLDivElement) => {
+      latestAtBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 32
       if (latestAtBottom) {
         latestAnchor = null
         sampled = true
         return
       }
-      // Mid-conversation. findTopAnchor returns null when no row
-      // spans the viewport top (transient render state — the user
-      // just wheeled and react-window hasn't re-rendered yet).
-      // Don't overwrite a previously-good anchor with a transient
-      // null; the next sample will set it once the layout settles.
-      const a = findTopAnchor(el)
+      // Mid-conversation. findTopAnchor returns null only at the
+      // very top of the list (no row spans the viewport top).
+      // Don't overwrite a previous good anchor with null.
+      const a = findTopAnchor(target)
       if (a) {
         latestAnchor = a
         sampled = true
       }
     }
     const onScroll = () => {
-      if (!installedEl) return
-      sample(installedEl)
+      sample(el)
       if (timer) window.clearTimeout(timer)
       timer = window.setTimeout(flush, 250)
     }
-    // Containers can become available AFTER this effect first runs,
-    // so we poll briefly until we find one. Once attached we stop
-    // polling and capture the initial position so an unmount before
-    // any user scroll still persists the (likely-correct) starting
-    // sample.
-    const poll = window.setInterval(() => {
-      const el = containerRef.current
-      if (!el || attached) return
-      el.addEventListener('scroll', onScroll)
-      installedEl = el
-      attached = true
-      window.clearInterval(poll)
-      sample(el)
-    }, 80)
+    el.addEventListener('scroll', onScroll)
+    // Capture the initial position so an unmount before any user
+    // scroll still persists the (likely-correct) starting sample.
+    sample(el)
+
     return () => {
-      window.clearInterval(poll)
-      if (installedEl) installedEl.removeEventListener('scroll', onScroll)
+      el.removeEventListener('scroll', onScroll)
       if (timer) window.clearTimeout(timer)
       flush()
     }
-  }, [containerRef, sessionId, storageKey])
+  }, [sessionId, hasTurns, storageKey, containerRef])
 }
