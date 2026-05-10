@@ -1,4 +1,4 @@
-.PHONY: dev dev-api dev-frontend ports tmp serve serve-stop serve-logs build build-linux build-arm test lint clean e2e-cleanup e2e-cleanup-dry
+.PHONY: dev dev-api dev-frontend ports tmp serve serve-stop serve-logs build build-linux build-arm build-agent test lint clean e2e-cleanup e2e-cleanup-dry
 
 TMP_DIR := tmp
 ENV_FILE := $(TMP_DIR)/portman.env
@@ -77,6 +77,19 @@ build-linux: build-frontend
 build-arm: build-frontend
 	@mkdir -p $(BIN_DIR)
 	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/palmux-linux-arm64 $(GO_PKG)
+
+# palmux-agent: in-container agent binary (static, no CGO, Linux amd64).
+# AC-S98156b-1-1: must produce bin/palmux-agent ≤ 15 MB.
+AGENT_PKG := ./cmd/palmux-agent
+build-agent:
+	@mkdir -p $(BIN_DIR)
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o $(BIN_DIR)/palmux-agent $(AGENT_PKG)
+	@SIZE=$$(stat -c%s $(BIN_DIR)/palmux-agent 2>/dev/null || stat -f%z $(BIN_DIR)/palmux-agent); \
+	 MB=$$((SIZE / 1048576)); \
+	 echo "  => palmux-agent: $${MB} MB ($${SIZE} bytes)"; \
+	 if [ "$$SIZE" -gt 15728640 ]; then \
+	   echo "ERROR: palmux-agent exceeds 15 MB limit ($$SIZE bytes)"; exit 1; \
+	 fi
 
 # Background-run the production binary, keep its PID in $(SERVE_PID), kill
 # the previous process on re-run. Mirrors pattern 6 of port-manager's

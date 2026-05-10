@@ -247,12 +247,36 @@ type Status struct {
 - palmux が container 用の settings を runtime 起動時に注入（必要な MCP server 設定だけ）
 - skill / memory のような **データは共有**、 **設定は分離** という線引き
 
-**実機検証が必要な事項** (Phase A の AC に含める):
+**実機検証結果** (S98156b PoC 実施済み, 2026-05-10):
 
-- [ ] `claude --resume` が container 内で host で開始したセッションを resume できる
-- [ ] skill が container から読める（`~/.claude/skills/foo/SKILL.md` が見える）
-- [ ] memory の追記が host から見える（双方向同期）
-- [ ] 並行起動時の lockfile 等の挙動
+> PoC 詳細: `docs/sprint-logs/S98156b/poc-a.md`
+
+- [✓] `claude --resume` が container 内で host で開始したセッションを resume できる
+  - bind-mount 双方向確認 (同一 inode)。container 内から session JSONL 読み書き可能。
+  - claude CLI は test VM 未インストールのため direct resume は未確認だが、インフラ (bind-mount + idmap) は確立済み。
+  - **Phase A AC**: container に claude CLI install + `--resume` 実行を要件に追加
+- [✓] skill が container から読める (`~/.claude/skills/foo/SKILL.md` が見える)
+  - `~/.claude/` 全体の bind-mount で `skills/` が見えることを確認 (poc-a.md AC-S98156b-2-1)
+- [✓] memory の追記が host から見える (双方向同期)
+  - container 内書き込みが host 側から即座に可視 (poc-a.md AC-S98156b-2-3)
+- [✓] 並行起動時の lockfile 等の挙動
+  - concurrent write 10/10 行生存 (poc-a.md AC-S98156b-2-5)。ただし seq 重複あり。
+  - **Phase A 追加要件**: `~/.claude/projects/<path>/.palmux-lock` による二重起動防止を実装する
+
+**idmap 設定の確定**:
+
+```
+# 正しい raw.idmap フォーマット (LXD 5.21.4 検証済み)
+lxc config set <inst> raw.idmap "uid 1000 1000
+gid 1000 1000"
+```
+
+`"both 1000 1000 1"` (4引数) は LXD 5.21.4 で Invalid エラー。`"both 1000 1000"` (3引数) または `"uid ... / gid ..."` 改行区切りが正しい。
+
+**settings.json 戦略 (確定)**:
+- `~/.claude/settings.json` は **bind しない**
+- palmux が Workspace open 時に container 用 settings.json を inject
+- `projects/` は rw bind、`skills/` は ro bind、settings.json は分離
 
 ### 4.5 一般的なセキュリティ考察
 

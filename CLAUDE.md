@@ -21,6 +21,8 @@
 
 現在: **v0.3.0 リリース済み (S001〜S029 完了)**。Phase 0〜3 のコア機能 + Phase 4 の磨き込み (S016 Sprint Dashboard、S017 virtualization、S018 検索/export、S019 rewind、S020 タブ UX、S021 Subagent worktree、S022 モバイル UX、S023/S024 Drawer redesign、S025 fixture cleanup、S026 HTML preview、S027 Markdown SPA navigation、S028 JSON canonical roadmap、S029 [BREAKING] Git タブ minimal redesign) まで実装済み。Phase 5+ は需要が明確になってから検討 (`docs/VISION.json` 参照)。
 
+**feat/workspace-runtime ブランチ**: S98156b (Phase A0) 完了。`palmux-agent` binary (2 MB static, JSON-RPC 2.0 over UDS) + LXD bind-mount/idmap/proxy device PoC 完了。Phase A (Sdd4ce1) 着手可能。
+
 実装の生きた進捗は **`docs/ROADMAP.json`** が source of truth。各 Sprint の決定ログは `docs/sprint-logs/{SprintID}/decisions.json` を参照。
 
 ### 確定済みプロジェクト規約
@@ -50,6 +52,18 @@
 **コンパイル + unit test だけで「完了」とせず、必ず E2E 検証まで行う**。`make serve INSTANCE=dev` で立てた別ポートの独立インスタンスに対して Playwright (headless) で UI / WS / API 経路を叩いて確認する。詳細と「スキップが許される条件」は [docs/DESIGN_PRINCIPLES.json](docs/DESIGN_PRINCIPLES.json) の `forbidden` / 自律実行ルール (S028 で .md → .json に正典化) を参照。
 
 実装が進んだら、本 CLAUDE.md を必要に応じて更新する（ディレクトリ構成の実態反映、確定した規約の追記、仕様変更の反映など）。
+
+### テスト用 VM (`ubuntu@192.168.1.41`)
+
+**workspace-runtime 系 sprint (Phase A0 以降) の E2E テスト・ PoC 検証はこの VM 上で行う。**
+
+- ホスト名: `palmux-dev` (Ubuntu 24.04.3 LTS、 LXD 5.21.4 LTS pre-installed)
+- 接続: `ssh ubuntu@192.168.1.41` でパスワードレスログイン可
+- **VM の状態は完全に自由に扱ってよい** — 過去の palmux2 テスト残骸 (running palmux process / 古い tmux session / `~/ghq/` 配下) があるが、 user 許諾済みで全削除・初期化 OK。 必要なら `lxc list` の container も含めて wipe してよい
+- LXD container / VM の作成・破棄・ image build (Phase A' の `palmux-workspace:default` 検証等) は **すべてこの VM で行う**。 ローカル開発機 (`/home/ubuntu/worktrees/...`) では LXD を立てない (host を汚さないため)
+- ghq / gwq / go / claude CLI は **VM に未インストール**。 sprint 実行時に必要なら `apt install` / `go install` / curl で都度入れる (VM 自体を汚していい)
+- `palmux-agent` の push 検証、 bind-mount + idmap 検証、 `lxc config device add proxy` の永続性検証 (§13 Phase A0) はすべてこの VM 内で完結させる
+- `make serve INSTANCE=dev` 相当を VM 上で動かしたい場合: ローカルから `rsync` or `scp` で binary を送る、 もしくは VM 上で直接 `git clone` + `go build` する
 
 ## プロジェクト概要
 
@@ -342,6 +356,7 @@ make dev          # vite dev + air (Go hot reload)
 make build        # プロダクション（embed シングルバイナリ）
 make build-linux  # Linux amd64
 make build-arm    # Linux arm64
+make build-agent  # palmux-agent (static amd64, CGO_ENABLED=0, ≤15 MB, S98156b)
 make test         # Go + TS
 make lint         # golangci-lint + eslint
 ```
