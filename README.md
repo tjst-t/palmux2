@@ -55,7 +55,7 @@ launch otherwise.
 | --- | --- |
 | [`claude`](https://docs.anthropic.com/en/docs/claude-code) (Anthropic Claude Code CLI) | The Claude tab spawns this binary for stream-json IPC. Authenticate it once with `claude auth login` |
 | Node.js 22+ and npm | Only for development (`make dev`) or building from source (`make build`). Pre-built release binaries already include the bundled frontend |
-| [`portman`](https://github.com/tjst-t/port-manager) | Only when you use the bundled `make serve`/`make dev` recipes — they lease ports through portman and (optionally) register with Caddy |
+| [`portman`](https://github.com/tjst-t/port-manager) | **No longer required** — port management is now built into Palmux itself (see `palmux port --help`). The standalone portman CLI remains available for non-Palmux Claude/dev workflows; if you have it installed Palmux can still link to its dashboard via `--portman-url`. |
 | [Caddy](https://caddyserver.com/) | Only when you want HTTPS + a friendly hostname; Palmux itself is plain HTTP and doesn't terminate TLS |
 
 ---
@@ -334,7 +334,36 @@ make {dev,serve,serve-stop,serve-logs} INSTANCE=<name>
 - `tmp/palmux.pid` — the PID of the background process; re-running `make
   serve` SIGTERMs it (then SIGKILL after 5s) and starts fresh
 - `tmp/palmux.log` — stdout/stderr
-- `tmp/palmux.portman.env` — the leased port
+- `tmp/ports.json` — the lease record produced by the built-in
+  [`palmux port`](#built-in-port-allocator-palmux-port) allocator. Same
+  service name → same port across re-runs
+
+### Built-in port allocator (`palmux port`)
+
+Palmux ships its own port allocator so `make dev` and `make serve` work
+without an external dependency. The CLI is intentionally
+portman-compatible — anywhere you used `portman exec` / `portman lease` /
+`portman list` / `portman release`, swap in the matching `palmux port`
+verb:
+
+```bash
+palmux port exec  --name palmux2 -- ./bin/palmux --addr :{}
+palmux port alloc --name palmux2-api
+palmux port list  [--scope SCOPE] [--json]
+palmux port free  --name palmux2
+```
+
+State lives in `~/.config/palmux/ports.json` (override via `--config-dir`).
+The format mirrors `portman list --json` so the dashboard reader and any
+existing scripts that grok portman's JSON keep working when pointed at it.
+`flock` makes the file safe to share between a running `palmux serve` and
+one-shot CLI invocations — `palmux port` works whether or not the server
+is up.
+
+The standalone [portman](https://github.com/tjst-t/port-manager) tool is
+still a fine pick for non-Palmux workflows; we just don't depend on it
+anymore. If you have it installed and running, point Palmux at its
+dashboard via `--portman-url`.
 
 ### Build / test / lint
 
@@ -430,7 +459,7 @@ Palmux はフロントエンドを embed した単一の Go バイナリ。tmux 
 | --- | --- |
 | [`claude`](https://docs.anthropic.com/en/docs/claude-code) (Anthropic Claude Code CLI) | Claude タブが stream-json IPC でこのバイナリを spawn する。`claude auth login` で一度認証しておく |
 | Node.js 22+ と npm | 開発時 (`make dev`) もしくはソースビルド (`make build`) 時のみ。リリース版バイナリにはビルド済みフロントエンドが embed されている |
-| [`portman`](https://github.com/tjst-t/port-manager) | 同梱の `make serve` / `make dev` を使うときのみ。portman 経由でポートをリースし、Caddy への登録もする |
+| [`portman`](https://github.com/tjst-t/port-manager) | **不要になった** — ポート管理は Palmux 本体に内蔵された (`palmux port --help` 参照)。 portman 単体は引き続き Palmux 以外の Claude/開発ワークフロー向けに利用可能で、 portman をインストール済みなら `--portman-url` で Palmux のヘッダから dashboard にリンクできる |
 | [Caddy](https://caddyserver.com/) | HTTPS と分かりやすいホスト名がほしいとき。Palmux 自体は HTTP のみ提供し、TLS 終端はしない |
 
 ---
@@ -705,7 +734,34 @@ make {dev,serve,serve-stop,serve-logs} INSTANCE=<name>
 - `tmp/palmux.pid` — バックグラウンドプロセスの PID。再度 `make serve`
   すると SIGTERM（5 秒で SIGKILL）して新プロセスを起動
 - `tmp/palmux.log` — stdout/stderr
-- `tmp/palmux.portman.env` — リースされたポート
+- `tmp/ports.json` — 内蔵 port allocator (`palmux port`) のリース記録。
+  同じ service 名なら次回起動時も同じポートが返る
+
+### 内蔵 port allocator (`palmux port`)
+
+Palmux は自前の port allocator を同梱しており、 `make dev` / `make serve`
+は外部ツール (portman) なしで動く。 CLI は portman 互換 ―
+`portman exec` / `portman lease` / `portman list` / `portman release`
+を使っていた箇所は、 そのまま `palmux port` のサブコマンドに置き換えられる:
+
+```bash
+palmux port exec  --name palmux2 -- ./bin/palmux --addr :{}
+palmux port alloc --name palmux2-api
+palmux port list  [--scope SCOPE] [--json]
+palmux port free  --name palmux2
+```
+
+状態は `~/.config/palmux/ports.json` に保存される (`--config-dir` で
+上書き可)。 ファイル形式は `portman list --json` を踏襲しているので、
+dashboard reader や portman の JSON を前提とした既存スクリプトは
+そのまま動く。 `flock` を使っているので動作中の `palmux serve` と
+ワンショットの CLI 呼び出しが安全に共存でき、 サーバ未起動でも
+`palmux port` は単体で機能する。
+
+[portman](https://github.com/tjst-t/port-manager) 単体は Palmux 以外の
+ワークフローでは引き続き有用であり、 deprecation はしていない。
+インストール済みで dashboard を立てているなら、 `--portman-url` で
+Palmux のヘッダから飛べる。
 
 ### Build / test / lint
 
