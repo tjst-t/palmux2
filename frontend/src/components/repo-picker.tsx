@@ -17,6 +17,7 @@ import { api } from '../lib/api'
 import type { Repository } from '../lib/api'
 import { usePalmuxStore } from '../stores/palmux-store'
 
+import { RepoOpenRuntimeModal } from './repo-open-runtime-modal'
 import styles from './repo-picker.module.css'
 
 // hotfix: after a successful open / clone we navigate to the opened
@@ -88,6 +89,13 @@ export function RepoPicker({ open, onClose, onRequestDelete }: Props) {
   const [pending, setPending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [cloneState, setCloneState] = useState<CloneState>('idle')
+  // Sdd4ce1: when set, the runtime selector follow-on is shown for this repo.
+  // The user picked / cloned it but hasn't confirmed the runtime yet, so we
+  // defer the navigation step.
+  const [pendingRuntimeRepo, setPendingRuntimeRepo] = useState<{
+    repo: Repository
+    label: string
+  } | null>(null)
   const listRef = useRef<HTMLUListElement | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -99,6 +107,7 @@ export function RepoPicker({ open, onClose, onRequestDelete }: Props) {
     setFilter('')
     setActive(0)
     setCloneState('idle')
+    setPendingRuntimeRepo(null)
     void reload()
     return () => {
       abortRef.current?.abort()
@@ -131,13 +140,10 @@ export function RepoPicker({ open, onClose, onRequestDelete }: Props) {
     setError(null)
     try {
       const repo = await openRepo(id)
-      // hotfix: navigate the user to the freshly-opened repo so the
-      // drawer focus + main-area both reflect their action. Without
-      // this, the modal closes and the user is left wherever they
-      // were before — the new repo only shows up in the drawer list.
-      const target = urlForRepo(repo)
-      if (target) navigate(target)
-      onClose()
+      // Sdd4ce1-5-1: defer navigation — show the runtime selector first.
+      // The picker stays mounted but visually hidden; the runtime modal
+      // is layered on top.
+      setPendingRuntimeRepo({ repo, label: repo.ghqPath })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -160,16 +166,17 @@ export function RepoPicker({ open, onClose, onRequestDelete }: Props) {
       )
       // Auto-open the repo (it was already opened server-side, just reload).
       await reloadRepos()
-      // hotfix: navigate to the cloned repo's primary branch claude tab
-      // so the user lands on the new repo immediately. Mirrors the same
-      // post-open jump that browse-mode pick() performs.
+      // Sdd4ce1-5-1: defer navigation — surface the runtime selector first.
       const reloadedRepos = usePalmuxStore.getState().repos
       const repo = reloadedRepos.find((r) => r.id === result.repoId)
       if (repo) {
-        const target = urlForRepo(repo)
-        if (target) navigate(target)
+        setPendingRuntimeRepo({ repo, label: repo.ghqPath })
+        setCloneState('idle')
+      } else {
+        // Fallback: cloned but not in list — close the modal so the user
+        // sees the repo in the drawer.
+        onClose()
       }
-      onClose()
     } catch (err) {
       if ((err as Error).name === 'AbortError') return
       setCloneState('error')
@@ -213,6 +220,30 @@ export function RepoPicker({ open, onClose, onRequestDelete }: Props) {
   if (!open) return null
 
   const label = isURL ? shortRepoLabel(filter) : ''
+
+  // Sdd4ce1: when a repo has been picked / cloned but the user hasn't
+  // confirmed the runtime, replace the picker UI with the runtime modal.
+  // We render only one of the two at a time so the user can't interact
+  // with the picker behind the modal.
+  if (pendingRuntimeRepo) {
+    return (
+      <RepoOpenRuntimeModal
+        open={true}
+        repoId={pendingRuntimeRepo.repo.id}
+        repoLabel={pendingRuntimeRepo.label}
+        onCancel={() => setPendingRuntimeRepo(null)}
+        onChangeRepo={() => setPendingRuntimeRepo(null)}
+        onConfirm={() => {
+          // Per-repo default is now persisted; jump to the freshly-opened
+          // primary Workspace as the original flow did.
+          const target = urlForRepo(pendingRuntimeRepo.repo)
+          if (target) navigate(target)
+          setPendingRuntimeRepo(null)
+          onClose()
+        }}
+      />
+    )
+  }
 
   return (
     <div className={styles.overlay} onClick={handleClose} data-testid="open-repo-modal">

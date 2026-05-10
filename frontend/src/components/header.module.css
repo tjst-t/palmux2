@@ -104,3 +104,73 @@
     opacity: 0.4;
   }
 }
+
+/* === Sdd4ce1-5-5: Header runtime chip === */
+.runtimeChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  padding: 2px 8px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-fg-muted);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.runtimeDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-fg-faint);
+}
+
+.runtimeDotReady {
+  background: var(--color-success, #64d2a0);
+  box-shadow: 0 0 4px rgba(100, 210, 160, 0.5);
+}
+
+.runtimeDotStarting {
+  background: var(--color-warning, #f59e0b);
+  animation: runtimeStartingPulse 1.4s ease-in-out infinite;
+}
+
+.runtimeDotFailed {
+  background: var(--color-error, #ef4444);
+}
+
+.runtimeDotStopping,
+.runtimeDotStopped {
+  background: var(--color-fg-faint);
+}
+
+@keyframes runtimeStartingPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.runtimeLabel {
+  color: var(--color-fg);
+}
+
+.runtimeSep {
+  color: var(--color-fg-faint);
+  margin: 0 -2px;
+}
+
+.runtimeState {
+  color: var(--color-fg-muted);
+  text-transform: lowercase;
+}
+
+@media (max-width: 600px) {
+  /* Mobile: hide the state label, keep dot + kind */
+  .runtimeSep,
+  .runtimeState {
+    display: none;
+  }
+}

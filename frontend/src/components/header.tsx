@@ -55,6 +55,9 @@ export function Header() {
             <span className={styles.repoName}>{repoLabel(repo.ghqPath)}</span>
             <span className={styles.sep}>/</span>
             <span className={styles.branchName}>{branch.name}</span>
+            {branch.runtime && (
+              <RuntimeChip kind={branch.runtime.kind} state={branch.runtime.state} />
+            )}
           </span>
         )}
       </div>
@@ -126,4 +129,35 @@ function useWideViewport(threshold: number): boolean {
 function repoLabel(ghqPath: string): string {
   const parts = ghqPath.split('/')
   return parts.slice(1).join('/') || ghqPath
+}
+
+// Sdd4ce1-5-5: Header chip showing the active Workspace's runtime kind
+// + state (text-only — round-2 user feedback removed all icons). State
+// is conveyed by a coloured dot (green=ready, amber=starting, red=failed,
+// grey=stopped/stopping); the text label is the runtime kind.
+function RuntimeChip({ kind, state }: { kind: string; state: string }) {
+  const stateClass = stateClassFor(state)
+  return (
+    <span className={styles.runtimeChip} data-testid="header-runtime-chip" title={`runtime: ${kind} · ${state}`}>
+      <span className={`${styles.runtimeDot} ${stateClass}`} aria-hidden="true" />
+      <span className={styles.runtimeLabel}>{kind}</span>
+      <span className={styles.runtimeSep}>·</span>
+      <span className={styles.runtimeState}>{state}</span>
+    </span>
+  )
+}
+
+function stateClassFor(state: string): string {
+  switch (state) {
+    case 'ready':
+      return styles.runtimeDotReady ?? ''
+    case 'starting':
+      return styles.runtimeDotStarting ?? ''
+    case 'failed':
+      return styles.runtimeDotFailed ?? ''
+    case 'stopping':
+      return styles.runtimeDotStopping ?? ''
+    default:
+      return styles.runtimeDotStopped ?? ''
+  }
 }
