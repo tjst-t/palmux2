@@ -1,0 +1,163 @@
+{
+  "sprint": "S0f6866",
+  "title": "Phase A': Custom container image build pipeline (palmux-workspace:default on GHCR)",
+  "branch": "autopilot/feat-workspace-runtime/S0f6866",
+  "executor": "Claude Opus 4.7 (1M context)",
+  "decisions": [
+    {
+      "story": "S0f6866-1",
+      "topic": "image format: Dockerfile vs cloud-init vs systemd-nspawn",
+      "decision": "Dockerfile-based OCI image, launched via LXD's `docker:` image protocol",
+      "rationale": "AC-S0f6866-2-3 explicitly says `lxc launch docker:ghcr.io/...`, which only works with OCI manifests. cloud-init recipes can't be `lxc launch`ed directly — they'd need a separate base + a `--config user.user-data=` step that defeats the point of pre-baking. systemd-nspawn produces tarballs that LXD doesn't speak. Dockerfile is the single format that satisfies both 'pre-installed CLIs' and 'lxc launch via docker: protocol'.",
+      "alternatives_rejected": [
+        "cloud-init.yaml on top of stock ubuntu:24.04 image — every container start would re-install ~600 MB of packages, blowing the 'fast launch' design goal",
+        "systemd-nspawn tarball — LXD can't natively consume it; would require a custom intermediate step",
+        "LXD's native `images:` server (lxd-image-builder) — explicitly rejected in §14.10.1 ('GHCR 直 launch')"
+      ]
+    },
+    {
+      "story": "S0f6866-1",
+      "topic": "base image: ubuntu:24.04 vs alpine vs debian-slim",
+      "decision": "ubuntu:24.04 (matches §14.7 Supported OS = Ubuntu)",
+      "rationale": "Design doc §14.7 fixes the supported OS as Ubuntu. The base layer is ~80 MB so the size budget isn't the bottleneck (apt packages dominate). alpine uses musl, which would break palmux-agent (it's a static Go binary, but distroless+glibc dependencies still surface for ansible/python3). debian-slim would diverge from §14.7 'Ubuntu only'.",
+      "alternatives_rejected": [
+        "alpine — musl incompatibility with the Anthropic claude install script's pre-built node bundles",
+        "debian:12-slim — saves ~30 MB but breaks the 'Ubuntu only' contract",
+        "ubuntu:22.04 — older glibc, no reason to lag the LTS"
+      ]
+    },
+    {
+      "story": "S0f6866-1",
+      "topic": "RUN layer strategy: one mega-RUN vs layered RUNs",
+      "decision": "Six layered RUNs: (1) base utils + systemd, (2) ubuntu-archive dev tools, (3) third-party apt repos (gh, tailscale), (4) claude install script, (5) ubuntu user, (6) systemd masks",
+      "rationale": "DESIGN_PRINCIPLES priority 7 (明示的 > 暗黙的): each layer answers one question ('where did this dep come from?'). Layered also lets the BuildKit GHA cache amortize: a Layer 4 claude bump doesn't re-pull Layer 1 apt. Cleanup (`apt-get clean && rm -rf /var/lib/apt/lists/*`) inside each layer keeps each layer self-contained, so the final image size is the union of clean layers, not a junk layer + a delete layer.",
+      "alternatives_rejected": [
+        "single mega-RUN — fewer layers, but a single character bump causes a full apt re-download every CI run; defeats the GHA cache",
+        "every package its own RUN — too many layers, each round-trips to BuildKit and costs build time"
+      ]
+    },
+    {
+      "story": "S0f6866-1",
+      "topic": "claude install: apt vs `curl | sh`",
+      "decision": "`curl https://claude.ai/install.sh | bash` (the official Anthropic installer)",
+      "rationale": "Anthropic does not publish a stable apt repo for claude. Their install script is the documented installation method. The script's failure exits the build (`set -e` + `|| (echo ...; exit 1)`), so a transient registry failure is a build-fail, not a silent skip. We install system-wide (/usr/local/bin/claude) so all users — including the pre-created `ubuntu` user — see the same binary.",
+      "alternatives_rejected": [
+        "npm install -g @anthropic-ai/claude-code — would force Node into the base, and the official installer doesn't actually use npm",
+        "static download of a pinned claude tarball — requires us to chase Anthropic's release tags weekly; the install script handles version selection internally"
+      ]
+    },
+    {
+      "story": "S0f6866-1",
+      "topic": "tailscale install: apt vs install.sh",
+      "decision": "Official `pkgs.tailscale.com` apt repo",
+      "rationale": "Tailscale provides a stable apt repo for Ubuntu noble (24.04). This is the documented, reproducible install path. `curl | sh` is documented but the apt path is the maintenance contract — security updates flow via apt, not via re-running install.sh.",
+      "alternatives_rejected": [
+        "tailscale install.sh — fine for ad-hoc but adds an extra build-time HTTP call we don't need"
+      ]
+    },
+    {
+      "story": "S0f6866-1",
+      "topic": "pre-create ubuntu user (UID 1000) vs let cloud-init handle it",
+      "decision": "Pre-create UID 1000 / GID 1000 `ubuntu` user with passwordless sudo at image-build time",
+      "rationale": "Design doc §14.10.4 fixes raw.idmap = `both 1000 1000`. S98156b PoC observed that cloud-init in the standard ubuntu cloud image creates the ubuntu user with a 30-60s delay, which would make every Workspace open painful. Pre-creating in the image makes the contract explicit: UID 1000 is real from t=0. NOPASSWD sudo matches the existing palmux operator-user pattern (no interactive password prompts during agent operations).",
+      "alternatives_rejected": [
+        "rely on cloud-init datasource — slow + opaque; surfaces idmap mismatches as 'why is /home/ubuntu owned by nobody?' bug reports",
+        "create user at first lxc launch via lxc exec — hides setup latency in the launch path"
+      ]
+    },
+    {
+      "story": "S0f6866-1",
+      "topic": "do NOT bake palmux-agent into the image",
+      "decision": "image does not contain /usr/local/bin/palmux-agent; palmux pushes it at runtime",
+      "rationale": "workspace-runtime-design.md §14.10.6 explicit (push method). Baking it in produces palmux-version / image-version skew on every palmux release. This sprint follows the rule strictly — AC-S0f6866-1-2 explicitly tests for absence.",
+      "alternatives_rejected": [
+        "bake :main agent in + auto-update on launch — adds a code path (auto-update vs always-push) for no benefit; rejected in §14.10.6"
+      ]
+    },
+    {
+      "story": "S0f6866-2",
+      "topic": "workflow trigger set",
+      "decision": "schedule (Mon 06:00 UTC) + push tags 'v*' + pull_request paths images/** + workflow_dispatch",
+      "rationale": "AC-S0f6866-2-1 mandates 'weekly cron + main tag push + PR to images/**'. Adding `workflow_dispatch` is one extra line for a free 'manual rebuild' button (DESIGN_PRINCIPLES priority 7 明示的: explicit manual trigger is documented behavior). Mon 06:00 UTC = ~Mon 15:00 JST = team gets fresh images for the week.",
+      "alternatives_rejected": [
+        "daily cron — 7x the GHCR storage churn for negligible benefit; weekly matches §14.1 'monthly maintenance ≤ 1-2h'",
+        "trigger on every push to main — over-builds; the tag-push trigger captures release events and weekly cron handles drift"
+      ]
+    },
+    {
+      "story": "S0f6866-2",
+      "topic": "PR safety: build-only on pull_request",
+      "decision": "PRs build the image but do NOT push to GHCR (`push: ${{ env.PUSH == 'true' }}`)",
+      "rationale": "Forks can't push to ghcr.io anyway (no token), but a same-repo PR could overwrite `:default`. PR runs validate the Dockerfile (catches typos, broken curl URLs) without shipping. Once merged + the next cron / tag push runs, GHCR is updated.",
+      "alternatives_rejected": [
+        "push from PR with PR-suffixed tag like :pr-123 — useful for previews but pollutes GHCR with one tag per PR; deferred to later"
+      ]
+    },
+    {
+      "story": "S0f6866-2",
+      "topic": "tag set: :default + :default-YYYYMMDD",
+      "decision": "Both tags pushed every successful CI run, exactly as AC-S0f6866-2-2 requires",
+      "rationale": "Direct AC requirement. `:default` is the floating pointer (what palmux uses by default), `:default-YYYYMMDD` is the pinned snapshot users / docs reference for reproducibility. GHCR keeps date-stamped tags forever (free), so we don't need a retention policy.",
+      "alternatives_rejected": [
+        "git-sha tag — too opaque for users; the date-stamped tag is the documented contract"
+      ]
+    },
+    {
+      "story": "S0f6866-2",
+      "topic": "platform: linux/amd64 only (not multi-arch)",
+      "decision": "Single-arch (amd64) for now; arm64 deferred",
+      "rationale": "DESIGN_PRINCIPLES priority 6 (existing assets > new): we have no arm64 LXD test target. Adding arm64 would more than double CI time without a verified consumer. palmux release-channel binaries DO ship arm64, so this gap is documented in workspace-runtime-design.md (mark as future work). The image override path lets arm64 users pin a custom image if they need to.",
+      "alternatives_rejected": [
+        "buildx multi-arch (amd64 + arm64) — doubles CI cost; deferred until an arm64 host is part of the smoke matrix"
+      ]
+    },
+    {
+      "story": "S0f6866-2",
+      "topic": "size guard in CI",
+      "decision": "Inspect `.Size` after push; fail the run if > 1 GiB",
+      "rationale": "AC-S0f6866-1-1 sets ≤ 1 GB. Without a CI guard, drift creeps in (someone adds a CLI 'just for a moment' and forgets). The fail-fast inside the workflow makes the budget enforceable, not aspirational.",
+      "alternatives_rejected": [
+        "warn but pass — DESIGN_PRINCIPLES priority 7 (explicit > implicit): if the budget is real it must fail"
+      ]
+    },
+    {
+      "story": "S0f6866-2",
+      "topic": "GHA cache strategy",
+      "decision": "buildx GHA cache scoped to 'workspace-default' (cache-from + cache-to mode=max)",
+      "rationale": "First build downloads ~600 MB of apt packages. Without GHA cache every weekly cron + every PR repeats this. mode=max caches all layers including final ones (the default 'min' only caches build-stage layers). The 'workspace-default' scope name lets future variants (:gpu / :minimal) coexist without cross-contamination.",
+      "alternatives_rejected": [
+        "registry cache (cache-to: type=registry) — would push cache layers to GHCR alongside the image, bloating the package; GHA cache is the standard for this pattern"
+      ]
+    },
+    {
+      "story": "S0f6866-3",
+      "topic": "user-facing doc location: README section vs separate file",
+      "decision": "Both — short 'Supported operating systems' section in README + dedicated `docs/workspace-runtime.md` for override / bypass mechanics",
+      "rationale": "README readers want a quick yes/no answer to 'will this run on my Mac?' (one paragraph + table). Override syntax / image variants / how-it-works are 100+ lines and would crowd the README. Linking from README → workspace-runtime.md gives the right progressive disclosure. AC-S0f6866-3-1 (README) and AC-S0f6866-3-2 (docs/workspace-runtime.md) are addressed independently.",
+      "alternatives_rejected": [
+        "all in README — too long; CLAUDE.md already says progressive disclosure is preferred",
+        "all in docs/ — README readers miss the macOS-not-supported message"
+      ]
+    },
+    {
+      "story": "S0f6866-3",
+      "topic": "tone of macOS unsupported message",
+      "decision": "Plain factual statement + link to design doc rationale; no apology or roadmap teaser",
+      "rationale": "VISION.json out_of_scope explicitly excludes macOS. Roadmap promises ('we'll get there eventually') would set expectations we don't intend to meet. Direct factual statement matches DESIGN_PRINCIPLES priority 7 明示的.",
+      "alternatives_rejected": [
+        "soft messaging ('Linux preferred, macOS may work') — invites bug reports we won't fix",
+        "no mention of macOS — silent gap is worse than explicit no"
+      ]
+    },
+    {
+      "story": "S0f6866",
+      "topic": "AC-S0f6866-2-1 / 2-2 verification: how to validate without burning a real GHCR push",
+      "decision": "actionlint + structural review of build-image.yml (no real CI run); tag the verification as 'reviewed by code, first GHCR push validates end-to-end'",
+      "rationale": "Triggering a real cron / tag-push run is a one-shot cost (the image is pushed for real, can't be rolled back without manual GHCR cleanup). The workflow file IS the artifact; actionlint catches expression-syntax bugs, env propagation bugs, missing permissions, etc. The user can opt in to the first push by manually `workflow_dispatch`-ing or pushing a v* tag. priority_rule 0 says 'execute as far as possible' — actionlint + structural review IS the executable verification for a CI yaml file. The acceptance test (s0f6866_image.py) covers the runtime side, and TestGHCRPullability gates on GHCR_VERIFIED=1 so the user can check it off after the first real push.",
+      "alternatives_rejected": [
+        "run a real push — irreversible; not appropriate for an autopilot run without explicit user opt-in",
+        "use `act` to simulate locally — `act` cannot reach a real GHCR with real credentials, so it'd be a partial simulation worth less than actionlint"
+      ]
+    }
+  ]
+}
