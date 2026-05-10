@@ -6039,60 +6039,60 @@
         },
         "S4b9df4-2": {
           "title": "TopBar をファイル分離 + インラインスタイル除去 + props grouping",
-          "status": "pending",
+          "status": "done",
           "user_story": "Claude タブのコードを読む開発者として、 claude-agent-view.tsx を 650 行から 500 行以下に縮め、 TopBar のような独立したサブコンポーネントは別ファイルから import するだけで済む構造にしたい。 なぜなら、 一画面の責務が 「state hub + レイアウト」 と 「TopBar 描画」 の 2 つに分かれていると、 どちらを変更したいのか文脈切り替えコストが大きく、 加えて TopBar が抱える 14 引数の props は変更時の影響範囲が見えにくいからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S4b9df4-2-1",
               "description": "frontend/src/tabs/claude-agent/top-bar.tsx が新規作成され、 元 TopBar コンポーネント (claude-agent-view.tsx l.481-601) と TopBar からのみ呼ばれる helper (pipClass / labelForStatus / mcpPipClass / contextPercent / statusToneAgree) が移動済み。 元の claude-agent-view.tsx 側からは削除されている",
               "test": "[AC-S4b9df4-2-1] in tests/acceptance/s4b9df4_refactor.py (file existence + grep that helpers are removed from claude-agent-view.tsx)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S4b9df4-2-2",
               "description": "claude-agent-view.tsx の行数が 500 行以下になっている (現状 650 行 → TopBar+helpers 約 170 行を抽出すれば 480 行前後)",
               "test": "[AC-S4b9df4-2-2] in tests/acceptance/s4b9df4_refactor.py (wc -l check)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S4b9df4-2-3",
               "description": "claude-agent-view.tsx 内の inline style ({position: 'relative'} 等) が CSS Modules class へ置換されている。 grep 'style=\\{\\{' は popup 用の必須 inline (HistoryPopup の anchor 計算等) を除き 0 件",
               "test": "[AC-S4b9df4-2-3] in tests/acceptance/s4b9df4_refactor.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S4b9df4-2-4",
               "description": "TopBar の props が 14 個から 10 個以下に減っている。 button action 系 (onClear / onInterrupt / onOpenHistory / onOpenSettings / onOpenSearch / onOpenExport / onToggleMcp) は actions: { ... } オブジェクトに集約",
               "test": "[AC-S4b9df4-2-4] in tests/acceptance/s4b9df4_refactor.py (parse top-bar.tsx interface)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S4b9df4-2-5",
               "description": "Story 2 完了時点で Master Regression Suite (Story 1 で拡張済み) **全件緑** + 手動 smoke (TopBar 全ボタン動作) も pass。 fail は pass まで自分で直す。 直しきれず判断が必要な事項のみ needs-user-input.json に追記して Story 3 へ進む (自動 skip しない)",
               "test": "[AC-S4b9df4-2-5] in tests/acceptance/s4b9df4_refactor.py (assert all suite results == pass)",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S4b9df4-2-1": {
               "title": "top-bar.tsx 新規ファイルへ TopBar + helpers を移動",
               "description": "TopBarProps interface, TopBar 関数, pipClass, labelForStatus, mcpPipClass, contextPercent, statusToneAgree を移動。 import を整理し循環依存しないことを確認",
-              "status": "pending"
+              "status": "done"
             },
             "S4b9df4-2-2": {
               "title": "claude-agent-view.tsx 側のインラインスタイルを CSS Modules 化",
               "description": "{position: 'relative'} 等を styles.popupAnchor 等の named class に置換。 claude-agent-view.module.css に対応する rule を追加",
-              "status": "pending"
+              "status": "done"
             },
             "S4b9df4-2-3": {
               "title": "TopBar の props を actions オブジェクトに集約",
               "description": "interface TopBarProps { ..., actions: { onClear, onInterrupt, ... } } へ refactor。 呼び出し側 (claude-agent-view.tsx の <TopBar ... />) も合わせて変更",
-              "status": "pending"
+              "status": "done"
             },
             "S4b9df4-2-4": {
               "title": "Master Regression Suite + 手動 smoke を実行し全件緑化",
               "description": "結果を sprint-logs/S4b9df4/regression-after-story2.json と manual-smoke-S4b9df4-2.md に全件記録。 fail があれば pass まで自分で直す。 判断が必要な事項のみ needs-user-input.json に追記",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
