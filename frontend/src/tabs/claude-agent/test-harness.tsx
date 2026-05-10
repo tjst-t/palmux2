@@ -46,7 +46,7 @@
 //                    which tab id is "active" (which composer is mounted)
 //                    so localStorage isolation can be exercised end-to-end.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { BlockView } from './blocks'
@@ -417,17 +417,9 @@ export function TestHarness() {
   // pencil → editor → submit → arrows path against this harness.
   const [activeVersionByTurnId, setActiveVersionByTurnId] = useState<Record<string, number>>({})
   const [overrideTurns, setOverrideTurns] = useState<Turn[] | null>(null)
-  // Editing state lives here (above the virtualised List) so it
-  // survives row unmount/remount when the user scrolls past the
-  // editing turn. Single string is enough — only one turn is edited
-  // at a time in the user flow.
-  const [editingTurnId, setEditingTurnId] = useState<string | null>(null)
-  const onEditingChange = useCallback((turnId: string, editing: boolean) => {
-    setEditingTurnId((prev) => {
-      if (editing) return turnId
-      return prev === turnId ? null : prev
-    })
-  }, [])
+  // S4b9df4-4: editingTurnId lift-up removed (was a workaround for
+  // react-window unmounting rows; bed812b dropped react-window).
+  // UserTurnEditor manages its own editing state internally now.
   const onRewindLocal = async (turnId: string, newMessage: string): Promise<void> => {
     // Mirror BE behaviour: archive the active version + truncate
     // subsequent turns. Then update overrideTurns so the harness
@@ -739,8 +731,6 @@ export function TestHarness() {
               }
               onRewind={onRewindLocal}
               onRewindApplyLocal={onRewindApplyLocalNoop}
-              editing={editingTurnId === turn.id}
-              onEditingChange={onEditingChange}
             />
           </div>
         </div>

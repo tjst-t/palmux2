@@ -6147,25 +6147,25 @@
               "id": "AC-S4b9df4-4-1",
               "description": "Step1 検証: ConversationList が render 中に row component を unmount しないことを Playwright で確認 (data-turn-id が一旦消えて再出現しないこと、 編集中の textarea が scroll で消えないこと)。 検証結果を sprint-logs/S4b9df4/editing-state-verification.md に記録",
               "test": "[AC-S4b9df4-4-1] in tests/e2e/s4b9df4_rewind_flow.py (extended)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S4b9df4-4-2",
               "description": "claude-agent-view.tsx の editingTurnId / setEditingTurnId / onEditingChange / 関連 useState + useCallback (l.63-69) が削除されている。 TurnView / UserTurnEditor の関連 props も削除",
               "test": "[AC-S4b9df4-4-2] in tests/acceptance/s4b9df4_refactor.py (grep)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S4b9df4-4-3",
               "description": "user-turn-editor.tsx の内部に editing local state が戻っている (元のコミット履歴を git log で確認可能な状態で復元)",
               "test": "[AC-S4b9df4-4-3] in tests/acceptance/s4b9df4_refactor.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S4b9df4-4-4",
               "description": "Sprint done 直前に Master Regression Suite (Story 1 で拡張済み) を実行し regression-final.json に **全件緑** で記録 + 編集中スクロール → 編集状態保持の手動 smoke も pass。 fail は pass まで自分で直す",
               "test": "[AC-S4b9df4-4-4] in tests/acceptance/s4b9df4_refactor.py (assert regression-final.json all results == pass)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S4b9df4-4-5",
@@ -6178,27 +6178,27 @@
             "S4b9df4-4-1": {
               "title": "ConversationList が row を unmount しないことを検証",
               "description": "Playwright で長い conversation を作り、 編集中の turn を画面外まで scroll した後 戻ってきても textarea の中身 / フォーカスが保たれること、 data-turn-id 属性が DOM から消えないことを確認。 結果を editing-state-verification.md に記録",
-              "status": "pending"
+              "status": "done"
             },
             "S4b9df4-4-2": {
               "title": "user-turn-editor.tsx に editing local state を戻す",
               "description": "S43cfb1-2 以前のコミット履歴 (git log -p user-turn-editor.tsx) を参考に useState<boolean> を内部に復元。 親から受ける editing prop は削除",
-              "status": "pending"
+              "status": "done"
             },
             "S4b9df4-4-3": {
               "title": "claude-agent-view.tsx + turn-view.tsx 側の lift-up state と props を削除",
               "description": "editingTurnId / setEditingTurnId / onEditingChange / 関連 useCallback を削除。 TurnViewProps / UserTurnEditor props も合わせて整理",
-              "status": "pending"
+              "status": "done"
             },
             "S4b9df4-4-4": {
               "title": "Master Regression Suite + 手動 smoke を実行し全件緑化 (sprint final)",
               "description": "結果を sprint-logs/S4b9df4/regression-final.json と manual-smoke-S4b9df4-4.md に全件記録。 fail があれば pass まで自分で直す。 修正コミットは別 hotfix-style commit として記録",
-              "status": "pending"
+              "status": "done"
             },
             "S4b9df4-4-5": {
               "title": "needs-user-input.json を batch でユーザに提示し判断を得る (sprint verify)",
               "description": "sprint 全体を通して蓄積した needs-user-input.json を読み込み、 全項目を 1 回の AskUserQuestion or markdown 提示で **まとめて** ユーザに提示。 各項目の選択肢 + 推奨 + 影響範囲を明示。 ユーザの判断結果を sprint-logs/S4b9df4/decisions.json に記録。 blocking 項目が全て解決済みなら sprint done を許可。 needs-user-input.json が空ならこの task は skip 可 (空であることを記録するだけ)",
-              "status": "pending"
+              "status": "done"
             }
           }
         }

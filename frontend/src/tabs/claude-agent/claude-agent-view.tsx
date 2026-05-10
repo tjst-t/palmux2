@@ -57,17 +57,10 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [mcpOpen, setMcpOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
-  // S019 / hotfix: lift the user-turn-edit "editing" flag above the
-  // virtualised conversation list so it survives the row unmounting
-  // when it scrolls out of view. Single string is enough — the user
-  // edits one turn at a time.
-  const [editingTurnId, setEditingTurnId] = useState<string | null>(null)
-  const onEditingChange = useCallback((turnId: string, editing: boolean) => {
-    setEditingTurnId((prev) => {
-      if (editing) return turnId
-      return prev === turnId ? null : prev
-    })
-  }, [])
+  // S4b9df4-4: editingTurnId lift-up removed. The S019 lift-up was
+  // a workaround for react-window unmounting rows; commit bed812b
+  // dropped react-window so rows never unmount. UserTurnEditor now
+  // owns its own editing state.
 
   // Top-level turns + parent→children map. Sub-agent (Task) turns
   // aren't virtualised separately; they nest inline via TaskTreeBlock.
@@ -184,8 +177,6 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
           onSetVersion={(idx) => send.rewindSetVersion(turn.id, idx)}
           onRewind={send.rewind}
           onRewindApplyLocal={send.rewindApplyLocal}
-          editingTurnId={editingTurnId}
-          onEditingChange={onEditingChange}
           onRespondPermission={respondPermission}
           planHandlersFor={planHandlersFor}
           askHandlersFor={askHandlersFor}
@@ -196,8 +187,6 @@ export function ClaudeAgentView({ repoId, branchId, tabId }: TabViewProps) {
     [
       state.activeVersionByTurnId,
       send,
-      editingTurnId,
-      onEditingChange,
       respondPermission,
       planHandlersFor,
       askHandlersFor,
