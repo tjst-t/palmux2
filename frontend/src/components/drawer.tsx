@@ -87,7 +87,17 @@ function readLastTabFor(repoId: string, branchId: string): string | null {
   }
 }
 
-function formatCompactVersion(raw: string): string {
+// Compact a `git describe` string for the Drawer chip.
+//   v0.7.0                  → v0.7.0
+//   v0.7.0-3-gabc1234       → v0.7.0+3
+//   v0.7.0-3-gabc1234-dirty → v0.7.0+3*
+//   v0.7.0-dirty            → v0.7.0*
+//   dev / dev-abc1234       → unchanged
+//   phase-10 (legacy tag)   → phase-10  (still rendered so the user
+//                             can SEE that the binary's version source
+//                             isn't a proper release — and rebuild)
+export function formatCompactVersion(raw: string): string {
+  if (!raw) return ''
   const dirty = raw.endsWith('-dirty')
   const core = dirty ? raw.slice(0, -'-dirty'.length) : raw
   const m = /^(.*)-(\d+)-g[0-9a-f]+$/.exec(core)

@@ -56,7 +56,15 @@ LDFLAGS := -X main.Version=$(VERSION)
 # Production: embed-built frontend, single binary
 build: build-frontend
 	@mkdir -p $(BIN_DIR)
+	@echo "==> Building palmux2 with version: $(VERSION)"
+	@case "$(VERSION)" in \
+	  v[0-9]*|v[0-9]*-dirty|dev|dev-*|"") ;; \
+	  *) echo "WARN: VERSION='$(VERSION)' does not look like a release tag (vX.Y.Z[-N-gHASH][-dirty])."; \
+	     echo "      The Drawer will display this string as-is. If you want a clean release version,"; \
+	     echo "      build from a tagged commit (current tags: $$(git tag -l 'v*' | tail -3 | tr '\n' ' ')) or pass VERSION=vX.Y.Z explicitly." ;; \
+	esac
 	go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/palmux $(GO_PKG)
+	@$(BIN_DIR)/palmux --version
 
 build-frontend:
 	cd frontend && npm run build

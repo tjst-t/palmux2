@@ -102,7 +102,16 @@ func main() {
 	// the same tmux server without the two `sync_tmux` loops fighting
 	// over each other's sessions.
 	tmuxPrefix := pflag.String("tmux-prefix", domain.DefaultPalmuxSessionPrefix, "tmux session prefix for sessions managed by this palmux process")
+	versionFlag := pflag.BoolP("version", "v", false, "print version and exit")
 	pflag.Parse()
+
+	// Print version and exit early — lets users verify which build is
+	// installed without starting the server (useful when "Drawer shows
+	// the wrong version" is in question).
+	if *versionFlag {
+		fmt.Println(resolveVersion())
+		return
+	}
 
 	// Apply the prefix BEFORE any other code reads from
 	// domain.PalmuxSessionPrefix. After this call, every session name
@@ -120,6 +129,11 @@ func main() {
 }
 
 func run(addr, configDir, token, basePath string, maxConns int, portmanURL string) error {
+	// Log the version up front so when a user sees "phase-X" or "dev"
+	// in the Drawer they can confirm which build is actually running
+	// without having to call /api/health.
+	slog.Info("palmux2 starting", "version", resolveVersion(), "addr", addr)
+
 	if err := requireBins("tmux", "ghq", "gwq", "git"); err != nil {
 		return err
 	}

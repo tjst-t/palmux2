@@ -153,6 +153,20 @@ export function useScrollAutoFollow(args: UseScrollAutoFollowArgs): UseScrollAut
     lastUserInputAtRef.current = performance.now()
   }, [])
 
+  // Hotfix (idle yank): track whether this hook instance has ever
+  // performed an initial scroll-to-bottom, and the previous turns
+  // length. We re-fire scrollToBottom when:
+  //   - The hook hasn't fired yet (mount / tab-switch remount) — the
+  //     "open the tab and land at latest" behaviour
+  //   - The agent is actively producing output (streaming chunk)
+  //   - turns.length grew since last fire — new content arrived
+  //     (e.g. init event landing 80 turns at once after empty mount)
+  // We DON'T re-fire on idle ref churn (same length, status='idle')
+  // — those are unrelated WS events / state updates that shouldn't
+  // clobber the user's reading position.
+  const hasInitialFiredRef = useRef<boolean>(false)
+  const prevTurnsLenRef = useRef<number>(0)
+
   // S017: auto-scroll routes through the ConversationList imperative
   // API. We can't just bump scrollTop on the wrapper because the
   // wrapper isn't the scroll container any more — react-window owns
@@ -163,6 +177,17 @@ export function useScrollAutoFollow(args: UseScrollAutoFollowArgs): UseScrollAut
     // wheeled / touched / pressed a key in the last 250 ms, they're
     // trying to scroll — don't fight them by yanking back to bottom.
     if (performance.now() - lastUserInputAtRef.current < 250) return
+    const isStreaming =
+      status === 'thinking' ||
+      status === 'tool_running' ||
+      status === 'starting'
+    const currLen = turns.length
+    const grewSinceLast = currLen > prevTurnsLenRef.current
+    prevTurnsLenRef.current = currLen
+    // Idle yank guard: at idle, only fire if this is the initial run
+    // OR new content actually arrived. Skip pure ref churn.
+    if (hasInitialFiredRef.current && !isStreaming && !grewSinceLast) return
+    hasInitialFiredRef.current = true
     const handle = listHandleRef.current
     if (handle) handle.scrollToBottom('instant')
     // We watch the input refs implicitly via the closure — but the

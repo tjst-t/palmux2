@@ -565,6 +565,23 @@ export function TestHarness() {
     }, streamRate)
     return () => window.clearInterval(id)
   }, [streamRate])
+
+  // Hotfix regression knob: `?idlePulseMs=N` forces a new turns array
+  // reference every N ms WITHOUT changing content — simulates an
+  // idle-time WS event (status="idle" but a generic event arrived
+  // and the reducer produced a new state object). Reproduces the
+  // reported "scroll yanks back to bottom while no LLM output is
+  // happening" bug: any dep change re-fires the auto-follow effect,
+  // which calls scrollToBottom even though the agent is idle.
+  const idlePulseRate = Math.max(0, parseInt(params.get('idlePulseMs') ?? '0', 10) || 0)
+  const [idlePulseTick, setIdlePulseTick] = useState(0)
+  useEffect(() => {
+    if (idlePulseRate <= 0) return
+    const id = window.setInterval(() => {
+      setIdlePulseTick((n) => n + 1)
+    }, idlePulseRate)
+    return () => window.clearInterval(id)
+  }, [idlePulseRate])
   const streamedTurns = useMemo(() => {
     if (streamRate <= 0) return null
     const extras: Turn[] = []
@@ -577,7 +594,17 @@ export function TestHarness() {
     }
     return [...turns, ...extras]
   }, [streamRate, streamCount, turns])
-  const rawDisplayTurns = streamedTurns ?? overrideTurns ?? turns
+  // idlePulseMs: spread the same turns into a new array every tick so
+  // the reference changes (reproducing real-world WS events that fire
+  // the agent-state reducer at idle).
+  const pulsedTurns = useMemo(() => {
+    if (idlePulseRate <= 0) return null
+    const base = streamedTurns ?? overrideTurns ?? turns
+    // Returning a new array reference each tick is the whole point.
+    return [...base]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idlePulseRate, idlePulseTick, streamedTurns, overrideTurns, turns])
+  const rawDisplayTurns = pulsedTurns ?? streamedTurns ?? overrideTurns ?? turns
   // S43cfb1-1-8: in blocks=all mode, hide sub-agent (parentToolUseId)
   // child turns from the top-level list — they're rendered nested
   // under the Task block via renderTaskChildren. Without this filter
