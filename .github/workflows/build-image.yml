@@ -1,0 +1,122 @@
+name: build-image
+
+# Build and publish the palmux-workspace container image to GHCR.
+#
+# Triggers (per Sprint S0f6866 acceptance criteria):
+#   - Weekly cron (Mondays 06:00 UTC) — picks up upstream Ubuntu security
+#     patches and any CLI version bumps automatically. This is the
+#     primary maintenance lever (workspace-runtime-design.md §14.1).
+#   - Tag push on the main repo (`v*`) — keeps the image floating-tag
+#     aligned with palmux releases.
+#   - Pull requests touching `images/**` or this workflow itself —
+#     validates Dockerfile changes via a build-only run (no push, so
+#     untrusted forks cannot inject images).
+#   - workflow_dispatch — manual rebuild button for ad-hoc fixes.
+#
+# Pushed tags (per AC-S0f6866-2-2):
+#   - `:default`              — floating "latest stable" pointer
+#   - `:default-YYYYMMDD`     — date-stamped reproducibility tag
+#
+# Distribution: ghcr.io/tjst-t/palmux-workspace
+#   The package is configured as PUBLIC, so `lxc launch docker:...` works
+#   without authentication (per AC-S0f6866-2-3, workspace-runtime-design
+#   §14.10.1). Public visibility is set once via the Packages UI; the
+#   workflow itself only needs `packages: write`.
+
+on:
+  schedule:
+    # Every Monday at 06:00 UTC. Cron is in the workflow's UTC.
+    - cron: '0 6 * * 1'
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+    paths:
+      - 'images/**'
+      - '.github/workflows/build-image.yml'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Why are you triggering this manually?'
+        required: false
+        default: 'manual rebuild'
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: tjst-t/palmux-workspace
+  VARIANT: default
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    # Don't push from PRs (forked repos can't push to GHCR anyway, and
+    # we don't want PRs from the main repo to overwrite `:default`).
+    # PR runs build-only to validate the Dockerfile.
+    env:
+      PUSH: ${{ github.event_name != 'pull_request' && 'true' || 'false' }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute date-stamped tag
+        id: datestamp
+        run: |
+          DATE_TAG="${VARIANT}-$(date -u +%Y%m%d)"
+          echo "date_tag=${DATE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Will tag as: ${VARIANT} + ${DATE_TAG}"
+
+      - name: Log in to GHCR
+        if: env.PUSH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: images/workspace-default
+          file: images/workspace-default/Dockerfile
+          push: ${{ env.PUSH == 'true' }}
+          # We only ship linux/amd64 today. arm64 is deferred until a real
+          # arm64 LXD host shows up in the smoke matrix; attempting it now
+          # would more than double the CI time without a verified target.
+          platforms: linux/amd64
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VARIANT }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.datestamp.outputs.date_tag }}
+          # GHA cache so back-to-back builds (PR iterations, weekly cron)
+          # don't re-pull every apt package from scratch.
+          cache-from: type=gha,scope=workspace-default
+          cache-to: type=gha,mode=max,scope=workspace-default
+          provenance: false  # keeps the manifest LXD-launchable cleanly
+
+      - name: Inspect image size (sanity ≤ 1 GB)
+        if: env.PUSH == 'true'
+        run: |
+          set -eux
+          # Pull what we just pushed and check the layer-sum.
+          docker pull "${REGISTRY}/${IMAGE_NAME}:${VARIANT}"
+          SIZE_BYTES=$(docker image inspect "${REGISTRY}/${IMAGE_NAME}:${VARIANT}" \
+            --format '{{.Size}}')
+          SIZE_MB=$(( SIZE_BYTES / 1024 / 1024 ))
+          echo "Image size: ${SIZE_MB} MiB"
+          if [ "${SIZE_MB}" -gt 1024 ]; then
+            echo "::error::image exceeds 1 GiB target (${SIZE_MB} MiB)"
+            exit 1
+          fi
+
+      - name: PR build summary (no push)
+        if: env.PUSH != 'true'
+        run: |
+          echo "PR build succeeded; image was NOT pushed (PR safety)."
+          echo "On merge to main + next cron / tag-push, GHCR will refresh."
