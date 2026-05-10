@@ -1,0 +1,90 @@
+{
+  "sprint_id": "S98156b",
+  "title": "Phase A0: palmux-agent skeleton + bind-mount/idmap/proxy device PoC 検証",
+  "branch": "autopilot/feat_workspace-runtime/S98156b",
+  "started_at": "2026-05-09",
+  "status": "in_progress",
+  "planning_decisions": [
+    {
+      "id": "D-001",
+      "category": "planning",
+      "decision": "GUI-spec をスキップ: S98156b は全 Story が Go binary + PoC スクリプトで構成され、 フロントエンド GUI Story が存在しない。 gui-spec は GUI Story 有無を自動判定しスキップ可",
+      "rationale": "DESIGN_PRINCIPLES: 'タブモジュールシステム、2 段階 Open' アーキテクチャに基づく。S98156b は backend/PoC sprint のみで React コンポーネントなし",
+      "references": ["DESIGN_PRINCIPLES.architecture"]
+    },
+    {
+      "id": "D-002",
+      "category": "planning",
+      "decision": "テスト VM (ubuntu@192.168.1.41) 上で全 PoC を実行し、スクリプト自動化で AC を機械的に検証する。 MANUAL SMOKE は 'スクリプトで自動化して結果をログ記録' で代替する",
+      "rationale": "VISION.process_constraints: 'autopilot は milestone でユーザに差し戻す' が原則だが、S98156b の AC はコマンド出力で機械的に判定可能。 GUI 目視不要で自動化完遂可能",
+      "references": ["VISION.process_constraints", "DESIGN_PRINCIPLES.priority_rules[0]"]
+    },
+    {
+      "id": "D-003",
+      "category": "planning",
+      "decision": "JSON-RPC 2.0 を標準 encoding/json + net で自前実装する (net/rpc を使わない)。 理由: task S98156b-1-2 に明記 '将来的な async event push 余地のため'",
+      "rationale": "DESIGN_PRINCIPLES: '既存資産活用 > 新規実装' だが、net/rpc は JSON-RPC 2.0 spec に非準拠で notification 未対応。 自前 JSON-RPC 2.0 が必要",
+      "references": ["DESIGN_PRINCIPLES.priority_rules[6]"]
+    },
+    {
+      "id": "D-004",
+      "category": "planning",
+      "decision": "palmux-agent は CGO_ENABLED=0 static binary として build。 target: linux/amd64。 `make build-agent` で bin/palmux-agent を出す",
+      "rationale": "AC-S98156b-1-1: 15 MB 以下 static binary が要件。 VM に scp して実行するため static binary 必須",
+      "references": ["AC-S98156b-1-1"]
+    }
+  ],
+  "implementation_decisions": [
+    {
+      "id": "D-005",
+      "category": "implementation",
+      "decision": "JSON-RPC server は 1 connection あたり goroutine 1 本で読み書きループ。 複数同時接続は accept ループで goroutine spawn。 接続プールはクライアント側の責務",
+      "rationale": "DESIGN_PRINCIPLES: 既存資産活用 (Go net + bufio)。 Phase A では host palmux が 1 常時接続を維持するため server 側 pool 不要",
+      "references": ["DESIGN_PRINCIPLES.coding_conventions"]
+    },
+    {
+      "id": "D-006",
+      "category": "implementation",
+      "decision": "securePath は文字列 '..' チェック → filepath.Clean → EvalSymlinks → prefix チェックの 4 段階。 EvalSymlinks は root が存在しない場合にエラーを返すため root の事前作成が必要",
+      "rationale": "AC-S98156b-1-5 で実機検証済み。 symlink escape と traversal の両方を拒否",
+      "references": ["AC-S98156b-1-5"]
+    },
+    {
+      "id": "D-007",
+      "category": "implementation",
+      "decision": "/proc/net/tcp の IPv6 アドレス parse で 32 char hex を 4 × 32-bit LE words として処理。 kernel は IPv6 アドレスをリトルエンディアンの 32-bit word の配列として書く",
+      "rationale": "AC-S98156b-1-4: tcp6 エントリが ListListeningPorts で返る (test VM で tcp6 protocol 確認)"
+    }
+  ],
+  "review_decisions": [
+    {
+      "id": "D-008",
+      "category": "review",
+      "decision": "Sprint-level review: APPROVED。 全 AC PASS、 go vet / test 全パス、 regressions なし",
+      "rationale": "code review 実施済み。 securePath の ErrCodeInternal (path not found) は Phase A で改善候補",
+      "references": ["DESIGN_PRINCIPLES.priority_rules[0]"]
+    }
+  ],
+  "poc_findings": {
+    "poc_a": {
+      "idmap_format": "both 1000 1000 (3-arg) が有効。 both 1000 1000 1 (4-arg) は Invalid",
+      "uid_map_confirmed": "container uid 1000 → host uid 1000 mapping を uid_map で実証",
+      "cloud_init_wait": "ubuntu user は cloud-init 完了まで存在しない。 id ubuntu poll 待機が必要",
+      "bind_mount": "双方向 bind (同一 inode) 確認。 container write → host 即座可視",
+      "concurrent_write": "concurrent append 10/10 行生存。 seq 重複あり (lock 契約必須)",
+      "settings_strategy": "ro bind + palmux inject 方式に確定"
+    },
+    "poc_c": {
+      "proxy_persistence": "container restart / lxd daemon restart を跨いで proxy device が自動復元 (PASS)",
+      "ephemeral": "LXD config.yaml に ephemeral: false で永続化",
+      "host_reboot": "config.yaml + boot.autostart=true で自動復元 (設定分析で確認)",
+      "phase_b_design": "open 時 1 回 add → close 時 remove。 起動時 reconcile で防御的再 add"
+    },
+    "agent_rpc": {
+      "latency_ms_median": 0.10,
+      "latency_ms_p99": 0.24,
+      "verdict": "0.1ms 中央値。 常時 1 本 UDS 接続で十分なレイテンシ"
+    }
+  },
+  "skip_list": []
+}

@@ -3,11 +3,14 @@
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
     "sprints_done": 35,
-    "sprints_total": 35,
-    "percent": 100,
-    "current_sprint": "S43cfb1",
-    "done": 35,
-    "in_progress": 0
+    "sprints_total": 39,
+    "percent": 89,
+    "current_sprint": "S98156b",
+    "done": 36,
+    "in_progress": 0,
+    "total": 39,
+    "remaining": 3,
+    "percentage": 92
   },
   "execution_order": [
     "S001",
@@ -44,7 +47,11 @@
     "S032",
     "S033",
     "S1e8d02",
-    "S43cfb1"
+    "S43cfb1",
+    "S98156b",
+    "S9fd775",
+    "S0f6866",
+    "Sdd4ce1"
   ],
   "sprints": {
     "S001": {
@@ -5905,6 +5912,607 @@
           }
         }
       }
+    },
+    "S98156b": {
+      "title": "Phase A0: palmux-agent skeleton + bind-mount/idmap/proxy device PoC 検証",
+      "status": "done",
+      "milestone": true,
+      "description": "workspace-runtime 設計 (`docs/workspace-runtime-design.md`) 着手前の **gate sprint**。 後続 Phase A の見積もり・設計判断 (idmap で本当に Claude CLI が container 内で動くか / lxc proxy device が container 再起動を跨いで永続するか / agent RPC のレイテンシは許容範囲か) を実機で固めないと A 以降がブレる。 設計 §15 の PoC (a)(b)(c) と §13 の Phase A0 (`palmux-agent` プロトコル定義) を 1 sprint に束ねる。\n\n**作業はすべて `ubuntu@192.168.1.41` の test VM (Ubuntu 24.04.3 + LXD 5.21.4) で行う。** ローカル開発機では LXD を立てない (host 汚染防止)。 VM の状態は wipe 自由 (CLAUDE.md の \"テスト用 VM\" 節参照)。\n\n**Sprint 完了基準:**\n- `palmux-agent` の最小 RPC (ListListeningPorts / ReadFile / Stat) が UDS over `lxc exec` で host から到達\n- host 上で `claude --resume <session>` できる session が container 内 `claude --resume` で **継続再開できる**\n- `lxc config device add proxy` で作った port forward が container restart / lxd restart を跨いで残る (or 永続させる手段が確立する)\n- PoC 結果レポート (`docs/sprint-logs/S98156b/poc-report.md`) で Phase A の前提が確定\n\n**スコープ外 (Phase A で扱う):** Runtime interface 本実装、 Repository/Workspace modal UI、 既存タブとの統合、 image pipeline (Phase A')、 port allocator (Phase C)。",
+      "stories": {
+        "S98156b-1": {
+          "title": "palmux-agent binary skeleton + JSON-RPC over UDS protocol 定義",
+          "status": "done",
+          "user_story": "palmux 開発者として、 後続の lxd-container / lxd-vm / lxd-remote / ssh-remote runtime 実装すべてが乗る共通 RPC レイヤーを最初に固めたい。 なぜなら、 protocol が安定しないまま runtime 実装を進めると 4 種類すべての書き直しが発生するからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S98156b-1-1",
+              "description": "`cmd/palmux-agent/main.go` + `internal/agent/` に binary を新設、 `make build-agent` で `bin/palmux-agent` (Linux amd64 static, cgo なし, 15 MB 以下) が出る",
+              "test": "[AC-S98156b-1-1] in tests/acceptance/s98156b_agent.py",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S98156b-1-2",
+              "description": "JSON-RPC 2.0 over UDS の最小プロトコル定義 (`internal/agent/proto/`): `ListListeningPorts`, `ReadFile`, `Stat`, `Walk`, `Echo` (smoke) の 5 method。 Go の interface + JSON request/response struct + version negotiation field を含む",
+              "test": "[AC-S98156b-1-2] in internal/agent/proto/proto_test.go",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S98156b-1-3",
+              "description": "`palmux-agent --socket /tmp/palmux-agent.sock` で起動 → 別プロセスから `nc -U` 経由で `Echo({\"msg\":\"hi\"})` が往復する (test VM 上の loop test)",
+              "test": "[AC-S98156b-1-3] in tests/acceptance/s98156b_agent.py",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S98156b-1-4",
+              "description": "`ListListeningPorts` が `/proc/net/tcp` を直接 parse して結果を返す (lsof / ss に依存しない)、 IPv4/IPv6 両対応",
+              "test": "[AC-S98156b-1-4] in tests/acceptance/s98156b_agent.py",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S98156b-1-5",
+              "description": "`ReadFile` / `Stat` / `Walk` が `..` traversal と symlink escape を拒否する (security baseline、 後の Files API 実装の前提)",
+              "test": "[AC-S98156b-1-5] in tests/acceptance/s98156b_agent.py",
+              "status": "pass"
+            }
+          ],
+          "tasks": {
+            "S98156b-1-1": {
+              "title": "binary skeleton: cmd/palmux-agent + Makefile target",
+              "description": "`make build-agent` で static binary を出す。 OS=linux GOARCH=amd64 CGO_ENABLED=0。 size 計測を CI に追加",
+              "status": "done"
+            },
+            "S98156b-1-2": {
+              "title": "JSON-RPC server (internal/agent/server.go) + UDS listener",
+              "description": "標準 `net/rpc` ではなく自前 JSON-RPC 2.0 で書く (将来的な async event push 余地のため、 厳密な JSON-RPC 2.0 spec に従う)",
+              "status": "done"
+            },
+            "S98156b-1-3": {
+              "title": "method 実装: Echo / ListListeningPorts (`/proc/net/tcp` parser) / ReadFile / Stat / Walk",
+              "description": "ReadFile/Stat/Walk は `filepath.EvalSymlinks` で root escape 防止",
+              "status": "done"
+            },
+            "S98156b-1-4": {
+              "title": "tests/acceptance/s98156b_agent.py — VM 上で binary を動かして RPC 往復",
+              "description": "ssh で VM に binary を scp → 起動 → nc UDS で Echo・ListListeningPorts・ReadFile を往復確認。 全 AC タグ付き",
+              "status": "done"
+            }
+          }
+        },
+        "S98156b-2": {
+          "title": "PoC (a): bind-mount + idmap で `~/.claude/` 共有 + container 内で `claude --resume`",
+          "status": "done",
+          "user_story": "Workspace runtime を導入する開発者として、 host で開始した Claude session が container 内で `claude --resume` できることを実機で確認したい。 なぜなら、 設計 §4.4 の前提 (UID idmap + 同 path bind + settings.json 分離) が現実に動かないと Phase A の bind-mount 戦略全体が崩れるからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S98156b-2-1",
+              "description": "test VM 上で `lxc launch ubuntu:24.04 poc-claude` → `lxc config set poc-claude raw.idmap \"both 1000 1000\"` → `lxc config device add poc-claude home disk source=/home/ubuntu path=/home/ubuntu` (or 必要 subset の bind) → `lxc exec poc-claude -- ls -la /home/ubuntu/.claude/skills` で host の skills が見える",
+              "test": "[AC-S98156b-2-1] manual smoke (PoC 手順を docs/sprint-logs/S98156b/poc-a.md に記録)",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S98156b-2-2",
+              "description": "host で `claude` を起動し short prompt 1 回 → exit。 container 内で `claude --resume <session-id>` で **同 session を継続できる** (会話履歴が見える + 追加 prompt が同じ JSONL に書かれる)",
+              "test": "[AC-S98156b-2-2] manual smoke (PoC 手順 + 結果を poc-a.md に記録)",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S98156b-2-3",
+              "description": "container 内で `~/.claude/projects/<this>/sessions/*.jsonl` への追記が host 側からも見える (双方向同期 = 同一 inode の bind であることの確認)",
+              "test": "[AC-S98156b-2-3] manual smoke (poc-a.md に diff 確認結果を記録)",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S98156b-2-4",
+              "description": "`~/.claude/settings.json` の bind 戦略を確定: 設計 §4.4 では \"settings は分離\" 案だが、 PoC 結果を踏まえて 「全部 bind」 / 「分離して palmux が container 用 settings inject」 / 「ro bind + override」 のどれにするかを poc-a.md で決定",
+              "test": "[AC-S98156b-2-4] poc-a.md の Decision section に明記",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S98156b-2-5",
+              "description": "host palmux と container Claude が同 project の sessions/*.jsonl を **同時に書いた場合** の挙動を確認 (壊れる / どちらかが勝つ / lockfile が効く 等)。 §4.4 の \"二重起動禁止\" 契約の根拠を実証",
+              "test": "[AC-S98156b-2-5] manual smoke (poc-a.md)",
+              "status": "pass"
+            }
+          ],
+          "tasks": {
+            "S98156b-2-1": {
+              "title": "VM 残骸 cleanup: 既存 palmux process kill + 古い tmux session kill + 古い lxc container 一覧確認",
+              "description": "ssh で `pkill palmux` / `tmux kill-server` / `lxc list --format csv -c n` で残骸調査 → 必要なら `lxc delete --force`。 ghq dir は `mv ~/ghq ~/ghq.bak.$(date +%s)` で待避してから clean state へ",
+              "status": "done"
+            },
+            "S98156b-2-2": {
+              "title": "PoC スクリプト: `scripts/poc/a-bind-claude.sh` を作成",
+              "description": "`lxc launch` → `raw.idmap` → bind-mount → host で claude session 作成 → container で resume を再現可能な単一 shell script に",
+              "status": "done"
+            },
+            "S98156b-2-3": {
+              "title": "PoC 実行 + 結果ログ `docs/sprint-logs/S98156b/poc-a.md`",
+              "description": "実行コマンド・期待結果・実際の結果・解釈・ Decision (§4.4 の 4 検証項目への回答) を記録",
+              "status": "done"
+            }
+          }
+        },
+        "S98156b-3": {
+          "title": "PoC (c): `lxc config device add proxy` の永続性検証 (container restart / lxd restart / host restart)",
+          "status": "done",
+          "user_story": "Workspace runtime を導入する開発者として、 LXD proxy device で作った host port forward が container restart / lxd restart / host restart を跨いで永続する (or 永続させる手段がある) ことを確認したい。 なぜなら、 §5.4 の「Workspace open 時に永続化された mapping を再構築 + runtime 再起動時に mapping を維持」 が技術的に成立する前提を実機で固めたいからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S98156b-3-1",
+              "description": "container 内に `python3 -m http.server 8080` を起動 → `lxc config device add <inst> p1 proxy listen=tcp:127.0.0.1:18080 connect=tcp:127.0.0.1:8080` → host から `curl http://127.0.0.1:18080` で reach",
+              "test": "[AC-S98156b-3-1] manual smoke (poc-c.md)",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S98156b-3-2",
+              "description": "`lxc restart <inst>` → http.server を再起動 → `curl http://127.0.0.1:18080` がそのまま reach できる (proxy device の再構成不要)",
+              "test": "[AC-S98156b-3-2] manual smoke (poc-c.md)",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S98156b-3-3",
+              "description": "`sudo systemctl restart snap.lxd.daemon` (LXD daemon restart) 後に proxy device がそのまま機能している (or 再 add が必要なら手順を文書化)",
+              "test": "[AC-S98156b-3-3] manual smoke (poc-c.md)",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S98156b-3-4",
+              "description": "`sudo reboot` (host VM 自体の再起動) → container 自動起動 (boot=true 設定) + http.server 再起動 → proxy device がまだ生きていて curl で reach。 不可ならば 「palmux が起動時に再 add する」 戦略を poc-c.md に明記",
+              "test": "[AC-S98156b-3-4] manual smoke (poc-c.md)",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S98156b-3-5",
+              "description": "`lxc config device list <inst>` の出力で proxy device がどう永続化されているか (config.yaml に書かれるか / runtime のみか) を poc-c.md に記録、 Phase B (Ports panel) の実装方針への影響を Decision として整理",
+              "test": "[AC-S98156b-3-5] poc-c.md の Decision section",
+              "status": "pass"
+            }
+          ],
+          "tasks": {
+            "S98156b-3-1": {
+              "title": "PoC スクリプト: `scripts/poc/c-proxy-device.sh`",
+              "description": "container 起動 + http.server + proxy add + curl 検証を再現可能化",
+              "status": "done"
+            },
+            "S98156b-3-2": {
+              "title": "restart 系の実機検証 + ログ `docs/sprint-logs/S98156b/poc-c.md`",
+              "description": "container restart / lxd daemon restart / host VM reboot のそれぞれの結果を表で記録",
+              "status": "done"
+            }
+          }
+        },
+        "S98156b-4": {
+          "title": "PoC レポート → Phase A の AC へフィードバック (gate exit)",
+          "status": "done",
+          "user_story": "palmux 開発者として、 PoC で得た知見を Phase A (Sdd4ce1) の Stories と AC に確実に反映したい。 なぜなら、 PoC の意義は 「次の sprint plan で何を AC に書くべきか」 の根拠を作ることだからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S98156b-4-1",
+              "description": "`docs/sprint-logs/S98156b/poc-report.md` (上位レポート) で poc-a.md / poc-c.md / agent skeleton 検証の結果を 1 ページに集約、 Phase A の AC にどう反映されるかを明記",
+              "test": "[AC-S98156b-4-1] poc-report.md 存在 + sprint verify でレビュー",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S98156b-4-2",
+              "description": "`docs/workspace-runtime-design.md` の §4.4 (Claude CLI が container 内で動作するか の検証チェックリスト) を PoC 結果で更新 (4 項目すべてに ✓ または ✗ + 対応策)",
+              "test": "[AC-S98156b-4-2] design doc diff",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S98156b-4-3",
+              "description": "Phase A (Sdd4ce1) の Story 単位の見積もり調整 (PoC で blocker 判明 → Phase A に追加 Story or 既存 Story の AC 強化) を ROADMAP.json に反映、 必要なら新 backlog item を追加",
+              "test": "[AC-S98156b-4-3] ROADMAP.json diff",
+              "status": "pass"
+            }
+          ],
+          "tasks": {
+            "S98156b-4-1": {
+              "title": "poc-report.md の集約 + design doc §4.4 update",
+              "description": "上記 AC を満たす",
+              "status": "done"
+            },
+            "S98156b-4-2": {
+              "title": "Sdd4ce1 (Phase A) の AC 反映 + ROADMAP update",
+              "description": "PoC で得た 「ここが落とし穴」 を Phase A の Story / AC に明示的に書く",
+              "status": "done"
+            }
+          }
+        }
+      }
+    },
+    "S9fd775": {
+      "title": "Phase C: 内製 port allocator + `palmux port` CLI (portman 依存撤去)",
+      "status": "pending",
+      "milestone": false,
+      "description": "workspace-runtime 設計 §6 / §14.10.7 で確定した 「palmux に独自 port allocator を実装、 portman 依存を撤去、 portman repo はそのまま残置」 を実現する。 Phase A (Sdd4ce1) / A' (S0f6866) と完全独立で並行可能。 host runtime / container runtime / remote runtime すべてが同じ allocator を使うので Phase B' (Claude MCP tools) の前提でもある。\n\n**作業はすべて test VM (`ubuntu@192.168.1.41`) で行う。** allocator 自体は Go の単体テストで検証できるが、 `make dev` / `make serve` の portman → palmux port exec 移行は実機で確認する。\n\n**スコープ:** `internal/port/` allocator + `palmux port` subcommand (portman CLI 互換 I/F: exec / alloc / list / free) + Makefile の portman → palmux port exec 移行 + bootstrap 問題対応 (server なしでも動く CLI モード) + portman 残置の README 注釈。\n\n**スコープ外:** Phase B (Ports panel UI、 ただし allocator が呼ばれる)、 Phase B' (Claude MCP `expose_port` / `allocate_port` tool — allocator を呼ぶ)、 LXD proxy device 連携 (Phase B)。\n\n**詳細 AC + tasks は S98156b 完了後の `sprint plan` 時に refine する。**",
+      "stories": {
+        "S9fd775-1": {
+          "title": "`internal/port/` allocator (Allocate / Free / List + 永続化)",
+          "status": "pending",
+          "user_story": "palmux 開発者として、 portman に外部依存しない port 確保ロジックを palmux 自身に持ちたい。 なぜなら、 §14.10.7 で 「palmux は portman に依存しなくする」 と決めた以上、 まず allocator 自体を内製化することがすべての出発点だからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S9fd775-1-1",
+              "description": "`internal/port/allocator.go` に `Allocate(scope, name) (port, error)` / `Free(scope, name)` / `List(scope) []Mapping` を実装、 scope は `\"global\"` or `WorkspaceID`、 同一 (scope, name) には常に同じ port を返す (idempotent)",
+              "test": "[AC-S9fd775-1-1] in internal/port/allocator_test.go",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S9fd775-1-2",
+              "description": "永続化先は `~/.config/palmux/ports.json`、 portman 互換 format (key 名は portman と同じ)、 `--config-dir` フラグで上書き可",
+              "test": "[AC-S9fd775-1-2] in internal/port/allocator_test.go",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S9fd775-1-3",
+              "description": "ファイルロック (`flock` based) で複数プロセスからの同時 Allocate 競合を防ぐ (server + CLI 同時実行への対応、 §6.5)",
+              "test": "[AC-S9fd775-1-3] in internal/port/allocator_test.go",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S9fd775-1-4",
+              "description": "free port 検出は `net.Listen(\"tcp\", \":0\")` で取得 → 即 close → port を確保 (TOCTOU は許容、 失敗時 retry)",
+              "test": "[AC-S9fd775-1-4] in internal/port/allocator_test.go",
+              "status": "pending"
+            }
+          ],
+          "tasks": {}
+        },
+        "S9fd775-2": {
+          "title": "`palmux port` subcommand (exec / alloc / list / free) — portman CLI 互換 I/F",
+          "status": "pending",
+          "user_story": "Makefile / package.json script を書く開発者として、 portman を呼んでいた箇所をそのまま `palmux port` に置き換えるだけで動いてほしい。 なぜなら、 portman の CLI I/F は既に多数のスクリプトに広く使われており、 互換性を断つと移行コストが跳ね上がるからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S9fd775-2-1",
+              "description": "`palmux port exec --name foo -- npm run dev --port {}` で free port を確保 → `{}` を実 port に置換 → `npm run dev --port <port>` を exec、 child の lifecycle と合わせて Free する",
+              "test": "[AC-S9fd775-2-1] in tests/acceptance/s9fd775_palmux_port.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S9fd775-2-2",
+              "description": "`palmux port alloc --name foo` で port を返して exit (long-running しない)、 `palmux port list` で全 mapping を JSON or table 出力、 `palmux port free foo` で解放",
+              "test": "[AC-S9fd775-2-2] in tests/acceptance/s9fd775_palmux_port.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S9fd775-2-3",
+              "description": "**server 起動なしで動く** (bootstrap 問題対応、 §6.5)。 `palmux serve` 未起動時でも `~/.config/palmux/ports.json` に直接書く / 起動中ならファイルロックで協調",
+              "test": "[AC-S9fd775-2-3] in tests/acceptance/s9fd775_palmux_port.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {}
+        },
+        "S9fd775-3": {
+          "title": "Makefile / scripts の portman → `palmux port exec` 移行",
+          "status": "pending",
+          "user_story": "palmux dev workflow を回す開発者として、 `make dev` / `make serve` で port 衝突なく palmux を立ち上げたい。 なぜなら、 portman 依存を消す以上 Makefile も同時に書き換えないと dev サーバーが port 重複でエラーになるからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S9fd775-3-1",
+              "description": "Makefile の `dev` / `serve` / `serve-stop` / `serve-logs` ターゲットの `portman exec` 呼び出しを `palmux port exec` に置換、 `INSTANCE=<name>` での上書きも引き継ぐ",
+              "test": "[AC-S9fd775-3-1] make dev / make serve INSTANCE=foo を test VM 上で実行",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S9fd775-3-2",
+              "description": "test VM 上で `make serve` 起動 → palmux に HTTP request 通る → `make serve-stop` で正常停止、 ports.json から該当 entry が消える",
+              "test": "[AC-S9fd775-3-2] in tests/acceptance/s9fd775_palmux_port.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S9fd775-3-3",
+              "description": "go.mod から portman 依存 (もしあれば) を削除、 `go mod tidy` 後にビルド成功",
+              "test": "[AC-S9fd775-3-3] CI build",
+              "status": "pending"
+            }
+          ],
+          "tasks": {}
+        },
+        "S9fd775-4": {
+          "title": "README 更新 + portman repo 残置の注釈",
+          "status": "pending",
+          "user_story": "palmux ユーザ・portman ユーザの両方として、 「palmux は portman を内製化したが、 portman 単体も今後使えるか」 を docs から判断したい。 なぜなら、 §14.10.7 で 「portman repo は archive せず deprecation notice も入れない、 単体としての価値あり」 と決めた方針が docs に反映されないと両プロジェクトの関係が曖昧になるからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S9fd775-4-1",
+              "description": "palmux README に \"Port management is now built-in (was: portman). The standalone portman tool remains available for non-palmux Claude CLI users.\" を記載 + portman repo へのリンク",
+              "test": "[AC-S9fd775-4-1] README diff",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S9fd775-4-2",
+              "description": "CLAUDE.md の portman 言及箇所 (`サーバー起動` 節等) を `palmux port exec` ベースに更新、 portman ガイドへのリンクは 「外部 reference」 として残す",
+              "test": "[AC-S9fd775-4-2] CLAUDE.md diff",
+              "status": "pending"
+            }
+          ],
+          "tasks": {}
+        }
+      }
+    },
+    "S0f6866": {
+      "title": "Phase A': Custom container image build pipeline (palmux-workspace:default on GHCR)",
+      "status": "pending",
+      "milestone": false,
+      "description": "workspace-runtime 設計 §14.1 / §14.10.1 / §14.10.2 で確定した container image を palmux 本体 repo で build + GHCR へ配布する pipeline を整備する。 Phase A (Sdd4ce1) と並行して進められるが、 A の lxd-container 実装の動作確認時に `:default` image が無いと困るので **A の動作確認完了までに `:default` image を最低 1 回手動 build してでも GHCR に上げる** ことが要件。\n\n**作業はすべて test VM (`ubuntu@192.168.1.41`) で行う。** image build は GitHub Actions runner と test VM 上の `docker` (or `lxd build`) で互いに検証する。 ローカル機ではビルドしない。\n\n**スコープ:** `:default` バリアントの Dockerfile (or cloud-init) + GitHub Actions workflow + GHCR 配布 + README 更新 (Supported OS = Ubuntu のみ §14.7)。\n\n**スコープ外:** `:gpu` / `:minimal` バリアント (`:default` が安定してから)、 image 内に `palmux-agent` を焼き込む案 (§14.10.6 で push 方式に決定)、 LXD image server を立てる案 (§14.10.1 で GHCR 直 launch に決定)。\n\n**詳細 AC + tasks は S98156b 完了後の `sprint plan` 時に refine する** (PoC で image に必要なものが新たに見えるかもしれないため)。",
+      "stories": {
+        "S0f6866-1": {
+          "title": "`images/workspace-default/Dockerfile` (or cloud-init) で base image を組む",
+          "status": "pending",
+          "user_story": "palmux ユーザとして、 LXD container を起動するだけで claude / gh / git / tmux / tailscale / ansible 等の必要 CLI 一式が揃った環境が手に入ってほしい。 なぜなら、 container 起動のたびに自分で apt install するのは面倒だし、 image を palmux チームが面倒見ることでメンテコストが集約されるからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S0f6866-1-1",
+              "description": "`images/workspace-default/Dockerfile` で `FROM ubuntu:24.04` から `claude` (curl install) / `gh` (apt) / `git` / `tmux` / `tailscale` (apt) / `ansible` / `systemd` (init system として動かす) を pre-install、 image size 1 GB 以下を target",
+              "test": "[AC-S0f6866-1-1] CI で `docker build` 成功 + size check",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S0f6866-1-2",
+              "description": "image 内に `palmux-agent` は **焼かない** (§14.10.6)、 ただし agent が依存する base utility (libc / coreutils 程度) は揃っていることを確認",
+              "test": "[AC-S0f6866-1-2] in tests/acceptance/s0f6866_image.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S0f6866-1-3",
+              "description": "test VM 上で `lxc launch docker:ghcr.io/tjst-t/palmux-workspace:default smoke-1` で container が起動 + claude / gh / git / tmux / tailscale / ansible すべての CLI が `which` で見える",
+              "test": "[AC-S0f6866-1-3] in tests/acceptance/s0f6866_image.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {}
+        },
+        "S0f6866-2": {
+          "title": "GitHub Actions workflow (週次 + tag push trigger) で GHCR push",
+          "status": "pending",
+          "user_story": "palmux チームメンバーとして、 base ubuntu の security update や CLI version bump に追従する image rebuild を手動で回したくない。 なぜなら、 §14.1 で 「月 1〜2 時間想定、 CI 自動化前提」 と決めた前提が崩れるとメンテコストが上振れするからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S0f6866-2-1",
+              "description": "`.github/workflows/build-image.yml` で 週 1 回 (cron) + main への tag push + `images/**` 変更の PR で trigger、 ghcr.io へ push",
+              "test": "[AC-S0f6866-2-1] CI 履歴で確認",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S0f6866-2-2",
+              "description": "tag は `:default` (latest 相当) + `:default-YYYYMMDD` (日付 stamped) の 2 種を push",
+              "test": "[AC-S0f6866-2-2] GHCR で確認",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S0f6866-2-3",
+              "description": "GHCR から public pull 可能 (ログイン不要)、 test VM 上で確認",
+              "test": "[AC-S0f6866-2-3] in tests/acceptance/s0f6866_image.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {}
+        },
+        "S0f6866-3": {
+          "title": "README + docs に Supported OS = Ubuntu 明記 + image override 手順",
+          "status": "pending",
+          "user_story": "palmux 検討中のユーザとして、 macOS でサポートされないこと、 image を override したい場合の手順、 image を完全に bypass して生 ubuntu で起動する方法を docs から知りたい。 なぜなら、 §14.7 で macOS 非サポートを正式決定し、 §14.1 で image override 可と決めたものの user 向け文書が無いと混乱するからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S0f6866-3-1",
+              "description": "README.md に \"Supported OS: Ubuntu (Linux)\" 節を追加、 macOS / その他 Linux ディストリは保証外と明記",
+              "test": "[AC-S0f6866-3-1] README diff",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S0f6866-3-2",
+              "description": "`docs/workspace-runtime.md` (新規) に image 一覧 / override 方法 / 生 ubuntu に戻す手順を記載",
+              "test": "[AC-S0f6866-3-2] doc 存在 + sprint verify でレビュー",
+              "status": "pending"
+            }
+          ],
+          "tasks": {}
+        }
+      }
+    },
+    "Sdd4ce1": {
+      "title": "Phase A: WorkspaceRuntime 抽象 + host + lxd-container 実装 + bind-mount + UI",
+      "status": "pending",
+      "milestone": true,
+      "description": "workspace-runtime 設計 (`docs/workspace-runtime-design.md`) の **本体実装 sprint**。 後続の lxd-vm / lxd-remote / ssh-remote / Phase B (Ports panel) / Phase B' (Claude MCP) すべてが乗る `runtime.Runtime` interface と、 `host` / `lxd-container` の 2 実装、 bind-mount 戦略 (idmap + skill/auth 共有 + settings.json 分離)、 Repository Open / Workspace 作成 modal の Runtime セレクタを揃える。\n\n**前提:** S98156b (Phase A0) 完了 — agent JSON-RPC protocol が確定し、 idmap + bind-mount で Claude CLI が container 内で動くことが実証され、 lxc proxy device の永続性方針が決まっていること。\n\n**完了基準 (milestone, ユーザレビューを取る):** test VM 上で 「lxd-container runtime の Workspace を Repository Open modal から作成 → Claude タブが container 内 tmux session に attach → host で開始した skill / memory が container 内でも見える / 編集が host 側にも反映される」 が UI 経由で動く。 host runtime も既存挙動と完全互換。\n\n**スコープ:** Phase A の §13 と §9.1〜§9.6 すべて (host / lxd-container / bind-mount / Repository modal / Workspace 作成 modal / repos.json schema 拡張 / 後方互換)。 Phase A' (image build) は並行 sprint S0f6866。\n\n**スコープ外:** lxd-vm / lxd-remote / ssh-remote (Phase D-F)、 Ports panel UI (Phase B)、 Claude MCP tools (Phase B')、 host runtime cleanup (Phase H)、 INSTANCE 廃止 (Phase J)。\n\n**作業はすべて test VM (`ubuntu@192.168.1.41`) で行う。** ローカル機では LXD を動かさない。 詳細 AC + tasks は S98156b 完了後の `sprint plan` 時に refine する (PoC 知見を反映するため)。",
+      "stories": {
+        "Sdd4ce1-1": {
+          "title": "`runtime.Runtime` Go interface + 共通型定義",
+          "status": "pending",
+          "user_story": "palmux 開発者として、 すべての runtime kind (host / lxd-container / lxd-vm / lxd-remote / ssh-remote) が同じ Go interface に従う形で書きたい。 なぜなら、 上位コード (Provider / handler / WS) が runtime kind を意識せずに済むようにしておかないと、 後で agent push 経路と直 exec 経路が混在して保守不能になるからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sdd4ce1-1-1",
+              "description": "`internal/runtime/` に Runtime interface (Start/Stop/Status/NewTmuxSession/AttachTmuxSession/Exec/ListListeningPorts/ExposePort/UnexposePort/ReadFile/WriteFile/Stat/Walk) と Status / RuntimeKind / RuntimeConfig / NetworkPolicy 型を定義 (設計 §3.1 準拠)",
+              "test": "[AC-Sdd4ce1-1-1] in internal/runtime/runtime_test.go",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sdd4ce1-1-2",
+              "description": "RuntimeConfig は `repos.json` の `branches[].runtime` に JSON シリアライズされる (§14.5)、 既存の Branch entry に runtime フィールドが無ければ `{kind: \"host\"}` として読み込む (§10.1 後方互換)",
+              "test": "[AC-Sdd4ce1-1-2] in internal/config/repos_test.go",
+              "status": "pending"
+            }
+          ],
+          "tasks": {}
+        },
+        "Sdd4ce1-2": {
+          "title": "`host` runtime 実装 (in-process、 既存挙動完全互換)",
+          "status": "pending",
+          "user_story": "既存ユーザとして、 Phase A 導入後も既存 Workspace の挙動が完全に変わらないでほしい。 なぜなら、 全 Workspace の migration は §10.1 の方針で行わない (host のままにする) ので、 host runtime が現状と寸分違わず動くことが既存環境を守る前提だからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sdd4ce1-2-1",
+              "description": "`internal/runtime/host/` に host 実装、 NewTmuxSession は既存 `internal/tmux.Client.NewSession` をそのまま呼ぶ (tmux コマンド直叩きはしない、 §コーディング規約準拠)",
+              "test": "[AC-Sdd4ce1-2-1] in internal/runtime/host/host_test.go",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sdd4ce1-2-2",
+              "description": "ExposePort は no-op (既に host で listen している) で、 PortMapping を host port = container port のまま返す",
+              "test": "[AC-Sdd4ce1-2-2] in internal/runtime/host/host_test.go",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sdd4ce1-2-3",
+              "description": "既存 Workspace 全体 (S001〜S43cfb1 で扱った全 fixture) で `make test` が green、 既存 E2E (`tests/e2e/*.py`) が green",
+              "test": "[AC-Sdd4ce1-2-3] make test + 既存 E2E suite",
+              "status": "pending"
+            }
+          ],
+          "tasks": {}
+        },
+        "Sdd4ce1-3": {
+          "title": "`lxd-container` runtime 実装 (agent push + bind-mount + idmap + systemd start)",
+          "status": "pending",
+          "user_story": "host を汚したくない開発者として、 Workspace を開いたら自動的に LXD container が立ち上がり、 中の tmux + Claude が host とは隔離された状態で動いてほしい。 なぜなら、 dev server の port 衝突 / `npm i -g` 等の package 汚染 / build artifact ゴミから host を守りたいからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sdd4ce1-3-1",
+              "description": "`internal/runtime/lxd/` に lxd-container 実装、 Start で `lxc launch <image> <inst>` → `raw.idmap \"uid 1000 1000\ngid 1000 1000\" (S98156b PoC: \"both 1000 1000 1\" は invalid; 2-value per line 形式が正)` → bind-mount (worktree / `~/.claude/skills` ro / `~/.claude/projects/<this>` rw / `~/.gitconfig` ro / `~/.config/gh` ro / SSH_AUTH_SOCK forward) → `lxc file push palmux-agent` → `systemd-run --unit palmux-agent` で agent 起動",
+              "test": "[AC-Sdd4ce1-3-1] in tests/e2e/sdd4ce1_lxd_container.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sdd4ce1-3-2",
+              "description": "NewTmuxSession / Exec / ReadFile / WriteFile / ListListeningPorts は agent JSON-RPC 経由 (lxc exec を都度起動しない、 §6.4.2 push 方式)、 接続は host palmux が agent に常時 1 本維持",
+              "test": "[AC-Sdd4ce1-3-2] in tests/e2e/sdd4ce1_lxd_container.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sdd4ce1-3-3",
+              "description": "Stop で `lxc stop <inst>` → bind-mount mapping cleanup → 永続化された port mapping は次回 Start 時に再構築されるよう repos.json に保存 (§5.4)",
+              "test": "[AC-Sdd4ce1-3-3] in tests/e2e/sdd4ce1_lxd_container.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sdd4ce1-3-4",
+              "description": "container image は `ghcr.io/tjst-t/palmux-workspace:default` (Phase A' / S0f6866 で build) を default、 `repos.json` で override 可。 image が無ければ起動時に `lxc launch` がエラーで止まる (palmux が事前 pull しない、 LXD に任せる)",
+              "test": "[AC-Sdd4ce1-3-4] in tests/e2e/sdd4ce1_lxd_container.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sdd4ce1-3-5",
+              "description": "container start 後 cloud-init 完了まで ubuntu user が不在。 `lxc exec <inst> -- id ubuntu` が成功するまで poll 待機 (max 60s) してから agent 起動・claude 起動を行う (S98156b PoC で cloud-init 未完了での su 失敗を確認)",
+              "test": "[AC-Sdd4ce1-3-5] in tests/e2e/sdd4ce1_lxd_container.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {}
+        },
+        "Sdd4ce1-4": {
+          "title": "bind-mount strategy 実装 (settings.json 分離 + SSH agent forward)",
+          "status": "pending",
+          "user_story": "container 内の Claude を使う開発者として、 host で設定した skill / memory / git config がそのまま container 内でも使え、 一方で host 用の settings.json (絶対 path で書かれた MCP server / hook 設定) が container 内で誤動作しないでほしい。 なぜなら、 設計 §4.4 で実証された 「データ共有 + 設定分離」 の線引きが UX の前提だからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sdd4ce1-4-1",
+              "description": "container 内で `~/.claude/skills/<skill>/SKILL.md` が host と同じ内容で見える (ro bind)",
+              "test": "[AC-Sdd4ce1-4-1] in tests/e2e/sdd4ce1_bind_mount.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sdd4ce1-4-2",
+              "description": "container 内で `~/.claude/projects/<this>/sessions/*.jsonl` への追記が host 側からも見える (rw bind、 PoC S98156b-2 で確定した戦略を踏襲)",
+              "test": "[AC-Sdd4ce1-4-2] in tests/e2e/sdd4ce1_bind_mount.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sdd4ce1-4-3",
+              "description": "`~/.claude/settings.json` は bind しない、 container 内には palmux が必要最小限の settings (MCP server 設定等) を起動時に inject する。 host 用 settings の絶対 path が container 内で resolve できないことによる誤動作が起きない",
+              "test": "[AC-Sdd4ce1-4-3] in tests/e2e/sdd4ce1_bind_mount.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sdd4ce1-4-4",
+              "description": "`SSH_AUTH_SOCK` を bind forward することで container 内から `git push` (SSH 越し) が認証なしで通る (host SSH agent を使う)",
+              "test": "[AC-Sdd4ce1-4-4] in tests/e2e/sdd4ce1_bind_mount.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {}
+        },
+        "Sdd4ce1-5": {
+          "title": "Repository Open modal + Workspace 作成 modal に Runtime セレクタを追加",
+          "status": "pending",
+          "user_story": "Workspace を開く開発者として、 Repository を Open するときと新 worktree を追加するときに 「この Workspace の runtime をどれにするか」 を選びたい。 なぜなら、 §9.1 で議論したとおり Repository Open は primary worktree を implicit に Workspace 化するので、 runtime 選択ステップを差し込まないとユーザの知らないうちに default で起動されてしまうからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sdd4ce1-5-1",
+              "description": "`frontend/src/components/repo-picker.tsx` の RepoPicker modal に Runtime / Network / Image セレクタを追加 (§9.1 のレイアウト準拠)、 LXD 未インストール環境では LXD 系選択肢が disabled + tooltip (§14.6)",
+              "test": "[AC-Sdd4ce1-5-1] in tests/e2e/sdd4ce1_runtime_modal.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sdd4ce1-5-2",
+              "description": "Workspace 作成 modal (`frontend/src/components/workspace-create-modal.tsx`) に同様のセレクタ、 default は per-repo default → global default の順 (§9.6)",
+              "test": "[AC-Sdd4ce1-5-2] in tests/e2e/sdd4ce1_runtime_modal.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sdd4ce1-5-3",
+              "description": "`Don't ask again, use default for all repos` チェックは settings.json の `defaultRuntime` を更新するショートカット (§9.1)",
+              "test": "[AC-Sdd4ce1-5-3] in tests/e2e/sdd4ce1_runtime_modal.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sdd4ce1-5-4",
+              "description": "Drawer の Workspace 行に runtime kind icon を表示 (§9.3)、 起動中は spinner / ready 点灯 / failed 警告",
+              "test": "[AC-Sdd4ce1-5-4] in tests/e2e/sdd4ce1_runtime_modal.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {}
+        },
+        "Sdd4ce1-6": {
+          "title": "`repos.json` schema 拡張 + 設定優先順位ロジック (per-Workspace > per-repo > global > 自動)",
+          "status": "pending",
+          "user_story": "Workspace を多数管理する開発者として、 runtime 設定をプロジェクトごと / ワークスペースごとに細かく上書きしたい。 なぜなら、 同じ repo でも 「main は host で軽く回す」 「実験 branch は lxd-vm で完全隔離」 のように使い分けたいからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sdd4ce1-6-1",
+              "description": "`internal/config/repos.go` の Branch struct に `Runtime *RuntimeConfig` (optional) を追加、 nil ならば per-repo default → global default → 自動判定 (LXD installed? → lxd-container, otherwise → host) の順で解決する (§9.6)",
+              "test": "[AC-Sdd4ce1-6-1] in internal/config/repos_test.go",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sdd4ce1-6-2",
+              "description": "`settings.json` に `defaultRuntime` を追加、 PATCH /api/settings で更新可能",
+              "test": "[AC-Sdd4ce1-6-2] in internal/config/settings_test.go",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sdd4ce1-6-3",
+              "description": "`repos.json` の repo entry に `defaultRuntime` (per-repo override) を追加、 §9.1 の \"primary Workspace に適用 + per-repo default として記録\" を実装",
+              "test": "[AC-Sdd4ce1-6-3] in internal/config/repos_test.go",
+              "status": "pending"
+            }
+          ],
+          "tasks": {}
+        },
+        "Sdd4ce1-7": {
+          "title": "後方互換: 既存 host Workspace の挙動を 100% 維持 + migration なし",
+          "status": "pending",
+          "user_story": "現役で palmux を使っている開発者として、 Phase A の merge 後も既存の Workspace と URL がそのまま動いてほしい。 なぜなら、 §10.1 で 「既存 Workspace は migration なしで host のまま」 と決めたとおり、 ユーザに何の操作も強いない契約だからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sdd4ce1-7-1",
+              "description": "Phase A merge 直後に既存 `repos.json` (runtime フィールドなし) を読み込んで全 Workspace が host runtime として open される、 既存 URL (`/{repoId}/{workspaceId}/{tabId}`) が変わらない",
+              "test": "[AC-Sdd4ce1-7-1] in tests/e2e/sdd4ce1_backward_compat.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sdd4ce1-7-2",
+              "description": "既存 `tests/e2e/*.py` (S001〜S43cfb1) が全部 green (host runtime path で実行)",
+              "test": "[AC-Sdd4ce1-7-2] make e2e 全 suite",
+              "status": "pending"
+            }
+          ],
+          "tasks": {}
+        }
+      }
     }
   },
   "dependencies": {
@@ -6042,6 +6650,26 @@
     "S43cfb1": {
       "depends_on": [],
       "reason": "純粋なリファクタリング Sprint。 in-progress の S1e8d02 (Workspace-centric domain refactor) と独立 — Branch / Workspace 周りには触らず Claude タブ内部の構造改善のみ。 並列に進めても衝突しない"
+    },
+    "S98156b": {
+      "depends_on": [],
+      "reason": "workspace-runtime 設計の gate sprint。 §15 の PoC (a)(b)(c) と §13 Phase A0 (agent プロトコル定義) を 1 sprint に束ね、 後続 Phase A の前提を実機で固める。 既存 35 sprint とは独立。"
+    },
+    "S9fd775": {
+      "depends_on": [],
+      "reason": "Phase C (内製 port allocator + palmux port CLI) は §6 / §14.10.7 で 「完全独立、 host runtime 用の port 管理として A と並行 OK、 Phase B prime (Claude MCP tools) が allocator を使うので C は B prime より先」 と確定。 PoC とは独立、 早出し可能。"
+    },
+    "S0f6866": {
+      "depends_on": [
+        "S98156b"
+      ],
+      "reason": "Phase A prime (image build pipeline) は §13 で 「A の途中で並行」 と位置付けられているが、 image 設計は PoC で 「container 内で何が動かないと困るか」 が見えてから固めた方が無駄が少ない。 A0 完了後に着手し、 Phase A (Sdd4ce1) と並行で進める。"
+    },
+    "Sdd4ce1": {
+      "depends_on": [
+        "S98156b"
+      ],
+      "reason": "Phase A 本体 (Runtime interface + host + lxd-container + bind-mount + UI) は §15 の PoC 結果 (idmap で Claude が動くか / lxc proxy device の永続性 / bind-mount 戦略の確定) を前提に AC を refine する設計。 Phase A prime (image, S0f6866) と Phase C (allocator, S9fd775) は並行可能。 milestone:true でユーザレビューを取る。"
     }
   },
   "backlog": [
@@ -6254,6 +6882,62 @@
       "description": "Complete the S43cfb1-6 migration: delete Agent.permWaiters and the 5 Session permission maps, route every call site through Session.perm. Add tests/e2e/s43cfb1_bash_perm.py exercising Allow once / Always / Deny / Session allowList round-trips.",
       "added_in": "S43cfb1",
       "reason": "Story 6 scope-out — original sprint deliberately limited to introducing PermissionState; field migration deferred to keep behaviour-preservation risk low.",
+      "status": "pending"
+    },
+    {
+      "title": "Phase B: Ports panel UI (Header \"P\" 置換 + LXD proxy device 連携 + auto-detect)",
+      "description": "(workspace-runtime §5.3 由来) Header の現 portman dashboard ボタンを palmux 内製 Ports panel に置換、 常時表示。 panel に Workspace 単位の port list (live / detected / exposed)、 各 port の Open / Stop / Expose / LAN 公開 ⚠ 等の操作。 host runtime での port tracking、 lxd-* runtime での `lxc config device add proxy` 連携、 agent 内 ticker で `/proc/net/tcp` を 5 秒間隔で軽量 poll。 WebSocket event `port.detected` / `port.exposed` / `port.unexposed` で realtime 更新。 既存 `handler_portman.go` を `handler_ports.go` に rename + 拡張。 サイズ M。",
+      "added_in": "workspace-runtime-design",
+      "reason": "Phase A (Sdd4ce1) で runtime 抽象が安定し、 Phase C (S9fd775) で内製 allocator が動いてから着手。 panel はそれら 2 つの上に乗る UI 層。",
+      "status": "pending"
+    },
+    {
+      "title": "Phase B': Claude MCP tools (`expose_port` / `allocate_port` の runtime 別切替 + hint auto-inject)",
+      "description": "(workspace-runtime §5.2.1 / §14.4 / §14.10.3 由来) palmux in-process MCP server に runtime に応じた tool セットを生やす — container/VM では `expose_port(port, name?, public?)` / `unexpose_port` / `list_exposed_ports`、 host では `allocate_port(name)` / `release_port` / `list_allocated_ports`。 Claude タブ起動時に runtime hint を `--system-prompt` 相当で auto-inject (host: 「allocate_port 必須」、 container: 「自由 bind + expose_port」)。 permission flow は既存 Claude タブ permission framework に乗せ、 `claude_can_expose: \"auto-allow-localhost\"` を default にして 127.0.0.1 expose は確認なし、 LAN 公開は常に確認。 サイズ M。",
+      "added_in": "workspace-runtime-design",
+      "reason": "Phase B (Ports panel) と Phase C (allocator) の上に乗る Claude 連携層。 B → B' の順で着手。",
+      "status": "pending"
+    },
+    {
+      "title": "Phase D: `lxd-vm` 実装 (virtiofs bind-mount + agent vsock/TCP 接続 + 起動 progress UI)",
+      "description": "(workspace-runtime §3.2.3 由来) カーネル境界の隔離が必要なケース (kernel module 触る / 完全に信用できないバイナリ / GPU passthrough / 大型 ML eval) 用。 `lxc launch --vm` + virtiofs bind (LXD が auto 選択) + agent への vsock or LXD TCP proxy 接続。 起動が 10〜30 秒かかるので Workspace open modal に \"VM 起動中\" progress UI を出す。 メモリ制限 (`lxc config set ... limits.memory=4GiB`) と CPU 制限を Workspace 作成 modal で設定可能に。 サイズ L。",
+      "added_in": "workspace-runtime-design",
+      "reason": "Phase A (lxd-container) のパターンを踏襲した派生。 lxd-container が安定してから着手することで再利用度を最大化。",
+      "status": "pending"
+    },
+    {
+      "title": "Phase E: `lxd-remote` 実装 (SSH tunnel for agent + remote port forward)",
+      "description": "(workspace-runtime §3.2.4 由来) GPU / big RAM が必要な開発、 重い eval を別マシンで走らせるケース用。 `lxc remote add` での remote 登録は user 事前作業、 操作は `lxc -r <remote> ...` でリダイレクト。 agent への接続は SSH tunnel 経由で agent UDS に到達 (`ssh -L /local/sock:/remote/sock`)、 ssh master conn を 1 本維持し forward を動的追加。 Ports panel UI から remote runtime の port を local browser で開けるよう SSH local forward を自動構成 (default)。 サイズ L。",
+      "added_in": "workspace-runtime-design",
+      "reason": "Phase A + Phase B の延長。 agent 接続経路だけが SSH に変わる構造。 Phase D と独立で並行可能。",
+      "status": "pending"
+    },
+    {
+      "title": "Phase F: `ssh-remote` 実装 (LXD なし remote 用、 agent を `scp` push)",
+      "description": "(workspace-runtime §3.2.5 由来) LXD を入れられない remote (古い CentOS、 共用サーバ等) 用のフォールバック。 `Start`: `scp palmux-agent` で remote に送る → `ssh remote 'palmux-agent --socket /tmp/palmux-agent.sock &'`。 全 RPC は SSH 経由で agent に到達、 `ExposePort` は SSH local forward (`ssh -L <host>:<remote-host>:<remote-port>`)。 host への root 信用次第で隔離はないが reach できることが価値。 サイズ M。",
+      "added_in": "workspace-runtime-design",
+      "reason": "Phase E と同じ remote 系だが LXD が無い。 E が動いてから流用するのが効率的。",
+      "status": "pending"
+    },
+    {
+      "title": "Phase G: network policy (host-netns / tailnet auth-key 管理)",
+      "description": "(workspace-runtime §7 由来) Workspace 単位で network mode を bridged (default) / host-netns (host VPN や Tailscale をそのまま使う) / tailnet (container 自身が Tailscale で tailnet join) / none から選べるようにする。 tailnet mode は image 起動後に `tailscale up --auth-key=<key>` を auto 実行、 auth-key は OS keyring 経由で `~/.config/palmux/secrets.json` に暗号化保存、 container は固有の hostname / IP (`ws-<workspace-id>`) を持つ。 設定 UI に Tailnet auth key 登録、 LXD remote 登録 (`lxc remote add` ラッパ) も同 sprint に含める。 サイズ M。",
+      "added_in": "workspace-runtime-design",
+      "reason": "Phase A 完了後の 「次のレイヤ」。 enterprise / tailnet ユースケース向けで、 一般ユーザは bridged のままで OK。",
+      "status": "pending"
+    },
+    {
+      "title": "Phase H: host runtime cleanup (process / port tracking + Workspace close 時の dialog)",
+      "description": "(workspace-runtime §12 由来) container/VM では Workspace close で自動的に process が掃除されるが、 host runtime ではこれが起きない。 補完機構として、 Workspace から起動した process の PID を tracking (cgroup or process group)、 掴んでる port も tracking (Phase C の allocator と連携)、 Workspace close 時に確認 dialog \"12 processes still running on host. Kill them?\"、 設定で auto-kill / leave / always-ask を選択可。 host runtime の魅力を上げる polish 系 sprint。 サイズ M。",
+      "added_in": "workspace-runtime-design",
+      "reason": "Phase A 完了後 + Phase C の allocator が動いてから。 host runtime 利用者向けの磨き込み。",
+      "status": "pending"
+    },
+    {
+      "title": "Phase J: INSTANCE 機構廃止 + palmux 自身の dev workflow を LXD container 化",
+      "description": "(workspace-runtime §14.8 由来) 現状 `make dev INSTANCE=<name>` でホスト用 palmux と dev 用 palmux を tmux prefix 分離 (`_pmx_<name>_`) で並走させているが、 Phase A 以降は 「dev palmux 自身を LXD container 内で動かす」 ことで bootstrap 問題を根本解決できる。 host palmux と container palmux が tmux session namespace ごと完全分離されるため、 sync_tmux 衝突 / Claude session 巻き込み問題が消える。 `--tmux-prefix` カスタマイズも将来不要になる可能性あり (要検証)。 INSTANCE 機構の完全削除と `--tmux-prefix` の廃止可否を判断する sprint。 移行は Phase A の lxd-container runtime が実用に達してから着手 (S009-fix-3 で導入したコードを segregate しつつ削除)。 サイズ L。",
+      "added_in": "workspace-runtime-design",
+      "reason": "Phase A + Phase A' + Phase C が安定してから。 既存 INSTANCE 利用者 (= palmux チーム自身) への影響が大きいので慎重に。",
       "status": "pending"
     }
   ]
