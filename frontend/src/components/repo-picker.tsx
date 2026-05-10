@@ -139,10 +139,18 @@ export function RepoPicker({ open, onClose, onRequestDelete }: Props) {
     setPending(id)
     setError(null)
     try {
+      // Sdd4ce1-5-1: When the picker is launched from `/`, HomeRedirect
+      // fires whenever `repos` updates and would auto-navigate to the
+      // freshly-opened repo before the runtime modal can be confirmed.
+      // Stamp a sentinel query param so HomeRedirect's effect rerun
+      // sees a different navigation key and skips the redirect (it
+      // checks `bootstrapped, repos` only, but the sentinel changes the
+      // URL so the picker remains mounted under the same `/` route).
+      // We restore the path on confirm via navigate(target).
+      if (typeof window !== 'undefined' && window.location.pathname === '/') {
+        navigate('/?runtime-pending=1', { replace: true })
+      }
       const repo = await openRepo(id)
-      // Sdd4ce1-5-1: defer navigation — show the runtime selector first.
-      // The picker stays mounted but visually hidden; the runtime modal
-      // is layered on top.
       setPendingRuntimeRepo({ repo, label: repo.ghqPath })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
