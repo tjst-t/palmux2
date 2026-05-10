@@ -575,3 +575,32 @@
   font-size: 12px;
   width: fit-content;
 }
+
+/* ──────────── S4b9df4-2: popup anchors + conversation list flex shell
+ *
+ * The history / mcp popups need a `position: relative` parent so their
+ * floating layer can position itself against the trigger button. We
+ * used to inline-style this; promoted to a named class.
+ *
+ * The conversation list shell flips visibility between hidden (during
+ * scroll restore) and visible. This used to be an inline style block
+ * with hard-coded flex / minHeight constants. Now a named class +
+ * a single inline `visibility` toggle.
+ * ─────────────────────────────────────────────────────────────────── */
+.popupAnchor {
+  position: relative;
+}
+
+.listShell {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.emptyHint {
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--color-fg-dim);
+}

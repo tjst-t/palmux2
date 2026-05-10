@@ -109,17 +109,27 @@
   color: var(--color-fg);
 }
 
-/* Mobile: edit pencil always visible (no hover). */
+/* Mobile: edit pencil always visible (no hover).
+ * S4b9df4-0 baseline fix: the parent .userBubbleWrap is a flex row with
+ * align-items: flex-start, which collapses children to their content
+ * height — so min-height alone wasn't enforcing the 36px tap area. We
+ * set an explicit width/height (not just min-) to guarantee the box. */
 @media (max-width: 599px) {
   .editPencil {
     opacity: 0.6;
+    width: 36px;
+    height: 36px;
     min-width: 36px;
     min-height: 36px;
     padding: 8px;
+    box-sizing: border-box;
   }
   .arrowBtn {
+    width: 36px;
+    height: 36px;
     min-width: 36px;
     min-height: 36px;
+    box-sizing: border-box;
   }
 }
 

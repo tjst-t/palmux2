@@ -97,13 +97,12 @@ interface UserTurnEditorProps {
    *  state (fade out subsequent turns, archive the prior version)
    *  before the network round-trip completes. */
   onRewindApplyLocal: (turnId: string, newContent: string) => void
-  /** Optional controlled-editing mode. When the parent supplies these
-   *  two props, the `editing` state is hoisted up so it survives row
-   *  unmount/remount (e.g. react-window virtualization scrolling the
-   *  row out of view). When undefined, fall back to internal state for
-   *  backwards compatibility with simple callers. */
-  editing?: boolean
-  onEditingChange?: (turnId: string, editing: boolean) => void
+  // S4b9df4-4: the prior `editing` / `onEditingChange` lift-up props
+  // have been removed. They were added in S019 as a workaround for
+  // react-window unmounting rows during scroll — the workaround
+  // became vestigial after commit bed812b dropped react-window in
+  // favour of full DOM render. Editing state lives entirely in this
+  // component again.
 }
 
 export function UserTurnEditor({
@@ -112,8 +111,6 @@ export function UserTurnEditor({
   onSetVersion,
   onRewind,
   onRewindApplyLocal,
-  editing: editingProp,
-  onEditingChange,
 }: UserTurnEditorProps) {
   const versions = turn.versions ?? []
   const versionCount = versions.length + 1 // +1 for the live (active) version
@@ -135,23 +132,10 @@ export function UserTurnEditor({
       ? versionCount
       : activeVersionIndex + 1
 
-  // Editing state: controlled (parent-managed) when both props are
-  // provided, otherwise internal. The hoisted form is used by
-  // ConversationView and the harness so the edit survives the row
-  // being unmounted by react-window when it scrolls out of view.
-  const isControlled = editingProp !== undefined && onEditingChange !== undefined
-  const [editingInternal, setEditingInternal] = useState(false)
-  const editing = isControlled ? !!editingProp : editingInternal
-  const setEditing = useCallback(
-    (next: boolean) => {
-      if (isControlled) {
-        onEditingChange!(turn.id, next)
-      } else {
-        setEditingInternal(next)
-      }
-    },
-    [isControlled, onEditingChange, turn.id],
-  )
+  // S4b9df4-4: editing state is local only. The lift-up was vestigial
+  // (react-window dropped in bed812b → rows never unmount → no need
+  // to survive remounts at the parent).
+  const [editing, setEditing] = useState(false)
 
   // Draft persists separately in localStorage so even an accidental
   // page refresh doesn't lose typed content (S019 spec).

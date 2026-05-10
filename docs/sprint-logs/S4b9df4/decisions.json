@@ -1,0 +1,98 @@
+{
+  "sprint": "S4b9df4",
+  "title": "Claude タブ React 構造改善 (TopBar 抽出 + ショートカット集約 + vestigial state cleanup)",
+  "branch": "autopilot/main/S4b9df4",
+  "started_at": "2026-05-10T00:00:00Z",
+  "planning_decisions": [
+    {
+      "id": "PD-1",
+      "topic": "Sprint plan source",
+      "decision": "Use ROADMAP.json sprint definition as-is. The sprint was pre-planned by the user with full Stories/AC/Tasks; no further plan-time autonomous edits needed.",
+      "rationale": "Sprint description is unusually detailed and includes a strict REGRESSION CONTRACT. Per DESIGN_PRINCIPLES priority 0 (no skipping tests) and the sprint's own `自己判断スキップ禁止` rule, I will execute exactly the AC as specified rather than re-interpret them."
+    },
+    {
+      "id": "PD-2",
+      "topic": "GUI spec / prototype phase",
+      "decision": "Skip both. The sprint description explicitly states: '構造改善のみ (機能追加なし) → gui-spec / prototype フェーズはスキップ'.",
+      "rationale": "User-facing changes are zero by design. There is no new GUI surface to spec or prototype."
+    },
+    {
+      "id": "PD-3",
+      "topic": "Worktree / parallel execution",
+      "decision": "Sequential (no worktree). Stories 2/3/4 all touch claude-agent-view.tsx — merge conflicts unavoidable.",
+      "rationale": "Sprint description explicitly recommends '逐次実行 (2 → 3 → 4)' for the same reason."
+    },
+    {
+      "id": "PD-4",
+      "topic": "Regression script reuse",
+      "decision": "Adapt scripts/sprint-regression-baseline.sh (S43cfb1) into scripts/sprint-regression-S4b9df4.sh. Add INCLUDE_NEW flag to switch in the 5 new test files after Story 1.",
+      "rationale": "Existing infrastructure works and meets the AC. Per DESIGN_PRINCIPLES priority 6 (existing assets > new implementation)."
+    },
+    {
+      "id": "PD-5",
+      "topic": "needs-user-input.json initialization",
+      "decision": "Create empty `{ \"items\": [] }` at sprint start; append items only when an item genuinely requires user judgement (per the sprint's batch-present rule).",
+      "rationale": "Sprint description explicitly says ユーザ判断は batch 提示 — do not escalate immediately."
+    }
+  ],
+  "implementation_decisions": [
+    {
+      "id": "ID-S4b9df4-0-1",
+      "story": "S4b9df4-0",
+      "topic": "Test fixture branch override",
+      "decision": "Add S0XX_BRANCH_ID env exports in regression script using first openBranch from running dev API",
+      "rationale": "Tests hardcode pre-S1e8d02 branch IDs that no longer exist as worktrees. Updating each test individually = 6 files × ~300 lines, outside refactor scope. Override at regression-script layer is minimal-change and reusable."
+    },
+    {
+      "id": "ID-S4b9df4-0-2",
+      "story": "S4b9df4-0",
+      "topic": "s006 stale UI test truncation",
+      "decision": "Truncate s006_add_dir_file.py to REST checks + composer + button visibility. Remove deleted attach-menu UI assertions.",
+      "rationale": "S008 deleted the attach-menu UI per CLAUDE.md (S008 description). Test was vestigial. Keeping path-traversal REST checks preserves the still-valid security contract. wire-level addDirs test re-added in NUI-2 backlog."
+    },
+    {
+      "id": "ID-S4b9df4-0-3",
+      "story": "S4b9df4-0",
+      "topic": "s017 virtualization → full-DOM expectation",
+      "decision": "Update s017 to expect full DOM render (>= 1000 rows for 500 turns) + scroll perf <3000ms",
+      "rationale": "Commit bed812b intentionally dropped react-window. Test was measuring removed behavior. New assertion matches the architectural decision in the commit."
+    },
+    {
+      "id": "ID-S4b9df4-0-4",
+      "story": "S4b9df4-0",
+      "topic": "s018 export json race fix",
+      "decision": "Add page.wait_for_function on filename .json suffix after radio click",
+      "rationale": "useEffect-driven filename update is async; test was reading stale value. No production change."
+    },
+    {
+      "id": "ID-S4b9df4-0-5",
+      "story": "S4b9df4-0",
+      "topic": "Mobile pencil/arrow tap area CSS fix",
+      "decision": "Add explicit width/height + box-sizing border-box to .editPencil and .arrowBtn @media (max-width: 599px)",
+      "rationale": "min-height alone was being collapsed by parent flex `align-items: flex-start`. Explicit width/height enforces 36x36 tap area per Apple HIG / Google MD3. Aligns with DESIGN_PRINCIPLES priority 10 (mobile parity)."
+    },
+    {
+      "id": "ID-S4b9df4-0-6",
+      "story": "S4b9df4-0",
+      "topic": "Lint baseline acceptance",
+      "decision": "Accept 83 pre-existing lint errors as NUI-1 (batch-presented). Track delta to ensure refactor does not increase count.",
+      "rationale": "Same stance as S43cfb1 final (85 errors). Fixing all 83 = scope explosion outside refactor target. Must NOT make worse."
+    }
+  ],
+  "review_decisions": [
+    {
+      "id": "RD-1",
+      "story": "S4b9df4-4",
+      "topic": "needs-user-input.json batch presentation (AC-S4b9df4-4-5)",
+      "decision": "All 6 NUI items are blocking: false. The autopilot/sprint-auto context cannot interactively prompt the user, so the batch presentation is rendered in the sprint completion report (returned to the calling skill / user) and persisted in needs-user-input.json. The user can review and accept/reject each item in the post-sprint review.",
+      "rationale": "Sprint description explicitly says: `blocking: true の項目があっても作業は止めず、 sprint 内で別 Task / 別 Story を継続。 sprint verify でまとめて提示`. All NUI items here are non-blocking (recommended path is documented for each); proceeding with sprint done is the documented behaviour."
+    },
+    {
+      "id": "RD-2",
+      "story": "S4b9df4 (sprint-level)",
+      "topic": "Sprint final outcome",
+      "decision": "Sprint S4b9df4 status = done. All 5 stories complete (S4b9df4-0..4). All 22 E2E pass. Lint debt -6 (refactor net win). Bundle delta -180 bytes (well under +5% tolerance).",
+      "rationale": "Master Regression Suite all-green at every gate (Story 0 baseline, Story 1, Story 2, Story 3, final). User-facing behaviour preserved (all 5 new E2E tests + 17 prior tests pass, manual-smoke surfaces covered automatically). Refactor goals achieved: claude-agent-view.tsx 654 → 413 lines (-37%), TopBar extracted, shortcuts unified, vestigial lift-up removed."
+    }
+  ]
+}

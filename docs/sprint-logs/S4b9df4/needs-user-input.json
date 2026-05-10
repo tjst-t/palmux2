@@ -1,0 +1,83 @@
+{
+  "items": [
+    {
+      "id": "NUI-1",
+      "raised_at": "2026-05-10T13:30:00Z",
+      "raised_during": "S4b9df4-0",
+      "category": "scope_question",
+      "summary": "FE lint baseline は 83 errors と既存債務。 sprint 契約は lint=0 を求めるが scope は claude-agent/ のみ — どこまで直すか",
+      "detail": "`npm --prefix frontend run lint` は 83 errors / 9 warnings を返す。 内訳: 35x react-hooks/set-state-in-effect (React 19 新ルール、 idiomatic な mount-fetch effect が flag される)、 17x Cannot access refs during render、 8x react-refresh/only-export-components、 2x no-empty、 1x @typescript-eslint/no-unused-vars (`_repoName`)、 1x @next/next/no-img-element (config に rule 不在)。 ファイル分布: 過半が git-view.tsx (1068 行)、 command-palette、 drawer 等の sprint 触らない領域。 claude-agent/ 配下にも一部存在。 S43cfb1 baseline 時点で既に同様 (89 errors) で、 同 sprint も final で 85 errors のまま done している (sprint logs 参照)。\n\n本 sprint 契約は『lint = エラーゼロ』だが scope は『FE refactor: frontend/src/tabs/claude-agent/ のみ』。 全 83 errors を本 sprint で直すと scope が大きく膨らみ、 git-view など sprint と無関係なファイルを大量に書き換えることになる (refactor の安全性を害する可能性)。",
+      "options": [
+        "案 A: 本 sprint は lint baseline 維持 (S43cfb1 と同じスタンス) — 触ったファイル (claude-agent/*) で lint 増加させないことだけを保証し、 sprint 完了後の別 sprint で全 83 errors 一掃を計画",
+        "案 B: 本 sprint で全 83 errors を直す — scope 大幅増 (git-view 1068 行 + command-palette 大幅改修) で refactor の安全性に影響するリスク",
+        "案 C: claude-agent/ 配下の lint errors のみ直す — 中間案。 sprint scope 内に収まる"
+      ],
+      "recommendation": "案 A — sprint scope を尊重 (frontend/src/tabs/claude-agent/ のみ)。 触るファイルで lint errors を増やさないことを保証し、 全体 83 errors の解消は別 sprint で計画する。",
+      "blocking": false
+    },
+    {
+      "id": "NUI-2",
+      "raised_at": "2026-05-10T14:00:00Z",
+      "raised_during": "S4b9df4-0",
+      "category": "test_failure",
+      "summary": "tests/e2e/s006_add_dir_file.py が削除済み UI を検証していたため truncate (REST チェックのみ残置)",
+      "detail": "s006 テストは S006 で導入した attach-menu (Add directory / Add file / Upload image submenu) を検証していたが、 S008 で 「サーバ側ピッカー UI を削除する破壊的変更」 として attach-menu は削除済み (CLAUDE.md S008 行参照)。 その時点で s006 テストは更新されるべきだったが、 古いまま残っていて baseline で fail していた。 \n\n対応: REST 側の path-traversal hardening + composer + button が見える、 までの 3 PASS のみ残す形で truncate。 削除された UI flow (steps 2-11) を消去。 旧 contract の wire-level 観察 (addDirs / @ refs in WS frame) は今後別テストで取り戻すか判断要。 暫定的に s008_upload_routes.py が drag-and-drop / file-input の wire-level を一部カバーしている。",
+      "options": [
+        "案 A: 現状の truncate を維持 — minimal 範囲で baseline 緑化を達成。 wire-level addDirs テストは別 sprint で復活させる",
+        "案 B: 本 sprint 内で attach-menu 後継 (drag-and-drop) の addDirs wire-level テストを s006 に書き直す — scope 増だがカバレッジ復活"
+      ],
+      "recommendation": "案 A — 本 sprint scope は 『Claude タブ React 構造改善』 で attach UI 周りは scope 外。 wire-level の drag-and-drop addDirs テスト復活は別 backlog 化。",
+      "blocking": false
+    },
+    {
+      "id": "NUI-3",
+      "raised_at": "2026-05-10T14:00:00Z",
+      "raised_during": "S4b9df4-0",
+      "category": "test_failure",
+      "summary": "tests/e2e/s017_long_session.py の virtualization 期待値が古かったため full-DOM 期待に書き換え",
+      "detail": "s017 テストは react-window 導入時 (S017) の挙動を期待し DOM 行数 < 60 を assert していた。 しかし bed812b (refactor: drop react-window virtualisation) で full-DOM render に戻された結果、 600+ 行が実 DOM に存在 → fail。 fixture 自体は健全 (実 DOM が増えただけ)。 \n\n対応: 期待値を 「full DOM render >= 1000 行 (500 turns × 2)」 + scroll 後も行数不変、 mobile も full DOM render >= 600 行 + tap area 36px、 に書き換え。 scroll perf 上限を 1000ms → 3000ms に緩和 (full DOM では reasonable)。 ロジック変更は 『現状仕様の正しい記述化』 で behaviour change なし。",
+      "options": [
+        "案 A: 現状の書き換えを維持 — bed812b の意図 (matching claude.ai) に整合",
+        "案 B: full DOM の代わりに content-visibility:auto などで遅延レンダする最適化を入れて virtualization 風の振る舞いを部分復活させる — scope 大幅増"
+      ],
+      "recommendation": "案 A — 既に決定済の architectural change (bed812b commit log で 『scroll が止まるバグの根治』) に整合。 perf 上限は full DOM の現実値に合わせる。",
+      "blocking": false
+    },
+    {
+      "id": "NUI-4",
+      "raised_at": "2026-05-10T14:00:00Z",
+      "raised_during": "S4b9df4-0",
+      "category": "test_failure",
+      "summary": "tests/e2e/s018_conv_utils.py の export format 切替に race があったため wait_for_function を追加",
+      "detail": "s018 の export-json テストは radio click → input value 即読み取りで race を起こしていた (input value は useEffect 経由で次レンダで更新)。 fix: page.wait_for_function で `.json` 拡張子になるまで待機。 production 挙動は変更なし。",
+      "options": ["案 A: 現状の fix を維持"],
+      "recommendation": "案 A — production 動作は変えず、 test の race のみ吸収。",
+      "blocking": false
+    },
+    {
+      "id": "NUI-5",
+      "raised_at": "2026-05-10T14:00:00Z",
+      "raised_during": "S4b9df4-0",
+      "category": "test_failure",
+      "summary": "tests/e2e/s019_rewind.py の mobile pencil tap area 不足 → CSS で width/height を明示 36px に",
+      "detail": "user-turn-editor.module.css の @media (max-width: 599px) で `min-width: 36px; min-height: 36px` を指定していたが、 親の .userBubbleWrap (display: flex; align-items: flex-start) が子を content height (32px ≈ 16px svg + 8px*2 padding) に collapse させていたため min-height が効かなかった。 対応: `width: 36px; height: 36px; box-sizing: border-box` を明示追加 (arrowBtn も同様)。 \n\nproduction 影響: モバイルの編集鉛筆アイコン / 履歴矢印の tap area が 36x36 へ拡大 (Apple HIG / Google MD3 推奨値)。 タップ精度向上。 desktop (>=600px) には影響なし。",
+      "options": ["案 A: CSS fix を維持 — モバイル UX 改善"],
+      "recommendation": "案 A — DESIGN_PRINCIPLES priority 10 (mobile parity > desktop only) と整合。",
+      "blocking": false
+    },
+    {
+      "id": "NUI-6",
+      "raised_at": "2026-05-10T14:00:00Z",
+      "raised_during": "S4b9df4-0",
+      "category": "test_failure",
+      "summary": "scripts/sprint-regression-S4b9df4.sh が legacy E2E test の hardcoded branch ID を override する仕組みを導入",
+      "detail": "s001/s005/s006/s007/s008/s009 系テストは過去の sprint で worktree が存在した時点の branch ID を hardcode していた (`autopilot--S001-refine--08f1` など)。 今は worktree が削除済みで 404 fail。 fix: regression script が curl で /api/repos/{repo}/branches を叩き、 first openBranch の id を取得して全 S0XX_BRANCH_ID env var に export する。 \n\nproduction 影響なし。 test 側のみ。 各テスト本体は touch せず regression script レイヤで吸収。",
+      "options": [
+        "案 A: 現状の env override を維持 (regression script でのみ吸収)",
+        "案 B: 各テスト本体を _fixture.py の hermetic fixture pattern に書き直す — clean だが 6 テスト × 200-600 行 の改修で scope 大幅増"
+      ],
+      "recommendation": "案 A — minimal change で baseline 緑化を達成。 hermetic fixture 化は別 sprint で計画 (NUI として残置)。",
+      "blocking": false
+    }
+  ]
+}

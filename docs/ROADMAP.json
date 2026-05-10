@@ -2,12 +2,15 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 35,
-    "sprints_total": 35,
+    "sprints_done": 36,
+    "sprints_total": 36,
     "percent": 100,
-    "current_sprint": "S43cfb1",
-    "done": 35,
-    "in_progress": 0
+    "current_sprint": "S4b9df4",
+    "done": 36,
+    "in_progress": 0,
+    "total": 36,
+    "remaining": 0,
+    "percentage": 100
   },
   "execution_order": [
     "S001",
@@ -44,7 +47,8 @@
     "S032",
     "S033",
     "S1e8d02",
-    "S43cfb1"
+    "S43cfb1",
+    "S4b9df4"
   ],
   "sprints": {
     "S001": {
@@ -5905,6 +5909,301 @@
           }
         }
       }
+    },
+    "S4b9df4": {
+      "title": "Claude タブ React 構造改善 (TopBar 抽出 + ショートカット集約 + vestigial state cleanup)",
+      "description": "S43cfb1 の Claude タブ refactor で blocks / hooks 分割は済んだが、 claude-agent-view.tsx は依然 650 行で TopBar (170 行) を内包し、 キーボードショートカットが 3 つの useEffect に散らばり、 `editingTurnId` のように S017 で react-window を撤廃した時点で vestigial になったハック (lift-up state) も残っている。 本 sprint は **user-facing 変更ゼロの純粋な構造改善** で、 厳格な REGRESSION CONTRACT で挙動保全を担保する。\n\n## REGRESSION CONTRACT (本 sprint で必ず守る)\n\n**全テスト緑が大前提 + fail はまず自分で直す**。 baseline / story / final の各ゲートで Master Regression Suite を全実行し、 fail が出たら **pass まで自分で直す** (即座にユーザに escalate しない)。 \n\n**自己判断スキップ禁止**: 「これは preexisting」 「これは flaky」 「これは scope 外」 のような理由で fail を除外・無視する仕組みは作らない (それをやると refactor 起因の壊れを誤って preexisting と分類する事故を生む)。\n\n**ユーザ判断は batch 提示**: 真にユーザ判断が必要な事項 (e.g. 「ある fail を本 sprint で直すか別 sprint に切り出すか」、 「複数の妥当な実装解釈があり選択が必要」 等) は **その場で escalate せず** `docs/sprint-logs/S4b9df4/needs-user-input.json` に蓄積し、 他の Story / Task を継続する。 sprint verify 段階で **batch でまとめて提示** する。 即時 escalate が許されるのは destructive (データ削除 / 共有システム変更) のみ。\n\n**1. Story 0 (ベースライン記録)**: refactor を 1 行も書く前に Master Regression Suite を全実行し、 結果を `docs/sprint-logs/S4b9df4/regression-baseline.json` に **生の状態で全件** 記録。 fail があれば **pass まで自分で直してから** Story 1 へ進む。 直しきれず判断が必要な事項のみ needs-user-input.json に追記。\n\n**2. Story 1 (E2E coverage 拡張)**: refactor を始める前に Master Regression Suite に **新規 5 ファイル** を加え、 TopBar / shortcuts / scroll / rewind / permission の Playwright カバレッジを厚くする。 これが Story 2-4 の安全網になる。 拡張後の Master Regression Suite **全件緑** を Story 1 完了の条件とする (fail は pass まで直す)。\n\n**3. Story 2-4 完了ゲート**: 各 Story の AC に列挙された 「Master Regression Suite (Story 1 で拡張済み) + 該当する手動 smoke が **全件緑**」 が必須。 fail は pass まで自分で直す。 直しきれず判断が必要な事項のみ needs-user-input.json に追記して次の Story へ進む。\n\n**4. Sprint done ゲート**: 最後の Story 完了直後に Master Regression Suite を全実行し、 結果を `docs/sprint-logs/S4b9df4/regression-final.json` に全件記録。 **全件緑であること** が必須。 fail があれば pass まで直す。 sprint verify の最後で needs-user-input.json を batch 提示し、 ユーザ判断が必要な未解決事項があれば 1 回でまとめて確認する。 全件緑 + 未解決事項なし (or ユーザが了承) で sprint done。\n\n## Master Regression Suite\n\n**Backend (go test)**: `go test -count=1 ./internal/tab/claudeagent/...`\n\n**Backend (build sanity)**: `go build ./...` がエラーゼロ\n\n**Frontend (build sanity)**: `npm --prefix frontend run build` がエラーゼロ + `npm --prefix frontend run lint` がエラーゼロ\n\n**Frontend (bundle size sanity)**: 主要 chunk (index, lib, files-view) のサイズが baseline ±5% 以内 (純粋な refactor なので大きく増えるはずがない)\n\n**Python E2E (Claude タブ関連 17 本)**: hotfix_claude_scroll_button.py, hotfix_claude_scroll_yank_during_stream.py, s001_refine_plan.py, s004_mcp_indicator.py, s005_hook_cli_wire.py, s005_hook_events.py, s006_add_dir_file.py, s007_ask_question.py, s008_upload_routes.py, s009_multi_tab.py, s009_fix_lifecycle.py, s009_fix_lifecycle_v2.py, s009_fix_periodic_check.py, s009_fix4_ui_monitor.py, s017_long_session.py, s018_conv_utils.py, s019_rewind.py\n\n**Python E2E (Story 1 で新規追加 5 本)**: tests/e2e/s4b9df4_topbar_buttons.py, s4b9df4_keyboard_shortcuts.py, s4b9df4_scroll_follow.py, s4b9df4_rewind_flow.py, s4b9df4_permission_flow.py\n\n**手動 smoke (Story 2, 3, 4 の done 時に必須)**:\n1. make serve INSTANCE=dev で立ち上げ、 既存 Claude セッションがある repo を開く\n2. TopBar の 全ボタン (find / export / history / settings / mcp / clear / interrupt / Run / /clear) をクリックし popup / 動作を確認\n3. ⌘H で history popup, ⌘F で search bar が開閉することを確認\n4. user turn を編集 (鉛筆アイコン → submit) → rewind が走ることを確認\n5. pending permission を作って y / n / Esc が効くことを確認\n6. 自動追従 ON 状態でスクロールを上に上げる → 追従 OFF / ボタン出現、 一番下まで下げる → 追従 ON 復帰\n\n結果は `docs/sprint-logs/S4b9df4/manual-smoke-{StoryID}.md` にチェックリスト形式で記録。\n\n## flaky テストへの方針\n\nfail を 「flaky だから無視」 と自動で振り分けない。 1 回緑にならないテストはまず原因調査 + 修正 → 再実行を pass まで繰り返す。 直しきれない場合のみ needs-user-input.json に追記し、 sprint verify で batch 提示。 sprint の AC に 「N 回中 M 回緑なら OK」 のような確率的合格条件は入れない。\n\n## needs-user-input.json の schema\n\n```json\n{\n  \"items\": [\n    {\n      \"id\": \"NUI-1\",\n      \"raised_at\": \"2026-05-10T15:00:00Z\",\n      \"raised_during\": \"S4b9df4-0\",\n      \"category\": \"test_failure | design_choice | scope_question | other\",\n      \"summary\": \"1 行サマリ\",\n      \"detail\": \"何が起きて、 何を試して、 なぜユーザ判断が必要か\",\n      \"options\": [\"案 A: ...\", \"案 B: ...\"],\n      \"recommendation\": \"自分の推奨\",\n      \"blocking\": false\n    }\n  ]\n}\n```\n\n`blocking: true` の項目があっても作業は止めず、 sprint 内で別 Task / 別 Story を継続。 sprint verify でまとめて提示。\n\n## 触るファイル\n\n**FE refactor**: frontend/src/tabs/claude-agent/{claude-agent-view.tsx, top-bar.tsx 新規, hooks/use-claude-shortcuts.ts 新規, user-turn-editor.tsx, turn-view.tsx, claude-agent-view.module.css}\n\n**FE 新規テスト**: tests/e2e/s4b9df4_*.py × 5\n\n**BE**: 触らない (本 sprint は frontend 構造のみ)\n\n## ジャンル / 並列性 / スコープ外\n\n**ジャンル**: 構造改善のみ (機能追加なし) → gui-spec / prototype フェーズはスキップ\n\n**並列実行**: Story 2 / 3 / 4 は **同じ claude-agent-view.tsx を編集** するため worktree 並列実行は merge conflict 不可避。 逐次実行 (2 → 3 → 4) を推奨\n\n**スコープ外** (議論の上で意図的に外したもの):\n- TurnView の再帰インラインクロージャ — Task サブエージェントの genericity を保つための合理的な trade-off。 触るとリスク超過\n- 4 popup state booleans (history / settings / mcp / export) の統合 — 同時開きを許す現状の挙動を変えるべきか不明。 必要になってから\n- agent-state.ts (915 行) reducer の分割 — 巨大だが論理的に凝集。 切るとむしろ追いにくくなる\n- BE 側の改修 — frontend 構造のみのスコープ",
+      "status": "done",
+      "milestone": false,
+      "stories": {
+        "S4b9df4-0": {
+          "title": "Regression baseline 記録 + 全件緑化 (sprint 開始ゲート)",
+          "status": "done",
+          "user_story": "Claude タブ React 構造改善 sprint を実行する開発者として、 sprint を 1 mm でも進める前に Master Regression Suite が全件緑であることを確認したい。 なぜなら、 baseline 時点で既に壊れているテストがあると、 sprint 中の fail が refactor 起因なのか preexisting なのか区別がつかず、 自分で 「preexisting だから無視」 と判断するとそれが refactor の壊れを覆い隠す事故になるからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S4b9df4-0-1",
+              "description": "docs/sprint-logs/S4b9df4/regression-baseline.json が作成され、 Master Regression Suite (Backend go test / FE build / lint / bundle size / Python E2E 17 本) の **全件の生の出力** + pass/fail/skip サマリ + 各テスト所要時間が記録されている。 fail / skip を自動で除外する分類ロジックは含めない (raw な結果のみ)",
+              "test": "[AC-S4b9df4-0-1] in tests/acceptance/s4b9df4_refactor.py (file existence + JSON schema check that no `preexisting_failures` / `excluded` keys exist)",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S4b9df4-0-2",
+              "description": "baseline 時点で Master Regression Suite が **全件緑** (fail / skip がゼロ)。 fail があれば pass まで自分で直す。 直しきれず判断が必要な事項のみ needs-user-input.json に追記して継続 (即 escalate しない、 自動 preexisting 扱いもしない)",
+              "test": "[AC-S4b9df4-0-2] in tests/acceptance/s4b9df4_refactor.py (assert all suite results == pass)",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S4b9df4-0-3",
+              "description": "baseline FE bundle サイズ (npm run build 後の frontend/dist/assets/{index, lib, files-view}.js の bytes) が regression-baseline.json に記録されている (sprint done 時の比較基準)",
+              "test": "[AC-S4b9df4-0-3] in tests/acceptance/s4b9df4_refactor.py",
+              "status": "pass"
+            }
+          ],
+          "tasks": {
+            "S4b9df4-0-1": {
+              "title": "Master Regression Suite を実行 + JSON ログ出力 (生データのみ)",
+              "description": "scripts/sprint-regression-baseline.sh で go test / npm build / lint / 17 本の E2E を順次実行し、 結果を JSON にまとめる。 各テストの stdout/stderr は別ファイル (sprint-logs/S4b9df4/baseline-stdout/) に保存。 fail を分類・除外するロジックは入れない (raw な pass/fail のみ記録)",
+              "status": "done"
+            },
+            "S4b9df4-0-2": {
+              "title": "fail があれば pass まで自分で直す",
+              "description": "regression-baseline.json から fail / skip を抽出。 0 本なら Story 0 done。 fail があれば原因調査 + 修正 → 再実行を pass まで繰り返す。 直しきれず判断が必要な事項のみ needs-user-input.json (新規) に追記して継続。 即 escalate しない。 修正コミットは別 hotfix-style commit として分けて記録する (refactor commit と混ぜない)",
+              "status": "done"
+            },
+            "S4b9df4-0-3": {
+              "title": "FE bundle サイズを記録",
+              "description": "npm --prefix frontend run build 後、 frontend/dist/assets/ 内の主要 chunk のファイルサイズを stat で取得し regression-baseline.json に記録",
+              "status": "done"
+            }
+          }
+        },
+        "S4b9df4-1": {
+          "title": "Claude タブ E2E regression suite 強化 (TopBar / shortcuts / scroll / rewind / permission)",
+          "status": "done",
+          "user_story": "Claude タブを refactor する開発者として、 TopBar / キーボードショートカット / 自動追従 / rewind / permission の各 surface に対する E2E カバレッジを refactor 前に厚くしておきたい。 なぜなら、 後続の Story 2-4 が user-facing な挙動変更ゼロ を謳う以上、 それを機械的に検証できる回帰テストが先に揃っていないと、 「壊れていないこと」 を主張する根拠が手動 smoke 頼みになり、 自信を持って sprint done を切れないからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S4b9df4-1-1",
+              "description": "tests/e2e/s4b9df4_topbar_buttons.py が新規作成され、 find / export / history / settings / mcp / clear / interrupt / Run / /clear の各 TopBar ボタンクリックで対応する popup 開閉 or action が走ることを Playwright で検証 (data-testid を活用)",
+              "test": "[AC-S4b9df4-1-1] in tests/e2e/s4b9df4_topbar_buttons.py",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S4b9df4-1-2",
+              "description": "tests/e2e/s4b9df4_keyboard_shortcuts.py が新規作成され、 ⌘H で history popup 開閉、 ⌘F で search bar 開閉、 pending permission 中の y / n / Esc が動作、 textarea/input フォーカス時はガードされて素通しすることを検証",
+              "test": "[AC-S4b9df4-1-2] in tests/e2e/s4b9df4_keyboard_shortcuts.py",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S4b9df4-1-3",
+              "description": "tests/e2e/s4b9df4_scroll_follow.py が新規作成され、 自動追従 ON での streaming 中の auto-scroll、 上スクロールで auto-follow OFF + scroll-to-bottom ボタン出現、 ボタンクリック / 一番下まで手動スクロールで auto-follow ON 復帰、 reload 後のスクロール位置復元を検証",
+              "test": "[AC-S4b9df4-1-3] in tests/e2e/s4b9df4_scroll_follow.py",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S4b9df4-1-4",
+              "description": "tests/e2e/s4b9df4_rewind_flow.py が新規作成され、 user turn の鉛筆アイコン → 編集モード → submit → rewind 実行、 version 矢印で archived 版へ切替、 live 版へ戻る、 を検証 (s019_rewind.py と相補的に AC を分担し重複は除外)",
+              "test": "[AC-S4b9df4-1-4] in tests/e2e/s4b9df4_rewind_flow.py",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S4b9df4-1-5",
+              "description": "tests/e2e/s4b9df4_permission_flow.py が新規作成され、 通常 permission の allow/deny (once/session/always)、 plan 承認 (targetMode 切替)、 ask 回答 (single / multiSelect) を mock CLI 経由で検証",
+              "test": "[AC-S4b9df4-1-5] in tests/e2e/s4b9df4_permission_flow.py",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S4b9df4-1-6",
+              "description": "Story 1 完了時点で Master Regression Suite (= 既存 17 本 + Backend / FE build + 新規 5 本) が **全件緑**。 fail は pass まで自分で直す。 直しきれず判断が必要な事項のみ needs-user-input.json に追記して Story 2 へ進む",
+              "test": "[AC-S4b9df4-1-6] in tests/acceptance/s4b9df4_refactor.py",
+              "status": "pass"
+            }
+          ],
+          "tasks": {
+            "S4b9df4-1-1": {
+              "title": "claude-agent-view.tsx に欠けている data-testid を追加",
+              "description": "TopBar の各ボタン (find/export/history/settings/clear) に既存パターン (data-testid=\"topbar-search-btn\" 等) と統一した命名で testid を追加。 既存の testid は壊さない",
+              "status": "done"
+            },
+            "S4b9df4-1-2": {
+              "title": "tests/e2e/s4b9df4_topbar_buttons.py を実装",
+              "description": "Playwright Python で TopBar 全ボタンの動作確認。 [AC-S4b9df4-1-1] タグ付与",
+              "status": "done"
+            },
+            "S4b9df4-1-3": {
+              "title": "tests/e2e/s4b9df4_keyboard_shortcuts.py を実装",
+              "description": "page.keyboard.press でショートカット送信、 popup 状態を data-testid で確認。 textarea フォーカス時のガードも検証。 [AC-S4b9df4-1-2] タグ付与",
+              "status": "done"
+            },
+            "S4b9df4-1-4": {
+              "title": "tests/e2e/s4b9df4_scroll_follow.py を実装",
+              "description": "既存の hotfix_claude_scroll_*.py を参考に、 mock CLI で長い conversation を仕込んでスクロール挙動を検証。 [AC-S4b9df4-1-3] タグ付与",
+              "status": "done"
+            },
+            "S4b9df4-1-5": {
+              "title": "tests/e2e/s4b9df4_rewind_flow.py を実装",
+              "description": "既存 s019_rewind.py を参考に、 編集 → submit → version 切替の操作を Playwright で。 重複 AC は s019 側に残し本ファイルは追加 surface のみ。 [AC-S4b9df4-1-4] タグ付与",
+              "status": "done"
+            },
+            "S4b9df4-1-6": {
+              "title": "tests/e2e/s4b9df4_permission_flow.py を実装",
+              "description": "mock CLI で permission_request を投げ、 PermissionBlock / PlanBlock / AskQuestionBlock の 3 種類の UI 経路を検証。 [AC-S4b9df4-1-5] タグ付与",
+              "status": "done"
+            },
+            "S4b9df4-1-7": {
+              "title": "Master Regression Suite (拡張後) を実行し全件緑化",
+              "description": "新規 5 本を追加した Master Regression Suite を実行。 結果を sprint-logs/S4b9df4/regression-after-story1.json に全件記録。 fail があれば pass まで自分で直す (新規テストの不備が原因なら新規テスト側を修正、 既存テストの flaky なら原因調査 + 安定化)。 直しきれず判断が必要な事項のみ needs-user-input.json に追記。 自動 skip 設計は入れない",
+              "status": "done"
+            }
+          }
+        },
+        "S4b9df4-2": {
+          "title": "TopBar をファイル分離 + インラインスタイル除去 + props grouping",
+          "status": "done",
+          "user_story": "Claude タブのコードを読む開発者として、 claude-agent-view.tsx を 650 行から 500 行以下に縮め、 TopBar のような独立したサブコンポーネントは別ファイルから import するだけで済む構造にしたい。 なぜなら、 一画面の責務が 「state hub + レイアウト」 と 「TopBar 描画」 の 2 つに分かれていると、 どちらを変更したいのか文脈切り替えコストが大きく、 加えて TopBar が抱える 14 引数の props は変更時の影響範囲が見えにくいからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S4b9df4-2-1",
+              "description": "frontend/src/tabs/claude-agent/top-bar.tsx が新規作成され、 元 TopBar コンポーネント (claude-agent-view.tsx l.481-601) と TopBar からのみ呼ばれる helper (pipClass / labelForStatus / mcpPipClass / contextPercent / statusToneAgree) が移動済み。 元の claude-agent-view.tsx 側からは削除されている",
+              "test": "[AC-S4b9df4-2-1] in tests/acceptance/s4b9df4_refactor.py (file existence + grep that helpers are removed from claude-agent-view.tsx)",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S4b9df4-2-2",
+              "description": "claude-agent-view.tsx の行数が 500 行以下になっている (現状 650 行 → TopBar+helpers 約 170 行を抽出すれば 480 行前後)",
+              "test": "[AC-S4b9df4-2-2] in tests/acceptance/s4b9df4_refactor.py (wc -l check)",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S4b9df4-2-3",
+              "description": "claude-agent-view.tsx 内の inline style ({position: 'relative'} 等) が CSS Modules class へ置換されている。 grep 'style=\\{\\{' は popup 用の必須 inline (HistoryPopup の anchor 計算等) を除き 0 件",
+              "test": "[AC-S4b9df4-2-3] in tests/acceptance/s4b9df4_refactor.py",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S4b9df4-2-4",
+              "description": "TopBar の props が 14 個から 10 個以下に減っている。 button action 系 (onClear / onInterrupt / onOpenHistory / onOpenSettings / onOpenSearch / onOpenExport / onToggleMcp) は actions: { ... } オブジェクトに集約",
+              "test": "[AC-S4b9df4-2-4] in tests/acceptance/s4b9df4_refactor.py (parse top-bar.tsx interface)",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S4b9df4-2-5",
+              "description": "Story 2 完了時点で Master Regression Suite (Story 1 で拡張済み) **全件緑** + 手動 smoke (TopBar 全ボタン動作) も pass。 fail は pass まで自分で直す。 直しきれず判断が必要な事項のみ needs-user-input.json に追記して Story 3 へ進む (自動 skip しない)",
+              "test": "[AC-S4b9df4-2-5] in tests/acceptance/s4b9df4_refactor.py (assert all suite results == pass)",
+              "status": "pass"
+            }
+          ],
+          "tasks": {
+            "S4b9df4-2-1": {
+              "title": "top-bar.tsx 新規ファイルへ TopBar + helpers を移動",
+              "description": "TopBarProps interface, TopBar 関数, pipClass, labelForStatus, mcpPipClass, contextPercent, statusToneAgree を移動。 import を整理し循環依存しないことを確認",
+              "status": "done"
+            },
+            "S4b9df4-2-2": {
+              "title": "claude-agent-view.tsx 側のインラインスタイルを CSS Modules 化",
+              "description": "{position: 'relative'} 等を styles.popupAnchor 等の named class に置換。 claude-agent-view.module.css に対応する rule を追加",
+              "status": "done"
+            },
+            "S4b9df4-2-3": {
+              "title": "TopBar の props を actions オブジェクトに集約",
+              "description": "interface TopBarProps { ..., actions: { onClear, onInterrupt, ... } } へ refactor。 呼び出し側 (claude-agent-view.tsx の <TopBar ... />) も合わせて変更",
+              "status": "done"
+            },
+            "S4b9df4-2-4": {
+              "title": "Master Regression Suite + 手動 smoke を実行し全件緑化",
+              "description": "結果を sprint-logs/S4b9df4/regression-after-story2.json と manual-smoke-S4b9df4-2.md に全件記録。 fail があれば pass まで自分で直す。 判断が必要な事項のみ needs-user-input.json に追記",
+              "status": "done"
+            }
+          }
+        },
+        "S4b9df4-3": {
+          "title": "キーボードショートカットを単一フックに集約",
+          "status": "done",
+          "user_story": "Claude タブのキーボードショートカットを増やしたい開発者として、 ⌘H / ⌘F / y/n のように 3 つの useEffect に散らばった登録ロジックを一箇所に統合したい。 なぜなら、 「textarea/input フォーカス時はガード」 のような共通ルールが各 useEffect でコピペされている現状は、 4 つ目のショートカットを追加するときにガード忘れを誘発し、 既存ショートカットの修正時も影響範囲が広がるからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S4b9df4-3-1",
+              "description": "frontend/src/tabs/claude-agent/hooks/use-claude-shortcuts.ts が新規作成され、 ⌘H (history toggle) / ⌘F (search open) / y/n/Esc (pending permission respond) の 3 種ショートカットを 1 つのフックで管理。 引数で 「ガード対象 (textarea/input フォーカス時)」 を共通制御",
+              "test": "[AC-S4b9df4-3-1] in tests/acceptance/s4b9df4_refactor.py (file existence + interface check)",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S4b9df4-3-2",
+              "description": "claude-agent-view.tsx 内のキーボード関連 useEffect (3 つ: l.86-98, l.110-126, l.161-176) が削除され、 useClaudeShortcuts 1 行の呼び出しに置換されている",
+              "test": "[AC-S4b9df4-3-2] in tests/acceptance/s4b9df4_refactor.py",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S4b9df4-3-3",
+              "description": "Story 3 完了時点で Master Regression Suite (Story 1 で拡張済み) **全件緑** + 手動 smoke (⌘H / ⌘F / y / n / Esc + composer フォーカス時の文字入力が素通し) も pass。 fail は pass まで自分で直す。 判断が必要な事項のみ needs-user-input.json に追記して Story 4 へ進む",
+              "test": "[AC-S4b9df4-3-3] in tests/acceptance/s4b9df4_refactor.py",
+              "status": "pass"
+            }
+          ],
+          "tasks": {
+            "S4b9df4-3-1": {
+              "title": "hooks/use-claude-shortcuts.ts を実装",
+              "description": "useClaudeShortcuts({ onToggleHistory, onOpenSearch, pendingPermission, send, wrapRef }) を作成。 内部で 3 つの useEffect を統合 (window.addEventListener('keydown') 1 回で済むよう dispatch)",
+              "status": "done"
+            },
+            "S4b9df4-3-2": {
+              "title": "claude-agent-view.tsx 側の useEffect 3 つを削除し useClaudeShortcuts 呼び出しに置換",
+              "description": "import を追加し、 元の useEffect ブロックを削除。 wrapRef の渡し方を整理",
+              "status": "done"
+            },
+            "S4b9df4-3-3": {
+              "title": "Master Regression Suite + 手動 smoke を実行し全件緑化",
+              "description": "結果を sprint-logs/S4b9df4/regression-after-story3.json と manual-smoke-S4b9df4-3.md に全件記録。 fail があれば pass まで自分で直す。 判断が必要な事項のみ needs-user-input.json に追記",
+              "status": "done"
+            }
+          }
+        },
+        "S4b9df4-4": {
+          "title": "editingTurnId の vestigial lift-up を解消し UserTurnEditor 内部 state へ戻す + sprint final ゲート",
+          "status": "done",
+          "user_story": "Claude タブを保守する開発者として、 react-window 撤廃 (S017) で不要になった editingTurnId の lift-up を UserTurnEditor 内部に戻したい。 なぜなら、 現在の lift-up はコメントに 「row が unmount するから」 と書かれているが、 ConversationList は full DOM render に戻っているため row は unmount せず、 lift-up は形骸化したロジックとして 4 props (editingTurnId / onEditingChange の親 → ClaudeAgentView → TurnView → UserTurnEditor) を貫通するだけの負債になっているからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S4b9df4-4-1",
+              "description": "Step1 検証: ConversationList が render 中に row component を unmount しないことを Playwright で確認 (data-turn-id が一旦消えて再出現しないこと、 編集中の textarea が scroll で消えないこと)。 検証結果を sprint-logs/S4b9df4/editing-state-verification.md に記録",
+              "test": "[AC-S4b9df4-4-1] in tests/e2e/s4b9df4_rewind_flow.py (extended)",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S4b9df4-4-2",
+              "description": "claude-agent-view.tsx の editingTurnId / setEditingTurnId / onEditingChange / 関連 useState + useCallback (l.63-69) が削除されている。 TurnView / UserTurnEditor の関連 props も削除",
+              "test": "[AC-S4b9df4-4-2] in tests/acceptance/s4b9df4_refactor.py (grep)",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S4b9df4-4-3",
+              "description": "user-turn-editor.tsx の内部に editing local state が戻っている (元のコミット履歴を git log で確認可能な状態で復元)",
+              "test": "[AC-S4b9df4-4-3] in tests/acceptance/s4b9df4_refactor.py",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S4b9df4-4-4",
+              "description": "Sprint done 直前に Master Regression Suite (Story 1 で拡張済み) を実行し regression-final.json に **全件緑** で記録 + 編集中スクロール → 編集状態保持の手動 smoke も pass。 fail は pass まで自分で直す",
+              "test": "[AC-S4b9df4-4-4] in tests/acceptance/s4b9df4_refactor.py (assert regression-final.json all results == pass)",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S4b9df4-4-5",
+              "description": "needs-user-input.json に蓄積された全項目を **batch でユーザに提示** し、 各項目について判断を得る。 判断結果は sprint-logs/S4b9df4/decisions.json に記録。 blocking 項目が全て解決済み (or ユーザが了承) で sprint done を許可。 needs-user-input.json が空なら直接 sprint done",
+              "test": "[AC-S4b9df4-4-5] in tests/acceptance/s4b9df4_refactor.py (assert decisions cover all blocking items)",
+              "status": "pass"
+            }
+          ],
+          "tasks": {
+            "S4b9df4-4-1": {
+              "title": "ConversationList が row を unmount しないことを検証",
+              "description": "Playwright で長い conversation を作り、 編集中の turn を画面外まで scroll した後 戻ってきても textarea の中身 / フォーカスが保たれること、 data-turn-id 属性が DOM から消えないことを確認。 結果を editing-state-verification.md に記録",
+              "status": "done"
+            },
+            "S4b9df4-4-2": {
+              "title": "user-turn-editor.tsx に editing local state を戻す",
+              "description": "S43cfb1-2 以前のコミット履歴 (git log -p user-turn-editor.tsx) を参考に useState<boolean> を内部に復元。 親から受ける editing prop は削除",
+              "status": "done"
+            },
+            "S4b9df4-4-3": {
+              "title": "claude-agent-view.tsx + turn-view.tsx 側の lift-up state と props を削除",
+              "description": "editingTurnId / setEditingTurnId / onEditingChange / 関連 useCallback を削除。 TurnViewProps / UserTurnEditor props も合わせて整理",
+              "status": "done"
+            },
+            "S4b9df4-4-4": {
+              "title": "Master Regression Suite + 手動 smoke を実行し全件緑化 (sprint final)",
+              "description": "結果を sprint-logs/S4b9df4/regression-final.json と manual-smoke-S4b9df4-4.md に全件記録。 fail があれば pass まで自分で直す。 修正コミットは別 hotfix-style commit として記録",
+              "status": "done"
+            },
+            "S4b9df4-4-5": {
+              "title": "needs-user-input.json を batch でユーザに提示し判断を得る (sprint verify)",
+              "description": "sprint 全体を通して蓄積した needs-user-input.json を読み込み、 全項目を 1 回の AskUserQuestion or markdown 提示で **まとめて** ユーザに提示。 各項目の選択肢 + 推奨 + 影響範囲を明示。 ユーザの判断結果を sprint-logs/S4b9df4/decisions.json に記録。 blocking 項目が全て解決済みなら sprint done を許可。 needs-user-input.json が空ならこの task は skip 可 (空であることを記録するだけ)",
+              "status": "done"
+            }
+          }
+        }
+      }
     }
   },
   "dependencies": {
@@ -6042,6 +6341,10 @@
     "S43cfb1": {
       "depends_on": [],
       "reason": "純粋なリファクタリング Sprint。 in-progress の S1e8d02 (Workspace-centric domain refactor) と独立 — Branch / Workspace 周りには触らず Claude タブ内部の構造改善のみ。 並列に進めても衝突しない"
+    },
+    "S4b9df4": {
+      "depends_on": [],
+      "reason": "純粋なリファクタリング Sprint。 全 35 既存 sprints が done なので競合する in-progress work なし。 S43cfb1 (Claude タブ前回 refactor) と独立 — TopBar 抽出 / shortcuts hook / editingTurnId vestigial cleanup の 3 軸は S43cfb1 で触らなかった残課題"
     }
   },
   "backlog": [

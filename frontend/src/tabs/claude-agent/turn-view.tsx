@@ -30,12 +30,10 @@ interface TurnViewProps {
   onSetVersion?: (index: number) => void
   onRewind?: (turnId: string, newMessage: string) => Promise<void>
   onRewindApplyLocal?: (turnId: string, newContent: string) => void
-  /** Lifted edit-state. The id of the user turn whose UserTurnEditor
-   *  is currently in edit mode (or null when nothing is being edited).
-   *  Lifted out of UserTurnEditor so the state survives row unmount
-   *  caused by react-window when the row scrolls out of view. */
-  editingTurnId?: string | null
-  onEditingChange?: (turnId: string, editing: boolean) => void
+  // S4b9df4-4: editingTurnId / onEditingChange props removed. The
+  // S019 lift-up they implemented was vestigial after react-window
+  // was dropped (commit bed812b) — UserTurnEditor now manages its
+  // own editing state internally.
   onRespondPermission: RespondPermissionFn
   planHandlersFor: (blockId: string | undefined) => PlanHandlersForView | undefined
   askHandlersFor: (blockId: string | undefined) => AskHandlersForView | undefined
@@ -52,8 +50,6 @@ export function TurnView({
   onSetVersion,
   onRewind,
   onRewindApplyLocal,
-  editingTurnId,
-  onEditingChange,
   onRespondPermission,
   planHandlersFor,
   askHandlersFor,
@@ -73,8 +69,6 @@ export function TurnView({
             onSetVersion={onSetVersion}
             onRewind={onRewind}
             onRewindApplyLocal={onRewindApplyLocal}
-            editing={editingTurnId === turn.id}
-            onEditingChange={onEditingChange}
           />
         </div>
       )
