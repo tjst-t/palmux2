@@ -29,7 +29,7 @@
  *  parent's effects run — no polling needed. The hook collapsed from
  *  ~280 lines to ~150.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import {
   type PersistedScrollRecord,
@@ -123,10 +123,17 @@ export function useScrollAutoFollow(args: UseScrollAutoFollowArgs): UseScrollAut
   }, [sessionId, storageKey])
 
   const containerRef = useRef<HTMLDivElement | null>(null)
-  // Resolve containerRef synchronously each render — the
-  // ConversationList ref is set during commit so .current is available
-  // by the time any effect runs.
-  containerRef.current = listHandleRef.current?.element() ?? null
+  // Resolve containerRef in a useLayoutEffect — children's
+  // useImperativeHandle commits run BEFORE the parent's useLayoutEffects,
+  // so by the time this fires `listHandleRef.current` is populated.
+  // Doing it during render (before commit) would always read null on
+  // the first mount, which silently broke useScrollRestore (it ran
+  // its one-shot useLayoutEffect with containerRef=null and gave up).
+  // The dep [listHandleRef] makes this a stable one-time assignment;
+  // listHandleRef itself is a ref object, never changes identity.
+  useLayoutEffect(() => {
+    containerRef.current = listHandleRef.current?.element() ?? null
+  }, [listHandleRef])
 
   // 250ms input guard — synchronous mark of the user touching the
   // scrollbar. ConversationList sets this BEFORE the browser delivers
