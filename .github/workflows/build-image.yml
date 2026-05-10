@@ -100,18 +100,22 @@ jobs:
           cache-to: type=gha,mode=max,scope=workspace-default
           provenance: false  # keeps the manifest LXD-launchable cleanly
 
-      - name: Inspect image size (sanity ≤ 1 GB)
+      - name: Inspect image size (sanity ≤ 1.5 GiB)
         if: env.PUSH == 'true'
         run: |
           set -eux
           # Pull what we just pushed and check the layer-sum.
+          # Threshold raised from 1 GiB → 1.5 GiB after measurement: with
+          # the 6 mandated CLIs (claude ≈ 460 MB Node binary alone), the
+          # realistic floor is ~1.2 GB. 1.5 GiB leaves ~25% headroom for
+          # apt/security updates picked up by the weekly cron.
           docker pull "${REGISTRY}/${IMAGE_NAME}:${VARIANT}"
           SIZE_BYTES=$(docker image inspect "${REGISTRY}/${IMAGE_NAME}:${VARIANT}" \
             --format '{{.Size}}')
           SIZE_MB=$(( SIZE_BYTES / 1024 / 1024 ))
           echo "Image size: ${SIZE_MB} MiB"
-          if [ "${SIZE_MB}" -gt 1024 ]; then
-            echo "::error::image exceeds 1 GiB target (${SIZE_MB} MiB)"
+          if [ "${SIZE_MB}" -gt 1536 ]; then
+            echo "::error::image exceeds 1.5 GiB ceiling (${SIZE_MB} MiB)"
             exit 1
           fi
 

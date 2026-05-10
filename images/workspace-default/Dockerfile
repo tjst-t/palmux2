@@ -54,21 +54,26 @@ RUN set -eux; \
 
 # ---------------------------------------------------------------------------
 # Layer 2: dev tooling installable straight from Ubuntu archives
-# (git / tmux / ansible / build basics). Kept separate so a Layer 1 cache
-# hit is preserved when bumping dev tools.
+# (git / tmux / ansible-core / make).
+#
+# Trimmed for size (was 1.04 GB → ~430 MB):
+#   - `ansible-core` (≈90 MB) instead of full `ansible` (≈350 MB) — devs can
+#     `pip install` extra collections when needed
+#   - dropped `ansible-lint` (≈200 MB) — lints belong on the developer host
+#     CI, not in the runtime image
+#   - dropped `build-essential` (≈350 MB) and `python3-pip` / `python3-venv`
+#     (≈80 MB) — devs install these on demand inside the container if a
+#     project needs to compile native extensions; default image stays runtime-
+#     focused
 # ---------------------------------------------------------------------------
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         git \
         tmux \
-        ansible \
-        ansible-lint \
+        ansible-core \
         python3 \
-        python3-pip \
-        python3-venv \
-        make \
-        build-essential; \
+        make; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
