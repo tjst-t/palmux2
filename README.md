@@ -19,6 +19,7 @@ implementation detail: every browser session attaches to a tmux session named
 
 ## Table of contents
 
+- [Supported operating systems](#supported-operating-systems)
 - [Required dependencies](#required-dependencies)
 - [Optional dependencies](#optional-dependencies)
 - [Install](#install)
@@ -34,6 +35,24 @@ implementation detail: every browser session attaches to a tmux session named
 - [Development](#development)
 - [Releases](#releases)
 - [License](#license)
+
+---
+
+## Supported operating systems
+
+**Palmux is supported on Ubuntu (Linux) only.**
+
+| Platform | Status |
+| --- | --- |
+| Ubuntu 22.04 LTS / 24.04 LTS (`linux/amd64`, `linux/arm64`) | **Supported** — release binaries are built and tested for these targets |
+| Other Linux distributions (Debian, Fedora, Arch, …) | Best-effort. The binary will probably run if the [required dependencies](#required-dependencies) are installed, but Palmux does not test on these and will not accept distro-specific bug reports |
+| macOS | **Not supported.** The Workspace runtime feature (LXD container isolation) cannot be implemented on macOS in a way that preserves the design contract; see [`docs/workspace-runtime.md`](docs/workspace-runtime.md) and the design rationale in `docs/workspace-runtime-design.md` §14.7 |
+| Windows / WSL | Not supported. WSL2 may work for the host runtime, but is untested |
+
+The Workspace runtime feature additionally publishes a curated container
+image (`ghcr.io/tjst-t/palmux-workspace:default`) for the LXD-container
+runtime kind. Override and bypass instructions are documented in
+[`docs/workspace-runtime.md`](docs/workspace-runtime.md).
 
 ---
 
