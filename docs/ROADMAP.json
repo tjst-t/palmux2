@@ -5917,123 +5917,123 @@
       "stories": {
         "S4b9df4-0": {
           "title": "Regression baseline 記録 + 全件緑化 (sprint 開始ゲート)",
-          "status": "pending",
+          "status": "done",
           "user_story": "Claude タブ React 構造改善 sprint を実行する開発者として、 sprint を 1 mm でも進める前に Master Regression Suite が全件緑であることを確認したい。 なぜなら、 baseline 時点で既に壊れているテストがあると、 sprint 中の fail が refactor 起因なのか preexisting なのか区別がつかず、 自分で 「preexisting だから無視」 と判断するとそれが refactor の壊れを覆い隠す事故になるからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S4b9df4-0-1",
               "description": "docs/sprint-logs/S4b9df4/regression-baseline.json が作成され、 Master Regression Suite (Backend go test / FE build / lint / bundle size / Python E2E 17 本) の **全件の生の出力** + pass/fail/skip サマリ + 各テスト所要時間が記録されている。 fail / skip を自動で除外する分類ロジックは含めない (raw な結果のみ)",
               "test": "[AC-S4b9df4-0-1] in tests/acceptance/s4b9df4_refactor.py (file existence + JSON schema check that no `preexisting_failures` / `excluded` keys exist)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S4b9df4-0-2",
               "description": "baseline 時点で Master Regression Suite が **全件緑** (fail / skip がゼロ)。 fail があれば pass まで自分で直す。 直しきれず判断が必要な事項のみ needs-user-input.json に追記して継続 (即 escalate しない、 自動 preexisting 扱いもしない)",
               "test": "[AC-S4b9df4-0-2] in tests/acceptance/s4b9df4_refactor.py (assert all suite results == pass)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S4b9df4-0-3",
               "description": "baseline FE bundle サイズ (npm run build 後の frontend/dist/assets/{index, lib, files-view}.js の bytes) が regression-baseline.json に記録されている (sprint done 時の比較基準)",
               "test": "[AC-S4b9df4-0-3] in tests/acceptance/s4b9df4_refactor.py",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S4b9df4-0-1": {
               "title": "Master Regression Suite を実行 + JSON ログ出力 (生データのみ)",
               "description": "scripts/sprint-regression-baseline.sh で go test / npm build / lint / 17 本の E2E を順次実行し、 結果を JSON にまとめる。 各テストの stdout/stderr は別ファイル (sprint-logs/S4b9df4/baseline-stdout/) に保存。 fail を分類・除外するロジックは入れない (raw な pass/fail のみ記録)",
-              "status": "pending"
+              "status": "done"
             },
             "S4b9df4-0-2": {
               "title": "fail があれば pass まで自分で直す",
               "description": "regression-baseline.json から fail / skip を抽出。 0 本なら Story 0 done。 fail があれば原因調査 + 修正 → 再実行を pass まで繰り返す。 直しきれず判断が必要な事項のみ needs-user-input.json (新規) に追記して継続。 即 escalate しない。 修正コミットは別 hotfix-style commit として分けて記録する (refactor commit と混ぜない)",
-              "status": "pending"
+              "status": "done"
             },
             "S4b9df4-0-3": {
               "title": "FE bundle サイズを記録",
               "description": "npm --prefix frontend run build 後、 frontend/dist/assets/ 内の主要 chunk のファイルサイズを stat で取得し regression-baseline.json に記録",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
         "S4b9df4-1": {
           "title": "Claude タブ E2E regression suite 強化 (TopBar / shortcuts / scroll / rewind / permission)",
-          "status": "pending",
+          "status": "done",
           "user_story": "Claude タブを refactor する開発者として、 TopBar / キーボードショートカット / 自動追従 / rewind / permission の各 surface に対する E2E カバレッジを refactor 前に厚くしておきたい。 なぜなら、 後続の Story 2-4 が user-facing な挙動変更ゼロ を謳う以上、 それを機械的に検証できる回帰テストが先に揃っていないと、 「壊れていないこと」 を主張する根拠が手動 smoke 頼みになり、 自信を持って sprint done を切れないからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S4b9df4-1-1",
               "description": "tests/e2e/s4b9df4_topbar_buttons.py が新規作成され、 find / export / history / settings / mcp / clear / interrupt / Run / /clear の各 TopBar ボタンクリックで対応する popup 開閉 or action が走ることを Playwright で検証 (data-testid を活用)",
               "test": "[AC-S4b9df4-1-1] in tests/e2e/s4b9df4_topbar_buttons.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S4b9df4-1-2",
               "description": "tests/e2e/s4b9df4_keyboard_shortcuts.py が新規作成され、 ⌘H で history popup 開閉、 ⌘F で search bar 開閉、 pending permission 中の y / n / Esc が動作、 textarea/input フォーカス時はガードされて素通しすることを検証",
               "test": "[AC-S4b9df4-1-2] in tests/e2e/s4b9df4_keyboard_shortcuts.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S4b9df4-1-3",
               "description": "tests/e2e/s4b9df4_scroll_follow.py が新規作成され、 自動追従 ON での streaming 中の auto-scroll、 上スクロールで auto-follow OFF + scroll-to-bottom ボタン出現、 ボタンクリック / 一番下まで手動スクロールで auto-follow ON 復帰、 reload 後のスクロール位置復元を検証",
               "test": "[AC-S4b9df4-1-3] in tests/e2e/s4b9df4_scroll_follow.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S4b9df4-1-4",
               "description": "tests/e2e/s4b9df4_rewind_flow.py が新規作成され、 user turn の鉛筆アイコン → 編集モード → submit → rewind 実行、 version 矢印で archived 版へ切替、 live 版へ戻る、 を検証 (s019_rewind.py と相補的に AC を分担し重複は除外)",
               "test": "[AC-S4b9df4-1-4] in tests/e2e/s4b9df4_rewind_flow.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S4b9df4-1-5",
               "description": "tests/e2e/s4b9df4_permission_flow.py が新規作成され、 通常 permission の allow/deny (once/session/always)、 plan 承認 (targetMode 切替)、 ask 回答 (single / multiSelect) を mock CLI 経由で検証",
               "test": "[AC-S4b9df4-1-5] in tests/e2e/s4b9df4_permission_flow.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S4b9df4-1-6",
               "description": "Story 1 完了時点で Master Regression Suite (= 既存 17 本 + Backend / FE build + 新規 5 本) が **全件緑**。 fail は pass まで自分で直す。 直しきれず判断が必要な事項のみ needs-user-input.json に追記して Story 2 へ進む",
               "test": "[AC-S4b9df4-1-6] in tests/acceptance/s4b9df4_refactor.py",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S4b9df4-1-1": {
               "title": "claude-agent-view.tsx に欠けている data-testid を追加",
               "description": "TopBar の各ボタン (find/export/history/settings/clear) に既存パターン (data-testid=\"topbar-search-btn\" 等) と統一した命名で testid を追加。 既存の testid は壊さない",
-              "status": "pending"
+              "status": "done"
             },
             "S4b9df4-1-2": {
               "title": "tests/e2e/s4b9df4_topbar_buttons.py を実装",
               "description": "Playwright Python で TopBar 全ボタンの動作確認。 [AC-S4b9df4-1-1] タグ付与",
-              "status": "pending"
+              "status": "done"
             },
             "S4b9df4-1-3": {
               "title": "tests/e2e/s4b9df4_keyboard_shortcuts.py を実装",
               "description": "page.keyboard.press でショートカット送信、 popup 状態を data-testid で確認。 textarea フォーカス時のガードも検証。 [AC-S4b9df4-1-2] タグ付与",
-              "status": "pending"
+              "status": "done"
             },
             "S4b9df4-1-4": {
               "title": "tests/e2e/s4b9df4_scroll_follow.py を実装",
               "description": "既存の hotfix_claude_scroll_*.py を参考に、 mock CLI で長い conversation を仕込んでスクロール挙動を検証。 [AC-S4b9df4-1-3] タグ付与",
-              "status": "pending"
+              "status": "done"
             },
             "S4b9df4-1-5": {
               "title": "tests/e2e/s4b9df4_rewind_flow.py を実装",
               "description": "既存 s019_rewind.py を参考に、 編集 → submit → version 切替の操作を Playwright で。 重複 AC は s019 側に残し本ファイルは追加 surface のみ。 [AC-S4b9df4-1-4] タグ付与",
-              "status": "pending"
+              "status": "done"
             },
             "S4b9df4-1-6": {
               "title": "tests/e2e/s4b9df4_permission_flow.py を実装",
               "description": "mock CLI で permission_request を投げ、 PermissionBlock / PlanBlock / AskQuestionBlock の 3 種類の UI 経路を検証。 [AC-S4b9df4-1-5] タグ付与",
-              "status": "pending"
+              "status": "done"
             },
             "S4b9df4-1-7": {
               "title": "Master Regression Suite (拡張後) を実行し全件緑化",
               "description": "新規 5 本を追加した Master Regression Suite を実行。 結果を sprint-logs/S4b9df4/regression-after-story1.json に全件記録。 fail があれば pass まで自分で直す (新規テストの不備が原因なら新規テスト側を修正、 既存テストの flaky なら原因調査 + 安定化)。 直しきれず判断が必要な事項のみ needs-user-input.json に追記。 自動 skip 設計は入れない",
-              "status": "pending"
+              "status": "done"
             }
           }
         },

@@ -492,9 +492,9 @@ function TopBar(props: TopBarProps) {
       ? `MCP — ${total - okCount} of ${total} pending`
       : `MCP — ${okCount}/${total} connected`
   return (
-    <div className={styles.topBar}>
-      <span className={`${styles.statusPip} ${pipClass(props.status)}`} aria-hidden />
-      <span className={styles.statusText}>{labelForStatus(props.status)}</span>
+    <div className={styles.topBar} data-testid="claude-topbar">
+      <span className={`${styles.statusPip} ${pipClass(props.status)}`} aria-hidden data-testid="topbar-status-pip" data-status={props.status} />
+      <span className={styles.statusText} data-testid="topbar-status-text">{labelForStatus(props.status)}</span>
 
       <span className={styles.spacer} />
 
@@ -516,6 +516,7 @@ function TopBar(props: TopBarProps) {
           className={styles.iconBtn}
           onClick={props.onInterrupt}
           title="Interrupt (Esc)"
+          data-testid="topbar-interrupt-btn"
         >
           stop
         </button>
@@ -552,6 +553,7 @@ function TopBar(props: TopBarProps) {
         className={styles.iconBtn}
         onClick={props.onOpenHistory}
         title="History (⌘H)"
+        data-testid="topbar-history-btn"
       >
         history
       </button>
@@ -561,6 +563,7 @@ function TopBar(props: TopBarProps) {
         className={styles.iconBtn}
         onClick={props.onOpenSettings}
         title="Open .claude/settings.json viewer"
+        data-testid="topbar-settings-btn"
       >
         settings
       </button>
@@ -589,6 +592,7 @@ function TopBar(props: TopBarProps) {
         className={styles.iconBtn}
         onClick={props.onClear}
         title="/clear — start a fresh session"
+        data-testid="topbar-clear-btn"
       >
         /clear
       </button>
