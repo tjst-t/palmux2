@@ -44,18 +44,22 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+# Saa8506: hermetic fixture.
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _fixture import palmux2_test_fixture, BASE_URL  # noqa: E402
+
 PORT = (
-    os.environ.get("PALMUX_DEV_PORT")
+    os.environ.get("PALMUX2_DEV_PORT_OVERRIDE")
     or os.environ.get("PALMUX2_DEV_PORT")
-    or "8283"
+    or os.environ.get("PALMUX_DEV_PORT")
+    or "8215"
 )
-REPO_ID = os.environ.get(
-    "S009_FIX_REPO_ID", "tjst-t--palmux2--2d59"
-)
-BRANCH_ID = os.environ.get(
-    "S009_FIX_BRANCH_ID", "autopilot--main--S009-fix-1--bf55"
-)
-BASE_URL = f"http://localhost:{PORT}"
+
+# These globals are populated by the fixture inside main(); the case_*
+# helpers consume them through module scope.
+REPO_ID: str = ""
+BRANCH_ID: str = ""
 
 TIMEOUT_S = 15.0
 
@@ -337,7 +341,19 @@ def case_g_bash_30s_persistence() -> None:
 
 
 async def main() -> None:
+    global REPO_ID, BRANCH_ID
     print(f"S009-fix-1 lifecycle E2E against {BASE_URL}")
+    with palmux2_test_fixture("s009-fix") as fx:
+        REPO_ID = fx.repo_id
+        BRANCH_ID = fx.primary_branch_id()
+        fx.open_claude_tab(BRANCH_ID)
+        # Wait for sync_tmux to seed the canonical `bash:bash` tab.
+        fx.wait_for_tab(BRANCH_ID, "bash:bash", timeout_s=10.0)
+        print(f"  hermetic repo={REPO_ID}  branch={BRANCH_ID}")
+        _run()
+
+
+def _run() -> None:
     case_a_add_claude_keeps_bash()
     case_b_remove_claude_keeps_bash()
     case_c_re_add_claude_does_not_resurrect_bash()
@@ -345,7 +361,6 @@ async def main() -> None:
     case_e_independent_lifecycles()
     case_f_caps_and_floors_unchanged()
     case_g_bash_30s_persistence()
-    cleanup_extras()
     print("PASS — all S009-fix-1 cases covered")
 
 

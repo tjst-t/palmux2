@@ -155,6 +155,119 @@ class Fixture:
 
     _cleaned: bool = False
 
+    # ------------------------------------------------------------------
+    # Saa8506 helpers — used by the 11 hermetic-migrated tests so each
+    # test does not roll its own discover-the-branch-id loop.
+    # ------------------------------------------------------------------
+
+    def primary_branch_id(self, *, timeout_s: float = 8.0) -> str:
+        """Return the first open branch ID of this fixture's repository.
+
+        Polls `GET /api/repos/{id}/branches` until at least one branch
+        appears (the primary worktree may take a sub-second to surface
+        after `/open`). Raises RuntimeError on timeout.
+        """
+        deadline = time.monotonic() + timeout_s
+        last: list = []
+        while time.monotonic() < deadline:
+            code, branches = _http_json(
+                "GET", f"/api/repos/{urllib.parse.quote(self.repo_id)}/branches"
+            )
+            if code == 200 and isinstance(branches, list) and branches:
+                return branches[0]["id"]
+            last = branches if isinstance(branches, list) else []
+            time.sleep(0.1)
+        raise RuntimeError(
+            f"primary_branch_id: no open branches for {self.repo_id} "
+            f"after {timeout_s}s (last={last!r})"
+        )
+
+    def list_tabs(self, branch_id: str) -> list:
+        code, tabs = _http_json(
+            "GET",
+            f"/api/repos/{urllib.parse.quote(self.repo_id)}"
+            f"/branches/{urllib.parse.quote(branch_id)}/tabs",
+        )
+        if code != 200:
+            raise RuntimeError(f"list_tabs: {code} {tabs!r}")
+        # Server returns a TabSet wrapper {tabs: [...], activeTabId: "..."}
+        # OR a bare array depending on serialisation; normalise to list.
+        if isinstance(tabs, dict):
+            return tabs.get("tabs") or []
+        return tabs  # type: ignore[return-value]
+
+    def wait_for_tab(
+        self, branch_id: str, tab_id: str, *, timeout_s: float = 8.0
+    ) -> None:
+        """Block until `tab_id` appears in the branch's tab list.
+
+        Useful for sync_tmux-driven tab seeding (the canonical
+        `bash:bash` tab appears ~2-3 s after branch open when the
+        periodic tmux sync ensures the session).
+        """
+        deadline = time.monotonic() + timeout_s
+        seen: list[str] = []
+        while time.monotonic() < deadline:
+            tabs = self.list_tabs(branch_id)
+            seen = [t.get("id") for t in tabs]
+            if tab_id in seen:
+                return
+            time.sleep(0.2)
+        raise RuntimeError(
+            f"wait_for_tab: {tab_id!r} did not appear in "
+            f"{self.repo_id}/{branch_id} within {timeout_s}s "
+            f"(saw {seen!r})"
+        )
+
+    def open_claude_tab(self, branch_id: str, *, timeout_s: float = 5.0) -> str:
+        """Confirm the auto-created `claude:claude` tab is present.
+
+        The Claude tab is registered by the tab provider at branch open
+        and is protected (not removable). This helper just synchronises
+        — it polls until the tab is visible to /tabs.
+        """
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            tabs = self.list_tabs(branch_id)
+            for t in tabs:
+                if t.get("id") == "claude:claude" or t.get("type") == "claude":
+                    return t["id"]
+            time.sleep(0.1)
+        raise RuntimeError(
+            f"open_claude_tab: claude tab not present on {self.repo_id}/{branch_id}"
+        )
+
+    def create_bash_tab(self, branch_id: str, name: str = "bash") -> str:
+        """POST a new bash tab. Returns the new tab ID."""
+        code, body = _http_json(
+            "POST",
+            f"/api/repos/{urllib.parse.quote(self.repo_id)}"
+            f"/branches/{urllib.parse.quote(branch_id)}/tabs",
+            body={"type": "bash", "name": name},
+        )
+        if code not in (200, 201):
+            raise RuntimeError(f"create_bash_tab: {code} {body!r}")
+        if isinstance(body, dict) and "id" in body:
+            return body["id"]
+        raise RuntimeError(f"create_bash_tab: unexpected body {body!r}")
+
+    def remove_tab(self, branch_id: str, tab_id: str) -> None:
+        code, _ = _http_json(
+            "DELETE",
+            f"/api/repos/{urllib.parse.quote(self.repo_id)}"
+            f"/branches/{urllib.parse.quote(branch_id)}"
+            f"/tabs/{urllib.parse.quote(tab_id)}",
+        )
+        if code not in (200, 204, 404):
+            raise RuntimeError(f"remove_tab {tab_id}: {code}")
+
+    def base_url(self) -> str:
+        return BASE_URL
+
+    # ------------------------------------------------------------------
+    # cleanup
+    # ------------------------------------------------------------------
+
     def _cleanup(self) -> None:
         if self._cleaned:
             return

@@ -1,0 +1,29 @@
+{
+  "sprint": "Saa8506",
+  "decisions": [
+    {
+      "id": "D1",
+      "phase": "story-0",
+      "topic": "baseline regression — s4b9df4_keyboard_shortcuts flake",
+      "decision": "Fix the test (not the product) by waiting for the search input to be auto-focused before pressing Escape.",
+      "rationale": "Production code requestAnimationFrame-focuses the input on open; the Esc handler lives on the input. Pressing Escape before focus settles delivers Esc to <body> and the bar stays open. This is a test-only race, ~1/5 flake on the dev rig. Fixing the test is correct because the contract under test is 'Escape on focused input closes search bar', which the test currently fails to set up. Aligns with VISION process_constraint 'テストはスキップしない' — flake is a real defect to fix, not bypass.",
+      "files": ["tests/e2e/s4b9df4_keyboard_shortcuts.py"],
+      "verified_by": "10x stress-run all pass"
+    },
+    {
+      "id": "D2",
+      "phase": "story-0",
+      "topic": "Story 1 execution model",
+      "decision": "Execute Story 1's 11 hermetic migrations serially in the main agent rather than fanning out to 5 sub-agents in parallel.",
+      "rationale": "All 11 fixtures point at the same `make serve INSTANCE=dev` instance. Parallel sub-agents writing to the same palmux2 process would interleave repo.open / repo.close events and produce false flakes in cleanup. Each migration is <300 lines and fast (<5min) so serial execution finishes within Sprint budget. Conforms to DESIGN_PRINCIPLES priority_rule 6 (既存資産活用 — reuse the single live dev rig).",
+      "tradeoff": "Slightly longer wall-clock at the gain of deterministic regression results."
+    },
+    {
+      "id": "D3",
+      "phase": "story-0",
+      "topic": "Story 1 fixture helpers",
+      "decision": "Add `Fixture.primary_branch_id()`, `Fixture.open_claude_tab()`, `Fixture.create_bash_tab(name)`, `Fixture.create_worktree(name)` to `tests/e2e/_fixture.py`. No other refactor.",
+      "rationale": "Migration matrix Section A — all 11 tests need branch ID discovery + at least one tab presence assertion. Centralising these in _fixture.py prevents 11 copies of the same retry loop (DESIGN_PRINCIPLES priority_rule 6)."
+    }
+  ]
+}

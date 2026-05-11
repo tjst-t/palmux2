@@ -2,15 +2,15 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 37,
+    "sprints_done": 38,
     "sprints_total": 38,
-    "percent": 97,
+    "percent": 100,
     "current_sprint": null,
-    "done": 37,
+    "done": 38,
     "in_progress": 0,
     "total": 38,
-    "remaining": 1,
-    "percentage": 97
+    "remaining": 0,
+    "percentage": 100
   },
   "execution_order": [
     "S001",
@@ -6466,211 +6466,211 @@
     "Saa8506": {
       "title": "E2E test hygiene (10 本の hardcoded branch 解消 + s006 wire-level 復活)",
       "description": "S4b9df4 sprint で表面化した NUI-2 / NUI-6 への対応。 現在 10 本の Python E2E test (s001 / s004 / s005 / s006 / s007 / s008 / s009_*) が **過去 sprint 時点の存在した branch ID を hardcode** している (`autopilot--S001-refine--08f1` 等)。 worktree が削除済みのため 404 fail し、 S4b9df4 では `scripts/sprint-regression-S4b9df4.sh` が curl で /api/repos/{repo}/branches を叩いて first openBranch を env var に export することで吸収していた。 これは regression script に env override layer を残すという技術的負債。\n\nまた s006 test は S008 で削除された attach-menu UI を検証していたため、 S4b9df4 では REST 部のみに truncate された。 削除された UI は 「サーバ側ピッカー → drag-and-drop」 への進化なので、 wire-level (addDirs / @ refs in WS frame) のテストは復活させるべき。\n\n本 sprint は `tests/e2e/_fixture.py` を活用した hermetic test pattern (各テストが 自前で worktree create → run → cleanup) に 10 本を移行 + s006 drag-and-drop wire-level test を新規作成 + regression script から env override layer を削除する。\n\n## REGRESSION CONTRACT\n\nS4b9df4 / S13b16a と同じ運用:\n- 全テスト緑が大前提 + fail はまず自分で直す\n- 自己判断スキップ禁止\n- ユーザ判断は needs-user-input.json に蓄積し sprint verify で batch 提示\n- 即時 escalate は destructive のみ\n\n## Master Regression Suite\n\n**Backend (go test)**: `go test -count=1 ./...`\n\n**Backend (build sanity)**: `go build ./...` がエラーゼロ\n\n**Frontend (build + lint)**: `npm --prefix frontend run build` + `npm --prefix frontend run lint` が **errors=0** (S13b16a 完了後の state を維持)\n\n**Python E2E (本 sprint で hermetic 化された 10 本 + 既存 hermetic 12 本 = 計 22 本)**: 全件緑\n\n**Regression script の env override layer が完全に削除されている** こと (`grep -E 'S00._BRANCH_ID' scripts/sprint-regression-*.sh` が 0 件)\n\n**手動 smoke (Story 1, 2, 3 の done 時に必須)**: hermetic 化した test を `make serve INSTANCE=dev` の clean state で 1 本ずつ実行し、 fixture が独立して worktree を create / cleanup していることを目視\n\n## needs-user-input.json schema\n\nS4b9df4 / S13b16a と同じ。 sprint verify で batch 提示。\n\n## 触るファイル\n\n**E2E refactor**: tests/e2e/{s001_refine_plan.py, s004_mcp_indicator.py, s005_hook_events.py, s006_add_dir_file.py, s007_ask_question.py, s008_upload_routes.py, s009_multi_tab.py, s009_fix_lifecycle.py, s009_fix_lifecycle_v2.py, s009_fix_periodic_check.py, s009_fix4_ui_monitor.py}\n\n**E2E 新規**: tests/e2e/s006_attach_dnd_wire.py (drag-and-drop addDirs wire-level)\n\n**fixture 拡張 (必要なら)**: tests/e2e/_fixture.py\n\n**スクリプト**: scripts/sprint-regression-S13b16a.sh (前 sprint 経由で更新済) から env override 削除 → scripts/sprint-regression-Saa8506.sh\n\n**実装 (BE / FE)**: 触らない (本 sprint は test 衛生のみ)\n\n## ジャンル / 並列性 / スコープ外\n\n**ジャンル**: test 衛生のみ (機能追加なし) → gui-spec / prototype フェーズはスキップ\n\n**並列実行**: Story 1 の 10 本 hermetic 化はファイルごとに独立しているため worktree 並列が可能。 sub-agent 5 並列で 2 本ずつ担当も検討可\n\n**スコープ外**:\n- 新規 acceptance criteria の追加 (本 sprint は既存テストの形式変更のみ)\n- BE / FE 実装の変更 — test だけを触る\n- Frontend lint / build の改善 (前 sprint S13b16a で扱う)",
-      "status": "pending",
+      "status": "done",
       "milestone": false,
       "stories": {
         "Saa8506-0": {
           "title": "Regression baseline + hermetic _fixture.py 分析 + 移行マトリクス (sprint 開始ゲート)",
-          "status": "pending",
+          "status": "done",
           "user_story": "E2E test hygiene sprint を実行する開発者として、 sprint を 1 行も書く前に Master Regression Suite が全件緑、 かつ既存の hermetic _fixture.py パターンを分析して 10 本の test がどの fixture に乗れるかのマトリクスを作りたい。 なぜなら、 各 test はそれぞれ前提が違う (open repo / open branch / claude タブ起動 / mock CLI 必要等) ので、 一律に同じ fixture に乗せられず、 移行戦略の設計図が必要だからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-Saa8506-0-1",
               "description": "docs/sprint-logs/Saa8506/regression-baseline.json が作成され、 Master Regression Suite (Backend go test / FE build + lint / Python E2E 22 本) の **全件の生の出力** が記録されている。 fail を分類・除外するロジックは含めない",
               "test": "[AC-Saa8506-0-1] in tests/acceptance/saa8506_e2e_hygiene.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Saa8506-0-2",
               "description": "baseline 時点で Master Regression Suite が **全件緑** (FE lint=0 を S13b16a 完了状態として継承)。 fail は pass まで自分で直す。 直しきれず判断が必要な事項のみ needs-user-input.json に追記して継続",
               "test": "[AC-Saa8506-0-2] in tests/acceptance/saa8506_e2e_hygiene.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Saa8506-0-3",
               "description": "docs/sprint-logs/Saa8506/migration-matrix.md が作成され、 10 本の legacy test ごとに以下が表形式で記録: (a) 現在の hardcode 内容、 (b) 必要な fixture 前提条件 (open repo / branch / mock CLI 等)、 (c) _fixture.py の既存 helper でカバー済 / 拡張要、 (d) Story 1 の 5 sub-agent への担当割 (2 本ずつ)",
               "test": "[AC-Saa8506-0-3] in tests/acceptance/saa8506_e2e_hygiene.py (file existence + table parsing)",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "Saa8506-0-1": {
               "title": "Master Regression Suite を実行 + JSON ログ出力 (生データのみ)",
               "description": "scripts/sprint-regression-Saa8506.sh (S13b16a の script を base に env override layer は維持したまま) で go test / npm build + lint / 22 本の E2E を順次実行し、 結果を JSON にまとめる",
-              "status": "pending"
+              "status": "done"
             },
             "Saa8506-0-2": {
               "title": "_fixture.py の既存 helper を分析しドキュメント化",
               "description": "tests/e2e/_fixture.py を読み込み、 既存の context manager / helper (例: with_open_repo, with_open_branch, with_mock_cli 等) を一覧化。 各 helper の pre/post 動作と 各 fixture が解決する依存性を migration-matrix.md の上段に記載",
-              "status": "pending"
+              "status": "done"
             },
             "Saa8506-0-3": {
               "title": "10 本の legacy test を分析し fixture 担当をマップ",
               "description": "各 test の冒頭の `BRANCH_ID = ...` や openBranch / openRepo 呼び出しを grep。 必要な fixture 前提条件を抽出し migration-matrix.md の中段に記載。 Story 1 の sub-agent 担当割 (5 並列で 2 本ずつ) を下段に記載",
-              "status": "pending"
+              "status": "done"
             },
             "Saa8506-0-4": {
               "title": "fail があれば pass まで自分で直す",
               "description": "regression-baseline.json から fail を抽出。 0 本なら Story 0 done。 fail があれば原因調査 + 修正 → 再実行を pass まで繰り返す",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
         "Saa8506-1": {
           "title": "10 本の legacy E2E test を hermetic _fixture.py パターンへ移行",
-          "status": "pending",
+          "status": "done",
           "user_story": "Palmux2 の E2E テストを将来も健全に運用したい開発者として、 hardcoded branch ID に依存している 10 本の test を _fixture.py based の hermetic pattern (テストが自前で worktree create → run → cleanup) に移行したい。 なぜなら、 hardcoded branch ID は worktree 削除で 404 fail を起こし、 regression script に env override layer のような workaround を強制するという技術的負債を生むからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-Saa8506-1-1",
               "description": "対象 10 本 (s001, s004, s005, s006, s007, s008, s009_multi_tab, s009_fix_lifecycle, s009_fix_lifecycle_v2, s009_fix_periodic_check, s009_fix4_ui_monitor — s006 は REST 部のみ truncate された現状を hermetic 化する) が _fixture.py based hermetic pattern に書き換えられている",
               "test": "[AC-Saa8506-1-1] in tests/acceptance/saa8506_e2e_hygiene.py (各ファイルで `BRANCH_ID =` の hardcode が消えていること、 fixture 経由で branch を取得していることを grep 確認)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Saa8506-1-2",
               "description": "hermetic 化された 10 本が **regression script の env override 層なしで** 全件緑。 = scripts/sprint-regression-Saa8506.sh から env override 行を一時的にコメントアウトしても 22/22 緑",
               "test": "[AC-Saa8506-1-2] in tests/acceptance/saa8506_e2e_hygiene.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Saa8506-1-3",
               "description": "hermetic 化された各 test が cleanup を確実に行う (test 終了後に作成した worktree が残らない)。 sub-agent 並列実行時に互いの worktree を干渉させない",
               "test": "[AC-Saa8506-1-3] in tests/acceptance/saa8506_e2e_hygiene.py (test 実行前後で `git worktree list` の差が 0 件)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Saa8506-1-4",
               "description": "Master Regression Suite が **全件緑** + 手動 smoke (1 本だけ単独実行して fixture lifecycle を目視) も pass。 fail は pass まで自分で直す",
               "test": "[AC-Saa8506-1-4] in tests/acceptance/saa8506_e2e_hygiene.py",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "Saa8506-1-1": {
               "title": "_fixture.py を必要に応じて拡張 (mock CLI fixture / multi-tab fixture 等)",
               "description": "Story 0 の analysis で不足した helper を _fixture.py に追加。 既存パターンに乗れない test がある場合のみ拡張",
-              "status": "pending"
+              "status": "done"
             },
             "Saa8506-1-2": {
               "title": "s001 / s004 を hermetic 化 (sub-agent A)",
               "description": "Refine Plan + MCP indicator。 fixture: open repo + open branch + claude タブ起動",
-              "status": "pending"
+              "status": "done"
             },
             "Saa8506-1-3": {
               "title": "s005 / s007 を hermetic 化 (sub-agent B)",
               "description": "Hook events + AskUserQuestion。 fixture: 同上 + mock CLI",
-              "status": "pending"
+              "status": "done"
             },
             "Saa8506-1-4": {
               "title": "s006 (REST 部) / s008 を hermetic 化 (sub-agent C)",
               "description": "add-dir/file REST + upload routes",
-              "status": "pending"
+              "status": "done"
             },
             "Saa8506-1-5": {
               "title": "s009_multi_tab / s009_fix_lifecycle を hermetic 化 (sub-agent D)",
               "description": "Multi-tab + lifecycle. fixture: 複数 Claude タブ",
-              "status": "pending"
+              "status": "done"
             },
             "Saa8506-1-6": {
               "title": "s009_fix_lifecycle_v2 / s009_fix_periodic_check / s009_fix4_ui_monitor を hermetic 化 (sub-agent E)",
               "description": "残り s009 系 3 本。 fixture: 同上 + 周期 polling",
-              "status": "pending"
+              "status": "done"
             },
             "Saa8506-1-7": {
               "title": "Master Regression Suite + 手動 smoke を実行し全件緑化",
               "description": "結果を sprint-logs/Saa8506/regression-after-story1.json に全件記録。 fail があれば pass まで自分で直す",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
         "Saa8506-2": {
           "title": "s006 attach (drag-and-drop) wire-level test を新規復活",
-          "status": "pending",
+          "status": "done",
           "user_story": "Palmux2 の attach 機能を将来も保護したい開発者として、 S4b9df4 で truncate された s006 の wire-level コンテンツ (addDirs / @ refs in WS frame) を drag-and-drop の新 surface で復活させたい。 なぜなら、 attach は --add-dir 経由で claude CLI のツールアクセス境界を制御する重要な機能で、 wire-level テストがないと WS frame の構造変化を検知できず、 production で silent failure を起こしうるからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-Saa8506-2-1",
               "description": "tests/e2e/s006_attach_dnd_wire.py が新規作成され、 (a) drag-and-drop event を Composer に送る、 (b) WS frame に addDirs payload が含まれる、 (c) @ refs (file mention) が WS frame に正しく serialize される、 を Playwright + WS proxy で検証",
               "test": "[AC-Saa8506-2-1] in tests/e2e/s006_attach_dnd_wire.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Saa8506-2-2",
               "description": "新規 test が hermetic _fixture.py pattern に乗っており、 既存 22 本と同じ regression suite に統合されている (= 23 本になる)",
               "test": "[AC-Saa8506-2-2] in tests/acceptance/saa8506_e2e_hygiene.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Saa8506-2-3",
               "description": "Master Regression Suite (23 本) が **全件緑**。 fail は pass まで自分で直す",
               "test": "[AC-Saa8506-2-3] in tests/acceptance/saa8506_e2e_hygiene.py",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "Saa8506-2-1": {
               "title": "WS proxy / inspector helper を _fixture.py に追加",
               "description": "Playwright の page.on('websocket') 経由で WS frame を傍受する helper",
-              "status": "pending"
+              "status": "done"
             },
             "Saa8506-2-2": {
               "title": "s006_attach_dnd_wire.py を実装",
               "description": "drag-and-drop event の dispatch + WS frame 検証",
-              "status": "pending"
+              "status": "done"
             },
             "Saa8506-2-3": {
               "title": "Master Regression Suite を実行し全件緑化",
               "description": "結果を sprint-logs/Saa8506/regression-after-story2.json に全件記録",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
         "Saa8506-3": {
           "title": "regression script の env override layer 削除 + sprint final ゲート",
-          "status": "pending",
+          "status": "done",
           "user_story": "Palmux2 の test infra を clean に保ちたい開発者として、 scripts/sprint-regression-*.sh から env override layer (S00._BRANCH_ID 系の自動取得・export) を完全に削除したい。 なぜなら、 Story 1 で 10 本が hermetic 化された時点で env override の存在意義はなくなり、 残しておくと将来の sprint で 「これは何のためにあるんだっけ？」 という負債を生むからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-Saa8506-3-1",
               "description": "scripts/sprint-regression-Saa8506.sh から env override layer (S00._BRANCH_ID 系の curl + export 行) が完全に削除されている。 grep 'BRANCH_ID' scripts/sprint-regression-Saa8506.sh が 0 件",
               "test": "[AC-Saa8506-3-1] in tests/acceptance/saa8506_e2e_hygiene.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Saa8506-3-2",
               "description": "env override 削除後の regression script で Master Regression Suite が **全件緑** (23 本)",
               "test": "[AC-Saa8506-3-2] in tests/acceptance/saa8506_e2e_hygiene.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Saa8506-3-3",
               "description": "Sprint done 直前に Master Regression Suite を実行し regression-final.json に **全件緑** で記録 + 手動 smoke も pass",
               "test": "[AC-Saa8506-3-3] in tests/acceptance/saa8506_e2e_hygiene.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Saa8506-3-4",
               "description": "needs-user-input.json に蓄積された全項目を **batch でユーザに提示** し、 各項目について判断を得る。 判断結果は sprint-logs/Saa8506/decisions.json に記録。 blocking 項目が全て解決済み (or ユーザが了承) で sprint done を許可。 needs-user-input.json が空なら直接 sprint done",
               "test": "[AC-Saa8506-3-4] in tests/acceptance/saa8506_e2e_hygiene.py",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "Saa8506-3-1": {
               "title": "scripts/sprint-regression-Saa8506.sh から env override 削除",
               "description": "S00._BRANCH_ID 系の curl + export 行を削除。 各テストは hermetic で動くので不要",
-              "status": "pending"
+              "status": "done"
             },
             "Saa8506-3-2": {
               "title": "Master Regression Suite + 手動 smoke を実行し全件緑化 (sprint final)",
               "description": "結果を sprint-logs/Saa8506/regression-final.json と manual-smoke-Saa8506-3.md に全件記録",
-              "status": "pending"
+              "status": "done"
             },
             "Saa8506-3-3": {
               "title": "needs-user-input.json を batch でユーザに提示し判断を得る (sprint verify)",
               "description": "needs-user-input.json を読み込み、 全項目を 1 回の markdown 提示で **まとめて** ユーザに提示。 ユーザの判断結果を decisions.json に記録。 needs-user-input.json が空なら skip 可",
-              "status": "pending"
+              "status": "done"
             }
           }
         }

@@ -1,24 +1,24 @@
 {
-  "started": 1778421007.2581325,
-  "ended": 1778421187.6413958,
+  "started": 1778491921.9983575,
+  "ended": 1778492102.2752147,
   "events": [
     {
-      "t": 1778421007.792626,
-      "rel": 0.5344934463500977,
+      "t": 1778491923.0176845,
+      "rel": 1.01932692527771,
       "kind": "ws_open",
-      "detail": "ws://localhost:8201/api/events"
+      "detail": "ws://localhost:8205/api/events"
     },
     {
-      "t": 1778421007.8622794,
-      "rel": 0.6041469573974609,
+      "t": 1778491923.1492763,
+      "rel": 1.15091872215271,
       "kind": "ws_open",
-      "detail": "ws://localhost:8201/api/repos/tjst-t--palmux2--2d59/branches/palmux2--5cd5/tabs/bash%3Abash/attach?cols=117&rows=34"
+      "detail": "ws://localhost:8205/api/repos/palmux2-test--s009-fix4-20260511-093157-2176536--9705/branches/s009-fix4-20260511-093157-2176536--489d/tabs/bash%3Abash/attach?cols=117&rows=34"
     },
     {
-      "t": 1778421009.2503116,
-      "rel": 1.9921791553497314,
+      "t": 1778491924.431045,
+      "rel": 2.432687520980835,
       "kind": "nav_done",
-      "detail": "http://localhost:8201/tjst-t--palmux2--2d59/palmux2--5cd5/bash:bash"
+      "detail": "http://localhost:8205/palmux2-test--s009-fix4-20260511-093157-2176536--9705/s009-fix4-20260511-093157-2176536--489d/bash:bash"
     }
   ]
 }

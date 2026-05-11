@@ -49,10 +49,17 @@ from urllib.parse import quote
 
 from playwright.async_api import async_playwright
 
-PORT = os.environ.get("PALMUX_DEV_PORT", "8246")
-REPO_ID = os.environ.get("S008_REPO_ID", "tjst-t--palmux2--2d59")
-BRANCH_ID = os.environ.get("S008_BRANCH_ID", "autopilot--main--S008--6d2f")
-BASE_URL = f"http://localhost:{PORT}"
+# Saa8506: hermetic fixture.
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _fixture import palmux2_test_fixture, BASE_URL  # noqa: E402
+
+PORT = (
+    os.environ.get("PALMUX2_DEV_PORT_OVERRIDE")
+    or os.environ.get("PALMUX2_DEV_PORT")
+    or os.environ.get("PALMUX_DEV_PORT")
+    or "8215"
+)
 
 TIMEOUT_S = 12.0
 
@@ -91,8 +98,16 @@ PNG_1X1_B64 = (
 
 
 async def main() -> None:
-    print(f"==> S008 E2E starting (dev port {PORT}, repo {REPO_ID}, branch {BRANCH_ID})")
+    print(f"==> S008 E2E starting (dev port {PORT})")
+    with palmux2_test_fixture("s008") as fx:
+        repo_id = fx.repo_id
+        branch_id = fx.primary_branch_id()
+        fx.open_claude_tab(branch_id)
+        print(f"  hermetic repo={repo_id}  branch={branch_id}")
+        await _run(repo_id, branch_id)
 
+
+async def _run(repo_id: str, branch_id: str) -> None:
     sent_frames: list[dict[str, Any]] = []
 
     async with async_playwright() as pw:
@@ -130,7 +145,7 @@ async def main() -> None:
 
         page.on("websocket", on_ws)
 
-        url = f"{BASE_URL}/{quote(REPO_ID)}/{quote(BRANCH_ID)}/claude"
+        url = f"{BASE_URL}/{quote(repo_id)}/{quote(branch_id)}/claude"
         await page.goto(url, wait_until="domcontentloaded")
         try:
             await page.wait_for_selector("textarea", timeout=int(TIMEOUT_S * 1000))
@@ -350,7 +365,7 @@ async def main() -> None:
                 });
                 return { status: res.status, body: await res.json() };
             }""",
-            [PNG_1X1_B64, "shape-check.png", "image/png", REPO_ID, BRANCH_ID],
+            [PNG_1X1_B64, "shape-check.png", "image/png", repo_id, branch_id],
         )
         if body["status"] != 201:
             fail(f"upload status expected 201, got {body['status']}")
@@ -369,7 +384,7 @@ async def main() -> None:
 
     # ── Step 7: best-effort `ps` argv inspection.
     # Match `--add-dir` against the per-branch attachment root.
-    expected_root = f"/tmp/palmux-uploads/{REPO_ID}/{BRANCH_ID}"
+    expected_root = f"/tmp/palmux-uploads/{repo_id}/{branch_id}"
     try:
         ps = subprocess.run(
             ["ps", "-eo", "pid,cmd"],

@@ -35,13 +35,16 @@ from urllib.parse import quote
 import websockets
 from playwright.async_api import async_playwright
 
-PORT = os.environ.get("PALMUX_DEV_PORT", "8215")
-REPO_ID = os.environ.get("S007_REPO_ID", "tjst-t--palmux2--2d59")
-BRANCH_ID = os.environ.get("S007_BRANCH_ID", "autopilot--S007--bd65")
-BASE_URL = f"http://localhost:{PORT}"
-WS_URL = (
-    f"ws://localhost:{PORT}/api/repos/{quote(REPO_ID)}"
-    f"/branches/{quote(BRANCH_ID)}/tabs/claude/agent"
+# Saa8506: hermetic fixture.
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _fixture import palmux2_test_fixture, BASE_URL  # noqa: E402
+
+PORT = (
+    os.environ.get("PALMUX2_DEV_PORT_OVERRIDE")
+    or os.environ.get("PALMUX2_DEV_PORT")
+    or os.environ.get("PALMUX_DEV_PORT")
+    or "8215"
 )
 
 TIMEOUT_S = 10.0
@@ -77,6 +80,19 @@ async def wait_for(check, timeout_s: float, label: str) -> Any:
 
 async def main() -> None:
     print(f"==> S007 E2E starting (dev port {PORT})")
+    with palmux2_test_fixture("s007") as fx:
+        repo_id = fx.repo_id
+        branch_id = fx.primary_branch_id()
+        fx.open_claude_tab(branch_id)
+        ws_url = (
+            f"ws://localhost:{PORT}/api/repos/{quote(repo_id)}"
+            f"/branches/{quote(branch_id)}/tabs/claude/agent"
+        )
+        print(f"  hermetic repo={repo_id}  branch={branch_id}")
+        await _run(repo_id, branch_id, ws_url)
+
+
+async def _run(repo_id: str, branch_id: str, ws_url: str) -> None:
 
     sent_frames: list[dict[str, Any]] = []
 
@@ -140,7 +156,7 @@ async def main() -> None:
 
         # 1) Navigate to the Claude tab and wait for mount.
         url = (
-            f"{BASE_URL}/{quote(REPO_ID)}/{quote(BRANCH_ID)}/claude"
+            f"{BASE_URL}/{quote(repo_id)}/{quote(branch_id)}/claude"
         )
         await page.goto(url, wait_until="domcontentloaded")
         try:
@@ -152,7 +168,7 @@ async def main() -> None:
         passed("page loaded; composer textarea present")
 
         # 2) Sidecar WS opens; receive session.init as a sync barrier.
-        async with websockets.connect(WS_URL) as side:
+        async with websockets.connect(ws_url) as side:
             session_init_ok = False
             try:
                 async with asyncio.timeout(TIMEOUT_S):
@@ -270,7 +286,7 @@ async def main() -> None:
                         setTimeout(() => probe.close(), 200);
                     }};
                 }}""",
-                WS_URL,
+                ws_url,
             )
 
         async def probe_check() -> bool:

@@ -45,17 +45,16 @@ from urllib.parse import quote
 import websockets
 from playwright.async_api import async_playwright
 
-PORT = os.environ.get("PALMUX_DEV_PORT", "8241")
-REPO_ID = os.environ.get("S005_REPO_ID", "tjst-t--palmux2--2d59")
-BRANCH_ID = os.environ.get("S005_BRANCH_ID", "autopilot--S005--6987")
-BASE_URL = f"http://localhost:{PORT}"
-WS_URL = (
-    f"ws://localhost:{PORT}/api/repos/{quote(REPO_ID)}"
-    f"/branches/{quote(BRANCH_ID)}/tabs/claude/agent"
-)
-PREFS_URL = (
-    f"{BASE_URL}/api/repos/{quote(REPO_ID)}"
-    f"/branches/{quote(BRANCH_ID)}/tabs/claude/prefs"
+# Saa8506: hermetic fixture.
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _fixture import palmux2_test_fixture, BASE_URL  # noqa: E402
+
+PORT = (
+    os.environ.get("PALMUX2_DEV_PORT_OVERRIDE")
+    or os.environ.get("PALMUX2_DEV_PORT")
+    or os.environ.get("PALMUX_DEV_PORT")
+    or "8215"
 )
 
 TIMEOUT_S = 10.0
@@ -112,27 +111,41 @@ async def http_patch(url: str, body: dict[str, Any]) -> dict[str, Any]:
 
 async def main() -> None:
     print(f"==> S005 E2E starting (dev port {PORT})")
+    with palmux2_test_fixture("s005") as fx:
+        repo_id = fx.repo_id
+        branch_id = fx.primary_branch_id()
+        fx.open_claude_tab(branch_id)
+        ws_url = (
+            f"ws://localhost:{PORT}/api/repos/{quote(repo_id)}"
+            f"/branches/{quote(branch_id)}/tabs/claude/agent"
+        )
+        prefs_url = (
+            f"{BASE_URL}/api/repos/{quote(repo_id)}"
+            f"/branches/{quote(branch_id)}/tabs/claude/prefs"
+        )
+        print(f"  hermetic repo={repo_id}  branch={branch_id}")
+        await _run(repo_id, branch_id, ws_url, prefs_url)
 
+
+async def _run(repo_id: str, branch_id: str, ws_url: str, prefs_url: str) -> None:
     # 1) Prefs round-trip via REST.
-    initial = await http_get(PREFS_URL)
+    initial = await http_get(prefs_url)
     if "includeHookEvents" not in initial:
         fail(f"GET /prefs missing includeHookEvents: {initial}")
     passed(f"GET /prefs initial = {initial}")
 
-    enabled = await http_patch(PREFS_URL, {"includeHookEvents": True})
+    enabled = await http_patch(prefs_url, {"includeHookEvents": True})
     if not enabled.get("includeHookEvents"):
         fail(f"PATCH /prefs True did not stick: {enabled}")
     passed("PATCH /prefs includeHookEvents=true round-tripped")
 
-    disabled = await http_patch(PREFS_URL, {"includeHookEvents": False})
+    disabled = await http_patch(prefs_url, {"includeHookEvents": False})
     if disabled.get("includeHookEvents"):
         fail(f"PATCH /prefs False did not stick: {disabled}")
     passed("PATCH /prefs includeHookEvents=false round-tripped")
 
-    # Re-enable for the rest of the test (the toggle visibility check
-    # below doesn't care which way it points, but we want to avoid
-    # leaving the dev branch in a half-configured state).
-    await http_patch(PREFS_URL, {"includeHookEvents": True})
+    # Re-enable for the rest of the test.
+    await http_patch(prefs_url, {"includeHookEvents": True})
 
     sent_frames: list[dict[str, Any]] = []
 
@@ -191,7 +204,7 @@ async def main() -> None:
         page.on("websocket", on_ws)
 
         # 2) Navigate.
-        url = f"{BASE_URL}/{quote(REPO_ID)}/{quote(BRANCH_ID)}/claude"
+        url = f"{BASE_URL}/{quote(repo_id)}/{quote(branch_id)}/claude"
         await page.goto(url, wait_until="domcontentloaded")
         try:
             await page.wait_for_selector("textarea", timeout=int(TIMEOUT_S * 1000))
@@ -202,7 +215,7 @@ async def main() -> None:
         passed("page loaded; composer textarea present")
 
         # 3) Sidecar WS for session.init barrier.
-        async with websockets.connect(WS_URL) as side:
+        async with websockets.connect(ws_url) as side:
             session_init_ok = False
             try:
                 async with asyncio.timeout(TIMEOUT_S):

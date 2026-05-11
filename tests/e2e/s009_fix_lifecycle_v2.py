@@ -50,18 +50,21 @@ import urllib.request
 
 import websockets
 
+# Saa8506: hermetic fixture.
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _fixture import palmux2_test_fixture, BASE_URL  # noqa: E402
+
 PORT = (
-    os.environ.get("PALMUX_DEV_PORT")
+    os.environ.get("PALMUX2_DEV_PORT_OVERRIDE")
     or os.environ.get("PALMUX2_DEV_PORT")
-    or "8283"
+    or os.environ.get("PALMUX_DEV_PORT")
+    or "8215"
 )
-REPO_ID = os.environ.get(
-    "S009_FIX_REPO_ID", "tjst-t--palmux2--2d59"
-)
-BRANCH_ID = os.environ.get(
-    "S009_FIX_BRANCH_ID", "autopilot--main--S009-fix-2--544b"
-)
-BASE_URL = f"http://localhost:{PORT}"
+
+# Populated by fixture inside main().
+REPO_ID: str = ""
+BRANCH_ID: str = ""
 WS_URL = f"ws://localhost:{PORT}"
 
 TIMEOUT_S = 15.0
@@ -429,13 +432,19 @@ async def case_k_bash_input_round_trip() -> None:
 
 
 async def main() -> None:
+    global REPO_ID, BRANCH_ID
     print(f"S009-fix-2 lifecycle E2E against {BASE_URL}")
-    await case_j_bash_delete_event_propagates()
-    await case_k_bash_input_round_trip()
-    await case_i_bash_add_then_attach()
-    await case_h_bash_ws_stable_30s()
-    cleanup_extras()
-    print("PASS — all S009-fix-2 cases covered")
+    with palmux2_test_fixture("s009-fix2") as fx:
+        REPO_ID = fx.repo_id
+        BRANCH_ID = fx.primary_branch_id()
+        fx.open_claude_tab(BRANCH_ID)
+        fx.wait_for_tab(BRANCH_ID, "bash:bash", timeout_s=10.0)
+        print(f"  hermetic repo={REPO_ID}  branch={BRANCH_ID}")
+        await case_j_bash_delete_event_propagates()
+        await case_k_bash_input_round_trip()
+        await case_i_bash_add_then_attach()
+        await case_h_bash_ws_stable_30s()
+        print("PASS — all S009-fix-2 cases covered")
 
 
 if __name__ == "__main__":
