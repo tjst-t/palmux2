@@ -28,15 +28,22 @@ import json
 import os
 import sys
 import urllib.error
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 from playwright.async_api import async_playwright
 
-PORT = os.environ.get("PALMUX_DEV_PORT", "8245")
-REPO_ID = os.environ.get("S006_REPO_ID", "tjst-t--palmux2--2d59")
-BRANCH_ID = os.environ.get("S006_BRANCH_ID", "autopilot--S006--70ed")
-BASE_URL = f"http://localhost:{PORT}"
+# Saa8506: hermetic fixture — each test creates its own ghq repo + opens it.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _fixture import palmux2_test_fixture, BASE_URL  # noqa: E402
+
+PORT = (
+    os.environ.get("PALMUX2_DEV_PORT_OVERRIDE")
+    or os.environ.get("PALMUX2_DEV_PORT")
+    or os.environ.get("PALMUX_DEV_PORT")
+    or "8215"
+)
 
 TIMEOUT_S = 12.0
 
@@ -62,11 +69,19 @@ async def http_get_status(url: str) -> tuple[int, str]:
 
 
 async def main() -> None:
-    print(f"==> S006 E2E starting (dev port {PORT}, repo {REPO_ID}, branch {BRANCH_ID})")
+    print(f"==> S006 E2E starting (dev port {PORT})")
+    with palmux2_test_fixture("s006") as fx:
+        repo_id = fx.repo_id
+        branch_id = fx.primary_branch_id()
+        fx.open_claude_tab(branch_id)
+        print(f"  hermetic repo={repo_id}  branch={branch_id}")
+        await _run(repo_id, branch_id)
 
+
+async def _run(repo_id: str, branch_id: str) -> None:
     # ── REST traversal hardening — run before browser to fail fast.
     base_files = (
-        f"{BASE_URL}/api/repos/{quote(REPO_ID)}/branches/{quote(BRANCH_ID)}/files"
+        f"{BASE_URL}/api/repos/{quote(repo_id)}/branches/{quote(branch_id)}/files"
     )
     code, body = await http_get_status(f"{base_files}/search?path=../../etc&query=p")
     if code != 400:
@@ -78,20 +93,22 @@ async def main() -> None:
         fail(f"expected 400 for listDir path=../../etc, got {code} body={body[:200]}")
     passed("REST listDir rejects path=../../etc with 400")
 
-    # Sanity: a normal search query inside the worktree returns 200 and no
-    # result paths contain `..`.
-    code, body = await http_get_status(f"{base_files}/search?query=internal")
+    # Sanity: a normal search query returns 200 and no result paths
+    # contain `..`. With a hermetic fixture the worktree is freshly
+    # created (only README.md), so we search for "README" — guaranteed
+    # to match exactly one entry.
+    code, body = await http_get_status(f"{base_files}/search?query=README")
     if code != 200:
         fail(f"normal search expected 200, got {code}")
     parsed = json.loads(body)
     results = parsed.get("results") or []
     if not results:
-        fail("expected at least one result for query=internal in palmux2 worktree")
+        fail("expected at least one result for query=README in hermetic worktree")
     for r in results:
         p = r.get("path", "")
         if ".." in p.split("/"):
             fail(f"result path contains traversal: {p}")
-    passed(f"REST search returns {len(results)} results for 'internal', none containing '..'")
+    passed(f"REST search returns {len(results)} results for 'README', none containing '..'")
 
     # Browser-side: just confirm the composer + button is rendered (the
     # surface S006 originally introduced). Click-to-attach behaviour
@@ -102,7 +119,7 @@ async def main() -> None:
         page = await ctx.new_page()
         page.on("pageerror", lambda err: print(f"[browser pageerror] {err}"))
 
-        url = f"{BASE_URL}/{quote(REPO_ID)}/{quote(BRANCH_ID)}/claude"
+        url = f"{BASE_URL}/{quote(repo_id)}/{quote(branch_id)}/claude"
         await page.goto(url, wait_until="domcontentloaded")
         try:
             await page.wait_for_selector("textarea", timeout=int(TIMEOUT_S * 1000))

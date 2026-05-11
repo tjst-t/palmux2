@@ -82,6 +82,15 @@ def run() -> None:
         # On Linux/Windows headless Chromium, "Control+F" is the bind.
         page.keyboard.press("Control+F")
         page.wait_for_selector("[data-testid='conversation-search']", timeout=2000)
+        # The input is auto-focused via requestAnimationFrame; we must
+        # wait for it before pressing Escape, otherwise Escape is delivered
+        # to <body> (where the Esc handler is on the input itself) and
+        # the bar stays open. This race made the test flaky (~1/5).
+        page.wait_for_function(
+            "() => document.activeElement && "
+            "document.activeElement.matches(\"[data-testid='conversation-search-input']\")",
+            timeout=2000,
+        )
         # And Escape closes it.
         page.keyboard.press("Escape")
         page.wait_for_function(

@@ -58,10 +58,16 @@ from dataclasses import dataclass, field
 
 import websockets
 
+# Saa8506: hermetic fixture.
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _fixture import palmux2_test_fixture, BASE_URL  # noqa: E402
+
 PORT = (
-    os.environ.get("PALMUX2_DEV_PORT")
+    os.environ.get("PALMUX2_DEV_PORT_OVERRIDE")
+    or os.environ.get("PALMUX2_DEV_PORT")
     or os.environ.get("PALMUX_DEV_PORT")
-    or "8284"
+    or "8215"
 )
 DEV_LOG = os.environ.get(
     "PALMUX2_DEV_LOG",
@@ -71,11 +77,11 @@ DEV_LOG = os.environ.get(
         "palmux-dev.log",
     ),
 )
-REPO_ID = os.environ.get("S009_FIX_REPO_ID", "tjst-t--palmux2--2d59")
-BRANCH_ID = os.environ.get("S009_FIX_BRANCH_ID", "")
+# Populated by fixture inside main().
+REPO_ID: str = ""
+BRANCH_ID: str = ""
 DURATION_S = float(os.environ.get("S009_FIX_DURATION_S", "180"))
 
-BASE_URL = f"http://localhost:{PORT}"
 WS_URL = f"ws://localhost:{PORT}"
 HTTP_TIMEOUT = 15.0
 
@@ -104,17 +110,10 @@ def http(method: str, path: str, body: dict | None = None):
 
 
 def resolve_branch_id() -> str:
-    """If BRANCH_ID isn't set, pick the first open branch of REPO_ID."""
+    """Return BRANCH_ID — the fixture populates this in main()."""
     if BRANCH_ID:
         return BRANCH_ID
-    code, body = http("GET", "/api/repos")
-    if code != 200:
-        raise SystemExit(f"GET /api/repos: {code} {body}")
-    for r in body if isinstance(body, list) else []:
-        if r.get("id") == REPO_ID:
-            for b in r.get("openBranches", []) or []:
-                return b["id"]
-    raise SystemExit(f"no open branches for repo {REPO_ID}")
+    raise SystemExit("BRANCH_ID not set — fixture should have populated it")
 
 
 @dataclass
@@ -311,9 +310,20 @@ async def log_tail_watcher(branch_id: str, deadline: float, result: Result) -> N
 
 
 async def main() -> None:
+    global REPO_ID, BRANCH_ID
     code, body = http("GET", "/api/health")
     if code != 200:
         raise SystemExit(f"health check failed: {code} {body}")
+    with palmux2_test_fixture("s009-fix3") as fx:
+        REPO_ID = fx.repo_id
+        BRANCH_ID = fx.primary_branch_id()
+        fx.open_claude_tab(BRANCH_ID)
+        fx.wait_for_tab(BRANCH_ID, "bash:bash", timeout_s=10.0)
+        print(f"  hermetic repo={REPO_ID}  branch={BRANCH_ID}")
+        await _run()
+
+
+async def _run() -> None:
     branch_id = resolve_branch_id()
     print(f"S009-fix-3 periodic check: {BASE_URL}  repo={REPO_ID}  branch={branch_id}")
     print(f"  duration: {DURATION_S:.0f}s  dev log: {DEV_LOG}")

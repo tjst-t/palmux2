@@ -38,9 +38,20 @@ from dataclasses import dataclass, field
 
 from playwright.async_api import async_playwright
 
-PORT = os.environ.get("PALMUX2_DEV_PORT") or "8285"
-REPO_ID = os.environ.get("S009_FIX4_REPO_ID", "tjst-t--palmux2--2d59")
-BRANCH_ID = os.environ.get("S009_FIX4_BRANCH_ID", "")
+# Saa8506: hermetic fixture.
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _fixture import palmux2_test_fixture, BASE_URL  # noqa: E402
+
+PORT = (
+    os.environ.get("PALMUX2_DEV_PORT_OVERRIDE")
+    or os.environ.get("PALMUX2_DEV_PORT")
+    or os.environ.get("PALMUX_DEV_PORT")
+    or "8215"
+)
+# Populated by fixture inside main().
+REPO_ID: str = ""
+BRANCH_ID: str = ""
 TAB_ID = os.environ.get("S009_FIX4_TAB_ID", "bash:bash")
 DURATION_S = float(os.environ.get("S009_FIX4_DURATION_S", "180"))
 OUT_DIR = os.environ.get(
@@ -53,22 +64,10 @@ OUT_DIR = os.environ.get(
     ),
 )
 
-BASE_URL = f"http://localhost:{PORT}"
-
-
 def resolve_branch_id() -> str:
     if BRANCH_ID:
         return BRANCH_ID
-    with urllib.request.urlopen(f"{BASE_URL}/api/repos", timeout=10) as r:
-        body = json.loads(r.read().decode())
-    for repo in body if isinstance(body, list) else []:
-        if repo.get("id") == REPO_ID:
-            for b in repo.get("openBranches", []) or []:
-                # Prefer a non-current-worktree branch (so `make serve` mutations
-                # on this worktree don't bias the test). We just take the first
-                # available though — sufficient for repro.
-                return b["id"]
-    raise SystemExit(f"no open branches for repo {REPO_ID}")
+    raise SystemExit("BRANCH_ID not set — fixture should have populated it")
 
 
 @dataclass
@@ -92,6 +91,17 @@ class Result:
 
 
 async def main() -> int:
+    global REPO_ID, BRANCH_ID
+    with palmux2_test_fixture("s009-fix4") as fx:
+        REPO_ID = fx.repo_id
+        BRANCH_ID = fx.primary_branch_id()
+        fx.open_claude_tab(BRANCH_ID)
+        fx.wait_for_tab(BRANCH_ID, "bash:bash", timeout_s=10.0)
+        print(f"  hermetic repo={REPO_ID}  branch={BRANCH_ID}")
+        return await _run()
+
+
+async def _run() -> int:
     branch_id = resolve_branch_id()
     os.makedirs(OUT_DIR, exist_ok=True)
     target_url = f"{BASE_URL}/{REPO_ID}/{branch_id}/{TAB_ID}"
