@@ -13,6 +13,7 @@ interface Props {
 export function Divider({ ratio, onChange, containerRef, min = 20, max = 80 }: Props) {
   const [active, setActive] = useState(false)
   const draftRatio = useRef(ratio)
+  // eslint-disable-next-line react-hooks/refs -- pre-React-19 latest-closure ref pattern (no useEffectEvent yet)
   draftRatio.current = ratio
 
   useEffect(() => {

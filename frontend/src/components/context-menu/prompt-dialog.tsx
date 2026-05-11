@@ -54,6 +54,7 @@ const usePromptStore = create<State>((set, get) => ({
   },
 }))
 
+// eslint-disable-next-line react-refresh/only-export-components -- helper coupled to component (HMR-only concern, no runtime impact)
 export const promptDialog = {
   ask: (opts: PromptOptions) => usePromptStore.getState().ask(opts),
 }

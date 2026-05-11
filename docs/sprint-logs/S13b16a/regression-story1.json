@@ -1,0 +1,15 @@
+{
+  "sprint": "S13b16a",
+  "tag": "story1",
+  "generated_at": "2026-05-11T05:04:06Z",
+  "port": 8202,
+  "phases": {
+    "go_test": {"result": "pass", "exit": 0, "duration_s": 1, "log": "docs/sprint-logs/S13b16a/story1-stdout/go_test.log"},
+    "go_build": {"result": "pass", "exit": 0, "duration_s": 1, "log": "docs/sprint-logs/S13b16a/story1-stdout/go_build.log"},
+    "fe_build": {"result": "pass", "exit": 0, "duration_s": 10, "log": "docs/sprint-logs/S13b16a/story1-stdout/fe_build.log"},
+    "fe_lint": {"result": "fail", "exit": 1, "duration_s": 12, "log": "docs/sprint-logs/S13b16a/story1-stdout/fe_lint.log", "errors": 39, "warnings": 9}
+  },
+  "bundle_sizes": {"index_js": 886819, "files_view_js": 51249, "total_js_bytes": 17745180, "total_js_files": 209, "index_js_path": "frontend/dist/assets/index-DkLP9LHw.js", "files_view_js_path": "frontend/dist/assets/files-view-CwONYfhH.js"},
+  "e2e_summary": {"total": 22, "pass": 22, "fail": 0, "timeout": 0},
+  "e2e_results_file": "docs/sprint-logs/S13b16a/story1-stdout/e2e_results.json"
+}

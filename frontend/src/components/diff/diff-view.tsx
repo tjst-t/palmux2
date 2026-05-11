@@ -138,6 +138,7 @@ function FileBlock({
 // DiffView. It does NOT do real LCS diff — it just emits del lines for the
 // old block and add lines for the new block, suitable for Claude's
 // straight-line replacements.
+// eslint-disable-next-line react-refresh/only-export-components -- helper coupled to component (HMR-only concern, no runtime impact)
 export function buildSyntheticDiff(
   filePath: string,
   oldText: string,

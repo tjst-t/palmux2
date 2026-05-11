@@ -2,28 +2,13 @@
 // binary blobs. When the user clicks an image file we swap in a
 // side-by-side `<img>` pair instead. Reused for both the working-tree
 // view (HEAD vs working) and the commit-history view (sha^ vs sha).
+//
+// The non-component helper `isImageFile` lives in `./git-image-helpers`
+// so this file only exports components (react-refresh/only-export-components).
 
 import { useState } from 'react'
 
 import styles from './git-image-diff.module.css'
-
-const IMAGE_EXTS = new Set([
-  'png',
-  'jpg',
-  'jpeg',
-  'gif',
-  'webp',
-  'avif',
-  'bmp',
-  'ico',
-  'svg',
-])
-
-export function isImageFile(path: string): boolean {
-  const dot = path.lastIndexOf('.')
-  if (dot < 0) return false
-  return IMAGE_EXTS.has(path.slice(dot + 1).toLowerCase())
-}
 
 export interface ImagePairProps {
   leftSrc: string
@@ -66,7 +51,7 @@ function ImagePane({
         ) : (
           // `crossOrigin` is omitted on purpose — same-origin requests
           // always carry the session cookie, no CORS preflight needed.
-          // eslint-disable-next-line @next/next/no-img-element
+          // (Vite project: no @next/next plugin loaded — disable comment removed.)
           <img
             src={src}
             alt={label}

@@ -24,7 +24,8 @@ import type { editor as MonacoEditor } from 'monaco-editor'
 import { monacoLanguageFor } from '../files/viewers/dispatcher'
 import { api } from '../../lib/api'
 
-import { ImagePair, isImageFile } from './git-image-diff'
+import { ImagePair } from './git-image-diff'
+import { isImageFile } from './git-image-helpers'
 import styles from './git-monaco-diff.module.css'
 import type { LineRange } from './types'
 
@@ -59,6 +60,7 @@ export function GitMonacoDiff({ apiBase, path, unified, reloadKey, onStaged }: P
   // we read through the Files API.
   useEffect(() => {
     let cancelled = false
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     setContents(null)
     setError(null)
     ;(async () => {

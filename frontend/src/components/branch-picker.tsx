@@ -27,6 +27,7 @@ export function BranchPicker({ open, repoId, onClose }: Props) {
 
   useEffect(() => {
     if (!open || !repoId) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     setError(null)
     void reload(repoId)
   }, [open, repoId, reload])

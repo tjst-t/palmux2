@@ -170,6 +170,7 @@ export function TopBar({ state, actions, ctx, mcpOpen, onToggleMcp }: TopBarProp
       </button>
 
       <button
+        // eslint-disable-next-line react-hooks/refs -- pre-React-19 latest-closure ref pattern (no useEffectEvent yet)
         ref={ctx.mcpButtonRef}
         type="button"
         className={`${styles.iconBtn} ${styles.mcpBtn}`}
@@ -223,6 +224,7 @@ function pipClass(s: AgentStatus): string {
 
 /** Label for the status pip. Exported because the streaming overlay
  *  (parent component) reuses the same human label. */
+// eslint-disable-next-line react-refresh/only-export-components -- helper coupled to component (HMR-only concern, no runtime impact)
 export function labelForStatus(s: AgentStatus): string {
   switch (s) {
     case 'idle':                return 'idle'
@@ -253,6 +255,7 @@ function statusToneAgree(raw: string, target: MCPStatusTone): boolean {
 /** Compute the % of context window used given a usage object.
  *  Exported because parent (claude-agent-view) gathers usage from
  *  agent-state and feeds the result back as `state.contextPct`. */
+// eslint-disable-next-line react-refresh/only-export-components -- helper coupled to component (HMR-only concern, no runtime impact)
 export function contextPercent(usage?: AgentUsage): number | undefined {
   if (!usage || !usage.contextWindow) return undefined
   const consumed =

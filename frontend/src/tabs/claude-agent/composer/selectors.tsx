@@ -13,6 +13,7 @@ import { PillSelect, type PillSelectOption } from '../../../components/pill-sele
 
 import type { ModelDescriptor } from '../types'
 
+// eslint-disable-next-line react-refresh/only-export-components -- helper coupled to component (HMR-only concern, no runtime impact)
 export const FALLBACK_MODELS: ModelDescriptor[] = [
   { value: '', displayName: 'default' },
   { value: 'sonnet', displayName: 'sonnet' },
@@ -20,6 +21,7 @@ export const FALLBACK_MODELS: ModelDescriptor[] = [
   { value: 'haiku', displayName: 'haiku' },
 ]
 
+// eslint-disable-next-line react-refresh/only-export-components -- helper coupled to component (HMR-only concern, no runtime impact)
 export function modeLabel(mode: string): string {
   switch (mode) {
     case 'default':           return 'default'
@@ -56,8 +58,11 @@ export function ComposerSelectors({
   const [localModel, setLocalModel] = useState(model)
   const [localEffort, setLocalEffort] = useState(effort)
   const [localPermissionMode, setLocalPermissionMode] = useState(permissionMode)
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
   useEffect(() => setLocalModel(model), [model])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
   useEffect(() => setLocalEffort(effort), [effort])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
   useEffect(() => setLocalPermissionMode(permissionMode), [permissionMode])
 
   const handleModelChange = (m: string) => {

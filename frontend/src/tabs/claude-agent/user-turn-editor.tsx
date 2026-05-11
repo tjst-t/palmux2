@@ -16,7 +16,7 @@
 
 import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 
-import { splitTextWithAttachments, uploadURLForPath } from './blocks'
+import { splitTextWithAttachments, uploadURLForPath } from './blocks/helpers/format'
 import blockStyles from './blocks.module.css'
 import type { Turn, TurnVersion } from './types'
 import styles from './user-turn-editor.module.css'
@@ -81,6 +81,7 @@ function clearDraft(turnId: string): void {
 
 /** Expose draft helpers for tests + harness. Not part of the
  *  component's public API. */
+// eslint-disable-next-line react-refresh/only-export-components -- helper coupled to component (HMR-only concern, no runtime impact)
 export const __rewindDraft = { read: readDraft, write: writeDraft, clear: clearDraft, key: draftKey }
 
 interface UserTurnEditorProps {

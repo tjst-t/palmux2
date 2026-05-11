@@ -173,6 +173,7 @@ export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum, o
   // Reset the toggle whenever the path changes so opening a new HTML
   // file always starts in the configured default (preview).
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     setHtmlViewMode('preview')
   }, [path])
 
@@ -186,6 +187,7 @@ export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum, o
   // Preview or opens a different file.
   const [previewError, setPreviewError] = useState<string | null>(null)
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     setPreviewError(null)
   }, [path])
 
@@ -194,6 +196,7 @@ export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum, o
   // case skips the body fetch entirely).
   useEffect(() => {
     let cancelled = false
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     setStat(null)
     setBody(null)
     setError(null)
@@ -237,6 +240,7 @@ export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum, o
   useEffect(() => {
     if (!stat || !viewerKind) return
     if (viewerKind === 'too-large') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
       setLoading(false)
       return
     }
@@ -431,6 +435,7 @@ export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum, o
   // from doSave / dirty / saving above). Monaco's onKeyDown listener
   // reads the latest via the editor's ref-based forwarding.
   const onMonacoSaveRef = useRef(onSaveClick)
+  // eslint-disable-next-line react-hooks/refs -- pre-React-19 latest-closure ref pattern (no useEffectEvent yet)
   onMonacoSaveRef.current = onSaveClick
 
   if (error) return <p className={styles.error}>{error}</p>

@@ -62,6 +62,15 @@ export function TabBar({ branch }: Props) {
   const [dragOverSide, setDragOverSide] = useState<'before' | 'after' | null>(null)
   const [dragForbidden, setDragForbidden] = useState(false)
 
+  // S13b16a-3: hoisted above the early-return so the rules-of-hooks
+  // ordering is preserved when repoId becomes nullable across renders.
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const dragRef = useRef<{
+    startX: number
+    startScroll: number
+    moved: boolean
+  } | null>(null)
+
   if (!repoId) return null
 
   // Per-type max from settings, falling back to built-in defaults so
@@ -94,12 +103,7 @@ export function TabBar({ branch }: Props) {
   }
 
   // Drag-to-scroll the tab strip. Identical to pre-S009 behaviour.
-  const scrollRef = useRef<HTMLDivElement | null>(null)
-  const dragRef = useRef<{
-    startX: number
-    startScroll: number
-    moved: boolean
-  } | null>(null)
+  // (scrollRef + dragRef are declared above the early-return for rules-of-hooks.)
   const dragHandlers = {
     onPointerDown(e: React.PointerEvent) {
       if (e.pointerType === 'mouse' && e.button !== 0) return

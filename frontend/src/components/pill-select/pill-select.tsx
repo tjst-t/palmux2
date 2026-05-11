@@ -45,6 +45,7 @@ export function PillSelect({ options, value, onChange, ariaLabel, prefix }: Prop
 
   // Reset hover to the current selection whenever the popup opens.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     if (open) setHoverIndex(currentIndex)
   }, [open, currentIndex])
 

@@ -57,6 +57,7 @@ export function BlockView({ block, permissionHandlers, planHandlers, askHandlers
   }
 }
 
-// Re-exports kept for the external API surface.
-export { splitTextWithAttachments, uploadURLForPath } from './helpers/format'
+// S13b16a-3: removed re-exports of splitTextWithAttachments / uploadURLForPath
+// — callers now import them directly from './blocks/helpers/format'. Keeps
+// react-refresh/only-export-components happy.
 export type { Turn }

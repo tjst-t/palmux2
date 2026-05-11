@@ -61,7 +61,9 @@ export function DrawioView({ body, path, mode = 'view', onDraft, onSave }: Props
   // without re-binding (and re-loading drawio) on every render.
   const onDraftRef = useRef(onDraft)
   const onSaveRef = useRef(onSave)
+  // eslint-disable-next-line react-hooks/refs -- pre-React-19 latest-closure ref pattern (no useEffectEvent yet)
   onDraftRef.current = onDraft
+  // eslint-disable-next-line react-hooks/refs -- pre-React-19 latest-closure ref pattern (no useEffectEvent yet)
   onSaveRef.current = onSave
 
   const editing = mode === 'edit'

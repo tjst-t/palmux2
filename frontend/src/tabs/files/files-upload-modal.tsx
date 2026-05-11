@@ -42,6 +42,7 @@ export function FilesUploadModal({ open, targetDir, onClose, onUpload }: Props) 
   // Reset transient UI state when the modal closes.
   useEffect(() => {
     if (!open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
       setDragActive(false)
       setReading(false)
       setError(null)

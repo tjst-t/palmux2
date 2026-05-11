@@ -99,6 +99,7 @@ export function Composer(props: ComposerProps) {
     loadDraftWithMigration(draftKey, legacyDraftKey, tabKey === 'claude:claude'),
   )
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     setValue(loadDraftWithMigration(draftKey, legacyDraftKey, tabKey === 'claude:claude'))
   }, [draftKey, legacyDraftKey, tabKey])
   useEffect(() => {

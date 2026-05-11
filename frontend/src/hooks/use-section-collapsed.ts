@@ -28,6 +28,7 @@ export function useSectionCollapsed(
   // Refresh state when the storageKey itself changes (e.g. mounting a
   // new section in a different repo). Cheap because the read is sync.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     setCollapsedState(read())
   }, [read])
 

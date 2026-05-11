@@ -89,6 +89,33 @@ async def main() -> None:
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(headless=True)
         ctx = await browser.new_context()
+
+        # S13b16a-1: install the WS proxy BEFORE first navigate so we can
+        # inject a synthetic empty-state session.init for the empty-state
+        # assertions too. The previous version assumed the dev server's
+        # natural session.init had no MCP servers, which was true during
+        # baseline runs but flakes when prior E2E tests in the suite
+        # cause the Claude session to attach to live MCP servers.
+        await ctx.add_init_script(
+            """
+            (() => {
+                const all = (window).__palmuxAllWS = (window).__palmuxAllWS || [];
+                const NativeWS = window.WebSocket;
+                const proxied = function (...args) {
+                    const sock = new NativeWS(...args);
+                    all.push(sock);
+                    return sock;
+                };
+                proxied.prototype = NativeWS.prototype;
+                proxied.CONNECTING = NativeWS.CONNECTING;
+                proxied.OPEN = NativeWS.OPEN;
+                proxied.CLOSING = NativeWS.CLOSING;
+                proxied.CLOSED = NativeWS.CLOSED;
+                window.WebSocket = proxied;
+            })();
+            """
+        )
+
         page = await ctx.new_page()
 
         page.on("pageerror", lambda err: print(f"[browser pageerror] {err}"))
@@ -110,9 +137,54 @@ async def main() -> None:
         )
         passed("page loaded; TopBar mcp indicator present")
 
-        # 2. Empty state: dev environment has no MCP servers configured,
-        #    so the rollup pip should be 'unknown' (gray) and the
+        # S13b16a-1: inject a synthetic empty-state session.init so the
+        # empty-state assertions are deterministic regardless of whether
+        # the dev server's Claude session has live MCP attachments.
+        await wait_for(
+            lambda: page.evaluate(
+                "() => (window.__palmuxAllWS || []).filter(s => s.url && s.url.includes('/tabs/claude/agent')).length"
+            ),
+            TIMEOUT_S,
+            "agent WS opens",
+        )
+        await page.evaluate(
+            """
+            () => {
+                const sockets = window.__palmuxAllWS || [];
+                const ws = sockets.find(s => s.url && s.url.includes('/tabs/claude/agent'));
+                if (!ws) throw new Error('no agent WS found');
+                const payload = {
+                    sessionId: 'synthetic-s004-empty',
+                    branchId: 'autopilot--S004--6089',
+                    repoId: 'tjst-t--palmux2--2d59',
+                    model: 'claude-opus-4',
+                    permissionMode: 'acceptEdits',
+                    status: 'idle',
+                    turns: [],
+                    totalCostUsd: 0,
+                    authOk: true,
+                    mcpServers: [],
+                };
+                const ev = new MessageEvent('message', {
+                    data: JSON.stringify({
+                        type: 'session.init',
+                        ts: new Date().toISOString(),
+                        payload,
+                    }),
+                });
+                ws.dispatchEvent(ev);
+            }
+            """
+        )
+
+        # 2. Empty state: synthetic session.init has mcpServers: [], so
+        #    the rollup pip should be 'unknown' (gray) and the
         #    summary should read '—'.
+        await wait_for(
+            lambda: summary_contains(page, "—"),
+            TIMEOUT_S,
+            "summary shows empty state '—'",
+        )
         summary = await page.locator(
             '[data-testid="mcp-topbar-summary"]'
         ).text_content()
@@ -153,29 +225,9 @@ async def main() -> None:
         )
         passed("popup closes on Escape")
 
-        # 5. Inject a synthetic session.init via the page WS onmessage so
-        #    the reducer sees three servers. We need the WS proxy in
-        #    place before the page mounts, so install it via init script
-        #    and reload.
-        await ctx.add_init_script(
-            """
-            (() => {
-                const all = (window).__palmuxAllWS = (window).__palmuxAllWS || [];
-                const NativeWS = window.WebSocket;
-                const proxied = function (...args) {
-                    const sock = new NativeWS(...args);
-                    all.push(sock);
-                    return sock;
-                };
-                proxied.prototype = NativeWS.prototype;
-                proxied.CONNECTING = NativeWS.CONNECTING;
-                proxied.OPEN = NativeWS.OPEN;
-                proxied.CLOSING = NativeWS.CLOSING;
-                proxied.CLOSED = NativeWS.CLOSED;
-                window.WebSocket = proxied;
-            })();
-            """
-        )
+        # 5. Re-navigate to clear the synthetic empty session.init, then
+        # inject a populated session.init for the populated-state
+        # assertions (unchanged from original).
         await page.goto(url, wait_until="domcontentloaded")
         await wait_for(
             lambda: page.evaluate(
@@ -249,12 +301,57 @@ async def main() -> None:
         passed("populated-state rollup tone = err (one failed)")
 
         # 6. Open popup again — verify the three rows + per-row status
-        # badges + dot tones.
+        # badges + dot tones. Re-inject the synthetic populated init right
+        # before this assertion so the dev server's real session.init (which
+        # may arrive later and overwrite state) doesn't race us.
+        await page.evaluate(
+            """
+            () => {
+                const sockets = window.__palmuxAllWS || [];
+                const ws = sockets.find(s => s.url && s.url.includes('/tabs/claude/agent'));
+                if (!ws) throw new Error('no agent WS found');
+                const payload = {
+                    sessionId: 'synthetic-s004',
+                    branchId: 'autopilot--S004--6089',
+                    repoId: 'tjst-t--palmux2--2d59',
+                    model: 'claude-opus-4',
+                    permissionMode: 'acceptEdits',
+                    status: 'idle',
+                    turns: [],
+                    totalCostUsd: 0,
+                    authOk: true,
+                    mcpServers: [
+                        { name: 'palmux',  status: 'connected' },
+                        { name: 'github',  status: 'failed'    },
+                        { name: 'linear',  status: 'connecting'},
+                    ],
+                };
+                const ev = new MessageEvent('message', {
+                    data: JSON.stringify({ type: 'session.init', ts: new Date().toISOString(), payload }),
+                });
+                ws.dispatchEvent(ev);
+            }
+            """
+        )
+        # Wait for github row presence before opening popup so we know
+        # state is settled.
+        await wait_for(
+            lambda: page.evaluate(
+                "() => { const t = document.querySelector('[data-testid=\"mcp-topbar-summary\"]'); return t ? t.textContent : ''; }"
+            ),
+            TIMEOUT_S,
+            "summary readable",
+        )
         await page.locator('[data-testid="mcp-topbar-btn"]').click()
         await wait_for(
             lambda: page.locator('[data-testid="mcp-popup"]').count(),
             TIMEOUT_S,
             "mcp-popup opens (populated)",
+        )
+        await wait_for(
+            lambda: page.locator('[data-testid="mcp-row-github"]').count(),
+            TIMEOUT_S,
+            "github row appears in popup",
         )
 
         for name, want_tone in (

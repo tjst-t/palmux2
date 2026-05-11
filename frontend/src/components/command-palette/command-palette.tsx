@@ -219,6 +219,7 @@ function PaletteInner({
     if (!activeRepo || !activeBranch) return
     if (mode !== 'file' && mode !== 'all') return
     if (!firstToken) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
       setFiles([])
       return
     }
@@ -243,6 +244,7 @@ function PaletteInner({
   useEffect(() => {
     if (!activeRepo || !activeBranch) return
     if (mode !== 'grep') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
       setGrepHits([])
       return
     }
@@ -728,6 +730,7 @@ function PaletteInner({
 
   // Reset highlight whenever the candidate set changes.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     setActive(0)
   }, [query, items.length])
 
