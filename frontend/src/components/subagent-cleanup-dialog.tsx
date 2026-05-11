@@ -52,6 +52,7 @@ export function SubagentCleanupDialog({
   // re-opens the dialog after a previous run).
   useEffect(() => {
     if (!open) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     setSelected(new Set(candidates.map((c) => c.branchName)))
     setResult(null)
   }, [open, candidates])

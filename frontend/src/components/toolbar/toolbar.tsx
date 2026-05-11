@@ -43,6 +43,7 @@ export function Toolbar() {
   // When the focused tab changes, reset modifiers + close popover.
   useEffect(() => {
     modifiers.reset()
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     setShowCommands(false)
     // intentional: only depend on the focused tab id
     // eslint-disable-next-line react-hooks/exhaustive-deps

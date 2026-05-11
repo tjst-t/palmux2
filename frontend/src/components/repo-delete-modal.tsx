@@ -90,6 +90,7 @@ export function RepoDeleteModal({ open, repoId, repoName: _repoName, ghqPath, on
 
   useEffect(() => {
     if (!open) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     setPreview(null)
     setPreviewError(null)
     setConfirmName('')

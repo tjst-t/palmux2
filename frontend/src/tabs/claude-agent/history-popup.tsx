@@ -49,6 +49,7 @@ export function HistoryPopup({ repoId, branchId, currentSessionId, open, onClose
   useEffect(() => {
     if (!open) return
     let cancelled = false
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     setLoading(true)
     const url = filterAll
       ? '/api/sessions'

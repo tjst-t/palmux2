@@ -124,6 +124,7 @@ export function Drawer() {
   )
   // Whenever the URL switches to a new repo, follow it (still single-expand).
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     if (activeRepo) setExpandedRepoId(activeRepo)
   }, [activeRepo])
 
@@ -380,6 +381,7 @@ function RepoItem({
     const activeBranchObj = repo.openBranches.find((b) => b.id === activeBranch)
     if (!activeBranchObj) return
     const cat = categoryKey(activeBranchObj.category)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     if (cat === 'unmanaged') setActiveChip('unmanaged')
     else if (cat === 'subagent') setActiveChip('subagent')
   }, [activeRepo, activeBranch, repo.id, repo.openBranches])

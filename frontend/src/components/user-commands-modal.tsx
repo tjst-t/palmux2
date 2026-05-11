@@ -40,6 +40,7 @@ export function UserCommandsModal({ open, onClose }: Props) {
   // Initialise / reset to server state when modal opens.
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
       setRows(serverUserCommands.map((c) => ({ ...c })))
       setSaveError(null)
       setDirty(false)

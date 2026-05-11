@@ -36,6 +36,7 @@ export function ConversationExportDialog(props: ConversationExportDialogProps) {
   // Simpler: just regenerate to the new default on format toggle.
   useEffect(() => {
     if (!open) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     setFilename(makeDefaultFilename(branchId, format))
   }, [format, branchId, open])
 

@@ -95,6 +95,7 @@ export function RepoPicker({ open, onClose, onRequestDelete }: Props) {
 
   useEffect(() => {
     if (!open) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     setError(null)
     setFilter('')
     setActive(0)
@@ -117,6 +118,7 @@ export function RepoPicker({ open, onClose, onRequestDelete }: Props) {
   // Keep `active` in range.
   useEffect(() => {
     const len = isURL ? 1 : filtered.length
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     if (active >= len) setActive(Math.max(0, len - 1))
   }, [filtered.length, active, isURL])
 

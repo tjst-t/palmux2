@@ -42,6 +42,7 @@ function useRepoPortmanLeases(repoId: string, branchId: string): PortmanLease[] 
   const [leases, setLeases] = useState<PortmanLease[]>([])
   useEffect(() => {
     if (!repoId || !branchId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
       setLeases([])
       return
     }

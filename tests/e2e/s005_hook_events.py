@@ -299,7 +299,7 @@ async def main() -> None:
         # 5) HookBlock is rendered (data-testid=hook-block).
         try:
             await page.wait_for_selector(
-                '[data-testid="hook-block"]',
+                '[data-testid="hook-block"][data-hook-id="e2e-hook-1"]',
                 state="visible",
                 timeout=int(TIMEOUT_S * 1000),
             )
@@ -311,43 +311,49 @@ async def main() -> None:
 
         # 6) Header includes "hook: PreToolUse:Bash".
         header_text = await page.locator(
-            '[data-testid="hook-block"]'
+            '[data-testid="hook-block"][data-hook-id="e2e-hook-1"]'
         ).first.inner_text()
         if "PreToolUse" not in header_text:
             fail(f"hook-block header missing PreToolUse: {header_text!r}")
         passed(f"hook header reads {header_text.splitlines()[0]!r}")
 
         # 7) Click the header to expand and verify stdout/stderr panels
-        #    appear.
-        await page.locator('[data-testid="hook-block"]').first.click()
+        #    appear. Target hook-stdout/stderr scoped to OUR hook block,
+        #    not any other (real) hook block that might be on the page.
+        block_sel = '[data-testid="hook-block"][data-hook-id="e2e-hook-1"]'
+        await page.locator(block_sel).first.click()
         try:
             await page.wait_for_selector(
-                '[data-testid="hook-stdout"]',
+                f'{block_sel} [data-testid="hook-stdout"]',
                 state="visible",
                 timeout=int(TIMEOUT_S * 1000),
             )
         except Exception:  # noqa: BLE001
             fail("hook-stdout panel did not appear on expand")
-        stdout_text = await page.locator('[data-testid="hook-stdout"]').inner_text()
+        stdout_text = await page.locator(
+            f'{block_sel} [data-testid="hook-stdout"]'
+        ).inner_text()
         if "HOOK_PRE_PROBE" not in stdout_text:
             fail(f"hook-stdout missing payload: {stdout_text!r}")
         passed("hook-stdout shows the captured stdout")
 
         try:
             await page.wait_for_selector(
-                '[data-testid="hook-stderr"]',
+                f'{block_sel} [data-testid="hook-stderr"]',
                 state="visible",
                 timeout=int(TIMEOUT_S * 1000),
             )
         except Exception:  # noqa: BLE001
             fail("hook-stderr panel did not appear")
-        stderr_text = await page.locator('[data-testid="hook-stderr"]').inner_text()
+        stderr_text = await page.locator(
+            f'{block_sel} [data-testid="hook-stderr"]'
+        ).inner_text()
         if "error_to_stderr" not in stderr_text:
             fail(f"hook-stderr missing payload: {stderr_text!r}")
         passed("hook-stderr shows the captured stderr")
 
         # 8) Verify the meta line includes the exit code and outcome.
-        body_text = await page.locator('[data-testid="hook-block"]').first.inner_text()
+        body_text = await page.locator(block_sel).first.inner_text()
         if "success" not in body_text:
             fail(f"hook block body missing 'success' outcome: {body_text!r}")
         passed("hook body shows outcome=success and exit code")

@@ -59,6 +59,7 @@ export function GitMonacoDiff({ apiBase, path, unified, reloadKey, onStaged }: P
   // we read through the Files API.
   useEffect(() => {
     let cancelled = false
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     setContents(null)
     setError(null)
     ;(async () => {

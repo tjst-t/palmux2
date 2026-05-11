@@ -174,6 +174,7 @@ export function GitView({ repoId, branchId }: Props) {
 
   useEffect(() => {
     if (!selectedSha) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
       setCommitFiles([])
       setCommitFilesError(null)
       return
@@ -210,6 +211,7 @@ export function GitView({ repoId, branchId }: Props) {
     if (selection.kind !== 'commit' || selection.path) return
     if (commitFiles.length === 0) return
     const first = commitFiles[0]
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     setSelection({ ...selection, path: first.newPath || first.oldPath })
   }, [commitFiles, selection])
 
@@ -296,6 +298,7 @@ export function GitView({ repoId, branchId }: Props) {
 
   // Initial load.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     void fetchStatus()
     void fetchLog(0)
     void fetchBranches()
@@ -1065,6 +1068,7 @@ function CommitFileDiff({ apiBase, sha, path, reloadKey }: CommitFileDiffProps) 
       return
     }
     let cancelled = false
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     setOrig(null)
     setMod(null)
     setErr(null)

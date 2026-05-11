@@ -79,6 +79,7 @@ export function FilesMoveModal({ items, apiBase, onClose, onCompleted }: Props) 
     if (debounceRef.current !== null) window.clearTimeout(debounceRef.current)
     const q = inputVal.trim()
     if (!q) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
       setCompletions([])
       return
     }

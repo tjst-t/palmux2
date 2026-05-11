@@ -187,6 +187,7 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
   useEffect(() => {
     if (!isUrlPanel) return
     let cancelled = false
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     setError(null)
     ;(async () => {
       try {
@@ -264,6 +265,7 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
   useEffect(() => {
     if (isUrlPanel) return
     let cancelled = false
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     setError(null)
     ;(async () => {
       try {

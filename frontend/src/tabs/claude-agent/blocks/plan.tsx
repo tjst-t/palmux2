@@ -76,6 +76,7 @@ export function PlanBlock({ block, handlers }: { block: Block; handlers?: PlanHa
   // re-pick the initial mode once.
   useEffect(() => {
     if (selectedMode && allModes.includes(selectedMode)) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     setSelectedMode(initialMode)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialMode])

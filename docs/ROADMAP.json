@@ -6257,48 +6257,48 @@
         },
         "S13b16a-1": {
           "title": "react-hooks/set-state-in-effect (大半の errors) 修正",
-          "status": "pending",
+          "status": "done",
           "user_story": "Palmux2 を React 19 idiomatic に保ちたい開発者として、 useEffect 内の同期 setState を React 19 推奨パターン (event handler / external store subscribe / cleanup-aware async) へ置換したい。 なぜなら、 React 19 の `set-state-in-effect` 警告は cascading render による perf 劣化を示しており、 また将来 React 自身が strict-mode で warn → throw に変えたときに大量に壊れることを未然に防げるからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S13b16a-1-1",
               "description": "Story 0 で記録した lint baseline 上の `react-hooks/set-state-in-effect` errors がすべて解消されている (個別ファイル単位で確認)",
               "test": "[AC-S13b16a-1-1] in tests/acceptance/s13b16a_lint_sweep.py (npm run lint の出力をパースして該当 rule の error count == 0)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S13b16a-1-2",
               "description": "Master Regression Suite (lint を除く E2E + build + go test) が **全件緑**。 fail は pass まで自分で直す。 直しきれず判断が必要な事項のみ needs-user-input.json に追記して Story 2 へ進む",
               "test": "[AC-S13b16a-1-2] in tests/acceptance/s13b16a_lint_sweep.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S13b16a-1-3",
               "description": "手動 smoke (Git タブ commit 一覧 / diff / Files タブ preview / Claude タブの mount 直後の状態) が pass。 結果を manual-smoke-S13b16a-1.md に記録",
               "test": "[AC-S13b16a-1-3] manual smoke",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S13b16a-1-1": {
               "title": "git-view.tsx の set-state-in-effect (複数箇所) を idiomatic 化",
               "description": "selectedSha → setCommitFiles 等の useEffect → useMemo / useSyncExternalStore / event-handler 化。 fetch 系 useEffect は async function 内で flag check + AbortController に置換",
-              "status": "pending"
+              "status": "done"
             },
             "S13b16a-1-2": {
               "title": "git-monaco-diff.tsx / git-image-diff.tsx の同パターン修正",
               "description": "diff fetch effect を idiomatic に",
-              "status": "pending"
+              "status": "done"
             },
             "S13b16a-1-3": {
               "title": "claude-agent / files / drawer / command-palette 系の同パターン修正",
               "description": "lint-baseline.md のマトリクスから set-state-in-effect が出ているファイルを順次修正",
-              "status": "pending"
+              "status": "done"
             },
             "S13b16a-1-4": {
               "title": "Master Regression Suite + 手動 smoke を実行し全件緑化",
               "description": "結果を sprint-logs/S13b16a/regression-after-story1.json と manual-smoke-S13b16a-1.md に全件記録。 fail があれば pass まで自分で直す",
-              "status": "pending"
+              "status": "done"
             }
           }
         },

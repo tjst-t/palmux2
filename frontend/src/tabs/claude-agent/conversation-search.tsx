@@ -172,6 +172,7 @@ export function useConversationSearch(
   // Reset the active index when the result set changes, so navigation
   // always starts at match 0 after the user types.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     setActive(matches.length > 0 ? 0 : -1)
   }, [matches])
 

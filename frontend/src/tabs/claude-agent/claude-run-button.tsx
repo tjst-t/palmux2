@@ -41,6 +41,7 @@ export function ClaudeRunButton({ repoId, branchId }: Props) {
 
   useEffect(() => {
     let cancelled = false
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     setLoading(true)
     void api
       .get<DetectedCommand[]>(

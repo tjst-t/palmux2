@@ -56,8 +56,11 @@ export function ComposerSelectors({
   const [localModel, setLocalModel] = useState(model)
   const [localEffort, setLocalEffort] = useState(effort)
   const [localPermissionMode, setLocalPermissionMode] = useState(permissionMode)
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
   useEffect(() => setLocalModel(model), [model])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
   useEffect(() => setLocalEffort(effort), [effort])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
   useEffect(() => setLocalPermissionMode(permissionMode), [permissionMode])
 
   const handleModelChange = (m: string) => {
