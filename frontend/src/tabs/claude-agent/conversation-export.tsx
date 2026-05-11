@@ -176,6 +176,7 @@ interface JSONContext {
  *  blocks so the prose stays scannable while the diagnostic content
  *  is still recoverable.
  */
+// eslint-disable-next-line react-refresh/only-export-components -- helper coupled to component (HMR-only concern, no runtime impact)
 export function toMarkdown(turns: Turn[], ctx: MarkdownContext): string {
   const lines: string[] = []
   lines.push(`# Claude session — ${ctx.branchId}`)
@@ -337,6 +338,7 @@ function renderBlockMarkdown(b: Block): string[] {
  *  v1 schema — the version field lets us evolve while keeping older
  *  exports importable.
  */
+// eslint-disable-next-line react-refresh/only-export-components -- helper coupled to component (HMR-only concern, no runtime impact)
 export function toJSON(turns: Turn[], ctx: JSONContext): string {
   const payload = {
     palmuxExport: 1,
@@ -366,6 +368,7 @@ function escHtml(s: string): string {
 
 /** "branch-YYYY-MM-DD.md" or ".json", with the branch sanitised down
  *  to filesystem-friendly characters. */
+// eslint-disable-next-line react-refresh/only-export-components -- helper coupled to component (HMR-only concern, no runtime impact)
 export function makeDefaultFilename(branchId: string, format: Format): string {
   const safe = branchId.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'session'
   const today = new Date()

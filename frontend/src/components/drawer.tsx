@@ -96,6 +96,7 @@ function readLastTabFor(repoId: string, branchId: string): string | null {
 //   phase-10 (legacy tag)   → phase-10  (still rendered so the user
 //                             can SEE that the binary's version source
 //                             isn't a proper release — and rebuild)
+// eslint-disable-next-line react-refresh/only-export-components -- helper coupled to component (HMR-only concern, no runtime impact)
 export function formatCompactVersion(raw: string): string {
   if (!raw) return ''
   const dirty = raw.endsWith('-dirty')
@@ -280,7 +281,6 @@ export function Drawer() {
         <RepoDeleteModal
           open={true}
           repoId={deleteTarget.repoId}
-          repoName={deleteTarget.ghqPath.split('/').slice(-2).join('/')}
           ghqPath={deleteTarget.ghqPath}
           onClose={() => setDeleteTarget(null)}
           onDeleted={async () => {

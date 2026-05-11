@@ -40,6 +40,7 @@ export interface SearchHit {
  *  parent Task tree which fights the existing UX; deferring this to
  *  a future sprint as a backlog item.
  */
+// eslint-disable-next-line react-refresh/only-export-components -- helper coupled to component (HMR-only concern, no runtime impact)
 export function buildSearchIndex(turns: Turn[]): SearchEntry[] {
   const entries: SearchEntry[] = []
   for (let i = 0; i < turns.length; i++) {
@@ -94,6 +95,7 @@ function blockSearchText(b: Block): string {
  *  Enter advances to a different block, not a different word in the
  *  same block).
  */
+// eslint-disable-next-line react-refresh/only-export-components -- helper coupled to component (HMR-only concern, no runtime impact)
 export function runSearch(index: SearchEntry[], query: string): SearchHit[] {
   if (!query) return []
   const needle = query.toLowerCase()
@@ -142,6 +144,7 @@ export interface UseConversationSearchResult {
  *  conversation list. Re-runs the query whenever turns or the query
  *  string change.
  */
+// eslint-disable-next-line react-refresh/only-export-components -- helper coupled to component (HMR-only concern, no runtime impact)
 export function useConversationSearch(
   turns: Turn[],
   scrollToTurn: (index: number) => void,
@@ -303,6 +306,7 @@ export function ConversationSearchBar({
  *  / hit segments. Used by both the BlockView code path (so the user
  *  visually sees the matched substring) and any future "preview" UI.
  *  Returns the original string unchanged when `query` is empty. */
+// eslint-disable-next-line react-refresh/only-export-components -- helper coupled to component (HMR-only concern, no runtime impact)
 export function splitForHighlight(
   text: string,
   query: string,

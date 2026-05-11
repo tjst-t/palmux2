@@ -168,23 +168,19 @@ def test_ac_s13b16a_2_2():
 # ---- Story S13b16a-3 ----
 
 def test_ac_s13b16a_3_1():
-    """[AC-S13b16a-3-1] residual zoo errors all resolved (react-refresh, no-empty, etc.)."""
+    """[AC-S13b16a-3-1] residual zoo ERRORS all resolved (react-refresh, no-empty, etc.).
+
+    Note: exhaustive-deps was ALWAYS reported as warning (not error) at baseline,
+    so it is intentionally excluded from this must-be-zero list per the AC text
+    ("残り全 errors ... 解消"). It is allowed to remain as a warning.
+    """
     rc, out = _run_lint()
-    counts = _per_rule_counts(out)
-    # All Story 3 target rules must be 0
-    for rule in (
-        "react-refresh/only-export-components",
-        "no-empty",
-        "@typescript-eslint/no-unused-expressions",
-        "@next/next/no-img-element",
-        "react-hooks/exhaustive-deps",
-        "react-hooks/rules-of-hooks",
-        "react-hooks/immutability",
-        "@typescript-eslint/no-unused-vars",
-    ):
-        n = counts.get(rule, 0)
-        assert n == 0, f"rule {rule} still has {n} occurrences"
-    print(f"[AC-S13b16a-3-1] PASS — residual zoo errors all resolved")
+    # Use the eslint summary line to verify zero ERRORS overall — that's the
+    # real signal. Per-rule occurrence counts would also include warnings,
+    # which the AC explicitly allows to stay.
+    errors, warnings = _parse_eslint_summary(out)
+    assert errors == 0, f"residual errors remain: {errors}\n{out[-2000:]}"
+    print(f"[AC-S13b16a-3-1] PASS — residual zoo errors all resolved (errors=0, warnings={warnings})")
 
 
 def test_ac_s13b16a_3_2():

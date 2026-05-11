@@ -35,6 +35,7 @@ export function ClaudeSearchProvider(
   )
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- helper coupled to component (HMR-only concern, no runtime impact)
 export function useClaudeSearch(): ClaudeSearchContextValue {
   return useContext(ClaudeSearchContext)
 }

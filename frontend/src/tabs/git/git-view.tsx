@@ -44,7 +44,8 @@ import { api, ApiError } from '../../lib/api'
 import { useGitStatusEvents } from '../../hooks/use-git-status-events'
 
 import { GitMonacoDiff } from './git-monaco-diff'
-import { ImagePair, isImageFile } from './git-image-diff'
+import { ImagePair } from './git-image-diff'
+import { isImageFile } from './git-image-helpers'
 import { monacoLanguageFor } from '../files/viewers/dispatcher'
 import styles from './git-view.module.css'
 import type {
@@ -229,11 +230,15 @@ export function GitView({ repoId, branchId }: Props) {
   )
   const persistSidebarWidth = useCallback((w: number) => {
     setSidebarWidth(w)
-    try { window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(w)) } catch {}
+    try { window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(w)) } catch {
+      // ignore — localStorage may be disabled in private mode
+    }
   }, [])
   const persistChangesHeight = useCallback((h: number) => {
     setChangesHeight(h)
-    try { window.localStorage.setItem(CHANGES_HEIGHT_KEY, String(h)) } catch {}
+    try { window.localStorage.setItem(CHANGES_HEIGHT_KEY, String(h)) } catch {
+      // ignore — localStorage may be disabled in private mode
+    }
   }, [])
   const onSidebarResize = useCallback((clientX: number) => {
     const el = bodyRef.current
@@ -741,7 +746,8 @@ function ChangesSection({
                     title={c.staged ? 'Unstage' : 'Stage'}
                     onClick={(ev) => {
                       ev.stopPropagation()
-                      c.staged ? onUnstage(c.path) : onStage(c.path)
+                      if (c.staged) onUnstage(c.path)
+                      else onStage(c.path)
                     }}
                     data-testid={`git-${c.staged ? 'unstage' : 'stage'}-${c.path}`}
                   >

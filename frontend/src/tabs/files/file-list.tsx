@@ -103,7 +103,7 @@ interface RowProps {
   isContextOpen: boolean
   dirty: boolean
   touchSelectMode: boolean
-  anchorPath: React.MutableRefObject<string | null>
+  anchorPathRef: React.MutableRefObject<string | null>
   allEntries: Entry[]
   selectedPaths: Set<string>
   onPick: (e: Entry) => void
@@ -127,7 +127,7 @@ function FileRow({
   isContextOpen,
   dirty,
   touchSelectMode,
-  anchorPath,
+  anchorPathRef,
   allEntries,
   selectedPaths,
   onPick,
@@ -161,12 +161,12 @@ function FileRow({
       // Long press on touch → enter select mode and select this item.
       if (!touchSelectMode) {
         onTouchSelectMode(true)
-        anchorPath.current = entry.path
+        anchorPathRef.current = entry.path
         const next = new Set(selectedPaths)
         next.add(entry.path)
         onSelectionChange(next)
       }
-    }, [touchSelectMode, entry.path, selectedPaths, onSelectionChange, onTouchSelectMode, anchorPath]),
+    }, [touchSelectMode, entry.path, selectedPaths, onSelectionChange, onTouchSelectMode, anchorPathRef]),
   )
 
   const handleClick = useCallback(
@@ -179,7 +179,7 @@ function FileRow({
         } else {
           next.add(entry.path)
         }
-        anchorPath.current = entry.path
+        anchorPathRef.current = entry.path
         onSelectionChange(next)
         return
       }
@@ -194,15 +194,15 @@ function FileRow({
           next.delete(entry.path)
         } else {
           next.add(entry.path)
-          anchorPath.current = entry.path
+          anchorPathRef.current = entry.path
         }
         onSelectionChange(next)
         return
       }
 
-      if (e.shiftKey && anchorPath.current) {
+      if (e.shiftKey && anchorPathRef.current) {
         // Range select from anchor to this item.
-        const anchorIdx = allEntries.findIndex((x) => x.path === anchorPath.current)
+        const anchorIdx = allEntries.findIndex((x) => x.path === anchorPathRef.current)
         const thisIdx = allEntries.findIndex((x) => x.path === entry.path)
         if (anchorIdx !== -1 && thisIdx !== -1) {
           const lo = Math.min(anchorIdx, thisIdx)
@@ -223,10 +223,10 @@ function FileRow({
       // -click → m3-Cmd-click ended up as {m2, m3} instead of
       // {m1, m2, m3}.
       onSelectionChange(new Set([entry.path]))
-      anchorPath.current = entry.path
+      anchorPathRef.current = entry.path
       onPick(entry)
     },
-    [touchSelectMode, entry, selectedPaths, allEntries, anchorPath, onPick, onSelectionChange],
+    [touchSelectMode, entry, selectedPaths, allEntries, anchorPathRef, onPick, onSelectionChange],
   )
 
   // Compute CSS classes for the row button.
@@ -330,7 +330,7 @@ export function FileList({
   onOpenUpload,
 }: Props) {
   const dirtySet = useMemo(() => new Set(dirtyPaths ?? []), [dirtyPaths])
-  const anchorPath = useRef<string | null>(null)
+  const anchorPathRef = useRef<string | null>(null)
   const createInputRef = useRef<HTMLInputElement>(null)
 
   // Auto-focus the create row input when it mounts.
@@ -358,7 +358,7 @@ export function FileList({
               isContextOpen={contextMenuTarget === e.path}
               dirty={!e.isDir && dirtySet.has(e.path)}
               touchSelectMode={touchSelectMode}
-              anchorPath={anchorPath}
+              anchorPathRef={anchorPathRef}
               allEntries={entries}
               selectedPaths={selectedPaths}
               onPick={onPick}

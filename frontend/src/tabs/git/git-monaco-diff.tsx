@@ -24,7 +24,8 @@ import type { editor as MonacoEditor } from 'monaco-editor'
 import { monacoLanguageFor } from '../files/viewers/dispatcher'
 import { api } from '../../lib/api'
 
-import { ImagePair, isImageFile } from './git-image-diff'
+import { ImagePair } from './git-image-diff'
+import { isImageFile } from './git-image-helpers'
 import styles from './git-monaco-diff.module.css'
 import type { LineRange } from './types'
 

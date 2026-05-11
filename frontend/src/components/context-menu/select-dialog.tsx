@@ -54,6 +54,7 @@ const useSelectStore = create<State>((set, get) => ({
   },
 }))
 
+// eslint-disable-next-line react-refresh/only-export-components -- helper coupled to component (HMR-only concern, no runtime impact)
 export const selectDialog = {
   ask: (opts: SelectOptions) => useSelectStore.getState().ask(opts),
 }

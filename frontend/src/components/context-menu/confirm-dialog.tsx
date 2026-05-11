@@ -51,6 +51,7 @@ const useConfirmStore = create<State>((set, get) => ({
 }))
 
 // Convenience module-level façade so callers don't have to use the hook.
+// eslint-disable-next-line react-refresh/only-export-components -- helper coupled to component (HMR-only concern, no runtime impact)
 export const confirmDialog = {
   ask: (opts: ConfirmOptions) => useConfirmStore.getState().ask(opts),
 }

@@ -33,7 +33,10 @@ interface DeletePreview {
 interface Props {
   open: boolean
   repoId: string
-  repoName: string  // owner/repo display name
+  // S13b16a-3: `repoName` prop removed — it was unused (the component derives
+  // its display name from ghqPath via repoShortName). The lint baseline flagged
+  // the destructured `_repoName` as no-unused-vars even though the underscore
+  // suppressed the warning in older TS versions.
   ghqPath: string   // full ghqPath for short-name derivation
   onClose: () => void
   onDeleted: () => void
@@ -78,7 +81,7 @@ function FilePrefixSpan({ prefix }: { prefix: string }) {
   return <span className={cls}>{prefix}</span>
 }
 
-export function RepoDeleteModal({ open, repoId, repoName: _repoName, ghqPath, onClose, onDeleted }: Props) {
+export function RepoDeleteModal({ open, repoId, ghqPath, onClose, onDeleted }: Props) {
   const [preview, setPreview] = useState<DeletePreview | null>(null)
   const [loading, setLoading] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)

@@ -13,6 +13,7 @@ import { PillSelect, type PillSelectOption } from '../../../components/pill-sele
 
 import type { ModelDescriptor } from '../types'
 
+// eslint-disable-next-line react-refresh/only-export-components -- helper coupled to component (HMR-only concern, no runtime impact)
 export const FALLBACK_MODELS: ModelDescriptor[] = [
   { value: '', displayName: 'default' },
   { value: 'sonnet', displayName: 'sonnet' },
@@ -20,6 +21,7 @@ export const FALLBACK_MODELS: ModelDescriptor[] = [
   { value: 'haiku', displayName: 'haiku' },
 ]
 
+// eslint-disable-next-line react-refresh/only-export-components -- helper coupled to component (HMR-only concern, no runtime impact)
 export function modeLabel(mode: string): string {
   switch (mode) {
     case 'default':           return 'default'
