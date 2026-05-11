@@ -435,6 +435,7 @@ export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum, o
   // from doSave / dirty / saving above). Monaco's onKeyDown listener
   // reads the latest via the editor's ref-based forwarding.
   const onMonacoSaveRef = useRef(onSaveClick)
+  // eslint-disable-next-line react-hooks/refs -- pre-React-19 latest-closure ref pattern (no useEffectEvent yet)
   onMonacoSaveRef.current = onSaveClick
 
   if (error) return <p className={styles.error}>{error}</p>

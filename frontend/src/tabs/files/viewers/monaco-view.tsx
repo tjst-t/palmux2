@@ -164,10 +164,13 @@ export function MonacoView({
   // Keep the latest onSave in a ref so the keydown listener captures the
   // latest closure without re-binding on every render.
   const onSaveRef = useRef<typeof onSave>(onSave)
+  // eslint-disable-next-line react-hooks/refs -- pre-React-19 latest-closure ref pattern (no useEffectEvent yet)
   onSaveRef.current = onSave
   const onSizeRef = useRef<typeof onContentSizeChange>(onContentSizeChange)
+  // eslint-disable-next-line react-hooks/refs -- pre-React-19 latest-closure ref pattern (no useEffectEvent yet)
   onSizeRef.current = onContentSizeChange
   const onCursorRef = useRef<typeof onCursorLineChange>(onCursorLineChange)
+  // eslint-disable-next-line react-hooks/refs -- pre-React-19 latest-closure ref pattern (no useEffectEvent yet)
   onCursorRef.current = onCursorLineChange
 
   // Scroll to the requested 1-based line whenever lineNum changes. We

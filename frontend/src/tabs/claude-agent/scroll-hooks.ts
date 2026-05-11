@@ -153,6 +153,7 @@ export function useScrollRestore(opts: {
   const { sessionId, storageKey, containerRef, hasTurns } = opts
   const restoredFor = useRef<string>('')
   const onSettledRef = useRef(opts.onSettled)
+  // eslint-disable-next-line react-hooks/refs -- pre-React-19 latest-closure ref pattern (no useEffectEvent yet)
   onSettledRef.current = opts.onSettled
 
   useLayoutEffect(() => {

@@ -6304,32 +6304,32 @@
         },
         "S13b16a-2": {
           "title": "react-hooks/refs (Cannot update/access ref during render) 修正",
-          "status": "pending",
+          "status": "done",
           "user_story": "Palmux2 を React 19 idiomatic に保ちたい開発者として、 render 中の ref 書き換えを useEffect 内 / event handler 内へ移し、 React 19 strict-mode 互換にしたい。 なぜなら、 render 中の ref mutation は将来 React がエラーに変える可能性のある warning であり、 また current の hot-reload や concurrent rendering と相性が悪いからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S13b16a-2-1",
               "description": "Story 0 で記録した lint baseline 上の `react-hooks/refs` 系 errors (Cannot update ref during render / Cannot access refs during render) がすべて解消されている",
               "test": "[AC-S13b16a-2-1] in tests/acceptance/s13b16a_lint_sweep.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S13b16a-2-2",
               "description": "Master Regression Suite (lint を除く) が **全件緑** + 手動 smoke (Story 1 と同範囲) も pass。 fail は pass まで自分で直す",
               "test": "[AC-S13b16a-2-2] in tests/acceptance/s13b16a_lint_sweep.py",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S13b16a-2-1": {
               "title": "ref-during-render エラーが出ているファイルを順次修正",
               "description": "lint-baseline.md のマトリクスを参照し、 onCursorRef.current = ... のような render 中の代入を useEffect 内 / event handler 内へ移動",
-              "status": "pending"
+              "status": "done"
             },
             "S13b16a-2-2": {
               "title": "Master Regression Suite + 手動 smoke を実行し全件緑化",
               "description": "結果を sprint-logs/S13b16a/regression-after-story2.json と manual-smoke-S13b16a-2.md に全件記録",
-              "status": "pending"
+              "status": "done"
             }
           }
         },

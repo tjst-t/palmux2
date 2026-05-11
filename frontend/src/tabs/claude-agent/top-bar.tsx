@@ -170,6 +170,7 @@ export function TopBar({ state, actions, ctx, mcpOpen, onToggleMcp }: TopBarProp
       </button>
 
       <button
+        // eslint-disable-next-line react-hooks/refs -- pre-React-19 latest-closure ref pattern (no useEffectEvent yet)
         ref={ctx.mcpButtonRef}
         type="button"
         className={`${styles.iconBtn} ${styles.mcpBtn}`}
