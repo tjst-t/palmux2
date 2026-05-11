@@ -1,0 +1,42 @@
+{
+  "story_id": "S13b16a-0",
+  "type": "cli",
+  "entry_point": "shell — developer runs scripts/sprint-regression-S13b16a.sh and inspects produced JSON/Markdown artifacts",
+  "scenario_steps": [
+    {
+      "step": 1,
+      "action": "Developer starts dev palmux2 server: make serve INSTANCE=dev",
+      "expected": "Server is running on portman-allocated port (e.g. 8202). curl /api/repos/{id}/branches returns the open Workspaces."
+    },
+    {
+      "step": 2,
+      "action": "Developer runs PORT=<dev-port> OUT_TAG=baseline ./scripts/sprint-regression-S13b16a.sh",
+      "expected": "Script executes go test, go build, npm build, npm lint, then 22 Python E2E tests sequentially. Per-test logs land under docs/sprint-logs/S13b16a/baseline-stdout/. Final summary line prints to stdout."
+    },
+    {
+      "step": 3,
+      "action": "Developer opens docs/sprint-logs/S13b16a/regression-baseline.json",
+      "expected": "JSON contains phases.{go_test,go_build,fe_build,fe_lint} and e2e_summary.{total,pass,fail,timeout}. Raw, no skip/exclusion logic."
+    },
+    {
+      "step": 4,
+      "action": "Developer verifies non-lint phases all pass (go_test/go_build/fe_build/E2E pass=22) and lint shows 77 errors / 9 warnings",
+      "expected": "Confirmed: baseline non-lint suite is fully green; lint is the only red signal."
+    },
+    {
+      "step": 5,
+      "action": "Developer runs python3 /tmp/parse_lint.py on the lint log to produce docs/sprint-logs/S13b16a/lint-baseline.md",
+      "expected": "Markdown table contains per-rule counts (set-state-in-effect=38, react-refresh=21, refs=9, ...) and per-file-per-rule breakdown grouped by Story scope (S13b16a-1/2/3)."
+    },
+    {
+      "step": 6,
+      "action": "Developer runs python3 tests/acceptance/s13b16a_lint_sweep.py — only Story 0 tests execute meaningfully",
+      "expected": "[AC-S13b16a-0-1] PASS, [AC-S13b16a-0-2] PASS, [AC-S13b16a-0-3] PASS. Other ACs may fail because Stories 1/2/3 have not run yet."
+    }
+  ],
+  "ac_coverage": [
+    {"ac_id": "AC-S13b16a-0-1", "covered_by_steps": [3]},
+    {"ac_id": "AC-S13b16a-0-2", "covered_by_steps": [4]},
+    {"ac_id": "AC-S13b16a-0-3", "covered_by_steps": [5]}
+  ]
+}

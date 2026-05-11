@@ -1,0 +1,41 @@
+{
+  "sprint": "S13b16a",
+  "title": "FE lint debt sweep (React 19 idiomatic 化 + 既存 77 errors 一掃)",
+  "branch": "autopilot/main/S13b16a",
+  "started_at": "2026-05-11T00:00:00Z",
+  "planning_decisions": [
+    {
+      "id": "PD-1",
+      "topic": "Branch naming",
+      "decision": "autopilot/main/S13b16a",
+      "rationale": "sprint-auto.md spec — autopilot/{base-branch-sanitized}/{SprintID}"
+    },
+    {
+      "id": "PD-2",
+      "topic": "Regression script reuse",
+      "decision": "Created scripts/sprint-regression-S13b16a.sh as a near-clone of sprint-regression-S4b9df4.sh, baking INCLUDE_NEW=1 in (so all 22 tests always run) and improving the lint-summary parser.",
+      "rationale": "DESIGN_PRINCIPLES priority_rule 6 (existing assets > new). The S4b9df4 suite is the right Master Regression definition for this sprint and re-running it gives the cheapest fail-detection."
+    },
+    {
+      "id": "PD-3",
+      "topic": "Story execution order",
+      "decision": "Sequential (Story 1 → 2 → 3); no worktree parallelism.",
+      "rationale": "Sprint description explicitly recommends sequential because git-view.tsx contains both set-state-in-effect (Story 1) and refs-during-render (Story 2) errors — parallel worktrees would conflict."
+    },
+    {
+      "id": "PD-4",
+      "topic": "Acceptance test placement",
+      "decision": "tests/acceptance/s13b16a_lint_sweep.py — single-file, plain Python entry point (no Playwright; this is not a GUI sprint, so test discipline Rule 2 says drive the user's real entry point = the shell command npm run lint).",
+      "rationale": "test-discipline.md Rule 2: non-GUI Stories produce acceptance tests in tests/acceptance/. Lint sweep is a pure CLI/shell entry point story."
+    },
+    {
+      "id": "PD-5",
+      "topic": "GUI spec / prototype skipped",
+      "decision": "No gui-spec, no prototype.",
+      "rationale": "Sprint description explicit: 'ジャンル: 構造改善のみ → gui-spec / prototype フェーズはスキップ'. UI behavior is preserved (asserted by the existing 22 GUI E2E tests in the Master Suite)."
+    }
+  ],
+  "implementation_decisions": [],
+  "review_decisions": [],
+  "user_decisions": []
+}
