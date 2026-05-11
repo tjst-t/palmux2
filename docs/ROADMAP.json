@@ -2,15 +2,15 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 36,
+    "sprints_done": 37,
     "sprints_total": 38,
-    "percent": 94,
-    "current_sprint": "S13b16a",
-    "done": 36,
-    "in_progress": 1,
+    "percent": 97,
+    "current_sprint": null,
+    "done": 37,
+    "in_progress": 0,
     "total": 38,
     "remaining": 1,
-    "percentage": 94
+    "percentage": 97
   },
   "execution_order": [
     "S001",
@@ -6210,7 +6210,7 @@
     "S13b16a": {
       "title": "FE lint debt sweep (React 19 idiomatic 化 + 既存 77 errors 一掃)",
       "description": "S4b9df4 sprint で表面化した NUI-1 の対応。 `npm --prefix frontend run lint` が **77 errors / 9 warnings** を出している (S4b9df4 baseline で 83 errors → refactor 副作用で 6 errors 減って 77 errors)。 内訳の大半は React 19 で新設された `react-hooks/set-state-in-effect` ルール (`useEffect` 内の同期 setState は cascading render を生むので推奨しない) が、 idiomatic な mount-fetch effect を flag したもの。 残りは `Cannot update/access ref during render`、 `react-refresh/only-export-components`、 `no-empty`、 `no-unused-expressions`、 設定不足 (`@next/next/no-img-element` の rule 不在) 等。\n\n本 sprint は **lint=0** を達成して `npm run lint` を CI ゲートに昇格させられる状態を作る。 user-facing 挙動の変更は最小化 — 各 lint fix は React 19 推奨の idiomatic 形 (例: useEffect → event handler / external store subscribe / cleanup pattern) への置換で意味的に等価。 ただし React の internal scheduling は変わるので、 Master Regression Suite で挙動の不変性を担保する。\n\n## REGRESSION CONTRACT\n\n**全テスト緑が大前提 + fail はまず自分で直す**。 Sprint S4b9df4 と同じ運用:\n- baseline / story / final の各ゲートで Master Regression Suite を全実行し、 fail が出たら **pass まで自分で直す** (即 escalate しない)\n- 「これは preexisting」 「これは flaky」 「これは scope 外」 のような自己判断スキップは禁止\n- 真にユーザ判断が必要な事項は `docs/sprint-logs/S13b16a/needs-user-input.json` に蓄積し、 sprint verify で **batch でまとめて提示**\n- 即時 escalate が許されるのは destructive のみ\n\n## Master Regression Suite\n\n**Backend (go test)**: `go test -count=1 ./...`\n\n**Backend (build sanity)**: `go build ./...` がエラーゼロ\n\n**Frontend (build sanity)**: `npm --prefix frontend run build` がエラーゼロ\n\n**Frontend (lint)**: `npm --prefix frontend run lint` が **errors=0** + warnings は ≤ baseline (9)\n\n**Frontend (bundle size sanity)**: 主要 chunk (index, lib, files-view) のサイズが baseline ±5% 以内\n\n**Python E2E (Claude タブ + Files / Git タブ関連 22 本 = S4b9df4 の Master Suite)**: hotfix_claude_scroll_button.py, hotfix_claude_scroll_yank_during_stream.py, s001_refine_plan.py, s004_mcp_indicator.py, s005_hook_cli_wire.py, s005_hook_events.py, s006_add_dir_file.py, s007_ask_question.py, s008_upload_routes.py, s009_multi_tab.py, s009_fix_lifecycle.py, s009_fix_lifecycle_v2.py, s009_fix_periodic_check.py, s009_fix4_ui_monitor.py, s017_long_session.py, s018_conv_utils.py, s019_rewind.py, s4b9df4_topbar_buttons.py, s4b9df4_keyboard_shortcuts.py, s4b9df4_scroll_follow.py, s4b9df4_rewind_flow.py, s4b9df4_permission_flow.py\n\n**手動 smoke (Story 1, 2, 3 の done 時に必須)**: `make serve INSTANCE=dev` で立ち上げ Git タブの commit 一覧 / diff 表示 / Files タブの Monaco preview / Claude タブ / Drawer の各画面遷移を目視。 結果は `docs/sprint-logs/S13b16a/manual-smoke-{StoryID}.md` に記録\n\n## needs-user-input.json schema\n\nS4b9df4 と同じ。 `{ items: [{ id, raised_at, raised_during, category, summary, detail, options, recommendation, blocking }] }`。 sprint verify で batch 提示。\n\n## 触るファイル (推定)\n\n- `frontend/src/tabs/git/git-view.tsx` (1068 行、 set-state-in-effect 多数)\n- `frontend/src/tabs/git/git-image-diff.tsx`、 `git-monaco-diff.tsx`\n- `frontend/src/components/command-palette/*`、 `drawer/*`\n- `frontend/src/tabs/files/*`\n- `frontend/eslint.config.{js,ts}` (`@next/next/no-img-element` の rule 不在は config 修正)\n\nBE は触らない。\n\n## ジャンル / 並列性 / スコープ外\n\n**ジャンル**: 構造改善のみ (機能追加なし) → gui-spec / prototype フェーズはスキップ\n\n**並列実行**: Story 1 / 2 / 3 は触るファイルが部分的に重複する (例: git-view.tsx は set-state と refs-during-render の両方を含む) ため worktree 並列は merge conflict 不可避。 逐次実行を推奨\n\n**スコープ外**:\n- 機能追加・ UI 改修 — 純粋な lint fix / idiomatic 化のみ\n- Backend lint (golangci-lint) — 別 sprint で扱う\n- E2E test の hermetic 化 — 次 sprint Saa8506 で扱う",
-      "status": "in_progress",
+      "status": "done",
       "milestone": false,
       "stories": {
         "S13b16a-0": {
@@ -6393,71 +6393,71 @@
         },
         "S13b16a-4": {
           "title": "set-state-in-effect (40 件) + refs-during-render (9 件) を真の refactor で解消 (suppress 禁止)",
-          "status": "pending",
+          "status": "done",
           "user_story": "Palmux2 を実際に React 19 idiomatic にしたい開発者として、 Story 1 / 2 で導入された 49 件の `eslint-disable-next-line` 系 suppress (set-state-in-effect 40 + refs-during-render 9) を本物の refactor で解消したい。 なぜなら、 sprint description が明示的に求めた 「React 19 推奨の idiomatic 形 (event handler / external store subscribe / cleanup pattern / useReducer / useMemo) への置換で意味的に等価」 が達成されておらず、 cascading render / concurrent rendering 非互換という runtime concern が残っていて、 将来 React の strict mode 強化で再爆発する潜在負債だからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S13b16a-4-1",
               "description": "Story 1 / 2 で追加された `eslint-disable-next-line react-hooks/set-state-in-effect` directive (40 件) が **すべて削除されている** 。 grep -r 'eslint-disable-next-line react-hooks/set-state-in-effect' frontend/src が 0 件",
               "test": "[AC-S13b16a-4-1] in tests/acceptance/s13b16a_lint_sweep.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S13b16a-4-2",
               "description": "Story 2 で追加された `eslint-disable-next-line react-hooks/refs` directive (9 件) が **すべて削除されている** 。 grep -r 'eslint-disable-next-line react-hooks/refs' frontend/src が 0 件",
               "test": "[AC-S13b16a-4-2] in tests/acceptance/s13b16a_lint_sweep.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S13b16a-4-3",
               "description": "削除した 49 件の元 lint error が **真の refactor (useReducer / useMemo / Suspense + use(promise) / event handler 化 / external store / useEffect 内 ref move 等) で解消** されている。 = `npm --prefix frontend run lint` が引き続き **errors=0** (warnings ≤ baseline 9 件)",
               "test": "[AC-S13b16a-4-3] in tests/acceptance/s13b16a_lint_sweep.py (lint error count == 0 + suppress count check)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S13b16a-4-4",
               "description": "react-refresh/only-export-components の suppress (18 件) と react-hooks/exhaustive-deps の suppress (9 件) は **ユーザ承認済み** なので残置可。 ただし decisions.json に 「ユーザが 2026-05-11 に suppress 受け入れを明示判断」 が記録されていること",
               "test": "[AC-S13b16a-4-4] in tests/acceptance/s13b16a_lint_sweep.py (decisions.json 内に user-approved suppression record 存在を確認)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S13b16a-4-5",
               "description": "Master Regression Suite (lint=0 含む 22 本 E2E + go test + build) が **全件緑** + 手動 smoke (Git タブ commit 一覧 / diff / Files タブ Monaco preview / Claude タブ起動直後の状態 / Drawer の各画面遷移) も pass。 fail は pass まで自分で直す",
               "test": "[AC-S13b16a-4-5] in tests/acceptance/s13b16a_lint_sweep.py",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S13b16a-4-6",
               "description": "Sprint done 直前に Master Regression Suite を実行し regression-final-v2.json に **全件緑** で記録。 + needs-user-input.json に蓄積された全項目 (今回は本 Story の途中で escalate 候補が出るかもしれない) を **batch でユーザに提示** し判断を得る。 needs-user-input.json が空なら直接 sprint done",
               "test": "[AC-S13b16a-4-6] in tests/acceptance/s13b16a_lint_sweep.py",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S13b16a-4-1": {
               "title": "set-state-in-effect の 40 件を真の refactor で解消",
               "description": "各 useEffect を React 19 推奨パターンへ置換: (a) Mount-fetch effect は useReducer + AbortController に集約 or `use(promise)` (React 19) + Suspense へ。 (b) Reset on dep change (`useEffect(() => setX(null), [id])`) は useMemo / useReducer の derived state へ、 もしくは parent から key 渡しで unmount 強制。 (c) Sync derived state は useMemo に。 各箇所ごとに最適パターンを選択。 挙動は等価のまま (E2E が緑であることで担保)",
-              "status": "pending"
+              "status": "done"
             },
             "S13b16a-4-2": {
               "title": "refs-during-render の 9 件を真の refactor で解消",
               "description": "render 中の `ref.current = ...` を useEffect 内 / event handler 内 / useImperativeHandle へ移動。 必要なら ref を state に格上げ (本当に reactive な値だった場合)",
-              "status": "pending"
+              "status": "done"
             },
             "S13b16a-4-3": {
               "title": "decisions.json にユーザ判断 (react-refresh + exhaustive-deps suppress 受け入れ) を記録",
               "description": "「2026-05-11 にユーザが case (C) 部分受け入れを選択。 react-refresh は HMR-only、 exhaustive-deps は warning レベルなので suppress 受け入れ。 set-state-in-effect / refs-during-render は真の refactor を要求」 を decisions.json に追記",
-              "status": "pending"
+              "status": "done"
             },
             "S13b16a-4-4": {
               "title": "Master Regression Suite + 手動 smoke を実行し全件緑化 (sprint final v2)",
               "description": "結果を sprint-logs/S13b16a/regression-final-v2.json と manual-smoke-S13b16a-4.md に全件記録。 fail があれば pass まで自分で直す",
-              "status": "pending"
+              "status": "done"
             },
             "S13b16a-4-5": {
               "title": "needs-user-input.json を batch でユーザに提示し判断を得る (sprint verify v2)",
               "description": "本 Story 中に escalate 候補が出れば needs-user-input-v2.json に蓄積し、 sprint verify でユーザに batch 提示。 空なら直接 sprint done v2",
-              "status": "pending"
+              "status": "done"
             }
           }
         }

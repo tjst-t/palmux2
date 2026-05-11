@@ -71,15 +71,16 @@ export function PlanBlock({ block, handlers }: { block: Block; handlers?: PlanHa
     if (allModes.includes('auto')) return 'auto'
     return allModes[0] ?? 'auto'
   }, [handlers?.defaultMode, allModes])
+  // S13b16a-4: Optimistic local mode selection that follows the
+  // computed `initialMode` until the user picks one — but if the modes
+  // list arrives later (async), we re-pick when the current selection
+  // becomes invalid. Inline reconciliation (React 19 "deriving state
+  // from props" idiom) gives a single-render correction with no
+  // useEffect+setState double pass.
   const [selectedMode, setSelectedMode] = useState<string>(initialMode)
-  // If the modes list arrives after first render (modes API is async),
-  // re-pick the initial mode once.
-  useEffect(() => {
-    if (selectedMode && allModes.includes(selectedMode)) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
+  if (selectedMode && !allModes.includes(selectedMode)) {
     setSelectedMode(initialMode)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialMode])
+  }
 
   const decisionLabel = decision === 'approved'
     ? `Approved — switching to ${targetMode || 'execution'} mode`

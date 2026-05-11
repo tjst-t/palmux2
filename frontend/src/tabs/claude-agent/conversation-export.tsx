@@ -30,15 +30,17 @@ export function ConversationExportDialog(props: ConversationExportDialogProps) {
 
   const [format, setFormat] = useState<Format>('markdown')
   const [filename, setFilename] = useState(() => makeDefaultFilename(branchId, 'markdown'))
-  // When the user changes format, regenerate the default filename
-  // unless they've already typed a custom name (we detect that by
-  // checking the extension matches what the previous format produced).
-  // Simpler: just regenerate to the new default on format toggle.
-  useEffect(() => {
-    if (!open) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-    setFilename(makeDefaultFilename(branchId, format))
-  }, [format, branchId, open])
+  // S13b16a-4: Regenerate the default filename inline when format /
+  // branchId / open changes — React 19 "deriving state from props"
+  // idiom. Tracks the (open, format, branchId) tuple so a real change
+  // triggers the reset on the same render, no useEffect+setState
+  // double pass.
+  const filenameKey = open ? `${format}\x00${branchId}` : null
+  const [trackedFilenameKey, setTrackedFilenameKey] = useState(filenameKey)
+  if (trackedFilenameKey !== filenameKey) {
+    setTrackedFilenameKey(filenameKey)
+    if (filenameKey !== null) setFilename(makeDefaultFilename(branchId, format))
+  }
 
   // Re-seed defaults whenever the dialog opens (covers the case where a
   // user previously exported and we want the date to be fresh).

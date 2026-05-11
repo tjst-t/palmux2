@@ -53,6 +53,17 @@ export function GitMonacoDiff({ apiBase, path, unified, reloadKey, onStaged }: P
   const editorRef = useRef<MonacoEditor.IStandaloneDiffEditor | null>(null)
   const language = useMemo(() => monacoLanguageFor(path), [path])
 
+  // S13b16a-4: Reset (contents, error) inline when (path, reloadKey)
+  // changes — React 19 "deriving state from props" idiom. The fetch
+  // itself stays in useEffect because it's a real side effect.
+  const fetchKey = `${path}\x00${reloadKey ?? 0}`
+  const [trackedFetchKey, setTrackedFetchKey] = useState(fetchKey)
+  if (trackedFetchKey !== fetchKey) {
+    setTrackedFetchKey(fetchKey)
+    setContents(null)
+    setError(null)
+  }
+
   // Fetch HEAD (original) and working-tree (modified) contents. The Git
   // backend's `/diff?path=` returns a structured diff but not raw file
   // bodies; for HEAD we use `git show HEAD:<path>` via a small server
@@ -60,9 +71,6 @@ export function GitMonacoDiff({ apiBase, path, unified, reloadKey, onStaged }: P
   // we read through the Files API.
   useEffect(() => {
     let cancelled = false
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-    setContents(null)
-    setError(null)
     ;(async () => {
       try {
         const [origText, modText] = await Promise.all([

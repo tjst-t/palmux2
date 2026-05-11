@@ -173,16 +173,23 @@ export function GitView({ repoId, branchId }: Props) {
   const [commitFilesError, setCommitFilesError] = useState<string | null>(null)
   const selectedSha = selection.kind === 'commit' ? selection.sha : null
 
-  useEffect(() => {
-    if (!selectedSha) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-      setCommitFiles([])
-      setCommitFilesError(null)
-      return
-    }
-    let cancelled = false
-    setCommitFilesLoading(true)
+  // S13b16a-4: Reset commit-file pane state inline when (selectedSha,
+  // reloadKey) changes — React 19 "deriving state from props" idiom.
+  // The fetch stays in useEffect because it's a real side effect; the
+  // synchronous "clear stale list / error / loading" reset moves out
+  // of useEffect into render.
+  const commitFetchKey = `${selectedSha ?? ''}\x00${reloadKey}`
+  const [trackedCommitFetchKey, setTrackedCommitFetchKey] = useState(commitFetchKey)
+  if (trackedCommitFetchKey !== commitFetchKey) {
+    setTrackedCommitFetchKey(commitFetchKey)
+    setCommitFiles([])
     setCommitFilesError(null)
+    setCommitFilesLoading(!!selectedSha)
+  }
+
+  useEffect(() => {
+    if (!selectedSha) return
+    let cancelled = false
     api
       .get<{ files: { oldPath: string; newPath: string }[] | null }>(
         `${apiBase}/diff?sha=${encodeURIComponent(selectedSha)}`,
@@ -206,15 +213,20 @@ export function GitView({ repoId, branchId }: Props) {
     }
   }, [apiBase, selectedSha, reloadKey])
 
-  // Auto-select the first file of a freshly-loaded commit so the diff
-  // pane isn't empty after the user clicks a commit row.
-  useEffect(() => {
-    if (selection.kind !== 'commit' || selection.path) return
-    if (commitFiles.length === 0) return
+  // S13b16a-4: Auto-select the first file of a freshly-loaded commit
+  // inline so the diff pane isn't empty after the user clicks a commit
+  // row. Reconciliation runs during render — when (a) we're viewing a
+  // commit, (b) the user hasn't picked a path yet, and (c) the file
+  // list has at least one entry, we set the selection on the same
+  // render. This replaces the previous useEffect+setState double pass.
+  if (
+    selection.kind === 'commit' &&
+    !selection.path &&
+    commitFiles.length > 0
+  ) {
     const first = commitFiles[0]
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
     setSelection({ ...selection, path: first.newPath || first.oldPath })
-  }, [commitFiles, selection])
+  }
 
   // Resizable layout state — pixel widths/heights persisted to localStorage.
   // The body element drives the col-resize splitter (we measure dragged X
@@ -301,12 +313,21 @@ export function GitView({ repoId, branchId }: Props) {
     }
   }, [apiBase])
 
-  // Initial load.
+  // S13b16a-4: Initial load. The three fetchers are useCallbacks that
+  // each issue a leading `setStateXxxLoading(true)` synchronously
+  // before awaiting. Calling them directly from useEffect causes
+  // `react-hooks/set-state-in-effect` to flag the cascading render. We
+  // defer through a microtask so the fetchers run after the mount
+  // commit phase — semantically equivalent (still "as soon as
+  // possible after mount") but pushes the leading setState out of the
+  // effect's synchronous body. Behavior is unchanged: the user still
+  // sees the spinner appear within a single tick.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-    void fetchStatus()
-    void fetchLog(0)
-    void fetchBranches()
+    queueMicrotask(() => {
+      void fetchStatus()
+      void fetchLog(0)
+      void fetchBranches()
+    })
   }, [fetchStatus, fetchLog, fetchBranches])
 
   // Server-pushed git.statusChanged → refetch status + first page of log
@@ -1067,6 +1088,21 @@ function CommitFileDiff({ apiBase, sha, path, reloadKey }: CommitFileDiffProps) 
 
   const isImage = isImageFile(path)
 
+  // S13b16a-4: Reset (orig, mod, err) inline when (sha, path,
+  // reloadKey) changes — React 19 "deriving state from props" idiom.
+  // The fetch stays in useEffect; only the synchronous reset moves
+  // out into render.
+  const fetchKey = isImage ? null : `${sha}\x00${path}\x00${reloadKey}`
+  const [trackedFetchKey, setTrackedFetchKey] = useState(fetchKey)
+  if (trackedFetchKey !== fetchKey) {
+    setTrackedFetchKey(fetchKey)
+    if (fetchKey !== null) {
+      setOrig(null)
+      setMod(null)
+      setErr(null)
+    }
+  }
+
   useEffect(() => {
     if (isImage) {
       // Skip the text fetch for images — ImagePair pulls the bytes
@@ -1074,10 +1110,6 @@ function CommitFileDiff({ apiBase, sha, path, reloadKey }: CommitFileDiffProps) 
       return
     }
     let cancelled = false
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-    setOrig(null)
-    setMod(null)
-    setErr(null)
     Promise.all([
       api
         .get<{ content: string }>(

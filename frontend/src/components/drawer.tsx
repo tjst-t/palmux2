@@ -123,11 +123,15 @@ export function Drawer() {
   const [expandedRepoId, setExpandedRepoId] = useState<string | null>(
     () => activeRepo ?? null,
   )
-  // Whenever the URL switches to a new repo, follow it (still single-expand).
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
+  // S13b16a-4: Whenever the URL switches to a new repo, follow it
+  // (still single-expand). Uses inline (`trackedActiveRepo`) tracking so
+  // the new state is set during render — React 19 "deriving state from
+  // props" idiom, no useEffect+setState double pass.
+  const [trackedActiveRepo, setTrackedActiveRepo] = useState(activeRepo)
+  if (trackedActiveRepo !== activeRepo) {
+    setTrackedActiveRepo(activeRepo)
     if (activeRepo) setExpandedRepoId(activeRepo)
-  }, [activeRepo])
+  }
 
   const [orphanTarget, setOrphanTarget] = useState<{
     name: string
@@ -376,15 +380,24 @@ function RepoItem({
 
   // S023 carry-over: if the active branch lives in unmanaged/subagent, auto-
   // open the chip containing it so the user sees where they are.
-  useEffect(() => {
-    if (activeRepo !== repo.id) return
+  // S13b16a-4: Compute the auto-target during render and reconcile via
+  // an inline tracking state (React 19 "deriving state from props"
+  // idiom). When the URL or active branch changes we resolve which chip
+  // it belongs to, and only call setActiveChip on a real change.
+  let autoChip: 'unmanaged' | 'subagent' | null = null
+  if (activeRepo === repo.id) {
     const activeBranchObj = repo.openBranches.find((b) => b.id === activeBranch)
-    if (!activeBranchObj) return
-    const cat = categoryKey(activeBranchObj.category)
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-    if (cat === 'unmanaged') setActiveChip('unmanaged')
-    else if (cat === 'subagent') setActiveChip('subagent')
-  }, [activeRepo, activeBranch, repo.id, repo.openBranches])
+    if (activeBranchObj) {
+      const cat = categoryKey(activeBranchObj.category)
+      if (cat === 'unmanaged' || cat === 'subagent') autoChip = cat
+    }
+  }
+  const autoChipKey = `${activeRepo}/${activeBranch}/${autoChip ?? ''}`
+  const [trackedAutoChipKey, setTrackedAutoChipKey] = useState(autoChipKey)
+  if (trackedAutoChipKey !== autoChipKey) {
+    setTrackedAutoChipKey(autoChipKey)
+    if (autoChip !== null && autoChip !== activeChip) setActiveChip(autoChip)
+  }
 
   // hotfix: overflow menu state retired — the ⋯ button now dispatches
   // through the shared ContextMenuRenderer (portal at body level,

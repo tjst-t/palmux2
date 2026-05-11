@@ -23,6 +23,10 @@ interface DirEntry {
   isDir: boolean
 }
 
+// S13b16a-4: stable empty array for the inline `effectiveCompletions`
+// derivation below.
+const EMPTY_DIR_ENTRIES: DirEntry[] = []
+
 function basename(p: string): string {
   return p.replace(/\/$/, '').split('/').pop() ?? p
 }
@@ -74,15 +78,14 @@ export function FilesMoveModal({ items, apiBase, onClose, onCompleted }: Props) 
     return dir ? `${dir}/${basename(item.path)}` : item.path
   }
 
-  // Debounced directory search for completions.
+  // S13b16a-4: Debounced directory search for completions. The empty
+  // query path returns an empty list inline (`effectiveCompletions`)
+  // instead of going through useEffect→setState; only the actual fetch
+  // remains as a side effect.
   useEffect(() => {
     if (debounceRef.current !== null) window.clearTimeout(debounceRef.current)
     const q = inputVal.trim()
-    if (!q) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-      setCompletions([])
-      return
-    }
+    if (!q) return
     // For batch, search dir part; for single, search the last segment of input
     // that could be a directory prefix.
     const searchQuery = isBatch ? q : (q.includes('/') ? q.split('/').pop() ?? q : q)
@@ -101,6 +104,9 @@ export function FilesMoveModal({ items, apiBase, onClose, onCompleted }: Props) 
       if (debounceRef.current !== null) window.clearTimeout(debounceRef.current)
     }
   }, [inputVal, apiBase, isBatch])
+  // Inline empty-state derivation: when the input is blank, the
+  // visible list is empty regardless of stored state.
+  const effectiveCompletions = inputVal.trim() ? completions : EMPTY_DIR_ENTRIES
 
   const acceptCompletion = useCallback(
     (entry: DirEntry) => {
@@ -121,20 +127,20 @@ export function FilesMoveModal({ items, apiBase, onClose, onCompleted }: Props) 
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (completions.length === 0) return
+      if (effectiveCompletions.length === 0) return
       if (e.key === 'ArrowDown') {
         e.preventDefault()
-        setActiveIdx((i) => Math.min(i + 1, completions.length - 1))
+        setActiveIdx((i) => Math.min(i + 1, effectiveCompletions.length - 1))
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
         setActiveIdx((i) => Math.max(i - 1, -1))
       } else if (e.key === 'Tab') {
         e.preventDefault()
-        const pick = activeIdx >= 0 ? completions[activeIdx] : completions[0]
+        const pick = activeIdx >= 0 ? effectiveCompletions[activeIdx] : effectiveCompletions[0]
         if (pick) acceptCompletion(pick)
       }
     },
-    [completions, activeIdx, acceptCompletion],
+    [effectiveCompletions, activeIdx, acceptCompletion],
   )
 
   const handleSubmit = useCallback(async () => {
@@ -171,15 +177,15 @@ export function FilesMoveModal({ items, apiBase, onClose, onCompleted }: Props) 
 
   const handleFormKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' && completions.length === 0) {
+      if (e.key === 'Enter' && effectiveCompletions.length === 0) {
         e.preventDefault()
         void handleSubmit()
-      } else if (e.key === 'Enter' && activeIdx >= 0 && completions[activeIdx]) {
+      } else if (e.key === 'Enter' && activeIdx >= 0 && effectiveCompletions[activeIdx]) {
         e.preventDefault()
-        acceptCompletion(completions[activeIdx])
+        acceptCompletion(effectiveCompletions[activeIdx])
       }
     },
-    [completions, activeIdx, acceptCompletion, handleSubmit],
+    [effectiveCompletions, activeIdx, acceptCompletion, handleSubmit],
   )
 
   const count = items.length
@@ -222,9 +228,9 @@ export function FilesMoveModal({ items, apiBase, onClose, onCompleted }: Props) 
             placeholder={isBatch ? 'e.g. src/widgets' : 'e.g. src/widgets/my-component.tsx'}
           />
 
-          {completions.length > 0 && (
+          {effectiveCompletions.length > 0 && (
             <ul className={styles.completionList} data-testid="files-move-completion">
-              {completions.map((c, i) => (
+              {effectiveCompletions.map((c, i) => (
                 <li key={c.path}>
                   <button
                     className={i === activeIdx ? `${styles.completionRow} ${styles.completionRowActive}` : styles.completionRow}
@@ -239,7 +245,7 @@ export function FilesMoveModal({ items, apiBase, onClose, onCompleted }: Props) 
               ))}
             </ul>
           )}
-          {inputVal.trim() && completions.length === 0 && (
+          {inputVal.trim() && effectiveCompletions.length === 0 && (
             <p className={styles.noMatches}>No directory matches — will create at this path if it exists</p>
           )}
         </div>

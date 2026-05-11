@@ -57,14 +57,17 @@ export function DrawioView({ body, path, mode = 'view', onDraft, onSave }: Props
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const [ready, setReady] = useState(false)
 
-  // Stable refs so the message handler captures the latest props
-  // without re-binding (and re-loading drawio) on every render.
+  // S13b16a-4: Stable refs so the message handler (bound once) reads
+  // the freshest callbacks. Sync via useEffect — render-time ref
+  // writes were flagged by `react-hooks/refs`.
   const onDraftRef = useRef(onDraft)
   const onSaveRef = useRef(onSave)
-  // eslint-disable-next-line react-hooks/refs -- pre-React-19 latest-closure ref pattern (no useEffectEvent yet)
-  onDraftRef.current = onDraft
-  // eslint-disable-next-line react-hooks/refs -- pre-React-19 latest-closure ref pattern (no useEffectEvent yet)
-  onSaveRef.current = onSave
+  useEffect(() => {
+    onDraftRef.current = onDraft
+  }, [onDraft])
+  useEffect(() => {
+    onSaveRef.current = onSave
+  }, [onSave])
 
   const editing = mode === 'edit'
 

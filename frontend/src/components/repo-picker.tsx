@@ -93,13 +93,23 @@ export function RepoPicker({ open, onClose, onRequestDelete }: Props) {
 
   const isURL = detectCloneURL(filter)
 
-  useEffect(() => {
-    if (!open) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
+  // S13b16a-4: Reset transient modal state inline when `open` flips
+  // false→true (the "deriving state from props" idiom). The async
+  // reload() + AbortController stay in useEffect because they're
+  // genuine side effects.
+  const [openedOnce, setOpenedOnce] = useState(false)
+  if (open && !openedOnce) {
+    setOpenedOnce(true)
     setError(null)
     setFilter('')
     setActive(0)
     setCloneState('idle')
+  } else if (!open && openedOnce) {
+    setOpenedOnce(false)
+  }
+
+  useEffect(() => {
+    if (!open) return
     void reload()
     return () => {
       abortRef.current?.abort()
@@ -115,18 +125,20 @@ export function RepoPicker({ open, onClose, onRequestDelete }: Props) {
       .sort((a, b) => a.ghqPath.localeCompare(b.ghqPath))
   }, [repos, filter, isURL])
 
-  // Keep `active` in range.
-  useEffect(() => {
-    const len = isURL ? 1 : filtered.length
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-    if (active >= len) setActive(Math.max(0, len - 1))
-  }, [filtered.length, active, isURL])
+  // S13b16a-4: clamp `active` to the available row count via derived
+  // value (computed during render). The previous useEffect+setState
+  // version produced an extra render; this one renders the right value
+  // first time. We still keep `setActive` calls from event handlers so
+  // user-driven navigation persists; whenever the list shrinks we
+  // simply clamp on the way out.
+  const maxIdx = isURL ? 0 : Math.max(0, filtered.length - 1)
+  const clampedActive = Math.min(active, maxIdx)
 
   // Scroll highlighted row into view.
   useEffect(() => {
-    const el = listRef.current?.querySelector<HTMLElement>(`[data-row="${active}"]`)
+    const el = listRef.current?.querySelector<HTMLElement>(`[data-row="${clampedActive}"]`)
     el?.scrollIntoView({ block: 'nearest' })
-  }, [active])
+  }, [clampedActive])
 
   const pick = async (id: string) => {
     setPending(id)
@@ -189,17 +201,16 @@ export function RepoPicker({ open, onClose, onRequestDelete }: Props) {
     if (cloneState === 'cloning') return
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      const max = isURL ? 0 : filtered.length - 1
-      setActive((i) => Math.min(max, i + 1))
+      setActive((i) => Math.min(maxIdx, Math.min(i, maxIdx) + 1))
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
-      setActive((i) => Math.max(0, i - 1))
+      setActive((i) => Math.max(0, Math.min(i, maxIdx) - 1))
     } else if (e.key === 'Enter') {
       e.preventDefault()
       if (isURL) {
         void clone()
       } else {
-        const target = filtered[active]
+        const target = filtered[clampedActive]
         if (target) void pick(target.id)
       }
     }
@@ -307,7 +318,7 @@ export function RepoPicker({ open, onClose, onRequestDelete }: Props) {
               </>
             )}
             {!isURL && filtered.map((r, i) => {
-              const isActive = i === active
+              const isActive = i === clampedActive
               return (
                 <li key={r.id} className={styles.rowItem}>
                   <button

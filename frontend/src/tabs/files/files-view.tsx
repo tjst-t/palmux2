@@ -184,11 +184,19 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
   )
 
   // ── Dir listing effects ──────────────────────────────────────────────────
+  // S13b16a-4: Reset `error` inline when (isUrlPanel, splat, refreshTick)
+  // changes — React 19 "deriving state from props" idiom. The previous
+  // implementation reset inside useEffect (`setError(null)` at the top
+  // of the fetch), which `react-hooks/set-state-in-effect` flagged.
+  const urlFetchKey = isUrlPanel ? `${splat}\x00${refreshTick}` : null
+  const [trackedUrlFetchKey, setTrackedUrlFetchKey] = useState(urlFetchKey)
+  if (trackedUrlFetchKey !== urlFetchKey) {
+    setTrackedUrlFetchKey(urlFetchKey)
+    if (urlFetchKey !== null) setError(null)
+  }
   useEffect(() => {
     if (!isUrlPanel) return
     let cancelled = false
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-    setError(null)
     ;(async () => {
       try {
         const dir = await api.get<DirResponse>(`${apiBase}?path=${encodeURIComponent(splat)}`)
@@ -262,11 +270,16 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
     }
   }, [isUrlPanel, apiBase, splat, refreshTick, goToDir])
 
+  // S13b16a-4: Same inline-reset pattern for the local-panel branch.
+  const localFetchKey = !isUrlPanel ? `${localPath}\x00${refreshTick}` : null
+  const [trackedLocalFetchKey, setTrackedLocalFetchKey] = useState(localFetchKey)
+  if (trackedLocalFetchKey !== localFetchKey) {
+    setTrackedLocalFetchKey(localFetchKey)
+    if (localFetchKey !== null) setError(null)
+  }
   useEffect(() => {
     if (isUrlPanel) return
     let cancelled = false
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-    setError(null)
     ;(async () => {
       try {
         const dir = await api.get<DirResponse>(`${apiBase}?path=${encodeURIComponent(localPath)}`)

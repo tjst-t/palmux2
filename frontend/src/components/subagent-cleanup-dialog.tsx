@@ -2,7 +2,7 @@
 // component is purely presentational — the parent (Drawer) owns the
 // "open / closed" state and supplies the candidate list it pre-fetched
 // via `dryRun=true`.
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import styles from './subagent-cleanup-dialog.module.css'
 
@@ -48,14 +48,20 @@ export function SubagentCleanupDialog({
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState<CleanupResult | null>(null)
 
-  // Re-prime selection whenever the candidate list changes (e.g. user
-  // re-opens the dialog after a previous run).
-  useEffect(() => {
-    if (!open) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-    setSelected(new Set(candidates.map((c) => c.branchName)))
-    setResult(null)
-  }, [open, candidates])
+  // S13b16a-4: Re-prime selection whenever (open, candidates) change.
+  // We track the (open, candidates) tuple via identity so a fresh open
+  // or a swapped candidate list triggers an inline reset — the React 19
+  // "deriving state from props" pattern, no useEffect+setState double
+  // render needed.
+  const sessionKey = open ? candidates : null
+  const [trackedKey, setTrackedKey] = useState<typeof sessionKey>(sessionKey)
+  if (trackedKey !== sessionKey) {
+    setTrackedKey(sessionKey)
+    if (sessionKey !== null) {
+      setSelected(new Set(sessionKey.map((c) => c.branchName)))
+      setResult(null)
+    }
+  }
 
   const allSelected = useMemo(
     () =>

@@ -113,6 +113,11 @@ export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum, o
     (s) => s.globalSettings.previewMaxBytes ?? DEFAULT_PREVIEW_MAX_BYTES,
   )
 
+  // S026: load-error banner. Set when the iframe / preflight fetch
+  // reports failure; cleared when the user manually toggles back to
+  // Preview or opens a different file.
+  const [previewError, setPreviewError] = useState<string | null>(null)
+
   // S013: navigate into the Git tab's File History / Blame sub-views.
   // We resolve the Git tab's id from the open branch's tabSet so the
   // URL stays correct even if a future patch renames the singleton.
@@ -151,7 +156,6 @@ export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum, o
   const [stat, setStat] = useState<Stat | null>(null)
   const [body, setBody] = useState<FileBody | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
 
   // S026: HTML viewer maintains a Source / Preview toggle. The default
@@ -170,37 +174,36 @@ export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum, o
     const segs = path.split('/').filter(Boolean).map(encodeURIComponent)
     return `${apiBase}/preview/${segs.join('/')}`
   }, [apiBase, path])
-  // Reset the toggle whenever the path changes so opening a new HTML
-  // file always starts in the configured default (preview).
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
+  // S13b16a-4: Reset path-driven local UI state inline (React 19
+  // "deriving state from props" idiom). The previous useEffect+setState
+  // versions went through a double render every time the user opened a
+  // different file; the inline tracking pattern produces the right
+  // initial values on the same render.
+  const [trackedPath, setTrackedPath] = useState(path)
+  if (trackedPath !== path) {
+    setTrackedPath(path)
     setHtmlViewMode('preview')
-  }, [path])
+    setPreviewError(null)
+    // Step 1 reset bag — a new path means we start a fresh stat
+    // request and clear stale body/error flags. `loading` no longer
+    // exists as state — it's derived below from (stat, error, viewerKind, body).
+    setStat(null)
+    setBody(null)
+    setError(null)
+  }
 
   // S026: cache-bust counter. Bumped on every successful Save so the
   // HtmlView appends `?_=<n>` to the iframe `src` and the browser
   // refetches the document with its CSS / JS / image siblings.
   const [cacheBust, setCacheBust] = useState(0)
 
-  // S026: load-error banner. Set when the iframe / preflight fetch
-  // reports failure; cleared when the user manually toggles back to
-  // Preview or opens a different file.
-  const [previewError, setPreviewError] = useState<string | null>(null)
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-    setPreviewError(null)
-  }, [path])
-
   // Step 1: stat the file (size + MIME) without loading the body. This
   // lets us decide whether to bother fetching at all (the too-large
-  // case skips the body fetch entirely).
+  // case skips the body fetch entirely). The leading `setStat(null)…`
+  // bag was lifted out of this effect into the inline reset above so
+  // useEffect only runs the genuine fetch side effect.
   useEffect(() => {
     let cancelled = false
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-    setStat(null)
-    setBody(null)
-    setError(null)
-    setLoading(true)
     ;(async () => {
       try {
         const data = await api.get<Stat>(
@@ -210,7 +213,6 @@ export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum, o
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : String(err))
-          setLoading(false)
         }
       }
     })()
@@ -239,19 +241,11 @@ export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum, o
   // PUT (S011-1-2).
   useEffect(() => {
     if (!stat || !viewerKind) return
-    if (viewerKind === 'too-large') {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-      setLoading(false)
-      return
-    }
+    if (viewerKind === 'too-large') return
     // Raster images: viewer fetches via <img>, we don't need body.
     const isSvg = stat.mime === 'image/svg+xml' || stat.path.toLowerCase().endsWith('.svg')
-    if (viewerKind === 'image' && !isSvg) {
-      setLoading(false)
-      return
-    }
+    if (viewerKind === 'image' && !isSvg) return
     let cancelled = false
-    setLoading(true)
     ;(async () => {
       try {
         const res = await fetch(
@@ -274,8 +268,6 @@ export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum, o
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err))
-      } finally {
-        if (!cancelled) setLoading(false)
       }
     })()
     return () => {
@@ -431,13 +423,21 @@ export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum, o
     return () => window.removeEventListener('resize', update)
   }, [])
 
-  // Reuse a stable handler ref for Monaco's onSave (closure-captured
-  // from doSave / dirty / saving above). Monaco's onKeyDown listener
-  // reads the latest via the editor's ref-based forwarding.
+  // S13b16a-4: Stable handler ref for Monaco's onSave (closure-captured
+  // from doSave / dirty / saving above). The previous render-time
+  // assignment (`onMonacoSaveRef.current = onSaveClick`) tripped
+  // `react-hooks/refs`; we now sync the ref via useEffect so reads from
+  // the Monaco event listener still see the freshest closure.
   const onMonacoSaveRef = useRef(onSaveClick)
-  // eslint-disable-next-line react-hooks/refs -- pre-React-19 latest-closure ref pattern (no useEffectEvent yet)
-  onMonacoSaveRef.current = onSaveClick
+  useEffect(() => {
+    onMonacoSaveRef.current = onSaveClick
+  }, [onSaveClick])
 
+  // S13b16a-4: `loading` is derived from the request-progression state
+  // (path mismatch = stale, no error yet, no stat or viewerKind decided
+  // = still in flight). Removing it as state eliminated four
+  // setLoading() calls inside useEffect that the lint rule flagged.
+  const loading = trackedPath !== path || (!error && (!stat || !viewerKind))
   if (error) return <p className={styles.error}>{error}</p>
   if (!stat || !viewerKind) {
     return <p className={styles.placeholder}>{loading ? 'Loading…' : ''}</p>

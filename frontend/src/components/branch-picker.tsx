@@ -7,6 +7,9 @@ import { usePalmuxStore } from '../stores/palmux-store'
 import { Modal } from './modal'
 import styles from './picker.module.css'
 
+// Stable fallback to avoid creating a new array reference on every render.
+const EMPTY_PICKER_ENTRIES: BranchPickerEntry[] = []
+
 interface Props {
   open: boolean
   repoId: string
@@ -25,14 +28,27 @@ export function BranchPicker({ open, repoId, onClose }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [draftName, setDraftName] = useState('')
 
+  // S13b16a-4: Track previous (open, repoId) tuple so we can reset
+  // `error` inline when the modal is opened (or re-targeted to a
+  // different repo) — the React 19 "deriving state from props" idiom.
+  // The async `reload(repoId)` stays in useEffect since it's a side
+  // effect that genuinely belongs there.
+  const [openSession, setOpenSession] = useState<string | null>(null)
+  const sessionKey = open && repoId ? repoId : null
+  if (openSession !== sessionKey) {
+    setOpenSession(sessionKey)
+    if (sessionKey !== null) setError(null)
+  }
+
   useEffect(() => {
     if (!open || !repoId) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-    setError(null)
     void reload(repoId)
   }, [open, repoId, reload])
 
-  const entries = picker?.repoId === repoId ? picker.entries : []
+  const entries = useMemo(
+    () => (picker?.repoId === repoId ? picker.entries : EMPTY_PICKER_ENTRIES),
+    [picker, repoId],
+  )
   const filtered = useMemo(() => {
     const q = filter.toLowerCase()
     if (!q) return entries

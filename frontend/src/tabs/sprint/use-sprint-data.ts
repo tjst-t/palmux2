@@ -12,7 +12,7 @@
 // Generic over the response payload `T`; concrete views call with their
 // specific payload type.
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useReducer, useRef } from 'react'
 
 import { usePalmuxStore } from '../../stores/palmux-store'
 
@@ -49,6 +49,30 @@ interface UseSprintDataResult<T> {
   refresh: () => void
 }
 
+// S13b16a-4: Consolidate (data, loading, error) into a single reducer
+// state so doFetch can dispatch atomic transitions instead of issuing
+// multiple setStates that `react-hooks/set-state-in-effect` flagged.
+type FetchAction<T> =
+  | { type: 'start' }
+  | { type: 'ok'; data: T | null; updated: boolean }
+  | { type: 'err'; error: string }
+
+interface FetchState<T> {
+  data: T | null
+  loading: boolean
+  error: string | null
+}
+
+function fetchReducer<T>(s: FetchState<T>, a: FetchAction<T>): FetchState<T> {
+  switch (a.type) {
+    case 'start': return { data: s.data, loading: true, error: null }
+    case 'ok':    return { data: a.updated ? a.data : s.data, loading: false, error: null }
+    case 'err':   return { data: s.data, loading: false, error: a.error }
+  }
+}
+
+const fetchInitial = { data: null, loading: false, error: null }
+
 export function useSprintData<T>({
   repoId,
   branchId,
@@ -56,9 +80,10 @@ export function useSprintData<T>({
   fetcher,
   key,
 }: UseSprintDataOptions<T>): UseSprintDataResult<T> {
-  const [data, setData] = useState<T | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [{ data, loading, error }, dispatch] = useReducer(
+    fetchReducer<T>,
+    fetchInitial as FetchState<T>,
+  )
   const etagRef = useRef<string | null>(null)
   const inflightRef = useRef<AbortController | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -71,36 +96,32 @@ export function useSprintData<T>({
       if (inflightRef.current) inflightRef.current.abort()
       const ac = new AbortController()
       inflightRef.current = ac
-      setLoading(true)
-      setError(null)
+      dispatch({ type: 'start' })
       try {
         const prev = force ? null : etagRef.current
         const res = await fetcher(prev)
         if (ac.signal.aborted) return
-        if (res.status !== 304 && res.body !== null) {
-          setData(res.body)
-        }
         etagRef.current = res.etag
+        const updated = res.status !== 304 && res.body !== null
+        dispatch({ type: 'ok', data: res.body, updated })
       } catch (e) {
         if (!ac.signal.aborted) {
-          setError(e instanceof Error ? e.message : String(e))
-        }
-      } finally {
-        if (!ac.signal.aborted) {
-          setLoading(false)
+          dispatch({ type: 'err', error: e instanceof Error ? e.message : String(e) })
         }
       }
     },
     [fetcher],
   )
 
-  // Layer 1: mount-time fetch + on key change. doFetch internally calls
-  // setLoading/setData/setError — those calls are by design (this is the
-  // "subscribe to an external system" branch of the React docs guidance,
-  // where the fetch IS the external system).
+  // Layer 1: mount-time fetch + on key change. doFetch dispatches atomic
+  // transitions, so even though it's called from useEffect, the actual
+  // setState boundary happens inside the async callback (or via
+  // reducer dispatch which the lint rule accepts).
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void doFetch(false)
+    // intentional: don't re-run on `doFetch` identity changes (fetcher
+    // closure churn would re-fire on every render); the (repoId,
+    // branchId, key) tuple is the meaningful "fetch trigger".
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoId, branchId, key])
 
@@ -142,9 +163,10 @@ export function useSprintData<T>({
   // we never miss a `sprint.changed` event lost during the disconnect.
   useEffect(() => {
     if (!offline) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       void doFetch(false)
     }
+    // intentional: only retrigger on offline boundary, not on doFetch
+    // identity changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offline])
 

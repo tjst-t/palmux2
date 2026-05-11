@@ -5,7 +5,7 @@
  * Reads /api/.../commands, groups by source, click → resolveBashTarget + send.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useReducer, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import { api } from '../../lib/api'
@@ -26,10 +26,35 @@ interface Props {
   branchId: string
 }
 
+// S13b16a-4: useReducer-based fetch state for the Run dropdown's
+// command list. Combining `loading` + `commands` into a single reducer
+// (a) eliminates the inline `setLoading(true)` that
+// `react-hooks/set-state-in-effect` flagged, and (b) lets us atomically
+// reset to "loading" when the route changes — the React 19 recommended
+// pattern for mount-fetch effects.
+type FetchAction =
+  | { type: 'start' }
+  | { type: 'ok'; data: DetectedCommand[] }
+  | { type: 'err' }
+
+interface FetchState {
+  loading: boolean
+  commands: DetectedCommand[]
+}
+
+const fetchInitial: FetchState = { loading: true, commands: [] }
+
+function fetchReducer(_s: FetchState, a: FetchAction): FetchState {
+  switch (a.type) {
+    case 'start': return { loading: true, commands: [] }
+    case 'ok':    return { loading: false, commands: a.data }
+    case 'err':   return { loading: false, commands: [] }
+  }
+}
+
 export function ClaudeRunButton({ repoId, branchId }: Props) {
   const [open, setOpen] = useState(false)
-  const [commands, setCommands] = useState<DetectedCommand[]>([])
-  const [loading, setLoading] = useState(false)
+  const [{ loading, commands }, dispatch] = useReducer(fetchReducer, fetchInitial)
   const buttonRef = useRef<HTMLButtonElement | null>(null)
   const dropdownRef = useRef<HTMLDivElement | null>(null)
   const navigate = useNavigate()
@@ -41,18 +66,16 @@ export function ClaudeRunButton({ repoId, branchId }: Props) {
 
   useEffect(() => {
     let cancelled = false
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-    setLoading(true)
+    dispatch({ type: 'start' })
     void api
       .get<DetectedCommand[]>(
         `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/commands`,
       )
       .then((cs) => {
-        if (!cancelled) setCommands(cs)
+        if (!cancelled) dispatch({ type: 'ok', data: cs })
       })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setLoading(false)
+      .catch(() => {
+        if (!cancelled) dispatch({ type: 'err' })
       })
     return () => {
       cancelled = true

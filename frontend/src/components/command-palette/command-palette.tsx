@@ -41,6 +41,11 @@ interface GrepHit {
 
 /** Stable fallback to avoid creating a new array reference on every render. */
 const EMPTY_USER_COMMANDS: UserCommand[] = []
+// S13b16a-4: stable empty arrays used by the inline `effective…` derivations
+// below so the items useMemo gets a stable reference when the gating
+// conditions exclude file/grep results.
+const EMPTY_FILES: { path: string; isDir: boolean }[] = []
+const EMPTY_GREP_HITS: GrepHit[] = []
 
 function detectMode(raw: string): { mode: Mode; needle: string } {
   if (raw.startsWith('@')) return { mode: 'workspace', needle: raw.slice(1) }
@@ -213,16 +218,15 @@ function PaletteInner({
   const { mode, needle } = detectMode(query)
   const firstToken = needle.split(/\s+/).filter(Boolean)[0] ?? ''
 
-  // Files: lazy search using the file-search endpoint. Only fires when in
-  // ":" mode and there's a query.
+  // S13b16a-4: Files: lazy search using the file-search endpoint. Only
+  // fires when in `:` (file) or `all` mode AND there's a token. The
+  // previous `setFiles([])` early returns inside the effect were
+  // replaced with an inline `effectiveFiles` derivation so that
+  // useEffect only deals with the actual fetch side effect.
   useEffect(() => {
     if (!activeRepo || !activeBranch) return
     if (mode !== 'file' && mode !== 'all') return
-    if (!firstToken) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-      setFiles([])
-      return
-    }
+    if (!firstToken) return
     let cancelled = false
     const t = window.setTimeout(() => {
       void api
@@ -239,19 +243,20 @@ function PaletteInner({
       window.clearTimeout(t)
     }
   }, [activeRepo, activeBranch, mode, firstToken])
+  // Inline derivation: when the conditions for a file fetch don't
+  // hold, the visible list is empty regardless of stored state.
+  const effectiveFiles =
+    activeRepo && activeBranch && (mode === 'file' || mode === 'all') && firstToken
+      ? files
+      : EMPTY_FILES
 
-  // S031-5: Content grep mode — debounced fetch on '?' prefix
+  // S13b16a-4: S031-5 Content grep mode — debounced fetch on `?` prefix.
+  // Same pattern as `files` above: the early `setGrepHits([])` resets
+  // were replaced with an inline `effectiveGrepHits` derivation.
   useEffect(() => {
     if (!activeRepo || !activeBranch) return
-    if (mode !== 'grep') {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-      setGrepHits([])
-      return
-    }
-    if (!needle) {
-      setGrepHits([])
-      return
-    }
+    if (mode !== 'grep') return
+    if (!needle) return
     let cancelled = false
     const t = window.setTimeout(() => {
       void api
@@ -268,6 +273,10 @@ function PaletteInner({
       window.clearTimeout(t)
     }
   }, [activeRepo, activeBranch, mode, needle])
+  const effectiveGrepHits =
+    activeRepo && activeBranch && mode === 'grep' && needle
+      ? grepHits
+      : EMPTY_GREP_HITS
 
   // S031-2: resolveBashTarget helper — uses the store addTab so it can
   // auto-create a Bash tab when none exists.
@@ -639,7 +648,7 @@ function PaletteInner({
     }
 
     if (includeFile && activeRepo && activeBranch) {
-      for (const f of files) {
+      for (const f of effectiveFiles) {
         if (!fuzzyContains(f.path, needle)) continue
         const search = searchParams.toString() ? `?${searchParams.toString()}` : ''
         const filesTabId = activeBranch.tabSet.tabs.find((t) => t.type === 'files')?.id
@@ -672,7 +681,7 @@ function PaletteInner({
     // S031-5: grep results
     if (includeGrep && activeRepo && activeBranch) {
       const filesTabId = activeBranch.tabSet.tabs.find((t) => t.type === 'files')?.id
-      for (const h of grepHits) {
+      for (const h of effectiveGrepHits) {
         out.push({
           id: `grep:${h.path}:${h.lineNum}`,
           kind: 'grep',
@@ -690,7 +699,7 @@ function PaletteInner({
           },
         })
       }
-      if (grepHits.length === 0 && needle) {
+      if (effectiveGrepHits.length === 0 && needle) {
         // Use a sentinel id so the render below can display a non-interactive
         // status row instead of a keyboard-selectable button (fix 4).
         out.push({
@@ -722,17 +731,22 @@ function PaletteInner({
       return capByKind(out, 6)
     }
     return out
-  }, [repos, mode, needle, commands, files, grepHits, builtinCommands, userCommands, searchParams, navigate, activeRepo, activeBranch, runOnBash, bashPickerCmd])
+  }, [repos, mode, needle, commands, effectiveFiles, effectiveGrepHits, builtinCommands, userCommands, searchParams, navigate, activeRepo, activeBranch, runOnBash, bashPickerCmd])
 
   // Sentinel items (non-interactive, like grep:searching) don't participate
   // in keyboard navigation — compute the selectable count separately.
   const selectableCount = items.filter((it) => it.id !== 'grep:searching').length
 
-  // Reset highlight whenever the candidate set changes.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-    setActive(0)
-  }, [query, items.length])
+  // S13b16a-4: Reset highlight inline whenever the candidate set
+  // changes (React 19 "deriving state from props" idiom). Tracks
+  // (query, items.length) so a real change triggers the reset on the
+  // same render — no useEffect+setState double pass.
+  const candidateKey = `${query}\x00${items.length}`
+  const [trackedCandidateKey, setTrackedCandidateKey] = useState(candidateKey)
+  if (trackedCandidateKey !== candidateKey) {
+    setTrackedCandidateKey(candidateKey)
+    if (active !== 0) setActive(0)
+  }
 
   // Keyboard navigation. S031-2: Cmd+Enter enters bash picker mode.
   useEffect(() => {

@@ -225,6 +225,107 @@ def test_ac_s13b16a_3_4():
     print(f"[AC-S13b16a-3-4] PASS — {len(items)} NUI items recorded, {len(decided_ids)} decided")
 
 
+# ---- Story S13b16a-4 (substantive refactor: replace 49 suppressions
+#      with real React 19 idiomatic implementations) ----
+
+NEEDS_INPUT_V2 = LOG_DIR / "needs-user-input-v2.json"
+FINAL_REGRESSION_V2 = LOG_DIR / "regression-final-v2.json"
+
+
+def _grep_count(pattern: str, root: Path) -> int:
+    """Count lines matching `pattern` across `frontend/src` (Python regex)."""
+    rx = re.compile(pattern)
+    n = 0
+    for p in root.rglob("*"):
+        if not p.is_file():
+            continue
+        if p.suffix not in {".ts", ".tsx", ".js", ".jsx"}:
+            continue
+        try:
+            for ln in p.read_text(encoding="utf-8", errors="replace").splitlines():
+                if rx.search(ln):
+                    n += 1
+        except OSError:
+            continue
+    return n
+
+
+FRONTEND_SRC = REPO_ROOT / "frontend" / "src"
+
+
+def test_ac_s13b16a_4_1():
+    """[AC-S13b16a-4-1] All `eslint-disable-next-line react-hooks/set-state-in-effect`
+    directives removed from frontend/src."""
+    n = _grep_count(r"eslint-disable-next-line react-hooks/set-state-in-effect", FRONTEND_SRC)
+    assert n == 0, f"{n} suppressions still present"
+    print(f"[AC-S13b16a-4-1] PASS — react-hooks/set-state-in-effect suppressions = 0")
+
+
+def test_ac_s13b16a_4_2():
+    """[AC-S13b16a-4-2] All `eslint-disable-next-line react-hooks/refs` directives
+    removed from frontend/src."""
+    n = _grep_count(r"eslint-disable-next-line react-hooks/refs", FRONTEND_SRC)
+    assert n == 0, f"{n} suppressions still present"
+    print(f"[AC-S13b16a-4-2] PASS — react-hooks/refs suppressions = 0")
+
+
+def test_ac_s13b16a_4_3():
+    """[AC-S13b16a-4-3] After removing the 49 suppressions, lint still reports
+    errors=0 (because each was replaced with a real refactor)."""
+    rc, out = _run_lint()
+    errors, warnings = _parse_eslint_summary(out)
+    assert errors == 0, f"lint errors = {errors}, expected 0\n{out[-2000:]}"
+    assert warnings <= 9, f"warnings = {warnings} > baseline 9"
+    print(f"[AC-S13b16a-4-3] PASS — errors=0 warnings={warnings} after substantive refactor")
+
+
+def test_ac_s13b16a_4_4():
+    """[AC-S13b16a-4-4] decisions.json records the user-approved suppression set
+    (react-refresh + exhaustive-deps remain by explicit user choice 2026-05-11)."""
+    assert DECISIONS.exists(), f"missing {DECISIONS}"
+    decisions = json.loads(DECISIONS.read_text())
+    # Look for a user_decision (or equivalent block) referencing the 2026-05-11
+    # case (C) acceptance, naming react-refresh + exhaustive-deps.
+    blob = json.dumps(decisions, ensure_ascii=False)
+    assert "2026-05-11" in blob, "decisions.json must record 2026-05-11 user judgement"
+    assert "react-refresh" in blob, "decisions.json must name react-refresh acceptance"
+    assert "exhaustive-deps" in blob, "decisions.json must name exhaustive-deps acceptance"
+    print(f"[AC-S13b16a-4-4] PASS — decisions.json records user-approved suppression set")
+
+
+def test_ac_s13b16a_4_5():
+    """[AC-S13b16a-4-5] regression-final-v2.json all green incl. lint."""
+    assert FINAL_REGRESSION_V2.exists(), f"missing {FINAL_REGRESSION_V2}"
+    data = json.loads(FINAL_REGRESSION_V2.read_text())
+    s = data["e2e_summary"]
+    assert s["pass"] == 22 and s["fail"] == 0 and s["timeout"] == 0, f"final-v2 E2E: {s}"
+    for phase in ("go_test", "go_build", "fe_build", "fe_lint"):
+        r = data["phases"][phase]["result"]
+        assert r == "pass", f"final-v2 phase {phase} = {r}"
+    smoke = LOG_DIR / "manual-smoke-S13b16a-4.md"
+    assert smoke.exists(), f"missing {smoke}"
+    print(f"[AC-S13b16a-4-5] PASS — regression-final-v2 all green + manual smoke recorded")
+
+
+def test_ac_s13b16a_4_6():
+    """[AC-S13b16a-4-6] needs-user-input-v2.json items batched into decisions.json
+    (or empty, in which case the sprint can proceed directly to done)."""
+    if not NEEDS_INPUT_V2.exists():
+        # Treat missing as empty per AC text ("空なら直接 sprint done").
+        print(f"[AC-S13b16a-4-6] PASS — needs-user-input-v2.json absent (no items raised)")
+        return
+    nui = json.loads(NEEDS_INPUT_V2.read_text()).get("items", [])
+    if not nui:
+        print(f"[AC-S13b16a-4-6] PASS — needs-user-input-v2.json empty")
+        return
+    decisions = json.loads(DECISIONS.read_text()) if DECISIONS.exists() else {}
+    decided_ids = {d.get("nui_id") for d in decisions.get("user_decisions", [])}
+    for it in nui:
+        if it.get("blocking", False):
+            assert it["id"] in decided_ids, f"blocking item {it['id']} not decided"
+    print(f"[AC-S13b16a-4-6] PASS — {len(nui)} NUI-v2 items, blocking ones all decided")
+
+
 def main() -> int:
     tests = [
         ("AC-S13b16a-0-1", test_ac_s13b16a_0_1),
@@ -239,6 +340,12 @@ def main() -> int:
         ("AC-S13b16a-3-2", test_ac_s13b16a_3_2),
         ("AC-S13b16a-3-3", test_ac_s13b16a_3_3),
         ("AC-S13b16a-3-4", test_ac_s13b16a_3_4),
+        ("AC-S13b16a-4-1", test_ac_s13b16a_4_1),
+        ("AC-S13b16a-4-2", test_ac_s13b16a_4_2),
+        ("AC-S13b16a-4-3", test_ac_s13b16a_4_3),
+        ("AC-S13b16a-4-4", test_ac_s13b16a_4_4),
+        ("AC-S13b16a-4-5", test_ac_s13b16a_4_5),
+        ("AC-S13b16a-4-6", test_ac_s13b16a_4_6),
     ]
     fails: list[str] = []
     for tag, fn in tests:
