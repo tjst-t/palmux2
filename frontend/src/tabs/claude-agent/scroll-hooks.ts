@@ -153,8 +153,12 @@ export function useScrollRestore(opts: {
   const { sessionId, storageKey, containerRef, hasTurns } = opts
   const restoredFor = useRef<string>('')
   const onSettledRef = useRef(opts.onSettled)
-  // eslint-disable-next-line react-hooks/refs -- pre-React-19 latest-closure ref pattern (no useEffectEvent yet)
-  onSettledRef.current = opts.onSettled
+  // S13b16a-4: keep `onSettledRef.current` synced with the latest
+  // callback via useEffect (latest-closure pattern). The restore
+  // useLayoutEffect below reads the freshest callback at flush time.
+  useEffect(() => {
+    onSettledRef.current = opts.onSettled
+  }, [opts.onSettled])
 
   useLayoutEffect(() => {
     if (!sessionId || !hasTurns) return

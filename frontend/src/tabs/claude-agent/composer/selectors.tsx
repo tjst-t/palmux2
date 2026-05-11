@@ -7,7 +7,7 @@
  *  mirroring the selector visually snaps back to the old value the
  *  moment the user picks one).
  */
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { PillSelect, type PillSelectOption } from '../../../components/pill-select'
 
@@ -55,15 +55,29 @@ export function ComposerSelectors({
   onEffortChange,
   onPermissionModeChange,
 }: ComposerSelectorsProps) {
+  // S13b16a-4: Optimistic local state mirrored from server-confirmed
+  // props. Each prop change is reconciled inline via a "tracked prop"
+  // pattern (React 19 "deriving state from props" idiom): when the
+  // server prop changes, we set the matching local state on the same
+  // render — no useEffect+setState double pass.
   const [localModel, setLocalModel] = useState(model)
+  const [trackedModel, setTrackedModel] = useState(model)
+  if (trackedModel !== model) {
+    setTrackedModel(model)
+    setLocalModel(model)
+  }
   const [localEffort, setLocalEffort] = useState(effort)
+  const [trackedEffort, setTrackedEffort] = useState(effort)
+  if (trackedEffort !== effort) {
+    setTrackedEffort(effort)
+    setLocalEffort(effort)
+  }
   const [localPermissionMode, setLocalPermissionMode] = useState(permissionMode)
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-  useEffect(() => setLocalModel(model), [model])
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-  useEffect(() => setLocalEffort(effort), [effort])
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-  useEffect(() => setLocalPermissionMode(permissionMode), [permissionMode])
+  const [trackedPermissionMode, setTrackedPermissionMode] = useState(permissionMode)
+  if (trackedPermissionMode !== permissionMode) {
+    setTrackedPermissionMode(permissionMode)
+    setLocalPermissionMode(permissionMode)
+  }
 
   const handleModelChange = (m: string) => {
     setLocalModel(m)

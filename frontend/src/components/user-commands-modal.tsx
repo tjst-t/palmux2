@@ -7,7 +7,7 @@
  * Row layout matches prototype/user-commands-modal.html (approved with 2 rounds).
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 
 import { api } from '../lib/api'
 import { usePalmuxStore, type GlobalSettings, type UserCommand } from '../stores/palmux-store'
@@ -37,15 +37,21 @@ export function UserCommandsModal({ open, onClose }: Props) {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
 
-  // Initialise / reset to server state when modal opens.
-  useEffect(() => {
-    if (open) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-      setRows(serverUserCommands.map((c) => ({ ...c })))
+  // S13b16a-4: Re-prime local state inline when (open, serverUserCommands)
+  // changes — React 19 "deriving state from props" idiom. Tracks the
+  // (open, serverUserCommands) pair via identity, so flipping open or
+  // swapping the server payload triggers the reset without going
+  // through useEffect+setState.
+  const sessionKey = open ? serverUserCommands : null
+  const [trackedKey, setTrackedKey] = useState<typeof sessionKey>(null)
+  if (trackedKey !== sessionKey) {
+    setTrackedKey(sessionKey)
+    if (sessionKey !== null) {
+      setRows(sessionKey.map((c) => ({ ...c })))
       setSaveError(null)
       setDirty(false)
     }
-  }, [open, serverUserCommands])
+  }
 
   const markDirty = useCallback(() => setDirty(true), [])
 

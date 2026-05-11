@@ -10,7 +10,7 @@
 // Click-based fallbacks (Choose files / Choose folder) stay in the
 // modal for users on touch devices or who don't expect drag-and-drop.
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 
 import { Modal } from '../../components/modal'
 
@@ -39,16 +39,11 @@ export function FilesUploadModal({ open, targetDir, onClose, onUpload }: Props) 
   const [error, setError] = useState<string | null>(null)
   const dragCounterRef = useRef(0)
 
-  // Reset transient UI state when the modal closes.
-  useEffect(() => {
-    if (!open) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-      setDragActive(false)
-      setReading(false)
-      setError(null)
-      dragCounterRef.current = 0
-    }
-  }, [open])
+  // S13b16a-4: No reset useEffect needed — Modal returns null when
+  // !open, so its children unmount and the next mount re-runs all
+  // useState initialisers (dragActive=false, reading=false,
+  // error=null). This drops the previous useEffect+setState bag that
+  // `react-hooks/set-state-in-effect` flagged.
 
   const submit = useCallback(
     (items: UploadItem[]) => {

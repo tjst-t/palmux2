@@ -172,12 +172,15 @@ export function useConversationSearch(
     return s
   }, [matches])
 
-  // Reset the active index when the result set changes, so navigation
-  // always starts at match 0 after the user types.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
+  // S13b16a-4: Reset the active index inline when the result set
+  // changes (React 19 "deriving state from props" idiom). Tracks
+  // `matches` identity so a real change triggers the reset on the same
+  // render — no useEffect+setState double pass.
+  const [trackedMatches, setTrackedMatches] = useState(matches)
+  if (trackedMatches !== matches) {
+    setTrackedMatches(matches)
     setActive(matches.length > 0 ? 0 : -1)
-  }, [matches])
+  }
 
   // When `active` changes, scroll the corresponding row into view.
   useEffect(() => {

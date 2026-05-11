@@ -13,8 +13,13 @@ interface Props {
 export function Divider({ ratio, onChange, containerRef, min = 20, max = 80 }: Props) {
   const [active, setActive] = useState(false)
   const draftRatio = useRef(ratio)
-  // eslint-disable-next-line react-hooks/refs -- pre-React-19 latest-closure ref pattern (no useEffectEvent yet)
-  draftRatio.current = ratio
+
+  // S13b16a-4: keep draftRatio.current synced with the latest `ratio`
+  // prop via useEffect so the pointermove handler (bound below while
+  // dragging) reads the freshest value without a render-time ref write.
+  useEffect(() => {
+    draftRatio.current = ratio
+  }, [ratio])
 
   useEffect(() => {
     if (!active) return

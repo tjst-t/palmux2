@@ -98,10 +98,15 @@ export function Composer(props: ComposerProps) {
   const [value, setValue] = useState(() =>
     loadDraftWithMigration(draftKey, legacyDraftKey, tabKey === 'claude:claude'),
   )
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
+  // S13b16a-4: When the draft key changes (tab/branch switch), re-load
+  // the persisted draft inline (React 19 "deriving state from props"
+  // idiom). Tracks `draftKey` so a real change triggers the reload on
+  // the same render — no useEffect+setState double pass.
+  const [trackedDraftKey, setTrackedDraftKey] = useState(draftKey)
+  if (trackedDraftKey !== draftKey) {
+    setTrackedDraftKey(draftKey)
     setValue(loadDraftWithMigration(draftKey, legacyDraftKey, tabKey === 'claude:claude'))
-  }, [draftKey, legacyDraftKey, tabKey])
+  }
   useEffect(() => {
     saveDraft(draftKey, value)
   }, [draftKey, value])

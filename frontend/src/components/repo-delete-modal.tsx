@@ -91,28 +91,39 @@ export function RepoDeleteModal({ open, repoId, ghqPath, onClose, onDeleted }: P
 
   const expectedName = repoShortName(ghqPath)
 
-  useEffect(() => {
-    if (!open) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
+  // S13b16a-4: Reset transient form state inline when (open, repoId)
+  // changes (React 19 "deriving state from props" idiom). The async
+  // fetch stays in useEffect since it is a real side effect.
+  const sessionKey = open ? repoId : null
+  const [trackedKey, setTrackedKey] = useState<string | null>(sessionKey)
+  if (trackedKey !== sessionKey) {
+    setTrackedKey(sessionKey)
     setPreview(null)
     setPreviewError(null)
     setConfirmName('')
     setDeleteError(null)
+  }
 
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
     const load = async () => {
       setLoading(true)
       try {
         const data = await api.get<DeletePreview>(
           `/api/repos/${encodeURIComponent(repoId)}/delete-preview`,
         )
-        setPreview(data)
+        if (!cancelled) setPreview(data)
       } catch (err) {
-        setPreviewError(err instanceof Error ? err.message : String(err))
+        if (!cancelled) setPreviewError(err instanceof Error ? err.message : String(err))
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
     void load()
+    return () => {
+      cancelled = true
+    }
   }, [open, repoId])
 
   const handleDelete = async () => {

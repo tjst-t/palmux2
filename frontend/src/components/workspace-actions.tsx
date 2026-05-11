@@ -39,13 +39,19 @@ export function WorkspaceActions({ repoId, branchId, repo, branch }: Props) {
 }
 
 function useRepoPortmanLeases(repoId: string, branchId: string): PortmanLease[] {
-  const [leases, setLeases] = useState<PortmanLease[]>([])
+  // S13b16a-4: Track (repoId, branchId) inline so we can reset the
+  // lease list to [] without going through a useEffect+setState round.
+  const sessionKey = repoId && branchId ? `${repoId}/${branchId}` : null
+  const [state, setState] = useState<{ key: string | null; leases: PortmanLease[] }>(
+    { key: sessionKey, leases: [] },
+  )
+  if (state.key !== sessionKey) {
+    setState({ key: sessionKey, leases: [] })
+  }
+  const leases = state.key === sessionKey ? state.leases : []
+
   useEffect(() => {
-    if (!repoId || !branchId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-      setLeases([])
-      return
-    }
+    if (!repoId || !branchId) return
     let cancelled = false
     const fetchOnce = () =>
       api
@@ -53,7 +59,9 @@ function useRepoPortmanLeases(repoId: string, branchId: string): PortmanLease[] 
           `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/portman`,
         )
         .then((res) => {
-          if (!cancelled) setLeases(res ?? [])
+          if (!cancelled) {
+            setState({ key: `${repoId}/${branchId}`, leases: res ?? [] })
+          }
         })
         .catch(() => {})
     void fetchOnce()

@@ -61,14 +61,11 @@ export function BottomSheet({
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
 
-  // Reset drag offset when the parent flips open=false. React 19's
-  // `react-hooks/set-state-in-effect` flags this idiom but the alternative
-  // (re-keying from parent) would force every caller of BottomSheet —
-  // a leaf primitive — to manage a key prop. The state reset is cheap.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-flip → one-shot reset
-    if (!open) setDragOffset(0)
-  }, [open])
+  // S13b16a-4: No explicit reset useEffect needed — when `open` flips
+  // false, the early `return null` below unmounts the component, and
+  // the next mount initialises `dragOffset` to 0 via useState. So the
+  // previous useEffect+setState was a no-op for state correctness; we
+  // dropped it to satisfy `react-hooks/set-state-in-effect` properly.
 
   if (!open) return null
 

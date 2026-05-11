@@ -40,11 +40,18 @@ export function Toolbar() {
   // its own Composer.
   const hideToolbar = focused.tabType === 'claude'
 
-  // When the focused tab changes, reset modifiers + close popover.
+  // S13b16a-4: When the focused tab changes, close the popover via
+  // inline state tracking (React 19 "deriving state from props" idiom)
+  // — this avoids the previous useEffect→setState double render.
+  // The modifiers.reset() call is genuinely a side effect on a separate
+  // store, so it stays in useEffect.
+  const [trackedTermKey, setTrackedTermKey] = useState<string | null>(focused.termKey)
+  if (trackedTermKey !== focused.termKey) {
+    setTrackedTermKey(focused.termKey)
+    if (showCommands) setShowCommands(false)
+  }
   useEffect(() => {
     modifiers.reset()
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-    setShowCommands(false)
     // intentional: only depend on the focused tab id
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focused.termKey])

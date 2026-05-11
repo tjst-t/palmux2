@@ -2,7 +2,7 @@
 // the current branch by default. Clicking "Resume" sends a session.resume
 // frame so the Agent kills its current CLI and respawns with --resume <id>.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
 
 import { api } from '../../lib/api'
 
@@ -39,31 +39,49 @@ interface Props {
   anchorRef?: React.RefObject<HTMLElement | null>
 }
 
+// S13b16a-4: Combined fetch state for the history list. Atomic
+// reducer transitions replace the inline `setLoading(true)` that
+// `react-hooks/set-state-in-effect` flagged.
+type HistoryAction =
+  | { type: 'start' }
+  | { type: 'ok'; data: SessionMeta[] }
+  | { type: 'err' }
+
+interface HistoryState {
+  loading: boolean
+  sessions: SessionMeta[]
+}
+
+const historyInitial: HistoryState = { loading: false, sessions: [] }
+
+function historyReducer(_s: HistoryState, a: HistoryAction): HistoryState {
+  switch (a.type) {
+    case 'start': return { loading: true, sessions: [] }
+    case 'ok':    return { loading: false, sessions: a.data }
+    case 'err':   return { loading: false, sessions: [] }
+  }
+}
+
 export function HistoryPopup({ repoId, branchId, currentSessionId, open, onClose, onResume, onFork, anchorRef }: Props) {
-  const [sessions, setSessions] = useState<SessionMeta[]>([])
+  const [{ loading, sessions }, dispatch] = useReducer(historyReducer, historyInitial)
   const [filterAll, setFilterAll] = useState(false)
   const [query, setQuery] = useState('')
-  const [loading, setLoading] = useState(false)
   const ref = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven state sync (React 19 idiomatic exception)
-    setLoading(true)
+    dispatch({ type: 'start' })
     const url = filterAll
       ? '/api/sessions'
       : `/api/sessions?repo=${encodeURIComponent(repoId)}&branch=${encodeURIComponent(branchId)}`
     api
       .get<{ sessions: SessionMeta[] }>(url)
       .then((d) => {
-        if (!cancelled) setSessions(d.sessions ?? [])
+        if (!cancelled) dispatch({ type: 'ok', data: d.sessions ?? [] })
       })
       .catch(() => {
-        if (!cancelled) setSessions([])
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) dispatch({ type: 'err' })
       })
     return () => {
       cancelled = true

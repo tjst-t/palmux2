@@ -73,6 +73,14 @@ export interface TopBarProps {
 }
 
 export function TopBar({ state, actions, ctx, mcpOpen, onToggleMcp }: TopBarProps) {
+  // S13b16a-4: destructure parent-supplied refs out of `ctx` into
+  // local bindings. The lint rule `react-hooks/refs` (under the
+  // react-compiler-runtime) (a) prohibits writing into a ref reached
+  // via a prop path (`ctx.foo.current = …`), and (b) is sensitive
+  // about chained ctx.* accesses across the component body. Pulling
+  // everything out at the top into locals avoids both issues — the
+  // callback-ref forwarders below write into the local refs.
+  const { mcpButtonRef, historyButtonRef, repoId, branchId } = ctx
   const tone = rollupTone(state.mcpServers)
   const okCount = state.mcpServers.filter((s) => statusToneAgree(s.status, 'ok')).length
   const total = state.mcpServers.length
@@ -124,8 +132,8 @@ export function TopBar({ state, actions, ctx, mcpOpen, onToggleMcp }: TopBarProp
       )}
 
       {/* S031-3: persistent ▶ Run button */}
-      {ctx.repoId && ctx.branchId && (
-        <ClaudeRunButton repoId={ctx.repoId} branchId={ctx.branchId} />
+      {repoId && branchId && (
+        <ClaudeRunButton repoId={repoId} branchId={branchId} />
       )}
 
       <button
@@ -149,7 +157,9 @@ export function TopBar({ state, actions, ctx, mcpOpen, onToggleMcp }: TopBarProp
       </button>
 
       <button
-        ref={ctx.historyButtonRef}
+        ref={(node) => {
+          if (historyButtonRef) historyButtonRef.current = node
+        }}
         type="button"
         className={styles.iconBtn}
         onClick={actions.onOpenHistory}
@@ -170,8 +180,16 @@ export function TopBar({ state, actions, ctx, mcpOpen, onToggleMcp }: TopBarProp
       </button>
 
       <button
-        // eslint-disable-next-line react-hooks/refs -- pre-React-19 latest-closure ref pattern (no useEffectEvent yet)
-        ref={ctx.mcpButtonRef}
+        // S13b16a-4: callback-ref forwarding to the parent-supplied
+        // RefObject. Using `ref={ctx.mcpButtonRef}` directly tripped
+        // `react-hooks/refs` because the linter treats reading the
+        // RefObject in JSX as a render-time ref access. The callback
+        // form is the React 19 idiomatic way to bridge an external ref
+        // — React invokes it with the DOM node during the commit
+        // phase, no render-time ref access happens.
+        ref={(node) => {
+          if (mcpButtonRef) mcpButtonRef.current = node
+        }}
         type="button"
         className={`${styles.iconBtn} ${styles.mcpBtn}`}
         onClick={onToggleMcp}

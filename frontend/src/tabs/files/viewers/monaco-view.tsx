@@ -161,17 +161,22 @@ export function MonacoView({
 }: Props) {
   const theme = usePalmuxStore((s) => s.deviceSettings.theme)
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null)
-  // Keep the latest onSave in a ref so the keydown listener captures the
-  // latest closure without re-binding on every render.
+  // S13b16a-4: Keep the latest callback props in refs so the Monaco
+  // event listeners (bound once on mount) read the freshest closure on
+  // each call. Sync via useEffect — render-time ref writes were
+  // flagged by `react-hooks/refs`.
   const onSaveRef = useRef<typeof onSave>(onSave)
-  // eslint-disable-next-line react-hooks/refs -- pre-React-19 latest-closure ref pattern (no useEffectEvent yet)
-  onSaveRef.current = onSave
   const onSizeRef = useRef<typeof onContentSizeChange>(onContentSizeChange)
-  // eslint-disable-next-line react-hooks/refs -- pre-React-19 latest-closure ref pattern (no useEffectEvent yet)
-  onSizeRef.current = onContentSizeChange
   const onCursorRef = useRef<typeof onCursorLineChange>(onCursorLineChange)
-  // eslint-disable-next-line react-hooks/refs -- pre-React-19 latest-closure ref pattern (no useEffectEvent yet)
-  onCursorRef.current = onCursorLineChange
+  useEffect(() => {
+    onSaveRef.current = onSave
+  }, [onSave])
+  useEffect(() => {
+    onSizeRef.current = onContentSizeChange
+  }, [onContentSizeChange])
+  useEffect(() => {
+    onCursorRef.current = onCursorLineChange
+  }, [onCursorLineChange])
 
   // Scroll to the requested 1-based line whenever lineNum changes. We
   // can't just rely on Monaco's internal `revealLineInCenter` from the
