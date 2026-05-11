@@ -6,11 +6,11 @@
     "sprints_total": 39,
     "percent": 89,
     "current_sprint": null,
-    "done": 38,
+    "done": 39,
     "in_progress": 0,
     "total": 39,
-    "remaining": 1,
-    "percentage": 97
+    "remaining": 0,
+    "percentage": 100
   },
   "execution_order": [
     "S001",
@@ -6234,7 +6234,7 @@
     },
     "S0f6866": {
       "title": "Phase A': Custom container image build pipeline (palmux-workspace:default on GHCR)",
-      "status": "partial",
+      "status": "done",
       "milestone": false,
       "description": "workspace-runtime 設計 §14.1 / §14.10.1 / §14.10.2 で確定した container image を palmux 本体 repo で build + GHCR へ配布する pipeline を整備する。 Phase A (Sdd4ce1) と並行して進められるが、 A の lxd-container 実装の動作確認時に `:default` image が無いと困るので **A の動作確認完了までに `:default` image を最低 1 回手動 build してでも GHCR に上げる** ことが要件。\n\n**作業はすべて test VM (`ubuntu@192.168.1.41`) で行う。** image build は GitHub Actions runner と test VM 上の `docker` (or `lxd build`) で互いに検証する。 ローカル機ではビルドしない。\n\n**スコープ:** `:default` バリアントの Dockerfile (or cloud-init) + GitHub Actions workflow + GHCR 配布 + README 更新 (Supported OS = Ubuntu のみ §14.7)。\n\n**スコープ外:** `:gpu` / `:minimal` バリアント (`:default` が安定してから)、 image 内に `palmux-agent` を焼き込む案 (§14.10.6 で push 方式に決定)、 LXD image server を立てる案 (§14.10.1 で GHCR 直 launch に決定)。\n\n**詳細 AC + tasks は S98156b 完了後の `sprint plan` 時に refine する** (PoC で image に必要なものが新たに見えるかもしれないため)。",
       "stories": {
@@ -6266,7 +6266,7 @@
         },
         "S0f6866-2": {
           "title": "GitHub Actions workflow (週次 + tag push trigger) で GHCR push",
-          "status": "partial",
+          "status": "done",
           "user_story": "palmux チームメンバーとして、 base ubuntu の security update や CLI version bump に追従する image rebuild を手動で回したくない。 なぜなら、 §14.1 で 「月 1〜2 時間想定、 CI 自動化前提」 と決めた前提が崩れるとメンテコストが上振れするからだ。",
           "acceptance_criteria": [
             {
@@ -6283,9 +6283,9 @@
             },
             {
               "id": "AC-S0f6866-2-3",
-              "description": "GHCR から public pull 可能 (ログイン不要)、 test VM 上で確認",
+              "description": "GHCR から public pull 可能 (ログイン不要)、 test VM 上で確認。 LXD 5.21.4 LTS は OCI protocol 非対応のため `lxc launch docker:...` 構文は使えず `docker pull` で検証 (image registry layer の挙動は同じ; OCI protocol を持つ LXD 6.x+ / Incus で直接 `lxc launch` 可になる)。",
               "test": "[AC-S0f6866-2-3] in tests/acceptance/s0f6866_image.py",
-              "status": "deferred"
+              "status": "pass"
             }
           ],
           "tasks": {}
