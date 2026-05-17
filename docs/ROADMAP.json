@@ -6840,7 +6840,7 @@
         },
         "S1d2278-6": {
           "title": "Go/No-Go 判定レポートと次 sprint 群骨子",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux2 開発者として、 Story 1 〜 5 の結果を統合して「Track B 続行」か「Track A pivot」か明確に判定したい。 なぜなら、 2026-06-07 までに判断しないと 6/15 deadline に間に合わなくなるからだ。",
           "scenario": "docs/sprint-logs/S1d2278/scenario-S1d2278-6.json",
           "acceptance_criteria": [
@@ -6848,25 +6848,25 @@
               "id": "AC-S1d2278-6-1",
               "description": "4 軸 (emulator 実用性 / PTY 安定性 / autopilot 経路 / SDK クレジット) を green/yellow/red で判定したマトリクスを `docs/sprint-logs/S1d2278/track-b-roadmap.md` に出す",
               "test": "MANUAL SMOKE: track-b-roadmap.md の冒頭に判定表 (4 行) が存在",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1d2278-6-2",
               "description": "続行ケースの次 sprint 群 (S+1 〜 S+3 程度) の骨子を Story 単位で track-b-roadmap.md に書く",
               "test": "MANUAL SMOKE: 続行セクションに 3 sprint 程度の Story 一覧",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1d2278-6-3",
               "description": "pivot ケースの Track A revert sprint の骨子を track-b-roadmap.md に書く",
               "test": "MANUAL SMOKE: pivot セクションに Track A sprint の Story 一覧",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1d2278-6-4",
               "description": "Sprint demo でユーザに判定提示し承認を得る。 選択結果を `docs/sprint-logs/S1d2278/decisions.json` に記録",
               "test": "MANUAL SMOKE: decisions.json に '6_7_pivot_decision' エントリ存在",
-              "status": "planned"
+              "status": "pass"
             }
           ]
         }

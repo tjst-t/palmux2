@@ -1,0 +1,53 @@
+{
+  "sprint": "S1d2278",
+  "decisions": [
+    {
+      "id": "6_7_pivot_decision",
+      "verdict": "go (track-b)",
+      "date": "2026-05-17",
+      "rationale": "All 4 axes green; SDK overage confirmed (~$200/month, at Max 20x credit ceiling); pivot deadline 2026-06-07. Sprint A Story 1 (production PTY daemon) is the single go/no-go gate.",
+      "next_sprint": "S7ce250",
+      "axes": {
+        "emulator": "green — charmbracelet/x/vt covers OSC 52, alt screen, bracketed paste, mouse, scrollback; active maintainer",
+        "pty_daemon": "green — creack/pty PTY ownership, 1MiB ring buffer, multi-client attach, signal handling all verified in PoC",
+        "autopilot_path": "green (no impact) — autopilot/sprint use Agent tool (interactive billing), zero Agent SDK / claude -p calls",
+        "sdk_credit": "overage — 2-week actual $98.96 extrapolates to $198-$210/month; sprint-heavy months exceed by $50-$150"
+      }
+    },
+    {
+      "id": "sprint_a_id_assignment",
+      "verdict": "S7ce250",
+      "date": "2026-05-17",
+      "rationale": "sha256('track-b-production-claude-tui-2026-05-17') first 6 hex = 7ce250",
+      "next_sprint": "S7ce250"
+    },
+    {
+      "id": "sprint_b_id_assignment",
+      "verdict": "S0fd64b",
+      "date": "2026-05-17",
+      "rationale": "sha256('track-b-grid-diff-mobile-chat-2026-05-17') first 6 hex = 0fd64b",
+      "next_sprint": "S0fd64b"
+    },
+    {
+      "id": "sprint_c_id_assignment",
+      "verdict": "S1f75ec",
+      "date": "2026-05-17",
+      "rationale": "sha256('track-b-esc-esc-ux-polish-2026-05-17') first 6 hex = 1f75ec",
+      "next_sprint": "S1f75ec"
+    },
+    {
+      "id": "emulator_selection",
+      "verdict": "charmbracelet/x/vt",
+      "date": "2026-05-17",
+      "rationale": "OSC 52 callback support is critical for palmux2 clipboard integration. charmbracelet/x/vt has RegisterOscHandler(52,...), active maintainer, scrollback API. vt10x silently ignores OSC 52 and is unmaintained since 2022.",
+      "next_sprint": "S7ce250"
+    },
+    {
+      "id": "claude_tui_tab_strategy",
+      "verdict": "claude-tui as new tab alongside claude-agent (opt-in)",
+      "date": "2026-05-17",
+      "rationale": "claude-agent stays as opt-in high-feature path (stream-json mode); claude-tui becomes default for subscription billing via Go-owned PTY. This avoids a hard cutover and allows rollback.",
+      "next_sprint": "S7ce250"
+    }
+  ]
+}
