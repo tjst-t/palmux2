@@ -6711,7 +6711,7 @@
         },
         "S1d2278-2": {
           "title": "Go PTY daemon の最小プロトタイプ",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux2 開発者として、 tmux を経由せず Go プロセスが直接 PTY を所有して claude を spawn できることを確認したい。 なぜなら、 Track B の前提が成立するかを実機で確かめたいからだ。",
           "scenario": "docs/sprint-logs/S1d2278/scenario-S1d2278-2.json",
           "acceptance_criteria": [
@@ -6719,31 +6719,31 @@
               "id": "AC-S1d2278-2-1",
               "description": "`github.com/creack/pty` で PTY を確保し、 claude を spawn して prompt 送信 → 応答受信 を `cmd/poc-pty --probe` モードで実証",
               "test": "tests/e2e/s1d2278_pty_poc.py::test_ac_s1d2278_3_1_ws_bidirectional (PoC binary が起動すること自体が AC-2-1 のサブセット)",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1d2278-2-2",
               "description": "SIGWINCH を送って claude 側がリサイズを認識する (`tput cols` 相当の出力が変化する)",
               "test": "MANUAL SMOKE: pty-daemon-spike.md の scenario-2 セクションに観察結果を記録",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1d2278-2-3",
               "description": "1MB ring buffer に出力を保持し、 別の WS attach から full replay できる",
               "test": "tests/e2e/s1d2278_pty_poc.py::test_ac_s1d2278_3_3_replay_on_reconnect",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1d2278-2-4",
               "description": "claude プロセスを kill した後、 `--resume <session_id>` で復帰",
               "test": "MANUAL SMOKE: pty-daemon-spike.md の scenario-4 セクションに観察結果を記録",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1d2278-2-5",
               "description": "PoC 実行ログ (操作手順 + 観察結果 + rough edges) を `docs/sprint-logs/S1d2278/pty-daemon-spike.md` に出す",
               "test": "MANUAL SMOKE: pty-daemon-spike.md が存在し、 100 bytes 以上",
-              "status": "planned"
+              "status": "pass"
             }
           ]
         },

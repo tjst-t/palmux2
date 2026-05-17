@@ -29,3 +29,6 @@ Thumbs.db
 .claude/autopilot-*.lock
 .claude/worktrees/
 __pycache__/
+
+# S1d2278 PoC binary built at repo root by `go build ./cmd/poc-pty/`
+/poc-pty
