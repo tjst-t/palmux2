@@ -6685,7 +6685,7 @@
       "stories": {
         "S1d2278-1": {
           "title": "ヘッドレス terminal emulator 候補比較",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux2 開発者として、 ヘッドレス terminal emulator ライブラリ 2 候補を spike して claude TUI を駆動した結果を比較したい。 なぜなら、 Track B の核となる emulator 層が実用に耐えるかを判定材料に基づいて決めたいからだ。",
           "scenario": "docs/sprint-logs/S1d2278/scenario-S1d2278-1.json",
           "acceptance_criteria": [
@@ -6693,19 +6693,19 @@
               "id": "AC-S1d2278-1-1",
               "description": "`charmbracelet/x/cellbuf` (または上位パッケージ) で interactive claude TUI 出力を消費し、 alternate screen / cursor 移動 / 色 / 入力ボックスがグリッドに反映されることを Go test (`internal/poc/emulator/cellbuf_spike_test.go`) で検証",
               "test": "go test ./internal/poc/emulator/... -run TestCellbufSpike",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1d2278-1-2",
               "description": "代替候補 (例: go-ansiterm, hinshun/vt10x) を同じ入力で評価",
               "test": "go test ./internal/poc/emulator/... -run TestAltSpike",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1d2278-1-3",
               "description": "2 候補を 6 軸 (alt screen / OSC 52 / bracketed paste / mouse / sixel / メンテ状況・自作工数推定) で比較したレポートを `docs/sprint-logs/S1d2278/emulator-comparison.md` に出す",
               "test": "MANUAL SMOKE: emulator-comparison.md が存在し、 6 軸比較表 + 推奨候補 + rationale を含む",
-              "status": "planned"
+              "status": "pass"
             }
           ]
         },
