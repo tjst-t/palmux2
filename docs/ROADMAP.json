@@ -6882,44 +6882,44 @@
       "stories": {
         "S7ce250-1": {
           "title": "Production PTY daemon 移植",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux2 開発者として、 PoC daemon の実装を本番品質の `internal/tab/claudetui/daemon.go` に移植したい。 なぜなら、 cmd/poc-pty/ は throwaway PoC コードで production deploy できないからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S7ce250-1-1",
               "description": "`internal/tab/claudetui/` パッケージが新設され、 PoC の daemon / ring / server 機能が production 品質で再実装される (godoc コメント整備、 error 全箇所 fmt.Errorf(\"...: %w\", err) ラップ、 ctx propagation 正しい)",
               "test": "go test ./internal/tab/claudetui/... (新規ユニットテスト群)",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S7ce250-1-2",
               "description": "S1d2278 review で deferred された D2 (Shutdown sync.Once + Wait 競合解消) と D3 (SnapshotAndSubscribe atomic API) が production 実装で解決される",
               "test": "go test ./internal/tab/claudetui/... -run 'TestShutdownIdempotent|TestSnapshotAndSubscribeAtomic'",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S7ce250-1-3",
               "description": "spawnOnce → respawnLoop 化。 subprocess が異常終了したら最後の claude session_id で claude --resume 経由で自動再起動する (--resume の session_id 注入は Story 4 が完成させる; この AC では respawnLoop の骨格と再起動経路の存在を検証)",
               "test": "go test ./internal/tab/claudetui/... -run 'TestRespawnLoop'",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S7ce250-1-4",
               "description": "--claude-args (strings.Fields 制限あり) を repeated flag --claude-arg に置換。 spaces を含む引数 (例: --claude-arg \"--system-prompt=You are X\") を正しく渡せる",
               "test": "go test ./internal/tab/claudetui/... -run 'TestRepeatedClaudeArg' + cmd/palmux/ で flag parsing 検証",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S7ce250-1-5",
               "description": "SetReadDeadline 罠を回避: PTY read は goroutine + time.After / context cancel パターンに統一",
               "test": "go test ./internal/tab/claudetui/... -run 'TestPTYReadTimeout'",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S7ce250-1-6",
               "description": "daemonCtx 分離パターン: WS request context が cancel しても subprocess は生存する",
               "test": "go test ./internal/tab/claudetui/... -run 'TestRequestCancelDoesNotKillProcess'",
-              "status": "planned"
+              "status": "pass"
             }
           ]
         },
