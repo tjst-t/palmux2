@@ -48,6 +48,27 @@
       "date": "2026-05-17",
       "rationale": "claude-agent stays as opt-in high-feature path (stream-json mode); claude-tui becomes default for subscription billing via Go-owned PTY. This avoids a hard cutover and allows rollback.",
       "next_sprint": "S7ce250"
+    },
+    {
+      "id": "review_D2_shutdown_idempotency_deferred",
+      "verdict": "deferred to Sprint A (S7ce250)",
+      "date": "2026-05-17",
+      "rationale": "internal/poc/pty/daemon.go Shutdown() lacks sync.Once guard and races with spawn-goroutine's cmd.Wait() on the same os.Process. PoC quality acceptable; production daemon must use sync.Once + channel signalling so only Shutdown() calls proc.Wait().",
+      "next_sprint_story": "S7ce250-1 (production PTY daemon migration)"
+    },
+    {
+      "id": "review_D3_snapshot_subscribe_atomic_deferred",
+      "verdict": "deferred to Sprint A (S7ce250)",
+      "date": "2026-05-17",
+      "rationale": "internal/poc/pty/server.go has a race between ring.Bytes() and Subscribe(). Sprint A must implement SnapshotAndSubscribe() that holds subMu during both the ring snapshot and subscriber registration so no live bytes are lost for the new client.",
+      "next_sprint_story": "S7ce250 ring-buffer-snapshot-and-subscribe atomic API"
+    },
+    {
+      "id": "review_D1_default_loopback_bind_applied",
+      "verdict": "fixed in S1d2278 review pass",
+      "date": "2026-05-17",
+      "rationale": "Sprint-level /review flagged that cmd/poc-pty/main.go was binding to all interfaces (`:port`) with no auth. Default changed to 127.0.0.1; added --bind flag for explicit LAN exposure. Safer default for a dev-only PoC tool.",
+      "next_sprint_story": "n/a (applied in this Sprint)"
     }
   ]
 }

@@ -288,8 +288,10 @@ func (d *Daemon) WriteInput(p []byte) error {
 	if ptmx == nil {
 		return fmt.Errorf("subprocess not started")
 	}
-	_, err := ptmx.Write(p)
-	return err
+	if _, err := ptmx.Write(p); err != nil {
+		return fmt.Errorf("pty write: %w", err)
+	}
+	return nil
 }
 
 // Resize sends a SIGWINCH-equivalent resize notification to the PTY.
@@ -300,10 +302,13 @@ func (d *Daemon) Resize(cols, rows uint16) error {
 	if ptmx == nil {
 		return fmt.Errorf("subprocess not started")
 	}
-	return creackpty.Setsize(ptmx, &creackpty.Winsize{
+	if err := creackpty.Setsize(ptmx, &creackpty.Winsize{
 		Rows: rows,
 		Cols: cols,
-	})
+	}); err != nil {
+		return fmt.Errorf("pty setsize: %w", err)
+	}
+	return nil
 }
 
 // ReplayRing sends the entire ring buffer to dst in a single write.

@@ -12,6 +12,9 @@
 // Key flags:
 //
 //	--port          (required) listen port
+//	--bind          bind address (default: 127.0.0.1 = loopback only;
+//	                pass 0.0.0.0 to expose on LAN — only when authentication
+//	                / origin checks are added separately)
 //	--claude-bin    path to subprocess binary (default: claude)
 //	--claude-args   space-separated args to pass to claude-bin
 //	--probe         one-shot probe mode (see below)
@@ -28,7 +31,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"io/fs"
 	"net"
 	"net/http"
@@ -63,6 +65,7 @@ func main() {
 	probeMode := fs.Bool("probe", false, "one-shot probe: spawn, send prompt, read, exit")
 	ringSize := fs.Int("ring-size", pocpty.DefaultRingSize, "ring buffer size in bytes")
 	probePrompt := fs.String("probe-prompt", "hello\n", "bytes sent by --probe")
+	bindAddr := fs.String("bind", "127.0.0.1", "bind address (loopback by default; pass 0.0.0.0 to expose on LAN)")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "poc-pty: flag parse: %v\n", err)
@@ -84,7 +87,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	if err := runServer(*port, *claudeBin, claudeArgs, *ringSize); err != nil {
+	if err := runServer(*port, *bindAddr, *claudeBin, claudeArgs, *ringSize); err != nil {
 		fmt.Fprintf(os.Stderr, "poc-pty: %v\n", err)
 		os.Exit(1)
 	}
@@ -127,9 +130,6 @@ func runProbe(bin string, args []string, prompt string) error {
 	// Read loop runs in a goroutine so we can apply wall-clock timeouts
 	// without relying on SetReadDeadline (PTY fds on Linux are raw OS files
 	// and do not support net.Conn-style deadlines reliably).
-	type readResult struct {
-		data []byte
-	}
 	ch := make(chan []byte, 256)
 	go func() {
 		buf := make([]byte, 4096)
@@ -190,7 +190,7 @@ loop:
 }
 
 // runServer starts the HTTP+WS server in daemon mode.
-func runServer(port int, claudeBin string, claudeArgs []string, ringSize int) error {
+func runServer(port int, bindAddr, claudeBin string, claudeArgs []string, ringSize int) error {
 	daemon := pocpty.NewDaemon(claudeBin, claudeArgs, ringSize)
 	// Serve the embedded static/ directory (sub-FS strips the "static" prefix
 	// so the server sees index.html at the root).
@@ -200,9 +200,12 @@ func runServer(port int, claudeBin string, claudeArgs []string, ringSize int) er
 	}
 	srv := pocpty.NewServer(daemon, staticSub)
 
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	// Default to loopback so this PoC binary does not accidentally expose
+	// an authenticated-less PTY shell on shared / LAN-reachable hosts. Pass
+	// --bind 0.0.0.0 to explicitly opt into remote access.
+	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", bindAddr, port))
 	if err != nil {
-		return fmt.Errorf("listen :%d: %w", port, err)
+		return fmt.Errorf("listen %s:%d: %w", bindAddr, port, err)
 	}
 	// Print exactly this line so test fixtures can parse the port.
 	fmt.Printf("listening on :%d\n", listener.Addr().(*net.TCPAddr).Port)
@@ -225,6 +228,3 @@ func runServer(port int, claudeBin string, claudeArgs []string, ringSize int) er
 	}
 	return nil
 }
-
-// Ensure io.Reader is used (avoids import elimination).
-var _ io.Reader = (*os.File)(nil)
