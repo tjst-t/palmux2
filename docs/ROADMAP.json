@@ -7006,26 +7006,26 @@
         },
         "S7ce250-5": {
           "title": "E2E テスト + manual smoke 補完",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux2 開発者として、 claude-tui タブの主要な user journey が E2E で自動検証されているようにしたい。 なぜなら、 Story 1d2278-3 で xterm.js canvas の text introspect が困難だったので、 ステータス / ring buffer / API 経路ベースの代替検証パターンを確立しておく必要があるからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S7ce250-5-1",
               "description": "tests/e2e/s7ce250_claude_tui.py で hermetic fixture (palmux2_test_fixture 経由) を使って branch open → claude-tui タブ生成確認 → WS attach → 入力 → ring buffer replay → resize → branch close の全シーケンスを E2E で検証",
               "test": "python3 tests/e2e/s7ce250_claude_tui.py — 全 AC pass",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S7ce250-5-2",
               "description": "Story 1d2278-3 の desktop-attach-demo.md (manual smoke) を S7ce250 の実コードに対して再実行し、 観察結果を更新する (手動 step は人間に差し戻し、 sprint-auto では `pending-manual` ラベルを付ける)",
               "test": "MANUAL SMOKE: docs/sprint-logs/S7ce250/desktop-attach-demo.md が存在し更新されている (autopilot 中は pending-manual)",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S7ce250-5-3",
               "description": "`cmd/poc-pty/` および `internal/poc/{pty,emulator}/` の deprecated コードを削除する (移植完了後の cleanup)。 emulator は Sprint B で再導入されるが、 Sprint A の責務範囲外なので Sprint A 完了時点ではどちらも消す",
               "test": "git diff main..HEAD で cmd/poc-pty/ と internal/poc/ が削除されていることを確認",
-              "status": "planned"
+              "status": "pass"
             }
           ]
         }

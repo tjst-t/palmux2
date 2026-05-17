@@ -1,6 +1,7 @@
 package claudetui
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -34,12 +35,19 @@ func AttachHandler(d *Daemon) http.Handler {
 		}
 		defer conn.CloseNow()
 
-		// Use the request context for WS I/O only.  The subprocess lives
-		// under daemonCtx, not reqCtx (Fix 7).
-		reqCtx := r.Context()
+		// Use a cancellable context derived from the request context for WS
+		// I/O only.  The subprocess lives under daemonCtx, not ioCtx (Fix 7).
+		//
+		// ioCancel is called after the read loop exits so the pump goroutine
+		// (PTY → WS) can observe ioCtx.Done() and unblock even when the ring
+		// subscription channel is quiet.  Without this the pump goroutine
+		// would block on <-sub.Ch indefinitely and attachedCount would never
+		// reach zero.
+		ioCtx, ioCancel := context.WithCancel(r.Context())
+		defer ioCancel()
 
 		// Lazy spawn — priority_rule 4.
-		if err := d.EnsureStarted(reqCtx); err != nil {
+		if err := d.EnsureStarted(ioCtx); err != nil {
 			slog.Error("claudetui: ensure started", "err", err)
 			conn.Close(websocket.StatusInternalError, "daemon error")
 			return
@@ -55,7 +63,7 @@ func AttachHandler(d *Daemon) http.Handler {
 
 		// Replay ring buffer to the new client.
 		if len(snapshot) > 0 {
-			if wErr := conn.Write(reqCtx, websocket.MessageBinary, snapshot); wErr != nil {
+			if wErr := conn.Write(ioCtx, websocket.MessageBinary, snapshot); wErr != nil {
 				slog.Warn("claudetui: ring replay write error", "err", wErr)
 				return
 			}
@@ -71,30 +79,36 @@ func AttachHandler(d *Daemon) http.Handler {
 					if !ok {
 						return
 					}
-					if wErr := conn.Write(reqCtx, websocket.MessageBinary, chunk); wErr != nil {
+					if wErr := conn.Write(ioCtx, websocket.MessageBinary, chunk); wErr != nil {
 						return
 					}
 				case <-sub.Done:
 					return
-				case <-reqCtx.Done():
+				case <-ioCtx.Done():
 					return
 				}
 			}
 		}()
 
 		// Pump WS → PTY (blocking; exits when the WS connection closes or the
-		// request context is cancelled).
+		// I/O context is cancelled).
 		for {
-			_, msg, err := conn.Read(reqCtx)
+			_, msg, err := conn.Read(ioCtx)
 			if err != nil {
 				break
 			}
-			if wErr := d.WriteInput(reqCtx, msg); wErr != nil {
+			if wErr := d.WriteInput(ioCtx, msg); wErr != nil {
 				slog.Warn("claudetui: write input", "err", wErr)
 				break
 			}
 		}
 
+		// Cancel the I/O context so the pump goroutine unblocks on ioCtx.Done()
+		// if it is waiting for PTY data.  The defer above guarantees this runs
+		// even on early returns, but calling it explicitly here makes the
+		// ordering clear: read loop exits → pump goroutine exits → pumpDone
+		// closes → handler returns → defer attachedCount.Add(-1).
+		ioCancel()
 		<-pumpDone
 	})
 }
