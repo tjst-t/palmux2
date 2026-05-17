@@ -2,15 +2,15 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 38,
+    "sprints_done": 39,
     "sprints_total": 39,
-    "percent": 97,
-    "current_sprint": "S1d2278",
-    "done": 38,
-    "in_progress": 1,
+    "percent": 100,
+    "current_sprint": null,
+    "done": 39,
+    "in_progress": 0,
     "total": 39,
     "remaining": 0,
-    "percentage": 97
+    "percentage": 100
   },
   "execution_order": [
     "S001",
@@ -6679,7 +6679,7 @@
     },
     "S1d2278": {
       "title": "Track B PoC — PTY daemon + ヘッドレスターミナル emulator 実現可能性検証",
-      "status": "in_progress",
+      "status": "done",
       "milestone": true,
       "description": "2026-06-15 から `claude -p` / Agent SDK 使用が Claude プランの使用制限から外れ Agent SDK 専用クレジット + 超過時 API 従量課金に分離される。 palmux2 の claude-agent タブは stream-json モード (= Agent SDK 経路) で起動しているため Max 20x ユーザの実質枠を失う。\n\n対策の方針は、 interactive claude を PTY 経由で駆動する Track B (サブスク枠維持) と、 旧 tmux ベース Claude タブを literal revert する Track A の 2 つに分解した上で、 Track B から検証する。\n\n本 sprint は production 実装ではなく、 4 軸 (emulator 実用性 / PTY 安定性 / autopilot 経路 / SDK クレジット見通し) のリスク削減 PoC。 2026-06-07 を pivot 期限とし、 sprint 終端で Track B 続行か Track A pivot かを判定する milestone sprint。\n\n触る範囲: 新規 `cmd/poc-pty/` バイナリ (throwaway PoC)、 新規 `internal/poc/emulator/` (ライブラリ spike)、 docs/sprint-logs/S1d2278/ (各種レポート)。 既存 palmux2 のコア (cmd/palmux/, internal/tab/*, frontend/) には触れない。 tmux も触らない。\n\n判定材料: docs/sprint-logs/S1d2278/{emulator-comparison.md, pty-daemon-spike.md, desktop-attach-demo.md, autopilot-billing-path.md, sdk-credit-analysis.md, track-b-roadmap.md}",
       "stories": {
@@ -6870,7 +6870,8 @@
             }
           ]
         }
-      }
+      },
+      "completedAt": "2026-05-17"
     }
   },
   "dependencies": {
