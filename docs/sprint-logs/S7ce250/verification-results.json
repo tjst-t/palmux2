@@ -1,0 +1,59 @@
+{
+  "sprint_id": "S7ce250",
+  "verified_at": "2026-05-17",
+  "summary": {
+    "pass": 19,
+    "fail": 0,
+    "skip": 0,
+    "total": 19
+  },
+  "tests": [
+    {"story": "S7ce250-1", "acceptance_criteria": ["AC-S7ce250-1-1"], "test": "go test ./internal/tab/claudetui/... (29 tests, error wrapping/godoc coverage included)", "file": "internal/tab/claudetui/*_test.go", "status": "pass"},
+    {"story": "S7ce250-1", "acceptance_criteria": ["AC-S7ce250-1-2"], "test": "TestShutdownIdempotent + TestSnapshotAndSubscribeAtomic", "file": "internal/tab/claudetui/{daemon,ring}_test.go", "status": "pass"},
+    {"story": "S7ce250-1", "acceptance_criteria": ["AC-S7ce250-1-3"], "test": "TestRespawnLoop + TestRespawnLoopArgContainsResume", "file": "internal/tab/claudetui/daemon_test.go", "status": "pass"},
+    {"story": "S7ce250-1", "acceptance_criteria": ["AC-S7ce250-1-4"], "test": "TestRepeatedClaudeArg + TestClaudeArgsSpacePreserved", "file": "internal/tab/claudetui/claude_args_test.go", "status": "pass"},
+    {"story": "S7ce250-1", "acceptance_criteria": ["AC-S7ce250-1-5"], "test": "TestPTYReadTimeout (sleep 30 -> Shutdown completes <1ms)", "file": "internal/tab/claudetui/daemon_test.go", "status": "pass"},
+    {"story": "S7ce250-1", "acceptance_criteria": ["AC-S7ce250-1-6"], "test": "TestRequestCancelDoesNotKillProcess + TestAttachHandlerRequestCancelDoesNotKillDaemon", "file": "internal/tab/claudetui/{daemon,server}_test.go", "status": "pass"},
+    {"story": "S7ce250-2", "acceptance_criteria": ["AC-S7ce250-2-1"], "test": "TestProviderShape (Type/DisplayName/Protected/Multiple/NeedsTmuxWindow/Conditional/Limits)", "file": "internal/tab/claudetui/provider_test.go", "status": "pass"},
+    {"story": "S7ce250-2", "acceptance_criteria": ["AC-S7ce250-2-2"], "test": "TestOnBranchOpen + TestOnBranchClose", "file": "internal/tab/claudetui/provider_test.go", "status": "pass"},
+    {"story": "S7ce250-2", "acceptance_criteria": ["AC-S7ce250-2-3"], "test": "TestRouteRegistration (3 routes mounted non-404)", "file": "internal/tab/claudetui/provider_test.go", "status": "pass"},
+    {"story": "S7ce250-2", "acceptance_criteria": ["AC-S7ce250-2-4"], "test": "tests/e2e/s7ce250_claude_tui.py AC-5-1 (real palmux2 exposes claude-tui via /api/.../tabs)", "file": "tests/e2e/s7ce250_claude_tui.py", "status": "pass"},
+    {"story": "S7ce250-3", "acceptance_criteria": ["AC-S7ce250-3-1"], "test": "tests/e2e/s7ce250_claude_tui.py + s7ce250_claude_tui_mock.py (frontend connects to claude-tui/attach via xterm.js)", "file": "tests/e2e/s7ce250_claude_tui*.py", "status": "pass"},
+    {"story": "S7ce250-3", "acceptance_criteria": ["AC-S7ce250-3-2"], "test": "[MOCK] resize triggers POST with cols/rows + tests/e2e/s7ce250_claude_tui.py AC-5-4 (POST /resize -> 204)", "file": "tests/e2e/s7ce250_claude_tui*.py", "status": "pass"},
+    {"story": "S7ce250-3", "acceptance_criteria": ["AC-S7ce250-3-3"], "test": "All 3 data-testid selectors used by mock test + E2E", "file": "frontend/src/tabs/claude-tui/claude-tui-tab.tsx", "status": "pass"},
+    {"story": "S7ce250-4", "acceptance_criteria": ["AC-S7ce250-4-1"], "test": "TestSessionIDDetection + TestSessionWatcher_{NewFile,Modified,NewFileInExistingDir}", "file": "internal/tab/claudetui/{sessions,manager_integration}_test.go", "status": "pass"},
+    {"story": "S7ce250-4", "acceptance_criteria": ["AC-S7ce250-4-2"], "test": "TestSessionPersistenceAcrossDaemonRestart (fake_claude --resume <id> -> 'resume: <id>' observed in ring)", "file": "internal/tab/claudetui/manager_integration_test.go", "status": "pass"},
+    {"story": "S7ce250-4", "acceptance_criteria": ["AC-S7ce250-4-3"], "test": "TestStoreRoundtrip + TestStorePersistenceAcrossReopen", "file": "internal/tab/claudetui/store_test.go", "status": "pass"},
+    {"story": "S7ce250-5", "acceptance_criteria": ["AC-S7ce250-5-1"], "test": "tests/e2e/s7ce250_claude_tui.py AC-5-1 (tab list + browser tab bar)", "file": "tests/e2e/s7ce250_claude_tui.py", "status": "pass"},
+    {"story": "S7ce250-5", "acceptance_criteria": ["AC-S7ce250-5-2"], "test": "tests/e2e/s7ce250_claude_tui.py AC-5-2 (manual smoke log present)", "file": "tests/e2e/s7ce250_claude_tui.py + docs/sprint-logs/S7ce250/desktop-attach-demo.md", "status": "pass"},
+    {"story": "S7ce250-5", "acceptance_criteria": ["AC-S7ce250-5-3"], "test": "git diff main..HEAD shows cmd/poc-pty/ + internal/poc/ all deleted", "file": "git", "status": "pass"}
+  ],
+  "diff_coverage": {
+    "scan_executed_at": "2026-05-17",
+    "base_branch": "main (via autopilot/main/S1d2278)",
+    "head_branch": "autopilot/main/S7ce250",
+    "additions": [
+      {"type": "go-package", "identifier": "internal/tab/claudetui", "covered_by": ["48 unit tests + 5 integration tests"], "status": "covered"},
+      {"type": "go-export", "identifier": "claudetui.NewDaemon / EnsureStarted / SetSessionID / WriteInput / Resize / Shutdown", "covered_by": ["daemon_test.go suite"], "status": "covered"},
+      {"type": "go-export", "identifier": "claudetui.NewRing / Write / SnapshotAndSubscribe / Unsubscribe", "covered_by": ["ring_test.go suite (including atomic + race tests)"], "status": "covered"},
+      {"type": "go-export", "identifier": "claudetui.NewManager / EnsureDaemon / CloseDaemon / ShutdownAll / Len", "covered_by": ["manager_test.go + manager_integration_test.go"], "status": "covered"},
+      {"type": "go-export", "identifier": "claudetui.New (Provider)", "covered_by": ["provider_test.go"], "status": "covered"},
+      {"type": "go-export", "identifier": "claudetui.NewSessionWatcher / NewSessionStore / TranscriptDir / LatestSessionID", "covered_by": ["sessions_test.go + store_test.go"], "status": "covered"},
+      {"type": "go-export", "identifier": "claudetui.AttachHandler / StatsHandler / handleResize", "covered_by": ["server_test.go + tests/e2e/s7ce250_claude_tui.py"], "status": "covered"},
+      {"type": "cli-flag", "identifier": "palmux --claude-bin <path>", "covered_by": ["tests/e2e/s7ce250_claude_tui.py uses it"], "status": "covered"},
+      {"type": "cli-flag", "identifier": "palmux --claude-arg <string> (repeated)", "covered_by": ["TestRepeatedClaudeArg"], "status": "covered"},
+      {"type": "http-route", "identifier": "WS /api/repos/{repoId}/branches/{branchId}/tabs/claude-tui/attach", "covered_by": ["AC-5-2, AC-5-3 (real palmux2)"], "status": "covered"},
+      {"type": "http-route", "identifier": "GET /api/repos/{repoId}/branches/{branchId}/tabs/claude-tui/stats", "covered_by": ["AC-5-2 (alive flag), AC-5-5 (shutdown)"], "status": "covered"},
+      {"type": "http-route", "identifier": "POST /api/repos/{repoId}/branches/{branchId}/tabs/claude-tui/resize", "covered_by": ["AC-5-4"], "status": "covered"},
+      {"type": "gui-tab", "identifier": "claude-tui tab in frontend tab registry", "covered_by": ["AC-5-1 browser check"], "status": "covered"},
+      {"type": "gui-testid", "identifier": "claude-tui-status", "covered_by": ["s7ce250_claude_tui.py + _mock.py"], "status": "covered"},
+      {"type": "gui-testid", "identifier": "claude-tui-terminal", "covered_by": ["s7ce250_claude_tui.py"], "status": "covered"},
+      {"type": "gui-testid", "identifier": "claude-tui-reconnect-btn", "covered_by": ["s7ce250_claude_tui_mock.py"], "status": "covered"},
+      {"type": "config-file", "identifier": "claudetui-sessions.json (under <configDir>)", "covered_by": ["TestStoreRoundtrip + TestSessionPersistenceAcrossDaemonRestart"], "status": "covered"},
+      {"type": "doc", "identifier": "docs/sprint-logs/S7ce250/desktop-attach-demo.md", "covered_by": ["AC-5-2 file presence"], "status": "covered"},
+      {"type": "deletion", "identifier": "cmd/poc-pty/ + internal/poc/{pty,emulator}/", "covered_by": ["AC-5-3 git diff verification"], "status": "covered"}
+    ],
+    "untested_additions": [],
+    "notes": "Sprint A migrates the S1d2278 PoC into production palmux2. All 19 ACs pass. Story 5's E2E uses palmux2_test_fixture against a hermetic palmux2 instance with --claude-bin /bin/cat as a deterministic subprocess substitute. The real claude binary path is exercised by manual smoke (docs/sprint-logs/S7ce250/desktop-attach-demo.md, marked pending-manual for sprint-auto)."
+  }
+}

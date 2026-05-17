@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -123,10 +124,11 @@ type SessionEvent struct {
 //	}
 //	w.Close()
 type SessionWatcher struct {
-	fsw    *fsnotify.Watcher
-	dir    string
-	events chan SessionEvent
-	done   chan struct{}
+	fsw       *fsnotify.Watcher
+	dir       string
+	events    chan SessionEvent
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 // NewSessionWatcher creates a watcher for transcriptDir. If the directory
@@ -163,14 +165,13 @@ func (w *SessionWatcher) Events() <-chan SessionEvent {
 	return w.events
 }
 
-// Close stops the watcher and closes the Events channel.  Idempotent.
+// Close stops the watcher and closes the Events channel.  Idempotent and
+// safe to call concurrently — sprint review D1: the previous select+default
+// pattern panicked when two goroutines raced into Close.
 func (w *SessionWatcher) Close() error {
-	select {
-	case <-w.done:
-		// already closed
-	default:
+	w.closeOnce.Do(func() {
 		close(w.done)
-	}
+	})
 	return w.fsw.Close()
 }
 

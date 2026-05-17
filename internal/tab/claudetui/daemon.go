@@ -234,6 +234,12 @@ func (d *Daemon) spawnWithArgs(args []string) error {
 	exited := make(chan error, 1)
 
 	d.stateMu.Lock()
+	// Close the previous ptmx fd before replacing it on respawn — sprint
+	// review F2: without this, every claude crash + respawn cycle leaks one
+	// PTY master fd until Shutdown.
+	if d.ptmx != nil {
+		_ = d.ptmx.Close()
+	}
 	d.ptmx = ptmx
 	d.proc = cmd.Process
 	d.exited = exited
