@@ -2,7 +2,7 @@ package pty
 
 import (
 	"encoding/json"
-	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 
@@ -11,18 +11,20 @@ import (
 
 // Server wraps a Daemon with HTTP + WebSocket endpoints.
 type Server struct {
-	daemon *Daemon
-	mux    *http.ServeMux
+	daemon   *Daemon
+	mux      *http.ServeMux
+	staticFS fs.FS // embedded static files; nil falls back to stub
 }
 
 // NewServer creates an HTTP server wired to daemon.
-func NewServer(daemon *Daemon) *Server {
-	s := &Server{daemon: daemon, mux: http.NewServeMux()}
+// staticFS should be an fs.FS rooted at the directory containing
+// index.html (e.g. an embed.FS sub-tree for cmd/poc-pty/static).
+// Pass nil to get the minimal stub page (useful for tests).
+func NewServer(daemon *Daemon, staticFS fs.FS) *Server {
+	s := &Server{daemon: daemon, mux: http.NewServeMux(), staticFS: staticFS}
 	s.mux.HandleFunc("GET /", s.handleIndex)
 	s.mux.HandleFunc("GET /poc/pty/stats", s.handleStats)
 	s.mux.HandleFunc("GET /poc/pty/attach", s.handleAttach)
-	// Also support WS upgrade on the same path regardless of Go 1.22
-	// pattern subtleties by registering without method prefix as fallback.
 	return s
 }
 
@@ -31,20 +33,20 @@ func (s *Server) Handler() http.Handler {
 	return s.mux
 }
 
-// handleIndex serves a minimal stub page.  Story 3 replaces this with
-// the real xterm.js HTML.
+// handleIndex serves the xterm.js demo page embedded at build time.
+// Falls back to a minimal stub when staticFS is nil (test mode).
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, `<!DOCTYPE html>
-<html>
-<head><title>poc-pty</title></head>
-<body>
-<p data-testid="pty-poc-status">connecting</p>
-<div data-testid="pty-poc-terminal"></div>
-<button data-testid="pty-poc-reconnect-btn" style="display:none">Reconnect</button>
-<p>poc-pty stub — Story 3 replaces this with xterm.js</p>
-</body>
-</html>`)
+	if s.staticFS == nil {
+		// Minimal stub — used when no static FS is provided.
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(`<!DOCTYPE html><html><head><title>poc-pty</title></head>` +
+			`<body><p data-testid="pty-poc-status">connecting</p>` +
+			`<div data-testid="pty-poc-terminal"></div>` +
+			`<button data-testid="pty-poc-reconnect-btn" style="display:none">Reconnect</button>` +
+			`</body></html>`))
+		return
+	}
+	http.FileServerFS(s.staticFS).ServeHTTP(w, r)
 }
 
 // handleStats serves JSON stats for the daemon.

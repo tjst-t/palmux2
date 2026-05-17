@@ -6749,7 +6749,7 @@
         },
         "S1d2278-3": {
           "title": "WS over PTY raw bytes デモ (desktop 単一クライアント)",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux2 ユーザとして、 PoC daemon にブラウザから接続して claude と desktop 上で対話できるか確認したい。 なぜなら、 サブスク枠で動く最低限の体験が成立する目処を立てたいからだ。",
           "scenario": "docs/sprint-logs/S1d2278/gui-spec-S1d2278-3.json",
           "gui_spec": "docs/sprint-logs/S1d2278/gui-spec-S1d2278-3.json",
@@ -6758,31 +6758,31 @@
               "id": "AC-S1d2278-3-1",
               "description": "PoC daemon が `/poc/pty/attach` WS で raw byte を双方向に流す",
               "test": "tests/e2e/s1d2278_pty_poc.py::test_ac_s1d2278_3_1_ws_bidirectional",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1d2278-3-2",
               "description": "スタンドアロン HTML (`cmd/poc-pty/static/index.html`) + xterm.js が daemon に接続し、 status testid が connected/streaming に遷移する",
               "test": "tests/e2e/s1d2278_pty_poc.py::test_ac_s1d2278_3_2_xterm_renders_tui",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1d2278-3-3",
               "description": "再接続時に ring buffer から replay されて scrollback マーカーが復元する",
               "test": "tests/e2e/s1d2278_pty_poc.py::test_ac_s1d2278_3_3_replay_on_reconnect",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1d2278-3-4",
               "description": "Manual smoke ログ (`docs/sprint-logs/S1d2278/desktop-attach-demo.md`) が存在し、 100 bytes 以上 (内容は人間が manual 実行時に書く)",
               "test": "tests/e2e/s1d2278_pty_poc.py::test_ac_s1d2278_3_4_smoke_log_present",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1d2278-3-5",
               "description": "data-testid 属性 (`pty-poc-status`, `pty-poc-terminal`, `pty-poc-reconnect-btn`) が静的 HTML 内に存在",
               "test": "tests/e2e/s1d2278_pty_poc.py (selector が機能することで暗黙確認) + tests/e2e/s1d2278_pty_poc_mock.py",
-              "status": "planned"
+              "status": "pass"
             }
           ]
         },

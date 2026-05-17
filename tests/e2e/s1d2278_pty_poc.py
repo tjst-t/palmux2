@@ -17,10 +17,12 @@ Acceptance criteria covered:
                    non-empty (the content itself is written by a human
                    during the manual demo run).
 
-The PoC binary uses portman (per project CLAUDE.md convention) — the
-test fixture starts it with `portman exec --name poc-pty-test -- bin
---port {}` and discovers the chosen port from portman's reported PID
-file or stdout.
+Fixture design (Story 3): the binary is started via `go run ./cmd/poc-pty`
+with a dynamically chosen free port (avoiding portman for test isolation —
+portman's static port assignment causes race conditions across sequential
+daemon invocations within the same test run).  The subprocess is set to
+`/bin/bash -c cat` so AC-3-1/3-3 are deterministic without a real claude
+binary in the sandbox.
 
 Exit code 0 = PASS. Designed to be runnable as a standalone script via
 `python3 tests/e2e/s1d2278_pty_poc.py` so it slots into the existing
@@ -28,13 +30,12 @@ sprint verify harness.
 """
 from __future__ import annotations
 
-import json
 import os
 import signal
+import socket
 import subprocess
 import sys
 import time
-import urllib.request
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -42,11 +43,6 @@ from typing import Iterator
 REPO_ROOT = Path(__file__).resolve().parents[2]
 POC_BIN_REL = "cmd/poc-pty"
 SMOKE_LOG = REPO_ROOT / "docs/sprint-logs/S1d2278/desktop-attach-demo.md"
-
-# Portman naming follows the existing INSTANCE=dev convention in
-# Makefile. The Story 2/3 implementation must wire the binary to
-# portman the same way.
-PORTMAN_NAME = "poc-pty-test"
 
 
 def fail(msg: str) -> None:
@@ -67,45 +63,65 @@ def _get_playwright():
         sys.exit(0)
 
 
+def _free_port() -> int:
+    """Find a free TCP port on localhost."""
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
 @contextmanager
 def poc_daemon() -> Iterator[int]:
-    """Start the PoC binary via portman; yield the chosen port."""
+    """Start the PoC binary directly via go run; yield the chosen port.
+
+    Story 3 fixture uses /bin/bash -c cat as a deterministic claude-bin
+    substitute so that AC-3-1/3-3 (WS bidirectional + ring replay) are
+    sandbox-safe and do not depend on the real `claude` binary.
+    `cat` echoes every byte it receives back to the PTY, satisfying the
+    AC requirement of "at least one frame back within 5s".
+
+    A fresh free port is chosen per invocation to avoid conflicts when
+    multiple daemon contexts run sequentially in the same test script.
+    """
     bin_dir = REPO_ROOT / POC_BIN_REL
     if not bin_dir.is_dir():
         fail(f"PoC binary directory not found: {bin_dir} — Story 2/3 not implemented yet")
 
-    # Implementation note (Story 3): the binary must accept --port and
-    # print "listening on :<port>" to stdout so this fixture can parse
-    # the chosen port from portman exec output.
+    port = _free_port()
     cmd = [
-        "portman", "exec", "--name", PORTMAN_NAME, "--",
-        "go", "run", f"./{POC_BIN_REL}", "--port", "{}",
+        "go", "run", f"./{POC_BIN_REL}",
+        "--port", str(port),
+        "--claude-bin", "/bin/bash",
+        "--claude-args", "-c cat",
     ]
     proc = subprocess.Popen(
         cmd, cwd=REPO_ROOT,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
     )
-    port: int | None = None
     try:
-        # Wait up to 10s for the binary to print its listening port.
-        deadline = time.monotonic() + 10.0
+        # Wait up to 30s for the binary to print its listening port
+        # (go run includes compilation time on first run).
+        deadline = time.monotonic() + 30.0
+        listening = False
         while time.monotonic() < deadline:
             line = proc.stdout.readline() if proc.stdout else ""
             if not line and proc.poll() is not None:
                 fail(f"poc-pty exited before listening: rc={proc.returncode}")
             if "listening on :" in line:
-                port = int(line.strip().rsplit(":", 1)[-1])
+                listening = True
                 break
-        if port is None:
-            fail("poc-pty did not announce its listening port within 10s")
+        if not listening:
+            proc.kill()
+            fail("poc-pty did not announce its listening port within 30s")
         yield port
     finally:
         if proc.poll() is None:
             proc.send_signal(signal.SIGTERM)
             try:
-                proc.wait(timeout=5)
+                proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 proc.kill()
+                proc.wait(timeout=5)
 
 
 # ─── Backend-only test (no browser) ────────────────────────────────────────

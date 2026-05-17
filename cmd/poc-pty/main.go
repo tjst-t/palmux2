@@ -29,9 +29,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -40,7 +42,6 @@ import (
 	"github.com/spf13/pflag"
 
 	creackpty "github.com/creack/pty"
-	"os/exec"
 
 	pocpty "github.com/tjst-t/palmux2/internal/poc/pty"
 )
@@ -191,7 +192,13 @@ loop:
 // runServer starts the HTTP+WS server in daemon mode.
 func runServer(port int, claudeBin string, claudeArgs []string, ringSize int) error {
 	daemon := pocpty.NewDaemon(claudeBin, claudeArgs, ringSize)
-	srv := pocpty.NewServer(daemon)
+	// Serve the embedded static/ directory (sub-FS strips the "static" prefix
+	// so the server sees index.html at the root).
+	staticSub, err := fs.Sub(staticFiles, "static")
+	if err != nil {
+		return fmt.Errorf("static fs.Sub: %w", err)
+	}
+	srv := pocpty.NewServer(daemon, staticSub)
 
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {

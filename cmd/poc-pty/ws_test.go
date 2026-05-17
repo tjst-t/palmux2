@@ -19,7 +19,7 @@ import (
 func newTestServer(t *testing.T) (*httptest.Server, *pocpty.Daemon) {
 	t.Helper()
 	daemon := pocpty.NewDaemon("/bin/bash", []string{"-c", "cat"}, pocpty.DefaultRingSize)
-	srv := pocpty.NewServer(daemon)
+	srv := pocpty.NewServer(daemon, nil)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(func() {
 		ts.Close()

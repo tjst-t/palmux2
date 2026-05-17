@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>poc-pty — Track B PoC</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5/css/xterm.css">
+<script src="https://cdn.jsdelivr.net/npm/xterm@5/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0f1117;
+    color: #d4d4d8;
+    font-family: "Geist", "Noto Sans JP", -apple-system, BlinkMacSystemFont, sans-serif;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+  #header {
+    padding: 8px 16px;
+    background: #13151c;
+    border-bottom: 1px solid #1e2028;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  #header h1 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #7c8aff;
+  }
+  #status-area {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+  #status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #6b6f7b;
+    transition: background 0.2s;
+  }
+  #status-dot.connecting { background: #f59e0b; animation: pulse 1s infinite; }
+  #status-dot.connected  { background: #64d2a0; }
+  #status-dot.streaming  { background: #7c8aff; animation: pulse 0.5s infinite; }
+  #status-dot.disconnected { background: #ef4444; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.4; }
+  }
+  [data-testid="pty-poc-status"] {
+    font-size: 12px;
+    color: #8b8fa0;
+    text-transform: lowercase;
+  }
+  [data-testid="pty-poc-reconnect-btn"] {
+    padding: 4px 12px;
+    background: #ef4444;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    display: none;
+  }
+  [data-testid="pty-poc-reconnect-btn"]:hover { background: #dc2626; }
+  #terminal-wrapper {
+    flex: 1;
+    min-height: 0;
+    padding: 8px;
+    overflow: hidden;
+  }
+  [data-testid="pty-poc-terminal"] {
+    width: 100%;
+    height: 100%;
+  }
+</style>
+</head>
+<body>
+<div id="header">
+  <h1>poc-pty</h1>
+  <div id="status-area">
+    <div id="status-dot" class="connecting"></div>
+    <span data-testid="pty-poc-status">connecting</span>
+    <button data-testid="pty-poc-reconnect-btn" onclick="reconnect()">Reconnect</button>
+  </div>
+</div>
+<div id="terminal-wrapper">
+  <div data-testid="pty-poc-terminal" id="terminal"></div>
+</div>
+<script>
+(function () {
+  'use strict';
+
+  // ── Configuration ───────────────────────────────────────────────────────
+  // Allow ?ws=<url> override (used by mock tests that load via file://).
+  var params = new URLSearchParams(location.search);
+  var wsUrl = params.get('ws') ||
+    (location.protocol === 'file:' ? null :
+      'ws://' + location.host + '/poc/pty/attach');
+
+  // ── xterm.js setup ──────────────────────────────────────────────────────
+  var term = new Terminal({
+    fontFamily: '"Geist Mono", "Cascadia Code", "Fira Code", monospace',
+    fontSize: 14,
+    theme: {
+      background: '#0c0e14',
+      foreground: '#d4d4d8',
+      cursor: '#7c8aff',
+      black:   '#1a1c25',
+      red:     '#ef4444',
+      green:   '#64d2a0',
+      yellow:  '#e8b45a',
+      blue:    '#7c8aff',
+      magenta: '#9ba6ff',
+      cyan:    '#64d2a0',
+      white:   '#d4d4d8',
+    },
+    cursorBlink: true,
+    scrollback: 5000,
+  });
+  var fitAddon = new FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
+  term.open(document.getElementById('terminal'));
+  fitAddon.fit();
+  window.addEventListener('resize', function () { fitAddon.fit(); });
+
+  // ── State machine ────────────────────────────────────────────────────────
+  // States: connecting | connected | streaming | disconnected
+  var statusEl  = document.querySelector('[data-testid="pty-poc-status"]');
+  var dotEl     = document.getElementById('status-dot');
+  var reconnBtn = document.querySelector('[data-testid="pty-poc-reconnect-btn"]');
+  var idleTimer = null;
+  var ws        = null;
+
+  function setState(s) {
+    statusEl.textContent = s;
+    dotEl.className = s;
+    // Reconnect button: show only when disconnected
+    if (s === 'disconnected') {
+      reconnBtn.style.display = 'inline-block';
+    } else {
+      reconnBtn.style.display = 'none';
+    }
+  }
+
+  // ── WebSocket helpers ────────────────────────────────────────────────────
+  function openWS() {
+    if (!wsUrl) {
+      setState('disconnected');
+      term.writeln('\x1b[31m[poc-pty] No WS URL — load via http:// or pass ?ws=\x1b[0m');
+      return;
+    }
+    setState('connecting');
+    try {
+      ws = new WebSocket(wsUrl);
+      ws.binaryType = 'arraybuffer';
+    } catch (e) {
+      setState('disconnected');
+      term.writeln('\x1b[31m[poc-pty] WebSocket construction failed: ' + e + '\x1b[0m');
+      return;
+    }
+
+    ws.onopen = function () {
+      setState('connected');
+    };
+
+    ws.onmessage = function (ev) {
+      var data;
+      if (ev.data instanceof ArrayBuffer) {
+        data = new Uint8Array(ev.data);
+      } else if (typeof ev.data === 'string') {
+        // Convert string to Uint8Array (UTF-8)
+        data = new TextEncoder().encode(ev.data);
+      } else {
+        data = ev.data;
+      }
+      term.write(data);
+
+      // Transition to streaming; return to connected after 1s idle.
+      setState('streaming');
+      if (idleTimer !== null) { clearTimeout(idleTimer); }
+      idleTimer = setTimeout(function () {
+        // Only reset to connected if still in streaming state (not disconnected).
+        if (statusEl.textContent === 'streaming') {
+          setState('connected');
+        }
+      }, 1000);
+    };
+
+    ws.onerror = function () {
+      // onerror is always followed by onclose; let onclose set state.
+    };
+
+    ws.onclose = function () {
+      if (idleTimer !== null) { clearTimeout(idleTimer); idleTimer = null; }
+      setState('disconnected');
+      ws = null;
+    };
+
+    // Forward terminal key input to WS.
+    term.onData(function (data) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(new TextEncoder().encode(data));
+      }
+    });
+  }
+
+  function reconnect() {
+    if (ws) {
+      ws.onclose = null; // suppress double setState
+      ws.close();
+      ws = null;
+    }
+    openWS();
+  }
+
+  // Expose for button onclick.
+  window.reconnect = reconnect;
+
+  // ── Boot ─────────────────────────────────────────────────────────────────
+  openWS();
+})();
+</script>
+</body>
+</html>
