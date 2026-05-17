@@ -1,0 +1,91 @@
+{
+  "story": "S1d2278-2",
+  "story_type": "cli",
+  "user_role": "palmux2 開発者 (PoC バイナリを直接実行して PTY 駆動の挙動を確かめる)",
+  "entry_point": "`go run ./cmd/poc-pty --port {portman}` で起動する PoC バイナリ",
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "linked_ac": ["AC-S1d2278-2-1"],
+      "description": "PoC daemon が PTY を確保して claude を spawn し、 stdin/stdout を双方向に流す",
+      "preconditions": [
+        "PATH に claude binary がある",
+        "go.mod に github.com/creack/pty が追加されている"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "action": "operator が `portman exec --name poc-pty -- go run ./cmd/poc-pty --port {} --probe` を実行 (probe モードは spawn → 1 行送信 → 応答 → exit)",
+          "expected": "exit code 0、 stdout に `pty: ok, claude: alive, sent 1 byte, recv N bytes` のようなプローブ結果が出力される"
+        }
+      ],
+      "cleanup": ["claude プロセスが残らないことを ps で確認"]
+    },
+    {
+      "id": "scenario-2",
+      "linked_ac": ["AC-S1d2278-2-2"],
+      "description": "SIGWINCH 送信で claude がリサイズを認識する",
+      "preconditions": ["PoC daemon が起動済み (interactive モード)"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "operator が `kill -WINCH <pid>` で daemon にリサイズ通知を送る (daemon は PTY に転送する)。 もしくは `poc-pty --resize 80x24 --pid <pid>` のような専用 CLI フラグを叩く",
+          "expected": "claude TUI の幅依存出力 (たとえば `tput cols` 相当の値) がリサイズ後の値を反映していることを stdout から確認できる"
+        }
+      ],
+      "cleanup": ["daemon を SIGTERM で終了"]
+    },
+    {
+      "id": "scenario-3",
+      "linked_ac": ["AC-S1d2278-2-3"],
+      "description": "Ring buffer (1MB) に出力を保持し、 別の attach から full replay できる",
+      "preconditions": ["PoC daemon が起動済み"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "operator が WS endpoint に attach して既知マーカー文字列 (`POC-MARKER-XYZ`) を含む応答を生成 → detach",
+          "expected": "ring buffer にマーカーが書き込まれている (daemon 内部 metric `/poc/pty/stats` を curl して `ring_bytes > 0` を確認)"
+        },
+        {
+          "n": 2,
+          "action": "別の WS attach (新規接続) を張る",
+          "expected": "新接続の初期 5 秒以内にマーカー文字列が replay として受信される"
+        }
+      ],
+      "cleanup": ["daemon SIGTERM"]
+    },
+    {
+      "id": "scenario-4",
+      "linked_ac": ["AC-S1d2278-2-4"],
+      "description": "claude プロセスを kill した後、 `--resume <session_id>` で復帰",
+      "preconditions": ["daemon 起動済み、 claude が初回プロンプトを通過 (session_id が ~/.claude/projects/.../<id>.jsonl に存在)"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "operator が外部から `kill -KILL <claude_pid>` を打つ",
+          "expected": "daemon ログに `claude died, will resume` が出る"
+        },
+        {
+          "n": 2,
+          "action": "daemon が自動で `claude --resume <session_id>` を起動する (実装の責務)",
+          "expected": "再度 WS attach すると以前の transcript が読める (daemon ログに `resumed session <id>` + 新 PID が出力)"
+        }
+      ],
+      "cleanup": ["daemon SIGTERM、 一時 session の cleanup (`rm ~/.claude/projects/<hash>/<id>.jsonl` は手動)"]
+    },
+    {
+      "id": "scenario-5",
+      "linked_ac": ["AC-S1d2278-2-5"],
+      "description": "PoC 実行ログを文書化",
+      "preconditions": ["scenario-1〜4 が pass している"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "上記 4 scenario の観察を `docs/sprint-logs/S1d2278/pty-daemon-spike.md` にまとめる",
+          "expected": "ファイルが存在し、 操作手順 + 観察結果 + 既知の rough edge (たとえば SIGWINCH の伝播タイミング、 resume の所要時間) を含む"
+        }
+      ],
+      "cleanup": []
+    }
+  ]
+}

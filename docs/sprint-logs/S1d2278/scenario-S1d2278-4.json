@@ -1,0 +1,41 @@
+{
+  "story": "S1d2278-4",
+  "story_type": "library",
+  "user_role": "palmux2 開発者 (autopilot / sprint skill が Claude を非対話モードで呼んでいないかを Source レベルで確認したい)",
+  "entry_point": "Grep + 文書化 (~/.claude/skills/autopilot/ と ~/.claude/skills/sprint/)",
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "linked_ac": ["AC-S1d2278-4-1"],
+      "description": "skill ソース全体に対する非対話 claude 呼び出しの全文 grep",
+      "preconditions": ["~/.claude/skills/autopilot/ と ~/.claude/skills/sprint/ が読み取り可能"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "developer が `rg -n '(claude --print|claude -p|--input-format stream-json|--output-format stream-json|@anthropic-ai/sdk|anthropic-sdk)' ~/.claude/skills/{autopilot,sprint}` を実行",
+          "expected": "ヒットゼロ (= autopilot/sprint は外部 claude プロセスを spawn しておらず、 Claude Code の Agent tool 経由で sub-agent を回している)。 もし将来的にヒットがあれば、 そのパスを記録"
+        },
+        {
+          "n": 2,
+          "action": "Agent tool 経由の sub-agent 呼び出し箇所 (`Agent({ subagent_type: ... })` パターン) も探して経路を整理",
+          "expected": "sub-agent は Claude Code の Agent tool を呼んでいるだけで、 これは interactive Claude Code の課金経路 (subscription plan) に属する"
+        }
+      ],
+      "cleanup": []
+    },
+    {
+      "id": "scenario-2",
+      "linked_ac": ["AC-S1d2278-4-2", "AC-S1d2278-4-3"],
+      "description": "結論を文書化し、 Track B 移行への影響を判定",
+      "preconditions": ["scenario-1 が完了"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "結論を `docs/sprint-logs/S1d2278/autopilot-billing-path.md` に書き出す",
+          "expected": "ファイルが存在し、 (a) 全文 grep 結果サマリ、 (b) Agent tool sub-agent 経路の経路図、 (c) Agent SDK 課金分離 (2026-06-15) が autopilot/sprint skill に与える影響の結論 (= 影響なし、 別 sprint で対応、 即対応のいずれか) を含む"
+        }
+      ],
+      "cleanup": []
+    }
+  ]
+}

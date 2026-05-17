@@ -1,0 +1,67 @@
+{
+  "story": "S1d2278-6",
+  "story_type": "library",
+  "user_role": "palmux2 オーナー兼開発者 (Track B 続行 / Track A pivot を 6/7 までに判定する)",
+  "entry_point": "5 Story の成果物を読み込んで判定文書を生成し、 sprint demo でユーザに提示",
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "linked_ac": ["AC-S1d2278-6-1"],
+      "description": "4 軸 go/no-go 判定を実施",
+      "preconditions": [
+        "scenario-1 〜 5 の成果物が docs/sprint-logs/S1d2278/ に揃っている",
+        "現在の日付が 2026-06-07 以前"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "action": "developer が以下の 4 軸を green/yellow/red で評価する: (1) emulator 実用性 (Story 1)、 (2) PTY daemon 安定性 (Story 2 + 3)、 (3) autopilot 課金経路の影響 (Story 4)、 (4) SDK クレジット見通し (Story 5)",
+          "expected": "判定マトリクスが `docs/sprint-logs/S1d2278/track-b-roadmap.md` の先頭に表として書かれる (4 行 × {green/yellow/red, 根拠ファイルへのリンク, 一行サマリ})"
+        }
+      ],
+      "cleanup": []
+    },
+    {
+      "id": "scenario-2",
+      "linked_ac": ["AC-S1d2278-6-2"],
+      "description": "Go (続行) ケースの次 sprint 群骨子を作成",
+      "preconditions": ["scenario-1 で 4 軸が全 green またはほぼ green (yellow 許容)"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "developer が track-b-roadmap.md に次 sprint 候補 (S+1 〜 S+3 程度) を Story 単位の粒度で起こす",
+          "expected": "track-b-roadmap.md に: (a) Sprint S+1 = PTY daemon + xterm.js を palmux2 本体に組み込み・ Claude タブ id `claude-tui` 追加・ desktop 動作完成、 (b) Sprint S+2 = grid diff プロトコル + mobile chat 抽出 UI 検証、 (c) Sprint S+3 = ESC ESC 編集 + claude-agent と並走の UX 整備、 のそれぞれ Story 一覧と 1 行サマリが書かれている"
+        }
+      ],
+      "cleanup": []
+    },
+    {
+      "id": "scenario-3",
+      "linked_ac": ["AC-S1d2278-6-3"],
+      "description": "No-Go (pivot) ケースの Track A 骨子を作成",
+      "preconditions": ["scenario-1 で red が 1 つ以上"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "developer が track-b-roadmap.md に Track A pivot 用の sprint 骨子を書く",
+          "expected": "(a) `git show ad0749e^:internal/tab/claude/` 等から旧 tmux ベース Claude タブを復元し、 (b) tab id を `claude-tui` として claude-agent と並走、 (c) 必要なら toolbar の切替 UI を追加、 が Story 単位で書かれている"
+        }
+      ],
+      "cleanup": []
+    },
+    {
+      "id": "scenario-4",
+      "linked_ac": ["AC-S1d2278-6-4"],
+      "description": "Sprint demo でユーザに判定結果を提示し、 承認を得る",
+      "preconditions": ["scenario-1 と (2 または 3) が完了"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "sprint demo で track-b-roadmap.md をユーザに見せ、 続行 / pivot の選択肢を提示する",
+          "expected": "ユーザが承認 (どちらかを選ぶ) し、 選択結果が docs/sprint-logs/S1d2278/decisions.json に記録される"
+        }
+      ],
+      "cleanup": []
+    }
+  ]
+}

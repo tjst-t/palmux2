@@ -1,0 +1,128 @@
+{
+  "sprint_id": "S1d2278",
+  "story_id": "S1d2278-3",
+  "story_title": "WS over PTY raw bytes デモ (desktop 単一クライアント)",
+  "entry_point": "gui",
+  "notes": [
+    "PoC 用スタンドアロンバイナリ cmd/poc-pty/ が対象。 既存 palmux2 (cmd/palmux/) には影響を与えない",
+    "Test convention: palmux2 全体は Python + Playwright を採用しているため、 gui-spec の TypeScript テンプレートではなく Python (.py) 形式で生成",
+    "PoC 用 fixture は palmux2_test_fixture() ではなく poc-pty バイナリを直接起動する minimal fixture を使う (Story 3 で同時に実装)",
+    "AC-3-4 (manual smoke ログ) は file-existence + size>0 の自動チェックを sprint verify で行う。 内容生成自体は人間が manual smoke で書く"
+  ],
+  "state_diagram_mermaid": "stateDiagram-v2\n    [*] --> Connecting: page load → ws.open()\n    Connecting --> Connected: ws onopen\n    Connecting --> Disconnected: ws error before open\n    Connected --> Streaming: first byte from server\n    Streaming --> Connected: 1s idle (no new bytes)\n    Connected --> Disconnected: ws close (daemon down / nav away)\n    Streaming --> Disconnected: ws close mid-stream\n    Disconnected --> Connecting: user clicks Reconnect / page reload",
+  "states": [
+    {
+      "name": "Connecting",
+      "description": "WebSocket ハンドシェイク中。 xterm.js は描画準備済みだがバイトはまだ来ていない",
+      "ui_affordances": {"reconnect_button": "disabled", "input": "disabled"}
+    },
+    {
+      "name": "Connected",
+      "description": "WS open、 アイドル状態。 ユーザ入力を受け付け、 サーバへ送信可能",
+      "ui_affordances": {"reconnect_button": "hidden", "input": "enabled"}
+    },
+    {
+      "name": "Streaming",
+      "description": "サーバから raw bytes が流入中。 xterm.js が逐次描画",
+      "ui_affordances": {"reconnect_button": "hidden", "input": "enabled (input continues during stream — TUI が制御)"}
+    },
+    {
+      "name": "Disconnected",
+      "description": "WS が close または error。 xterm.js は最後のフレームを保持して停止",
+      "ui_affordances": {"reconnect_button": "enabled", "input": "disabled"}
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "Happy path: connect → echo prompt → see response",
+      "linked_ac": ["AC-S1d2278-3-1", "AC-S1d2278-3-2"],
+      "steps": [
+        "Open static HTML served by cmd/poc-pty/ on its port",
+        "Page auto-connects to ws://<host>:<port>/poc/pty/attach",
+        "WS open → state transitions Connecting → Connected",
+        "User types prompt + Enter into xterm.js",
+        "Bytes flow daemon → PTY → claude; response flows back daemon → WS → xterm.js",
+        "xterm.js canvas contains response text within 5 seconds",
+        "Observable: data-testid='pty-poc-status' text = 'connected' or 'streaming'"
+      ]
+    },
+    {
+      "name": "Reconnect with replay",
+      "linked_ac": ["AC-S1d2278-3-3"],
+      "steps": [
+        "Connect, send prompt, receive response",
+        "Programmatically close WS (or click Reconnect)",
+        "Reconnect → daemon replays ring buffer",
+        "xterm.js canvas re-displays previous scrollback (look for known token from first prompt)"
+      ]
+    },
+    {
+      "name": "Manual smoke log artifact",
+      "linked_ac": ["AC-S1d2278-3-4"],
+      "steps": [
+        "Human runs poc-pty binary",
+        "Human opens browser to its static HTML",
+        "Human types prompts, observes behavior",
+        "Human writes findings to docs/sprint-logs/S1d2278/desktop-attach-demo.md",
+        "Automated check (sprint verify) asserts the file exists and is non-empty"
+      ]
+    }
+  ],
+  "endpoint_contracts": [
+    {
+      "path": "/poc/pty/attach",
+      "method": "WS",
+      "registered": false,
+      "registered_note": "cmd/poc-pty/ binary is to be created in this Sprint (Story 2 + 3). Not present yet",
+      "request_fields": null,
+      "response_fields": {"raw_bytes": "binary stream of PTY output"}
+    },
+    {
+      "path": "/poc/pty/replay",
+      "method": "GET",
+      "registered": false,
+      "registered_note": "Optional — could be merged into /poc/pty/attach as initial replay frames on connect",
+      "request_fields": null,
+      "response_fields": {"raw_bytes": "ring buffer contents"}
+    },
+    {
+      "path": "/",
+      "method": "GET",
+      "registered": false,
+      "registered_note": "Static HTML served by cmd/poc-pty/ (xterm.js + WS client)",
+      "request_fields": null,
+      "response_fields": {"content_type": "text/html"}
+    }
+  ],
+  "test_files": {
+    "e2e": "tests/e2e/s1d2278_pty_poc.py",
+    "mock": "tests/e2e/s1d2278_pty_poc_mock.py"
+  },
+  "data_testids_required": [
+    "pty-poc-status",
+    "pty-poc-terminal",
+    "pty-poc-reconnect-btn"
+  ],
+  "auto_decisions": [
+    {
+      "topic": "test framework",
+      "decision": "Python + Playwright (.py)",
+      "rationale": "palmux2 の既存 tests/e2e/*.py 規約に従う。 gui-spec の TS テンプレートはここでは採用しない"
+    },
+    {
+      "topic": "fixture",
+      "decision": "PoC 専用 fixture を Story 3 内で同時実装。 palmux2_test_fixture は使わない",
+      "rationale": "cmd/poc-pty/ は palmux2 とは独立の binary なので、 既存 fixture は適用外"
+    },
+    {
+      "topic": "manual smoke AC の自動化",
+      "decision": "ファイル存在 + 非空のみ自動チェック。 内容は人間が書く",
+      "rationale": "priority_rule 0 (テスト skip 禁止) を守りつつ、 PoC の manual smoke 性質を維持"
+    },
+    {
+      "topic": "GUI spec の深さ",
+      "decision": "state diagram + endpoint contracts + 3 シナリオ + minimal test stubs",
+      "rationale": "ユーザが Playwright 自動テストは最小限で良いと明示。 本実装ではなく PoC のため過度な spec は不要"
+    }
+  ]
+}

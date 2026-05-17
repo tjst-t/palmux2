@@ -1,0 +1,58 @@
+{
+  "story": "S1d2278-1",
+  "story_type": "library",
+  "user_role": "palmux2 開発者 (Go コードベース内で emulator ライブラリを評価する)",
+  "entry_point": "Go の test binary が github.com/charmbracelet/x/cellbuf と 代替候補ライブラリを直接 import して spike する",
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "linked_ac": ["AC-S1d2278-1-1"],
+      "description": "候補 A (charmbracelet/x/cellbuf) で interactive claude TUI 出力を消費し、 alt screen / cursor / 色がグリッドに反映されることを Go test で確認",
+      "preconditions": [
+        "go.mod に github.com/charmbracelet/x/cellbuf (または同等の上位パッケージ) を追加",
+        "PATH に claude binary がある (`which claude` が成功する)"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "action": "internal/poc/emulator/cellbuf_spike_test.go を実行 (`go test ./internal/poc/emulator/...` で起動)",
+          "expected": "test バイナリが PTY 経由で `claude` を spawn し、 stdout を cellbuf に流し込んでグリッドを構築する。 alternate screen に入った後の cursor 位置・ 色属性が想定通り (たとえばプロンプト位置のセルが `>` を含むなど) であることを ASSERT する。 exit code 0"
+        },
+        {
+          "n": 2,
+          "action": "spike 中に観察された未対応 ANSI シーケンスがあれば test ログに警告として出力する",
+          "expected": "未対応シーケンスの一覧 (たとえば sixel・ DECSET の特定モード) が標準出力に列挙される。 fail とはせず観察のみ"
+        }
+      ],
+      "cleanup": ["claude プロセス kill (test 終了時に defer で実行)"]
+    },
+    {
+      "id": "scenario-2",
+      "linked_ac": ["AC-S1d2278-1-2"],
+      "description": "候補 B (go-ansiterm または hinshun/vt10x など) を同条件で評価",
+      "preconditions": ["候補 B が go.mod に追加されている"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "internal/poc/emulator/alt_spike_test.go を実行",
+          "expected": "candidate B でも同じ claude セッションを消費し、 alt screen / cursor / 色についてカバレッジを観察する。 exit code 0 (実装が落ちなければ pass; 機能の差は scenario-3 のレポートで判定)"
+        }
+      ],
+      "cleanup": ["claude プロセス kill"]
+    },
+    {
+      "id": "scenario-3",
+      "linked_ac": ["AC-S1d2278-1-3"],
+      "description": "2 候補のカバレッジを横並びで比較レポートに出力",
+      "preconditions": ["scenario-1 と scenario-2 が pass している"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "spike 結果 (alt screen / OSC 52 clipboard / bracketed paste / mouse / sixel / メンテ状況 / 自作工数推定) を比較表として docs/sprint-logs/S1d2278/emulator-comparison.md にコミット",
+          "expected": "ファイルが存在し、 6 軸の比較表 (Markdown table) + 推奨候補 + その rationale を含む"
+        }
+      ],
+      "cleanup": []
+    }
+  ]
+}
