@@ -6814,7 +6814,7 @@
         },
         "S1d2278-5": {
           "title": "Max 20x の SDK 月次クレジット実額調査",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux2 開発者として、 Max 20x プランで Agent SDK 経由の月次クレジット実額を公式情報から把握したい。 なぜなら、 「常時超過する」という前提が本当に正しいか、 そして超過後の API 従量レートが現実的に許容できる規模かを数字で詰めたいからだ。",
           "scenario": "docs/sprint-logs/S1d2278/scenario-S1d2278-5.json",
           "acceptance_criteria": [
@@ -6822,19 +6822,19 @@
               "id": "AC-S1d2278-5-1",
               "description": "Anthropic 公式 (support.claude.com / docs.anthropic.com / claude.com/pricing) で Max 20x の Agent SDK 月次クレジット額・ リフレッシュ単位・ 超過時 API レートを確定 (公開なしなら 'unknown' と記録)",
               "test": "MANUAL SMOKE: sdk-credit-analysis.md に出典 URL + 数値表",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1d2278-5-2",
               "description": "`~/.config/palmux/sessions.json` から直近 30 日の `costUsd` を集計して月次実績推定",
               "test": "MANUAL SMOKE: sdk-credit-analysis.md に jq クエリ + 算出結果 (合計 USD・セッション件数・平均 cost)",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1d2278-5-3",
               "description": "実績とクレジットを突き合わせて 'within / overage / large-overage' 判定 + 想定追加月次コストを `docs/sprint-logs/S1d2278/sdk-credit-analysis.md` に出す",
               "test": "MANUAL SMOKE: ファイル存在 + 判定セクションが含まれる",
-              "status": "planned"
+              "status": "pass"
             }
           ]
         },
