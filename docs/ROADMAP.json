@@ -5,11 +5,11 @@
     "sprints_done": 38,
     "sprints_total": 39,
     "percent": 97,
-    "current_sprint": null,
+    "current_sprint": "S1d2278",
     "done": 38,
-    "in_progress": 0,
+    "in_progress": 1,
     "total": 39,
-    "remaining": 1,
+    "remaining": 0,
     "percentage": 97
   },
   "execution_order": [
@@ -6679,7 +6679,7 @@
     },
     "S1d2278": {
       "title": "Track B PoC — PTY daemon + ヘッドレスターミナル emulator 実現可能性検証",
-      "status": "planned",
+      "status": "in_progress",
       "milestone": true,
       "description": "2026-06-15 から `claude -p` / Agent SDK 使用が Claude プランの使用制限から外れ Agent SDK 専用クレジット + 超過時 API 従量課金に分離される。 palmux2 の claude-agent タブは stream-json モード (= Agent SDK 経路) で起動しているため Max 20x ユーザの実質枠を失う。\n\n対策の方針は、 interactive claude を PTY 経由で駆動する Track B (サブスク枠維持) と、 旧 tmux ベース Claude タブを literal revert する Track A の 2 つに分解した上で、 Track B から検証する。\n\n本 sprint は production 実装ではなく、 4 軸 (emulator 実用性 / PTY 安定性 / autopilot 経路 / SDK クレジット見通し) のリスク削減 PoC。 2026-06-07 を pivot 期限とし、 sprint 終端で Track B 続行か Track A pivot かを判定する milestone sprint。\n\n触る範囲: 新規 `cmd/poc-pty/` バイナリ (throwaway PoC)、 新規 `internal/poc/emulator/` (ライブラリ spike)、 docs/sprint-logs/S1d2278/ (各種レポート)。 既存 palmux2 のコア (cmd/palmux/, internal/tab/*, frontend/) には触れない。 tmux も触らない。\n\n判定材料: docs/sprint-logs/S1d2278/{emulator-comparison.md, pty-daemon-spike.md, desktop-attach-demo.md, autopilot-billing-path.md, sdk-credit-analysis.md, track-b-roadmap.md}",
       "stories": {
@@ -6788,7 +6788,7 @@
         },
         "S1d2278-4": {
           "title": "autopilot / sprint runner の課金経路調査",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux2 開発者として、 autopilot や sprint skill が `claude -p` / Agent SDK を内部で呼んでいないことを確認したい。 なぜなら、 Claude タブだけ Track B 化しても autopilot が SDK 枠を食い続けるなら止血効果が半減するからだ。",
           "scenario": "docs/sprint-logs/S1d2278/scenario-S1d2278-4.json",
           "acceptance_criteria": [
@@ -6796,19 +6796,19 @@
               "id": "AC-S1d2278-4-1",
               "description": "`~/.claude/skills/autopilot/` と `~/.claude/skills/sprint/` 全体に対し `claude --print` / `--input-format stream-json` / `@anthropic-ai/sdk` パターンを grep し、 ヒットの有無を確定",
               "test": "MANUAL SMOKE: autopilot-billing-path.md に rg コマンドと結果を記録 (本 sprint 計画フェーズで既に「ヒットなし」を予備調査済み)",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1d2278-4-2",
               "description": "結果を `docs/sprint-logs/S1d2278/autopilot-billing-path.md` に出す",
               "test": "MANUAL SMOKE: ファイル存在 + 100 bytes 以上",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1d2278-4-3",
               "description": "Track B 化への影響結論 (= 影響なし / 別 sprint で対応 / 今 sprint で対応のいずれか) を文書化",
               "test": "MANUAL SMOKE: autopilot-billing-path.md 末尾に '結論:' セクションが存在",
-              "status": "planned"
+              "status": "pass"
             }
           ]
         },
