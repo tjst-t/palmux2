@@ -263,10 +263,18 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 
 	// claude-tui tab: interactive claude TUI via PTY (Sprint A Story 2).
 	// The daemon spawn is lazy — the subprocess starts on first WS attach.
+	// Story 4: wire a SessionStore so session IDs are detected via fsnotify
+	// and persisted to claudetui-sessions.json across server restarts.
+	tuiStore, err := claudetui.NewSessionStore(configDir)
+	if err != nil {
+		return fmt.Errorf("claudetui session store: %w", err)
+	}
 	claudetuiMgr := claudetui.NewManager(claudetui.ManagerConfig{
-		ClaudeBin: claudeBin,
-		ClaudeArgs: claudeArgs,
-		RingSize:  1 << 20, // 1 MiB ring buffer per branch
+		ClaudeBin:     claudeBin,
+		ClaudeArgs:    claudeArgs,
+		RingSize:      1 << 20, // 1 MiB ring buffer per branch
+		ResumeOnDeath: true,    // Story 4: always resume on crash
+		Store:         tuiStore,
 	})
 	registry.Register(claudetui.New(claudetuiMgr))
 

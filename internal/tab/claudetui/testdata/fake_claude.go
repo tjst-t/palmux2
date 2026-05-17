@@ -7,20 +7,25 @@
 //   - Prints "fake_claude started\n" to stdout immediately.
 //   - If "--resume <id>" is passed, prints "resume: <id>".
 //   - If "--exit-immediately" is passed, exits right away (exit 0).
+//   - If "--write-session <dir> <session_id>" is passed, writes a stub
+//     .jsonl file at <dir>/<session_id>.jsonl after startup so the
+//     SessionWatcher / Manager can detect it.
 //   - Otherwise it writes a heartbeat line once per second until SIGTERM/SIGINT.
 //
 // Flags recognised:
 //
-//	--exit-immediately   exit 0 immediately after the startup line
-//	--resume <id>        print "resume: <id>" then loop normally
-//	--system-prompt <s>  accepted (ignored — tests just verify the arg was passed)
-//	--foo, --bar, etc.   any other flags are silently accepted
+//	--exit-immediately          exit 0 immediately after the startup line
+//	--resume <id>               print "resume: <id>" then loop normally
+//	--write-session <dir> <id>  write <dir>/<id>.jsonl then loop normally
+//	--system-prompt <s>         accepted (ignored)
+//	--foo, --bar, etc.          any other flags are silently accepted
 package main
 
 import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 )
@@ -30,6 +35,8 @@ func main() {
 
 	exitImmediately := false
 	resumeID := ""
+	writeSessionDir := ""
+	writeSessionID := ""
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -39,6 +46,13 @@ func main() {
 			if i+1 < len(args) {
 				resumeID = args[i+1]
 				i++
+			}
+		case "--write-session":
+			// Consumes next two args: <dir> <session_id>
+			if i+2 < len(args) {
+				writeSessionDir = args[i+1]
+				writeSessionID = args[i+2]
+				i += 2
 			}
 		}
 	}
@@ -51,6 +65,21 @@ func main() {
 
 	if exitImmediately {
 		os.Exit(0)
+	}
+
+	// Write a stub .jsonl to simulate claude creating a session file.
+	if writeSessionDir != "" && writeSessionID != "" {
+		if err := os.MkdirAll(writeSessionDir, 0o755); err != nil {
+			fmt.Fprintf(os.Stderr, "fake_claude: mkdir %s: %v\n", writeSessionDir, err)
+		} else {
+			jsonlPath := filepath.Join(writeSessionDir, writeSessionID+".jsonl")
+			content := `{"type":"user","message":{"content":[{"type":"text","text":"hello"}]}}` + "\n"
+			if err := os.WriteFile(jsonlPath, []byte(content), 0o644); err != nil {
+				fmt.Fprintf(os.Stderr, "fake_claude: write jsonl: %v\n", err)
+			} else {
+				fmt.Printf("wrote-session: %s\n", writeSessionID)
+			}
+		}
 	}
 
 	// Handle SIGTERM/SIGINT gracefully so tests do not need to wait for

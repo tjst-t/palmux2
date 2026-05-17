@@ -12,11 +12,11 @@ func TestManagerEnsureDaemon(t *testing.T) {
 	m := NewManager(ManagerConfig{ClaudeBin: "claude"})
 
 	ctx := context.Background()
-	d1, err := m.EnsureDaemon(ctx, "repo-1", "branch-1")
+	d1, err := m.EnsureDaemon(ctx, "repo-1", "branch-1", "")
 	if err != nil {
 		t.Fatalf("EnsureDaemon 1: %v", err)
 	}
-	d2, err := m.EnsureDaemon(ctx, "repo-1", "branch-1")
+	d2, err := m.EnsureDaemon(ctx, "repo-1", "branch-1", "")
 	if err != nil {
 		t.Fatalf("EnsureDaemon 2: %v", err)
 	}
@@ -24,7 +24,7 @@ func TestManagerEnsureDaemon(t *testing.T) {
 		t.Fatal("EnsureDaemon returned different Daemon instances for same key")
 	}
 
-	d3, err := m.EnsureDaemon(ctx, "repo-1", "branch-2")
+	d3, err := m.EnsureDaemon(ctx, "repo-1", "branch-2", "")
 	if err != nil {
 		t.Fatalf("EnsureDaemon 3: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestManagerCloseDaemon(t *testing.T) {
 	m := NewManager(ManagerConfig{ClaudeBin: bin})
 	ctx := context.Background()
 
-	d1, err := m.EnsureDaemon(ctx, "r", "b")
+	d1, err := m.EnsureDaemon(ctx, "r", "b", "")
 	if err != nil {
 		t.Fatalf("EnsureDaemon: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestManagerCloseDaemon(t *testing.T) {
 	}
 
 	// A new EnsureDaemon should give a fresh Daemon.
-	d2, err := m.EnsureDaemon(ctx, "r", "b")
+	d2, err := m.EnsureDaemon(ctx, "r", "b", "")
 	if err != nil {
 		t.Fatalf("EnsureDaemon after close: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestManagerShutdownAll(t *testing.T) {
 	ctx := context.Background()
 
 	for _, br := range []string{"b1", "b2", "b3"} {
-		if _, err := m.EnsureDaemon(ctx, "r", br); err != nil {
+		if _, err := m.EnsureDaemon(ctx, "r", br, ""); err != nil {
 			t.Fatalf("EnsureDaemon r/%s: %v", br, err)
 		}
 	}

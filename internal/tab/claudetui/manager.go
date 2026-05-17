@@ -20,6 +20,17 @@ type ManagerConfig struct {
 	ResumeOnDeath bool
 	// Logger is used by all daemons (nil → slog.Default()).
 	Logger *slog.Logger
+	// Store is the optional session-persistence store.  When nil, session IDs
+	// are still detected and forwarded to Daemon.SetSessionID but are NOT
+	// persisted across process restarts.
+	Store *SessionStore
+}
+
+// managerEntry bundles a Daemon with its associated SessionWatcher so both
+// can be stopped together in CloseDaemon / ShutdownAll.
+type managerEntry struct {
+	daemon  *Daemon
+	watcher *SessionWatcher // may be nil if no worktree was provided
 }
 
 // Manager holds one [Daemon] per (repoID, branchID) pair and provides
@@ -28,9 +39,9 @@ type ManagerConfig struct {
 //
 // Thread safety: all methods are safe for concurrent use.
 type Manager struct {
-	cfg    ManagerConfig
-	mu     sync.Mutex
-	daemons map[string]*Daemon
+	cfg     ManagerConfig
+	mu      sync.Mutex
+	entries map[string]*managerEntry
 }
 
 // NewManager creates a Manager.  cfg.ClaudeBin defaults to "claude".
@@ -43,7 +54,7 @@ func NewManager(cfg ManagerConfig) *Manager {
 	}
 	return &Manager{
 		cfg:     cfg,
-		daemons: make(map[string]*Daemon),
+		entries: make(map[string]*managerEntry),
 	}
 }
 
@@ -56,19 +67,44 @@ func (m *Manager) key(repoID, branchID string) string {
 func (m *Manager) Get(repoID, branchID string) *Daemon {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.daemons[m.key(repoID, branchID)]
+	e := m.entries[m.key(repoID, branchID)]
+	if e == nil {
+		return nil
+	}
+	return e.daemon
 }
 
 // EnsureDaemon returns the existing Daemon for (repoID, branchID) or creates a
 // new one.  The subprocess is NOT spawned yet — it starts lazily on the first
 // WebSocket attach (priority_rule 4).
-func (m *Manager) EnsureDaemon(ctx context.Context, repoID, branchID string) (*Daemon, error) {
+//
+// worktree is the absolute path to the branch worktree. When non-empty,
+// EnsureDaemon:
+//   - Looks up the persisted session ID (if any) from the SessionStore and
+//     pre-populates InitialSessionID in the new Daemon so the first respawn
+//     uses --resume <id>.
+//   - Starts a SessionWatcher on the transcript directory; when a new .jsonl
+//     appears or is modified, the Manager calls Daemon.SetSessionID and
+//     persists to the SessionStore.
+//
+// Passing an empty worktree silently skips session detection (useful in tests
+// that don't need the fsnotify machinery).
+func (m *Manager) EnsureDaemon(ctx context.Context, repoID, branchID, worktree string) (*Daemon, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	k := m.key(repoID, branchID)
-	if d, ok := m.daemons[k]; ok {
-		return d, nil
+	if e, ok := m.entries[k]; ok {
+		return e.daemon, nil
 	}
+
+	// Look up the persisted session ID so we can pre-seed the new Daemon.
+	var initialSessionID string
+	if m.cfg.Store != nil {
+		if sid, ok := m.cfg.Store.LoadActive(repoID, branchID); ok {
+			initialSessionID = sid
+		}
+	}
+
 	d := NewDaemon(DaemonConfig{
 		ClaudeBin:     m.cfg.ClaudeBin,
 		ClaudeArgs:    m.cfg.ClaudeArgs,
@@ -76,8 +112,62 @@ func (m *Manager) EnsureDaemon(ctx context.Context, repoID, branchID string) (*D
 		ResumeOnDeath: m.cfg.ResumeOnDeath,
 		Logger:        m.cfg.Logger.With("repo", repoID, "branch", branchID),
 	})
-	m.daemons[k] = d
+
+	// Pre-seed session ID if we loaded one from the store.  This unblocks
+	// respawnLoop immediately so that if the daemon dies on first start
+	// (e.g. because claude itself wasn't installed yet), the re-spawn
+	// already knows to use --resume.
+	if initialSessionID != "" {
+		d.SetSessionID(initialSessionID)
+	}
+
+	entry := &managerEntry{daemon: d}
+
+	// Start SessionWatcher when a worktree path was provided.
+	if worktree != "" {
+		td, err := TranscriptDir(worktree)
+		if err == nil {
+			w, werr := NewSessionWatcher(td)
+			if werr == nil {
+				entry.watcher = w
+				go m.watcherLoop(repoID, branchID, d, w)
+			} else {
+				m.cfg.Logger.Warn("claudetui: failed to start session watcher",
+					"repo", repoID, "branch", branchID, "err", werr)
+			}
+		} else {
+			m.cfg.Logger.Warn("claudetui: TranscriptDir failed",
+				"repo", repoID, "branch", branchID, "err", err)
+		}
+	}
+
+	m.entries[k] = entry
 	return d, nil
+}
+
+// watcherLoop runs as a background goroutine and forwards SessionEvents from
+// the watcher to the Daemon and SessionStore.
+func (m *Manager) watcherLoop(repoID, branchID string, d *Daemon, w *SessionWatcher) {
+	for ev := range w.Events() {
+		if ev.SessionID == "" {
+			continue
+		}
+		// Forward to the Daemon — this unblocks respawnLoop if it is waiting.
+		d.SetSessionID(ev.SessionID)
+
+		// Persist so the next Manager creation (after a server restart) can
+		// pre-seed the new Daemon with the same session ID.
+		if m.cfg.Store != nil {
+			if err := m.cfg.Store.SetActive(repoID, branchID, ev.SessionID); err != nil {
+				m.cfg.Logger.Warn("claudetui: failed to persist session ID",
+					"repo", repoID, "branch", branchID,
+					"session", ev.SessionID, "err", err)
+			}
+		}
+		m.cfg.Logger.Info("claudetui: session ID detected",
+			"repo", repoID, "branch", branchID,
+			"session", ev.SessionID, "event", ev.EventType)
+	}
 }
 
 // CloseDaemon shuts down and removes the Daemon for (repoID, branchID).  It is
@@ -85,15 +175,18 @@ func (m *Manager) EnsureDaemon(ctx context.Context, repoID, branchID string) (*D
 func (m *Manager) CloseDaemon(ctx context.Context, repoID, branchID string) error {
 	m.mu.Lock()
 	k := m.key(repoID, branchID)
-	d, ok := m.daemons[k]
+	e, ok := m.entries[k]
 	if !ok {
 		m.mu.Unlock()
 		return nil
 	}
-	delete(m.daemons, k)
+	delete(m.entries, k)
 	m.mu.Unlock()
 
-	d.Shutdown()
+	if e.watcher != nil {
+		e.watcher.Close()
+	}
+	e.daemon.Shutdown()
 	m.cfg.Logger.Info("claudetui: daemon closed",
 		"repo", repoID,
 		"branch", branchID,
@@ -106,16 +199,19 @@ func (m *Manager) CloseDaemon(ctx context.Context, repoID, branchID string) erro
 // main.go cleanup).
 func (m *Manager) ShutdownAll(ctx context.Context) error {
 	m.mu.Lock()
-	daemons := make(map[string]*Daemon, len(m.daemons))
-	for k, d := range m.daemons {
-		daemons[k] = d
+	entries := make(map[string]*managerEntry, len(m.entries))
+	for k, e := range m.entries {
+		entries[k] = e
 	}
-	m.daemons = make(map[string]*Daemon)
+	m.entries = make(map[string]*managerEntry)
 	m.mu.Unlock()
 
 	var first error
-	for k, d := range daemons {
-		d.Shutdown()
+	for k, e := range entries {
+		if e.watcher != nil {
+			e.watcher.Close()
+		}
+		e.daemon.Shutdown()
 		m.cfg.Logger.Info("claudetui: daemon shut down", "key", k)
 	}
 	return first
@@ -125,13 +221,13 @@ func (m *Manager) ShutdownAll(ctx context.Context) error {
 func (m *Manager) Len() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return len(m.daemons)
+	return len(m.entries)
 }
 
 // EnsureStarted is a convenience helper: EnsureDaemon then EnsureStarted.
-// Useful for testing.
+// Useful for testing.  Pass empty worktree to skip session detection.
 func (m *Manager) EnsureStarted(ctx context.Context, repoID, branchID string) (*Daemon, error) {
-	d, err := m.EnsureDaemon(ctx, repoID, branchID)
+	d, err := m.EnsureDaemon(ctx, repoID, branchID, "")
 	if err != nil {
 		return nil, fmt.Errorf("claudetui manager: ensure daemon: %w", err)
 	}

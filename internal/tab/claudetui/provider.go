@@ -67,7 +67,9 @@ func (p *Provider) OnBranchOpen(ctx context.Context, params tab.OpenParams) (tab
 	}
 	b := params.Branch
 	// EnsureDaemon creates the Daemon object but does NOT spawn the subprocess.
-	if _, err := p.manager.EnsureDaemon(ctx, b.RepoID, b.ID); err != nil {
+	// Pass WorktreePath so the Manager can start a SessionWatcher for
+	// this branch and detect/persist session IDs automatically (Story 4).
+	if _, err := p.manager.EnsureDaemon(ctx, b.RepoID, b.ID, b.WorktreePath); err != nil {
 		return tab.ProviderResult{}, fmt.Errorf("claudetui provider: ensure daemon: %w", err)
 	}
 	return tab.ProviderResult{
@@ -110,7 +112,9 @@ func (p *Provider) RegisterRoutes(mux *http.ServeMux, _ string) {
 func (p *Provider) handleAttach(w http.ResponseWriter, r *http.Request) {
 	repoID := r.PathValue("repoId")
 	branchID := r.PathValue("branchId")
-	d, err := p.manager.EnsureDaemon(r.Context(), repoID, branchID)
+	// Pass empty worktree — the daemon was already created with the real
+	// worktree in OnBranchOpen; EnsureDaemon is idempotent here.
+	d, err := p.manager.EnsureDaemon(r.Context(), repoID, branchID, "")
 	if err != nil {
 		http.Error(w, "daemon error", http.StatusInternalServerError)
 		slog.Error("claudetui: handleAttach EnsureDaemon", "err", err)
@@ -123,7 +127,8 @@ func (p *Provider) handleAttach(w http.ResponseWriter, r *http.Request) {
 func (p *Provider) handleStats(w http.ResponseWriter, r *http.Request) {
 	repoID := r.PathValue("repoId")
 	branchID := r.PathValue("branchId")
-	d, err := p.manager.EnsureDaemon(r.Context(), repoID, branchID)
+	// Pass empty worktree — idempotent, daemon already registered via OnBranchOpen.
+	d, err := p.manager.EnsureDaemon(r.Context(), repoID, branchID, "")
 	if err != nil {
 		http.Error(w, "daemon error", http.StatusInternalServerError)
 		slog.Error("claudetui: handleStats EnsureDaemon", "err", err)

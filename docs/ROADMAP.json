@@ -6981,26 +6981,26 @@
         },
         "S7ce250-4": {
           "title": "セッション永続化 (claude --resume)",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux2 ユーザとして、 claude-tui で会話している途中で daemon が再起動しても会話履歴が失われずに継続したい。 なぜなら、 既存 claude-agent タブは session_id ベースで `--resume` 復元できる UX で、 claude-tui もこの ergonomic と同等であるべきだからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S7ce250-4-1",
               "description": "daemon が `~/.claude/projects/<cwd-hash>/` を fsnotify で監視し、 最新の `*.jsonl` ファイル名から session_id を自動検出する",
               "test": "go test ./internal/tab/claudetui/... -run 'TestSessionIDDetection'",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S7ce250-4-2",
               "description": "respawnLoop が異常終了を検出したら `claude --resume <session_id>` で再起動する。 再起動後の attach で過去の transcript が継続して見える",
               "test": "tests/e2e/s7ce250_claude_tui.py の AC-4-2 — fake claude スクリプトで session_id を吐かせて、 kill 後の --resume コマンドラインを検証",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S7ce250-4-3",
               "description": "session_id が `~/.config/palmux/sessions.json` の `active.<repoId>/<branchId>` に永続化される。 palmux2 サーバ再起動後も同じ session_id で resume できる",
               "test": "go test ./internal/tab/claudetui/... -run 'TestSessionPersistence'",
-              "status": "planned"
+              "status": "pass"
             }
           ]
         },
