@@ -3,14 +3,14 @@
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
     "sprints_done": 39,
-    "sprints_total": 39,
-    "percent": 100,
-    "current_sprint": null,
+    "sprints_total": 40,
+    "percent": 97,
+    "current_sprint": "S7ce250",
     "done": 39,
-    "in_progress": 0,
-    "total": 39,
+    "in_progress": 1,
+    "total": 40,
     "remaining": 0,
-    "percentage": 100
+    "percentage": 97
   },
   "execution_order": [
     "S001",
@@ -51,7 +51,8 @@
     "S4b9df4",
     "S13b16a",
     "Saa8506",
-    "S1d2278"
+    "S1d2278",
+    "S7ce250"
   ],
   "sprints": {
     "S001": {
@@ -6872,6 +6873,163 @@
         }
       },
       "completedAt": "2026-05-17"
+    },
+    "S7ce250": {
+      "title": "Production PTY daemon + claude-tui タブ統合",
+      "status": "in_progress",
+      "milestone": true,
+      "description": "S1d2278 PoC で実証した Go-owned PTY daemon を palmux2 本体に組み込み、 新規 `claude-tui` タブ (interactive claude、 subscription quota 経由) として desktop UX を実用水準にする。 既存 claude-agent タブ (Agent SDK / stream-json 経路) は opt-in 高機能パスとして残存。\n\n本 sprint の Story 1 完了が Track B/A pivot 判定点 (2026-06-07)。 Story 1 が green にならない場合は Track A pivot (Sprint X) を発動。\n\n触る範囲: 新規 `internal/tab/claudetui/`、 新規 `frontend/src/tabs/claude-tui/`、 `cmd/palmux/main.go` (tab registry)、 `frontend/src/lib/tab-registry.ts` (frontend registry)、 docs/sprint-logs/S7ce250/。 既存 `cmd/poc-pty/` と `internal/poc/{pty,emulator}/` は migration source として参照、 最終的に削除する。\n\n依存 sprint: S1d2278 (PoC 一式)。 対象外: mobile chat UI (Sprint B)、 ESC ESC 編集 (Sprint C)、 claude-agent タブの廃止 (別途)、 サーバーサイド emulator 統合 (Sprint B)。\n\n7 件の rough edges を Story 1 / 3 で同時解消:\n  - SetReadDeadline Linux unreliable → goroutine + channel timeout\n  - exec.CommandContext(reqCtx) 罠 → daemonCtx 分離\n  - --claude-args strings.Fields 制限 → repeated flag (--claude-arg) に置換\n  - SIGWINCH / TIOCSWINSZ 未伝播 → FitAddon → daemon.Resize wiring\n  - xterm.js canvas introspect 困難 → data-testid + byte-level E2E\n  - spawnOnce 単発制限 → respawnLoop + claude --resume\n  - ring buffer subscribe race → SnapshotAndSubscribe atomic API",
+      "stories": {
+        "S7ce250-1": {
+          "title": "Production PTY daemon 移植",
+          "status": "planned",
+          "user_story": "palmux2 開発者として、 PoC daemon の実装を本番品質の `internal/tab/claudetui/daemon.go` に移植したい。 なぜなら、 cmd/poc-pty/ は throwaway PoC コードで production deploy できないからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S7ce250-1-1",
+              "description": "`internal/tab/claudetui/` パッケージが新設され、 PoC の daemon / ring / server 機能が production 品質で再実装される (godoc コメント整備、 error 全箇所 fmt.Errorf(\"...: %w\", err) ラップ、 ctx propagation 正しい)",
+              "test": "go test ./internal/tab/claudetui/... (新規ユニットテスト群)",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S7ce250-1-2",
+              "description": "S1d2278 review で deferred された D2 (Shutdown sync.Once + Wait 競合解消) と D3 (SnapshotAndSubscribe atomic API) が production 実装で解決される",
+              "test": "go test ./internal/tab/claudetui/... -run 'TestShutdownIdempotent|TestSnapshotAndSubscribeAtomic'",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S7ce250-1-3",
+              "description": "spawnOnce → respawnLoop 化。 subprocess が異常終了したら最後の claude session_id で claude --resume 経由で自動再起動する (--resume の session_id 注入は Story 4 が完成させる; この AC では respawnLoop の骨格と再起動経路の存在を検証)",
+              "test": "go test ./internal/tab/claudetui/... -run 'TestRespawnLoop'",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S7ce250-1-4",
+              "description": "--claude-args (strings.Fields 制限あり) を repeated flag --claude-arg に置換。 spaces を含む引数 (例: --claude-arg \"--system-prompt=You are X\") を正しく渡せる",
+              "test": "go test ./internal/tab/claudetui/... -run 'TestRepeatedClaudeArg' + cmd/palmux/ で flag parsing 検証",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S7ce250-1-5",
+              "description": "SetReadDeadline 罠を回避: PTY read は goroutine + time.After / context cancel パターンに統一",
+              "test": "go test ./internal/tab/claudetui/... -run 'TestPTYReadTimeout'",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S7ce250-1-6",
+              "description": "daemonCtx 分離パターン: WS request context が cancel しても subprocess は生存する",
+              "test": "go test ./internal/tab/claudetui/... -run 'TestRequestCancelDoesNotKillProcess'",
+              "status": "planned"
+            }
+          ]
+        },
+        "S7ce250-2": {
+          "title": "claude-tui タブ Provider 実装",
+          "status": "planned",
+          "user_story": "palmux2 ユーザとして、 branch を Open したときに自動で claude-tui タブが現れ、 interactive claude にアタッチできるようにしたい。 なぜなら、 既存 Bash / claude-agent タブと同じ ergonomic で subscription quota の Claude を使いたいからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S7ce250-2-1",
+              "description": "`internal/tab/claudetui/provider.go` が `tab.Provider` インターフェースを実装。 Type()=claude-tui、 DisplayName()=Claude (TUI)、 Protected()=true、 Multiple()=false、 NeedsTmuxWindow()=false",
+              "test": "go test ./internal/tab/claudetui/... -run 'TestProviderShape'",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S7ce250-2-2",
+              "description": "OnBranchOpen で daemon を lazy-spawn 経路で準備、 OnBranchClose で daemon を Shutdown する",
+              "test": "go test ./internal/tab/claudetui/... -run 'TestOnBranchOpen|TestOnBranchClose'",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S7ce250-2-3",
+              "description": "RegisterRoutes で /api/repos/{repoId}/branches/{branchId}/tabs/claude-tui/attach (WS) と /tabs/claude-tui/stats (GET) を palmux2 のルーティングに登録する",
+              "test": "go test ./internal/tab/claudetui/... -run 'TestRouteRegistration' + cmd/palmux/ で endpoint が生きていることを確認",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S7ce250-2-4",
+              "description": "cmd/palmux/main.go の `tabRegistry.Register(...)` に claude-tui プロバイダを追加。 palmux2 が起動時にこれを登録",
+              "test": "go build ./cmd/palmux/ && palmux2 起動後 GET /api/repos/.../branches/.../tabs で claude-tui が tabs に含まれることを HTTP で確認",
+              "status": "planned"
+            }
+          ]
+        },
+        "S7ce250-3": {
+          "title": "terminal-view WS 配線 + PTY resize 修正",
+          "status": "planned",
+          "user_story": "palmux2 ユーザとして、 claude-tui タブをブラウザで開いたとき xterm.js から claude にアタッチでき、 ウィンドウサイズを変えると claude TUI も適切に reflow されるようにしたい。 なぜなら、 Story 1d2278-3 の PoC で SIGWINCH 未伝播が known gap だったからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S7ce250-3-1",
+              "description": "`frontend/src/tabs/claude-tui/` を新設、 既存 `terminal-view.tsx` を再利用して claude-tui タブを描画する。 接続先 WS endpoint は `/api/repos/{repoId}/branches/{branchId}/tabs/claude-tui/attach`",
+              "test": "vitest store/component ユニットテスト + tests/e2e/s7ce250_claude_tui.py の AC-3-1 (Playwright)",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S7ce250-3-2",
+              "description": "xterm.js の FitAddon リサイズイベントから cols / rows を WS で送り、 daemon が PTY に creack/pty.Setsize を発行する (SIGWINCH 相当)。 ターミナル幅を変更すると claude 側の `tput cols` 相当出力が変化することを検証",
+              "test": "tests/e2e/s7ce250_claude_tui.py の AC-3-2 — Playwright で window resize → backend で観察",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S7ce250-3-3",
+              "description": "claude-tui タブの data-testid: claude-tui-status / claude-tui-terminal / claude-tui-reconnect-btn が implementation に存在し、 E2E で selector できる",
+              "test": "tests/e2e/s7ce250_claude_tui.py で全 testid を assert",
+              "status": "planned"
+            }
+          ]
+        },
+        "S7ce250-4": {
+          "title": "セッション永続化 (claude --resume)",
+          "status": "planned",
+          "user_story": "palmux2 ユーザとして、 claude-tui で会話している途中で daemon が再起動しても会話履歴が失われずに継続したい。 なぜなら、 既存 claude-agent タブは session_id ベースで `--resume` 復元できる UX で、 claude-tui もこの ergonomic と同等であるべきだからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S7ce250-4-1",
+              "description": "daemon が `~/.claude/projects/<cwd-hash>/` を fsnotify で監視し、 最新の `*.jsonl` ファイル名から session_id を自動検出する",
+              "test": "go test ./internal/tab/claudetui/... -run 'TestSessionIDDetection'",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S7ce250-4-2",
+              "description": "respawnLoop が異常終了を検出したら `claude --resume <session_id>` で再起動する。 再起動後の attach で過去の transcript が継続して見える",
+              "test": "tests/e2e/s7ce250_claude_tui.py の AC-4-2 — fake claude スクリプトで session_id を吐かせて、 kill 後の --resume コマンドラインを検証",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S7ce250-4-3",
+              "description": "session_id が `~/.config/palmux/sessions.json` の `active.<repoId>/<branchId>` に永続化される。 palmux2 サーバ再起動後も同じ session_id で resume できる",
+              "test": "go test ./internal/tab/claudetui/... -run 'TestSessionPersistence'",
+              "status": "planned"
+            }
+          ]
+        },
+        "S7ce250-5": {
+          "title": "E2E テスト + manual smoke 補完",
+          "status": "planned",
+          "user_story": "palmux2 開発者として、 claude-tui タブの主要な user journey が E2E で自動検証されているようにしたい。 なぜなら、 Story 1d2278-3 で xterm.js canvas の text introspect が困難だったので、 ステータス / ring buffer / API 経路ベースの代替検証パターンを確立しておく必要があるからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S7ce250-5-1",
+              "description": "tests/e2e/s7ce250_claude_tui.py で hermetic fixture (palmux2_test_fixture 経由) を使って branch open → claude-tui タブ生成確認 → WS attach → 入力 → ring buffer replay → resize → branch close の全シーケンスを E2E で検証",
+              "test": "python3 tests/e2e/s7ce250_claude_tui.py — 全 AC pass",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S7ce250-5-2",
+              "description": "Story 1d2278-3 の desktop-attach-demo.md (manual smoke) を S7ce250 の実コードに対して再実行し、 観察結果を更新する (手動 step は人間に差し戻し、 sprint-auto では `pending-manual` ラベルを付ける)",
+              "test": "MANUAL SMOKE: docs/sprint-logs/S7ce250/desktop-attach-demo.md が存在し更新されている (autopilot 中は pending-manual)",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S7ce250-5-3",
+              "description": "`cmd/poc-pty/` および `internal/poc/{pty,emulator}/` の deprecated コードを削除する (移植完了後の cleanup)。 emulator は Sprint B で再導入されるが、 Sprint A の責務範囲外なので Sprint A 完了時点ではどちらも消す",
+              "test": "git diff main..HEAD で cmd/poc-pty/ と internal/poc/ が削除されていることを確認",
+              "status": "planned"
+            }
+          ]
+        }
+      }
     }
   },
   "dependencies": {
@@ -7027,6 +7185,12 @@
     "S1d2278": {
       "depends_on": [],
       "reason": "本 sprint は Track B 続行 / Track A pivot の判定ゲートとなる PoC sprint。 全 38 既存 sprints が done で、 in-progress sprints は無いため依存はない。 触る範囲は新規 cmd/poc-pty/ と internal/poc/emulator/ のみで、 既存 palmux2 コア・ tmux インフラには触れない。"
+    },
+    "S7ce250": {
+      "depends_on": [
+        "S1d2278"
+      ],
+      "reason": "S1d2278 PoC で実証した PTY daemon の production 移植が本 sprint の中核。 S1d2278 の cmd/poc-pty/ と internal/poc/{pty,emulator}/ を migration source として参照する。 また、 S1d2278 の go/no-go 判定 (Track B 続行) が前提条件。"
     }
   },
   "backlog": [
