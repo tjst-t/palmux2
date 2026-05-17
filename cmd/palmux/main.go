@@ -34,6 +34,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/tab"
 	"github.com/tjst-t/palmux2/internal/tab/bash"
 	"github.com/tjst-t/palmux2/internal/tab/claudeagent"
+	"github.com/tjst-t/palmux2/internal/tab/claudetui"
 	"github.com/tjst-t/palmux2/internal/tab/files"
 	gittab "github.com/tjst-t/palmux2/internal/tab/git"
 	"github.com/tjst-t/palmux2/internal/tab/sprint"
@@ -102,6 +103,8 @@ func main() {
 	// the same tmux server without the two `sync_tmux` loops fighting
 	// over each other's sessions.
 	tmuxPrefix := pflag.String("tmux-prefix", domain.DefaultPalmuxSessionPrefix, "tmux session prefix for sessions managed by this palmux process")
+	claudeBin := pflag.String("claude-bin", "claude", "path to claude binary used by the claude-tui tab")
+	claudeArgs := pflag.StringArray("claude-arg", nil, "extra arguments passed to claude-tui on every spawn (repeatable)")
 	versionFlag := pflag.BoolP("version", "v", false, "print version and exit")
 	pflag.Parse()
 
@@ -122,13 +125,13 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
-	if err := run(*addr, *configDir, *token, *basePath, *maxConns, *portmanURL); err != nil {
+	if err := run(*addr, *configDir, *token, *basePath, *maxConns, *portmanURL, *claudeBin, *claudeArgs); err != nil {
 		slog.Error("fatal", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(addr, configDir, token, basePath string, maxConns int, portmanURL string) error {
+func run(addr, configDir, token, basePath string, maxConns int, portmanURL string, claudeBin string, claudeArgs []string) error {
 	// Log the version up front so when a user sees "phase-X" or "dev"
 	// in the Drawer they can confirm which build is actually running
 	// without having to call /api/health.
@@ -258,6 +261,15 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 	registry.Register(sprintProvider)
 	registry.Register(bash.New())
 
+	// claude-tui tab: interactive claude TUI via PTY (Sprint A Story 2).
+	// The daemon spawn is lazy — the subprocess starts on first WS attach.
+	claudetuiMgr := claudetui.NewManager(claudetui.ManagerConfig{
+		ClaudeBin: claudeBin,
+		ClaudeArgs: claudeArgs,
+		RingSize:  1 << 20, // 1 MiB ring buffer per branch
+	})
+	registry.Register(claudetui.New(claudetuiMgr))
+
 	// S009: wire the Claude tab as the per-branch multi-tab hook. The
 	// store delegates non-tmux multi-instance AddTab/RemoveTab through
 	// this so the bare server doesn't need to know about claudeagent
@@ -371,6 +383,9 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	agentManager.Shutdown()
+	if err := claudetuiMgr.ShutdownAll(shutdownCtx); err != nil {
+		slog.Warn("claudetui shutdown", "err", err)
+	}
 	// S012: stop the per-branch worktree watcher and release its
 	// fsnotify file descriptors before the process exits.
 	gitProvider.Close()

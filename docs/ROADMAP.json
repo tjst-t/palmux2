@@ -6925,32 +6925,32 @@
         },
         "S7ce250-2": {
           "title": "claude-tui タブ Provider 実装",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux2 ユーザとして、 branch を Open したときに自動で claude-tui タブが現れ、 interactive claude にアタッチできるようにしたい。 なぜなら、 既存 Bash / claude-agent タブと同じ ergonomic で subscription quota の Claude を使いたいからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S7ce250-2-1",
               "description": "`internal/tab/claudetui/provider.go` が `tab.Provider` インターフェースを実装。 Type()=claude-tui、 DisplayName()=Claude (TUI)、 Protected()=true、 Multiple()=false、 NeedsTmuxWindow()=false",
               "test": "go test ./internal/tab/claudetui/... -run 'TestProviderShape'",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S7ce250-2-2",
               "description": "OnBranchOpen で daemon を lazy-spawn 経路で準備、 OnBranchClose で daemon を Shutdown する",
               "test": "go test ./internal/tab/claudetui/... -run 'TestOnBranchOpen|TestOnBranchClose'",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S7ce250-2-3",
               "description": "RegisterRoutes で /api/repos/{repoId}/branches/{branchId}/tabs/claude-tui/attach (WS) と /tabs/claude-tui/stats (GET) を palmux2 のルーティングに登録する",
               "test": "go test ./internal/tab/claudetui/... -run 'TestRouteRegistration' + cmd/palmux/ で endpoint が生きていることを確認",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S7ce250-2-4",
               "description": "cmd/palmux/main.go の `tabRegistry.Register(...)` に claude-tui プロバイダを追加。 palmux2 が起動時にこれを登録",
               "test": "go build ./cmd/palmux/ && palmux2 起動後 GET /api/repos/.../branches/.../tabs で claude-tui が tabs に含まれることを HTTP で確認",
-              "status": "planned"
+              "status": "pass"
             }
           ]
         },
