@@ -6956,26 +6956,26 @@
         },
         "S7ce250-3": {
           "title": "terminal-view WS 配線 + PTY resize 修正",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux2 ユーザとして、 claude-tui タブをブラウザで開いたとき xterm.js から claude にアタッチでき、 ウィンドウサイズを変えると claude TUI も適切に reflow されるようにしたい。 なぜなら、 Story 1d2278-3 の PoC で SIGWINCH 未伝播が known gap だったからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S7ce250-3-1",
               "description": "`frontend/src/tabs/claude-tui/` を新設、 既存 `terminal-view.tsx` を再利用して claude-tui タブを描画する。 接続先 WS endpoint は `/api/repos/{repoId}/branches/{branchId}/tabs/claude-tui/attach`",
               "test": "vitest store/component ユニットテスト + tests/e2e/s7ce250_claude_tui.py の AC-3-1 (Playwright)",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S7ce250-3-2",
               "description": "xterm.js の FitAddon リサイズイベントから cols / rows を WS で送り、 daemon が PTY に creack/pty.Setsize を発行する (SIGWINCH 相当)。 ターミナル幅を変更すると claude 側の `tput cols` 相当出力が変化することを検証",
               "test": "tests/e2e/s7ce250_claude_tui.py の AC-3-2 — Playwright で window resize → backend で観察",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S7ce250-3-3",
               "description": "claude-tui タブの data-testid: claude-tui-status / claude-tui-terminal / claude-tui-reconnect-btn が implementation に存在し、 E2E で selector できる",
               "test": "tests/e2e/s7ce250_claude_tui.py で全 testid を assert",
-              "status": "planned"
+              "status": "pass"
             }
           ]
         },
