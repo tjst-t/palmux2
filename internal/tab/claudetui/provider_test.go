@@ -52,8 +52,10 @@ func TestProviderShape(t *testing.T) {
 	if p.NeedsTmuxWindow() {
 		t.Error("NeedsTmuxWindow() should be false")
 	}
-	if p.Conditional() {
-		t.Error("Conditional() should be false")
+	if !p.Conditional() {
+		// S7ce250-fix-2: must be true so store.recomputeTabs() invokes
+		// OnBranchOpen and the Manager learns the worktree path.
+		t.Error("Conditional() should be true")
 	}
 
 	limits := p.Limits(nil)

@@ -50,8 +50,20 @@ func (p *Provider) Multiple() bool { return false }
 // window is created by the Store for this tab.
 func (p *Provider) NeedsTmuxWindow() bool { return false }
 
-// Conditional reports false — this tab is always present on every branch.
-func (p *Provider) Conditional() bool { return false }
+// Conditional reports true — not because the tab is *visibly* conditional
+// (OnBranchOpen always returns one tab), but because we need OnBranchOpen
+// to be invoked during store.recomputeTabs() so the Manager learns the
+// branch's worktree path and can spawn `claude` with the correct cmd.Dir.
+//
+// store.recomputeTabs() short-circuits non-tmux singleton providers and
+// synthesizes a default Tab WITHOUT calling OnBranchOpen — unless the
+// provider is Conditional. If we returned false here the worktree path
+// would never reach Manager.EnsureDaemon, every Daemon would inherit
+// palmux2's own cwd, and claude would report the wrong project directory.
+//
+// The result of OnBranchOpen is itself unconditional (always 1 tab), so
+// the visible behaviour is identical to a true "always-present" tab.
+func (p *Provider) Conditional() bool { return true }
 
 // Limits returns Min=1, Max=1 (singleton).
 func (p *Provider) Limits(_ tab.SettingsView) tab.InstanceLimits {
