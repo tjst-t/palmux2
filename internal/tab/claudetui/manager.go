@@ -108,6 +108,7 @@ func (m *Manager) EnsureDaemon(ctx context.Context, repoID, branchID, worktree s
 	d := NewDaemon(DaemonConfig{
 		ClaudeBin:     m.cfg.ClaudeBin,
 		ClaudeArgs:    m.cfg.ClaudeArgs,
+		Worktree:      worktree,
 		RingSize:      m.cfg.RingSize,
 		ResumeOnDeath: m.cfg.ResumeOnDeath,
 		Logger:        m.cfg.Logger.With("repo", repoID, "branch", branchID),

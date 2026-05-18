@@ -356,3 +356,54 @@ func (b buildResult) CombinedOutput() ([]byte, error) {
 
 var _ = strings.Contains // confirm import used
 var _ = sync.Mutex{}     // confirm import used
+
+// TestSpawnUsesWorktreeAsCwd is a regression test for the cwd bug observed in
+// production after Sprint S7ce250 landed: the daemon was inheriting palmux2
+// server's cwd because DaemonConfig.Worktree was not plumbed to cmd.Dir. As a
+// result claude inside the tab always reported palmux2's own path, no matter
+// which repo the user opened.
+//
+// This test passes Worktree=<tempDir> to NewDaemon and verifies the fake
+// subprocess reports os.Getwd() == tempDir.
+func TestSpawnUsesWorktreeAsCwd(t *testing.T) {
+	bin := fakeBin(t)
+	workDir := t.TempDir()
+	// Resolve symlinks so the comparison is robust on macOS where /tmp is a
+	// symlink to /private/tmp; on Linux this is usually a no-op.
+	resolvedWork, err := filepath.EvalSymlinks(workDir)
+	if err != nil {
+		t.Fatalf("eval workDir: %v", err)
+	}
+
+	d := NewDaemon(DaemonConfig{
+		ClaudeBin:     bin,
+		ClaudeArgs:    []string{"--print-cwd"},
+		Worktree:      resolvedWork,
+		RingSize:      1 << 16,
+		ResumeOnDeath: false,
+	})
+	t.Cleanup(func() { d.Shutdown() })
+
+	if err := d.EnsureStarted(context.Background()); err != nil {
+		t.Fatalf("EnsureStarted: %v", err)
+	}
+	waitForState(t, d, StateRunning, 5*time.Second)
+
+	// Drain a few hundred ms of output so fake_claude's "cwd: <path>" line
+	// lands in the ring buffer.
+	deadline := time.Now().Add(2 * time.Second)
+	want := "cwd: " + resolvedWork
+	for time.Now().Before(deadline) {
+		snap, sub := d.ring.SnapshotAndSubscribe()
+		_ = sub
+		if strings.Contains(string(snap), want) {
+			d.ring.Unsubscribe(sub)
+			return
+		}
+		d.ring.Unsubscribe(sub)
+		time.Sleep(50 * time.Millisecond)
+	}
+	snap, sub := d.ring.SnapshotAndSubscribe()
+	d.ring.Unsubscribe(sub)
+	t.Fatalf("expected %q in ring buffer; got:\n%s", want, snap)
+}

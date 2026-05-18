@@ -17,6 +17,7 @@
 //	--exit-immediately          exit 0 immediately after the startup line
 //	--resume <id>               print "resume: <id>" then loop normally
 //	--write-session <dir> <id>  write <dir>/<id>.jsonl then loop normally
+//	--print-cwd                 print "cwd: <os.Getwd()>" then loop normally
 //	--system-prompt <s>         accepted (ignored)
 //	--foo, --bar, etc.          any other flags are silently accepted
 package main
@@ -37,6 +38,7 @@ func main() {
 	resumeID := ""
 	writeSessionDir := ""
 	writeSessionID := ""
+	printCwd := false
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -54,6 +56,8 @@ func main() {
 				writeSessionID = args[i+2]
 				i += 2
 			}
+		case "--print-cwd":
+			printCwd = true
 		}
 	}
 
@@ -61,6 +65,15 @@ func main() {
 
 	if resumeID != "" {
 		fmt.Printf("resume: %s\n", resumeID)
+	}
+
+	if printCwd {
+		cwd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "fake_claude: getwd: %v\n", err)
+		} else {
+			fmt.Printf("cwd: %s\n", cwd)
+		}
 	}
 
 	if exitImmediately {

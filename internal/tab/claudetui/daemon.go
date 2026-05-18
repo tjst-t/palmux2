@@ -95,6 +95,7 @@ type Daemon struct {
 	// configuration (immutable after NewDaemon)
 	claudeBin     string
 	claudeArgs    []string
+	worktree      string
 	resumeOnDeath bool
 	ring          *Ring
 	logger        *slog.Logger
@@ -144,6 +145,11 @@ type DaemonConfig struct {
 	ClaudeBin string
 	// ClaudeArgs are additional arguments passed to claude on every spawn.
 	ClaudeArgs []string
+	// Worktree is the absolute path the subprocess is spawned in (cmd.Dir).
+	// When empty, the subprocess inherits the palmux2 server's cwd — which is
+	// almost never the right answer for a per-branch tab. Provider /
+	// Manager always pass the branch worktree path.
+	Worktree string
 	// RingSize is the ring buffer capacity in bytes (0 → DefaultRingSize).
 	RingSize int
 	// ResumeOnDeath, when true, causes respawnLoop to re-spawn with
@@ -169,6 +175,7 @@ func NewDaemon(cfg DaemonConfig) *Daemon {
 	d := &Daemon{
 		claudeBin:      cfg.ClaudeBin,
 		claudeArgs:     cfg.ClaudeArgs,
+		worktree:       cfg.Worktree,
 		resumeOnDeath:  cfg.ResumeOnDeath,
 		ring:           NewRing(cfg.RingSize),
 		logger:         cfg.Logger,
@@ -222,6 +229,14 @@ func (d *Daemon) spawnWithArgs(args []string) error {
 	// exec.CommandContext uses daemonCtx so that cancellation (Shutdown) can
 	// terminate the subprocess while keeping it alive across WS disconnects.
 	cmd := exec.CommandContext(d.daemonCtx, d.claudeBin, args...)
+	// Run the subprocess inside the branch's worktree. Without this, claude
+	// inherits palmux2 server's cwd (typically the palmux2 repo itself), and
+	// `~/.claude/projects/<slug>` ends up pointing at palmux2 regardless of
+	// which repo the user opened the tab in. cmd.Dir == "" means "inherit",
+	// which is acceptable for tests that don't pass a worktree.
+	if d.worktree != "" {
+		cmd.Dir = d.worktree
+	}
 	// Inherit the full environment so interactive TUIs render correctly.
 	cmd.Env = appendOrReplace(os.Environ(), "TERM=xterm-256color")
 
