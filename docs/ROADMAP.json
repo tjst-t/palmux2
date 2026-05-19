@@ -2,15 +2,15 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 40,
+    "sprints_done": 41,
     "sprints_total": 41,
-    "percent": 97,
-    "current_sprint": "S0fd64b",
-    "done": 40,
-    "in_progress": 1,
+    "percent": 100,
+    "current_sprint": null,
+    "done": 41,
+    "in_progress": 0,
     "total": 41,
     "remaining": 0,
-    "percentage": 97
+    "percentage": 100
   },
   "execution_order": [
     "S001",
@@ -7035,7 +7035,7 @@
     },
     "S0fd64b": {
       "title": "サーバーサイド headless emulator + grid diff WS + multi-client coordination + mobile chat 風 UI 実証",
-      "status": "in_progress",
+      "status": "done",
       "milestone": true,
       "description": "S7ce250 で完成した internal/tab/claudetui/ の上に (1) charmbracelet/x/vt の emulator を載せ、 (2) grid diff JSON プロトコルで配信し、 (3) multi-client coordination (active-client follows = last-typed wins) を追加した上で、 (4) mobile chat 風 UI を MVP で実証する。 mobile parity (priority_rule 10) の鬼門だった『TUI を mobile でどう見せるか』を grid heuristic + chat 抽出で攻める Sprint。\n\n依存: S7ce250 (claudetui Daemon / Manager / Ring / Provider を全面利用)。\n対象外: ESC ESC 編集 / Toolbar mode 切替 / Activity Inbox 連動 (Sprint C)、 完全な mobile UX 磨き (quick action buttons・ keyboard handling)、 desktop での chat 風表示 (mobile-only)、 claude-agent タブの emulator 統合 (claude-tui のみ)。\n\n触る範囲: 新規 internal/tab/claudetui/emulator.go、 既存 internal/tab/claudetui/{daemon,server,manager}.go の小幅改修、 新規 frontend/src/tabs/claude-tui/mobile-chat-view.tsx (+ test-harness.html)、 既存 claude-tui-tab.tsx で useViewport 経由の switch、 tests/e2e/s0fd64b_mobile_chat{,_mock}.py、 docs/sprint-logs/S0fd64b/.\n\n7 件の auto-decisions (track-b-roadmap.md §2 outline + S1d2278-1 emulator-comparison + CLAUDE.md mobile breakpoint で根拠が揃っているため):\n  - Sprint ID = S0fd64b (track-b-roadmap.md sha256)\n  - branch base = autopilot/main/S7ce250 (Sprint A の上に stack)\n  - emulator = charmbracelet/x/vt (OSC 52 / bracketed paste / mouse / scrollback 全 green)\n  - WS default mode = raw (desktop xterm.js の既存挙動を変えない)\n  - mobile detection = viewport-based (use-viewport.ts MOBILE_MAX=599)\n  - grid diff = row-wise + 50ms coalesce (20fps cap)\n  - active-client policy = last-typed wins\n  - mobile chat 抽出 = grid 最終 user prompt + 直後 assistant 領域のヒューリスティック (MVP scope)",
       "stories": {
@@ -7174,7 +7174,8 @@
             }
           ]
         }
-      }
+      },
+      "completedAt": "2026-05-19"
     }
   },
   "dependencies": {
