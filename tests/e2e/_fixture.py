@@ -154,6 +154,18 @@ class Fixture:
     repo_id: str         # palmux2 repo ID
 
     _cleaned: bool = False
+    _branch_id_cache: str | None = None
+
+    @property
+    def branch_id(self) -> str:
+        """Return the primary branch ID, fetching + caching on first access.
+
+        Convenience accessor used by tests that need
+        ``fx.branch_id`` without calling ``primary_branch_id()``.
+        """
+        if self._branch_id_cache is None:
+            self._branch_id_cache = self.primary_branch_id(timeout_s=15.0)
+        return self._branch_id_cache
 
     # ------------------------------------------------------------------
     # Saa8506 helpers — used by the 11 hermetic-migrated tests so each

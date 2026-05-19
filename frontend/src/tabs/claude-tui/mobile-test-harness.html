@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<!--
+  MobileChatView mock test harness.
+
+  Loaded by tests/e2e/s0fd64b_mobile_chat_mock.py via file:// with a
+  query parameter:
+    ?ws=ws://127.0.0.1:<port>/   — WS endpoint override
+
+  Implements the same UI contract as mobile-chat-view.tsx:
+    data-testid="mobile-chat-view"          — root container
+    data-testid="mobile-chat-bubble"        — each chat bubble
+    data-testid="mobile-chat-input"         — textarea
+    data-testid="mobile-chat-send-btn"      — Send button
+    data-testid="mobile-chat-role-badge"    — role badge (only when role defined)
+    data-testid="mobile-chat-reconnect-btn" — reconnect button (only when disconnected)
+
+  Named constants (priority_rule 7 — no magic numbers in logic):
+    WS_SEND_BUFFER_MAX = 64     Maximum queued sends before drop.
+    SCROLL_DEBOUNCE_MS  = 50    Auto-scroll debounce interval.
+    WS_MODE_GRID        = 'grid' Query param value for grid mode.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MobileChatView — mock test harness</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #0f1117;
+      color: #d4d4d8;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    #root {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      width: 100%;
+    }
+
+    /* ── Header ── */
+    #header {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      height: 36px;
+      background: #13151c;
+      border-bottom: 1px solid #1e2028;
+      font-size: 12px;
+      font-family: monospace;
+      gap: 8px;
+    }
+    #status-text {
+      color: #8b8fa0;
+      font-size: 11px;
+    }
+    #role-badge {
+      margin-left: auto;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-family: monospace;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      /* Visibility controlled via JS inline style; no CSS display:none here
+         so that setting style.display = '' reliably shows the element. */
+    }
+    #role-badge.active { background: #64d2a0; color: #0c1a15; }
+    #role-badge.viewer { background: #f59e0b; color: #1c1200; }
+
+    /* ── Bubble list ── */
+    #bubble-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      -webkit-overflow-scrolling: touch;
+    }
+    .bubble {
+      max-width: 88%;
+      padding: 8px 12px;
+      border-radius: 12px;
+      font-size: 14px;
+      line-height: 1.45;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
+    .bubble-user {
+      align-self: flex-end;
+      background: #9ba6ff;
+      color: #0c0e1a;
+      border-bottom-right-radius: 4px;
+    }
+    .bubble-assistant {
+      align-self: flex-start;
+      background: #13151c;
+      color: #d4d4d8;
+      border: 1px solid #1e2028;
+      border-bottom-left-radius: 4px;
+    }
+
+    /* ── Disconnect banner ── */
+    #disconnect-banner {
+      flex-shrink: 0;
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: #ef4444;
+      color: #fff;
+      font-size: 13px;
+    }
+    #disconnect-banner.visible { display: flex; }
+    #reconnect-btn {
+      padding: 4px 14px;
+      background: rgba(255,255,255,0.2);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.5);
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    /* ── Composer ── */
+    #composer {
+      flex-shrink: 0;
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      padding: 8px 12px;
+      padding-bottom: max(8px, env(safe-area-inset-bottom));
+      background: #13151c;
+      border-top: 1px solid #1e2028;
+    }
+    #chat-input {
+      flex: 1;
+      min-height: 40px;
+      max-height: 120px;
+      padding: 9px 12px;
+      background: #1a1c25;
+      color: #d4d4d8;
+      border: 1px solid #1e2028;
+      border-radius: 20px;
+      font-size: 15px;
+      line-height: 1.4;
+      resize: none;
+      outline: none;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    #chat-input::placeholder { color: #4a4e5c; font-style: italic; font-size: 13px; }
+    #chat-input:disabled { opacity: 0.5; cursor: not-allowed; }
+    #send-btn {
+      flex-shrink: 0;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: none;
+      background: #7c8aff;
+      color: #fff;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    #send-btn:disabled { opacity: 0.35; cursor: not-allowed; background: #4a4e5c; }
+  </style>
+</head>
+<body>
+<div id="root" data-testid="mobile-chat-view">
+  <div id="header">
+    <span id="status-text">connecting</span>
+    <span id="role-badge" data-testid="mobile-chat-role-badge" style="display:none"></span>
+  </div>
+
+  <div id="bubble-list"></div>
+
+  <div id="disconnect-banner">
+    <span>Disconnected</span>
+    <button id="reconnect-btn" data-testid="mobile-chat-reconnect-btn">Reconnect</button>
+  </div>
+
+  <div id="composer">
+    <textarea
+      id="chat-input"
+      data-testid="mobile-chat-input"
+      placeholder="Connecting…"
+      disabled
+      rows="1"
+    ></textarea>
+    <button id="send-btn" data-testid="mobile-chat-send-btn" disabled aria-label="Send">↑</button>
+  </div>
+</div>
+
+<script>
+  // ── Named constants (priority_rule 7) ────────────────────────────────────
+  const WS_SEND_BUFFER_MAX = 64;
+  const SCROLL_DEBOUNCE_MS = 50;
+
+  // ── Parse query params ───────────────────────────────────────────────────
+  const params = new URLSearchParams(location.search);
+  const wsUrl = params.get('ws') || 'ws://127.0.0.1:0/';
+
+  // ── DOM refs ─────────────────────────────────────────────────────────────
+  const statusText      = document.getElementById('status-text');
+  const roleBadge       = document.getElementById('role-badge');
+  const bubbleList      = document.getElementById('bubble-list');
+  const disconnectBanner = document.getElementById('disconnect-banner');
+  const reconnectBtn    = document.getElementById('reconnect-btn');
+  const chatInput       = document.getElementById('chat-input');
+  const sendBtn         = document.getElementById('send-btn');
+
+  // ── State ────────────────────────────────────────────────────────────────
+  let ws = null;
+  let role = null; // 'active' | 'viewer' | null
+  let status = 'connecting'; // 'connecting' | 'connected' | 'disconnected'
+  let sendBuffer = [];
+  let scrollTimer = null;
+  // Grid state: array of row-strings indexed by y.
+  let gridLines = [];
+  let bubbles = []; // [{id, speaker, text}]
+  let bubbleIdCounter = 0;
+
+  // ── Grid → bubble extraction ─────────────────────────────────────────────
+  /**
+   * extractBubbles — heuristic MVP.
+   * Walk grid rows top to bottom:
+   *   - row.trimStart().startsWith('> ') → user prompt boundary
+   *   - rows between prompts → assistant response
+   * Returns array of {id, speaker, text}.
+   *
+   * Example:
+   *   ["", "> hello", "Hi there!", ""]
+   *   → [{user, "hello"}, {assistant, "Hi there!"}]
+   */
+  function extractBubbles(lines) {
+    const result = [];
+    const promptIndices = [];
+    for (let i = 0; i < lines.length; i++) {
+      const t = lines[i].trimStart();
+      if (t.startsWith('> ')) promptIndices.push(i);
+    }
+    if (promptIndices.length === 0) return result;
+
+    for (let pi = 0; pi < promptIndices.length; pi++) {
+      const idx = promptIndices[pi];
+      const promptText = lines[idx].trimStart().slice(2).trimEnd();
+      result.push({ id: `b${++bubbleIdCounter}`, speaker: 'user', text: promptText });
+
+      const regionEnd = (pi + 1 < promptIndices.length) ? promptIndices[pi + 1] : lines.length;
+      const assistLines = [];
+      for (let ri = idx + 1; ri < regionEnd; ri++) {
+        const row = lines[ri].trimEnd();
+        if (row.length > 0) assistLines.push(row);
+      }
+      if (assistLines.length > 0) {
+        result.push({ id: `b${++bubbleIdCounter}`, speaker: 'assistant', text: assistLines.join('\n') });
+      }
+    }
+    return result;
+  }
+
+  // ── Grid helpers ─────────────────────────────────────────────────────────
+  function rowsDataToLines(rows) {
+    if (!Array.isArray(rows)) return [];
+    return rows.map(row => {
+      if (!Array.isArray(row.cells)) return '';
+      return row.cells.map(c => (c.ch != null ? c.ch : ' ')).join('');
+    });
+  }
+
+  function applyInit(msg) {
+    gridLines = rowsDataToLines(msg.rows);
+  }
+
+  function applyDiff(msg) {
+    if (!Array.isArray(msg.rows)) return;
+    for (const row of msg.rows) {
+      if (typeof row.y === 'number' && row.y >= 0 && row.y < gridLines.length) {
+        gridLines[row.y] = row.cells.map(c => (c.ch != null ? c.ch : ' ')).join('');
+      }
+    }
+  }
+
+  // ── UI update helpers ────────────────────────────────────────────────────
+  function setStatus(s) {
+    status = s;
+    statusText.textContent = s;
+
+    if (s === 'disconnected') {
+      disconnectBanner.classList.add('visible');
+    } else {
+      disconnectBanner.classList.remove('visible');
+    }
+    updateComposer();
+  }
+
+  function setRole(r) {
+    role = r;
+    if (r === 'active' || r === 'viewer') {
+      roleBadge.textContent = r === 'active' ? 'Active' : 'Viewer';
+      roleBadge.className = r === 'active' ? 'active' : 'viewer';
+      roleBadge.setAttribute('data-testid', 'mobile-chat-role-badge');
+      // Explicitly set a non-none display so Playwright visibility checks pass.
+      roleBadge.style.display = 'inline-block';
+    } else {
+      roleBadge.style.display = 'none';
+    }
+    updateComposer();
+  }
+
+  function updateComposer() {
+    const inputDisabled = role !== 'active' || status !== 'connected';
+    chatInput.disabled = inputDisabled;
+
+    if (status === 'connecting') {
+      chatInput.placeholder = 'Connecting…';
+    } else if (role === 'viewer') {
+      chatInput.placeholder = 'Another client is typing — type to take control';
+    } else if (status === 'disconnected') {
+      chatInput.placeholder = '';
+    } else {
+      chatInput.placeholder = 'Type a message…';
+    }
+
+    updateSendBtn();
+  }
+
+  function updateSendBtn() {
+    const inputDisabled = role !== 'active' || status !== 'connected';
+    sendBtn.disabled = inputDisabled || chatInput.value.trim().length === 0;
+  }
+
+  function renderBubbles() {
+    bubbles = extractBubbles(gridLines);
+    // Re-render bubble list.
+    bubbleList.innerHTML = '';
+    for (const b of bubbles) {
+      const el = document.createElement('div');
+      el.setAttribute('data-testid', 'mobile-chat-bubble');
+      el.className = 'bubble ' + (b.speaker === 'user' ? 'bubble-user' : 'bubble-assistant');
+      el.textContent = b.text;
+      bubbleList.appendChild(el);
+    }
+    scheduleScroll();
+  }
+
+  function scheduleScroll() {
+    if (scrollTimer) clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(() => {
+      bubbleList.scrollTop = bubbleList.scrollHeight;
+    }, SCROLL_DEBOUNCE_MS);
+  }
+
+  // ── WS lifecycle ─────────────────────────────────────────────────────────
+  function connect() {
+    setStatus('connecting');
+    setRole(null);
+    sendBuffer = [];
+    gridLines = [];
+    bubbleIdCounter = 0;
+    bubbles = [];
+    bubbleList.innerHTML = '';
+
+    try {
+      ws = new WebSocket(wsUrl);
+    } catch {
+      setStatus('disconnected');
+      return;
+    }
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => {
+      setStatus('connected');
+      const buf = sendBuffer;
+      sendBuffer = [];
+      for (const data of buf) {
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send(data);
+      }
+    };
+
+    ws.onmessage = (ev) => {
+      if (ev.data instanceof ArrayBuffer) return; // ignore binary in grid mode
+
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch { return; }
+
+      if (msg.type === 'grid.init') {
+        applyInit(msg);
+        renderBubbles();
+      } else if (msg.type === 'grid.diff') {
+        applyDiff(msg);
+        renderBubbles();
+      } else if (msg.type === 'role') {
+        if (msg.role === 'active' || msg.role === 'viewer') {
+          setRole(msg.role);
+        }
+      }
+    };
+
+    ws.onclose = () => {
+      ws = null;
+      setStatus('disconnected');
+    };
+
+    ws.onerror = () => {
+      setStatus('disconnected');
+    };
+  }
+
+  // ── Event handlers ────────────────────────────────────────────────────────
+  chatInput.addEventListener('input', updateSendBtn);
+
+  sendBtn.addEventListener('click', () => {
+    const text = chatInput.value;
+    if (!text.trim()) return;
+    const enc = new TextEncoder();
+    const data = enc.encode(text + '\n').buffer;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(data);
+    } else if (sendBuffer.length < WS_SEND_BUFFER_MAX) {
+      sendBuffer.push(data);
+    }
+    chatInput.value = '';
+    updateSendBtn();
+  });
+
+  reconnectBtn.addEventListener('click', connect);
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  connect();
+</script>
+</body>
+</html>

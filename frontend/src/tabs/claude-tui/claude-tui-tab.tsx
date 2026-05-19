@@ -5,11 +5,13 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal } from '@xterm/xterm'
 
+import { isMobile, useViewport } from '../../hooks/use-viewport'
 import { api } from '../../lib/api'
 import type { TabViewProps } from '../../lib/tab-registry'
 import { terminalManager } from '../../lib/terminal-manager'
 import { ReconnectingWebSocket } from '../../lib/ws'
 import { usePalmuxStore } from '../../stores/palmux-store'
+import { MobileChatView } from './mobile-chat-view'
 
 import '@xterm/xterm/css/xterm.css'
 import styles from './styles.module.css'
@@ -66,6 +68,15 @@ type Status = 'connecting' | 'connected' | 'streaming' | 'disconnected'
 type Role = 'active' | 'viewer'
 
 export function ClaudeTuiTab({ repoId, branchId }: TabViewProps) {
+  const viewport = useViewport()
+  if (isMobile(viewport)) {
+    return <MobileChatView repoId={repoId} branchId={branchId} />
+  }
+
+  return <ClaudeTuiDesktop repoId={repoId} branchId={branchId} />
+}
+
+function ClaudeTuiDesktop({ repoId, branchId }: { repoId: string; branchId: string }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [status, setStatus] = useState<Status>('connecting')
   // role tracks the multi-client active/viewer assignment for this connection.

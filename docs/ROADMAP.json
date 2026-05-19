@@ -7137,7 +7137,7 @@
         },
         "S0fd64b-4": {
           "title": "mobile chat 風 UI (MVP)",
-          "status": "planned",
+          "status": "done",
           "user_story": "外出先のスマホユーザとして、 claude-tui の最新出力を xterm.js ではなくチャットバブル形式で読み、 textarea + Send ボタンで入力したい。 なぜなら、 mobile 画面で TUI を見るのは小画面とソフトキーボードの制約で実用にならず、 mobile parity (priority_rule 10) を満たすには別 UI が必要だからだ。",
           "scenario": "docs/sprint-logs/S0fd64b/gui-spec-S0fd64b-4.json",
           "gui_spec": "docs/sprint-logs/S0fd64b/gui-spec-S0fd64b-4.json",
@@ -7146,31 +7146,31 @@
               "id": "AC-S0fd64b-4-1",
               "description": "viewport < 600px (use-viewport.ts MOBILE_MAX=599 を活用) で claude-tui タブを開くと xterm.js ではなく MobileChatView が描画される。 再接続 (Disconnected → Reconnect) 経路も動作",
               "test": "tests/e2e/s0fd64b_mobile_chat.py::test_ac_s0fd64b_4_1_*",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-4-2",
               "description": "grid モード WS に接続して受信したフレームから、 最新 user prompt 行 (行頭 `> `) と直後の assistant 応答領域を抽出して chat バブル化",
               "test": "tests/e2e/s0fd64b_mobile_chat.py::test_ac_s0fd64b_4_2_*",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-4-3",
               "description": "下部に textarea + Send ボタン、 Send は input が空のとき無効、 タップ送信後 textarea がクリアされる",
               "test": "tests/e2e/s0fd64b_mobile_chat.py::test_ac_s0fd64b_4_3_*",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-4-4",
               "description": "viewer/active role が badge で表示される。 viewer 状態では input が disabled になり viewer placeholder が出る。 typing で active を奪取できる",
               "test": "tests/e2e/s0fd64b_mobile_chat.py::test_ac_s0fd64b_4_4_*",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-4-5",
               "description": "data-testid mobile-chat-{view, bubble, input, send-btn, role-badge, reconnect-btn} がすべて存在",
               "test": "tests/e2e/s0fd64b_mobile_chat.py::test_ac_s0fd64b_4_5_* + tests/e2e/s0fd64b_mobile_chat_mock.py",
-              "status": "planned"
+              "status": "pass"
             }
           ]
         }
