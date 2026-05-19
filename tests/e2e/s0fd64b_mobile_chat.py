@@ -4,9 +4,11 @@
 E2E tests for the MobileChatView component that renders on viewport
 < 600px as an alternative to the xterm.js view for the claude-tui tab.
 
-The hermetic fixture launches a fresh palmux2 binary via `go run` with
-`--claude-bin /bin/cat` so input is deterministically echoed back, lets
-us trigger grid-mode WS, and survive without the real `claude` binary.
+Test-environment requirement (sprint-level review D1):
+    These tests use `palmux2_test_fixture` which talks to the dev
+    palmux2 instance at `BASE_URL` (resolved from `PALMUX2_DEV_PORT`
+    env var, default 8215). They assume a real palmux2 is already
+    running — start it via `make serve INSTANCE=dev` first.
 
 Acceptance criteria covered:
   [AC-S0fd64b-4-1] viewport < 600px renders MobileChatView (not xterm.js)
@@ -27,21 +29,15 @@ convention.
 """
 from __future__ import annotations
 
-import os
-import signal
-import socket
-import subprocess
 import sys
 import time
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "tests" / "e2e"))
-sys.path.insert(0, str(REPO_ROOT / "tests" / "e2e" / "mobile"))
 
-# palmux2_test_fixture from tests/e2e/_fixture.py (hermetic git repo + palmux2)
+# palmux2_test_fixture from tests/e2e/_fixture.py (hermetic git repo +
+# already-running palmux2 referenced via BASE_URL / PALMUX2_DEV_PORT).
 from _fixture import palmux2_test_fixture, BASE_URL  # noqa: E402
 
 MOBILE_VIEWPORT = {"width": 375, "height": 667}
@@ -65,69 +61,12 @@ def _get_playwright():
         sys.exit(0)
 
 
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-@contextmanager
-def hermetic_palmux2() -> Iterator[str]:
-    """Start palmux2 with --claude-bin /bin/cat; yield BASE_URL.
-
-    Mirrors the S7ce250 hermetic pattern, deterministic for grid-mode
-    backend testing.
-    """
-    port = _free_port()
-    cmd = [
-        "go", "run", "./cmd/palmux",
-        "--addr", f"127.0.0.1:{port}",
-        "--config-dir", str(REPO_ROOT / "tmp" / "s0fd64b-fixture"),
-        "--claude-bin", "/bin/cat",
-    ]
-    proc = subprocess.Popen(
-        cmd, cwd=REPO_ROOT,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-    )
-    try:
-        deadline = time.monotonic() + 30.0
-        ready = False
-        while time.monotonic() < deadline:
-            line = proc.stdout.readline() if proc.stdout else ""
-            if not line and proc.poll() is not None:
-                fail(f"palmux2 exited before listening: rc={proc.returncode}")
-            if "listening" in line.lower() or f":{port}" in line:
-                ready = True
-                break
-        if not ready:
-            proc.kill()
-            fail("palmux2 did not announce listening within 30s")
-        yield f"http://127.0.0.1:{port}"
-    finally:
-        if proc.poll() is None:
-            proc.send_signal(signal.SIGTERM)
-            try:
-                proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-
-
-def _open_branch(base_url: str, repo_path: str) -> tuple[str, str]:
-    """Use palmux2_test_fixture to register a hermetic repo + branch.
-
-    Returns (repo_id, branch_id).
-    """
-    # palmux2_test_fixture handles repo registration via POST /api/repos/...
-    # The fixture yields a Fixture object with repo_id + branch_id attrs.
-    raise NotImplementedError("Use palmux2_test_fixture context manager instead")
-
-
 # ─── E2E test scenarios ────────────────────────────────────────────────────
 
 def test_ac_s0fd64b_4_1_mobile_chat_renders_at_narrow_viewport() -> None:
     """[AC-S0fd64b-4-1] viewport<600px → MobileChatView (not xterm)."""
     sync_playwright = _get_playwright()
-    with hermetic_palmux2() as _base, palmux2_test_fixture("s0fd64b-1") as fx, sync_playwright() as pw:
+    with palmux2_test_fixture("s0fd64b-1") as fx, sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
         try:
             ctx = browser.new_context(viewport=MOBILE_VIEWPORT)
@@ -148,7 +87,7 @@ def test_ac_s0fd64b_4_2_grid_to_chat_bubble_extraction() -> None:
     """[AC-S0fd64b-4-2] grid frames produce chat bubble via extraction."""
     sync_playwright = _get_playwright()
     marker = f"e2e-mobile-{int(time.time())}"
-    with hermetic_palmux2() as _base, palmux2_test_fixture("s0fd64b-2") as fx, sync_playwright() as pw:
+    with palmux2_test_fixture("s0fd64b-2") as fx, sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
         try:
             ctx = browser.new_context(viewport=MOBILE_VIEWPORT)
@@ -179,7 +118,7 @@ def test_ac_s0fd64b_4_2_grid_to_chat_bubble_extraction() -> None:
 def test_ac_s0fd64b_4_3_composer_send_button_state() -> None:
     """[AC-S0fd64b-4-3] Send disabled on empty; enabled with text."""
     sync_playwright = _get_playwright()
-    with hermetic_palmux2() as _base, palmux2_test_fixture("s0fd64b-3") as fx, sync_playwright() as pw:
+    with palmux2_test_fixture("s0fd64b-3") as fx, sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
         try:
             ctx = browser.new_context(viewport=MOBILE_VIEWPORT)
@@ -218,7 +157,7 @@ def test_ac_s0fd64b_4_3_composer_send_button_state() -> None:
 def test_ac_s0fd64b_4_4_multi_client_role_transition() -> None:
     """[AC-S0fd64b-4-4] viewer can reclaim active by typing+sending."""
     sync_playwright = _get_playwright()
-    with hermetic_palmux2() as _base, palmux2_test_fixture("s0fd64b-4") as fx, sync_playwright() as pw:
+    with palmux2_test_fixture("s0fd64b-4") as fx, sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
         try:
             ctx_a = browser.new_context(viewport=MOBILE_VIEWPORT)
@@ -263,7 +202,7 @@ def test_ac_s0fd64b_4_5_required_testids_present() -> None:
         "mobile-chat-send-btn",
         "mobile-chat-role-badge",
     ]
-    with hermetic_palmux2() as _base, palmux2_test_fixture("s0fd64b-5") as fx, sync_playwright() as pw:
+    with palmux2_test_fixture("s0fd64b-5") as fx, sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
         try:
             ctx = browser.new_context(viewport=MOBILE_VIEWPORT)

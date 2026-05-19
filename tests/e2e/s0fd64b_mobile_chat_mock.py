@@ -143,15 +143,22 @@ def test_mock_ws_refused() -> None:
 
 
 def test_mock_role_viewer_at_init() -> None:
-    """[MOCK] init → role=Viewer → input disabled with viewer placeholder."""
+    """[MOCK] init → role=Viewer → input shows viewer CSS restriction.
+
+    Aligned with real MobileChatView contract (sprint-level review D2):
+    viewer role uses CSS-only restriction (.textareaViewer class), NOT
+    the HTML disabled attribute — so multi-client reclaim flows work
+    via Playwright fill(). We verify the CSS class instead.
+    """
     def check(page):
         page.wait_for_selector(
             "[data-testid='mobile-chat-role-badge']:has-text('Viewer')",
             timeout=5_000,
         )
         input_el = page.locator("[data-testid='mobile-chat-input']")
-        if input_el.is_enabled():
-            fail("input should be disabled while role=viewer")
+        class_attr = input_el.get_attribute("class") or ""
+        if "textareaViewer" not in class_attr:
+            fail(f"input should have .textareaViewer class for viewer role; got class={class_attr!r}")
     script = [
         (0.05, {"type": "grid.init", "cols": 80, "rows": 24, "cursor": {"x": 0, "y": 0}, "altScreen": False, "rows_data": []}),
         (0.1, {"type": "role", "role": "viewer", "since": int(time.time() * 1000)}),
@@ -174,8 +181,9 @@ def test_mock_role_active_to_viewer_midstream() -> None:
             timeout=5_000,
         )
         input_el = page.locator("[data-testid='mobile-chat-input']")
-        if input_el.is_enabled():
-            fail("input should disable when role flips to viewer mid-stream")
+        class_attr = input_el.get_attribute("class") or ""
+        if "textareaViewer" not in class_attr:
+            fail(f"input should gain .textareaViewer class when role flips mid-stream; got class={class_attr!r}")
     script = [
         (0.05, {"type": "grid.init", "cols": 80, "rows": 24, "cursor": {"x": 0, "y": 0}, "altScreen": False, "rows_data": []}),
         (0.1, {"type": "role", "role": "active", "since": int(time.time() * 1000)}),

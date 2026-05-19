@@ -394,8 +394,11 @@ func serveGridMode(
 	}
 
 	// ── Step 3: subscribe to ring for change signals ──────────────────────────
-	// We only use ringSub.Ch to wake up the ticker loop faster when PTY output
-	// arrives; we do not relay individual chunks (grid diff is coalesced).
+	// ringSub.Ch is drained so the ticker loop can wake immediately on PTY
+	// activity (lower latency than waiting up to 50ms). We don't *use* the
+	// chunk bytes — grid frames come from GridSnapshot — but draining keeps
+	// the 256-slot fan-out buffer from filling and triggering drop-on-full
+	// warnings on busy terminals. (Sprint-level review F1.)
 	_, ringSub := d.ring.SnapshotAndSubscribe()
 	defer d.ring.Unsubscribe(ringSub)
 
@@ -413,6 +416,17 @@ func serveGridMode(
 
 			case <-ringSub.Done:
 				return
+
+			case _, ok := <-ringSub.Ch:
+				// PTY chunk arrived. Drain the channel to keep the fan-out
+				// buffer empty (the actual grid diff is emitted on the next
+				// ticker tick or right now — see Step 3 comment).
+				if !ok {
+					return
+				}
+				// Optionally we could synthesize an early diff here for
+				// sub-50ms latency, but a coalesce window of 50ms is the AC
+				// (priority_rule 7: explicit). Falling through to ticker is fine.
 
 			case ev, ok := <-roleSub.roleCh:
 				// Role event: deliver immediately as a text frame outside the

@@ -318,8 +318,17 @@
   }
 
   function updateComposer() {
-    const inputDisabled = role !== 'active' || status !== 'connected';
+    // Match real MobileChatView contract (sprint-level review D2):
+    // - disable input ONLY when not connected (status gate)
+    // - for viewer role we use CSS-only restriction (textareaViewer class)
+    //   so Playwright's fill() can drive multi-client reclaim flows
+    const inputDisabled = status !== 'connected';
     chatInput.disabled = inputDisabled;
+    if (role === 'viewer') {
+      chatInput.classList.add('textareaViewer');
+    } else {
+      chatInput.classList.remove('textareaViewer');
+    }
 
     if (status === 'connecting') {
       chatInput.placeholder = 'Connecting…';

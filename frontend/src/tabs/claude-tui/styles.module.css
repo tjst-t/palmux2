@@ -33,14 +33,17 @@
   letter-spacing: 0.05em;
 }
 
+/* Aligned with mobile-chat-view.module.css palette so the role semantics read
+ * the same on both viewports (sprint-level review F3): green = Active,
+ * orange = Viewer. */
 .roleBadgeActive {
-  background-color: var(--color-accent);
-  color: #fff;
+  background-color: var(--color-success);
+  color: #0c0e14;
 }
 
 .roleBadgeViewer {
-  background-color: var(--color-fg-faint, #4a4e5c);
-  color: var(--color-fg-muted);
+  background-color: var(--color-warning);
+  color: #0c0e14;
 }
 
 .term {

@@ -374,8 +374,10 @@ export function MobileChatView({ repoId, branchId }: MobileChatViewProps) {
     const text = input.trim()
     if (!text) return
 
+    // Send the trimmed `text` (not raw `input`) so the PTY receives exactly
+    // what the local bubble displays — sprint-level review F2.
     const enc = new TextEncoder()
-    const data = enc.encode(input + '\n').buffer
+    const data = enc.encode(text + '\n').buffer
 
     const ws = wsRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {
