@@ -212,6 +212,14 @@ func AttachHandler(d *Daemon) http.Handler {
 			// Origin checks are the caller's responsibility (palmux2 auth
 			// middleware runs before this handler in production).
 			InsecureSkipVerify: true,
+			// Disable permessage-deflate. Browsers negotiate compression by
+			// default, but coder/websocket's compression interacts badly with
+			// our text-frame heavy grid mode (the first grid.init frame
+			// silently hangs in the compressed write path on some Chromium
+			// builds). Disabling makes raw and grid modes behave identically
+			// to the Python websockets client which doesn't request
+			// compression. Sprint B post-merge hotfix.
+			CompressionMode: websocket.CompressionDisabled,
 		})
 		if err != nil {
 			slog.Error("claudetui: ws accept", "err", err)
