@@ -7405,6 +7405,18 @@
       "added_in": "S43cfb1",
       "reason": "Story 6 scope-out — original sprint deliberately limited to introducing PermissionState; field migration deferred to keep behaviour-preservation risk low.",
       "status": "pending"
+    },
+    {
+      "title": "store.recomputeTabs の OnBranchOpen 呼び出し統一",
+      "description": "internal/store/store.go:412-430 で `Multiple()==false && Conditional()==false` の non-tmux Provider に対し OnBranchOpen を呼ばずに Tab を合成する short-circuit が残っている。 S7ce250-fix-2 では claudetui を Conditional=true に倒して回避したが、 セマンティクスが歪んでいる (claudetui は visibility 的には常時存在の singleton)。 store.recomputeTabs を統一して、 全 non-tmux Provider に対し OnBranchOpen を呼ぶようにリファクタする。 Files / Git / Sprint Provider の挙動精査が必要 (それぞれ OnBranchOpen の副作用がない・冪等であることを確認)。 完了後、 claudetui の Conditional は false に戻す。 サイズ M。",
+      "added_in": "S7ce250-fix-2",
+      "reason": "S7ce250 production sprint で発見した short-circuit。 fix-2 で迂回したが、 残しておくと将来の Provider 追加時に同じ罠を踏む。 リファクタを別 sprint に分離した理由は blast radius (Files/Git/Sprint も触る) と現状運用が green なため。"
+    },
+    {
+      "title": "claudetui handleAttach / handleStats の defense-in-depth (Branch lookup hook)",
+      "description": "internal/tab/claudetui/provider.go の handleAttach / handleStats は `EnsureDaemon(repoID, branchID, \"\")` (空 worktree) で daemon を取得している。 OnBranchOpen が先に呼ばれていれば cached daemon が返るので問題ないが、 race condition (server startup 中に attach が到着する等) で OnBranchOpen 未呼び出しのまま attach が走ると daemon が worktree なしで生成されてしまう。 Provider に Branch lookup hook (e.g. `BranchLookupFunc func(repoID, branchID string) *domain.Branch`) を注入し、 handler 内で worktree を解決して EnsureDaemon に渡す。 サイズ S。",
+      "added_in": "S7ce250-fix-2",
+      "reason": "現在の Conditional=true 経路に依存する設計はやや脆い。 defense-in-depth として handler 側でも worktree を解決できるようにする。"
     }
   ]
 }
