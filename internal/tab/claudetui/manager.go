@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+
+	"github.com/tjst-t/palmux2/internal/notify"
 )
 
 // ManagerConfig holds configuration shared by all daemons in the Manager.
@@ -24,6 +26,9 @@ type ManagerConfig struct {
 	// are still detected and forwarded to Daemon.SetSessionID but are NOT
 	// persisted across process restarts.
 	Store *SessionStore
+	// NotifyHub is forwarded to each Daemon so that OSC 52 clipboard-write
+	// sequences are published to the process-wide notify hub.  May be nil.
+	NotifyHub *notify.Hub
 }
 
 // managerEntry bundles a Daemon with its associated SessionWatcher so both
@@ -112,6 +117,9 @@ func (m *Manager) EnsureDaemon(ctx context.Context, repoID, branchID, worktree s
 		RingSize:      m.cfg.RingSize,
 		ResumeOnDeath: m.cfg.ResumeOnDeath,
 		Logger:        m.cfg.Logger.With("repo", repoID, "branch", branchID),
+		NotifyHub:     m.cfg.NotifyHub,
+		RepoID:        repoID,
+		BranchID:      branchID,
 	})
 
 	// Pre-seed session ID if we loaded one from the store.  This unblocks

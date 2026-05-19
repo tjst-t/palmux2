@@ -7041,7 +7041,7 @@
       "stories": {
         "S0fd64b-1": {
           "title": "サーバーサイド emulator 統合 (charmbracelet/x/vt)",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux2 開発者として、 claude TUI 出力をサーバー側で構造化グリッドとして管理したい。 なぜなら、 後続 Story が mobile chat 抽出や OSC 52 clipboard 通知のような構造化情報を必要とするからだ。",
           "scenario": "docs/sprint-logs/S0fd64b/scenario-S0fd64b-1.json",
           "acceptance_criteria": [
@@ -7049,25 +7049,25 @@
               "id": "AC-S0fd64b-1-1",
               "description": "internal/tab/claudetui/emulator.go が charmbracelet/x/vt をラップ。 Daemon が emulator を Ring の subscriber として登録し、 GridSnapshot() で現グリッド状態を取得できる",
               "test": "go test ./internal/tab/claudetui/ -run TestDaemonGridSnapshot (race detector 込み)",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-1-2",
               "description": "OSC 52 (clipboard write) シーケンスを RegisterOscHandler でフックし、 palmux2 の internal/notify Hub に CopyEvent を流す",
               "test": "go test ./internal/tab/claudetui/ -run TestEmulatorOsc52Notify",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-1-3",
               "description": "Sprint A の raw-bytes 経路を一切破壊しない。 既存テスト群が全 pass、 BenchmarkRingFanout の degradation が 20% 以内に収まる",
               "test": "go test ./internal/tab/claudetui/... + bench note を docs/sprint-logs/S0fd64b/perf-note.md に記録",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-1-4",
               "description": "alt screen / SGR colors / cursor positioning / bracketed paste / mouse SGR / scrollback の各 ANSI シーケンスが grid に正しく反映 (S1d2278-1 fixture を継承)",
               "test": "go test ./internal/tab/claudetui/ -run TestEmulatorAnsiCoverage",
-              "status": "planned"
+              "status": "pass"
             }
           ]
         },

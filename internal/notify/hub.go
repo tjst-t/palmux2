@@ -69,6 +69,11 @@ type Hub struct {
 
 	resolver  SessionResolver
 	publisher Publisher
+
+	// copyMu guards copySubs.  Separate from mu to avoid priority inversion
+	// between the heavy notification path and the lightweight OSC 52 path.
+	copyMu   sync.RWMutex
+	copySubs []*copySubscriber
 }
 
 // New returns a Hub with the given resolver + publisher. Either may be nil

@@ -14,6 +14,8 @@ import (
 	"time"
 
 	creackpty "github.com/creack/pty"
+
+	"github.com/tjst-t/palmux2/internal/notify"
 )
 
 const (
@@ -91,6 +93,8 @@ type Stats struct {
 //     request context, so WS client disconnects do NOT kill it (Fix 7).
 //   - PTY reads use a goroutine + channel pattern; SetReadDeadline is never
 //     called on the PTY master fd (Fix 6).
+//   - Every byte written to the Ring is also fed to the [Emulator] synchronously.
+//     emulator.Feed must be fast (pure state-machine update); it never blocks.
 type Daemon struct {
 	// configuration (immutable after NewDaemon)
 	claudeBin     string
@@ -98,6 +102,7 @@ type Daemon struct {
 	worktree      string
 	resumeOnDeath bool
 	ring          *Ring
+	emulator      *Emulator
 	logger        *slog.Logger
 
 	// daemonCtx is owned by the Daemon and lives until Shutdown().
@@ -158,9 +163,21 @@ type DaemonConfig struct {
 	ResumeOnDeath bool
 	// Logger is the slog logger to use (nil → slog.Default()).
 	Logger *slog.Logger
+
+	// NotifyHub is the notify hub used to publish OSC 52 clipboard events.
+	// When nil the Emulator still runs but clipboard events are silently
+	// discarded.  Main wires this from the process-wide hub.
+	NotifyHub *notify.Hub
+	// RepoID and BranchID identify the workspace.  They are stamped onto
+	// every [notify.CopyEvent] emitted by the Emulator.
+	RepoID   string
+	BranchID string
 }
 
 // NewDaemon creates a Daemon from cfg.  No subprocess is spawned yet.
+//
+// The Emulator is created immediately at default 80×24 (VT-100 default); it
+// will be resized when the first WebSocket client calls [Daemon.Resize].
 func NewDaemon(cfg DaemonConfig) *Daemon {
 	if cfg.ClaudeBin == "" {
 		cfg.ClaudeBin = "claude"
@@ -178,6 +195,7 @@ func NewDaemon(cfg DaemonConfig) *Daemon {
 		worktree:       cfg.Worktree,
 		resumeOnDeath:  cfg.ResumeOnDeath,
 		ring:           NewRing(cfg.RingSize),
+		emulator:       NewEmulator(80, 24, cfg.NotifyHub, cfg.RepoID, cfg.BranchID),
 		logger:         cfg.Logger,
 		daemonCtx:      ctx,
 		daemonCancel:   cancel,
@@ -186,6 +204,14 @@ func NewDaemon(cfg DaemonConfig) *Daemon {
 	}
 	d.state.Store(int32(StateIdle))
 	return d
+}
+
+// GridSnapshot returns a consistent snapshot of the current visible grid from
+// the server-side headless terminal emulator.  It is safe for concurrent use
+// and may be called from any goroutine.  Story 2 exposes this via the grid
+// WebSocket mode.
+func (d *Daemon) GridSnapshot() Grid {
+	return d.emulator.GridSnapshot()
 }
 
 // EnsureStarted lazily spawns the subprocess on the first call.  Subsequent
@@ -331,6 +357,10 @@ func (d *Daemon) readLoop(ptmx *os.File) {
 				if _, werr := d.ring.Write(chunk); werr != nil {
 					d.logger.Warn("claudetui: ring write error", "err", werr)
 				}
+				// Feed the same bytes to the headless terminal emulator.
+				// emulator.Feed is a synchronous state-machine update; it does
+				// not block and adds only a small constant overhead per chunk.
+				d.emulator.Feed(chunk)
 			}
 			if r.err != nil {
 				if r.err != io.EOF {
@@ -472,7 +502,8 @@ func (d *Daemon) WriteInput(ctx context.Context, p []byte) error {
 	return nil
 }
 
-// Resize propagates a terminal resize to the PTY via SIGWINCH / TIOCSWINSZ.
+// Resize propagates a terminal resize to the PTY via SIGWINCH / TIOCSWINSZ
+// and keeps the headless [Emulator] grid in sync.
 // Fully wired to the frontend in Story 3 via FitAddon events.
 func (d *Daemon) Resize(cols, rows uint16) error {
 	d.stateMu.Lock()
@@ -487,6 +518,9 @@ func (d *Daemon) Resize(cols, rows uint16) error {
 	}); err != nil {
 		return fmt.Errorf("claudetui daemon: pty setsize: %w", err)
 	}
+	// Keep the emulator dimensions in sync with the PTY so GridSnapshot()
+	// reflects the correct terminal size.
+	d.emulator.Resize(int(cols), int(rows))
 	return nil
 }
 
@@ -566,6 +600,7 @@ func (d *Daemon) Shutdown() {
 		}
 
 		d.shutdownWg.Wait()
+		d.emulator.Close()
 		d.logger.Info("claudetui: daemon shutdown complete")
 	})
 }
