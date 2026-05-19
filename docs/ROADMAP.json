@@ -7073,7 +7073,7 @@
         },
         "S0fd64b-2": {
           "title": "grid diff WS プロトコル設計 + 実装",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux2 frontend 開発者として、 claudetui の WS endpoint から grid 状態を JSON フレームで取得したい。 なぜなら、 mobile UI が xterm.js を使わずに claude の出力をレンダリングするには raw bytes ではなく構造化されたセル単位の grid 情報が必要だからだ。",
           "scenario": "docs/sprint-logs/S0fd64b/scenario-S0fd64b-2.json",
           "acceptance_criteria": [
@@ -7081,25 +7081,25 @@
               "id": "AC-S0fd64b-2-1",
               "description": "?mode=grid クエリで grid diff JSON モードに切替、 ?mode 省略 (or =raw) は raw-bytes binary frame (= 後方互換)",
               "test": "Python websockets client から両モードで attach し、 received frame type を assert (テストファイル: tests/e2e/s0fd64b_grid_ws_protocol.py)",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-2-2",
               "description": "メッセージ型 {type:'grid.init'|'grid.diff', cols, rows, cursor:{x,y}, altScreen, rows:[{y, cells:[{ch, fg?, bg?, attrs?}]}]} を text frame で JSON 配信。 init は接続直後の 1 回、 以降は diff のみ",
               "test": "同上の tests/e2e/s0fd64b_grid_ws_protocol.py で schema 検査",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-2-3",
               "description": "grid diff の配信レートは 50ms に coalesce (20fps 上限)。 大量 PTY 出力下でも frame 数 / 秒 ≤ 20",
               "test": "tests/e2e/s0fd64b_grid_ws_protocol.py 内 TestGridDiffCoalesceRate",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-2-4",
               "description": "client → server input フォーマットは raw / grid 両モードで共通 (binary frame をそのまま PTY stdin に書き込む)",
               "test": "tests/e2e/s0fd64b_grid_ws_protocol.py 内 TestGridModeInputCompat",
-              "status": "planned"
+              "status": "pass"
             }
           ]
         },
