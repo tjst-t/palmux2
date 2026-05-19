@@ -95,6 +95,9 @@ type Stats struct {
 //     called on the PTY master fd (Fix 6).
 //   - Every byte written to the Ring is also fed to the [Emulator] synchronously.
 //     emulator.Feed must be fast (pure state-machine update); it never blocks.
+//   - Multi-client role coordination is handled by the embedded [roleCoordinator].
+//     Exactly one subscriber is active at a time; others are viewers.  Sending
+//     input flips the active role to the sender ("last-typed-wins" — Story 3).
 type Daemon struct {
 	// configuration (immutable after NewDaemon)
 	claudeBin     string
@@ -104,6 +107,9 @@ type Daemon struct {
 	ring          *Ring
 	emulator      *Emulator
 	logger        *slog.Logger
+
+	// roles manages multi-client active/viewer assignment (Story 3).
+	roles *roleCoordinator
 
 	// daemonCtx is owned by the Daemon and lives until Shutdown().
 	// IMPORTANT: all subprocess exec.CommandContext calls use this context,
@@ -201,6 +207,7 @@ func NewDaemon(cfg DaemonConfig) *Daemon {
 		daemonCancel:   cancel,
 		sessionIDReady: make(chan struct{}),
 		shutdownCh:     make(chan struct{}),
+		roles:          newRoleCoordinator(cfg.Logger),
 	}
 	d.state.Store(int32(StateIdle))
 	return d

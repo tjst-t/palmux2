@@ -514,6 +514,49 @@ def test_ac_s7ce250_5_5_branch_close_shuts_down_daemon(port: int) -> None:
     passed("[AC-S7ce250-5-5] branch close → daemon shuts down")
 
 
+def test_ac_s0fd64b_3_role_badge_visible(port: int) -> None:
+    """[AC-S0fd64b-3-1] After WS attach, role badge is visible and shows 'active'.
+
+    This test requires a pre-built binary with the embedded React frontend.
+    In go-run mode it is skipped because there is no frontend.
+    """
+    sync_playwright = _get_playwright()
+    fx = _get_fixture_module(port)
+    with fx.palmux2_test_fixture("s0fd64b-role-badge") as fixture:
+        branch_id = fixture.primary_branch_id(timeout_s=10.0)
+        base = f"http://localhost:{port}"
+        url = (
+            f"{base}/{urllib.parse.quote(fixture.repo_id, safe='')}"
+            f"/{urllib.parse.quote(branch_id, safe='')}"
+            f"/claude-tui"
+        )
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            try:
+                page = browser.new_page()
+                page.goto(url, timeout=PLAYWRIGHT_TIMEOUT, wait_until="load")
+                # Wait for the React app to boot.
+                page.wait_for_function(
+                    "document.getElementById('root').innerHTML.length > 100",
+                    timeout=PLAYWRIGHT_TIMEOUT,
+                )
+                # The role badge should appear once the WS delivers the initial
+                # role event.  Give it up to 10 s to arrive.
+                page.wait_for_selector(
+                    "[data-testid='claude-tui-role-badge']",
+                    timeout=10_000,
+                )
+                badge = page.locator("[data-testid='claude-tui-role-badge']").first
+                assert badge.is_visible(), "role badge not visible"
+                text = badge.inner_text().strip().lower()
+                assert text == "active", (
+                    f"[AC-S0fd64b-3-1] role badge text = {text!r}, want 'active'"
+                )
+            finally:
+                browser.close()
+    passed("[AC-S0fd64b-3-1] role badge visible and shows 'active' after single-client attach")
+
+
 def test_ac_s7ce250_5_smoke_log_present() -> None:
     """[AC-S7ce250-5-2] Manual smoke log present and >= 100 bytes."""
     if not SMOKE_LOG.is_file():
@@ -567,8 +610,11 @@ def main() -> None:
         if has_frontend:
             _run("test_ac_s7ce250_5_1_browser_tab_label",
                  lambda: test_ac_s7ce250_5_1_browser_tab_label(port))
+            _run("test_ac_s0fd64b_3_role_badge_visible",
+                 lambda: test_ac_s0fd64b_3_role_badge_visible(port))
         else:
             print("SKIP: test_ac_s7ce250_5_1_browser_tab_label (no embedded frontend in go-run mode)")
+            print("SKIP: test_ac_s0fd64b_3_role_badge_visible (no embedded frontend in go-run mode)")
 
         _run("test_ac_s7ce250_5_2_ws_attach_starts_daemon",
              lambda: test_ac_s7ce250_5_2_ws_attach_starts_daemon(port))

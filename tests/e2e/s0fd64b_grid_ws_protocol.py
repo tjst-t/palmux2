@@ -190,6 +190,9 @@ def test_ac_s0fd64b_2_1_raw_vs_grid_discrimination(port: int) -> None:
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
 
         # ── raw mode (no ?mode param) ─────────────────────────────────────────
+        # Story 3 note: raw mode now also delivers role events as text frames
+        # (interspersed with binary PTY bytes).  The AC is that binary frames
+        # ARE delivered — not that the first frame is binary.
         async def _check_raw() -> str:
             import websockets
             uri = _attach_uri(port, repo_id, branch_id)
@@ -202,11 +205,20 @@ def test_ac_s0fd64b_2_1_raw_vs_grid_discrimination(port: int) -> None:
                         msg = await asyncio.wait_for(ws.recv(), timeout=1.0)
                     except asyncio.TimeoutError:
                         continue
-                    # The first frame should be bytes (binary).
                     if isinstance(msg, bytes):
+                        # Binary PTY frame — this is what we require.
                         return "binary"
                     if isinstance(msg, str):
-                        return "text"
+                        # Text frame: this is a role event (Story 3 side-channel).
+                        # Keep reading until we get binary PTY output.
+                        try:
+                            obj = json.loads(msg)
+                            if obj.get("type") == "role":
+                                continue  # skip role event; keep looking for binary
+                        except json.JSONDecodeError:
+                            pass
+                        # Unexpected non-role text frame in raw mode.
+                        return "unexpected-text"
                 return "timeout"
 
         result = asyncio.run(_check_raw())
@@ -484,7 +496,7 @@ def test_ac_s0fd64b_2_4_input_compat_both_modes(port: int) -> None:
             import websockets
             uri = _attach_uri(port, repo_id, branch_id, mode="grid")
             async with websockets.connect(uri, max_size=None) as ws:
-                # Consume grid.init.
+                # Consume grid.init.  Skip role events (Story 3 side-channel).
                 deadline_init = asyncio.get_event_loop().time() + 5.0
                 while asyncio.get_event_loop().time() < deadline_init:
                     try:
@@ -492,9 +504,13 @@ def test_ac_s0fd64b_2_4_input_compat_both_modes(port: int) -> None:
                     except asyncio.TimeoutError:
                         continue
                     if isinstance(raw, str):
-                        msg = json.loads(raw)
+                        try:
+                            msg = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
                         if msg.get("type") == "grid.init":
                             break
+                        # Skip role events and other control frames.
 
                 # Send binary input.
                 await ws.send(b"grid-input-test\n")
@@ -510,9 +526,13 @@ def test_ac_s0fd64b_2_4_input_compat_both_modes(port: int) -> None:
                         # Binary frame in grid mode is unexpected — fail.
                         return False
                     if isinstance(raw, str):
-                        msg = json.loads(raw)
+                        try:
+                            msg = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
                         if msg.get("type") in ("grid.diff", "grid.init"):
                             return True
+                        # role events are allowed in grid mode; keep reading.
                 return False
 
         assert asyncio.run(_grid_input()), (

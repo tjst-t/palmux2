@@ -7105,7 +7105,7 @@
         },
         "S0fd64b-3": {
           "title": "multi-client coordination (active-client follows / last-typed wins)",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux2 ユーザとして、 複数デバイス・タブから同じ claude-tui に attach するとき、 誰が active なのかを明確に知り、 input が衝突しないようにしたい。 なぜなら、 デスクトップとモバイル併用で同 branch を見るのは VISION 上想定されるユースケースで、 同時 input 競合を放置すると会話が壊れるからだ。",
           "scenario": "docs/sprint-logs/S0fd64b/scenario-S0fd64b-3.json",
           "acceptance_criteria": [
@@ -7113,25 +7113,25 @@
               "id": "AC-S0fd64b-3-1",
               "description": "シングル client 接続時は接続直後に {type:'role', role:'active', since:<unix-ms>} が配信される",
               "test": "tests/e2e/s0fd64b_multi_client.py 内 TestSingleClientGetsActive",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-3-2",
               "description": "2 client 目以降は接続時 role='viewer' を受信。 先行 active client は active のまま",
               "test": "tests/e2e/s0fd64b_multi_client.py 内 TestSecondClientIsViewer",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-3-3",
               "description": "viewer client が input を送ると active 権が transfer され、 全 client が新しい role event を受信する (last-typed wins)",
               "test": "tests/e2e/s0fd64b_multi_client.py 内 TestLastTypedWins",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-3-4",
               "description": "active client 切断時、 残った subscriber の 1 つに active 権が自動回帰。 全切断後は idle (次に接続した client が active で開始)",
               "test": "tests/e2e/s0fd64b_multi_client.py 内 TestActiveTransferOnDisconnect",
-              "status": "planned"
+              "status": "pass"
             }
           ]
         },

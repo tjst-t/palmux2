@@ -193,6 +193,8 @@ func parseAttachMode(r *http.Request) attachMode {
 //     (Fix 3 — SnapshotAndSubscribe).
 //  3. Replays the snapshot to the client.
 //  4. Pumps live PTY output to the client and client input to the PTY.
+//  5. Registers a [subscriber] with [Daemon.roles] and delivers role events
+//     as text frames interspersed with the PTY byte stream (Story 3).
 //
 // The daemon context (daemonCtx) governs the subprocess lifetime; the request
 // context governs only the WebSocket I/O.  A WS disconnect does NOT kill the
@@ -200,7 +202,8 @@ func parseAttachMode(r *http.Request) attachMode {
 //
 // When ?mode=grid is supplied the server switches to JSON text-frame delivery
 // (grid.init + periodic grid.diff) instead of raw binary PTY bytes.  Client →
-// server input is always raw binary frames regardless of mode.
+// server input is always raw binary frames regardless of mode.  Role events
+// are always text frames in both modes.
 func AttachHandler(d *Daemon) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mode := parseAttachMode(r)
@@ -244,10 +247,19 @@ func AttachHandler(d *Daemon) http.Handler {
 
 		// ── Raw mode (default) ────────────────────────────────────────────────
 
+		// Story 3: register with the role coordinator before replaying the ring
+		// so the initial role event is sent after the ring snapshot replay.
+		roleSub := newSubscriber(0) // id assigned by OnSubscribe
+		initialRole := d.roles.OnSubscribe(roleSub)
+		defer func() {
+			roleSub.close()
+			d.roles.OnUnsubscribe(roleSub)
+		}()
+
 		// Fix 3: SnapshotAndSubscribe is atomic — no live bytes can slip
 		// between the snapshot and the subscribe call.
-		snapshot, sub := d.ring.SnapshotAndSubscribe()
-		defer d.ring.Unsubscribe(sub)
+		snapshot, ringSub := d.ring.SnapshotAndSubscribe()
+		defer d.ring.Unsubscribe(ringSub)
 
 		// Replay ring buffer to the new client.
 		if len(snapshot) > 0 {
@@ -257,20 +269,38 @@ func AttachHandler(d *Daemon) http.Handler {
 			}
 		}
 
-		// Pump PTY → WS in a background goroutine.
+		// Send initial role event as a text frame after the ring replay.
+		if roleEv, evErr := initialRoleEvent(initialRole); evErr == nil {
+			if wErr := sendRoleFrame(ioCtx, conn, roleEv); wErr != nil {
+				slog.Warn("claudetui: initial role frame write", "err", wErr)
+				return
+			}
+		}
+
+		// Pump PTY bytes + role events → WS in a background goroutine.
+		// Binary frames carry PTY bytes; text frames carry role events.
 		pumpDone := make(chan struct{})
 		go func() {
 			defer close(pumpDone)
 			for {
 				select {
-				case chunk, ok := <-sub.Ch:
+				case chunk, ok := <-ringSub.Ch:
 					if !ok {
 						return
 					}
 					if wErr := conn.Write(ioCtx, websocket.MessageBinary, chunk); wErr != nil {
 						return
 					}
-				case <-sub.Done:
+				case ev, ok := <-roleSub.roleCh:
+					if !ok {
+						return
+					}
+					if wErr := conn.Write(ioCtx, websocket.MessageText, ev); wErr != nil {
+						return
+					}
+				case <-ringSub.Done:
+					return
+				case <-roleSub.done:
 					return
 				case <-ioCtx.Done():
 					return
@@ -280,11 +310,15 @@ func AttachHandler(d *Daemon) http.Handler {
 
 		// Pump WS → PTY (blocking; exits when the WS connection closes or the
 		// I/O context is cancelled).
+		// Story 3: any input from this client transfers the active role to it
+		// ("last-typed-wins" semantics).
 		for {
 			_, msg, err := conn.Read(ioCtx)
 			if err != nil {
 				break
 			}
+			// Transfer active role to this client before writing input.
+			d.roles.TakeActive(roleSub)
 			if wErr := d.WriteInput(ioCtx, msg); wErr != nil {
 				slog.Warn("claudetui: write input", "err", wErr)
 				break
@@ -303,12 +337,16 @@ func AttachHandler(d *Daemon) http.Handler {
 
 // serveGridMode runs the grid-mode WS loop:
 //  1. Sends grid.init with the full current grid snapshot.
-//  2. Subscribes to the ring for PTY-output change signals.
-//  3. Runs a 50 ms coalescing ticker; on each tick it compares the new grid
+//  2. Sends the initial role event (active or viewer) as a text frame.
+//  3. Subscribes to the ring for PTY-output change signals.
+//  4. Runs a 50 ms coalescing ticker; on each tick it compares the new grid
 //     snapshot against the last sent one and, if any rows changed, sends a
 //     grid.diff containing only the changed rows plus the updated cursor /
 //     altScreen state.
-//  4. Forwards client → server binary frames to daemon.WriteInput unchanged.
+//  5. Forwards client → server binary frames to daemon.WriteInput, calling
+//     TakeActive first so that input from a viewer promotes it to active
+//     ("last-typed-wins" — Story 3).
+//  6. Delivers role events (text frames) interspersed with grid.diff frames.
 //
 // serveGridMode returns when ioCtx is cancelled (WS disconnect).
 func serveGridMode(
@@ -317,6 +355,14 @@ func serveGridMode(
 	conn *websocket.Conn,
 	d *Daemon,
 ) {
+	// ── Story 3: register with the role coordinator ───────────────────────────
+	roleSub := newSubscriber(0) // id assigned by OnSubscribe
+	initialRole := d.roles.OnSubscribe(roleSub)
+	defer func() {
+		roleSub.close()
+		d.roles.OnUnsubscribe(roleSub)
+	}()
+
 	// ── Step 1: send grid.init ────────────────────────────────────────────────
 	lastSnap := d.GridSnapshot()
 	initMsg := gridInitMsg{
@@ -339,13 +385,21 @@ func serveGridMode(
 		return
 	}
 
-	// ── Step 2: subscribe to ring for change signals ──────────────────────────
-	// We only use sub.Ch to wake up the ticker loop faster when PTY output
-	// arrives; we do not relay individual chunks (grid diff is coalesced).
-	_, sub := d.ring.SnapshotAndSubscribe()
-	defer d.ring.Unsubscribe(sub)
+	// ── Step 2: send initial role event ──────────────────────────────────────
+	if roleEv, evErr := initialRoleEvent(initialRole); evErr == nil {
+		if wErr := sendRoleFrame(ioCtx, conn, roleEv); wErr != nil {
+			slog.Warn("claudetui: grid mode initial role frame write", "err", wErr)
+			return
+		}
+	}
 
-	// ── Step 3: coalescing diff loop ──────────────────────────────────────────
+	// ── Step 3: subscribe to ring for change signals ──────────────────────────
+	// We only use ringSub.Ch to wake up the ticker loop faster when PTY output
+	// arrives; we do not relay individual chunks (grid diff is coalesced).
+	_, ringSub := d.ring.SnapshotAndSubscribe()
+	defer d.ring.Unsubscribe(ringSub)
+
+	// ── Step 4: coalescing diff loop ──────────────────────────────────────────
 	ticker := time.NewTicker(gridCoalesceInterval)
 	defer ticker.Stop()
 
@@ -357,8 +411,18 @@ func serveGridMode(
 			case <-ioCtx.Done():
 				return
 
-			case <-sub.Done:
+			case <-ringSub.Done:
 				return
+
+			case ev, ok := <-roleSub.roleCh:
+				// Role event: deliver immediately as a text frame outside the
+				// coalesce window so the client gets it promptly.
+				if !ok {
+					return
+				}
+				if wErr := conn.Write(ioCtx, websocket.MessageText, ev); wErr != nil {
+					return
+				}
 
 			case <-ticker.C:
 				cur := d.GridSnapshot()
@@ -393,12 +457,15 @@ func serveGridMode(
 		}
 	}()
 
-	// ── Step 4: pump WS → PTY ─────────────────────────────────────────────────
+	// ── Step 5: pump WS → PTY ─────────────────────────────────────────────────
+	// Story 3: TakeActive is called before WriteInput so that any client that
+	// types transfers the active role to itself ("last-typed-wins").
 	for {
 		_, msg, rErr := conn.Read(ioCtx)
 		if rErr != nil {
 			break
 		}
+		d.roles.TakeActive(roleSub)
 		if wErr := d.WriteInput(ioCtx, msg); wErr != nil {
 			slog.Warn("claudetui: grid mode write input", "err", wErr)
 			break
