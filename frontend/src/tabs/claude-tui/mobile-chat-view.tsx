@@ -376,8 +376,14 @@ export function MobileChatView({ repoId, branchId }: MobileChatViewProps) {
 
     // Send the trimmed `text` (not raw `input`) so the PTY receives exactly
     // what the local bubble displays — sprint-level review F2.
+    //
+    // Use '\r' (carriage return) as the submit terminator, NOT '\n'. claude's
+    // TUI input handling treats '\n' as a literal newline (multi-line input)
+    // and '\r' as Enter/submit — same as xterm.js does for the keyboard Enter
+    // key on desktop. Sending '\n' leaves the text in the prompt box without
+    // actually submitting.
     const enc = new TextEncoder()
-    const data = enc.encode(text + '\n').buffer
+    const data = enc.encode(text + '\r').buffer
 
     const ws = wsRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {
