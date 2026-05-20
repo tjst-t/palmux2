@@ -532,6 +532,12 @@ func (d *Daemon) SessionID() string {
 	return d.sessionID
 }
 
+// Worktree returns the branch worktree path the subprocess was spawned in
+// (may be empty for tests that did not pass one).
+func (d *Daemon) Worktree() string {
+	return d.worktree
+}
+
 // WriteInput writes bytes to the PTY master (stdin of the subprocess).
 func (d *Daemon) WriteInput(ctx context.Context, p []byte) error {
 	d.stateMu.Lock()

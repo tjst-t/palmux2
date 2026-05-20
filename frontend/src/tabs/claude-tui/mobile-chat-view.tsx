@@ -75,80 +75,12 @@ interface RoleMsg {
 
 type ServerMsg = GridInitMsg | GridDiffMsg | RoleMsg | { type: string }
 
-// ── Grid → bubble extraction ──────────────────────────────────────────────
-
-/**
- * extractBubbles — heuristic MVP bubble extraction from a terminal grid.
- *
- * Walk grid rows top to bottom. A row whose text (after trimming leading
- * whitespace) starts with "> " is treated as a user-prompt boundary.
- * Everything between consecutive user-prompt rows is treated as the
- * assistant response that follows the first of the two prompts.
- *
- * Consecutive assistant rows are joined with "\n"; empty rows are skipped.
- * A trailing assistant region with no closing user-prompt is still emitted.
- *
- * Example grids → expected bubbles:
- *
- *   grid = ["", "> hello", "Hi there!", ""]
- *   → [{speaker:"user", text:"hello"}, {speaker:"assistant", text:"Hi there!"}]
- *
- *   grid = ["", "> q1", "ans1", "> q2", "ans2"]
- *   → [{user,"q1"},{assistant,"ans1"},{user,"q2"},{assistant,"ans2"}]
- *
- *   grid = ["", "no prompt at all"]
- *   → []  (no user prompt → no bubbles)
- *
- *   grid = ["> only prompt", ""]
- *   → [{user,"only prompt"}]  (empty assistant region omitted)
- */
-function extractBubbles(lines: string[]): Bubble[] {
-  const bubbles: Bubble[] = []
-  let idCounter = 0
-
-  const nextId = () => {
-    idCounter += 1
-    return `b${idCounter}`
-  }
-
-  // Collect indices of user-prompt rows.
-  const promptIndices: number[] = []
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trimStart()
-    if (trimmed.startsWith('> ')) {
-      promptIndices.push(i)
-    }
-  }
-
-  if (promptIndices.length === 0) return []
-
-  for (let pi = 0; pi < promptIndices.length; pi++) {
-    const promptRowIdx = promptIndices[pi]
-    const promptText = lines[promptRowIdx].trimStart().slice(2).trimEnd()
-    bubbles.push({ id: nextId(), speaker: 'user', text: promptText })
-
-    // Assistant region: rows after this prompt until the next prompt (or end).
-    const regionEnd = pi + 1 < promptIndices.length
-      ? promptIndices[pi + 1]
-      : lines.length
-
-    const assistantLines: string[] = []
-    for (let ri = promptRowIdx + 1; ri < regionEnd; ri++) {
-      const rowText = lines[ri].trimEnd()
-      if (rowText.length > 0) {
-        assistantLines.push(rowText)
-      }
-    }
-
-    if (assistantLines.length > 0) {
-      bubbles.push({ id: nextId(), speaker: 'assistant', text: assistantLines.join('\n') })
-    }
-  }
-
-  return bubbles
-}
-
 // ── Grid helpers ──────────────────────────────────────────────────────────
+//
+// We keep the grid state internally for activity / status detection, but
+// we DO NOT derive chat bubbles from it any more — claude's TUI uses
+// alternate screen so prior turns are not in the grid. Bubbles come from
+// the JSONL transcript via the /transcript REST endpoint instead.
 
 function rowsToLines(rows: GridRow[]): string[] {
   return rows.map((row) => row.cells.map((c) => c.ch ?? ' ').join(''))
@@ -176,36 +108,6 @@ function applyDiff(grid: Grid, msg: GridDiffMsg): Grid {
   return { ...grid, lines: newLines }
 }
 
-// ── Local + grid bubble merge ─────────────────────────────────────────────
-
-/**
- * mergeWithLocal returns a combined bubble list that always includes all
- * local (optimistic) user bubbles plus grid-extracted bubbles.
- *
- * Strategy (MVP):
- *   - If grid extraction produced bubbles, use those as the authoritative list
- *     (they supersede local bubbles for the same text).
- *   - If grid has no bubbles yet (grid is empty / not yet initialised) but the
- *     user already sent messages, show the local bubbles so the UI is not blank.
- *   - Deduplication: local user bubbles whose text matches a grid-extracted user
- *     bubble are dropped to avoid showing duplicates once the grid catches up.
- */
-function mergeWithLocal(extracted: Bubble[], local: Bubble[]): Bubble[] {
-  if (extracted.length > 0) {
-    // Grid has bubbles → use extracted list as authoritative; prepend any
-    // local bubbles whose text is NOT already covered by extracted user bubbles.
-    const extractedUserTexts = new Set(
-      extracted.filter((b) => b.speaker === 'user').map((b) => b.text),
-    )
-    const unmatchedLocal = local.filter(
-      (b) => b.speaker === 'user' && !extractedUserTexts.has(b.text),
-    )
-    return [...unmatchedLocal, ...extracted]
-  }
-  // Grid has no bubbles yet → show local optimistic bubbles only.
-  return [...local]
-}
-
 // ── WS URL builder ────────────────────────────────────────────────────────
 
 function buildGridWsUrl(repoId: string, branchId: string): string {
@@ -216,6 +118,25 @@ function buildGridWsUrl(repoId: string, branchId: string): string {
     `/branches/${encodeURIComponent(branchId)}` +
     `/tabs/claude-tui/attach?mode=${WS_MODE_GRID}`
   )
+}
+
+function buildTranscriptUrl(repoId: string, branchId: string): string {
+  return (
+    `/api/repos/${encodeURIComponent(repoId)}` +
+    `/branches/${encodeURIComponent(branchId)}` +
+    `/tabs/claude-tui/transcript`
+  )
+}
+
+// Transcript bubbles delay before refetching on grid activity. Debounce in
+// milliseconds — long enough that we don't hammer the server during a
+// streaming response, short enough that the bubble list updates "promptly"
+// once claude finishes a turn.
+const TRANSCRIPT_REFETCH_DEBOUNCE_MS = 800
+
+interface TranscriptResponse {
+  sessionId: string
+  bubbles: { id: string; speaker: 'user' | 'assistant'; text: string }[]
 }
 
 // ── Component ─────────────────────────────────────────────────────────────
@@ -239,10 +160,19 @@ export function MobileChatView({ repoId, branchId }: MobileChatViewProps) {
   const bubbleListRef = useRef<HTMLDivElement | null>(null)
   const sendBufferRef = useRef<(string | ArrayBuffer)[]>([])
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Optimistic user bubbles added immediately on Send, before grid update arrives.
-  // These are merged with grid-extracted bubbles on each grid update.
+  // Optimistic user bubbles added immediately on Send, before the transcript
+  // catches up. These are merged with transcript-derived bubbles on each
+  // refetch (dedup by text).
   const localBubblesRef = useRef<Bubble[]>([])
   const localBubbleIdRef = useRef(0)
+
+  // Transcript (JSONL) is the authoritative source for conversation history.
+  // Grid extraction only reflects the live TUI frame, which in alt-screen
+  // mode does not preserve prior turns — so we read the .jsonl via a REST
+  // endpoint and re-fetch on activity.
+  const transcriptBubblesRef = useRef<Bubble[]>([])
+  const transcriptDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const transcriptInflightRef = useRef(false)
 
   // ── Auto-scroll helper ───────────────────────────────────────────────────
 
@@ -253,6 +183,58 @@ export function MobileChatView({ repoId, branchId }: MobileChatViewProps) {
       if (el) el.scrollTop = el.scrollHeight
     }, SCROLL_DEBOUNCE_MS)
   }, [])
+
+  // ── Transcript fetch ─────────────────────────────────────────────────────
+
+  // recomputeBubbles merges transcript + optimistic local bubbles and
+  // pushes the result into setBubbles.
+  const recomputeBubbles = useCallback(() => {
+    const transcript = transcriptBubblesRef.current
+    const local = localBubblesRef.current
+    if (transcript.length === 0 && local.length === 0) {
+      setBubbles([])
+      return
+    }
+    // Dedup local user bubbles whose text matches an already-recorded
+    // transcript user bubble.
+    const transcriptUserTexts = new Set(
+      transcript.filter((b) => b.speaker === 'user').map((b) => b.text),
+    )
+    const unmatchedLocal = local.filter(
+      (b) => b.speaker === 'user' && !transcriptUserTexts.has(b.text),
+    )
+    setBubbles([...transcript, ...unmatchedLocal])
+  }, [])
+
+  const fetchTranscript = useCallback(async () => {
+    if (transcriptInflightRef.current) return
+    transcriptInflightRef.current = true
+    try {
+      const res = await fetch(buildTranscriptUrl(repoId, branchId))
+      if (!res.ok) return
+      const body = (await res.json()) as TranscriptResponse
+      const bubbles: Bubble[] = body.bubbles.map((b) => ({
+        id: b.id,
+        speaker: b.speaker,
+        text: b.text,
+      }))
+      transcriptBubblesRef.current = bubbles
+      recomputeBubbles()
+      scheduleScroll()
+    } catch {
+      // Network errors during transcript refresh are non-fatal — the UI
+      // continues with whatever bubbles it last had.
+    } finally {
+      transcriptInflightRef.current = false
+    }
+  }, [repoId, branchId, recomputeBubbles, scheduleScroll])
+
+  const scheduleTranscriptRefetch = useCallback(() => {
+    if (transcriptDebounceRef.current) clearTimeout(transcriptDebounceRef.current)
+    transcriptDebounceRef.current = setTimeout(() => {
+      void fetchTranscript()
+    }, TRANSCRIPT_REFETCH_DEBOUNCE_MS)
+  }, [fetchTranscript])
 
   // ── WS connection lifecycle ───────────────────────────────────────────────
 
@@ -301,20 +283,20 @@ export function MobileChatView({ repoId, branchId }: MobileChatViewProps) {
         }
 
         if (msg.type === 'grid.init') {
+          // Keep the grid state for connection-streaming detection, but DO
+          // NOT use grid-derived bubbles — claude's TUI runs on alt-screen
+          // so the grid never contains prior conversation. Bubbles come
+          // from the transcript REST endpoint instead.
           const initMsg = msg as GridInitMsg
           gridRef.current = applyInit(initMsg)
-          const extracted = extractBubbles(gridRef.current.lines)
-          // Merge optimistic local bubbles with grid-extracted ones.
-          // Local bubbles are shown in addition to grid-extracted bubbles,
-          // de-duplicating by text to avoid double-showing echoed content.
-          setBubbles(mergeWithLocal(extracted, localBubblesRef.current))
-          scheduleScroll()
+          // Kick off the first transcript fetch (no debounce — initial load).
+          void fetchTranscript()
         } else if (msg.type === 'grid.diff') {
           const diffMsg = msg as GridDiffMsg
           gridRef.current = applyDiff(gridRef.current, diffMsg)
-          const extracted = extractBubbles(gridRef.current.lines)
-          setBubbles(mergeWithLocal(extracted, localBubblesRef.current))
-          scheduleScroll()
+          // Grid diff signals claude activity — schedule a debounced
+          // transcript refetch so newly-completed turns show up in chat.
+          scheduleTranscriptRefetch()
         } else if (msg.type === 'role') {
           const roleMsg = msg as RoleMsg
           if (roleMsg.role === 'active' || roleMsg.role === 'viewer') {
@@ -344,6 +326,10 @@ export function MobileChatView({ repoId, branchId }: MobileChatViewProps) {
     // Expose reconnect to the button handler.
     connectRef.current = connect
 
+    // Initial transcript fetch happens BEFORE the WS opens so the chat
+    // history shows up as soon as possible (the WS handshake + grid.init
+    // round-trip can add several hundred ms on a slow network).
+    void fetchTranscript()
     connect()
 
     return () => {
@@ -367,6 +353,7 @@ export function MobileChatView({ repoId, branchId }: MobileChatViewProps) {
     gridRef.current = { cols: 80, rows: 24, lines: [] }
     localBubblesRef.current = []
     localBubbleIdRef.current = 0
+    transcriptBubblesRef.current = []
     connectRef.current()
   }, [])
 
@@ -396,7 +383,7 @@ export function MobileChatView({ repoId, branchId }: MobileChatViewProps) {
     }
 
     // Add optimistic user bubble immediately so the message is visible
-    // before the grid reflects it (or in case the PTY does not echo `> ` prefix).
+    // before the transcript catches up.
     localBubbleIdRef.current += 1
     const userBubble: Bubble = {
       id: `local-${localBubbleIdRef.current}`,
@@ -404,11 +391,16 @@ export function MobileChatView({ repoId, branchId }: MobileChatViewProps) {
       text: text,
     }
     localBubblesRef.current = [...localBubblesRef.current, userBubble]
-    setBubbles((prev) => mergeWithLocal(extractBubbles(gridRef.current.lines), localBubblesRef.current) || prev)
+    recomputeBubbles()
     scheduleScroll()
 
+    // Trigger a transcript refetch after a short delay — claude will
+    // persist the user turn to .jsonl almost immediately on receiving the
+    // CR, and the assistant reply lands shortly after.
+    scheduleTranscriptRefetch()
+
     setInput('')
-  }, [input, scheduleScroll])
+  }, [input, recomputeBubbles, scheduleScroll, scheduleTranscriptRefetch])
 
   // ── Derived state ─────────────────────────────────────────────────────────
 
