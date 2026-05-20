@@ -307,6 +307,43 @@ func (d *Daemon) spawnWithArgs(args []string) error {
 		d.readLoop(ptmx)
 	}()
 
+	// Background drainer: emulator → PTY stdin (subprocess input).
+	//
+	// The vt.Emulator generates response bytes for some ANSI queries (DA1 / DA2
+	// device attributes, cursor position report, etc.) by writing into an
+	// internal io.Pipe. If we never drain that pipe its 64KiB buffer fills,
+	// at which point the next response Write inside Emulator.Write blocks
+	// **while still holding the SafeEmulator writer lock**. That deadlocks every
+	// subsequent GridSnapshot caller (each reader-lock attempt waits forever).
+	//
+	// Forwarding the pipe output to ptmx (the subprocess stdin) is the
+	// architecturally correct fix: claude asked the terminal a question, the
+	// emulator answers, the answer goes back to claude. claude may or may not
+	// care, but the pipe drains and the lock is never held across a blocked
+	// write.
+	d.shutdownWg.Add(1)
+	go func() {
+		defer d.shutdownWg.Done()
+		buf := make([]byte, 4096)
+		for {
+			select {
+			case <-d.shutdownCh:
+				return
+			default:
+			}
+			n, err := d.emulator.Read(buf)
+			if err != nil {
+				return
+			}
+			if n <= 0 {
+				continue
+			}
+			if _, werr := ptmx.Write(buf[:n]); werr != nil {
+				return
+			}
+		}
+	}()
+
 	// Background wait goroutine: calls cmd.Wait() and sends the result to
 	// exited.  This goroutine is the SOLE caller of cmd.Wait() for this
 	// subprocess instance (Fix 2 — no double-Wait).  Shutdown() drains exited.
@@ -606,8 +643,13 @@ func (d *Daemon) Shutdown() {
 			_ = ptmx.Close()
 		}
 
-		d.shutdownWg.Wait()
+		// Close emulator BEFORE waiting for the wait group. The emulator
+		// drainer goroutine blocks in emulator.Read(); closing the underlying
+		// io.Pipe makes Read return io.EOF and the drainer exits. Without
+		// this, shutdownWg.Wait would deadlock waiting for the drainer.
 		d.emulator.Close()
+
+		d.shutdownWg.Wait()
 		d.logger.Info("claudetui: daemon shutdown complete")
 	})
 }

@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
-	"unicode/utf8"
 
 	"github.com/coder/websocket"
 )
@@ -71,7 +70,9 @@ type gridRow struct {
 // Ch is always emitted as a single UTF-8 string ("a", " ", etc.).
 // FG / BG / Attrs use omitempty so zero values are elided.
 type gridCell struct {
-	// Ch is serialised as a string by MarshalJSON.
+	// Ch is the rune contained in this cell. MarshalJSON converts it to a
+	// JSON string field "ch" via stdlib json so all special characters
+	// (`"`, `\`, control chars, non-BMP UTF-8) are correctly escaped.
 	Ch    rune   `json:"-"`
 	FG    uint32 `json:"fg,omitempty"`
 	BG    uint32 `json:"bg,omitempty"`
@@ -80,37 +81,29 @@ type gridCell struct {
 
 // MarshalJSON encodes gridCell as {"ch":"x","fg":N,"bg":N,"attrs":N}.
 // FG/BG/Attrs are omitted when zero.  Ch == 0 is emitted as a space.
+//
+// Previous implementation built the JSON manually with utf8.AppendRune which
+// failed to escape `"`, `\`, control chars etc. — when claude TUI output
+// contained any such cell the whole grid frame failed to marshal. The fix
+// delegates to stdlib json.Marshal on a parallel struct so all escaping is
+// correct.
 func (c gridCell) MarshalJSON() ([]byte, error) {
 	ch := c.Ch
 	if ch == 0 {
 		ch = ' '
 	}
-	// Encode the rune as a minimal JSON string.
-	buf := make([]byte, 0, utf8.RuneLen(ch)+2) // '"' + char + '"'
-	buf = append(buf, '"')
-	buf = utf8.AppendRune(buf, ch)
-	buf = append(buf, '"')
-	chJSON := buf
-
-	// Build the rest of the object manually to honour omitempty on FG/BG/Attrs.
-	type cellRest struct {
+	type cellOut struct {
+		Ch    string `json:"ch"`
 		FG    uint32 `json:"fg,omitempty"`
 		BG    uint32 `json:"bg,omitempty"`
 		Attrs uint8  `json:"attrs,omitempty"`
 	}
-	rest, err := json.Marshal(cellRest{FG: c.FG, BG: c.BG, Attrs: c.Attrs})
-	if err != nil {
-		return nil, err
-	}
-	// rest is "{}" or "{\"fg\":...}" etc.  We want {"ch":"x",...} so we splice.
-	if string(rest) == "{}" {
-		return append(append([]byte(`{"ch":`), chJSON...), '}'), nil
-	}
-	// rest[0] == '{', rest[1:] == "\"fg\":..."
-	out := append([]byte(`{"ch":`), chJSON...)
-	out = append(out, ',')
-	out = append(out, rest[1:]...) // strip leading '{'
-	return out, nil
+	return json.Marshal(cellOut{
+		Ch:    string(ch),
+		FG:    c.FG,
+		BG:    c.BG,
+		Attrs: c.Attrs,
+	})
 }
 
 // gridFromSnapshot converts a Grid snapshot into the wire types used by both

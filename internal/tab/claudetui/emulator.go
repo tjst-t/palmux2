@@ -162,6 +162,15 @@ func (e *Emulator) Close() {
 	_ = e.em.Close()
 }
 
+// Read drains response bytes that the emulator wants to send back to the
+// running program (DA1/DA2 device attribute responses, cursor-position
+// reports, etc.). Callers must read continuously or the emulator's internal
+// pipe will fill, at which point Write would block while holding the writer
+// lock — see daemon.go drainer goroutine.
+func (e *Emulator) Read(buf []byte) (int, error) {
+	return e.em.Read(buf)
+}
+
 // handleOsc52 is called by the OSC 52 handler.  It decodes the clipboard
 // payload and publishes a CopyEvent to the notify hub.
 //
