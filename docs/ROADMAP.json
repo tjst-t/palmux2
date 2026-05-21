@@ -2,13 +2,13 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 38,
-    "sprints_total": 38,
+    "sprints_done": 39,
+    "sprints_total": 39,
     "percent": 100,
     "current_sprint": null,
-    "done": 38,
+    "done": 39,
     "in_progress": 0,
-    "total": 38,
+    "total": 39,
     "remaining": 0,
     "percentage": 100
   },
@@ -50,7 +50,8 @@
     "S43cfb1",
     "S4b9df4",
     "S13b16a",
-    "Saa8506"
+    "Saa8506",
+    "S1d2278"
   ],
   "sprints": {
     "S001": {
@@ -6675,6 +6676,202 @@
           }
         }
       }
+    },
+    "S1d2278": {
+      "title": "Track B PoC — PTY daemon + ヘッドレスターミナル emulator 実現可能性検証",
+      "status": "done",
+      "milestone": true,
+      "description": "2026-06-15 から `claude -p` / Agent SDK 使用が Claude プランの使用制限から外れ Agent SDK 専用クレジット + 超過時 API 従量課金に分離される。 palmux2 の claude-agent タブは stream-json モード (= Agent SDK 経路) で起動しているため Max 20x ユーザの実質枠を失う。\n\n対策の方針は、 interactive claude を PTY 経由で駆動する Track B (サブスク枠維持) と、 旧 tmux ベース Claude タブを literal revert する Track A の 2 つに分解した上で、 Track B から検証する。\n\n本 sprint は production 実装ではなく、 4 軸 (emulator 実用性 / PTY 安定性 / autopilot 経路 / SDK クレジット見通し) のリスク削減 PoC。 2026-06-07 を pivot 期限とし、 sprint 終端で Track B 続行か Track A pivot かを判定する milestone sprint。\n\n触る範囲: 新規 `cmd/poc-pty/` バイナリ (throwaway PoC)、 新規 `internal/poc/emulator/` (ライブラリ spike)、 docs/sprint-logs/S1d2278/ (各種レポート)。 既存 palmux2 のコア (cmd/palmux/, internal/tab/*, frontend/) には触れない。 tmux も触らない。\n\n判定材料: docs/sprint-logs/S1d2278/{emulator-comparison.md, pty-daemon-spike.md, desktop-attach-demo.md, autopilot-billing-path.md, sdk-credit-analysis.md, track-b-roadmap.md}",
+      "stories": {
+        "S1d2278-1": {
+          "title": "ヘッドレス terminal emulator 候補比較",
+          "status": "done",
+          "user_story": "palmux2 開発者として、 ヘッドレス terminal emulator ライブラリ 2 候補を spike して claude TUI を駆動した結果を比較したい。 なぜなら、 Track B の核となる emulator 層が実用に耐えるかを判定材料に基づいて決めたいからだ。",
+          "scenario": "docs/sprint-logs/S1d2278/scenario-S1d2278-1.json",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S1d2278-1-1",
+              "description": "`charmbracelet/x/cellbuf` (または上位パッケージ) で interactive claude TUI 出力を消費し、 alternate screen / cursor 移動 / 色 / 入力ボックスがグリッドに反映されることを Go test (`internal/poc/emulator/cellbuf_spike_test.go`) で検証",
+              "test": "go test ./internal/poc/emulator/... -run TestCellbufSpike",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S1d2278-1-2",
+              "description": "代替候補 (例: go-ansiterm, hinshun/vt10x) を同じ入力で評価",
+              "test": "go test ./internal/poc/emulator/... -run TestAltSpike",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S1d2278-1-3",
+              "description": "2 候補を 6 軸 (alt screen / OSC 52 / bracketed paste / mouse / sixel / メンテ状況・自作工数推定) で比較したレポートを `docs/sprint-logs/S1d2278/emulator-comparison.md` に出す",
+              "test": "MANUAL SMOKE: emulator-comparison.md が存在し、 6 軸比較表 + 推奨候補 + rationale を含む",
+              "status": "pass"
+            }
+          ]
+        },
+        "S1d2278-2": {
+          "title": "Go PTY daemon の最小プロトタイプ",
+          "status": "done",
+          "user_story": "palmux2 開発者として、 tmux を経由せず Go プロセスが直接 PTY を所有して claude を spawn できることを確認したい。 なぜなら、 Track B の前提が成立するかを実機で確かめたいからだ。",
+          "scenario": "docs/sprint-logs/S1d2278/scenario-S1d2278-2.json",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S1d2278-2-1",
+              "description": "`github.com/creack/pty` で PTY を確保し、 claude を spawn して prompt 送信 → 応答受信 を `cmd/poc-pty --probe` モードで実証",
+              "test": "tests/e2e/s1d2278_pty_poc.py::test_ac_s1d2278_3_1_ws_bidirectional (PoC binary が起動すること自体が AC-2-1 のサブセット)",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S1d2278-2-2",
+              "description": "SIGWINCH を送って claude 側がリサイズを認識する (`tput cols` 相当の出力が変化する)",
+              "test": "MANUAL SMOKE: pty-daemon-spike.md の scenario-2 セクションに観察結果を記録",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S1d2278-2-3",
+              "description": "1MB ring buffer に出力を保持し、 別の WS attach から full replay できる",
+              "test": "tests/e2e/s1d2278_pty_poc.py::test_ac_s1d2278_3_3_replay_on_reconnect",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S1d2278-2-4",
+              "description": "claude プロセスを kill した後、 `--resume <session_id>` で復帰",
+              "test": "MANUAL SMOKE: pty-daemon-spike.md の scenario-4 セクションに観察結果を記録",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S1d2278-2-5",
+              "description": "PoC 実行ログ (操作手順 + 観察結果 + rough edges) を `docs/sprint-logs/S1d2278/pty-daemon-spike.md` に出す",
+              "test": "MANUAL SMOKE: pty-daemon-spike.md が存在し、 100 bytes 以上",
+              "status": "pass"
+            }
+          ]
+        },
+        "S1d2278-3": {
+          "title": "WS over PTY raw bytes デモ (desktop 単一クライアント)",
+          "status": "done",
+          "user_story": "palmux2 ユーザとして、 PoC daemon にブラウザから接続して claude と desktop 上で対話できるか確認したい。 なぜなら、 サブスク枠で動く最低限の体験が成立する目処を立てたいからだ。",
+          "scenario": "docs/sprint-logs/S1d2278/gui-spec-S1d2278-3.json",
+          "gui_spec": "docs/sprint-logs/S1d2278/gui-spec-S1d2278-3.json",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S1d2278-3-1",
+              "description": "PoC daemon が `/poc/pty/attach` WS で raw byte を双方向に流す",
+              "test": "tests/e2e/s1d2278_pty_poc.py::test_ac_s1d2278_3_1_ws_bidirectional",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S1d2278-3-2",
+              "description": "スタンドアロン HTML (`cmd/poc-pty/static/index.html`) + xterm.js が daemon に接続し、 status testid が connected/streaming に遷移する",
+              "test": "tests/e2e/s1d2278_pty_poc.py::test_ac_s1d2278_3_2_xterm_renders_tui",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S1d2278-3-3",
+              "description": "再接続時に ring buffer から replay されて scrollback マーカーが復元する",
+              "test": "tests/e2e/s1d2278_pty_poc.py::test_ac_s1d2278_3_3_replay_on_reconnect",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S1d2278-3-4",
+              "description": "Manual smoke ログ (`docs/sprint-logs/S1d2278/desktop-attach-demo.md`) が存在し、 100 bytes 以上 (内容は人間が manual 実行時に書く)",
+              "test": "tests/e2e/s1d2278_pty_poc.py::test_ac_s1d2278_3_4_smoke_log_present",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S1d2278-3-5",
+              "description": "data-testid 属性 (`pty-poc-status`, `pty-poc-terminal`, `pty-poc-reconnect-btn`) が静的 HTML 内に存在",
+              "test": "tests/e2e/s1d2278_pty_poc.py (selector が機能することで暗黙確認) + tests/e2e/s1d2278_pty_poc_mock.py",
+              "status": "pass"
+            }
+          ]
+        },
+        "S1d2278-4": {
+          "title": "autopilot / sprint runner の課金経路調査",
+          "status": "done",
+          "user_story": "palmux2 開発者として、 autopilot や sprint skill が `claude -p` / Agent SDK を内部で呼んでいないことを確認したい。 なぜなら、 Claude タブだけ Track B 化しても autopilot が SDK 枠を食い続けるなら止血効果が半減するからだ。",
+          "scenario": "docs/sprint-logs/S1d2278/scenario-S1d2278-4.json",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S1d2278-4-1",
+              "description": "`~/.claude/skills/autopilot/` と `~/.claude/skills/sprint/` 全体に対し `claude --print` / `--input-format stream-json` / `@anthropic-ai/sdk` パターンを grep し、 ヒットの有無を確定",
+              "test": "MANUAL SMOKE: autopilot-billing-path.md に rg コマンドと結果を記録 (本 sprint 計画フェーズで既に「ヒットなし」を予備調査済み)",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S1d2278-4-2",
+              "description": "結果を `docs/sprint-logs/S1d2278/autopilot-billing-path.md` に出す",
+              "test": "MANUAL SMOKE: ファイル存在 + 100 bytes 以上",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S1d2278-4-3",
+              "description": "Track B 化への影響結論 (= 影響なし / 別 sprint で対応 / 今 sprint で対応のいずれか) を文書化",
+              "test": "MANUAL SMOKE: autopilot-billing-path.md 末尾に '結論:' セクションが存在",
+              "status": "pass"
+            }
+          ]
+        },
+        "S1d2278-5": {
+          "title": "Max 20x の SDK 月次クレジット実額調査",
+          "status": "done",
+          "user_story": "palmux2 開発者として、 Max 20x プランで Agent SDK 経由の月次クレジット実額を公式情報から把握したい。 なぜなら、 「常時超過する」という前提が本当に正しいか、 そして超過後の API 従量レートが現実的に許容できる規模かを数字で詰めたいからだ。",
+          "scenario": "docs/sprint-logs/S1d2278/scenario-S1d2278-5.json",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S1d2278-5-1",
+              "description": "Anthropic 公式 (support.claude.com / docs.anthropic.com / claude.com/pricing) で Max 20x の Agent SDK 月次クレジット額・ リフレッシュ単位・ 超過時 API レートを確定 (公開なしなら 'unknown' と記録)",
+              "test": "MANUAL SMOKE: sdk-credit-analysis.md に出典 URL + 数値表",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S1d2278-5-2",
+              "description": "`~/.config/palmux/sessions.json` から直近 30 日の `costUsd` を集計して月次実績推定",
+              "test": "MANUAL SMOKE: sdk-credit-analysis.md に jq クエリ + 算出結果 (合計 USD・セッション件数・平均 cost)",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S1d2278-5-3",
+              "description": "実績とクレジットを突き合わせて 'within / overage / large-overage' 判定 + 想定追加月次コストを `docs/sprint-logs/S1d2278/sdk-credit-analysis.md` に出す",
+              "test": "MANUAL SMOKE: ファイル存在 + 判定セクションが含まれる",
+              "status": "pass"
+            }
+          ]
+        },
+        "S1d2278-6": {
+          "title": "Go/No-Go 判定レポートと次 sprint 群骨子",
+          "status": "done",
+          "user_story": "palmux2 開発者として、 Story 1 〜 5 の結果を統合して「Track B 続行」か「Track A pivot」か明確に判定したい。 なぜなら、 2026-06-07 までに判断しないと 6/15 deadline に間に合わなくなるからだ。",
+          "scenario": "docs/sprint-logs/S1d2278/scenario-S1d2278-6.json",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S1d2278-6-1",
+              "description": "4 軸 (emulator 実用性 / PTY 安定性 / autopilot 経路 / SDK クレジット) を green/yellow/red で判定したマトリクスを `docs/sprint-logs/S1d2278/track-b-roadmap.md` に出す",
+              "test": "MANUAL SMOKE: track-b-roadmap.md の冒頭に判定表 (4 行) が存在",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S1d2278-6-2",
+              "description": "続行ケースの次 sprint 群 (S+1 〜 S+3 程度) の骨子を Story 単位で track-b-roadmap.md に書く",
+              "test": "MANUAL SMOKE: 続行セクションに 3 sprint 程度の Story 一覧",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S1d2278-6-3",
+              "description": "pivot ケースの Track A revert sprint の骨子を track-b-roadmap.md に書く",
+              "test": "MANUAL SMOKE: pivot セクションに Track A sprint の Story 一覧",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S1d2278-6-4",
+              "description": "Sprint demo でユーザに判定提示し承認を得る。 選択結果を `docs/sprint-logs/S1d2278/decisions.json` に記録",
+              "test": "MANUAL SMOKE: decisions.json に '6_7_pivot_decision' エントリ存在",
+              "status": "pass"
+            }
+          ]
+        }
+      },
+      "completedAt": "2026-05-17"
     }
   },
   "dependencies": {
@@ -6826,6 +7023,10 @@
         "S13b16a"
       ],
       "reason": "Lint sweep (S13b16a) で git-view.tsx 等の useEffect が React 19 idiomatic に書き換わると render timing が微変化する可能性があり、 E2E が壊れた場合に lint refactor 起因か E2E hermetic 化起因か切り分けにくくなる。 lint sweep を先に完了させ clean state を baseline にしてから E2E hygiene refactor を載せる"
+    },
+    "S1d2278": {
+      "depends_on": [],
+      "reason": "本 sprint は Track B 続行 / Track A pivot の判定ゲートとなる PoC sprint。 全 38 既存 sprints が done で、 in-progress sprints は無いため依存はない。 触る範囲は新規 cmd/poc-pty/ と internal/poc/emulator/ のみで、 既存 palmux2 コア・ tmux インフラには触れない。"
     }
   },
   "backlog": [

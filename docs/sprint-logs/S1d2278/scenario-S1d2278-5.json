@@ -1,0 +1,50 @@
+{
+  "story": "S1d2278-5",
+  "story_type": "library",
+  "user_role": "palmux2 オーナー (Max 20x プラン契約者として SDK 課金分離後の月次見通しを把握したい)",
+  "entry_point": "Anthropic 公式ドキュメント参照 + ローカル `~/.config/palmux/sessions.json` の costUsd 集計",
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "linked_ac": ["AC-S1d2278-5-1"],
+      "description": "Max 20x の Agent SDK 月次クレジット実額を公式情報で確定する",
+      "preconditions": ["インターネットアクセス可"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "support.claude.com の `Use the Claude Agent SDK with your Claude plan` ページと、 docs.anthropic.com / claude.com/pricing の Max プランページを読み比べる",
+          "expected": "Max 20x の Agent SDK 月次クレジット額 (USD)、 リフレッシュ単位 (月次 / 週次など)、 超過時の API レート (Anthropic 標準料金 = Opus/Sonnet/Haiku の input/output rate) を確定。 もし額が公開されていなければ 'unknown — サポート問い合わせ要' と記録"
+        }
+      ],
+      "cleanup": []
+    },
+    {
+      "id": "scenario-2",
+      "linked_ac": ["AC-S1d2278-5-2"],
+      "description": "ローカル sessions.json から現状の月次使用量を推定",
+      "preconditions": ["~/.config/palmux/sessions.json が claude-agent タブ運用で蓄積されている"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "developer が `jq '[.sessions[] | select(.lastActivityAt > (now - 30*86400 | strftime(\"%Y-%m-%dT%H:%M:%SZ\"))) | .costUsd] | add' ~/.config/palmux/sessions.json` 相当のクエリで直近 30 日の累計 costUsd を算出",
+          "expected": "直近 30 日の合計 USD が数値として得られる。 セッション件数・ 平均 cost も併記"
+        }
+      ],
+      "cleanup": []
+    },
+    {
+      "id": "scenario-3",
+      "linked_ac": ["AC-S1d2278-5-3"],
+      "description": "推定をクレジット額と突き合わせて判定し、 文書化",
+      "preconditions": ["scenario-1 と scenario-2 が完了"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "結論を `docs/sprint-logs/S1d2278/sdk-credit-analysis.md` に書く",
+          "expected": "ファイルが存在し、 (a) クレジット実額、 (b) 直近 30 日の実績 USD、 (c) 比率と判定 (`within / overage / large-overage`)、 (d) 想定される追加月次コスト USD、 (e) Track B 続行の経済的妥当性 (定性) を含む"
+        }
+      ],
+      "cleanup": []
+    }
+  ]
+}

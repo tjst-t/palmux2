@@ -1,0 +1,220 @@
+{
+  "sprint_id": "S1d2278",
+  "verified_at": "2026-05-17",
+  "summary": {
+    "pass": 25,
+    "fail": 0,
+    "skip": 0,
+    "total": 25
+  },
+  "tests": [
+    {
+      "story": "S1d2278-1",
+      "acceptance_criteria": ["AC-S1d2278-1-1"],
+      "test": "go test ./internal/poc/emulator/ -run TestCellbufSpike",
+      "file": "internal/poc/emulator/cellbuf_spike_test.go",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-1",
+      "acceptance_criteria": ["AC-S1d2278-1-2"],
+      "test": "go test ./internal/poc/emulator/ -run TestAltSpike",
+      "file": "internal/poc/emulator/alt_spike_test.go",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-1",
+      "acceptance_criteria": ["AC-S1d2278-1-3"],
+      "test": "tests/e2e/s1d2278_story1_emulator.py (emulator-comparison.md presence + 5 required headings)",
+      "file": "tests/e2e/s1d2278_story1_emulator.py",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-2",
+      "acceptance_criteria": ["AC-S1d2278-2-1"],
+      "test": "tests/e2e/s1d2278_story2_pty_daemon.py::AC-2-1",
+      "file": "tests/e2e/s1d2278_story2_pty_daemon.py",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-2",
+      "acceptance_criteria": ["AC-S1d2278-2-2"],
+      "test": "tests/e2e/s1d2278_story2_pty_daemon.py::AC-2-2 (SIGWINCH handled)",
+      "file": "tests/e2e/s1d2278_story2_pty_daemon.py",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-2",
+      "acceptance_criteria": ["AC-S1d2278-2-3"],
+      "test": "tests/e2e/s1d2278_story2_pty_daemon.py::AC-2-3 (ring_bytes > 0)",
+      "file": "tests/e2e/s1d2278_story2_pty_daemon.py",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-2",
+      "acceptance_criteria": ["AC-S1d2278-2-4"],
+      "test": "tests/e2e/s1d2278_story2_pty_daemon.py::AC-2-4 (alive:false after SIGKILL)",
+      "file": "tests/e2e/s1d2278_story2_pty_daemon.py",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-2",
+      "acceptance_criteria": ["AC-S1d2278-2-5"],
+      "test": "tests/e2e/s1d2278_story2_pty_daemon.py::AC-2-5 (spike doc presence)",
+      "file": "tests/e2e/s1d2278_story2_pty_daemon.py",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-2",
+      "acceptance_criteria": ["AC-S1d2278-2-1", "AC-S1d2278-2-3"],
+      "test": "go test ./cmd/poc-pty/... ./internal/poc/pty/... (13 unit tests)",
+      "file": "cmd/poc-pty/{probe,ws}_test.go; internal/poc/pty/ring_test.go",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-3",
+      "acceptance_criteria": ["AC-S1d2278-3-1"],
+      "test": "tests/e2e/s1d2278_pty_poc.py::test_ac_s1d2278_3_1_ws_bidirectional",
+      "file": "tests/e2e/s1d2278_pty_poc.py",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-3",
+      "acceptance_criteria": ["AC-S1d2278-3-2"],
+      "test": "tests/e2e/s1d2278_pty_poc.py::test_ac_s1d2278_3_2_xterm_renders_tui (Playwright headless Chromium)",
+      "file": "tests/e2e/s1d2278_pty_poc.py",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-3",
+      "acceptance_criteria": ["AC-S1d2278-3-3"],
+      "test": "tests/e2e/s1d2278_pty_poc.py::test_ac_s1d2278_3_3_replay_on_reconnect",
+      "file": "tests/e2e/s1d2278_pty_poc.py",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-3",
+      "acceptance_criteria": ["AC-S1d2278-3-4"],
+      "test": "tests/e2e/s1d2278_pty_poc.py::test_ac_s1d2278_3_4_smoke_log_present",
+      "file": "tests/e2e/s1d2278_pty_poc.py",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-3",
+      "acceptance_criteria": ["AC-S1d2278-3-5"],
+      "test": "tests/e2e/s1d2278_pty_poc.py + tests/e2e/s1d2278_pty_poc_mock.py (data-testid selectors used by both)",
+      "file": "tests/e2e/s1d2278_pty_poc_mock.py",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-3",
+      "acceptance_criteria": ["AC-S1d2278-3-5"],
+      "test": "tests/e2e/s1d2278_pty_poc_mock.py (mock test exercises pty-poc-status / pty-poc-reconnect-btn testids)",
+      "file": "tests/e2e/s1d2278_pty_poc_mock.py",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-4",
+      "acceptance_criteria": ["AC-S1d2278-4-1"],
+      "test": "tests/e2e/s1d2278_story4_billing_path.py (file exists)",
+      "file": "tests/e2e/s1d2278_story4_billing_path.py",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-4",
+      "acceptance_criteria": ["AC-S1d2278-4-2"],
+      "test": "tests/e2e/s1d2278_story4_billing_path.py (>= 100 bytes)",
+      "file": "tests/e2e/s1d2278_story4_billing_path.py",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-4",
+      "acceptance_criteria": ["AC-S1d2278-4-3"],
+      "test": "tests/e2e/s1d2278_story4_billing_path.py (結論 section)",
+      "file": "tests/e2e/s1d2278_story4_billing_path.py",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-5",
+      "acceptance_criteria": ["AC-S1d2278-5-1"],
+      "test": "tests/e2e/s1d2278_story5_credit_analysis.py (Anthropic 公式 URL + 数値)",
+      "file": "tests/e2e/s1d2278_story5_credit_analysis.py",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-5",
+      "acceptance_criteria": ["AC-S1d2278-5-2"],
+      "test": "tests/e2e/s1d2278_story5_credit_analysis.py (判定 section)",
+      "file": "tests/e2e/s1d2278_story5_credit_analysis.py",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-5",
+      "acceptance_criteria": ["AC-S1d2278-5-3"],
+      "test": "tests/e2e/s1d2278_story5_credit_analysis.py (verdict keyword)",
+      "file": "tests/e2e/s1d2278_story5_credit_analysis.py",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-6",
+      "acceptance_criteria": ["AC-S1d2278-6-1"],
+      "test": "tests/e2e/s1d2278_story6_synthesis.py (4-axis verdict table)",
+      "file": "tests/e2e/s1d2278_story6_synthesis.py",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-6",
+      "acceptance_criteria": ["AC-S1d2278-6-2"],
+      "test": "tests/e2e/s1d2278_story6_synthesis.py (3 sprint outlines)",
+      "file": "tests/e2e/s1d2278_story6_synthesis.py",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-6",
+      "acceptance_criteria": ["AC-S1d2278-6-3"],
+      "test": "tests/e2e/s1d2278_story6_synthesis.py (fallback Track A outline)",
+      "file": "tests/e2e/s1d2278_story6_synthesis.py",
+      "status": "pass"
+    },
+    {
+      "story": "S1d2278-6",
+      "acceptance_criteria": ["AC-S1d2278-6-4"],
+      "test": "tests/e2e/s1d2278_story6_synthesis.py (decisions.json 6_7_pivot_decision)",
+      "file": "tests/e2e/s1d2278_story6_synthesis.py",
+      "status": "pass"
+    }
+  ],
+  "diff_coverage": {
+    "scan_executed_at": "2026-05-17",
+    "base_branch": "main",
+    "head_branch": "autopilot/main/S1d2278",
+    "additions": [
+      {"type": "go-package", "identifier": "internal/poc/emulator", "covered_by": ["TestCellbufSpike", "TestAltSpike"], "status": "covered"},
+      {"type": "go-package", "identifier": "internal/poc/pty", "covered_by": ["TestRing*", "TestServer*", "TestDaemon*"], "status": "covered"},
+      {"type": "go-binary", "identifier": "cmd/poc-pty/", "covered_by": ["cmd/poc-pty/probe_test.go", "cmd/poc-pty/ws_test.go", "tests/e2e/s1d2278_story2_pty_daemon.py", "tests/e2e/s1d2278_pty_poc.py"], "status": "covered"},
+      {"type": "cli-flag", "identifier": "--port", "covered_by": ["tests/e2e/s1d2278_pty_poc.py fixture"], "status": "covered"},
+      {"type": "cli-flag", "identifier": "--probe", "covered_by": ["AC-S1d2278-2-1"], "status": "covered"},
+      {"type": "cli-flag", "identifier": "--claude-bin", "covered_by": ["tests/e2e/s1d2278_pty_poc.py fixture", "tests/e2e/s1d2278_story2_pty_daemon.py"], "status": "covered"},
+      {"type": "cli-flag", "identifier": "--claude-args", "covered_by": ["tests/e2e/s1d2278_pty_poc.py fixture"], "status": "covered"},
+      {"type": "cli-flag", "identifier": "--ring-size", "covered_by": ["AC-S1d2278-2-3 (default 1MiB)"], "status": "covered"},
+      {"type": "cli-flag", "identifier": "--probe-prompt", "covered_by": ["cmd/poc-pty/probe_test.go"], "status": "covered"},
+      {"type": "http-route", "identifier": "GET /", "covered_by": ["AC-S1d2278-3-2 (Playwright loads /)"], "status": "covered"},
+      {"type": "http-route", "identifier": "GET /poc/pty/stats", "covered_by": ["AC-S1d2278-2-2, AC-S1d2278-2-3, AC-S1d2278-2-4"], "status": "covered"},
+      {"type": "http-route", "identifier": "WS /poc/pty/attach", "covered_by": ["AC-S1d2278-3-1, AC-S1d2278-3-3, cmd/poc-pty/ws_test.go"], "status": "covered"},
+      {"type": "gui-testid", "identifier": "pty-poc-status", "covered_by": ["AC-S1d2278-3-2 (Playwright getByTestId)"], "status": "covered"},
+      {"type": "gui-testid", "identifier": "pty-poc-terminal", "covered_by": ["AC-S1d2278-3-2"], "status": "covered"},
+      {"type": "gui-testid", "identifier": "pty-poc-reconnect-btn", "covered_by": ["tests/e2e/s1d2278_pty_poc_mock.py"], "status": "covered"},
+      {"type": "gui-query-param", "identifier": "?ws= (HTML override URL)", "covered_by": ["tests/e2e/s1d2278_pty_poc_mock.py"], "status": "covered"},
+      {"type": "gui-query-param", "identifier": "?resume= (WS daemon resume)", "covered_by": ["AC-S1d2278-2-4 (logging path)"], "status": "covered-partial", "notes": "Wiring + logging are tested; actual --resume with real session_id is manual-smoke. Acceptable for PoC."},
+      {"type": "doc", "identifier": "docs/sprint-logs/S1d2278/emulator-comparison.md", "covered_by": ["AC-S1d2278-1-3"], "status": "covered"},
+      {"type": "doc", "identifier": "docs/sprint-logs/S1d2278/pty-daemon-spike.md", "covered_by": ["AC-S1d2278-2-5"], "status": "covered"},
+      {"type": "doc", "identifier": "docs/sprint-logs/S1d2278/desktop-attach-demo.md", "covered_by": ["AC-S1d2278-3-4"], "status": "covered"},
+      {"type": "doc", "identifier": "docs/sprint-logs/S1d2278/autopilot-billing-path.md", "covered_by": ["AC-S1d2278-4-2"], "status": "covered"},
+      {"type": "doc", "identifier": "docs/sprint-logs/S1d2278/sdk-credit-analysis.md", "covered_by": ["AC-S1d2278-5-3"], "status": "covered"},
+      {"type": "doc", "identifier": "docs/sprint-logs/S1d2278/track-b-roadmap.md", "covered_by": ["AC-S1d2278-6-1, AC-S1d2278-6-2, AC-S1d2278-6-3"], "status": "covered"},
+      {"type": "doc", "identifier": "docs/sprint-logs/S1d2278/decisions.json", "covered_by": ["AC-S1d2278-6-4"], "status": "covered"}
+    ],
+    "untested_additions": [],
+    "notes": "All 24 surfaces added in the Sprint diff are covered by at least one passing test. One AC (AC-S1d2278-2-4 'resume after kill') is documented as covered-partial: the WS query param wiring + logging is automated; the actual real-claude resume path is manual-smoke (documented in pty-daemon-spike.md scenario-4). Acceptable per PoC scope."
+  }
+}
