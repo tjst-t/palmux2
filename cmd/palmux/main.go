@@ -275,6 +275,7 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		RingSize:      1 << 20, // 1 MiB ring buffer per branch
 		ResumeOnDeath: true,    // Story 4: always resume on crash
 		Store:         tuiStore,
+		NotifyHub:     notifyHub, // S0fd64b-1: forward OSC 52 clipboard events
 	})
 	registry.Register(claudetui.New(claudetuiMgr))
 

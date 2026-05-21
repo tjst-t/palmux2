@@ -1,0 +1,51 @@
+{
+  "sprint_id": "S0fd64b",
+  "verified_at": "2026-05-19",
+  "summary": {"pass": 17, "fail": 0, "skip": 0, "total": 17},
+  "tests": [
+    {"story": "S0fd64b-1", "acceptance_criteria": ["AC-S0fd64b-1-1"], "test": "TestDaemonGridSnapshot (race)", "file": "internal/tab/claudetui/daemon_test.go", "status": "pass"},
+    {"story": "S0fd64b-1", "acceptance_criteria": ["AC-S0fd64b-1-2"], "test": "TestEmulatorOsc52Hub + TestEmulatorOsc52NoHub", "file": "internal/tab/claudetui/emulator_test.go", "status": "pass"},
+    {"story": "S0fd64b-1", "acceptance_criteria": ["AC-S0fd64b-1-3"], "test": "BenchmarkRingFanout (<5% degradation) + 既存 49 tests 緑", "file": "internal/tab/claudetui/ring_test.go + docs/sprint-logs/S0fd64b/perf-note.md", "status": "pass"},
+    {"story": "S0fd64b-1", "acceptance_criteria": ["AC-S0fd64b-1-4"], "test": "TestEmulatorAnsiCoverage", "file": "internal/tab/claudetui/emulator_test.go", "status": "pass"},
+    {"story": "S0fd64b-2", "acceptance_criteria": ["AC-S0fd64b-2-1"], "test": "TestAttachHandler_GridMode_Init + tests/e2e/s0fd64b_grid_ws_protocol.py [AC-2-1]", "file": "internal/tab/claudetui/server_test.go + tests/e2e/s0fd64b_grid_ws_protocol.py", "status": "pass"},
+    {"story": "S0fd64b-2", "acceptance_criteria": ["AC-S0fd64b-2-2"], "test": "TestAttachHandler_GridMode_Diff + s0fd64b_grid_ws_protocol.py [AC-2-2]", "file": "同上", "status": "pass"},
+    {"story": "S0fd64b-2", "acceptance_criteria": ["AC-S0fd64b-2-3"], "test": "TestAttachHandler_GridMode_CoalesceRate + s0fd64b_grid_ws_protocol.py [AC-2-3] (19 frames / 2s)", "file": "同上", "status": "pass"},
+    {"story": "S0fd64b-2", "acceptance_criteria": ["AC-S0fd64b-2-4"], "test": "TestAttachHandler_GridMode_InputCompat + s0fd64b_grid_ws_protocol.py [AC-2-4]", "file": "同上", "status": "pass"},
+    {"story": "S0fd64b-3", "acceptance_criteria": ["AC-S0fd64b-3-1"], "test": "TestSingleClientGetsActive + s0fd64b_multi_client.py scenario-1", "file": "internal/tab/claudetui/multiclient_test.go + tests/e2e/s0fd64b_multi_client.py", "status": "pass"},
+    {"story": "S0fd64b-3", "acceptance_criteria": ["AC-S0fd64b-3-2"], "test": "TestSecondClientIsViewer + s0fd64b_multi_client.py scenario-2", "file": "同上", "status": "pass"},
+    {"story": "S0fd64b-3", "acceptance_criteria": ["AC-S0fd64b-3-3"], "test": "TestLastTypedWinsRoleTransition + s0fd64b_multi_client.py scenario-3", "file": "同上", "status": "pass"},
+    {"story": "S0fd64b-3", "acceptance_criteria": ["AC-S0fd64b-3-4"], "test": "TestActiveTransferOnDisconnect + s0fd64b_multi_client.py scenario-4", "file": "同上", "status": "pass"},
+    {"story": "S0fd64b-4", "acceptance_criteria": ["AC-S0fd64b-4-1"], "test": "tests/e2e/s0fd64b_mobile_chat.py::test_ac_s0fd64b_4_1_*", "file": "tests/e2e/s0fd64b_mobile_chat.py", "status": "pass"},
+    {"story": "S0fd64b-4", "acceptance_criteria": ["AC-S0fd64b-4-2"], "test": "tests/e2e/s0fd64b_mobile_chat.py::test_ac_s0fd64b_4_2_*", "file": "同上", "status": "pass"},
+    {"story": "S0fd64b-4", "acceptance_criteria": ["AC-S0fd64b-4-3"], "test": "tests/e2e/s0fd64b_mobile_chat.py::test_ac_s0fd64b_4_3_*", "file": "同上", "status": "pass"},
+    {"story": "S0fd64b-4", "acceptance_criteria": ["AC-S0fd64b-4-4"], "test": "tests/e2e/s0fd64b_mobile_chat.py::test_ac_s0fd64b_4_4_* + tests/e2e/s0fd64b_mobile_chat_mock.py [MOCK] role flip", "file": "同上 + tests/e2e/s0fd64b_mobile_chat_mock.py", "status": "pass"},
+    {"story": "S0fd64b-4", "acceptance_criteria": ["AC-S0fd64b-4-5"], "test": "tests/e2e/s0fd64b_mobile_chat.py::test_ac_s0fd64b_4_5_* + mock tests", "file": "同上", "status": "pass"}
+  ],
+  "diff_coverage": {
+    "scan_executed_at": "2026-05-19",
+    "base_branch": "main (via stacked autopilot/main/S7ce250 → S0fd64b)",
+    "head_branch": "autopilot/main/S0fd64b",
+    "additions": [
+      {"type": "go-package", "identifier": "internal/tab/claudetui/emulator.go", "covered_by": ["TestEmulator*"], "status": "covered"},
+      {"type": "go-package", "identifier": "internal/tab/claudetui/role.go", "covered_by": ["multiclient_test.go"], "status": "covered"},
+      {"type": "go-export", "identifier": "Daemon.GridSnapshot", "covered_by": ["TestDaemonGridSnapshot"], "status": "covered"},
+      {"type": "go-export", "identifier": "Emulator.{Feed, GridSnapshot, Resize, Close, NewEmulator}", "covered_by": ["TestEmulator*"], "status": "covered"},
+      {"type": "go-export", "identifier": "notify.CopyEvent + Hub.PublishCopy + Hub.SubscribeCopy", "covered_by": ["TestEmulatorOsc52Hub"], "status": "covered"},
+      {"type": "go-export", "identifier": "RoleEvent, RoleActive, RoleViewer constants", "covered_by": ["multiclient_test.go"], "status": "covered"},
+      {"type": "ws-query-param", "identifier": "?mode=grid on /tabs/claude-tui/attach", "covered_by": ["server_test.go grid-mode tests + s0fd64b_grid_ws_protocol.py"], "status": "covered"},
+      {"type": "ws-message-type", "identifier": "{type:'grid.init'}", "covered_by": ["s0fd64b_grid_ws_protocol.py AC-2-2"], "status": "covered"},
+      {"type": "ws-message-type", "identifier": "{type:'grid.diff'}", "covered_by": ["s0fd64b_grid_ws_protocol.py AC-2-2"], "status": "covered"},
+      {"type": "ws-message-type", "identifier": "{type:'role', role, since}", "covered_by": ["s0fd64b_multi_client.py + multiclient_test.go"], "status": "covered"},
+      {"type": "gui-component", "identifier": "MobileChatView (frontend/src/tabs/claude-tui/mobile-chat-view.tsx)", "covered_by": ["s0fd64b_mobile_chat.py + _mock.py"], "status": "covered"},
+      {"type": "gui-testid", "identifier": "mobile-chat-view", "covered_by": ["s0fd64b_mobile_chat.py + _mock.py"], "status": "covered"},
+      {"type": "gui-testid", "identifier": "mobile-chat-bubble", "covered_by": ["s0fd64b_mobile_chat.py [AC-4-2]"], "status": "covered"},
+      {"type": "gui-testid", "identifier": "mobile-chat-input", "covered_by": ["s0fd64b_mobile_chat.py [AC-4-3]"], "status": "covered"},
+      {"type": "gui-testid", "identifier": "mobile-chat-send-btn", "covered_by": ["s0fd64b_mobile_chat.py [AC-4-3]"], "status": "covered"},
+      {"type": "gui-testid", "identifier": "mobile-chat-role-badge", "covered_by": ["s0fd64b_mobile_chat.py [AC-4-4] + _mock.py role tests"], "status": "covered"},
+      {"type": "gui-testid", "identifier": "mobile-chat-reconnect-btn", "covered_by": ["s0fd64b_mobile_chat_mock.py [MOCK] ws refused"], "status": "covered"},
+      {"type": "gui-testid", "identifier": "claude-tui-role-badge (desktop)", "covered_by": ["tests/e2e/s7ce250_claude_tui.py role badge test"], "status": "covered"}
+    ],
+    "untested_additions": [],
+    "notes": "Sprint B adds server-side emulator + grid-mode WS + multi-client coordination + mobile chat UI. 17 ACs / 17 tests / 0 fail / 0 skip. All 18 user-observable surfaces are covered by at least one passing test. The mobile UI's bubble extraction is a documented MVP heuristic — its limitations are tracked as out-of-scope findings for Sprint C / backlog."
+  }
+}

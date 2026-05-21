@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"sync"
 	"testing"
+
+	"github.com/tjst-t/palmux2/internal/notify"
 )
 
 // TestRingWrite verifies basic FIFO write + Bytes() round-trip.
@@ -165,4 +167,78 @@ func TestRingConcurrentWriteRead(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+// BenchmarkRingFanout measures Ring.Write throughput with varying subscriber
+// counts.  Subscriber 0 is always the baseline (no subscribers).  Subscriber
+// counts 1 and 4 include raw-bytes WS subscriber(s).  Subscriber count "1+em"
+// adds one Emulator subscriber, representing the S0fd64b-1 addition.
+//
+// This benchmark is referenced in docs/sprint-logs/S0fd64b/perf-note.md.
+func BenchmarkRingFanout(b *testing.B) {
+	const chunkSize = 4096
+
+	cases := []struct {
+		name       string
+		rawSubs    int
+		withEmulator bool
+	}{
+		{"no_subs_baseline", 0, false},
+		{"1_raw_sub", 1, false},
+		{"4_raw_subs", 4, false},
+		{"1_raw_sub_+_emulator", 1, true},
+		{"4_raw_subs_+_emulator", 4, true},
+	}
+
+	chunk := bytes.Repeat([]byte("x"), chunkSize)
+
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			r := NewRing(DefaultRingSize)
+			var subs []*Subscription
+			for i := 0; i < tc.rawSubs; i++ {
+				_, sub := r.SnapshotAndSubscribe()
+				subs = append(subs, sub)
+				// Drain subscriber channel in the background so it never blocks.
+				go func(s *Subscription) {
+					for range s.Ch {
+					}
+				}(sub)
+			}
+
+			var em *Emulator
+			var emSub *Subscription
+			if tc.withEmulator {
+				// Create an emulator that subscribes to the ring.
+				em = NewEmulator(80, 24, notify.New(nil, nil), "", "")
+				_, emSub = r.SnapshotAndSubscribe()
+				// Drain the emulator's subscription and feed it.
+				go func() {
+					for chunk := range emSub.Ch {
+						em.Feed(chunk)
+					}
+				}()
+			}
+
+			b.SetBytes(int64(chunkSize))
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				if _, err := r.Write(chunk); err != nil {
+					b.Fatal(err)
+				}
+			}
+
+			b.StopTimer()
+			for _, sub := range subs {
+				r.Unsubscribe(sub)
+			}
+			if emSub != nil {
+				r.Unsubscribe(emSub)
+			}
+			if em != nil {
+				em.Close()
+			}
+		})
+	}
 }

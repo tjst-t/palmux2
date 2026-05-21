@@ -23,6 +23,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/signal"
@@ -39,6 +40,7 @@ func main() {
 	writeSessionDir := ""
 	writeSessionID := ""
 	printCwd := false
+	emitOsc52 := "" // non-empty → emit OSC 52 with this text as the payload
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -58,6 +60,12 @@ func main() {
 			}
 		case "--print-cwd":
 			printCwd = true
+		case "--emit-osc52":
+			// Consumes next arg: the text to put into the OSC 52 clipboard.
+			if i+1 < len(args) {
+				emitOsc52 = args[i+1]
+				i++
+			}
 		}
 	}
 
@@ -74,6 +82,13 @@ func main() {
 		} else {
 			fmt.Printf("cwd: %s\n", cwd)
 		}
+	}
+
+	if emitOsc52 != "" {
+		// Emit OSC 52 clipboard-write sequence.
+		b64 := base64.StdEncoding.EncodeToString([]byte(emitOsc52))
+		// Write to stdout: ESC ] 52 ; c ; <b64> BEL
+		fmt.Printf("\x1b]52;c;%s\x07", b64)
 	}
 
 	if exitImmediately {

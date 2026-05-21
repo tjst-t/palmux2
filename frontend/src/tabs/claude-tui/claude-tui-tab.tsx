@@ -5,11 +5,13 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal } from '@xterm/xterm'
 
+import { isMobile, useViewport } from '../../hooks/use-viewport'
 import { api } from '../../lib/api'
 import type { TabViewProps } from '../../lib/tab-registry'
 import { terminalManager } from '../../lib/terminal-manager'
 import { ReconnectingWebSocket } from '../../lib/ws'
 import { usePalmuxStore } from '../../stores/palmux-store'
+import { MobileChatView } from './mobile-chat-view'
 
 import '@xterm/xterm/css/xterm.css'
 import styles from './styles.module.css'
@@ -61,9 +63,25 @@ function buildResizeUrl(repoId: string, branchId: string): string {
 // Status type maps to data-testid=claude-tui-status values used in E2E.
 type Status = 'connecting' | 'connected' | 'streaming' | 'disconnected'
 
+// Role type mirrors the server-side RoleActive / RoleViewer constants (Story 3).
+// undefined means no role event has been received from the server yet.
+type Role = 'active' | 'viewer'
+
 export function ClaudeTuiTab({ repoId, branchId }: TabViewProps) {
+  const viewport = useViewport()
+  if (isMobile(viewport)) {
+    return <MobileChatView repoId={repoId} branchId={branchId} />
+  }
+
+  return <ClaudeTuiDesktop repoId={repoId} branchId={branchId} />
+}
+
+function ClaudeTuiDesktop({ repoId, branchId }: { repoId: string; branchId: string }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [status, setStatus] = useState<Status>('connecting')
+  // role tracks the multi-client active/viewer assignment for this connection.
+  // undefined means no role event has been received yet.
+  const [role, setRole] = useState<Role | undefined>(undefined)
   const fontSize = usePalmuxStore((s) => s.deviceSettings.fontSize)
   // Manual reconnect trigger: incrementing this counter causes the effect to
   // re-run and tear down / re-create the WS + terminal.
@@ -71,6 +89,7 @@ export function ClaudeTuiTab({ repoId, branchId }: TabViewProps) {
 
   const handleReconnect = useCallback(() => {
     setStatus('connecting')
+    setRole(undefined)
     setReconnectSeq((n) => n + 1)
   }, [])
 
@@ -118,17 +137,32 @@ export function ClaudeTuiTab({ repoId, branchId }: TabViewProps) {
       },
       onMessage: (ev) => {
         if (ev.data instanceof ArrayBuffer) {
+          // Binary frame: raw PTY bytes → write to xterm.
           term.write(new Uint8Array(ev.data))
+          // Only count binary frames as "streaming" (actual terminal output).
+          setStatus('streaming')
+          if (streamingTimer) clearTimeout(streamingTimer)
+          streamingTimer = setTimeout(() => {
+            setStatus((prev) => (prev === 'streaming' ? 'connected' : prev))
+          }, 1000)
         } else if (typeof ev.data === 'string') {
-          term.write(ev.data)
+          // Text frame: JSON control event (role, grid.init, grid.diff, …).
+          // Route by type; silently ignore unrecognised types.
+          try {
+            const msg = JSON.parse(ev.data) as { type?: string; role?: string }
+            if (msg.type === 'role') {
+              const r = msg.role
+              if (r === 'active' || r === 'viewer') {
+                setRole(r)
+              }
+              // Role events do not count as PTY streaming output.
+            }
+            // grid.init / grid.diff: silently ignored (not used by desktop terminal).
+          } catch {
+            // Non-JSON text frame: pass to terminal as a fallback (legacy compat).
+            term.write(ev.data)
+          }
         }
-        // Brief "streaming" status on inbound data.
-        setStatus('streaming')
-        if (streamingTimer) clearTimeout(streamingTimer)
-        streamingTimer = setTimeout(() => {
-          // Revert to "connected" only if we haven't disconnected.
-          setStatus((prev) => (prev === 'streaming' ? 'connected' : prev))
-        }, 1000)
       },
     })
     ws.connect()
@@ -216,6 +250,14 @@ export function ClaudeTuiTab({ repoId, branchId }: TabViewProps) {
         <span data-testid="claude-tui-status" className={styles.status}>
           {statusLabel[status]}
         </span>
+        {role !== undefined && (
+          <span
+            data-testid="claude-tui-role-badge"
+            className={`${styles.roleBadge} ${role === 'active' ? styles.roleBadgeActive : styles.roleBadgeViewer}`}
+          >
+            {role}
+          </span>
+        )}
       </div>
       <div
         ref={containerRef}

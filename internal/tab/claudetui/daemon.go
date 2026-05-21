@@ -14,6 +14,8 @@ import (
 	"time"
 
 	creackpty "github.com/creack/pty"
+
+	"github.com/tjst-t/palmux2/internal/notify"
 )
 
 const (
@@ -91,6 +93,11 @@ type Stats struct {
 //     request context, so WS client disconnects do NOT kill it (Fix 7).
 //   - PTY reads use a goroutine + channel pattern; SetReadDeadline is never
 //     called on the PTY master fd (Fix 6).
+//   - Every byte written to the Ring is also fed to the [Emulator] synchronously.
+//     emulator.Feed must be fast (pure state-machine update); it never blocks.
+//   - Multi-client role coordination is handled by the embedded [roleCoordinator].
+//     Exactly one subscriber is active at a time; others are viewers.  Sending
+//     input flips the active role to the sender ("last-typed-wins" — Story 3).
 type Daemon struct {
 	// configuration (immutable after NewDaemon)
 	claudeBin     string
@@ -98,7 +105,11 @@ type Daemon struct {
 	worktree      string
 	resumeOnDeath bool
 	ring          *Ring
+	emulator      *Emulator
 	logger        *slog.Logger
+
+	// roles manages multi-client active/viewer assignment (Story 3).
+	roles *roleCoordinator
 
 	// daemonCtx is owned by the Daemon and lives until Shutdown().
 	// IMPORTANT: all subprocess exec.CommandContext calls use this context,
@@ -158,9 +169,21 @@ type DaemonConfig struct {
 	ResumeOnDeath bool
 	// Logger is the slog logger to use (nil → slog.Default()).
 	Logger *slog.Logger
+
+	// NotifyHub is the notify hub used to publish OSC 52 clipboard events.
+	// When nil the Emulator still runs but clipboard events are silently
+	// discarded.  Main wires this from the process-wide hub.
+	NotifyHub *notify.Hub
+	// RepoID and BranchID identify the workspace.  They are stamped onto
+	// every [notify.CopyEvent] emitted by the Emulator.
+	RepoID   string
+	BranchID string
 }
 
 // NewDaemon creates a Daemon from cfg.  No subprocess is spawned yet.
+//
+// The Emulator is created immediately at default 80×24 (VT-100 default); it
+// will be resized when the first WebSocket client calls [Daemon.Resize].
 func NewDaemon(cfg DaemonConfig) *Daemon {
 	if cfg.ClaudeBin == "" {
 		cfg.ClaudeBin = "claude"
@@ -178,14 +201,24 @@ func NewDaemon(cfg DaemonConfig) *Daemon {
 		worktree:       cfg.Worktree,
 		resumeOnDeath:  cfg.ResumeOnDeath,
 		ring:           NewRing(cfg.RingSize),
+		emulator:       NewEmulator(80, 24, cfg.NotifyHub, cfg.RepoID, cfg.BranchID),
 		logger:         cfg.Logger,
 		daemonCtx:      ctx,
 		daemonCancel:   cancel,
 		sessionIDReady: make(chan struct{}),
 		shutdownCh:     make(chan struct{}),
+		roles:          newRoleCoordinator(cfg.Logger),
 	}
 	d.state.Store(int32(StateIdle))
 	return d
+}
+
+// GridSnapshot returns a consistent snapshot of the current visible grid from
+// the server-side headless terminal emulator.  It is safe for concurrent use
+// and may be called from any goroutine.  Story 2 exposes this via the grid
+// WebSocket mode.
+func (d *Daemon) GridSnapshot() Grid {
+	return d.emulator.GridSnapshot()
 }
 
 // EnsureStarted lazily spawns the subprocess on the first call.  Subsequent
@@ -274,6 +307,43 @@ func (d *Daemon) spawnWithArgs(args []string) error {
 		d.readLoop(ptmx)
 	}()
 
+	// Background drainer: emulator → PTY stdin (subprocess input).
+	//
+	// The vt.Emulator generates response bytes for some ANSI queries (DA1 / DA2
+	// device attributes, cursor position report, etc.) by writing into an
+	// internal io.Pipe. If we never drain that pipe its 64KiB buffer fills,
+	// at which point the next response Write inside Emulator.Write blocks
+	// **while still holding the SafeEmulator writer lock**. That deadlocks every
+	// subsequent GridSnapshot caller (each reader-lock attempt waits forever).
+	//
+	// Forwarding the pipe output to ptmx (the subprocess stdin) is the
+	// architecturally correct fix: claude asked the terminal a question, the
+	// emulator answers, the answer goes back to claude. claude may or may not
+	// care, but the pipe drains and the lock is never held across a blocked
+	// write.
+	d.shutdownWg.Add(1)
+	go func() {
+		defer d.shutdownWg.Done()
+		buf := make([]byte, 4096)
+		for {
+			select {
+			case <-d.shutdownCh:
+				return
+			default:
+			}
+			n, err := d.emulator.Read(buf)
+			if err != nil {
+				return
+			}
+			if n <= 0 {
+				continue
+			}
+			if _, werr := ptmx.Write(buf[:n]); werr != nil {
+				return
+			}
+		}
+	}()
+
 	// Background wait goroutine: calls cmd.Wait() and sends the result to
 	// exited.  This goroutine is the SOLE caller of cmd.Wait() for this
 	// subprocess instance (Fix 2 — no double-Wait).  Shutdown() drains exited.
@@ -331,6 +401,10 @@ func (d *Daemon) readLoop(ptmx *os.File) {
 				if _, werr := d.ring.Write(chunk); werr != nil {
 					d.logger.Warn("claudetui: ring write error", "err", werr)
 				}
+				// Feed the same bytes to the headless terminal emulator.
+				// emulator.Feed is a synchronous state-machine update; it does
+				// not block and adds only a small constant overhead per chunk.
+				d.emulator.Feed(chunk)
 			}
 			if r.err != nil {
 				if r.err != io.EOF {
@@ -458,6 +532,12 @@ func (d *Daemon) SessionID() string {
 	return d.sessionID
 }
 
+// Worktree returns the branch worktree path the subprocess was spawned in
+// (may be empty for tests that did not pass one).
+func (d *Daemon) Worktree() string {
+	return d.worktree
+}
+
 // WriteInput writes bytes to the PTY master (stdin of the subprocess).
 func (d *Daemon) WriteInput(ctx context.Context, p []byte) error {
 	d.stateMu.Lock()
@@ -472,7 +552,8 @@ func (d *Daemon) WriteInput(ctx context.Context, p []byte) error {
 	return nil
 }
 
-// Resize propagates a terminal resize to the PTY via SIGWINCH / TIOCSWINSZ.
+// Resize propagates a terminal resize to the PTY via SIGWINCH / TIOCSWINSZ
+// and keeps the headless [Emulator] grid in sync.
 // Fully wired to the frontend in Story 3 via FitAddon events.
 func (d *Daemon) Resize(cols, rows uint16) error {
 	d.stateMu.Lock()
@@ -487,6 +568,9 @@ func (d *Daemon) Resize(cols, rows uint16) error {
 	}); err != nil {
 		return fmt.Errorf("claudetui daemon: pty setsize: %w", err)
 	}
+	// Keep the emulator dimensions in sync with the PTY so GridSnapshot()
+	// reflects the correct terminal size.
+	d.emulator.Resize(int(cols), int(rows))
 	return nil
 }
 
@@ -564,6 +648,12 @@ func (d *Daemon) Shutdown() {
 		if ptmx != nil {
 			_ = ptmx.Close()
 		}
+
+		// Close emulator BEFORE waiting for the wait group. The emulator
+		// drainer goroutine blocks in emulator.Read(); closing the underlying
+		// io.Pipe makes Read return io.EOF and the drainer exits. Without
+		// this, shutdownWg.Wait would deadlock waiting for the drainer.
+		d.emulator.Close()
 
 		d.shutdownWg.Wait()
 		d.logger.Info("claudetui: daemon shutdown complete")

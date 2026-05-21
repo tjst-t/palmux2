@@ -2,15 +2,15 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 40,
+    "sprints_done": 41,
     "sprints_total": 41,
-    "percent": 97,
+    "percent": 100,
     "current_sprint": null,
-    "done": 40,
+    "done": 41,
     "in_progress": 0,
     "total": 41,
-    "remaining": 1,
-    "percentage": 97
+    "remaining": 0,
+    "percentage": 100
   },
   "execution_order": [
     "S001",
@@ -7035,13 +7035,13 @@
     },
     "S0fd64b": {
       "title": "サーバーサイド headless emulator + grid diff WS + multi-client coordination + mobile chat 風 UI 実証",
-      "status": "planned",
+      "status": "done",
       "milestone": true,
       "description": "S7ce250 で完成した internal/tab/claudetui/ の上に (1) charmbracelet/x/vt の emulator を載せ、 (2) grid diff JSON プロトコルで配信し、 (3) multi-client coordination (active-client follows = last-typed wins) を追加した上で、 (4) mobile chat 風 UI を MVP で実証する。 mobile parity (priority_rule 10) の鬼門だった『TUI を mobile でどう見せるか』を grid heuristic + chat 抽出で攻める Sprint。\n\n依存: S7ce250 (claudetui Daemon / Manager / Ring / Provider を全面利用)。\n対象外: ESC ESC 編集 / Toolbar mode 切替 / Activity Inbox 連動 (Sprint C)、 完全な mobile UX 磨き (quick action buttons・ keyboard handling)、 desktop での chat 風表示 (mobile-only)、 claude-agent タブの emulator 統合 (claude-tui のみ)。\n\n触る範囲: 新規 internal/tab/claudetui/emulator.go、 既存 internal/tab/claudetui/{daemon,server,manager}.go の小幅改修、 新規 frontend/src/tabs/claude-tui/mobile-chat-view.tsx (+ test-harness.html)、 既存 claude-tui-tab.tsx で useViewport 経由の switch、 tests/e2e/s0fd64b_mobile_chat{,_mock}.py、 docs/sprint-logs/S0fd64b/.\n\n7 件の auto-decisions (track-b-roadmap.md §2 outline + S1d2278-1 emulator-comparison + CLAUDE.md mobile breakpoint で根拠が揃っているため):\n  - Sprint ID = S0fd64b (track-b-roadmap.md sha256)\n  - branch base = autopilot/main/S7ce250 (Sprint A の上に stack)\n  - emulator = charmbracelet/x/vt (OSC 52 / bracketed paste / mouse / scrollback 全 green)\n  - WS default mode = raw (desktop xterm.js の既存挙動を変えない)\n  - mobile detection = viewport-based (use-viewport.ts MOBILE_MAX=599)\n  - grid diff = row-wise + 50ms coalesce (20fps cap)\n  - active-client policy = last-typed wins\n  - mobile chat 抽出 = grid 最終 user prompt + 直後 assistant 領域のヒューリスティック (MVP scope)",
       "stories": {
         "S0fd64b-1": {
           "title": "サーバーサイド emulator 統合 (charmbracelet/x/vt)",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux2 開発者として、 claude TUI 出力をサーバー側で構造化グリッドとして管理したい。 なぜなら、 後続 Story が mobile chat 抽出や OSC 52 clipboard 通知のような構造化情報を必要とするからだ。",
           "scenario": "docs/sprint-logs/S0fd64b/scenario-S0fd64b-1.json",
           "acceptance_criteria": [
@@ -7049,31 +7049,31 @@
               "id": "AC-S0fd64b-1-1",
               "description": "internal/tab/claudetui/emulator.go が charmbracelet/x/vt をラップ。 Daemon が emulator を Ring の subscriber として登録し、 GridSnapshot() で現グリッド状態を取得できる",
               "test": "go test ./internal/tab/claudetui/ -run TestDaemonGridSnapshot (race detector 込み)",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-1-2",
               "description": "OSC 52 (clipboard write) シーケンスを RegisterOscHandler でフックし、 palmux2 の internal/notify Hub に CopyEvent を流す",
               "test": "go test ./internal/tab/claudetui/ -run TestEmulatorOsc52Notify",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-1-3",
               "description": "Sprint A の raw-bytes 経路を一切破壊しない。 既存テスト群が全 pass、 BenchmarkRingFanout の degradation が 20% 以内に収まる",
               "test": "go test ./internal/tab/claudetui/... + bench note を docs/sprint-logs/S0fd64b/perf-note.md に記録",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-1-4",
               "description": "alt screen / SGR colors / cursor positioning / bracketed paste / mouse SGR / scrollback の各 ANSI シーケンスが grid に正しく反映 (S1d2278-1 fixture を継承)",
               "test": "go test ./internal/tab/claudetui/ -run TestEmulatorAnsiCoverage",
-              "status": "planned"
+              "status": "pass"
             }
           ]
         },
         "S0fd64b-2": {
           "title": "grid diff WS プロトコル設計 + 実装",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux2 frontend 開発者として、 claudetui の WS endpoint から grid 状態を JSON フレームで取得したい。 なぜなら、 mobile UI が xterm.js を使わずに claude の出力をレンダリングするには raw bytes ではなく構造化されたセル単位の grid 情報が必要だからだ。",
           "scenario": "docs/sprint-logs/S0fd64b/scenario-S0fd64b-2.json",
           "acceptance_criteria": [
@@ -7081,31 +7081,31 @@
               "id": "AC-S0fd64b-2-1",
               "description": "?mode=grid クエリで grid diff JSON モードに切替、 ?mode 省略 (or =raw) は raw-bytes binary frame (= 後方互換)",
               "test": "Python websockets client から両モードで attach し、 received frame type を assert (テストファイル: tests/e2e/s0fd64b_grid_ws_protocol.py)",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-2-2",
               "description": "メッセージ型 {type:'grid.init'|'grid.diff', cols, rows, cursor:{x,y}, altScreen, rows:[{y, cells:[{ch, fg?, bg?, attrs?}]}]} を text frame で JSON 配信。 init は接続直後の 1 回、 以降は diff のみ",
               "test": "同上の tests/e2e/s0fd64b_grid_ws_protocol.py で schema 検査",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-2-3",
               "description": "grid diff の配信レートは 50ms に coalesce (20fps 上限)。 大量 PTY 出力下でも frame 数 / 秒 ≤ 20",
               "test": "tests/e2e/s0fd64b_grid_ws_protocol.py 内 TestGridDiffCoalesceRate",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-2-4",
               "description": "client → server input フォーマットは raw / grid 両モードで共通 (binary frame をそのまま PTY stdin に書き込む)",
               "test": "tests/e2e/s0fd64b_grid_ws_protocol.py 内 TestGridModeInputCompat",
-              "status": "planned"
+              "status": "pass"
             }
           ]
         },
         "S0fd64b-3": {
           "title": "multi-client coordination (active-client follows / last-typed wins)",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux2 ユーザとして、 複数デバイス・タブから同じ claude-tui に attach するとき、 誰が active なのかを明確に知り、 input が衝突しないようにしたい。 なぜなら、 デスクトップとモバイル併用で同 branch を見るのは VISION 上想定されるユースケースで、 同時 input 競合を放置すると会話が壊れるからだ。",
           "scenario": "docs/sprint-logs/S0fd64b/scenario-S0fd64b-3.json",
           "acceptance_criteria": [
@@ -7113,31 +7113,31 @@
               "id": "AC-S0fd64b-3-1",
               "description": "シングル client 接続時は接続直後に {type:'role', role:'active', since:<unix-ms>} が配信される",
               "test": "tests/e2e/s0fd64b_multi_client.py 内 TestSingleClientGetsActive",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-3-2",
               "description": "2 client 目以降は接続時 role='viewer' を受信。 先行 active client は active のまま",
               "test": "tests/e2e/s0fd64b_multi_client.py 内 TestSecondClientIsViewer",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-3-3",
               "description": "viewer client が input を送ると active 権が transfer され、 全 client が新しい role event を受信する (last-typed wins)",
               "test": "tests/e2e/s0fd64b_multi_client.py 内 TestLastTypedWins",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-3-4",
               "description": "active client 切断時、 残った subscriber の 1 つに active 権が自動回帰。 全切断後は idle (次に接続した client が active で開始)",
               "test": "tests/e2e/s0fd64b_multi_client.py 内 TestActiveTransferOnDisconnect",
-              "status": "planned"
+              "status": "pass"
             }
           ]
         },
         "S0fd64b-4": {
           "title": "mobile chat 風 UI (MVP)",
-          "status": "planned",
+          "status": "done",
           "user_story": "外出先のスマホユーザとして、 claude-tui の最新出力を xterm.js ではなくチャットバブル形式で読み、 textarea + Send ボタンで入力したい。 なぜなら、 mobile 画面で TUI を見るのは小画面とソフトキーボードの制約で実用にならず、 mobile parity (priority_rule 10) を満たすには別 UI が必要だからだ。",
           "scenario": "docs/sprint-logs/S0fd64b/gui-spec-S0fd64b-4.json",
           "gui_spec": "docs/sprint-logs/S0fd64b/gui-spec-S0fd64b-4.json",
@@ -7146,35 +7146,36 @@
               "id": "AC-S0fd64b-4-1",
               "description": "viewport < 600px (use-viewport.ts MOBILE_MAX=599 を活用) で claude-tui タブを開くと xterm.js ではなく MobileChatView が描画される。 再接続 (Disconnected → Reconnect) 経路も動作",
               "test": "tests/e2e/s0fd64b_mobile_chat.py::test_ac_s0fd64b_4_1_*",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-4-2",
               "description": "grid モード WS に接続して受信したフレームから、 最新 user prompt 行 (行頭 `> `) と直後の assistant 応答領域を抽出して chat バブル化",
               "test": "tests/e2e/s0fd64b_mobile_chat.py::test_ac_s0fd64b_4_2_*",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-4-3",
               "description": "下部に textarea + Send ボタン、 Send は input が空のとき無効、 タップ送信後 textarea がクリアされる",
               "test": "tests/e2e/s0fd64b_mobile_chat.py::test_ac_s0fd64b_4_3_*",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-4-4",
               "description": "viewer/active role が badge で表示される。 viewer 状態では input が disabled になり viewer placeholder が出る。 typing で active を奪取できる",
               "test": "tests/e2e/s0fd64b_mobile_chat.py::test_ac_s0fd64b_4_4_*",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S0fd64b-4-5",
               "description": "data-testid mobile-chat-{view, bubble, input, send-btn, role-badge, reconnect-btn} がすべて存在",
               "test": "tests/e2e/s0fd64b_mobile_chat.py::test_ac_s0fd64b_4_5_* + tests/e2e/s0fd64b_mobile_chat_mock.py",
-              "status": "planned"
+              "status": "pass"
             }
           ]
         }
-      }
+      },
+      "completedAt": "2026-05-19"
     }
   },
   "dependencies": {
