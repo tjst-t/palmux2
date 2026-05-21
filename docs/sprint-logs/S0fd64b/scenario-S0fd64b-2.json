@@ -1,0 +1,72 @@
+{
+  "story": "S0fd64b-2",
+  "story_type": "api",
+  "user_role": "palmux2 frontend 開発者 (claudetui の WS endpoint を grid モードで叩いて JSON フレームを受信したい)",
+  "entry_point": "WS /api/repos/{repoId}/branches/{branchId}/tabs/claude-tui/attach?mode=grid を実 HTTP / WS client (Go test の coder/websocket または Python websockets) で叩く",
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "linked_ac": ["AC-S0fd64b-2-1"],
+      "description": "?mode=grid で grid モード、 ?mode 省略 (or =raw) で raw bytes に切替できる",
+      "preconditions": [
+        "S0fd64b-1 が landed (Daemon が emulator を保持)",
+        "palmux2 を hermetic fixture で起動 (--claude-bin /bin/cat)"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "action": "Python websockets client で `ws://<host>/api/.../attach` (mode 指定なし) に接続、 input bytes を送信し、 受信フレームのタイプを観察",
+          "expected": "受信が **binary frame** (raw bytes、 S7ce250 の挙動と同一)。 後方互換が確認できる"
+        },
+        {
+          "n": 2,
+          "action": "同 client で `ws://<host>/api/.../attach?mode=grid` に接続",
+          "expected": "受信が **text frame で JSON**。 最初に `{type:\"grid.init\", cols, rows, cursor, altScreen, rows: [...]}`、 続けて role event と grid.diff フレームが流れてくる"
+        }
+      ],
+      "cleanup": ["WS close、 hermetic palmux2 SIGTERM"]
+    },
+    {
+      "id": "scenario-2",
+      "linked_ac": ["AC-S0fd64b-2-2"],
+      "description": "grid.init / grid.diff JSON schema が仕様通り",
+      "preconditions": ["scenario-1 が pass"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "grid モードで attach し、 `bin/cat` に 80x24 の典型的 ANSI (cursor 移動 + SGR red + ヘルロー文字列) を WriteInput、 受信した JSON を 1 件ずつ parse",
+          "expected": "grid.init message が `{type, cols, rows, cursor:{x,y}, altScreen, rows: [...]}` の shape。 続く grid.diff が `{type:\"grid.diff\", cursor, rows:[{y, cells:[{ch, fg?, bg?, attrs?}]}]}` shape。 schema を validator (gojsonschema 等は使わず手動 type 検査) で確認"
+        }
+      ],
+      "cleanup": []
+    },
+    {
+      "id": "scenario-3",
+      "linked_ac": ["AC-S0fd64b-2-3"],
+      "description": "50ms coalesce で配信レートが 20 fps を超えない",
+      "preconditions": ["scenario-1 が pass"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "grid モード client で 2 秒間受信、 grid.diff フレームの数をカウント。 同時に subprocess に大量の出力 (1KiB チャンクを 100ms 間隔で 20 回) を WriteInput",
+          "expected": "grid.diff 件数 / 2 秒 が 40 以下 (= 20fps 上限。 多少のジッタは許容)。 完全 lossless ではなく `最新 grid state` への coalesce であることを確認"
+        }
+      ],
+      "cleanup": []
+    },
+    {
+      "id": "scenario-4",
+      "linked_ac": ["AC-S0fd64b-2-4"],
+      "description": "client → server input は raw-bytes と grid モードで形式が共通",
+      "preconditions": ["scenario-1 が pass"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "raw / grid 両モードで attach し、 同じ binary frame (例 b\"echo test\\n\") を server に送る",
+          "expected": "両モードで /bin/cat が同一バイト列を受信し、 PTY → emulator → 配信ループ経由で正しく echo される。 client → server の input フォーマットは mode 切替の影響を受けない"
+        }
+      ],
+      "cleanup": []
+    }
+  ]
+}

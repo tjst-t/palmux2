@@ -1,0 +1,77 @@
+{
+  "story": "S0fd64b-1",
+  "story_type": "library",
+  "user_role": "palmux2 開発者 (claudetui daemon に server-side terminal emulator を統合し、 grid 状態と OSC 52 callback を取得できるようにしたい)",
+  "entry_point": "Go の test binary が internal/tab/claudetui の Daemon を直接 import し、 GridSnapshot() / OSC 52 callback を観察する。 production code は cmd/palmux/main.go が Manager 経由で使う",
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "linked_ac": ["AC-S0fd64b-1-1"],
+      "description": "Daemon が PTY 出力を Ring 経由で消費しつつ、 emulator が grid を構築できる",
+      "preconditions": [
+        "internal/tab/claudetui/emulator.go が新設され、 charmbracelet/x/vt の Terminal を wrap している",
+        "Daemon が emulator を Ring subscriber として登録 (raw bytes 配信と平行)"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "action": "developer が `go test ./internal/tab/claudetui/ -run TestDaemonGridSnapshot` を実行",
+          "expected": "test が deterministic ANSI fixture (S1d2278-1 の sample_tui.ansi.bin パターンを再構築) を Daemon に WriteInput 経由で流し、 GridSnapshot() を呼ぶと alt screen flag / cursor 位置 / 特定セルの rune と SGR 属性が想定通り。 exit code 0"
+        },
+        {
+          "n": 2,
+          "action": "race detector を有効にして同じテストを `go test -race -run TestDaemonGridSnapshot` で再実行",
+          "expected": "data race なし"
+        }
+      ],
+      "cleanup": ["Daemon Shutdown は t.Cleanup で defer"]
+    },
+    {
+      "id": "scenario-2",
+      "linked_ac": ["AC-S0fd64b-1-2"],
+      "description": "OSC 52 clipboard sequence を notify hub に流す",
+      "preconditions": ["internal/notify/ の Hub API が利用可能で、 既存 claudeagent が使っているパスを参考にできる"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "test 内で notify Hub をモック化 (Subscribe して受信 channel を取得)、 daemon に OSC 52 `ESC ] 52 ; c ; <base64> BEL` を含む bytes を WriteInput",
+          "expected": "notify Hub が CopyEvent (or 既存の Clipboard event 型) を 1 件受信する。 payload に decode された clipboard 文字列が含まれる"
+        }
+      ],
+      "cleanup": []
+    },
+    {
+      "id": "scenario-3",
+      "linked_ac": ["AC-S0fd64b-1-3"],
+      "description": "Sprint A の raw-bytes 経路を破壊しない後方互換性",
+      "preconditions": ["S7ce250 の AttachHandler raw-bytes 配信が引き続き機能している"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "既存の TestWS_RoundTrip / TestRing_SnapshotAndSubscribeAtomic / TestPTYReadLoop など S7ce250 のテスト群を変更なしで実行",
+          "expected": "全て pass。 emulator 統合が PTY read loop の latency を悪化させたり Ring subscriber の semantics を変えていないことを担保"
+        },
+        {
+          "n": 2,
+          "action": "微小なベンチ: developer が `go test -bench=BenchmarkRingFanout -run none ./internal/tab/claudetui/` を S7ce250 と S0fd64b の両 commit で比較",
+          "expected": "throughput の degradation が 20% 以内 (emulator subscriber 追加分のオーバーヘッドのみ)。 サイズ感の log を docs/sprint-logs/S0fd64b/perf-note.md に記録"
+        }
+      ],
+      "cleanup": []
+    },
+    {
+      "id": "scenario-4",
+      "linked_ac": ["AC-S0fd64b-1-4"],
+      "description": "ANSI シーケンス全般 (alt screen / SGR / cursor / bracketed paste / mouse SGR / scrollback) が grid に反映",
+      "preconditions": ["scenario-1 と同じ fixture or `internal/tab/claudetui/testdata/sample_tui.ansi.bin` を再利用"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "developer が `go test ./internal/tab/claudetui/ -run TestEmulatorAnsiCoverage` を実行",
+          "expected": "fixture の各 ANSI シーケンスに対応した assertion が pass (S1d2278-1 emulator-comparison.md の 6 軸を網羅)"
+        }
+      ],
+      "cleanup": []
+    }
+  ]
+}

@@ -1,0 +1,151 @@
+{
+  "sprint_id": "S0fd64b",
+  "story_id": "S0fd64b-4",
+  "story_title": "mobile chat 風 UI (MVP) for claude-tui tab",
+  "entry_point": "gui",
+  "notes": [
+    "viewport-based switch: existing frontend/src/hooks/use-viewport.ts MOBILE_MAX=599",
+    "Test framework: palmux2 が採用している Python + Playwright (.py)。 gui-spec の TS テンプレートは不採用",
+    "E2E は palmux2 ローカル binary を go run で起動 + --claude-bin /bin/cat の hermetic 構成 (S7ce250 の踏襲)、 Playwright context を mobile viewport で初期化",
+    "Mock test は in-process fake WS (asyncio + websockets) で grid frame と role event を canned 配信、 file:// static harness 経由で MobileChatView を駆動 — S7ce250 の mock test と同じパターン",
+    "Backend 依存: S0fd64b-2 (grid diff WS) と S0fd64b-3 (role event) が landed していること。 これら Story が WAVE 順で先 (B-1 → B-2/B-3 → B-4)",
+    "Chat 抽出ロジックは MVP — grid の最終 user prompt (行頭 `> `) と直後の行群を assistant 応答として切り出すヒューリスティック。 brittle 前提"
+  ],
+  "state_diagram_mermaid": "stateDiagram-v2\n    [*] --> Connecting: page load (viewport < 600px)\n    Connecting --> Connected: ws open + grid.init received\n    Connecting --> Disconnected: ws error/close before grid.init\n    Connected --> Active: role event role='active'\n    Connected --> Viewer: role event role='viewer'\n    Active --> Viewer: another client took active (role event)\n    Viewer --> Active: user typed + tapped Send (server transfers active)\n    Active --> Disconnected: ws close\n    Viewer --> Disconnected: ws close\n    Disconnected --> Connecting: user taps Reconnect / route revisit",
+  "states": [
+    {
+      "name": "Connecting",
+      "description": "WebSocket handshake in progress; grid.init not yet received",
+      "ui_affordances": {"input": "disabled", "send_btn": "disabled", "reconnect_btn": "hidden", "role_badge": "hidden"}
+    },
+    {
+      "name": "Connected (no role yet)",
+      "description": "WS open + grid.init received but role event not arrived. Brief transient state.",
+      "ui_affordances": {"input": "disabled", "send_btn": "disabled", "reconnect_btn": "hidden", "role_badge": "hidden"}
+    },
+    {
+      "name": "Active",
+      "description": "User is the active client; can send input. Bubbles render from grid extraction.",
+      "ui_affordances": {"input": "enabled", "send_btn": "enabled (when input non-empty)", "reconnect_btn": "hidden", "role_badge": "Active"}
+    },
+    {
+      "name": "Viewer",
+      "description": "Another client is active; this client is read-only. Bubbles still render.",
+      "ui_affordances": {"input": "disabled with placeholder 'Another client is typing — type to take control'", "send_btn": "disabled", "reconnect_btn": "hidden", "role_badge": "Viewer"}
+    },
+    {
+      "name": "Disconnected",
+      "description": "WS closed; last frame retained on screen. Tap Reconnect to retry.",
+      "ui_affordances": {"input": "disabled", "send_btn": "disabled", "reconnect_btn": "visible", "role_badge": "hidden"}
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "Happy path: connect → send → bubble appears",
+      "linked_ac": ["AC-S0fd64b-4-1", "AC-S0fd64b-4-2", "AC-S0fd64b-4-3"],
+      "steps": [
+        "Open http://<host>/{repoId}/{branchId}/claude-tui in a mobile-width browser context (viewport 375x667)",
+        "Page mounts the claude-tui tab; useViewport returns 'mobile'; MobileChatView renders (NOT xterm.js)",
+        "WS connects to /tabs/claude-tui/attach?mode=grid",
+        "Server emits grid.init then role event role='active' (singleton client)",
+        "data-testid=mobile-chat-view is visible; role badge displays 'Active'",
+        "Tap textarea (data-testid=mobile-chat-input), type 'echo hi-from-mobile'",
+        "Send button (data-testid=mobile-chat-send-btn) becomes enabled",
+        "Tap Send: input sent as binary frame; textarea clears",
+        "claude-bin /bin/cat echoes the bytes back through PTY → grid",
+        "After 1s a data-testid=mobile-chat-bubble appears containing 'echo hi-from-mobile'"
+      ]
+    },
+    {
+      "name": "Multi-client role transition",
+      "linked_ac": ["AC-S0fd64b-4-4"],
+      "steps": [
+        "Open two mobile browser contexts (Context A and Context B) at /{repoId}/{branchId}/claude-tui",
+        "Context A connects first → role='active'",
+        "Context B connects → role='viewer' (Context A remains active)",
+        "In Context B, role badge shows 'Viewer'; input is disabled",
+        "In Context B, tap textarea + type → input becomes enabled (override placeholder)",
+        "In Context B, tap Send → server transfers active to B → both contexts receive role event",
+        "Context A badge now shows 'Viewer'; Context B badge shows 'Active'"
+      ]
+    },
+    {
+      "name": "Disconnection + reconnect",
+      "linked_ac": ["AC-S0fd64b-4-1"],
+      "steps": [
+        "Open mobile chat, become Active",
+        "Server-side: kill the WS connection (test harness closes mid-stream)",
+        "Status transitions to Disconnected; reconnect button visible",
+        "Tap Reconnect → status returns to Connecting → Connected → Active",
+        "Bubble history is restored from server's ring buffer replay"
+      ]
+    },
+    {
+      "name": "Empty input edge case",
+      "linked_ac": ["AC-S0fd64b-4-3"],
+      "steps": [
+        "Become Active with empty conversation",
+        "Send button is disabled when input is empty",
+        "Type 1 char → Send becomes enabled",
+        "Backspace to empty → Send becomes disabled"
+      ]
+    }
+  ],
+  "endpoint_contracts": [
+    {
+      "path": "/api/repos/{repoId}/branches/{branchId}/tabs/claude-tui/attach",
+      "method": "WS",
+      "registered": true,
+      "registered_note": "Existing endpoint from S7ce250-2. Sprint B-2 ADDS a `?mode=grid` query param to switch frame format; without the param, behavior is unchanged (raw bytes, backward compatible).",
+      "request_fields": null,
+      "response_fields": {
+        "raw_bytes_mode (default)": "binary frames of PTY output",
+        "grid_mode (?mode=grid)": "JSON frames: {type:'grid.init'|'grid.diff', cols, rows, cursor:{x,y}, altScreen, rows:[{y, cells:[{ch, fg?, bg?, attrs?}]}]} and {type:'role', role:'active'|'viewer', since:<unix-ms>}"
+      }
+    }
+  ],
+  "test_files": {
+    "e2e": "tests/e2e/s0fd64b_mobile_chat.py",
+    "mock": "tests/e2e/s0fd64b_mobile_chat_mock.py"
+  },
+  "data_testids_required": [
+    "mobile-chat-view",
+    "mobile-chat-bubble",
+    "mobile-chat-input",
+    "mobile-chat-send-btn",
+    "mobile-chat-role-badge",
+    "mobile-chat-reconnect-btn"
+  ],
+  "auto_decisions": [
+    {
+      "topic": "test framework",
+      "decision": "Python + Playwright (.py)",
+      "rationale": "palmux2 全体の規約 (tests/e2e/*.py + tests/e2e/mobile/conftest.py の mobile_context helper) を踏襲"
+    },
+    {
+      "topic": "viewport size",
+      "decision": "375 x 667 (iPhone SE-ish)",
+      "rationale": "MOBILE_MAX=599 を下回り、 既存 mobile/conftest.py のデフォルトと整合"
+    },
+    {
+      "topic": "fixture",
+      "decision": "S7ce250-pattern hermetic fixture (go run ./cmd/palmux + palmux2_test_fixture + --claude-bin /bin/cat)",
+      "rationale": "S0fd64b-4 は backend (S0fd64b-2/-3) の grid モード経路を必要とする。 mobile_context だけだと dev server に依存して再現性が落ちる"
+    },
+    {
+      "topic": "chat bubble 抽出アルゴリズム",
+      "decision": "grid 最終 user prompt (行頭 `> `) を境界として、 その直後から alt-screen 末端までを assistant 応答として 1 つのバブルにする。 history はすべての user/assistant ペアを順次バブル化",
+      "rationale": "MVP として brittle で許容。 transcript JSONL からの構造化抽出は将来 Sprint で代替"
+    },
+    {
+      "topic": "send action UX",
+      "decision": "Send button のみ (Enter キーは改行)",
+      "rationale": "mobile soft keyboard で Enter = 改行 が自然。 mobile bottom-sheet で send ボタンは指で押せる位置"
+    },
+    {
+      "topic": "role badge visibility",
+      "decision": "Connecting/Disconnected では非表示、 Active/Viewer の 2 状態のみ表示",
+      "rationale": "ユーザに役立たない transient state を隠す"
+    }
+  ]
+}

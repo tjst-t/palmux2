@@ -1,0 +1,91 @@
+{
+  "story": "S0fd64b-3",
+  "story_type": "api",
+  "user_role": "palmux2 user (複数デバイス / タブから同 branch の claude-tui に attach するとき、 競合せず active client が分かりやすく示されてほしい)",
+  "entry_point": "WS /api/repos/{repoId}/branches/{branchId}/tabs/claude-tui/attach (2 つの並行 WS 接続を Python websockets で確立)",
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "linked_ac": ["AC-S0fd64b-3-1"],
+      "description": "シングル client 接続時は active role が割り当てられる",
+      "preconditions": [
+        "S0fd64b-2 が landed (grid モード + role event 配信が可能)",
+        "palmux2 を hermetic fixture で起動"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "action": "Python websockets で grid モード attach、 受信フレームから `{type:\"role\", role:\"active\", since:<ts>}` を待つ",
+          "expected": "5 秒以内に role=active イベントを 1 件受信"
+        }
+      ],
+      "cleanup": ["WS close"]
+    },
+    {
+      "id": "scenario-2",
+      "linked_ac": ["AC-S0fd64b-3-2"],
+      "description": "後から接続した 2 つ目の client は viewer 役",
+      "preconditions": ["scenario-1 が pass"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "Client A を attach し role=active を受信",
+          "expected": "Client A が active"
+        },
+        {
+          "n": 2,
+          "action": "Client B を別接続で attach",
+          "expected": "Client B が role=viewer イベントを 5 秒以内に受信。 Client A は active のまま (新しい role event は受信しないか、 role=active の再送のみ)"
+        }
+      ],
+      "cleanup": ["両 WS close"]
+    },
+    {
+      "id": "scenario-3",
+      "linked_ac": ["AC-S0fd64b-3-3"],
+      "description": "viewer が input を送ると active 権が transfer される (last-typed wins)",
+      "preconditions": ["scenario-2 と同じ 2 client setup"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "Client B (viewer) が binary input `b\"hello\\n\"` を送信",
+          "expected": "Client A と Client B の両方が新しい role event を受信。 Client B → role=active、 Client A → role=viewer。 transition 完了は 1 秒以内"
+        }
+      ],
+      "cleanup": []
+    },
+    {
+      "id": "scenario-4",
+      "linked_ac": ["AC-S0fd64b-3-4"],
+      "description": "active client 切断時、 残った subscriber に active が自動回帰",
+      "preconditions": ["scenario-2 と同じ 2 client setup (A=active, B=viewer)"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "Client A の WS を close",
+          "expected": "Client B が role=active イベントを 1 秒以内に受信 (server が active 権を transfer)"
+        },
+        {
+          "n": 2,
+          "action": "Client B も close",
+          "expected": "Daemon は subscriber 0 = idle 状態。 直後に attach した新 client は role=active で開始 (= scenario-1 に回帰)"
+        }
+      ],
+      "cleanup": []
+    },
+    {
+      "id": "scenario-5",
+      "linked_ac": ["AC-S0fd64b-3-2", "AC-S0fd64b-3-3"],
+      "description": "role event は raw / grid 両モードで配信される",
+      "preconditions": ["scenario-2 setup (2 client)"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "Client A は raw モード、 Client B は grid モードで attach",
+          "expected": "両 client が role event を受信。 raw モードでは binary frame の代わりに **text frame で JSON** が混在配信される (or 別 control channel)。 実装が JSON-in-binary か text frame かは Story 3 の設計判断。 観察可能な要件は \"両モードで role が分かる\""
+        }
+      ],
+      "cleanup": []
+    }
+  ]
+}
