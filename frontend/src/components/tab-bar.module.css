@@ -116,6 +116,25 @@
   cursor: not-allowed;
 }
 
+/* S1f75ec-2: mode badge shown on the Claude tab to indicate current
+   implementation (Agent or TUI). Styled as a subdued chip. */
+.modeBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 3px;
+  background-color: var(--color-fg-faint);
+  color: var(--color-fg-muted);
+  user-select: none;
+  flex-shrink: 0;
+}
+
 /* S020: inline rename editor — replaces the tab label with a textarea
    while editing. */
 .renameInput {

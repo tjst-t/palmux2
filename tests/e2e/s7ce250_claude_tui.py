@@ -226,17 +226,19 @@ def test_ac_s7ce250_5_1_tab_appears_in_list(port: int) -> None:
 
 
 def test_ac_s7ce250_5_1_browser_tab_label(port: int) -> None:
-    """[AC-S7ce250-5-1] Browser: tab bar shows 'Claude (TUI)' label.
+    """[AC-S7ce250-5-1] Browser: tab bar shows a single 'Claude' tab (not 'Claude (TUI)').
 
-    Navigates directly to /{repoId}/{branchId}/claude-tui — the three-segment
-    URL that the React Router ``/:repoId/:branchId/:tabId/*`` route handles.
+    S1f75ec-2 unified the two Claude tabs into one.  Navigating to the
+    /claude-tui URL now redirects to /claude.  The tab bar must show a
+    single 'Claude' tab with a mode badge, but NOT a separate 'Claude (TUI)'
+    entry.
     """
     sync_playwright = _get_playwright()
     fx = _get_fixture_module(port)
     with fx.palmux2_test_fixture("s7ce250-browser") as fixture:
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
         base = f"http://localhost:{port}"
-        # Must include a tabId segment so the /:repoId/:branchId/:tabId route matches.
+        # Navigate to /claude-tui — S1f75ec-2 adds a React Router redirect to /claude.
         url = (
             f"{base}/{urllib.parse.quote(fixture.repo_id, safe='')}"
             f"/{urllib.parse.quote(branch_id, safe='')}"
@@ -252,13 +254,21 @@ def test_ac_s7ce250_5_1_browser_tab_label(port: int) -> None:
                     "document.getElementById('root').innerHTML.length > 100",
                     timeout=PLAYWRIGHT_TIMEOUT,
                 )
-                # Tab bar should contain a tab labelled "Claude (TUI)".
-                page.wait_for_selector("text=Claude (TUI)", timeout=PLAYWRIGHT_TIMEOUT)
-                el = page.locator("text=Claude (TUI)").first
-                assert el.is_visible(), "Claude (TUI) label not visible in tab bar"
+                # S1f75ec-2: /claude-tui redirects to /claude; the tab bar should
+                # show a single canonical Claude tab, NOT a separate 'Claude (TUI)'.
+                page.wait_for_selector("[data-testid='claude-tab']", timeout=PLAYWRIGHT_TIMEOUT)
+                # Confirm the URL was redirected to /claude (not /claude-tui).
+                assert "/claude-tui" not in page.url, (
+                    f"Expected redirect away from /claude-tui, but URL is still {page.url!r}"
+                )
+                # There must be no separate 'Claude (TUI)' tab entry in the bar.
+                tui_tabs = page.locator("text=Claude (TUI)").all()
+                assert len(tui_tabs) == 0, (
+                    "Found a separate 'Claude (TUI)' tab entry — S1f75ec-2 should have unified them"
+                )
             finally:
                 browser.close()
-    passed("[AC-S7ce250-5-1] browser: 'Claude (TUI)' visible in tab bar")
+    passed("[AC-S7ce250-5-1 / S1f75ec-2] browser: single Claude tab, /claude-tui redirects to /claude")
 
 
 def test_ac_s7ce250_5_2_ws_attach_starts_daemon(port: int) -> None:
@@ -515,20 +525,39 @@ def test_ac_s7ce250_5_5_branch_close_shuts_down_daemon(port: int) -> None:
 
 
 def test_ac_s0fd64b_3_role_badge_visible(port: int) -> None:
-    """[AC-S0fd64b-3-1] After WS attach, role badge is visible and shows 'active'.
+    """[AC-S0fd64b-3-1] After WS attach in TUI mode, role badge is visible.
 
-    This test requires a pre-built binary with the embedded React frontend.
-    In go-run mode it is skipped because there is no frontend.
+    S1f75ec-2: the claude-tui tab is no longer directly accessible via URL;
+    the /claude-tui URL redirects to /claude and the TUI component renders
+    inside the Claude tab when claude_mode is set to 'tui'.
+
+    This test sets claude_mode='tui' via the branch settings API, then
+    navigates to /claude and waits for the role badge.
     """
     sync_playwright = _get_playwright()
     fx = _get_fixture_module(port)
     with fx.palmux2_test_fixture("s0fd64b-role-badge") as fixture:
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
+        repo_id = fixture.repo_id
         base = f"http://localhost:{port}"
+
+        # Switch mode to 'tui' so the TUI component renders inside the Claude tab.
+        settings_url = (
+            f"{base}/api/repos/{urllib.parse.quote(repo_id, safe='')}"
+            f"/branches/{urllib.parse.quote(branch_id, safe='')}/settings"
+        )
+        import urllib.request as _req
+        req = _req.Request(settings_url, method="PATCH",
+                           data=b'{"claude_mode":"tui"}',
+                           headers={"Content-Type": "application/json"})
+        with _req.urlopen(req) as resp:
+            assert resp.status == 200, f"PATCH /settings failed: {resp.status}"
+
+        # Navigate to /claude (canonical URL after S1f75ec-2 unification).
         url = (
-            f"{base}/{urllib.parse.quote(fixture.repo_id, safe='')}"
+            f"{base}/{urllib.parse.quote(repo_id, safe='')}"
             f"/{urllib.parse.quote(branch_id, safe='')}"
-            f"/claude-tui"
+            f"/claude"
         )
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
@@ -554,7 +583,7 @@ def test_ac_s0fd64b_3_role_badge_visible(port: int) -> None:
                 )
             finally:
                 browser.close()
-    passed("[AC-S0fd64b-3-1] role badge visible and shows 'active' after single-client attach")
+    passed("[AC-S0fd64b-3-1] role badge visible and shows 'active' after single-client attach (TUI mode)")
 
 
 def test_ac_s7ce250_5_smoke_log_present() -> None:

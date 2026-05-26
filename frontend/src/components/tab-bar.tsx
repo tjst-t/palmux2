@@ -8,6 +8,7 @@ import {
   selectRepoById,
   usePalmuxStore,
 } from '../stores/palmux-store'
+import { useBranchSettingsStore } from '../stores/branch-settings-store'
 
 import { confirmDialog } from './context-menu/confirm-dialog'
 import { useContextMenu } from './context-menu/store'
@@ -18,6 +19,12 @@ import styles from './tab-bar.module.css'
 interface Props {
   branch: Branch
 }
+
+// S1f75ec-2: stable fallback — must be a module-level constant so Zustand's
+// shallow-equal check doesn't see a new object reference on every render and
+// cause an infinite re-render loop when the branch settings haven't been
+// fetched yet.
+const DEFAULT_BRANCH_SETTINGS = { claude_mode: 'agent' as const }
 
 // S009: defaults match the server side (settings.maxClaudeTabsPerBranch /
 // settings.maxBashTabsPerBranch). When the user configures different
@@ -51,6 +58,21 @@ export function TabBar({ branch }: Props) {
   const repo = usePalmuxStore((s) =>
     repoId ? selectRepoById(repoId)(s) : undefined,
   )
+
+  // S1f75ec-2: per-branch settings (claude_mode) — used to select the
+  // active Claude implementation and show the mode badge.
+  // Subscribe directly to the settings slice for this branch so Zustand
+  // triggers a re-render when patchSettings writes a new value.
+  const fetchBranchSettings = useBranchSettingsStore((s) => s.fetchSettings)
+  const branchSettings = useBranchSettingsStore((s) => {
+    const key = `${repoId ?? ''}/${branch.id}`
+    return s.settings[key] ?? DEFAULT_BRANCH_SETTINGS
+  })
+
+  useEffect(() => {
+    if (!repoId) return
+    void fetchBranchSettings(repoId, branch.id)
+  }, [repoId, branch.id, fetchBranchSettings])
 
   // S020: drag-and-drop reorder state. Tracked locally because the order
   // is committed to the server only on drop; while dragging we only show
@@ -147,7 +169,11 @@ export function TabBar({ branch }: Props) {
 
   // S009: split the flat tab list into consecutive same-type groups so
   // we can drop a `+` after each Multiple()=true group (Claude, Bash).
-  const groups = groupTabsByType(branch.tabSet.tabs)
+  // S1f75ec-2: filter out the `claude-tui` tab — it is rendered inside
+  // the Claude tab based on branch.claude_mode; showing it separately
+  // would create a noisy second "Claude (TUI)" entry in the tab bar.
+  const visibleTabs = branch.tabSet.tabs.filter((t) => t.type !== 'claude-tui')
+  const groups = groupTabsByType(visibleTabs)
 
   // Currently-selected tab id (URL-decoded so colon-bearing ids match).
   const activeId = decodeURIComponent(tabId ?? '')
@@ -219,6 +245,10 @@ export function TabBar({ branch }: Props) {
                       ? claudeUnread
                       : 0
                   }
+                  // S1f75ec-2: show mode badge on the (single) canonical Claude tab
+                  modeBadge={t.type === 'claude' && t.id === claudeBadgeOwnerId
+                    ? (branchSettings.claude_mode === 'tui' ? 'TUI' : 'Agent')
+                    : undefined}
                   onSelect={() => {
                     if (renamingTabId) return
                     goToTab(t.id)
@@ -404,6 +434,9 @@ interface TabRowProps {
   tab: Tab
   active: boolean
   unreadBadge: number
+  /** S1f75ec-2: when set, renders a mode chip next to the tab label.
+   *  Used on the canonical Claude tab to show "Agent" or "TUI". */
+  modeBadge?: 'Agent' | 'TUI'
   onSelect: () => void
   onContext: (x: number, y: number) => void
   draggable: boolean
@@ -423,6 +456,7 @@ function TabRow({
   tab,
   active,
   unreadBadge,
+  modeBadge,
   onSelect,
   onContext,
   draggable,
@@ -465,7 +499,7 @@ function TabRow({
   return (
     <button
       role="tab"
-      data-testid={`tab-${tab.id}`}
+      data-testid={tab.type === 'claude' ? 'claude-tab' : `tab-${tab.id}`}
       data-tab-type={tab.type}
       data-tab-id={tab.id}
       data-rename-active={renaming ? '1' : undefined}
@@ -535,6 +569,16 @@ function TabRow({
         />
       ) : (
         <span className={styles.tabLabel}>{tab.name}</span>
+      )}
+      {/* S1f75ec-2: mode badge on the canonical Claude tab */}
+      {modeBadge && (
+        <span
+          data-testid="claude-mode-badge"
+          className={styles.modeBadge}
+          title={`Claude mode: ${modeBadge}`}
+        >
+          {modeBadge}
+        </span>
       )}
       {unreadBadge > 0 && <span className={styles.tabBadge}>{unreadBadge}</span>}
     </button>

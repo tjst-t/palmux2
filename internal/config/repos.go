@@ -12,6 +12,27 @@ import (
 	"sync"
 )
 
+// ClaudeMode is the per-branch claude tab implementation selector.
+// "agent" = claude-agent (stream-json), "tui" = claude-tui (PTY).
+type ClaudeMode string
+
+const (
+	ClaudeModeAgent ClaudeMode = "agent"
+	ClaudeModeTui   ClaudeMode = "tui"
+)
+
+// BranchSettings holds per-branch settings that are persisted in repos.json.
+// Keyed by branch ID (not name) because settings are identity-bound to the
+// worktree, not to the git head. Outer key = branchId.
+//
+// S1f75ec-2: ClaudeMode selects which Claude tab implementation renders.
+// Migration rule: missing entry → "agent" (preserve pre-Sprint-C behaviour).
+// New branches (created while this code is running) default to the global
+// settings.claude.default_mode value (default "tui").
+type BranchSettings struct {
+	ClaudeMode ClaudeMode `json:"claude_mode,omitempty"`
+}
+
 // RepoEntry is one row in repos.json.
 //
 // UserOpenedBranches (S015) records the branch names the user opened
@@ -38,6 +59,11 @@ import (
 // open, or the previous branch was reconciled away). Stored as a branch
 // **name** (not ID) so the value survives a hash regeneration of the
 // branch ID and stays human-readable in repos.json.
+//
+// BranchSettingsMap (S1f75ec-2) holds per-branch settings keyed by branchId.
+// On load, any existing branch that is missing an entry is back-filled with
+// ClaudeMode="agent" (migration-safe default). New branches receive the
+// default from global settings (see SettingsStore.ClaudeDefaultMode).
 type RepoEntry struct {
 	ID                 string                        `json:"id"`
 	GHQPath            string                        `json:"ghqPath"`
@@ -45,6 +71,7 @@ type RepoEntry struct {
 	UserOpenedBranches []string                      `json:"userOpenedBranches,omitempty"`
 	TabOverrides       map[string]BranchTabOverrides `json:"tabOverrides,omitempty"`
 	LastActiveBranch   string                        `json:"last_active_branch,omitempty"`
+	BranchSettingsMap  map[string]BranchSettings     `json:"branchSettings,omitempty"`
 }
 
 // BranchTabOverrides is the per-branch payload of TabOverrides.
@@ -95,6 +122,31 @@ func (s *RepoStore) load() error {
 	}
 	s.entries = entries
 	return nil
+}
+
+// migrateBranchSettings (S1f75ec-2) back-fills ClaudeMode="agent" for every
+// branch in the BranchSettingsMap that has an empty mode. This is called by
+// callers that need to ensure existing branches have a well-known default
+// before persisting. It does NOT write to disk by itself.
+func migrateBranchSettings(entries []RepoEntry, knownBranchIDs func(repoID string) []string) bool {
+	changed := false
+	for i := range entries {
+		if knownBranchIDs == nil {
+			continue
+		}
+		for _, bid := range knownBranchIDs(entries[i].ID) {
+			if entries[i].BranchSettingsMap == nil {
+				entries[i].BranchSettingsMap = map[string]BranchSettings{}
+			}
+			existing := entries[i].BranchSettingsMap[bid]
+			if existing.ClaudeMode == "" {
+				existing.ClaudeMode = ClaudeModeAgent
+				entries[i].BranchSettingsMap[bid] = existing
+				changed = true
+			}
+		}
+	}
+	return changed
 }
 
 func (s *RepoStore) save() error {
@@ -456,4 +508,76 @@ func (s *RepoStore) SetStarred(id string, starred bool) (bool, error) {
 
 func sortEntries(entries []RepoEntry) {
 	sort.SliceStable(entries, func(i, j int) bool { return entries[i].GHQPath < entries[j].GHQPath })
+}
+
+// GetBranchSettings (S1f75ec-2) returns the persisted BranchSettings for the
+// given branch. If no entry exists yet, a default is returned (ClaudeMode="agent"
+// for migration-safe backwards compatibility). The returned value is a copy.
+func (s *RepoStore) GetBranchSettings(repoID, branchID string) BranchSettings {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, e := range s.entries {
+		if e.ID != repoID {
+			continue
+		}
+		if e.BranchSettingsMap != nil {
+			if bs, ok := e.BranchSettingsMap[branchID]; ok && bs.ClaudeMode != "" {
+				return bs
+			}
+		}
+		// Return migration default: existing branches default to "agent".
+		return BranchSettings{ClaudeMode: ClaudeModeAgent}
+	}
+	return BranchSettings{ClaudeMode: ClaudeModeAgent}
+}
+
+// SetBranchClaudeMode (S1f75ec-2) persists the claude_mode for a branch.
+// mode must be "agent" or "tui"; any other value returns an error.
+func (s *RepoStore) SetBranchClaudeMode(repoID, branchID string, mode ClaudeMode) error {
+	if mode != ClaudeModeAgent && mode != ClaudeModeTui {
+		return fmt.Errorf("config: SetBranchClaudeMode: invalid mode %q (must be agent or tui)", mode)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.entries {
+		if s.entries[i].ID != repoID {
+			continue
+		}
+		if s.entries[i].BranchSettingsMap == nil {
+			s.entries[i].BranchSettingsMap = map[string]BranchSettings{}
+		}
+		existing := s.entries[i].BranchSettingsMap[branchID]
+		existing.ClaudeMode = mode
+		s.entries[i].BranchSettingsMap[branchID] = existing
+		return s.save()
+	}
+	return fmt.Errorf("config: SetBranchClaudeMode: repo %q not found", repoID)
+}
+
+// InitBranchSettings (S1f75ec-2) ensures a branch has an entry in the
+// BranchSettingsMap. If no entry exists, it is created with the supplied
+// defaultMode. Idempotent — if an entry already exists it is left unchanged.
+// Used when a new branch is opened so new branches default to global
+// settings.claude.default_mode ("tui") while existing branches default to
+// "agent" (via GetBranchSettings migration fallback).
+func (s *RepoStore) InitBranchSettings(repoID, branchID string, defaultMode ClaudeMode) error {
+	if defaultMode == "" {
+		defaultMode = ClaudeModeAgent
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.entries {
+		if s.entries[i].ID != repoID {
+			continue
+		}
+		if s.entries[i].BranchSettingsMap == nil {
+			s.entries[i].BranchSettingsMap = map[string]BranchSettings{}
+		}
+		if _, exists := s.entries[i].BranchSettingsMap[branchID]; exists {
+			return nil // already initialised — leave it
+		}
+		s.entries[i].BranchSettingsMap[branchID] = BranchSettings{ClaudeMode: defaultMode}
+		return s.save()
+	}
+	return fmt.Errorf("config: InitBranchSettings: repo %q not found", repoID)
 }

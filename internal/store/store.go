@@ -195,6 +195,10 @@ func (s *Store) Tmux() tmux.Client { return s.deps.Tmux }
 // Settings returns the live SettingsStore.
 func (s *Store) Settings() *config.SettingsStore { return s.deps.Settings }
 
+// RepoStore returns the live RepoStore. Used by server handlers that need
+// to read or write per-branch settings (e.g. claude_mode, S1f75ec-2).
+func (s *Store) RepoStore() *config.RepoStore { return s.deps.RepoStore }
+
 // Registry returns the TabProvider registry.
 func (s *Store) Registry() *tab.Registry { return s.registry }
 

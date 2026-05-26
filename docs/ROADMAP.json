@@ -7243,50 +7243,50 @@
         },
         "S1f75ec-2": {
           "title": "claude-agent ⇄ claude-tui 切替 UX (案 A、 タブバー単一化)",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux2 ユーザとして、 タブバーにいる 1 つの「Claude」タブで内部の実装を Agent SDK モード ⇔ TUI モードで切り替えたい。 なぜなら、 現状の `Claude` + `Claude (TUI)` 二重表示は冗長で、 「どちらを使うべきか」をタブバーに毎回露出させる UX が悪いからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S1f75ec-2-1",
               "description": "branch ごとの mode 設定 (claude_mode: 'agent' | 'tui') が repos.json の branch entry に永続化される",
               "test": "POST /api/repos/{id}/branches/{bid}/settings で更新 → GET で取得確認",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1f75ec-2-2",
               "description": "既存 branch (S0fd64b 以前から open) の default mode = agent (現状維持)。 新規 branch の default mode = tui (subscription quota 経由)",
               "test": "migration テストで既存 branch が agent、 新規 branch が tui になることを確認",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1f75ec-2-3",
               "description": "グローバルデフォルト override が settings.json の claude.default_mode で設定可能 ('agent' | 'tui')",
               "test": "settings.json に default_mode=tui を書いて新規 branch open → tui mode で開く",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1f75ec-2-4",
               "description": "⌘K パレットに `>switch-claude-mode` コマンドが追加され、 現 branch の mode を toggle して永続化",
               "test": "tests/e2e/s1f75ec_mode_switch.py で ⌘K → コマンド実行 → mode 切替確認",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1f75ec-2-5",
               "description": "タブバーに表示される Claude タブが 1 つ ('Claude' ラベル)、 mode に応じて内部実装 (agent UI / tui UI) が描画される。 旧 'Claude (TUI)' タブは消える",
               "test": "tests/e2e/s1f75ec_mode_switch.py で tabBar の Claude タブ数を assert",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1f75ec-2-6",
               "description": "旧 URL /claude-tui への直接アクセスは 302 redirect で /claude に飛ぶ (互換維持)",
               "test": "curl -I で 302 + Location ヘッダ確認",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1f75ec-2-7",
               "description": "data-testid: claude-tab (常時)、 claude-mode-badge で現 mode 表示",
               "test": "tests/e2e/s1f75ec_mode_switch.py で badge text 確認",
-              "status": "planned"
+              "status": "pass"
             }
           ],
           "gui_spec": "docs/sprint-logs/S1f75ec/gui-spec-S1f75ec-2.json",

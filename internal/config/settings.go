@@ -137,6 +137,21 @@ type Settings struct {
 	// Palette (S032) holds palette-specific settings, currently just
 	// user-defined commands shown in ⌘K '>' mode.
 	Palette *PaletteSettings `json:"palette,omitempty"`
+
+	// Claude (S1f75ec-2) holds global claude-tab settings. Currently only
+	// DefaultMode controls which implementation new branches default to.
+	// Existing branches (= those already in repos.json without a
+	// claude_mode entry) always default to "agent" regardless of this
+	// setting, to preserve backwards compatibility.
+	Claude *ClaudeGlobalSettings `json:"claude,omitempty"`
+}
+
+// ClaudeGlobalSettings (S1f75ec-2) is the sub-object under settings.json
+// `claude`. Only DefaultMode is defined for now.
+type ClaudeGlobalSettings struct {
+	// DefaultMode is the mode assigned to newly-opened branches. Valid values
+	// are "agent" and "tui". Absent / empty defaults to "tui".
+	DefaultMode string `json:"default_mode,omitempty"`
 }
 
 // DefaultAttachmentUploadDir is the fallback when the user has not
@@ -349,6 +364,17 @@ func (s *SettingsStore) Patch(update Settings) (Settings, error) {
 		}
 		s.settings.Palette.UserCommands = update.Palette.UserCommands
 	}
+	// S1f75ec-2: claude.default_mode — allow "" to clear back to the default.
+	if update.Claude != nil {
+		m := update.Claude.DefaultMode
+		if m != "" && m != "agent" && m != "tui" {
+			return Settings{}, fmt.Errorf("config: patch: invalid claude.default_mode %q (must be agent or tui)", m)
+		}
+		if s.settings.Claude == nil {
+			s.settings.Claude = &ClaudeGlobalSettings{}
+		}
+		s.settings.Claude.DefaultMode = m
+	}
 	if err := s.save(); err != nil {
 		return Settings{}, err
 	}
@@ -403,6 +429,20 @@ func mergeWithDefaults(s *Settings, d Settings) {
 	if s.AutoWorktreePathPatterns == nil {
 		s.AutoWorktreePathPatterns = append([]string(nil), d.AutoWorktreePathPatterns...)
 	}
+}
+
+// ClaudeDefaultMode (S1f75ec-2) returns the global default mode for new
+// branches. Falls through to "tui" when the setting is unset or invalid.
+func (s *SettingsStore) ClaudeDefaultMode() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.settings.Claude != nil {
+		m := s.settings.Claude.DefaultMode
+		if m == "agent" || m == "tui" {
+			return m
+		}
+	}
+	return "tui"
 }
 
 // AutoWorktreePathPatterns implements the SettingsView slice accessor

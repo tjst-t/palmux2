@@ -83,6 +83,12 @@ export interface Branch {
   category?: BranchCategory
 }
 
+// BranchSettings is the per-branch settings shape returned by
+// GET /api/repos/{repoId}/branches/{branchId}/settings (S1f75ec-2).
+export interface BranchSettings {
+  claude_mode: 'agent' | 'tui'
+}
+
 export interface TabSet {
   tmuxSession: string
   tabs: Tab[]

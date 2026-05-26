@@ -174,8 +174,30 @@ def _get_fixture_module(port: int):
 
 # ─── Test cases ──────────────────────────────────────────────────────────────
 
+def _set_branch_claude_mode(port: int, repo_id: str, branch_id: str, mode: str) -> None:
+    """PATCH /api/repos/{repoId}/branches/{branchId}/settings to set claude_mode."""
+    settings_url = (
+        f"http://localhost:{port}/api/repos/{urllib.parse.quote(repo_id, safe='')}"
+        f"/branches/{urllib.parse.quote(branch_id, safe='')}/settings"
+    )
+    body = json.dumps({"claude_mode": mode}).encode()
+    req = urllib.request.Request(
+        settings_url,
+        method="PATCH",
+        data=body,
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req) as resp:
+        assert resp.status == 200, f"PATCH /settings → {resp.status}"
+
+
 def test_ac_s1f75ec_1_2_mobile_renders_xterm(port: int) -> None:
-    """[AC-S1f75ec-1-2] Mobile viewport renders xterm.js; MobileChatView absent."""
+    """[AC-S1f75ec-1-2] Mobile viewport renders xterm.js; MobileChatView absent.
+
+    S1f75ec-2: the claude-tui component now renders inside the canonical Claude
+    tab when claude_mode='tui'.  Set mode to 'tui' via the settings API, then
+    navigate to /claude and verify the xterm terminal is visible.
+    """
     if not _USE_PREBUILT:
         print("SKIP: test_ac_s1f75ec_1_2_mobile_renders_xterm (no embedded frontend in go-run mode)")
         return
@@ -184,11 +206,16 @@ def test_ac_s1f75ec_1_2_mobile_renders_xterm(port: int) -> None:
     fx = _get_fixture_module(port)
     with fx.palmux2_test_fixture("s1f75ec-mobile-xterm") as fixture:
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
+        repo_id = fixture.repo_id
         base = f"http://localhost:{port}"
+
+        # S1f75ec-2: switch mode to 'tui' so the claude-tui terminal renders.
+        _set_branch_claude_mode(port, repo_id, branch_id, "tui")
+
         url = (
-            f"{base}/{urllib.parse.quote(fixture.repo_id, safe='')}"
+            f"{base}/{urllib.parse.quote(repo_id, safe='')}"
             f"/{urllib.parse.quote(branch_id, safe='')}"
-            f"/claude-tui"
+            f"/claude"
         )
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
@@ -199,7 +226,7 @@ def test_ac_s1f75ec_1_2_mobile_renders_xterm(port: int) -> None:
                     "document.getElementById('root').innerHTML.length > 100",
                     timeout=PLAYWRIGHT_TIMEOUT,
                 )
-                # xterm.js terminal element must be present
+                # xterm.js terminal element must be present (rendered via TUI mode)
                 page.wait_for_selector(
                     "[data-testid='claude-tui-terminal']",
                     timeout=PLAYWRIGHT_TIMEOUT,
@@ -310,7 +337,12 @@ def test_ac_s1f75ec_1_6_emulator_role_preserved() -> None:
 
 
 def test_ac_s1f75ec_1_8_mobile_xterm_functional(port: int) -> None:
-    """[AC-S1f75ec-1-8] Mobile viewport xterm functional (echo via /bin/cat)."""
+    """[AC-S1f75ec-1-8] Mobile viewport xterm functional (echo via /bin/cat).
+
+    S1f75ec-2: the claude-tui component now renders inside the canonical Claude
+    tab when claude_mode='tui'.  Set mode to 'tui' via the settings API, then
+    navigate to /claude and verify the xterm terminal is visible and functional.
+    """
     if not _USE_PREBUILT:
         print("SKIP: test_ac_s1f75ec_1_8_mobile_xterm_functional (no embedded frontend in go-run mode)")
         return
@@ -327,12 +359,15 @@ def test_ac_s1f75ec_1_8_mobile_xterm_functional(port: int) -> None:
         repo_id = fixture.repo_id
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
 
+        # S1f75ec-2: switch mode to 'tui' so the claude-tui terminal renders.
+        _set_branch_claude_mode(port, repo_id, branch_id, "tui")
+
         # Verify the xterm terminal is rendered at mobile viewport size.
         base = f"http://localhost:{port}"
         url = (
             f"{base}/{urllib.parse.quote(repo_id, safe='')}"
             f"/{urllib.parse.quote(branch_id, safe='')}"
-            f"/claude-tui"
+            f"/claude"
         )
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)

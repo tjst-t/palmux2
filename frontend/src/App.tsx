@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useParams } from 'react-router-dom'
 
 import { CommandPalette } from './components/command-palette/command-palette'
 import { ConfirmDialogRenderer } from './components/context-menu/confirm-dialog'
@@ -12,6 +12,19 @@ import { useEventStream } from './hooks/use-event-stream'
 import { useVisualViewport } from './hooks/use-visual-viewport'
 import { usePalmuxStore } from './stores/palmux-store'
 import { TestHarness } from './tabs/claude-agent/test-harness'
+
+// S1f75ec-2: Redirect /claude-tui → /claude (canonical URL).
+// The WS endpoint paths (/api/.../tabs/claude-tui/attach) are NOT changed;
+// only the page URL is redirected.
+function ClaudeTuiRedirect() {
+  const { repoId, branchId } = useParams()
+  return (
+    <Navigate
+      to={`/${encodeURIComponent(repoId ?? '')}/${encodeURIComponent(branchId ?? '')}/claude`}
+      replace
+    />
+  )
+}
 
 function App() {
   const bootstrap = usePalmuxStore((s) => s.bootstrap)
@@ -49,6 +62,11 @@ function App() {
             ConversationList + Read-preview surface from synthetic data
             so E2E doesn't need a live claude CLI. */}
         <Route path="/__test/claude" element={<TestHarness />} />
+        {/* S1f75ec-2: /claude-tui is no longer a visible URL. Redirect to
+            canonical /claude. The backend still exposes WS at
+            /tabs/claude-tui/attach but the page URL is /claude. */}
+        <Route path="/:repoId/:branchId/claude-tui" element={<ClaudeTuiRedirect />} />
+        <Route path="/:repoId/:branchId/claude-tui/*" element={<ClaudeTuiRedirect />} />
         <Route path="/:repoId/:branchId/:tabId/*" element={<MainLayout />} />
       </Routes>
       <ContextMenuRenderer />

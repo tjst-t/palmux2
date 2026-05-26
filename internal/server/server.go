@@ -138,6 +138,10 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("DELETE /api/repos/{repoId}/branches/{branchId}/tabs/{tabId}", h.removeTab)
 	mux.HandleFunc("PATCH /api/repos/{repoId}/branches/{branchId}/tabs/{tabId}", h.renameTab)
 
+	// S1f75ec-2: per-branch settings (claude_mode etc.)
+	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/settings", h.getBranchSettings)
+	mux.HandleFunc("PATCH /api/repos/{repoId}/branches/{branchId}/settings", h.patchBranchSettings)
+
 	mux.HandleFunc("GET /api/settings", h.getSettings)
 	mux.HandleFunc("PATCH /api/settings", h.patchSettings)
 
