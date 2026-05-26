@@ -7333,38 +7333,38 @@
         },
         "S1f75ec-4": {
           "title": "Activity Inbox 互換 + Sprint Dashboard 疎通",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux2 ユーザとして、 claude-tui タブで発生した notification event (permission_prompt / task complete) を Activity Inbox で受け取りたい。 なぜなら、 claude-agent タブでは既に Activity Inbox に流れる経路があり、 claude-tui でも同等の通知体験を期待するからだ。 また、 Sprint Dashboard タブが claude-tui の daemon と競合しないことを E2E で確認したい。",
           "acceptance_criteria": [
             {
               "id": "AC-S1f75ec-4-1",
               "description": "claude-tui タブで permission_prompt 相当の検出 (TUI 内の特定パターンを emulator 経由でスキャン) で Activity Inbox に event を流す。 event 種別 = 'claudetui.permission_prompt'",
               "test": "tests/e2e/s1f75ec_inbox.py で fake claude-bin が permission prompt-like 出力 → Activity Inbox に event 出現",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1f75ec-4-2",
               "description": "claude-tui の task complete 検出 (claude のステータス行変化 or \\x07 BEL 受信) で Activity Inbox に event を流す。 event 種別 = 'claudetui.task_complete'",
               "test": "tests/e2e/s1f75ec_inbox.py で BEL 送信 → Activity Inbox に event 出現",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1f75ec-4-3",
               "description": "Activity Inbox の event クリックで claude-tui タブを focus + 必要なら branch 遷移",
               "test": "tests/e2e/s1f75ec_inbox.py で event クリック → URL が claude-tui タブに遷移",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1f75ec-4-4",
               "description": "Sprint Dashboard タブと claude-tui を同じ branch で同時 open しても挙動が独立。 Sprint Dashboard の filewatch と claude-tui の SessionWatcher が干渉しない",
               "test": "tests/e2e/s1f75ec_inbox.py で同時 attach → 両方が独立して event 発火",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1f75ec-4-5",
               "description": "data-testid: activity-inbox-event-claudetui (event 種別の data-testid 属性)",
               "test": "selector 検証",
-              "status": "planned"
+              "status": "pass"
             }
           ],
           "gui_spec": "docs/sprint-logs/S1f75ec/gui-spec-S1f75ec-4.json",

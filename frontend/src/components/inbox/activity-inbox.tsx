@@ -12,7 +12,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 
 import { api } from '../../lib/api'
 import { terminalManager } from '../../lib/terminal-manager'
-import { urlForTab } from '../../lib/tab-nav'
+import { urlForClaude, urlForTab } from '../../lib/tab-nav'
 import {
   type NotificationItem,
   selectBranchNotifications,
@@ -155,7 +155,7 @@ export function ActivityInbox() {
           {rows.length === 0 ? (
             <p className={styles.empty}>No activity yet.</p>
           ) : (
-            <ul className={styles.list}>
+            <ul className={styles.list} data-testid="activity-inbox-event-list">
               {rows.map((row) => (
                 <InboxRowView
                   key={`${row.repoId}/${row.branchId}`}
@@ -225,9 +225,27 @@ function InboxRowView({
     a.action.startsWith('claude.permission.'),
   )
 
+  // Detect claude-tui events: the latest notification (pending or last) has a
+  // claudetui.* type.  These come from the server-side emulator BEL / grid
+  // detection and are rendered with an "Open Claude" button.
+  const latestItem = live?.notifications?.slice().reverse().find((n) => !n.resolved)
+  const isClaudeTuiEvent =
+    (latestItem?.type ?? row.lastType ?? '').startsWith('claudetui.')
+  const claudeTuiUrl = urlForClaude(row.repoId, row.branchId)
+
+  const navigate = useNavigate()
+  const location = useLocation()
+  const openClaudeTui = () => {
+    navigate(claudeTuiUrl + location.search)
+    onClose()
+  }
+
   return (
-    <li className={row.unreadCount > 0 ? `${styles.row} ${styles.unread}` : styles.row}>
-      <div className={styles.rowHead} onClick={onOpen}>
+    <li
+      className={row.unreadCount > 0 ? `${styles.row} ${styles.unread}` : styles.row}
+      {...(isClaudeTuiEvent ? { 'data-testid': 'activity-inbox-event-claudetui' } : {})}
+    >
+      <div className={styles.rowHead} onClick={isClaudeTuiEvent ? openClaudeTui : onOpen}>
         <span className={styles.branchName}>
           {row.repoLabel} / {row.branchName}
         </span>
@@ -237,7 +255,7 @@ function InboxRowView({
         )}
       </div>
       {(pendingItem?.message ?? row.lastMessage) && (
-        <p className={styles.message} onClick={onOpen}>
+        <p className={styles.message} onClick={isClaudeTuiEvent ? openClaudeTui : onOpen}>
           {/* S009: stamp the originating Claude tab name (e.g. "Claude 2")
               ahead of the title so the user can tell which agent fired
               the notification when a branch hosts multiple Claude tabs.
@@ -253,7 +271,13 @@ function InboxRowView({
       <div className={styles.rowHead}>
         <span className={styles.timestamp}>{row.lastAt ? formatRelative(row.lastAt) : ''}</span>
       </div>
-      {isMcpPermission && pendingItem ? (
+      {isClaudeTuiEvent ? (
+        <div className={styles.actions}>
+          <button className={styles.action} onClick={openClaudeTui}>
+            Open Claude
+          </button>
+        </div>
+      ) : isMcpPermission && pendingItem ? (
         <div className={styles.actions}>
           <button
             className={styles.action}

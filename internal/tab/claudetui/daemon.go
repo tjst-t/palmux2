@@ -108,6 +108,22 @@ type Daemon struct {
 	emulator      *Emulator
 	logger        *slog.Logger
 
+	// notifyHub is the process-wide hub used to publish Activity Inbox events
+	// (permission_prompt, task_complete) detected from the emulator grid / BEL.
+	// May be nil — events are silently discarded in that case.
+	notifyHub *notify.Hub
+	// repoID and branchID identify the workspace; stamped onto every event.
+	repoID, branchID string
+
+	// eventMu guards the per-daemon event-detection state fields below.
+	eventMu sync.Mutex
+	// lastPermissionQuestion is the most-recently emitted permission-prompt
+	// question string.  We only emit when the detected question changes (dedup).
+	lastPermissionQuestion string
+	// lastBELAt is the wall-clock time of the last task_complete BEL emission.
+	// Used to enforce the 2-second throttle window.
+	lastBELAt time.Time
+
 	// roles manages multi-client active/viewer assignment (Story 3).
 	roles *roleCoordinator
 
@@ -203,6 +219,9 @@ func NewDaemon(cfg DaemonConfig) *Daemon {
 		ring:           NewRing(cfg.RingSize),
 		emulator:       NewEmulator(80, 24, cfg.NotifyHub, cfg.RepoID, cfg.BranchID),
 		logger:         cfg.Logger,
+		notifyHub:      cfg.NotifyHub,
+		repoID:         cfg.RepoID,
+		branchID:       cfg.BranchID,
 		daemonCtx:      ctx,
 		daemonCancel:   cancel,
 		sessionIDReady: make(chan struct{}),
@@ -405,6 +424,9 @@ func (d *Daemon) readLoop(ptmx *os.File) {
 				// emulator.Feed is a synchronous state-machine update; it does
 				// not block and adds only a small constant overhead per chunk.
 				d.emulator.Feed(chunk)
+				// Event detection: scan for BEL (task_complete) and grid pattern
+				// (permission_prompt).  Both calls are fast and non-blocking.
+				d.detectEvents(chunk)
 			}
 			if r.err != nil {
 				if r.err != io.EOF {
@@ -658,6 +680,33 @@ func (d *Daemon) Shutdown() {
 		d.shutdownWg.Wait()
 		d.logger.Info("claudetui: daemon shutdown complete")
 	})
+}
+
+// detectEvents scans a raw PTY chunk for Activity Inbox events:
+//  1. BEL (\x07) bytes → task_complete (throttled to 1 per 2 s).
+//  2. Grid pattern scan → permission_prompt (only on question change).
+//
+// Both detections use the process-wide NotifyHub wired in DaemonConfig.
+// When NotifyHub is nil, this method is a no-op (safe in tests that omit it).
+func (d *Daemon) detectEvents(chunk []byte) {
+	if d.notifyHub == nil {
+		return
+	}
+	d.eventMu.Lock()
+	defer d.eventMu.Unlock()
+
+	// 1. BEL detection (task_complete).
+	d.lastBELAt = maybeEmitTaskComplete(
+		d.notifyHub, d.repoID, d.branchID,
+		chunk, d.lastBELAt,
+	)
+
+	// 2. Grid permission-prompt scan (cheap: only bottom 8 rows).
+	g := d.emulator.GridSnapshot()
+	d.lastPermissionQuestion = maybeEmitPermissionPrompt(
+		d.notifyHub, d.repoID, d.branchID,
+		g, d.lastPermissionQuestion,
+	)
 }
 
 // appendOrReplace either appends "KEY=value" to env or replaces the existing
