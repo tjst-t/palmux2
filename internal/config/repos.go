@@ -124,31 +124,6 @@ func (s *RepoStore) load() error {
 	return nil
 }
 
-// migrateBranchSettings (S1f75ec-2) back-fills ClaudeMode="agent" for every
-// branch in the BranchSettingsMap that has an empty mode. This is called by
-// callers that need to ensure existing branches have a well-known default
-// before persisting. It does NOT write to disk by itself.
-func migrateBranchSettings(entries []RepoEntry, knownBranchIDs func(repoID string) []string) bool {
-	changed := false
-	for i := range entries {
-		if knownBranchIDs == nil {
-			continue
-		}
-		for _, bid := range knownBranchIDs(entries[i].ID) {
-			if entries[i].BranchSettingsMap == nil {
-				entries[i].BranchSettingsMap = map[string]BranchSettings{}
-			}
-			existing := entries[i].BranchSettingsMap[bid]
-			if existing.ClaudeMode == "" {
-				existing.ClaudeMode = ClaudeModeAgent
-				entries[i].BranchSettingsMap[bid] = existing
-				changed = true
-			}
-		}
-	}
-	return changed
-}
-
 func (s *RepoStore) save() error {
 	b, err := json.MarshalIndent(s.entries, "", "  ")
 	if err != nil {

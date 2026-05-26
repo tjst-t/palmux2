@@ -1,7 +1,7 @@
 {
   "sprint_id": "S1f75ec",
   "verified_at": "2026-05-26",
-  "summary": {"pass": 31, "fail": 0, "skip": 0, "total": 31},
+  "summary": {"pass": 32, "fail": 0, "skip": 0, "total": 32},
   "tests": [
     {"story": "S1f75ec-1", "acceptance_criteria": ["AC-S1f75ec-1-1"], "test": "git diff main..HEAD で削除確認: mobile-chat-view.tsx / mobile-chat-view.module.css / mobile-test-harness.html", "file": "git diff", "status": "pass"},
     {"story": "S1f75ec-1", "acceptance_criteria": ["AC-S1f75ec-1-2"], "test": "tests/e2e/s1f75ec_simplify.py::test_ac_s1f75ec_1_2_mobile_renders_xterm (375x667)", "file": "tests/e2e/s1f75ec_simplify.py", "status": "pass"},
@@ -14,7 +14,7 @@
 
     {"story": "S1f75ec-2", "acceptance_criteria": ["AC-S1f75ec-2-1"], "test": "tests/e2e/s1f75ec_mode_switch.py::test_ac_s1f75ec_2_1_settings_persist (POST + GET round-trip)", "file": "tests/e2e/s1f75ec_mode_switch.py", "status": "pass"},
     {"story": "S1f75ec-2", "acceptance_criteria": ["AC-S1f75ec-2-2"], "test": "internal/config/repos_test.go::TestMigrationDefaultsClaudeMode + tests/e2e/s1f75ec_mode_switch.py::test_ac_s1f75ec_2_2_migration_defaults", "file": "internal/config + s1f75ec_mode_switch.py", "status": "pass"},
-    {"story": "S1f75ec-2", "acceptance_criteria": ["AC-S1f75ec-2-3"], "test": "tests/e2e/s1f75ec_mode_switch.py::test_ac_s1f75ec_2_3_global_default_override", "file": "tests/e2e/s1f75ec_mode_switch.py", "status": "pass"},
+    {"story": "S1f75ec-2", "acceptance_criteria": ["AC-S1f75ec-2-3"], "test": "tests/e2e/s1f75ec_mode_switch.py::test_ac_2_3_global_default_override_tui + ::test_ac_2_3_global_default_override_agent (PATCH /api/settings claude.default_mode → new gwq branch inherits the override via store.OpenBranchInternal → RepoStore.InitBranchSettings)", "file": "tests/e2e/s1f75ec_mode_switch.py", "status": "pass"},
     {"story": "S1f75ec-2", "acceptance_criteria": ["AC-S1f75ec-2-4"], "test": "tests/e2e/s1f75ec_mode_switch.py::test_ac_s1f75ec_2_4_palette_switch_claude_mode + s1f75ec_mode_switch_mock.py::test_mock_palette_command_visible", "file": "tests/e2e/s1f75ec_mode_switch{,_mock}.py", "status": "pass"},
     {"story": "S1f75ec-2", "acceptance_criteria": ["AC-S1f75ec-2-5"], "test": "tests/e2e/s1f75ec_mode_switch.py::test_ac_s1f75ec_2_5_tab_bar_single_claude_tab + s1f75ec_mode_switch_mock.py::test_mock_tab_renders_per_mode", "file": "同上", "status": "pass"},
     {"story": "S1f75ec-2", "acceptance_criteria": ["AC-S1f75ec-2-6"], "test": "tests/e2e/s1f75ec_mode_switch.py::test_ac_s1f75ec_2_6_legacy_redirect (302 /claude-tui → /claude)", "file": "tests/e2e/s1f75ec_mode_switch.py", "status": "pass"},
@@ -67,7 +67,7 @@
       {"type": "deletion", "identifier": "MobileChatView + grid mode WS + transcript endpoint + obsolete tests", "covered_by": ["AC-S1f75ec-1-1, 1-3, 1-4, 1-5"], "status": "covered"}
     ],
     "untested_additions": [],
-    "notes": "Sprint S1f75ec collapses claude-agent/claude-tui into one branch-scoped 'Claude' tab (案 A), wires Toolbar auto-mode + ESC ESC, integrates Activity Inbox events from the TUI daemon (permission_prompt regex + BEL throttle), adds image/file paste & drop (reusing /api/upload), and removes the brittle MobileChatView surface (-700 LoC net). 31 ACs / 31 tests / 0 fail / 0 skip. The paste tests use a defaultPrevented-based assertion (the stable observable signal that the handler intercepted the event) because Playwright route mocks for binary multipart bodies are unreliable across back-to-back tests — POST /api/upload is exercised structurally in the mock progress test."
+    "notes": "Sprint S1f75ec collapses claude-agent/claude-tui into one branch-scoped 'Claude' tab (案 A), wires Toolbar auto-mode + ESC ESC, integrates Activity Inbox events from the TUI daemon (permission_prompt regex + BEL throttle), adds image/file paste & drop (reusing /api/upload), and removes the brittle MobileChatView surface (-700 LoC net). 31 ACs / 32 tests (AC-2-3 has 2 directional cases) / 0 fail / 0 skip. The paste tests use a defaultPrevented-based assertion (the stable observable signal that the handler intercepted the event) because Playwright route mocks for binary multipart bodies are unreliable across back-to-back tests — POST /api/upload is exercised structurally in the mock progress test. Post-verify fix (commit after the sprint-level review): wired RepoStore.InitBranchSettings into store.openBranchInternal so the documented settings.claude.default_mode override actually propagates to new branches, and added the two tests above which exercise both directional defaults (tui and agent). The previously-claimed AC-2-3 test never existed and the global-default code path was unreachable — both were fixed before sprint done."
   },
   "done_judgment": {
     "guard_1_acceptance_traceability": {"status": "pass", "note": "31/31 AC have explicit test mapping above"},

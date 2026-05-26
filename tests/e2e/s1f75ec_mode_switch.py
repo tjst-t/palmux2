@@ -240,6 +240,100 @@ def test_ac_2_2_patch_and_get_persistence(port: int) -> None:
     passed("[AC-S1f75ec-2-2] PATCH claude_mode → GET confirms persistence")
 
 
+def test_ac_2_3_global_default_override_tui(port: int) -> None:
+    """[AC-S1f75ec-2-3] settings.claude.default_mode='tui' → new branch defaults to tui.
+
+    Verifies the path that was unwired pre-verify: opening a new branch
+    after PATCH /api/settings sets claude.default_mode=tui must persist
+    a BranchSettings entry with claude_mode='tui' (not the migration
+    fallback 'agent').
+    """
+    import subprocess
+    fx = _get_fixture_module(port)
+    with fx.palmux2_test_fixture("s1f75ec-default-tui") as fixture:
+        fixture.primary_branch_id(timeout_s=10.0)  # ensure server up + primary open
+
+        # Set global default = tui.
+        code, _ = _http_json(
+            port, "PATCH", "/api/settings",
+            body={"claude": {"default_mode": "tui"}},
+        )
+        assert code == 200, f"[AC-S1f75ec-2-3] PATCH /api/settings: {code}"
+
+        # Create a brand-new local branch in the fixture repo, then open it
+        # via the public API.  palmux2 will gwq add the worktree, which runs
+        # InitBranchSettings(repoID, branchID, settings.ClaudeDefaultMode()).
+        subprocess.run(
+            ["git", "-C", str(fixture.path), "branch", "feature-default-tui", "main"],
+            check=True,
+        )
+        code, body = _http_json(
+            port, "POST",
+            f"/api/repos/{urllib.parse.quote(fixture.repo_id)}/branches/open",
+            body={"branchName": "feature-default-tui"},
+        )
+        assert code in (200, 201), f"[AC-S1f75ec-2-3] open new branch: {code} {body}"
+        assert isinstance(body, dict)
+        new_branch_id = body.get("id")
+        assert new_branch_id, f"[AC-S1f75ec-2-3] open response missing id: {body}"
+
+        code, settings = _http_json(
+            port, "GET",
+            f"/api/repos/{urllib.parse.quote(fixture.repo_id)}"
+            f"/branches/{urllib.parse.quote(new_branch_id)}/settings",
+        )
+        assert code == 200, f"[AC-S1f75ec-2-3] GET new-branch settings: {code} {settings}"
+        assert isinstance(settings, dict)
+        assert settings.get("claude_mode") == "tui", (
+            f"[AC-S1f75ec-2-3] new branch should inherit global default 'tui', "
+            f"got {settings}"
+        )
+    passed("[AC-S1f75ec-2-3] global default 'tui' applies to newly-opened branch")
+
+
+def test_ac_2_3_global_default_override_agent(port: int) -> None:
+    """[AC-S1f75ec-2-3] settings.claude.default_mode='agent' → new branch defaults to agent.
+
+    Inverse direction: global override switched to 'agent' must propagate
+    to newly-opened branches.
+    """
+    import subprocess
+    fx = _get_fixture_module(port)
+    with fx.palmux2_test_fixture("s1f75ec-default-agent") as fixture:
+        fixture.primary_branch_id(timeout_s=10.0)
+
+        code, _ = _http_json(
+            port, "PATCH", "/api/settings",
+            body={"claude": {"default_mode": "agent"}},
+        )
+        assert code == 200, f"[AC-S1f75ec-2-3] PATCH /api/settings: {code}"
+
+        subprocess.run(
+            ["git", "-C", str(fixture.path), "branch", "feature-default-agent", "main"],
+            check=True,
+        )
+        code, body = _http_json(
+            port, "POST",
+            f"/api/repos/{urllib.parse.quote(fixture.repo_id)}/branches/open",
+            body={"branchName": "feature-default-agent"},
+        )
+        assert code in (200, 201), f"[AC-S1f75ec-2-3] open new branch: {code} {body}"
+        new_branch_id = body.get("id")
+        assert new_branch_id
+
+        code, settings = _http_json(
+            port, "GET",
+            f"/api/repos/{urllib.parse.quote(fixture.repo_id)}"
+            f"/branches/{urllib.parse.quote(new_branch_id)}/settings",
+        )
+        assert isinstance(settings, dict)
+        assert settings.get("claude_mode") == "agent", (
+            f"[AC-S1f75ec-2-3] new branch should inherit global default 'agent', "
+            f"got {settings}"
+        )
+    passed("[AC-S1f75ec-2-3] global default 'agent' applies to newly-opened branch")
+
+
 def test_ac_2_2_invalid_mode_rejected(port: int) -> None:
     """[AC-S1f75ec-2-2] PATCH with invalid claude_mode → 4xx error."""
     fx = _get_fixture_module(port)
@@ -493,6 +587,12 @@ def main() -> None:
 
         _run("test_ac_2_2_invalid_mode_rejected",
              lambda: test_ac_2_2_invalid_mode_rejected(port))
+
+        _run("test_ac_2_3_global_default_override_tui",
+             lambda: test_ac_2_3_global_default_override_tui(port))
+
+        _run("test_ac_2_3_global_default_override_agent",
+             lambda: test_ac_2_3_global_default_override_agent(port))
 
         if has_frontend:
             _run("test_ac_2_5_single_claude_tab_in_tabbar",

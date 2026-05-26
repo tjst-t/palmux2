@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tjst-t/palmux2/internal/config"
 	"github.com/tjst-t/palmux2/internal/domain"
 	"github.com/tjst-t/palmux2/internal/tab"
 	"github.com/tjst-t/palmux2/internal/tmux"
@@ -109,6 +110,21 @@ func (s *Store) openBranchInternal(ctx context.Context, repoID, branchName strin
 	s.applyCategoriesUnlocked(repo)
 	snap := cloneBranch(branch)
 	s.mu.Unlock()
+
+	// S1f75ec-2 (post-verify fix): determine claude_mode for this branch.
+	// Branches already present in userOpenedBranches pre-date this Sprint;
+	// they keep "agent" so the upgrade does not silently flip established
+	// workflows. Genuinely new branches inherit the global default from
+	// settings.claude.default_mode (default "tui"). InitBranchSettings is
+	// idempotent — a no-op when the user has previously toggled the mode.
+	mode := config.ClaudeMode(s.deps.Settings.ClaudeDefaultMode())
+	if s.deps.RepoStore.IsUserOpened(repoID, wt.Branch) {
+		mode = config.ClaudeModeAgent
+	}
+	if err := s.deps.RepoStore.InitBranchSettings(repoID, branchID, mode); err != nil {
+		s.logger.Warn("OpenBranch: InitBranchSettings failed",
+			"repo", repoID, "branch", wt.Branch, "err", err)
+	}
 
 	if markUserOpened {
 		// S015-1-6: persist that the user opened this branch through Palmux
