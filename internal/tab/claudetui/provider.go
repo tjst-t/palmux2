@@ -112,14 +112,12 @@ func (p *Provider) OnBranchClose(ctx context.Context, params tab.CloseParams) er
 //	WS    GET  /api/repos/{repoId}/branches/{branchId}/tabs/claude-tui/attach
 //	JSON  GET  /api/repos/{repoId}/branches/{branchId}/tabs/claude-tui/stats
 //	JSON  POST /api/repos/{repoId}/branches/{branchId}/tabs/claude-tui/resize
-//	JSON  GET  /api/repos/{repoId}/branches/{branchId}/tabs/claude-tui/transcript
 func (p *Provider) RegisterRoutes(mux *http.ServeMux, _ string) {
 	const pfx = "/api/repos/{repoId}/branches/{branchId}/tabs/claude-tui"
 
 	mux.Handle("GET "+pfx+"/attach", http.HandlerFunc(p.handleAttach))
 	mux.Handle("GET "+pfx+"/stats", http.HandlerFunc(p.handleStats))
 	mux.HandleFunc("POST "+pfx+"/resize", p.handleResize)
-	mux.HandleFunc("GET "+pfx+"/transcript", p.handleTranscript)
 }
 
 // handleAttach upgrades to WebSocket and attaches to the per-branch Daemon.
@@ -178,52 +176,4 @@ func (p *Provider) handleResize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// transcriptResponse is the JSON body returned by handleTranscript.
-type transcriptResponse struct {
-	SessionID string             `json:"sessionId"`
-	Bubbles   []TranscriptBubble `json:"bubbles"`
-}
-
-// handleTranscript reads the per-branch Daemon's current Claude Code
-// transcript .jsonl and returns the structured chat history as a JSON
-// bubble list.  This is the mobile chat's source of conversation history —
-// the grid-based extraction in MobileChatView can only see the current TUI
-// frame (claude uses alternate screen), so prior turns must come from the
-// JSONL transcript.
-//
-// Returns:
-//   - 200 with {sessionId, bubbles} on success (bubbles may be empty if the
-//     daemon has not yet recorded any turn for this branch)
-//   - 404 if no daemon exists for the branch
-//   - 500 on read errors (file exists but malformed beyond all-line skip)
-func (p *Provider) handleTranscript(w http.ResponseWriter, r *http.Request) {
-	repoID := r.PathValue("repoId")
-	branchID := r.PathValue("branchId")
-	d := p.manager.Get(repoID, branchID)
-	if d == nil {
-		http.Error(w, "no daemon for branch", http.StatusNotFound)
-		return
-	}
-	worktree := d.Worktree()
-	sessionID := d.SessionID()
-	resp := transcriptResponse{SessionID: sessionID, Bubbles: []TranscriptBubble{}}
-	if worktree != "" && sessionID != "" {
-		dir, err := TranscriptDir(worktree)
-		if err == nil {
-			path := dir + "/" + sessionID + ".jsonl"
-			bubbles, rerr := ReadTranscriptBubbles(path)
-			if rerr != nil {
-				slog.Warn("claudetui: transcript read", "path", path, "err", rerr)
-				http.Error(w, "transcript read error", http.StatusInternalServerError)
-				return
-			}
-			if bubbles != nil {
-				resp.Bubbles = bubbles
-			}
-		}
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
 }

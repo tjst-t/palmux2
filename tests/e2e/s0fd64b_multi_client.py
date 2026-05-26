@@ -207,7 +207,7 @@ def test_single_client_active(port: int) -> None:
 
         async def _run() -> dict | None:
             import websockets
-            uri = _attach_uri(port, repo_id, branch_id, mode="grid")
+            uri = _attach_uri(port, repo_id, branch_id)
             async with websockets.connect(uri, max_size=None) as ws:
                 return await _collect_role(ws, timeout=5.0)
 
@@ -237,7 +237,7 @@ def test_second_client_viewer(port: int) -> None:
 
         async def _run() -> tuple[dict | None, dict | None]:
             import websockets
-            uri = _attach_uri(port, repo_id, branch_id, mode="grid")
+            uri = _attach_uri(port, repo_id, branch_id)
             async with websockets.connect(uri, max_size=None) as ws_a:
                 ev_a = await _collect_role(ws_a, timeout=5.0)
                 # Open a second connection while the first is still open.
@@ -272,7 +272,7 @@ def test_last_typed_wins(port: int) -> None:
 
         async def _run() -> tuple[dict | None, dict | None]:
             import websockets
-            uri = _attach_uri(port, repo_id, branch_id, mode="grid")
+            uri = _attach_uri(port, repo_id, branch_id)
             async with websockets.connect(uri, max_size=None) as ws_a:
                 await _collect_role(ws_a, timeout=5.0)  # consume initial active
                 async with websockets.connect(uri, max_size=None) as ws_b:
@@ -322,7 +322,7 @@ def test_active_disconnect_promotes_viewer(port: int) -> None:
 
         async def _run() -> dict | None:
             import websockets
-            uri = _attach_uri(port, repo_id, branch_id, mode="grid")
+            uri = _attach_uri(port, repo_id, branch_id)
             # Open connections manually (not as context managers) so we can close
             # ws_a while keeping ws_b alive.
             ws_a = await websockets.connect(uri, max_size=None)

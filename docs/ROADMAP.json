@@ -7186,56 +7186,56 @@
       "stories": {
         "S1f75ec-1": {
           "title": "mobile chat 機能削除 (simplify)",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux2 開発者として、 MobileChatView / grid WS / transcript endpoint を削除して mobile でも desktop と同じ xterm.js 描画になるようにしたい。 なぜなら、 MVP scope のまま fundamental な UX 問題 (streaming 見えない / 700 bubble render / heuristic 抽出脆弱) を抱え、 4 連続 hotfix で patch していた foundation の brittle さを継承するより、 シンプルな本来の TUI に戻すほうが長期的に保守可能だからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S1f75ec-1-1",
               "description": "frontend/src/tabs/claude-tui/{mobile-chat-view.tsx, mobile-chat-view.module.css, mobile-test-harness.html} が削除されている",
               "test": "git diff main..HEAD で削除確認 + 当該 import 0 件",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1f75ec-1-2",
               "description": "claude-tui-tab.tsx の useViewport 分岐が撤廃され、 mobile / desktop ともに同一 xterm.js 描画。 mobile 375x667 viewport で claude-tui タブを開くと xterm.js (data-testid='claude-tui-terminal') が描画される",
               "test": "tests/e2e/s1f75ec_simplify.py の mobile viewport テスト",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1f75ec-1-3",
               "description": "backend ?mode=grid 経路 + serveGridMode + gridInitMsg / gridDiffMsg + diff loop が削除、 raw mode 1 本のみ。 ?mode=grid クエリは無視されて raw frame で配信",
               "test": "tests/e2e/s1f75ec_simplify.py で WS ?mode=grid attach し binary frame が返る (grid JSON ではない) ことを確認",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1f75ec-1-4",
               "description": "transcript endpoint (/transcript) + transcript.go + transcript_test.go が削除、 handleTranscript ハンドラ撤去",
               "test": "GET /tabs/claude-tui/transcript が 404 を返す",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1f75ec-1-5",
               "description": "削除に伴う obsolete tests (s0fd64b_mobile_chat.py / s0fd64b_mobile_chat_mock.py / s0fd64b_grid_ws_protocol.py) も削除",
               "test": "git diff main..HEAD で削除確認",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1f75ec-1-6",
               "description": "internal/tab/claudetui/emulator.go (OSC 52 + drainer) と role.go (multi-client coordination) は保持 = 未削除",
               "test": "git diff main..HEAD でこれらが存在 + 当該テスト pass",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1f75ec-1-7",
               "description": "既存 desktop E2E (tests/e2e/s7ce250_claude_tui.py) が全 pass (8/8)",
               "test": "python3 tests/e2e/s7ce250_claude_tui.py",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1f75ec-1-8",
               "description": "mobile viewport (375x667) で xterm.js が描画 + WS 接続 + bytes 入出力が機能する",
               "test": "tests/e2e/s1f75ec_simplify.py の mobile xterm functional テスト",
-              "status": "planned"
+              "status": "pass"
             }
           ],
           "gui_spec": "docs/sprint-logs/S1f75ec/gui-spec-S1f75ec-1.json",
