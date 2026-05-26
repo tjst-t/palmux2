@@ -5,11 +5,11 @@
     "sprints_done": 41,
     "sprints_total": 42,
     "percent": 97,
-    "current_sprint": null,
+    "current_sprint": "S1f75ec",
     "done": 41,
-    "in_progress": 0,
+    "in_progress": 1,
     "total": 42,
-    "remaining": 1,
+    "remaining": 0,
     "percentage": 97
   },
   "execution_order": [
@@ -7180,7 +7180,7 @@
     },
     "S1f75ec": {
       "title": "Track B Sprint C — claude-tui simplify (mobile chat 撤去) + UX 統合 + paste/drop",
-      "status": "planned",
+      "status": "in_progress",
       "milestone": true,
       "description": "Sprint B (S0fd64b) で mobile parity を実現した MobileChatView は MVP scope のまま fundamental な UX 問題 (streaming 見えない / 700 bubble render / heuristic 抽出脆弱) を抱え、 4 連続 hotfix (fix-1〜-4) で patch していた事実そのものが foundation の brittle さを示していた。 Sprint C で **機能削除** + UX 統合ポリッシュを実施する。\n\n5 stories:\n  -1 mobile chat 機能削除 (foundation simplify、 これが Wave 1 で他は wave 2 以降)\n  -2 claude-agent ⇄ claude-tui 切替 UX (案 A: タブバー単一化 + mode 設定)\n  -3 Toolbar mode 自動切替 + ESC ESC ボタン\n  -4 Activity Inbox + Sprint Dashboard 疎通\n  -5 画像 / ファイル paste & drop (ユーザ要望)\n\n依存: S0fd64b (= Sprint B、 すでに main にマージ済み、 v0.8.0 release 済み)\n対象外:\n  - Bash タブの tmux 撤廃 / ptytui 共通基盤化 (backlog にエントリ済み、 Sprint D 候補)\n  - emulator (OSC 52 + drainer) と role.go (multi-client coordination) の削除。 これらは Story 1 で温存する\n  - JSONL transcript ベースの session 履歴 popup (claudeagent 既存パターン、 別 sprint で claude-tui に展開検討)\n\n削除する内容 (Story 1):\n  - frontend/src/tabs/claude-tui/mobile-chat-view.tsx + .module.css + mobile-test-harness.html\n  - internal/tab/claudetui/transcript.go + transcript_test.go\n  - Provider.handleTranscript + /transcript endpoint\n  - server.go の serveGridMode + gridInitMsg + gridDiffMsg + 関連型\n  - ?mode=grid 経路 (raw mode 1 本のみ残す)\n  - tests/e2e/s0fd64b_mobile_chat{,_mock}.py + s0fd64b_grid_ws_protocol.py\n  - claude-tui-tab.tsx の useViewport 分岐\n\n統合方針:\n  - 案 A: backend 改修ゼロで frontend で mode 分岐。 claude-agent + claude-tui の 2 つの Provider はそのまま、 frontend が branch.claude_mode を見て 1 つだけ描画\n  - 旧 URL `/claude-tui` は 302 で `/claude` に redirect 互換維持\n  - 既存 branch のデフォルト mode = agent (現状維持)、 新規 branch = tui (subscription quota)、 グローバル override も用意",
       "stories": {
