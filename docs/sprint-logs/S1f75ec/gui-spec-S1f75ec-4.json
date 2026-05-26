@@ -1,0 +1,70 @@
+{
+  "sprint_id": "S1f75ec",
+  "story_id": "S1f75ec-4",
+  "story_title": "Activity Inbox 互換 + Sprint Dashboard 疎通",
+  "entry_point": "gui",
+  "notes": [
+    "Activity Inbox は既存 (palmux v2.1) の Header の 🔔 ボタンで開くアグリゲータ。 claude-tui の event 種別を追加",
+    "permission_prompt の検出は emulator の grid pattern match (TUI 特有の 'Allow this?' 系プロンプト)",
+    "task_complete の検出は BEL (\\x07) 受信または cursor pattern (e.g., 'idle' 表示行)",
+    "Sprint Dashboard は別 Provider (internal/tab/sprint/) で、 claude-tui の SessionWatcher と filewatch ターゲットが異なる (Sprint は docs/ROADMAP.json / sprint-logs を watch、 claude-tui は ~/.claude/projects/ を watch)。 干渉しないことを E2E で実証"
+  ],
+  "state_diagram_mermaid": "stateDiagram-v2\n    [*] --> Idle: claude-tui daemon spawned\n    Idle --> PermissionPromptDetected: emulator grid に 'Do you want me to' or 'Allow ' pattern\n    Idle --> TaskCompleteDetected: BEL (\\x07) or idle-state pattern\n    PermissionPromptDetected --> InboxEventEmitted: notify Hub publish 'claudetui.permission_prompt'\n    TaskCompleteDetected --> InboxEventEmitted: notify Hub publish 'claudetui.task_complete'\n    InboxEventEmitted --> Idle: event consumed by Activity Inbox UI",
+  "states": [
+    {"name": "Idle", "description": "claude-tui daemon 起動中、 イベント未検出"},
+    {"name": "PermissionPromptDetected", "description": "TUI grid に permission prompt パターン検出。 Activity Inbox に 'permission_prompt' event を流す"},
+    {"name": "TaskCompleteDetected", "description": "BEL 受信もしくは TUI idle-state 検出。 Activity Inbox に 'task_complete' event を流す"}
+  ],
+  "scenarios": [
+    {
+      "name": "permission_prompt の検出 + Inbox に流れる",
+      "linked_ac": ["AC-S1f75ec-4-1", "AC-S1f75ec-4-5"],
+      "steps": [
+        "fake claude-bin が 'Do you want me to read /etc/passwd?' を TUI に出す",
+        "claude-tui daemon の emulator が grid から pattern を検出",
+        "notify Hub に PermissionPromptEvent を publish",
+        "Activity Inbox UI に event 出現 ([data-testid='activity-inbox-event-claudetui'] kind='permission_prompt')"
+      ]
+    },
+    {
+      "name": "task_complete (BEL) の検出",
+      "linked_ac": ["AC-S1f75ec-4-2"],
+      "steps": [
+        "fake claude-bin が \\x07 (BEL) を送る",
+        "claude-tui daemon が BEL を検出して notify Hub publish",
+        "Activity Inbox に event 出現 (kind='task_complete')"
+      ]
+    },
+    {
+      "name": "Inbox event クリックで claude-tui タブに focus",
+      "linked_ac": ["AC-S1f75ec-4-3"],
+      "steps": [
+        "Activity Inbox の claude-tui event を click",
+        "URL が /{repo}/{branch}/claude に遷移",
+        "Claude タブが focus、 mode=tui の場合は xterm に scroll"
+      ]
+    },
+    {
+      "name": "Sprint Dashboard と claude-tui の同時 attach (干渉しない)",
+      "linked_ac": ["AC-S1f75ec-4-4"],
+      "steps": [
+        "Sprint Dashboard タブを開く (docs/ROADMAP.json 監視開始)",
+        "同じ branch で Claude タブを mode=tui で open (claude-tui daemon 起動、 SessionWatcher 開始)",
+        "両者が独立した notify event を発火 (ROADMAP.json 変更 → sprint event、 BEL → claudetui event)",
+        "互いの fsnotify subscription が共存していることを確認"
+      ]
+    }
+  ],
+  "endpoint_contracts": [],
+  "test_files": {"e2e": "tests/e2e/s1f75ec_inbox.py", "mock": "tests/e2e/s1f75ec_inbox_mock.py"},
+  "data_testids_required": [
+    "activity-inbox-toggle",
+    "activity-inbox-event-claudetui",
+    "activity-inbox-event-list"
+  ],
+  "auto_decisions": [
+    {"topic": "permission_prompt 検出のヒューリスティック", "decision": "emulator grid の最後 N 行を正規表現 (e.g., /^[│|]\\s*(Do you want me to|Allow .*?\\?)/) で match", "rationale": "claude の TUI 特有のプロンプト書式。 grid 経由なので alt-screen 問題なし。 brittle 前提で document"},
+    {"topic": "task_complete 検出", "decision": "BEL (\\x07) を primary、 idle pattern (cursor 末尾 + 数秒変化なし) を secondary", "rationale": "BEL は claude が明示的に出す。 fallback として idle pattern も用意"},
+    {"topic": "既存 Activity Inbox との統合", "decision": "既存 internal/notify/ に PermissionPromptEvent / TaskCompleteEvent 型を追加、 frontend は既存 inbox renderer に kind='claudetui.*' を追加", "rationale": "claudeagent が既にこのパターンで Activity Inbox を使っているため、 同型に乗る"}
+  ]
+}

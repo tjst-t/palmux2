@@ -1,0 +1,95 @@
+{
+  "sprint_id": "S1f75ec",
+  "story_id": "S1f75ec-5",
+  "story_title": "画像 / ファイル paste & drop",
+  "entry_point": "gui",
+  "notes": [
+    "claudeagent タブと同じ /api/upload を再利用 (backend ほぼ改修なし)",
+    "claude-tui の xterm.js wrapper で paste / drop event を hook",
+    "paste image blob → upload → 絶対パスを WS で typing 送信 (claude TUI が path として認識)",
+    "drop file(s) → upload → 絶対パスを WS で送信 (複数の場合は space 区切り or 1 ファイルずつ)",
+    "text paste は既存 xterm.js の bracketed paste mode に任せる (regression なし)"
+  ],
+  "state_diagram_mermaid": "stateDiagram-v2\n    [*] --> XtermReady: claude-tui tab focus\n    XtermReady --> PasteImage: ClipboardEvent has image blob\n    XtermReady --> PasteText: ClipboardEvent has text only\n    XtermReady --> DragOver: dragover event with files\n    DragOver --> DropFiles: drop event with files\n    DragOver --> XtermReady: dragleave\n    PasteImage --> Uploading: POST /api/upload (blob)\n    DropFiles --> Uploading: POST /api/upload (each file)\n    Uploading --> PathSent: 200 OK with abs path → WS send '<path>\\r' (or space-joined for multi)\n    PathSent --> XtermReady\n    PasteText --> XtermReady: xterm.js bracketed paste handles natively",
+  "states": [
+    {"name": "XtermReady", "description": "通常状態。 user 入力受付", "ui_affordances": {"terminal": "xterm focused"}},
+    {"name": "DragOver", "description": "ファイルが drag されている、 drop zone overlay 表示", "ui_affordances": {"overlay": "data-testid='claude-tui-paste-zone' visible"}},
+    {"name": "Uploading", "description": "POST /api/upload 中、 progress indicator 表示", "ui_affordances": {"indicator": "data-testid='claude-tui-upload-progress'"}},
+    {"name": "PathSent", "description": "アップロード完了、 絶対パスを WS に送信した直後 (xterm に reflect される)"}
+  ],
+  "scenarios": [
+    {
+      "name": "画像 paste",
+      "linked_ac": ["AC-S1f75ec-5-1", "AC-S1f75ec-5-6"],
+      "steps": [
+        "Claude タブ (mode=tui) を focus",
+        "Playwright で page.evaluate して ClipboardEvent に image/png blob をセット → paste",
+        "POST /api/upload に画像 blob が届く",
+        "200 OK で {path: '/tmp/palmux-uploads/.../xxx.png'}",
+        "WS で '/tmp/palmux-uploads/.../xxx.png\\r' が daemon に送信",
+        "xterm 上にパスが表示される"
+      ]
+    },
+    {
+      "name": "ファイル drop (単一)",
+      "linked_ac": ["AC-S1f75ec-5-2", "AC-S1f75ec-5-6"],
+      "steps": [
+        "Claude タブを focus",
+        "Playwright で dataTransfer に 1 File を持つ drop event を発火",
+        "drop zone overlay (data-testid='claude-tui-paste-zone') が drag 中に visible",
+        "drop で upload → path を WS 送信"
+      ]
+    },
+    {
+      "name": "ファイル drop (複数)",
+      "linked_ac": ["AC-S1f75ec-5-2"],
+      "steps": [
+        "2 ファイルを drop",
+        "順次 upload → 2 つの path を WS 送信 (space 区切り or 1 ファイルずつ 連続送信)",
+        "claude TUI が両 path を受け取る"
+      ]
+    },
+    {
+      "name": "text paste の regression なし",
+      "linked_ac": ["AC-S1f75ec-5-3"],
+      "steps": [
+        "テキスト 'hello' を paste",
+        "ClipboardEvent.types に 'text/plain' のみ含まれる",
+        "xterm.js bracketed paste mode 経由でそのまま daemon に送信 (POST /api/upload は呼ばれない)"
+      ]
+    },
+    {
+      "name": "mobile file picker",
+      "linked_ac": ["AC-S1f75ec-5-4"],
+      "steps": [
+        "viewport 375x667 で Claude タブを開く",
+        "[data-testid='claude-tui-file-picker-btn'] が visible",
+        "tap で `<input type='file' multiple>` が開く",
+        "ファイル選択 → upload → path 送信"
+      ]
+    },
+    {
+      "name": "claudeagent の既存 paste/drop が破壊されていない",
+      "linked_ac": ["AC-S1f75ec-5-5"],
+      "steps": [
+        "Claude タブを mode=agent に切替",
+        "画像 paste → claudeagent 既存経路で upload + 送信 (regression なし)"
+      ]
+    }
+  ],
+  "endpoint_contracts": [
+    {"path": "/api/upload", "method": "POST", "registered": true, "registered_note": "既存 claudeagent が使用中の endpoint を再利用", "request_fields": {"multipart": "file (any binary)"}, "response_fields": {"path": "string (absolute path under imageUploadDir)"}}
+  ],
+  "test_files": {"e2e": "tests/e2e/s1f75ec_paste.py", "mock": "tests/e2e/s1f75ec_paste_mock.py"},
+  "data_testids_required": [
+    "claude-tui-paste-zone",
+    "claude-tui-upload-progress",
+    "claude-tui-file-picker-btn"
+  ],
+  "auto_decisions": [
+    {"topic": "複数ファイル drop 時の送信形式", "decision": "1 ファイルずつ '<path>\\r' を順次送信 (space 区切り 1 行ではなく)", "rationale": "claude TUI は 1 メッセージずつ受けるほうが UX 良い。 path に space を含む場合のエスケープ問題も回避"},
+    {"topic": "/api/upload の再利用 vs 新設", "decision": "既存 /api/upload を再利用", "rationale": "claudeagent が既に同じ機能を持つ。 backend 改修ゼロ。 imageUploadDir 設定も共有"},
+    {"topic": "drop zone overlay UI", "decision": "drag-enter で xterm 上に半透明 overlay (data-testid='claude-tui-paste-zone') を出す", "rationale": "drop 可能領域の視覚的フィードバック必須"},
+    {"topic": "mobile での drop 対応", "decision": "OS の drag-drop は mobile では非標準なので file picker button で代替", "rationale": "iOS/Android では taphold + file picker が現実的"}
+  ]
+}

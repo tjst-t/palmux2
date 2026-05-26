@@ -1,0 +1,77 @@
+{
+  "sprint_id": "S1f75ec",
+  "story_id": "S1f75ec-1",
+  "story_title": "mobile chat 機能削除 (simplify)",
+  "entry_point": "gui (deletion-only, but viewport-observable)",
+  "notes": [
+    "純粋な機能削除 Story。 新規 UI surface はないが、 mobile viewport の挙動が変わる (MobileChatView → xterm.js) ので gui-observable",
+    "Story 1 が完了するまで他 Story (2/3/4/5) は着手しない (foundation 確立)"
+  ],
+  "state_diagram_mermaid": "stateDiagram-v2\n    [*] --> AnyViewport: page load /{repo}/{branch}/claude-tui\n    AnyViewport --> XtermJsTerminal: claude-tui-tab.tsx mounts (no more useViewport branch)\n    XtermJsTerminal --> Connected: WS open + ring replay\n    Connected --> Disconnected: WS close\n    Disconnected --> XtermJsTerminal: Reconnect",
+  "states": [
+    {"name": "XtermJsTerminal", "description": "xterm.js 描画。 旧 MobileChatView が描画されていた viewport <600px でも xterm.js が描画される", "ui_affordances": {"terminal": "data-testid='claude-tui-terminal' visible"}}
+  ],
+  "scenarios": [
+    {
+      "name": "mobile viewport で xterm.js が描画される",
+      "linked_ac": ["AC-S1f75ec-1-2", "AC-S1f75ec-1-8"],
+      "steps": [
+        "viewport 375x667 で Playwright 起動",
+        "/{repo}/{branch}/claude-tui を開く",
+        "[data-testid='claude-tui-terminal'] が visible",
+        "[data-testid='mobile-chat-view'] が DOM に存在しない (削除済み)",
+        "xterm.js に文字入力 → daemon に届く"
+      ]
+    },
+    {
+      "name": "grid mode endpoint は raw 配信に降格 (互換維持)",
+      "linked_ac": ["AC-S1f75ec-1-3"],
+      "steps": [
+        "WS attach ?mode=grid",
+        "受信 frame が binary (raw bytes) であることを assert (text JSON ではない)"
+      ]
+    },
+    {
+      "name": "transcript endpoint は 404",
+      "linked_ac": ["AC-S1f75ec-1-4"],
+      "steps": [
+        "GET /api/repos/.../tabs/claude-tui/transcript",
+        "404 を返す"
+      ]
+    },
+    {
+      "name": "emulator + role.go は保持",
+      "linked_ac": ["AC-S1f75ec-1-6"],
+      "steps": [
+        "git diff main..HEAD で internal/tab/claudetui/{emulator,role}.go が削除されていないことを確認",
+        "OSC 52 経由の clipboard event が引き続き notify hub に流れる"
+      ]
+    }
+  ],
+  "endpoint_contracts": [
+    {"path": "/api/repos/{repoId}/branches/{branchId}/tabs/claude-tui/attach", "method": "WS", "registered": true, "request_fields": null, "response_fields": {"binary": "raw PTY bytes (default and only mode)"}, "registered_note": "?mode=grid query is ignored after Story 1 — raw is the only configured mode"},
+    {"path": "/api/repos/{repoId}/branches/{branchId}/tabs/claude-tui/transcript", "method": "GET", "registered": false, "registered_note": "Removed by Story 1", "request_fields": null, "response_fields": null}
+  ],
+  "test_files": {
+    "e2e": "tests/e2e/s1f75ec_simplify.py",
+    "mock": null
+  },
+  "data_testids_required": [
+    "claude-tui-terminal",
+    "claude-tui-status",
+    "claude-tui-reconnect-btn"
+  ],
+  "data_testids_removed_by_this_story": [
+    "mobile-chat-view",
+    "mobile-chat-bubble",
+    "mobile-chat-input",
+    "mobile-chat-send-btn",
+    "mobile-chat-role-badge",
+    "mobile-chat-reconnect-btn"
+  ],
+  "auto_decisions": [
+    {"topic": "emulator + role.go を残す判断", "decision": "残す", "rationale": "emulator は OSC 52 clipboard 経路 + drainer の deadlock 回避に必要。 role.go は multi-client coordination で desktop でも 2 attach 状況 (タブ複製) に有用。 削除コストは将来再開発する Story のため温存"},
+    {"topic": "旧 mobile chat URL", "decision": "/claude-tui は維持 (raw mode で xterm.js が出る)", "rationale": "URL 自体が変わるわけではない。 単に内部実装が MobileChatView → xterm.js"},
+    {"topic": "?mode=grid query の挙動", "decision": "無視して raw として扱う", "rationale": "古い client が ?mode=grid を投げてきても WS は開けてバイナリで返す。 全体停止より退行が穏便"}
+  ]
+}

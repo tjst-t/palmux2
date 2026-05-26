@@ -3,14 +3,14 @@
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
     "sprints_done": 41,
-    "sprints_total": 41,
-    "percent": 100,
+    "sprints_total": 42,
+    "percent": 97,
     "current_sprint": null,
     "done": 41,
     "in_progress": 0,
-    "total": 41,
-    "remaining": 0,
-    "percentage": 100
+    "total": 42,
+    "remaining": 1,
+    "percentage": 97
   },
   "execution_order": [
     "S001",
@@ -53,7 +53,8 @@
     "Saa8506",
     "S1d2278",
     "S7ce250",
-    "S0fd64b"
+    "S0fd64b",
+    "S1f75ec"
   ],
   "sprints": {
     "S001": {
@@ -7176,6 +7177,245 @@
         }
       },
       "completedAt": "2026-05-19"
+    },
+    "S1f75ec": {
+      "title": "Track B Sprint C — claude-tui simplify (mobile chat 撤去) + UX 統合 + paste/drop",
+      "status": "planned",
+      "milestone": true,
+      "description": "Sprint B (S0fd64b) で mobile parity を実現した MobileChatView は MVP scope のまま fundamental な UX 問題 (streaming 見えない / 700 bubble render / heuristic 抽出脆弱) を抱え、 4 連続 hotfix (fix-1〜-4) で patch していた事実そのものが foundation の brittle さを示していた。 Sprint C で **機能削除** + UX 統合ポリッシュを実施する。\n\n5 stories:\n  -1 mobile chat 機能削除 (foundation simplify、 これが Wave 1 で他は wave 2 以降)\n  -2 claude-agent ⇄ claude-tui 切替 UX (案 A: タブバー単一化 + mode 設定)\n  -3 Toolbar mode 自動切替 + ESC ESC ボタン\n  -4 Activity Inbox + Sprint Dashboard 疎通\n  -5 画像 / ファイル paste & drop (ユーザ要望)\n\n依存: S0fd64b (= Sprint B、 すでに main にマージ済み、 v0.8.0 release 済み)\n対象外:\n  - Bash タブの tmux 撤廃 / ptytui 共通基盤化 (backlog にエントリ済み、 Sprint D 候補)\n  - emulator (OSC 52 + drainer) と role.go (multi-client coordination) の削除。 これらは Story 1 で温存する\n  - JSONL transcript ベースの session 履歴 popup (claudeagent 既存パターン、 別 sprint で claude-tui に展開検討)\n\n削除する内容 (Story 1):\n  - frontend/src/tabs/claude-tui/mobile-chat-view.tsx + .module.css + mobile-test-harness.html\n  - internal/tab/claudetui/transcript.go + transcript_test.go\n  - Provider.handleTranscript + /transcript endpoint\n  - server.go の serveGridMode + gridInitMsg + gridDiffMsg + 関連型\n  - ?mode=grid 経路 (raw mode 1 本のみ残す)\n  - tests/e2e/s0fd64b_mobile_chat{,_mock}.py + s0fd64b_grid_ws_protocol.py\n  - claude-tui-tab.tsx の useViewport 分岐\n\n統合方針:\n  - 案 A: backend 改修ゼロで frontend で mode 分岐。 claude-agent + claude-tui の 2 つの Provider はそのまま、 frontend が branch.claude_mode を見て 1 つだけ描画\n  - 旧 URL `/claude-tui` は 302 で `/claude` に redirect 互換維持\n  - 既存 branch のデフォルト mode = agent (現状維持)、 新規 branch = tui (subscription quota)、 グローバル override も用意",
+      "stories": {
+        "S1f75ec-1": {
+          "title": "mobile chat 機能削除 (simplify)",
+          "status": "planned",
+          "user_story": "palmux2 開発者として、 MobileChatView / grid WS / transcript endpoint を削除して mobile でも desktop と同じ xterm.js 描画になるようにしたい。 なぜなら、 MVP scope のまま fundamental な UX 問題 (streaming 見えない / 700 bubble render / heuristic 抽出脆弱) を抱え、 4 連続 hotfix で patch していた foundation の brittle さを継承するより、 シンプルな本来の TUI に戻すほうが長期的に保守可能だからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S1f75ec-1-1",
+              "description": "frontend/src/tabs/claude-tui/{mobile-chat-view.tsx, mobile-chat-view.module.css, mobile-test-harness.html} が削除されている",
+              "test": "git diff main..HEAD で削除確認 + 当該 import 0 件",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-1-2",
+              "description": "claude-tui-tab.tsx の useViewport 分岐が撤廃され、 mobile / desktop ともに同一 xterm.js 描画。 mobile 375x667 viewport で claude-tui タブを開くと xterm.js (data-testid='claude-tui-terminal') が描画される",
+              "test": "tests/e2e/s1f75ec_simplify.py の mobile viewport テスト",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-1-3",
+              "description": "backend ?mode=grid 経路 + serveGridMode + gridInitMsg / gridDiffMsg + diff loop が削除、 raw mode 1 本のみ。 ?mode=grid クエリは無視されて raw frame で配信",
+              "test": "tests/e2e/s1f75ec_simplify.py で WS ?mode=grid attach し binary frame が返る (grid JSON ではない) ことを確認",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-1-4",
+              "description": "transcript endpoint (/transcript) + transcript.go + transcript_test.go が削除、 handleTranscript ハンドラ撤去",
+              "test": "GET /tabs/claude-tui/transcript が 404 を返す",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-1-5",
+              "description": "削除に伴う obsolete tests (s0fd64b_mobile_chat.py / s0fd64b_mobile_chat_mock.py / s0fd64b_grid_ws_protocol.py) も削除",
+              "test": "git diff main..HEAD で削除確認",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-1-6",
+              "description": "internal/tab/claudetui/emulator.go (OSC 52 + drainer) と role.go (multi-client coordination) は保持 = 未削除",
+              "test": "git diff main..HEAD でこれらが存在 + 当該テスト pass",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-1-7",
+              "description": "既存 desktop E2E (tests/e2e/s7ce250_claude_tui.py) が全 pass (8/8)",
+              "test": "python3 tests/e2e/s7ce250_claude_tui.py",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-1-8",
+              "description": "mobile viewport (375x667) で xterm.js が描画 + WS 接続 + bytes 入出力が機能する",
+              "test": "tests/e2e/s1f75ec_simplify.py の mobile xterm functional テスト",
+              "status": "planned"
+            }
+          ],
+          "gui_spec": "docs/sprint-logs/S1f75ec/gui-spec-S1f75ec-1.json",
+          "scenario": "docs/sprint-logs/S1f75ec/gui-spec-S1f75ec-1.json"
+        },
+        "S1f75ec-2": {
+          "title": "claude-agent ⇄ claude-tui 切替 UX (案 A、 タブバー単一化)",
+          "status": "planned",
+          "user_story": "palmux2 ユーザとして、 タブバーにいる 1 つの「Claude」タブで内部の実装を Agent SDK モード ⇔ TUI モードで切り替えたい。 なぜなら、 現状の `Claude` + `Claude (TUI)` 二重表示は冗長で、 「どちらを使うべきか」をタブバーに毎回露出させる UX が悪いからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S1f75ec-2-1",
+              "description": "branch ごとの mode 設定 (claude_mode: 'agent' | 'tui') が repos.json の branch entry に永続化される",
+              "test": "POST /api/repos/{id}/branches/{bid}/settings で更新 → GET で取得確認",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-2-2",
+              "description": "既存 branch (S0fd64b 以前から open) の default mode = agent (現状維持)。 新規 branch の default mode = tui (subscription quota 経由)",
+              "test": "migration テストで既存 branch が agent、 新規 branch が tui になることを確認",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-2-3",
+              "description": "グローバルデフォルト override が settings.json の claude.default_mode で設定可能 ('agent' | 'tui')",
+              "test": "settings.json に default_mode=tui を書いて新規 branch open → tui mode で開く",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-2-4",
+              "description": "⌘K パレットに `>switch-claude-mode` コマンドが追加され、 現 branch の mode を toggle して永続化",
+              "test": "tests/e2e/s1f75ec_mode_switch.py で ⌘K → コマンド実行 → mode 切替確認",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-2-5",
+              "description": "タブバーに表示される Claude タブが 1 つ ('Claude' ラベル)、 mode に応じて内部実装 (agent UI / tui UI) が描画される。 旧 'Claude (TUI)' タブは消える",
+              "test": "tests/e2e/s1f75ec_mode_switch.py で tabBar の Claude タブ数を assert",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-2-6",
+              "description": "旧 URL /claude-tui への直接アクセスは 302 redirect で /claude に飛ぶ (互換維持)",
+              "test": "curl -I で 302 + Location ヘッダ確認",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-2-7",
+              "description": "data-testid: claude-tab (常時)、 claude-mode-badge で現 mode 表示",
+              "test": "tests/e2e/s1f75ec_mode_switch.py で badge text 確認",
+              "status": "planned"
+            }
+          ],
+          "gui_spec": "docs/sprint-logs/S1f75ec/gui-spec-S1f75ec-2.json",
+          "scenario": "docs/sprint-logs/S1f75ec/gui-spec-S1f75ec-2.json"
+        },
+        "S1f75ec-3": {
+          "title": "Toolbar mode 自動切替 + ESC ESC ボタン",
+          "status": "planned",
+          "user_story": "palmux2 ユーザとして、 Claude タブにフォーカスしたら Toolbar が自動的に claude モードに切り替わり、 mobile では物理 Escape キーが無いので Toolbar 上の ESC ESC ボタンで rewind できるようにしたい。 なぜなら、 mobile では物理 Escape が無いし、 desktop でもフォーカス毎にモード手動切替は手間だからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S1f75ec-3-1",
+              "description": "Claude タブ (agent / tui どちらも) にフォーカスが入ると Toolbar の現 mode が claude に自動切替",
+              "test": "tests/e2e/s1f75ec_toolbar.py で Claude タブ click → toolbar mode 確認",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-3-2",
+              "description": "Bash / Files / Git / Sprint タブにフォーカスが入ると normal モードに戻る",
+              "test": "同上の逆方向",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-3-3",
+              "description": "Toolbar の claude モードに「ESC ESC」ボタン追加。 tap で \\x1b\\x1b を attach 中の Claude タブ (tui mode のみ) に送信",
+              "test": "tests/e2e/s1f75ec_toolbar.py で button tap → WS 経由で ESC ESC が daemon に届くことを確認",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-3-4",
+              "description": "data-testid: toolbar-mode-claude (toolbar 自身), toolbar-esc-esc-btn (ボタン)",
+              "test": "selector 検証",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-3-5",
+              "description": "agent mode の Claude タブにフォーカス時、 ESC ESC ボタンは disabled (agent mode は ESC ESC 経路を持たない)",
+              "test": "tests/e2e/s1f75ec_toolbar.py で agent mode 切替 → button disabled 確認",
+              "status": "planned"
+            }
+          ],
+          "gui_spec": "docs/sprint-logs/S1f75ec/gui-spec-S1f75ec-3.json",
+          "scenario": "docs/sprint-logs/S1f75ec/gui-spec-S1f75ec-3.json"
+        },
+        "S1f75ec-4": {
+          "title": "Activity Inbox 互換 + Sprint Dashboard 疎通",
+          "status": "planned",
+          "user_story": "palmux2 ユーザとして、 claude-tui タブで発生した notification event (permission_prompt / task complete) を Activity Inbox で受け取りたい。 なぜなら、 claude-agent タブでは既に Activity Inbox に流れる経路があり、 claude-tui でも同等の通知体験を期待するからだ。 また、 Sprint Dashboard タブが claude-tui の daemon と競合しないことを E2E で確認したい。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S1f75ec-4-1",
+              "description": "claude-tui タブで permission_prompt 相当の検出 (TUI 内の特定パターンを emulator 経由でスキャン) で Activity Inbox に event を流す。 event 種別 = 'claudetui.permission_prompt'",
+              "test": "tests/e2e/s1f75ec_inbox.py で fake claude-bin が permission prompt-like 出力 → Activity Inbox に event 出現",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-4-2",
+              "description": "claude-tui の task complete 検出 (claude のステータス行変化 or \\x07 BEL 受信) で Activity Inbox に event を流す。 event 種別 = 'claudetui.task_complete'",
+              "test": "tests/e2e/s1f75ec_inbox.py で BEL 送信 → Activity Inbox に event 出現",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-4-3",
+              "description": "Activity Inbox の event クリックで claude-tui タブを focus + 必要なら branch 遷移",
+              "test": "tests/e2e/s1f75ec_inbox.py で event クリック → URL が claude-tui タブに遷移",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-4-4",
+              "description": "Sprint Dashboard タブと claude-tui を同じ branch で同時 open しても挙動が独立。 Sprint Dashboard の filewatch と claude-tui の SessionWatcher が干渉しない",
+              "test": "tests/e2e/s1f75ec_inbox.py で同時 attach → 両方が独立して event 発火",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-4-5",
+              "description": "data-testid: activity-inbox-event-claudetui (event 種別の data-testid 属性)",
+              "test": "selector 検証",
+              "status": "planned"
+            }
+          ],
+          "gui_spec": "docs/sprint-logs/S1f75ec/gui-spec-S1f75ec-4.json",
+          "scenario": "docs/sprint-logs/S1f75ec/gui-spec-S1f75ec-4.json"
+        },
+        "S1f75ec-5": {
+          "title": "画像 / ファイル paste & drop",
+          "status": "planned",
+          "user_story": "palmux2 ユーザとして、 ブラウザ上で画像をコピーして Claude タブ (tui mode) で paste、 もしくはローカルファイルを drag-and-drop すると、 そのファイルの絶対パスが Claude TUI に typing として送信されるようにしたい。 なぜなら、 既存 claude-agent タブと同じ ergonomic を claude-tui でも欲しいし、 ファイルを参照させて claude に作業させる頻出パターンが手間なくできるようにしたいからだ。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S1f75ec-5-1",
+              "description": "xterm.js wrapper に paste event handler を追加。 clipboard に image blob があれば既存 POST /api/upload で upload → 絶対パスを WS で TUI に typing として送信",
+              "test": "tests/e2e/s1f75ec_paste.py で image blob paste → upload → path が WS に流れることを確認",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-5-2",
+              "description": "xterm.js wrapper に drop event handler を追加。 単一/複数ファイルの drop で、 各 file を upload → 絶対パスを順次 WS に送信 (space 区切り or 1 ファイルずつ)",
+              "test": "tests/e2e/s1f75ec_paste.py で 2 ファイル drop → 2 つの path が WS に流れる",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-5-3",
+              "description": "text paste は既存 xterm.js の bracketed paste mode 経由でそのまま送信 (regression なし)",
+              "test": "tests/e2e/s7ce250_claude_tui.py の既存 text paste 動作が pass",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-5-4",
+              "description": "mobile では paste 時の長押しメニューが OS 標準で動く + drop は file picker UI 経由でファイル選択",
+              "test": "mobile viewport で file picker ボタン (data-testid='claude-tui-file-picker-btn') の存在確認",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-5-5",
+              "description": "claudeagent タブの既存 paste/drop 機能は破壊しない (= 重複 wire しないように MobileChatView 撤去で wire 元が 1 箇所だけになる)",
+              "test": "claudeagent の既存 paste/drop E2E が pass",
+              "status": "planned"
+            },
+            {
+              "id": "AC-S1f75ec-5-6",
+              "description": "data-testid: claude-tui-paste-zone (drop overlay)、 claude-tui-file-picker-btn (mobile 用)",
+              "test": "selector 検証",
+              "status": "planned"
+            }
+          ],
+          "gui_spec": "docs/sprint-logs/S1f75ec/gui-spec-S1f75ec-5.json",
+          "scenario": "docs/sprint-logs/S1f75ec/gui-spec-S1f75ec-5.json"
+        }
+      }
     }
   },
   "dependencies": {
@@ -7343,6 +7583,12 @@
         "S7ce250"
       ],
       "reason": "Sprint A (S7ce250) で作った internal/tab/claudetui/ の Daemon / Manager / Ring / Provider 一式を全面利用する。 S7ce250 はまだ main に merge していないため、 本 sprint の branch は autopilot/main/S7ce250 の上に stack する (Sprint A の history を継承)。"
+    },
+    "S1f75ec": {
+      "depends_on": [
+        "S0fd64b"
+      ],
+      "reason": "Sprint B (S0fd64b) で実装された internal/tab/claudetui/ の MobileChatView + grid mode WS + transcript endpoint を本 sprint で撤去するため。 また Sprint B で導入された ?mode=grid 経路や mobile chat E2E は本 sprint で削除対象。 S0fd64b は main にマージ済み (v0.8.0)。"
     }
   },
   "backlog": [

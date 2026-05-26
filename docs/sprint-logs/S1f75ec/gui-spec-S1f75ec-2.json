@@ -1,0 +1,69 @@
+{
+  "sprint_id": "S1f75ec",
+  "story_id": "S1f75ec-2",
+  "story_title": "claude-agent ⇄ claude-tui 切替 UX (案 A、 タブバー単一化)",
+  "entry_point": "gui",
+  "notes": [
+    "案 A: backend は両 Provider 並走、 frontend が branch.claude_mode を見て 1 つだけ描画",
+    "タブバー上のラベルは常に「Claude」、 mode は badge or chip で表示",
+    "URL 互換: /claude-tui → 302 → /claude"
+  ],
+  "state_diagram_mermaid": "stateDiagram-v2\n    [*] --> ModeAgent: existing branch (pre-Sprint-C) default = agent\n    [*] --> ModeTui: new branch (post-Sprint-C) default = tui (or settings.default_mode override)\n    ModeAgent --> ModeTui: ⌘K > switch-claude-mode → persist\n    ModeTui --> ModeAgent: ⌘K > switch-claude-mode → persist",
+  "states": [
+    {"name": "ModeAgent", "description": "Claude タブが claude-agent (stream-json) 実装で描画。 mode badge = 'Agent'", "ui_affordances": {"badge": "data-testid='claude-mode-badge' text='Agent'", "tabs": "1 Claude tab visible"}},
+    {"name": "ModeTui", "description": "Claude タブが claude-tui (interactive PTY) 実装で描画。 mode badge = 'TUI'", "ui_affordances": {"badge": "data-testid='claude-mode-badge' text='TUI'", "tabs": "1 Claude tab visible"}}
+  ],
+  "scenarios": [
+    {
+      "name": "default mode による初期表示",
+      "linked_ac": ["AC-S1f75ec-2-2", "AC-S1f75ec-2-3"],
+      "steps": [
+        "既存 branch (= S0fd64b 以前から open) を開く → mode=agent で描画、 badge='Agent'",
+        "settings.json claude.default_mode='tui' をセットして新規 branch open → mode=tui、 badge='TUI'"
+      ]
+    },
+    {
+      "name": "⌘K で mode 切替",
+      "linked_ac": ["AC-S1f75ec-2-4", "AC-S1f75ec-2-7"],
+      "steps": [
+        "Claude タブを開いて mode=agent",
+        "⌘K → 検索 'switch-claude-mode' → Enter",
+        "mode badge が 'TUI' に変わる、 内部実装が claude-tui に切り替わる",
+        "POST /api/repos/.../branches/.../settings で claude_mode='tui' が永続化されていることを GET で確認"
+      ]
+    },
+    {
+      "name": "タブバー単一化",
+      "linked_ac": ["AC-S1f75ec-2-5"],
+      "steps": [
+        "branch を open",
+        "タブバーに 'Claude' タブが exactly 1 つ存在 (data-testid='claude-tab')",
+        "旧 'Claude (TUI)' タブが消えている"
+      ]
+    },
+    {
+      "name": "旧 URL の redirect",
+      "linked_ac": ["AC-S1f75ec-2-6"],
+      "steps": [
+        "GET /{repo}/{branch}/claude-tui",
+        "302 Location: /{repo}/{branch}/claude を受信"
+      ]
+    }
+  ],
+  "endpoint_contracts": [
+    {"path": "/api/repos/{repoId}/branches/{branchId}/settings", "method": "GET", "registered": false, "registered_note": "Story 2 で新設。 claude_mode 含む branch-level settings を返す", "request_fields": null, "response_fields": {"claude_mode": "'agent' | 'tui'"}},
+    {"path": "/api/repos/{repoId}/branches/{branchId}/settings", "method": "PATCH", "registered": false, "registered_note": "Story 2 で新設", "request_fields": {"claude_mode": "'agent' | 'tui'"}, "response_fields": {"claude_mode": "'agent' | 'tui'"}}
+  ],
+  "test_files": {"e2e": "tests/e2e/s1f75ec_mode_switch.py", "mock": "tests/e2e/s1f75ec_mode_switch_mock.py"},
+  "data_testids_required": [
+    "claude-tab",
+    "claude-mode-badge",
+    "command-palette-input",
+    "command-palette-result-switch-claude-mode"
+  ],
+  "auto_decisions": [
+    {"topic": "新 URL canonicalisation", "decision": "/claude を canonical、 /claude-tui は redirect", "rationale": "claude-agent が既存 /claude を持つので URL は agent ベースに寄せる。 tui もここから到達"},
+    {"topic": "default mode の判定", "decision": "branch entry に created_at + initial_mode を記録、 既存 branch は agent / 新規は global default_mode に従う", "rationale": "migration-safe で既存ユーザの体感を壊さない"},
+    {"topic": "settings 永続化先", "decision": "repos.json の branch entry に claude_mode フィールドを追加", "rationale": "branch 設定なので branch entry が自然な所在"}
+  ]
+}

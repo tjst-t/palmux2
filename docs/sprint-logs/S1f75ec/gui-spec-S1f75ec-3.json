@@ -1,0 +1,67 @@
+{
+  "sprint_id": "S1f75ec",
+  "story_id": "S1f75ec-3",
+  "story_title": "Toolbar mode 自動切替 + ESC ESC ボタン",
+  "entry_point": "gui",
+  "notes": [
+    "既存 Toolbar 2 モード機構 (normal / claude) を活用。 タブ focus 時に自動切替",
+    "ESC ESC ボタンは Toolbar の claude モードのみ表示 + agent mode の Claude タブでは disabled (agent は ESC ESC 経路を持たない)"
+  ],
+  "state_diagram_mermaid": "stateDiagram-v2\n    [*] --> ToolbarNormal: page load (default)\n    ToolbarNormal --> ToolbarClaude: Claude tab focus (agent or tui)\n    ToolbarClaude --> ToolbarNormal: Bash/Files/Git/Sprint tab focus\n    ToolbarClaude --> EscEscEnabled: mode=tui (focused tab is claude-tui)\n    ToolbarClaude --> EscEscDisabled: mode=agent (focused tab is claude-agent)\n    EscEscEnabled --> Sent: tap ESC ESC button → WS send \\x1b\\x1b\n    Sent --> EscEscEnabled: ready for next tap",
+  "states": [
+    {"name": "ToolbarNormal", "description": "Toolbar 通常モード (Bash 等の汎用キー)", "ui_affordances": {"mode": "data-testid='toolbar-mode-normal' active"}},
+    {"name": "ToolbarClaude", "description": "Toolbar claude モード (claude 用キー + ESC ESC ボタン表示)", "ui_affordances": {"mode": "data-testid='toolbar-mode-claude' active", "esc_esc_btn": "data-testid='toolbar-esc-esc-btn' visible"}},
+    {"name": "EscEscEnabled", "description": "現フォーカスタブが claude-tui mode、 ESC ESC ボタン有効", "ui_affordances": {"esc_esc_btn": "enabled, tap → WS \\x1b\\x1b"}},
+    {"name": "EscEscDisabled", "description": "現フォーカスタブが claude-agent mode、 ESC ESC ボタン無効", "ui_affordances": {"esc_esc_btn": "disabled"}}
+  ],
+  "scenarios": [
+    {
+      "name": "Claude タブ focus で Toolbar が claude モードに自動切替",
+      "linked_ac": ["AC-S1f75ec-3-1"],
+      "steps": [
+        "Bash タブを開いて Toolbar が normal モード",
+        "Claude タブを click",
+        "Toolbar mode が claude に変化 ([data-testid='toolbar-mode-claude'] が active)"
+      ]
+    },
+    {
+      "name": "非 Claude タブで normal に戻る",
+      "linked_ac": ["AC-S1f75ec-3-2"],
+      "steps": [
+        "Claude タブで mode=claude",
+        "Files タブを click",
+        "Toolbar mode が normal に戻る"
+      ]
+    },
+    {
+      "name": "ESC ESC ボタンで rewind",
+      "linked_ac": ["AC-S1f75ec-3-3"],
+      "steps": [
+        "Claude タブ (mode=tui) を開く",
+        "Toolbar の ESC ESC ボタンを tap",
+        "WS で \\x1b\\x1b が daemon に届く (= claude が rewind 動作する) ことを確認",
+        "claude TUI 上で直前メッセージの編集 prompt が表示される (manual smoke)"
+      ]
+    },
+    {
+      "name": "agent mode では ESC ESC ボタン disabled",
+      "linked_ac": ["AC-S1f75ec-3-5"],
+      "steps": [
+        "Claude タブを mode=agent に切替",
+        "Toolbar の ESC ESC ボタンが disabled になっている",
+        "tap しても何も起きない (or no-op)"
+      ]
+    }
+  ],
+  "endpoint_contracts": [],
+  "test_files": {"e2e": "tests/e2e/s1f75ec_toolbar.py", "mock": "tests/e2e/s1f75ec_toolbar_mock.py"},
+  "data_testids_required": [
+    "toolbar-mode-normal",
+    "toolbar-mode-claude",
+    "toolbar-esc-esc-btn"
+  ],
+  "auto_decisions": [
+    {"topic": "ESC ESC を agent mode で disabled にするか hide するか", "decision": "disabled (visible but greyed out)", "rationale": "存在することは認識してもらう、 mode 切替後に使えると教育的"},
+    {"topic": "ESC ESC button の placement", "decision": "Toolbar claude モードの 1 ボタンとして配置", "rationale": "既存 modifier ボタンと同じ row、 親指届きやすい位置"}
+  ]
+}
