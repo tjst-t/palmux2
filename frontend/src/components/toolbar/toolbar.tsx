@@ -8,6 +8,7 @@ import { mergeToolbarConfig } from '../../lib/toolbar-defaults'
 // usePalmuxStore is imported via subcomponents below; keep the explicit
 // import here so tooling sees it referenced.
 import { usePalmuxStore } from '../../stores/palmux-store'
+import { useBranchSettingsStore } from '../../stores/branch-settings-store'
 import type { ToolbarButton, ToolbarConfig } from '../../types/toolbar'
 
 import styles from './toolbar.module.css'
@@ -29,16 +30,34 @@ export function Toolbar() {
   const [commands, setCommands] = useState<DetectedCommand[] | null>(null)
 
   const config: ToolbarConfig = useMemo(() => mergeToolbarConfig(userToolbar), [userToolbar])
-  // Toolbar mode used to flip to "claude" when the legacy tmux-backed
-  // Claude tab was focused. That tab has been removed — the new Claude
-  // chat tab has its own Composer and hides the toolbar entirely. So the
-  // remaining terminal-backed tabs (Bash) always get the normal layout.
-  const mode: 'normal' | 'claude' = 'normal'
+
+  // Auto-switch Toolbar mode based on focused tab type.
+  // Claude tab focus → "claude" mode; everything else → "normal" mode.
+  // This is an ephemeral UI-only state and does NOT persist to settings.json.
+  const mode: 'normal' | 'claude' = focused.tabType === 'claude' ? 'claude' : 'normal'
   const buttons = config[mode].rows
 
-  // Hide the bottom terminal toolbar on the Claude (chat) tab — it has
-  // its own Composer.
-  const hideToolbar = focused.tabType === 'claude'
+  // Subscribe directly to the branch settings slice so that when
+  // patchSettings or fetchSettings writes a new value, the button
+  // enabled/disabled state re-renders immediately.
+  // Must be a module-level constant to avoid infinite re-render loops
+  // from Zustand's shallow-equal check on a fresh object each render.
+  const claudeMode = useBranchSettingsStore((s) => {
+    if (focused.tabType !== 'claude' || !focused.repoId || !focused.branchId) return undefined
+    const key = `${focused.repoId}/${focused.branchId}`
+    return (s.settings[key] ?? { claude_mode: 'agent' }).claude_mode
+  })
+  const fetchBranchSettings = useBranchSettingsStore((s) => s.fetchSettings)
+  const escEscEnabled = claudeMode === 'tui'
+
+  // Ensure branch settings are loaded when the focused claude tab changes.
+  useEffect(() => {
+    if (focused.tabType !== 'claude' || !focused.repoId || !focused.branchId) return
+    void fetchBranchSettings(focused.repoId, focused.branchId)
+  }, [focused.tabType, focused.repoId, focused.branchId, fetchBranchSettings])
+
+  // Never hide the Toolbar — claude mode has its own button set.
+  const hideToolbar = false
 
   // S13b16a-4: When the focused tab changes, close the popover via
   // inline state tracking (React 19 "deriving state from props" idiom)
@@ -84,6 +103,12 @@ export function Toolbar() {
     terminalManager.focus(focused.termKey)
   }
 
+  const sendEscEsc = () => {
+    if (!focused.termKey) return
+    terminalManager.sendInput(focused.termKey, '\x1b\x1b')
+    terminalManager.focus(focused.termKey)
+  }
+
   const onCommandPick = (c: DetectedCommand) => {
     if (!focused.termKey) return
     terminalManager.sendInput(focused.termKey, c.command + '\r')
@@ -99,9 +124,14 @@ export function Toolbar() {
   if (hideToolbar) return null
 
   return (
-    <div className={styles.toolbar} role="toolbar" aria-label="Terminal toolbar">
-      <div className={styles.modeIndicator}>
-        Normal
+    <div
+      className={styles.toolbar}
+      role="toolbar"
+      aria-label="Terminal toolbar"
+      data-testid={mode === 'claude' ? 'toolbar-mode-claude' : 'toolbar-mode-normal'}
+    >
+      <div className={`${styles.modeIndicator}${mode === 'claude' ? ` ${styles.modeClaude}` : ''}`}>
+        {mode === 'claude' ? 'Claude' : 'Normal'}
         {focused.termKey ? '' : ' (no terminal focused)'}
       </div>
       {buttons.map((row, i) => (
@@ -118,6 +148,19 @@ export function Toolbar() {
               disabled={!focused.termKey && btn.type !== 'fontsize'}
             />
           ))}
+          {/* ESC ESC button — only rendered in claude mode, in the first row */}
+          {mode === 'claude' && i === 0 && (
+            <button
+              type="button"
+              className={styles.btn}
+              data-testid="toolbar-esc-esc-btn"
+              disabled={!escEscEnabled}
+              title={escEscEnabled ? 'ESC ESC — rewind last message (TUI mode)' : 'ESC ESC (only available in TUI mode)'}
+              onClick={sendEscEsc}
+            >
+              ESC ESC
+            </button>
+          )}
         </div>
       ))}
       {showCommands && (

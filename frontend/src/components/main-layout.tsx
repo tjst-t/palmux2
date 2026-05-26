@@ -71,13 +71,25 @@ export function MainLayout() {
     )
   }
 
-  // hotfix: toolbar + IME bar are exclusively for Bash terminals.
-  // Claude tab has its own composer (with its own IME handling) and
-  // Files / Git / Sprint are pointer-driven REST views — neither needs
-  // the on-screen modifier-key bar. Hide both unless the focused tab
-  // is a Bash terminal.
-  const activeTab = branch?.tabSet.tabs.find((t) => t.id === tabId)
-  const isBashTab = activeTab?.type === 'bash'
+  // Show toolbar for Bash and Claude tabs; hide for REST-only tabs (Files /
+  // Git / Sprint). The Toolbar itself auto-switches between "normal" and
+  // "claude" button sets based on which tab is focused.
+  // IME bar is kept Bash-only since the Claude tab has its own Composer.
+  //
+  // Derive from the store's live tab list for correctness — React Router's
+  // tabId param may be URL-encoded (e.g. "bash%3Abash") so we decode it
+  // before lookup. We also fall back to a type-prefix match so the toolbar
+  // appears immediately before the branch finishes loading.
+  const decodedTabId = tabId ? decodeURIComponent(tabId) : undefined
+  const activeTab = branch?.tabSet.tabs.find((t) => t.id === decodedTabId)
+  const activeTabType = activeTab?.type ?? (
+    decodedTabId?.startsWith('bash') ? 'bash' :
+    decodedTabId === 'claude' || decodedTabId?.startsWith('claude:') ? 'claude' :
+    undefined
+  )
+  const isBashTab = activeTabType === 'bash'
+  const isClaudeTab = activeTabType === 'claude'
+  const showToolbar = isBashTab || isClaudeTab
 
   return (
     <div className={styles.shell}>
@@ -88,7 +100,7 @@ export function MainLayout() {
         {/* IME bar sits directly above the toolbar — both are bottom-anchored
             mobile/touch UX so they belong together. */}
         {isBashTab && imeMode !== 'none' && <IMEBar mode={imeMode} />}
-        {isBashTab && <Toolbar />}
+        {showToolbar && <Toolbar />}
       </div>
       {showMobileDrawer && <MobileDrawerOverlay onClose={() => setMobileDrawerOpen(false)} />}
     </div>
