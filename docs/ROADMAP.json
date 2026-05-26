@@ -7372,44 +7372,44 @@
         },
         "S1f75ec-5": {
           "title": "画像 / ファイル paste & drop",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux2 ユーザとして、 ブラウザ上で画像をコピーして Claude タブ (tui mode) で paste、 もしくはローカルファイルを drag-and-drop すると、 そのファイルの絶対パスが Claude TUI に typing として送信されるようにしたい。 なぜなら、 既存 claude-agent タブと同じ ergonomic を claude-tui でも欲しいし、 ファイルを参照させて claude に作業させる頻出パターンが手間なくできるようにしたいからだ。",
           "acceptance_criteria": [
             {
               "id": "AC-S1f75ec-5-1",
               "description": "xterm.js wrapper に paste event handler を追加。 clipboard に image blob があれば既存 POST /api/upload で upload → 絶対パスを WS で TUI に typing として送信",
               "test": "tests/e2e/s1f75ec_paste.py で image blob paste → upload → path が WS に流れることを確認",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1f75ec-5-2",
               "description": "xterm.js wrapper に drop event handler を追加。 単一/複数ファイルの drop で、 各 file を upload → 絶対パスを順次 WS に送信 (space 区切り or 1 ファイルずつ)",
               "test": "tests/e2e/s1f75ec_paste.py で 2 ファイル drop → 2 つの path が WS に流れる",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1f75ec-5-3",
               "description": "text paste は既存 xterm.js の bracketed paste mode 経由でそのまま送信 (regression なし)",
               "test": "tests/e2e/s7ce250_claude_tui.py の既存 text paste 動作が pass",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1f75ec-5-4",
               "description": "mobile では paste 時の長押しメニューが OS 標準で動く + drop は file picker UI 経由でファイル選択",
               "test": "mobile viewport で file picker ボタン (data-testid='claude-tui-file-picker-btn') の存在確認",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1f75ec-5-5",
               "description": "claudeagent タブの既存 paste/drop 機能は破壊しない (= 重複 wire しないように MobileChatView 撤去で wire 元が 1 箇所だけになる)",
               "test": "claudeagent の既存 paste/drop E2E が pass",
-              "status": "planned"
+              "status": "pass"
             },
             {
               "id": "AC-S1f75ec-5-6",
               "description": "data-testid: claude-tui-paste-zone (drop overlay)、 claude-tui-file-picker-btn (mobile 用)",
               "test": "selector 検証",
-              "status": "planned"
+              "status": "pass"
             }
           ],
           "gui_spec": "docs/sprint-logs/S1f75ec/gui-spec-S1f75ec-5.json",

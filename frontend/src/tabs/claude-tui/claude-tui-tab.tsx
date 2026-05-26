@@ -10,6 +10,7 @@ import type { TabViewProps } from '../../lib/tab-registry'
 import { terminalManager } from '../../lib/terminal-manager'
 import { ReconnectingWebSocket } from '../../lib/ws'
 import { usePalmuxStore } from '../../stores/palmux-store'
+import { isMobile, useViewport } from '../../hooks/use-viewport'
 
 import '@xterm/xterm/css/xterm.css'
 import styles from './styles.module.css'
@@ -17,6 +18,58 @@ import styles from './styles.module.css'
 // SIGWINCH debounce — avoids spamming POST /resize on every intermediate
 // resize event while the user is dragging the window edge.
 const RESIZE_DEBOUNCE_MS = 200
+
+// ── Upload helpers ────────────────────────────────────────────────────────────
+// These mirror the logic in terminal-view.tsx but adapted for the claude-tui
+// raw-binary WS model (sendRaw sends the path + \r as literal bytes, not JSON).
+
+function uploadEndpointTui(repoId: string, branchId: string): string {
+  return `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/upload`
+}
+
+function guessNameTui(blob: Blob): string {
+  const ext = blob.type === 'image/png' ? 'png' : blob.type === 'image/jpeg' ? 'jpg' : 'bin'
+  return `pasted-${Date.now()}.${ext}`
+}
+
+async function uploadAndSendTui(
+  blob: Blob,
+  sendRaw: (data: string) => void,
+  repoId: string,
+  branchId: string,
+  setUploading: React.Dispatch<React.SetStateAction<boolean>>,
+): Promise<void> {
+  const fd = new FormData()
+  const file = blob instanceof File ? blob : new File([blob], guessNameTui(blob), { type: blob.type })
+  fd.append('file', file)
+  setUploading(true)
+  try {
+    const res = await fetch(uploadEndpointTui(repoId, branchId), {
+      method: 'POST',
+      body: fd,
+      credentials: 'include',
+    })
+    if (!res.ok) return
+    const data = (await res.json()) as { path?: string }
+    if (data.path) sendRaw(data.path + '\r')
+  } catch {
+    // network or auth failure — silent
+  } finally {
+    setUploading(false)
+  }
+}
+
+async function uploadFilesSequentiallyTui(
+  files: File[],
+  sendRaw: (data: string) => void,
+  repoId: string,
+  branchId: string,
+  setUploading: React.Dispatch<React.SetStateAction<boolean>>,
+): Promise<void> {
+  for (const f of files) {
+    await uploadAndSendTui(f, sendRaw, repoId, branchId, setUploading)
+  }
+}
 
 function readThemeVar(name: string, fallback: string): string {
   if (typeof window === 'undefined') return fallback
@@ -66,11 +119,21 @@ type Status = 'connecting' | 'connected' | 'streaming' | 'disconnected'
 type Role = 'active' | 'viewer'
 
 export function ClaudeTuiTab({ repoId, branchId }: TabViewProps) {
-  return <ClaudeTuiDesktop repoId={repoId} branchId={branchId} />
+  const viewport = useViewport()
+  return <ClaudeTuiDesktop repoId={repoId} branchId={branchId} showFilePicker={isMobile(viewport)} />
 }
 
-function ClaudeTuiDesktop({ repoId, branchId }: { repoId: string; branchId: string }) {
+function ClaudeTuiDesktop({
+  repoId,
+  branchId,
+  showFilePicker,
+}: {
+  repoId: string
+  branchId: string
+  showFilePicker: boolean
+}) {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [status, setStatus] = useState<Status>('connecting')
   // role tracks the multi-client active/viewer assignment for this connection.
   // undefined means no role event has been received yet.
@@ -79,12 +142,86 @@ function ClaudeTuiDesktop({ repoId, branchId }: { repoId: string; branchId: stri
   // Manual reconnect trigger: incrementing this counter causes the effect to
   // re-run and tear down / re-create the WS + terminal.
   const [reconnectSeq, setReconnectSeq] = useState(0)
+  // drop zone overlay visibility
+  const [isDragOver, setIsDragOver] = useState(false)
+  // upload in-flight indicator
+  const [isUploading, setIsUploading] = useState(false)
+  // ref to the WS instance so event handlers (paste/drop) can access it
+  const wsRef = useRef<ReconnectingWebSocket | null>(null)
 
   const handleReconnect = useCallback(() => {
     setStatus('connecting')
     setRole(undefined)
     setReconnectSeq((n) => n + 1)
   }, [])
+
+  // sendRaw sends a string as raw UTF-8 bytes over the WS (no JSON framing).
+  const sendRaw = useCallback((data: string) => {
+    if (!wsRef.current) return
+    const enc = new TextEncoder()
+    wsRef.current.send(enc.encode(data).buffer)
+  }, [])
+
+  // ── Paste handler ─────────────────────────────────────────────────────────
+  // Attached to the terminal container div. If the clipboard has an image
+  // blob we intercept and upload; text falls through to xterm.js bracketed
+  // paste mode (no regression).
+  const handlePaste = useCallback(
+    (e: ClipboardEvent) => {
+      if (!e.clipboardData) return
+      const items = Array.from(e.clipboardData.items)
+      const imageItem = items.find((item) => item.kind === 'file' && item.type.startsWith('image/'))
+      if (imageItem) {
+        const blob = imageItem.getAsFile()
+        if (blob) {
+          e.preventDefault()
+          void uploadAndSendTui(blob, sendRaw, repoId, branchId, setIsUploading)
+        }
+      }
+      // If no image, do NOT preventDefault — let xterm.js handle text paste.
+    },
+    [sendRaw, repoId, branchId],
+  )
+
+  // ── Drop handlers ──────────────────────────────────────────────────────────
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    const types = e.dataTransfer?.types ?? []
+    const hasFiles = Array.from(types).includes('Files')
+    if (hasFiles) {
+      e.preventDefault()
+      setIsDragOver(true)
+    }
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    // Only hide if leaving the container entirely (not entering a child).
+    if (containerRef.current && !containerRef.current.contains(e.relatedTarget as Node | null)) {
+      setIsDragOver(false)
+    }
+  }, [])
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault()
+      setIsDragOver(false)
+      const files = Array.from(e.dataTransfer?.files ?? [])
+      if (files.length === 0) return
+      void uploadFilesSequentiallyTui(files, sendRaw, repoId, branchId, setIsUploading)
+    },
+    [sendRaw, repoId, branchId],
+  )
+
+  // ── Mobile file picker ─────────────────────────────────────────────────────
+  const handleFilePickerChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files ?? [])
+      if (files.length === 0) return
+      void uploadFilesSequentiallyTui(files, sendRaw, repoId, branchId, setIsUploading)
+      // Reset the input so the same file can be picked again if needed.
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    },
+    [sendRaw, repoId, branchId],
+  )
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -159,6 +296,9 @@ function ClaudeTuiDesktop({ repoId, branchId }: { repoId: string; branchId: stri
       },
     })
     ws.connect()
+    // Store the ws instance in the ref so paste/drop handlers (defined outside
+    // this effect) can call sendRaw without being re-bound on every render.
+    wsRef.current = ws
 
     // --- Raw binary keyboard input (xterm.js → WS) ---
     // The claude-tui backend accepts raw bytes, not JSON-framed {type:"input"}.
@@ -167,6 +307,13 @@ function ClaudeTuiDesktop({ repoId, branchId }: { repoId: string; branchId: stri
       const enc = new TextEncoder()
       ws.send(enc.encode(data).buffer)
     })
+
+    // --- Paste event: image blob intercept --------------------------------
+    // Listen on the container div so we only fire when the xterm is focused
+    // (or the container has an active element). Image blobs are intercepted;
+    // text paste falls through to xterm.js bracketed paste mode unchanged.
+    const container = containerRef.current!
+    container.addEventListener('paste', handlePaste as EventListener)
 
     // --- SIGWINCH chain: ResizeObserver → FitAddon → POST /resize ---
     let resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null
@@ -208,6 +355,8 @@ function ClaudeTuiDesktop({ repoId, branchId }: { repoId: string; branchId: stri
       onDataDisp.dispose()
       onResizeDisp.dispose()
       onClipboardDisp.dispose()
+      container.removeEventListener('paste', handlePaste as EventListener)
+      wsRef.current = null
       if (streamingTimer) clearTimeout(streamingTimer)
       if (resizeDebounceTimer) clearTimeout(resizeDebounceTimer)
     }
@@ -238,7 +387,12 @@ function ClaudeTuiDesktop({ repoId, branchId }: { repoId: string; branchId: stri
   }
 
   return (
-    <div className={styles.wrap}>
+    <div
+      className={styles.wrap}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <div className={styles.statusBar}>
         <span data-testid="claude-tui-status" className={styles.status}>
           {statusLabel[status]}
@@ -252,11 +406,48 @@ function ClaudeTuiDesktop({ repoId, branchId }: { repoId: string; branchId: stri
           </span>
         )}
       </div>
+      {showFilePicker && (
+        <div className={styles.filePickerBar}>
+          <button
+            data-testid="claude-tui-file-picker-btn"
+            className={styles.filePickerBtn}
+            onClick={() => fileInputRef.current?.click()}
+            type="button"
+          >
+            Attach file
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/*,*/*"
+            className={styles.filePickerInput}
+            onChange={handleFilePickerChange}
+            aria-hidden="true"
+          />
+        </div>
+      )}
       <div
         ref={containerRef}
         className={styles.term}
         data-testid="claude-tui-terminal"
       />
+      {isDragOver && (
+        <div
+          data-testid="claude-tui-paste-zone"
+          className={styles.pasteZone}
+        >
+          <span className={styles.pasteZoneLabel}>Drop files to attach</span>
+        </div>
+      )}
+      {isUploading && (
+        <div
+          data-testid="claude-tui-upload-progress"
+          className={styles.uploadProgress}
+        >
+          Uploading…
+        </div>
+      )}
       {status === 'disconnected' && (
         <div className={styles.overlay}>
           <span>Disconnected</span>

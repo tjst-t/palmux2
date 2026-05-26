@@ -82,3 +82,81 @@
 .reconnectBtn:hover {
   background-color: var(--color-accent-dark);
 }
+
+/* ── File picker bar (mobile only) ────────────────────────────────────── */
+
+.filePickerBar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.filePickerBtn {
+  width: 100%;
+  padding: var(--space-2) var(--space-4);
+  background-color: var(--color-elevated);
+  color: var(--color-fg-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: var(--font-ui, sans-serif);
+  cursor: pointer;
+  text-align: center;
+  min-height: 40px;
+}
+
+.filePickerBtn:active {
+  background-color: var(--color-accent);
+  color: #fff;
+  border-color: var(--color-accent);
+}
+
+.filePickerInput {
+  display: none;
+}
+
+/* ── Drop zone overlay ──────────────────────────────────────────────────── */
+
+.pasteZone {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(124, 138, 255, 0.15);
+  border: 2px dashed var(--color-accent);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.pasteZoneLabel {
+  color: var(--color-accent-light);
+  font-family: var(--font-ui, sans-serif);
+  font-size: 15px;
+  font-weight: 500;
+  background-color: var(--color-surface);
+  padding: var(--space-2) var(--space-4);
+  border-radius: 4px;
+  border: 1px solid var(--color-accent);
+}
+
+/* ── Upload progress indicator ─────────────────────────────────────────── */
+
+.uploadProgress {
+  position: absolute;
+  bottom: var(--space-3);
+  right: var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  background-color: var(--color-elevated);
+  color: var(--color-fg-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  z-index: 20;
+  pointer-events: none;
+}
