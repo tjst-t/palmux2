@@ -7568,6 +7568,12 @@
       "description": "internal/tab/claudetui/provider.go の handleAttach / handleStats は `EnsureDaemon(repoID, branchID, \"\")` (空 worktree) で daemon を取得している。 OnBranchOpen が先に呼ばれていれば cached daemon が返るので問題ないが、 race condition (server startup 中に attach が到着する等) で OnBranchOpen 未呼び出しのまま attach が走ると daemon が worktree なしで生成されてしまう。 Provider に Branch lookup hook (e.g. `BranchLookupFunc func(repoID, branchID string) *domain.Branch`) を注入し、 handler 内で worktree を解決して EnsureDaemon に渡す。 サイズ S。",
       "added_in": "S7ce250-fix-2",
       "reason": "現在の Conditional=true 経路に依存する設計はやや脆い。 defense-in-depth として handler 側でも worktree を解決できるようにする。"
+    },
+    {
+      "title": "Bash タブの tmux 撤廃 + ptytui 共通基盤化 [Sprint D candidate]",
+      "description": "Sprint C (S1f75ec) 後の次 sprint 候補。 claude-tui の internal/tab/claudetui/ Daemon / Manager / Ring / emulator を internal/tab/ptytui/ として汎用化し、 claudetui + bash で共有する。 Bash タブから tmux 依存を撤廃 (= internal/tmux/ パッケージの使用箇所が claudetui+bash 経路から消える)。\n\n設計の核となる open question: 「daemon が長命プロセス (npm run dev / make watch 等) を持つとき、 palmux2 サーバ crash で subprocess を道連れにする regression をどう扱うか」 — 候補:\n  (a) systemd --user service として daemon を palmux2 サーバから独立させて supervisor 化 (大改修、 配布が複雑化)\n  (b) 短命タスク前提で regression を許容 + ユーザに事前通知 (シンプルだが Sprint A 級の UX 後退)\n  (c) bash daemon だけ tmux 残置 (= claudetui の対称性を諦める、 統一の意義が薄れる)\n  (d) `--persist-via-systemd` opt-in flag を導入し、 default は (b) で長命タスクは (a) パスに逃がす (中庸)\n\n推奨: design doc を先行で書いて (docs/sprint-logs/<sprint>/design.md) ユーザ決裁を取ってから sprint plan に進む。 規模目安: design = 0.5 sprint、 実装 = 1.5〜2 sprint。\n\n副次効果: internal/tmux/ パッケージは S1f75ec 後も `--tmux-prefix` 経由の host vs dev 名前空間分離で使われるが、 タブ実装での使用箇所が消えれば最終的に削除候補に。",
+      "added_in": "S1f75ec planning discussion",
+      "reason": "Sprint C と同梱だとスコープが破裂する + 長命プロセス supervision の設計判断が伴う。 専用 sprint として分離。 ユーザ要望でこの方向性自体は確定。"
     }
   ]
 }
