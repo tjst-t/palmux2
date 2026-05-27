@@ -3,14 +3,14 @@
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
     "sprints_done": 42,
-    "sprints_total": 42,
-    "percent": 100,
-    "current_sprint": null,
+    "sprints_total": 43,
+    "percent": 97,
+    "current_sprint": "Sadf90e",
     "done": 42,
     "in_progress": 0,
-    "total": 42,
-    "remaining": 0,
-    "percentage": 100
+    "total": 43,
+    "remaining": 1,
+    "percentage": 97
   },
   "execution_order": [
     "S001",
@@ -54,7 +54,8 @@
     "S1d2278",
     "S7ce250",
     "S0fd64b",
-    "S1f75ec"
+    "S1f75ec",
+    "Sadf90e"
   ],
   "sprints": {
     "S001": {
@@ -7417,6 +7418,209 @@
         }
       },
       "completedAt": "2026-05-26"
+    },
+    "Sadf90e": {
+      "title": "Claude タブの mode をタブ単位設定に作り直す (S1f75ec-2 根本見直し)",
+      "status": "planned",
+      "milestone": true,
+      "description": "Sprint S1f75ec-2 で『タブバー単一化 + branch.claude_mode』 を実装したが、 実態は backend に『claudeagent N 個 + claudetui 1 個』が並存し、 frontend が claudetui を非表示にして claudeagent の中身を claudetui で描画するという構造的に脆い設計だった。 結果として:\n  - 1 branch に 2 つの Claude タブがあっても全部同じ daemon を共有 (= タブ単位 mode は実現不能)\n  - バッジは最初のタブだけに表示、 他タブが何 mode か区別できない\n  - ⌘K で切り替えると同 branch の全タブが連動 (= 意図しない巻き込み)\n\nユーザフィードバック 2026-05-27: 『agent モードと TUI モードの設定ってワークスペース単位ですか？ タブ単位では設定できない？...タブ単位にしてほしい。』\n\n5 stories:\n  -1 claudetui を per-tab daemon 化 (Multiple=true、 Manager を per-(branch, tab) キー)\n  -2 claudeagent + claudetui を統一 'claude' Provider に統合 + タブ作成時 default_mode 適用\n  -3 repos.json schema 変更 (BranchSettings.ClaudeMode 削除 → TabClaudeModes map 新設) + tab-scope API 新設 + branch-scope claude_mode 完全削除\n  -4 Frontend を tab-scope に書き換え (全タブバッジ / palette active-tab-only / toolbar mode 依存)\n  -5 テスト書き換え + 新規 AC (2 タブ独立 mode / タブ削除 cleanup / regression 11 E2E)\n\n破壊的変更:\n  - BranchSettings.ClaudeMode 削除 → 既存ユーザ設定 (個別 branch の agent/tui) は discard、 全タブが settings.claude.default_mode で初期化\n  - GET/PATCH /api/.../branches/{b}/settings#claude_mode 削除 → 旧 FE breakage (= 統合パッケージなので影響なし)\n  - claudetui.Provider.Multiple() == true に変更\n\n依存: S1f75ec (Track B Sprint C, completed 2026-05-26)\n対象外:\n  - claudeagent と claudetui の内部実装の統合 (両者は別 process / daemon のまま、 Provider 表面だけ統合)\n  - mode 切替時の daemon 移行 (mode 切替は『タブ削除 + 同 type で新規作成』を内部で行う = kill+spawn、 状態 (transcript / history) は持ち越さない)\n  - mobile 対応 (S1f75ec で xterm.js 共通化済み、 そのまま動く)",
+      "stories": {
+        "Sadf90e-1": {
+          "id": "Sadf90e-1",
+          "status": "planned",
+          "title": "claudetui を per-tab daemon 化 (Multiple=true)",
+          "user_story": "開発者として、 同じ branch に複数の TUI タブを開いて、 それぞれ独立した claude プロセスを並走させたい。 なぜなら、 1 branch で TUI セッションを分けて、 別タスクを並行で進めたいから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sadf90e-1-1",
+              "description": "claudetui.Provider.Multiple() == true。 同一 branch に 2 つの Claude(tui) タブを作成すると、 2 つの独立した claudetui.Daemon が起動 (process 数 = 2、 PTY が別)",
+              "test": "internal/tab/claudetui/manager_test.go + tests/e2e/sadf90e_tab_scope_mode.py [AC-1-1]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sadf90e-1-2",
+              "description": "claudetui.Manager の lookup key が (repoID, branchID, tabID) になり、 GetOrCreate(repoID, branchID, tabID, opts) が daemon を返す",
+              "test": "manager_test.go::TestManagerPerTabKey",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sadf90e-1-3",
+              "description": "1 つの Claude(tui) タブを削除すると、 対応する daemon だけが停止し、 同 branch の他の Claude(tui) daemon は alive のまま",
+              "test": "tests/e2e/sadf90e_tab_scope_mode.py [AC-1-3]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sadf90e-1-4",
+              "description": "branch close で同 branch の全 Claude daemon (agent + tui 両方) が graceful shutdown",
+              "test": "manager_test.go::TestBranchCloseStopsAllDaemons",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sadf90e-1-5",
+              "description": "SessionWatcher の filewatch も tabID で識別、 ~/.claude/projects/<slug>/ 内の transcript ファイル変更通知が正しいタブにルーティングされる",
+              "test": "manager_test.go::TestSessionWatcherPerTab",
+              "status": "pending"
+            }
+          ],
+          "tasks": []
+        },
+        "Sadf90e-2": {
+          "id": "Sadf90e-2",
+          "status": "planned",
+          "title": "Provider 統合 + タブ作成時 default_mode 適用",
+          "user_story": "開発者として、 新規 Claude タブを追加すると settings.claude.default_mode で生まれてほしい。 なぜなら、 タブごとに mode を選べる仕様の起点を明確にしたいから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sadf90e-2-1",
+              "description": "claudeagent + claudetui を統一 'claude' Provider に集約。 タブ ID = claude:claude / claude:claude-2 / ... (Multiple=true)。 旧 claude-tui:* タブ ID は migration で削除",
+              "test": "manager_test.go + tests/e2e/sadf90e_tab_scope_mode.py [AC-2-1]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sadf90e-2-2",
+              "description": "POST /api/repos/{r}/branches/{b}/tabs (type='claude') 時、 TabSettings.ClaudeMode が settings.claude.default_mode で初期化される (existing TabSettings がなければ作成)",
+              "test": "tests/e2e/sadf90e_tab_scope_mode.py [AC-2-2]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sadf90e-2-3",
+              "description": "settings.claude.default_mode='tui' で新規タブ追加 → そのタブが tui mode で起動。 default_mode='agent' → agent mode で起動",
+              "test": "tests/e2e/sadf90e_tab_scope_mode.py [AC-2-3] (両方向)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sadf90e-2-4",
+              "description": "タブ削除 (DELETE /tabs/{tabId}) で TabSettings の該当 entry も削除される (ゴミ残らない)",
+              "test": "tests/e2e/sadf90e_tab_scope_mode.py [AC-2-4]",
+              "status": "pending"
+            }
+          ],
+          "tasks": []
+        },
+        "Sadf90e-3": {
+          "id": "Sadf90e-3",
+          "status": "planned",
+          "title": "schema 変更 + tab-scope API + branch-scope claude_mode 完全削除",
+          "user_story": "開発者として、 API で『この branch のこのタブだけ tui に切り替え』ができてほしい。 なぜなら、 branch 全体ではなく **タブ単位** で mode を制御したいから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sadf90e-3-1",
+              "description": "config.BranchSettings.ClaudeMode フィールド削除、 BranchSettings.TabClaudeModes map[string]ClaudeMode (key=tabID) を新設",
+              "test": "internal/config/repos_test.go",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sadf90e-3-2",
+              "description": "既存 repos.json の branchSettings[bid].claude_mode は load 時に discard される (migration)。 ユーザは全タブが default_mode で起動",
+              "test": "repos_test.go::TestMigrationDiscardsBranchScopeClaudeMode + tests/e2e/sadf90e_tab_scope_mode.py [AC-3-2]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sadf90e-3-3",
+              "description": "GET /api/repos/{r}/branches/{b}/tabs/{t}/settings → 200 {claude_mode: agent|tui}",
+              "test": "tests/e2e/sadf90e_tab_scope_mode.py [AC-3-3]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sadf90e-3-4",
+              "description": "PATCH /api/repos/{r}/branches/{b}/tabs/{t}/settings body={claude_mode:'tui'} → 200 + 当該タブだけ mode 変更",
+              "test": "tests/e2e/sadf90e_tab_scope_mode.py [AC-3-4]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sadf90e-3-5",
+              "description": "旧 GET/PATCH /api/repos/{r}/branches/{b}/settings の response/body から claude_mode フィールド削除。 PATCH で claude_mode を含む body は 400 Bad Request",
+              "test": "tests/e2e/sadf90e_tab_scope_mode.py [AC-3-5]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sadf90e-3-6",
+              "description": "同 branch の他の Claude タブの mode は変わらない (isolation)。 タブ A を tui に切り替えても、 タブ B は元の mode を保つ",
+              "test": "tests/e2e/sadf90e_tab_scope_mode.py [AC-3-6]",
+              "status": "pending"
+            }
+          ],
+          "tasks": []
+        },
+        "Sadf90e-4": {
+          "id": "Sadf90e-4",
+          "status": "planned",
+          "title": "Frontend を tab-scope に書き換え (badge / palette / toolbar)",
+          "user_story": "開発者として、 全 Claude タブにバッジが表示され、 ⌘K の switch コマンドが active タブだけを切り替えてほしい。 なぜなら、 タブを一目で区別し、 他タブの巻き込みを避けたいから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sadf90e-4-1",
+              "description": "tab-bar.tsx: 全 Claude タブ (claude:claude / claude:claude-2 / ...) にそれぞれ data-testid='claude-mode-badge' の AGENT/TUI バッジが表示される。 旧 claudeBadgeOwnerId 限定描画は廃止",
+              "test": "tests/e2e/sadf90e_tab_scope_mode.py [AC-4-1]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sadf90e-4-2",
+              "description": "⌘K palette `>switch-claude-mode` は active タブだけを切り替え (= URL の tabId に対する PATCH)。 同 branch の他タブは影響なし",
+              "test": "tests/e2e/sadf90e_tab_scope_mode.py [AC-4-2]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sadf90e-4-3",
+              "description": "Toolbar の mode (normal/claude) と ESC ESC ボタン enabled 判定は active タブの TabSettings.ClaudeMode を読む",
+              "test": "tests/e2e/sadf90e_tab_scope_mode.py [AC-4-3]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sadf90e-4-4",
+              "description": "frontend/src/stores/branch-settings-store.ts → tab-settings-store.ts に rename (key = '${branchId}/${tabId}')、 DEFAULT_TAB_SETTINGS は 1 箇所 export して tab-bar / tab-content / command-palette / toolbar から import (review finding 3 同時解消)",
+              "test": "code review",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sadf90e-4-5",
+              "description": "tab-content.tsx: tab.id から TabSettings.ClaudeMode を引いて render component を決定 (旧 branchSettings.claude_mode 経路完全削除)",
+              "test": "tests/e2e/sadf90e_tab_scope_mode.py [AC-4-5]",
+              "status": "pending"
+            }
+          ],
+          "tasks": []
+        },
+        "Sadf90e-5": {
+          "id": "Sadf90e-5",
+          "status": "planned",
+          "title": "テスト書き換え + 新規 AC + regression",
+          "user_story": "開発チームとして、 タブ単位 mode の挙動を E2E で保証したい。 なぜなら、 後続 Sprint で別 feature を追加しても regression を即座に発見したいから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sadf90e-5-1",
+              "description": "tests/e2e/sadf90e_tab_scope_mode.py 新設: 2 つの Claude タブを別 mode に設定 → それぞれ独立した daemon / UI で動作することを確認 (E2E)",
+              "test": "tests/e2e/sadf90e_tab_scope_mode.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sadf90e-5-2",
+              "description": "tests/e2e/sadf90e_tab_scope_mode.py: タブ削除 → GET /tabs/{deleted}/settings が 404、 残りのタブの settings は不変",
+              "test": "同上 [AC-5-2]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sadf90e-5-3",
+              "description": "tests/e2e/s1f75ec_mode_switch.py を tab-scope に書き換え。 branch-scope claude_mode API を叩く test は削除",
+              "test": "tests/e2e/s1f75ec_mode_switch.py (updated)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sadf90e-5-4",
+              "description": "既存 11 E2E スイート (s1f75ec_*, s7ce250_*) が全 pass。 regression なし",
+              "test": "make test + tests/e2e/* full run",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sadf90e-5-5",
+              "description": "data-testid='claude-mode-badge' が各 Claude タブ要素内に存在 (タブ ID 単位)。 旧『最初のタブだけ』挙動の test は削除",
+              "test": "tests/e2e/sadf90e_tab_scope_mode.py [AC-5-5]",
+              "status": "pending"
+            }
+          ],
+          "tasks": []
+        }
+      }
     }
   },
   "dependencies": {
@@ -7590,7 +7794,10 @@
         "S0fd64b"
       ],
       "reason": "Sprint B (S0fd64b) で実装された internal/tab/claudetui/ の MobileChatView + grid mode WS + transcript endpoint を本 sprint で撤去するため。 また Sprint B で導入された ?mode=grid 経路や mobile chat E2E は本 sprint で削除対象。 S0fd64b は main にマージ済み (v0.8.0)。"
-    }
+    },
+    "Sadf90e": [
+      "S1f75ec"
+    ]
   },
   "backlog": [
     {
