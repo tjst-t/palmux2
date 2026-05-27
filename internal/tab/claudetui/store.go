@@ -76,37 +76,45 @@ func (s *SessionStore) save() error {
 	return os.Rename(tmp, s.path)
 }
 
-// storeKey builds the persistence key for (repoID, branchID).
-func storeKey(repoID, branchID string) string { return repoID + "/" + branchID }
+// storeKey builds the persistence key for (repoID, branchID, tabID). Sadf90e
+// added tabID so per-tab Claude(tui) sessions persist independently.
+//
+// Forward-compatibility note: pre-Sadf90e keys were "{repoID}/{branchID}"
+// (no tabID). Those entries are silently ignored on load — re-resume from the
+// new key, and an empty tab will start a fresh claude session, which matches
+// the user-approved migration behaviour for branch-level claude_mode.
+func storeKey(repoID, branchID, tabID string) string {
+	return repoID + "/" + branchID + "/" + tabID
+}
 
-// LoadActive returns the last-known session ID for (repoID, branchID), or
-// ("", false) if none has been persisted.
-func (s *SessionStore) LoadActive(repoID, branchID string) (sessionID string, ok bool) {
+// LoadActive returns the last-known session ID for (repoID, branchID, tabID),
+// or ("", false) if none has been persisted.
+func (s *SessionStore) LoadActive(repoID, branchID, tabID string) (sessionID string, ok bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	v, exists := s.data.Active[storeKey(repoID, branchID)]
+	v, exists := s.data.Active[storeKey(repoID, branchID, tabID)]
 	if !exists || v == "" {
 		return "", false
 	}
 	return v, true
 }
 
-// SetActive records sessionID as the active session for (repoID, branchID)
-// and persists immediately.
-func (s *SessionStore) SetActive(repoID, branchID, sessionID string) error {
+// SetActive records sessionID as the active session for (repoID, branchID,
+// tabID) and persists immediately.
+func (s *SessionStore) SetActive(repoID, branchID, tabID, sessionID string) error {
 	if sessionID == "" {
 		return fmt.Errorf("claudetui store: SetActive: empty sessionID")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.data.Active[storeKey(repoID, branchID)] = sessionID
+	s.data.Active[storeKey(repoID, branchID, tabID)] = sessionID
 	return s.save()
 }
 
-// ClearActive removes the active session pointer for (repoID, branchID).
-func (s *SessionStore) ClearActive(repoID, branchID string) error {
+// ClearActive removes the active session pointer for (repoID, branchID, tabID).
+func (s *SessionStore) ClearActive(repoID, branchID, tabID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.data.Active, storeKey(repoID, branchID))
+	delete(s.data.Active, storeKey(repoID, branchID, tabID))
 	return s.save()
 }

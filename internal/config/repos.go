@@ -25,12 +25,20 @@ const (
 // Keyed by branch ID (not name) because settings are identity-bound to the
 // worktree, not to the git head. Outer key = branchId.
 //
-// S1f75ec-2: ClaudeMode selects which Claude tab implementation renders.
-// Migration rule: missing entry → "agent" (preserve pre-Sprint-C behaviour).
-// New branches (created while this code is running) default to the global
-// settings.claude.default_mode value (default "tui").
+// Sadf90e (post-S1f75ec rework): the previous BranchSettings.ClaudeMode field
+// was a branch-wide flag, which meant every Claude tab in a branch was forced
+// into the same mode. That broke the basic UX expectation that two Claude tabs
+// in the same workspace can be different modes (one agent, one tui). We now
+// store mode per-tab in TabClaudeModes (key = tabID). Missing entries fall
+// through to settings.claude.default_mode at tab-add time.
+//
+// Old `claude_mode` field is intentionally NOT read on load — pre-Sadf90e
+// values are discarded as part of the migration the user explicitly approved.
 type BranchSettings struct {
-	ClaudeMode ClaudeMode `json:"claude_mode,omitempty"`
+	// TabClaudeModes maps Claude tabID → mode. Set at tab-add time via
+	// InitTabClaudeMode, mutated by SetTabClaudeMode, cleared by
+	// DeleteTabClaudeMode when the tab is removed.
+	TabClaudeModes map[string]ClaudeMode `json:"tab_claude_modes,omitempty"`
 }
 
 // RepoEntry is one row in repos.json.
@@ -485,32 +493,59 @@ func sortEntries(entries []RepoEntry) {
 	sort.SliceStable(entries, func(i, j int) bool { return entries[i].GHQPath < entries[j].GHQPath })
 }
 
-// GetBranchSettings (S1f75ec-2) returns the persisted BranchSettings for the
-// given branch. If no entry exists yet, a default is returned (ClaudeMode="agent"
-// for migration-safe backwards compatibility). The returned value is a copy.
-func (s *RepoStore) GetBranchSettings(repoID, branchID string) BranchSettings {
+// GetTabClaudeMode (Sadf90e) returns the persisted ClaudeMode for the given
+// tab. When no entry exists, returns ClaudeModeAgent so callers that race
+// with InitTabClaudeMode still get a safe deterministic answer.
+func (s *RepoStore) GetTabClaudeMode(repoID, branchID, tabID string) ClaudeMode {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, e := range s.entries {
 		if e.ID != repoID {
 			continue
 		}
-		if e.BranchSettingsMap != nil {
-			if bs, ok := e.BranchSettingsMap[branchID]; ok && bs.ClaudeMode != "" {
-				return bs
-			}
+		if e.BranchSettingsMap == nil {
+			return ClaudeModeAgent
 		}
-		// Return migration default: existing branches default to "agent".
-		return BranchSettings{ClaudeMode: ClaudeModeAgent}
+		bs, ok := e.BranchSettingsMap[branchID]
+		if !ok || bs.TabClaudeModes == nil {
+			return ClaudeModeAgent
+		}
+		if m, ok := bs.TabClaudeModes[tabID]; ok && (m == ClaudeModeAgent || m == ClaudeModeTui) {
+			return m
+		}
+		return ClaudeModeAgent
 	}
-	return BranchSettings{ClaudeMode: ClaudeModeAgent}
+	return ClaudeModeAgent
 }
 
-// SetBranchClaudeMode (S1f75ec-2) persists the claude_mode for a branch.
+// HasTabClaudeMode (Sadf90e) reports whether the tab has an explicit entry.
+// Used by GET /tab settings to distinguish "tab not registered yet" (→ 404)
+// from "tab registered with mode X" (→ 200 { mode }).
+func (s *RepoStore) HasTabClaudeMode(repoID, branchID, tabID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, e := range s.entries {
+		if e.ID != repoID {
+			continue
+		}
+		if e.BranchSettingsMap == nil {
+			return false
+		}
+		bs, ok := e.BranchSettingsMap[branchID]
+		if !ok || bs.TabClaudeModes == nil {
+			return false
+		}
+		_, ok = bs.TabClaudeModes[tabID]
+		return ok
+	}
+	return false
+}
+
+// SetTabClaudeMode (Sadf90e) persists claude_mode for a specific Claude tab.
 // mode must be "agent" or "tui"; any other value returns an error.
-func (s *RepoStore) SetBranchClaudeMode(repoID, branchID string, mode ClaudeMode) error {
+func (s *RepoStore) SetTabClaudeMode(repoID, branchID, tabID string, mode ClaudeMode) error {
 	if mode != ClaudeModeAgent && mode != ClaudeModeTui {
-		return fmt.Errorf("config: SetBranchClaudeMode: invalid mode %q (must be agent or tui)", mode)
+		return fmt.Errorf("config: SetTabClaudeMode: invalid mode %q (must be agent or tui)", mode)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -521,22 +556,23 @@ func (s *RepoStore) SetBranchClaudeMode(repoID, branchID string, mode ClaudeMode
 		if s.entries[i].BranchSettingsMap == nil {
 			s.entries[i].BranchSettingsMap = map[string]BranchSettings{}
 		}
-		existing := s.entries[i].BranchSettingsMap[branchID]
-		existing.ClaudeMode = mode
-		s.entries[i].BranchSettingsMap[branchID] = existing
+		bs := s.entries[i].BranchSettingsMap[branchID]
+		if bs.TabClaudeModes == nil {
+			bs.TabClaudeModes = map[string]ClaudeMode{}
+		}
+		bs.TabClaudeModes[tabID] = mode
+		s.entries[i].BranchSettingsMap[branchID] = bs
 		return s.save()
 	}
-	return fmt.Errorf("config: SetBranchClaudeMode: repo %q not found", repoID)
+	return fmt.Errorf("config: SetTabClaudeMode: repo %q not found", repoID)
 }
 
-// InitBranchSettings (S1f75ec-2) ensures a branch has an entry in the
-// BranchSettingsMap. If no entry exists, it is created with the supplied
-// defaultMode. Idempotent — if an entry already exists it is left unchanged.
-// Used when a new branch is opened so new branches default to global
-// settings.claude.default_mode ("tui") while existing branches default to
-// "agent" (via GetBranchSettings migration fallback).
-func (s *RepoStore) InitBranchSettings(repoID, branchID string, defaultMode ClaudeMode) error {
-	if defaultMode == "" {
+// InitTabClaudeMode (Sadf90e) ensures the tab has an entry in TabClaudeModes.
+// Idempotent — if an entry already exists it is left unchanged. Used at
+// tab-add time so the global settings.claude.default_mode value becomes the
+// new tab's starting mode without needing an explicit PATCH from the FE.
+func (s *RepoStore) InitTabClaudeMode(repoID, branchID, tabID string, defaultMode ClaudeMode) error {
+	if defaultMode != ClaudeModeAgent && defaultMode != ClaudeModeTui {
 		defaultMode = ClaudeModeAgent
 	}
 	s.mu.Lock()
@@ -548,11 +584,44 @@ func (s *RepoStore) InitBranchSettings(repoID, branchID string, defaultMode Clau
 		if s.entries[i].BranchSettingsMap == nil {
 			s.entries[i].BranchSettingsMap = map[string]BranchSettings{}
 		}
-		if _, exists := s.entries[i].BranchSettingsMap[branchID]; exists {
+		bs := s.entries[i].BranchSettingsMap[branchID]
+		if bs.TabClaudeModes == nil {
+			bs.TabClaudeModes = map[string]ClaudeMode{}
+		}
+		if _, exists := bs.TabClaudeModes[tabID]; exists {
 			return nil // already initialised — leave it
 		}
-		s.entries[i].BranchSettingsMap[branchID] = BranchSettings{ClaudeMode: defaultMode}
+		bs.TabClaudeModes[tabID] = defaultMode
+		s.entries[i].BranchSettingsMap[branchID] = bs
 		return s.save()
 	}
-	return fmt.Errorf("config: InitBranchSettings: repo %q not found", repoID)
+	return fmt.Errorf("config: InitTabClaudeMode: repo %q not found", repoID)
+}
+
+// DeleteTabClaudeMode (Sadf90e) removes the tab's settings entry. Called from
+// the tab-removal path so deleted-tab entries don't accumulate in repos.json.
+// No-op when the tab has no entry (e.g. it was created pre-Sadf90e and the
+// migration discarded the old branch-wide flag).
+func (s *RepoStore) DeleteTabClaudeMode(repoID, branchID, tabID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.entries {
+		if s.entries[i].ID != repoID {
+			continue
+		}
+		if s.entries[i].BranchSettingsMap == nil {
+			return nil
+		}
+		bs, ok := s.entries[i].BranchSettingsMap[branchID]
+		if !ok || bs.TabClaudeModes == nil {
+			return nil
+		}
+		if _, exists := bs.TabClaudeModes[tabID]; !exists {
+			return nil
+		}
+		delete(bs.TabClaudeModes, tabID)
+		s.entries[i].BranchSettingsMap[branchID] = bs
+		return s.save()
+	}
+	return nil // repo gone — nothing to clean up
 }

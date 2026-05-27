@@ -138,9 +138,11 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("DELETE /api/repos/{repoId}/branches/{branchId}/tabs/{tabId}", h.removeTab)
 	mux.HandleFunc("PATCH /api/repos/{repoId}/branches/{branchId}/tabs/{tabId}", h.renameTab)
 
-	// S1f75ec-2: per-branch settings (claude_mode etc.)
-	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/settings", h.getBranchSettings)
-	mux.HandleFunc("PATCH /api/repos/{repoId}/branches/{branchId}/settings", h.patchBranchSettings)
+	// Sadf90e: per-tab settings (claude_mode). Replaces the S1f75ec-2
+	// branch-level endpoints — mode is now a tab-scope property so that
+	// two Claude tabs in the same workspace can hold different modes.
+	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/tabs/{tabId}/settings", h.getTabSettings)
+	mux.HandleFunc("PATCH /api/repos/{repoId}/branches/{branchId}/tabs/{tabId}/settings", h.patchTabSettings)
 
 	mux.HandleFunc("GET /api/settings", h.getSettings)
 	mux.HandleFunc("PATCH /api/settings", h.patchSettings)

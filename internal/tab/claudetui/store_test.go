@@ -17,21 +17,22 @@ func TestStoreRoundtrip(t *testing.T) {
 	const (
 		repoID    = "test-repo"
 		branchID  = "test-branch"
+		tabID     = "claude:claude"
 		sessionID = "aaaabbbb-cccc-dddd-eeee-ffffffffffff"
 	)
 
 	// Initially nothing stored.
-	if got, ok := s.LoadActive(repoID, branchID); ok {
+	if got, ok := s.LoadActive(repoID, branchID, tabID); ok {
 		t.Fatalf("unexpected initial session: %q", got)
 	}
 
 	// SetActive.
-	if err := s.SetActive(repoID, branchID, sessionID); err != nil {
+	if err := s.SetActive(repoID, branchID, tabID, sessionID); err != nil {
 		t.Fatalf("SetActive: %v", err)
 	}
 
 	// LoadActive returns the stored value.
-	got, ok := s.LoadActive(repoID, branchID)
+	got, ok := s.LoadActive(repoID, branchID, tabID)
 	if !ok {
 		t.Fatal("LoadActive returned ok=false after SetActive")
 	}
@@ -40,10 +41,10 @@ func TestStoreRoundtrip(t *testing.T) {
 	}
 
 	// ClearActive removes it.
-	if err := s.ClearActive(repoID, branchID); err != nil {
+	if err := s.ClearActive(repoID, branchID, tabID); err != nil {
 		t.Fatalf("ClearActive: %v", err)
 	}
-	if _, ok := s.LoadActive(repoID, branchID); ok {
+	if _, ok := s.LoadActive(repoID, branchID, tabID); ok {
 		t.Fatal("LoadActive should return ok=false after ClearActive")
 	}
 }
@@ -68,7 +69,7 @@ func TestStoreCorruptionRecovery(t *testing.T) {
 	}
 
 	// LoadActive must return ok=false without panicking.
-	if _, ok := s.LoadActive("any-repo", "any-branch"); ok {
+	if _, ok := s.LoadActive("any-repo", "any-branch", "claude:claude"); ok {
 		t.Error("LoadActive should return ok=false on a freshly recovered store")
 	}
 }
@@ -81,6 +82,7 @@ func TestStorePersistenceAcrossReopen(t *testing.T) {
 	const (
 		repoID    = "r1"
 		branchID  = "b1"
+		tabID     = "claude:claude"
 		sessionID = "12345678-1234-1234-1234-123456789abc"
 	)
 
@@ -89,7 +91,7 @@ func TestStorePersistenceAcrossReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSessionStore (1): %v", err)
 	}
-	if err := s1.SetActive(repoID, branchID, sessionID); err != nil {
+	if err := s1.SetActive(repoID, branchID, tabID, sessionID); err != nil {
 		t.Fatalf("SetActive: %v", err)
 	}
 
@@ -98,7 +100,7 @@ func TestStorePersistenceAcrossReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSessionStore (2): %v", err)
 	}
-	got, ok := s2.LoadActive(repoID, branchID)
+	got, ok := s2.LoadActive(repoID, branchID, tabID)
 	if !ok {
 		t.Fatal("LoadActive returned ok=false; data not persisted")
 	}
@@ -114,13 +116,14 @@ func TestStoreSetActiveEmptyError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSessionStore: %v", err)
 	}
-	if err := s.SetActive("r", "b", ""); err == nil {
+	if err := s.SetActive("r", "b", "claude:claude", ""); err == nil {
 		t.Error("SetActive with empty sessionID should return error")
 	}
 }
 
-// TestStoreMultipleKeys verifies that multiple (repoID, branchID) pairs are
-// stored independently.
+// TestStoreMultipleKeys verifies that multiple (repoID, branchID, tabID)
+// tuples are stored independently. Sadf90e: tabID is now part of the key so
+// two Claude(tui) tabs on the same branch persist independently.
 func TestStoreMultipleKeys(t *testing.T) {
 	dir := t.TempDir()
 	s, err := NewSessionStore(dir)
@@ -129,24 +132,25 @@ func TestStoreMultipleKeys(t *testing.T) {
 	}
 
 	pairs := []struct {
-		repo, branch, session string
+		repo, branch, tab, session string
 	}{
-		{"r1", "b1", "aaaaaaaa-0000-0000-0000-000000000001"},
-		{"r1", "b2", "bbbbbbbb-0000-0000-0000-000000000002"},
-		{"r2", "b1", "cccccccc-0000-0000-0000-000000000003"},
+		{"r1", "b1", "claude:claude", "aaaaaaaa-0000-0000-0000-000000000001"},
+		{"r1", "b1", "claude:second", "dddddddd-0000-0000-0000-000000000004"},
+		{"r1", "b2", "claude:claude", "bbbbbbbb-0000-0000-0000-000000000002"},
+		{"r2", "b1", "claude:claude", "cccccccc-0000-0000-0000-000000000003"},
 	}
 	for _, p := range pairs {
-		if err := s.SetActive(p.repo, p.branch, p.session); err != nil {
-			t.Fatalf("SetActive(%q,%q): %v", p.repo, p.branch, err)
+		if err := s.SetActive(p.repo, p.branch, p.tab, p.session); err != nil {
+			t.Fatalf("SetActive(%q,%q,%q): %v", p.repo, p.branch, p.tab, err)
 		}
 	}
 	for _, p := range pairs {
-		got, ok := s.LoadActive(p.repo, p.branch)
+		got, ok := s.LoadActive(p.repo, p.branch, p.tab)
 		if !ok {
-			t.Fatalf("LoadActive(%q,%q) = ok=false", p.repo, p.branch)
+			t.Fatalf("LoadActive(%q,%q,%q) = ok=false", p.repo, p.branch, p.tab)
 		}
 		if got != p.session {
-			t.Errorf("LoadActive(%q,%q) = %q, want %q", p.repo, p.branch, got, p.session)
+			t.Errorf("LoadActive(%q,%q,%q) = %q, want %q", p.repo, p.branch, p.tab, got, p.session)
 		}
 	}
 }

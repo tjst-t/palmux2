@@ -40,6 +40,7 @@ func TestSessionIDDetection(t *testing.T) {
 	const (
 		repoID    = "detection-repo"
 		branchID  = "detection-branch"
+		tabID     = "claude:claude"
 		sessionID = "dead1234-dead-dead-dead-dead12345678"
 	)
 
@@ -57,7 +58,7 @@ func TestSessionIDDetection(t *testing.T) {
 	t.Cleanup(func() { mgr.ShutdownAll(ctx) })
 
 	// Pass the worktree path; the Manager derives transcriptDir internally.
-	d, err := mgr.EnsureDaemon(ctx, repoID, branchID, worktree)
+	d, err := mgr.EnsureDaemon(ctx, repoID, branchID, tabID, worktree)
 	if err != nil {
 		t.Fatalf("EnsureDaemon: %v", err)
 	}
@@ -82,7 +83,7 @@ func TestSessionIDDetection(t *testing.T) {
 	}
 
 	// Verify the store was persisted.
-	got, ok := store.LoadActive(repoID, branchID)
+	got, ok := store.LoadActive(repoID, branchID, tabID)
 	if !ok {
 		t.Fatal("SessionStore: LoadActive returned ok=false after detection")
 	}
@@ -105,6 +106,7 @@ func TestSessionPersistenceAcrossDaemonRestart(t *testing.T) {
 	const (
 		repoID    = "persist-repo"
 		branchID  = "persist-branch"
+		tabID     = "claude:claude"
 		sessionID = "11112222-3333-4444-5555-666677778888"
 	)
 
@@ -113,7 +115,7 @@ func TestSessionPersistenceAcrossDaemonRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSessionStore (1): %v", err)
 	}
-	if err := store1.SetActive(repoID, branchID, sessionID); err != nil {
+	if err := store1.SetActive(repoID, branchID, tabID, sessionID); err != nil {
 		t.Fatalf("SetActive: %v", err)
 	}
 
@@ -135,7 +137,7 @@ func TestSessionPersistenceAcrossDaemonRestart(t *testing.T) {
 	t.Cleanup(func() { mgr.ShutdownAll(ctx) })
 
 	// EnsureDaemon should load the persisted session ID and pre-seed the Daemon.
-	d, err := mgr.EnsureDaemon(ctx, repoID, branchID, "")
+	d, err := mgr.EnsureDaemon(ctx, repoID, branchID, tabID, "")
 	if err != nil {
 		t.Fatalf("EnsureDaemon: %v", err)
 	}
@@ -192,7 +194,7 @@ func TestManagerEnsureDaemonWithWorktree(t *testing.T) {
 	})
 	t.Cleanup(func() { mgr.ShutdownAll(ctx) })
 
-	d, err := mgr.EnsureDaemon(ctx, "r", "b", worktree)
+	d, err := mgr.EnsureDaemon(ctx, "r", "b", "claude:claude", worktree)
 	if err != nil {
 		t.Fatalf("EnsureDaemon with worktree: %v", err)
 	}
@@ -200,7 +202,7 @@ func TestManagerEnsureDaemonWithWorktree(t *testing.T) {
 		t.Fatal("expected non-nil Daemon")
 	}
 	// Idempotent: second call returns same daemon.
-	d2, err := mgr.EnsureDaemon(ctx, "r", "b", worktree)
+	d2, err := mgr.EnsureDaemon(ctx, "r", "b", "claude:claude", worktree)
 	if err != nil {
 		t.Fatalf("second EnsureDaemon: %v", err)
 	}
@@ -217,7 +219,7 @@ func TestManagerEnsureDaemonWithWorktree(t *testing.T) {
 		t.Errorf("transcript dir %q should have been created by SessionWatcher: %v", td, serr)
 	}
 
-	mgr.CloseDaemon(ctx, "r", "b")
+	mgr.CloseDaemon(ctx, "r", "b", "claude:claude")
 }
 
 // TestManagerCloseDaemonWithWatcher verifies that CloseDaemon stops the
@@ -228,14 +230,14 @@ func TestManagerCloseDaemonWithWatcher(t *testing.T) {
 
 	mgr := NewManager(ManagerConfig{ClaudeBin: "claude", ResumeOnDeath: false})
 
-	_, err := mgr.EnsureDaemon(ctx, "r", "b", worktree)
+	_, err := mgr.EnsureDaemon(ctx, "r", "b", "claude:claude", worktree)
 	if err != nil {
 		t.Fatalf("EnsureDaemon: %v", err)
 	}
 	// CloseDaemon should not block — watcher.Close() must return promptly.
 	done := make(chan struct{})
 	go func() {
-		mgr.CloseDaemon(ctx, "r", "b")
+		mgr.CloseDaemon(ctx, "r", "b", "claude:claude")
 		close(done)
 	}()
 	select {

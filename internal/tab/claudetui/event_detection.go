@@ -106,9 +106,13 @@ func scanPermissionPrompt(g Grid) string {
 // prompt.  If a new (distinct-from-last) prompt is detected, it publishes a
 // notification via hub and updates lastQuestion.  Returns the updated question
 // string.
+//
+// Sadf90e: tabID is included in the notification so the Activity Inbox can
+// route the event back to the originating tab when two Claude(tui) tabs in
+// the same branch both produce prompts.
 func maybeEmitPermissionPrompt(
 	hub *notify.Hub,
-	repoID, branchID string,
+	repoID, branchID, tabID string,
 	g Grid,
 	lastQuestion string,
 ) string {
@@ -125,6 +129,7 @@ func maybeEmitPermissionPrompt(
 		Type:      "claudetui.permission_prompt",
 		Title:     "claude-tui permission request",
 		Message:   question,
+		TabID:     tabID,
 	})
 	return question
 }
@@ -135,7 +140,7 @@ func maybeEmitPermissionPrompt(
 // Returns the unchanged lastBEL time if no emission occurred.
 func maybeEmitTaskComplete(
 	hub *notify.Hub,
-	repoID, branchID string,
+	repoID, branchID, tabID string,
 	p []byte,
 	lastBEL time.Time,
 ) time.Time {
@@ -161,6 +166,7 @@ func maybeEmitTaskComplete(
 		Type:      "claudetui.task_complete",
 		Title:     "claude-tui task complete",
 		Message:   "Task finished",
+		TabID:     tabID,
 	})
 	return now
 }

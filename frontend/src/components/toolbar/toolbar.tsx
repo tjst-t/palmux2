@@ -8,7 +8,7 @@ import { mergeToolbarConfig } from '../../lib/toolbar-defaults'
 // usePalmuxStore is imported via subcomponents below; keep the explicit
 // import here so tooling sees it referenced.
 import { usePalmuxStore } from '../../stores/palmux-store'
-import { useBranchSettingsStore } from '../../stores/branch-settings-store'
+import { useTabSettingsStore } from '../../stores/tab-settings-store'
 import type { ToolbarButton, ToolbarConfig } from '../../types/toolbar'
 
 import styles from './toolbar.module.css'
@@ -37,24 +37,25 @@ export function Toolbar() {
   const mode: 'normal' | 'claude' = focused.tabType === 'claude' ? 'claude' : 'normal'
   const buttons = config[mode].rows
 
-  // Subscribe directly to the branch settings slice so that when
-  // patchSettings or fetchSettings writes a new value, the button
-  // enabled/disabled state re-renders immediately.
-  // Must be a module-level constant to avoid infinite re-render loops
-  // from Zustand's shallow-equal check on a fresh object each render.
-  const claudeMode = useBranchSettingsStore((s) => {
-    if (focused.tabType !== 'claude' || !focused.repoId || !focused.branchId) return undefined
-    const key = `${focused.repoId}/${focused.branchId}`
-    return (s.settings[key] ?? { claude_mode: 'agent' }).claude_mode
+  // Sadf90e: subscribe to the active tab's claude_mode (tab-scoped, not
+  // branch-scoped). When the user switches between Claude tabs the toolbar
+  // re-reads the new tab's mode; when the user PATCHes mode via the palette
+  // the selector triggers a re-render so the ESC ESC button updates.
+  const claudeMode = useTabSettingsStore((s) => {
+    if (focused.tabType !== 'claude' || !focused.repoId || !focused.branchId || !focused.tabId) {
+      return undefined
+    }
+    const key = `${focused.repoId}/${focused.branchId}/${focused.tabId}`
+    return s.settings[key]?.claude_mode
   })
-  const fetchBranchSettings = useBranchSettingsStore((s) => s.fetchSettings)
+  const fetchTabSettings = useTabSettingsStore((s) => s.fetchSettings)
   const escEscEnabled = claudeMode === 'tui'
 
-  // Ensure branch settings are loaded when the focused claude tab changes.
+  // Ensure tab settings are loaded when the focused claude tab changes.
   useEffect(() => {
-    if (focused.tabType !== 'claude' || !focused.repoId || !focused.branchId) return
-    void fetchBranchSettings(focused.repoId, focused.branchId)
-  }, [focused.tabType, focused.repoId, focused.branchId, fetchBranchSettings])
+    if (focused.tabType !== 'claude' || !focused.repoId || !focused.branchId || !focused.tabId) return
+    void fetchTabSettings(focused.repoId, focused.branchId, focused.tabId)
+  }, [focused.tabType, focused.repoId, focused.branchId, focused.tabId, fetchTabSettings])
 
   // Never hide the Toolbar — claude mode has its own button set.
   const hideToolbar = false

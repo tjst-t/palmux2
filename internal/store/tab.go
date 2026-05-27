@@ -5,9 +5,24 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/tjst-t/palmux2/internal/config"
 	"github.com/tjst-t/palmux2/internal/domain"
 	"github.com/tjst-t/palmux2/internal/tmux"
 )
+
+// configClaudeMode parses a global default_mode string into a config.ClaudeMode,
+// falling back to ClaudeModeTui when the value is empty or invalid. Used by
+// AddTab to seed TabClaudeModes from settings.claude.default_mode (Sadf90e).
+func configClaudeMode(s string) config.ClaudeMode {
+	switch config.ClaudeMode(s) {
+	case config.ClaudeModeAgent:
+		return config.ClaudeModeAgent
+	case config.ClaudeModeTui:
+		return config.ClaudeModeTui
+	default:
+		return config.ClaudeModeTui // settings.go documents tui as the fallback
+	}
+}
 
 // MultiTabHook is implemented by providers that store the per-branch tab
 // list outside the tmux window registry (Claude, post-S009). The Store
@@ -95,6 +110,17 @@ func (s *Store) AddTab(ctx context.Context, repoID, branchID, providerType, name
 		added, err := s.multiTabHook.CreateTab(ctx, repoID, branchID, providerType)
 		if err != nil {
 			return domain.Tab{}, err
+		}
+		// Sadf90e: for Claude tabs, seed the per-tab claude_mode setting from
+		// the global default. Idempotent — if the user PATCHes the mode later
+		// it overwrites this initial value.
+		if providerType == "claude" && s.deps.RepoStore != nil && s.deps.Settings != nil {
+			defaultMode := s.deps.Settings.ClaudeDefaultMode()
+			if err := s.deps.RepoStore.InitTabClaudeMode(repoID, branchID, added.ID,
+				configClaudeMode(defaultMode)); err != nil {
+				s.logger.Warn("AddTab: InitTabClaudeMode failed",
+					"repo", repoID, "branch", branchID, "tab", added.ID, "err", err)
+			}
 		}
 		s.mu.Lock()
 		s.recomputeTabs(ctx, branch)
@@ -224,6 +250,16 @@ func (s *Store) RemoveTab(ctx context.Context, repoID, branchID, tabID string) e
 		// state (agent, sessions.json entries) is torn down too.
 		if err := s.multiTabHook.DeleteTab(ctx, repoID, branchID, tabID); err != nil {
 			return err
+		}
+	}
+	// Sadf90e: for Claude tabs, garbage-collect the per-tab claude_mode entry
+	// so deleted tabs don't accumulate in repos.json#branchSettings. Non-Claude
+	// tab types never have an entry — DeleteTabClaudeMode is a safe no-op for
+	// those.
+	if target.Type == "claude" && s.deps.RepoStore != nil {
+		if err := s.deps.RepoStore.DeleteTabClaudeMode(repoID, branchID, tabID); err != nil {
+			s.logger.Warn("RemoveTab: DeleteTabClaudeMode failed",
+				"repo", repoID, "branch", branchID, "tab", tabID, "err", err)
 		}
 	}
 	s.mu.Lock()

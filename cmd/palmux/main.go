@@ -277,7 +277,14 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		Store:         tuiStore,
 		NotifyHub:     notifyHub, // S0fd64b-1: forward OSC 52 clipboard events
 	})
-	registry.Register(claudetui.New(claudetuiMgr))
+	claudetuiProvider := claudetui.New(claudetuiMgr)
+	// Sadf90e: claudetui daemons live per-tab and are spawned lazily on the
+	// first WS attach. The Provider needs to look up the branch worktree path
+	// at attach time so the subprocess inherits the correct cmd.Dir. We pass
+	// the live Store as a WorktreeResolver — it satisfies the interface
+	// because *Store has BranchWorktreePath via the helper in store.go.
+	claudetuiProvider.SetWorktreeResolver(storeWorktreeResolver{store: st})
+	registry.Register(claudetuiProvider)
 
 	// S009: wire the Claude tab as the per-branch multi-tab hook. The
 	// store delegates non-tmux multi-instance AddTab/RemoveTab through
@@ -535,6 +542,22 @@ func (h claudeMultiTabHook) CreateTab(_ context.Context, repoID, branchID, provi
 
 func (h claudeMultiTabHook) DeleteTab(ctx context.Context, repoID, branchID, tabID string) error {
 	return h.mgr.RemoveTabForBranch(ctx, repoID, branchID, tabID)
+}
+
+// storeWorktreeResolver adapts *store.Store into claudetui.WorktreeResolver
+// so the claudetui Provider can look up the cmd.Dir for a fresh daemon at
+// WS-attach time. Kept in main.go (the wiring layer) so claudetui doesn't
+// import internal/store.
+type storeWorktreeResolver struct {
+	store *store.Store
+}
+
+func (r storeWorktreeResolver) BranchWorktreePath(repoID, branchID string) string {
+	b, err := r.store.Branch(repoID, branchID)
+	if err != nil || b == nil {
+		return ""
+	}
+	return b.WorktreePath
 }
 
 // eventPublisher adapts *store.EventHub to notify.Publisher so the Hub can

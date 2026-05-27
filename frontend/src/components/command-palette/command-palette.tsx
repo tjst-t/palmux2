@@ -6,7 +6,7 @@ import { resolveBashTarget } from '../../lib/bash-target'
 import { pushRecent, listRecents } from '../../lib/recents'
 import { terminalManager } from '../../lib/terminal-manager'
 import { selectBranchById, selectRepoById, usePalmuxStore, type UserCommand } from '../../stores/palmux-store'
-import { useBranchSettingsStore } from '../../stores/branch-settings-store'
+import { useTabSettingsStore } from '../../stores/tab-settings-store'
 import { ClaudeIcon } from '../icons/claude-icon'
 import { UserCommandsModal } from '../user-commands-modal'
 
@@ -186,9 +186,11 @@ function PaletteInner({
   const deviceSettings = usePalmuxStore((s) => s.deviceSettings)
   // S032: user-defined commands from global settings palette.userCommands
   const userCommands = usePalmuxStore((s) => s.globalSettings.palette?.userCommands ?? EMPTY_USER_COMMANDS)
-  // S1f75ec-2: branch settings for switch-claude-mode command
-  const getBranchSettings = useBranchSettingsStore((s) => s.getSettings)
-  const patchBranchSettings = useBranchSettingsStore((s) => s.patchSettings)
+  // Sadf90e: tab-scoped settings for switch-claude-mode command. The
+  // toggle now affects only the active Claude tab, not every Claude tab
+  // on the branch.
+  const getTabSettings = useTabSettingsStore((s) => s.getSettings)
+  const patchTabSettings = useTabSettingsStore((s) => s.patchSettings)
   // The palette is mounted at app root (outside <Routes>) so useParams()
   // always returns empty here. Parse the active repo/branch out of
   // location.pathname instead.
@@ -455,24 +457,31 @@ function PaletteInner({
       },
     })
 
-    // S1f75ec-2: switch-claude-mode — toggles claude tab between agent and tui
+    // Sadf90e: switch-claude-mode toggles the ACTIVE Claude tab between
+    // agent and tui. Sibling Claude tabs on the same branch are not
+    // affected. The command is only meaningful when params.tabId points
+    // at a Claude tab; we still register it unconditionally and silently
+    // no-op otherwise so the entry stays visible / searchable.
     items.push({
       id: 'switch-claude-mode',
       kind: 'command',
       icon: <ClaudeIcon style={{ color: 'var(--color-accent-light)' }} />,
       label: 'Switch Claude mode (TUI ⇄ Agent)',
-      detail: 'builtin',
+      detail: 'builtin · active tab',
       searchable: 'switch-claude-mode switch claude mode tui agent toggle',
       perform: async () => {
-        if (!activeRepo || !activeBranch) return
-        const current = getBranchSettings(activeRepo.id, activeBranch.id)
+        if (!activeRepo || !activeBranch || !params.tabId) return
+        const tabId = decodeURIComponent(params.tabId)
+        const activeTab = activeBranch.tabSet.tabs.find((t) => t.id === tabId)
+        if (!activeTab || activeTab.type !== 'claude') return
+        const current = getTabSettings(activeRepo.id, activeBranch.id, tabId)
         const next = current.claude_mode === 'tui' ? 'agent' : 'tui'
-        await patchBranchSettings(activeRepo.id, activeBranch.id, { claude_mode: next })
+        await patchTabSettings(activeRepo.id, activeBranch.id, tabId, { claude_mode: next })
       },
     })
 
     return items
-  }, [activeRepo, activeBranch, params.tabId, addTab, removeTab, renameTab, setDeviceSetting, deviceSettings, navigate, searchParams, onOpenUserCmdModal, getBranchSettings, patchBranchSettings])
+  }, [activeRepo, activeBranch, params.tabId, addTab, removeTab, renameTab, setDeviceSetting, deviceSettings, navigate, searchParams, onOpenUserCmdModal, getTabSettings, patchTabSettings])
 
   const items = useMemo<PaletteItem[]>(() => {
     // S031-4: read recents fresh on every render so pushRecent() during the

@@ -1,0 +1,32 @@
+{
+  "sprint_id": "Sadf90e",
+  "started_at": "2026-05-27",
+  "base_branch": "autopilot/main/S1f75ec (= S1f75ec の成果物を含む状態から派生)",
+  "branch": "autopilot/main/Sadf90e",
+  "planning_decisions": [
+    {
+      "decision": "User story / AC は propose 時点で確定済み (5 stories / 25 AC)。 sprint plan の対話的設計フェーズはスキップ。",
+      "rationale": "ユーザが事前に意図を明確化済み (タブ単位設定 / branch.claude_mode 完全廃止 / 全 tab-level API)。 propose で stories を細分化済み。 重複する対話は token waste。"
+    },
+    {
+      "decision": "実装順序: Story 3 (schema/API) → Story 1 (claudetui per-tab) → Story 2 (Provider 統合) → Story 4 (Frontend) → Story 5 (Tests + regression)",
+      "rationale": "Story 3 は backend foundation で他全 stories が依存。 Story 4 は API ready が前提。 並列実装の余地は小さく直列で進める。"
+    },
+    {
+      "decision": "Provider 統合 (Story 2) は『claudetui を統一 Provider 内に吸収』 ではなく『claudeagent / claudetui の Provider 2 つを残したまま、 タブ ID 名前空間を統一』 する方針。 タブ ID は claude:claude / claude:claude-2 のままで、 mode によって内部で daemon が変わる。",
+      "rationale": "VISION.json: 最小変更原則。 既存の Provider 2 つの内部実装 (claudetui の per-tab daemon manager / claudeagent の MCP wrapper) は安定しているので、 表面の interface だけ統合するのがリスク低。 SettingsStore の TabClaudeModes が真の source of truth で、 mode を読んで適切な daemon を返すラッパーを 1 段挟む。"
+    },
+    {
+      "decision": "Mode 切替時の挙動: 『タブ削除 + 同 type で新規作成』 = daemon kill + spawn。 transcript / history は持ち越さない。",
+      "rationale": "実装簡素化。 mode 跨ぎで状態を保つには 2 つの異なる process 間で transcript を変換する必要があり、 ROI が悪い。 ユーザフィードバック上も『mode 切り替え』 は再起動を意味すると合意済み (会話のトーンから推測)。"
+    },
+    {
+      "decision": "Migration: BranchSettings.ClaudeMode フィールドは即時削除 (discard)。 既存ユーザの個別設定は失われる。",
+      "rationale": "ユーザが明示的に『branch.claude_mode は完全廃止』を選択 (会話 2026-05-27)。 統合パッケージで配布前なので breakage 影響は dev 環境のみ。"
+    }
+  ],
+  "implementation_decisions": [],
+  "review_decisions": [],
+  "touched_adrs": [],
+  "done_judgment": {}
+}

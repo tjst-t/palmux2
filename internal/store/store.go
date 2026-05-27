@@ -261,6 +261,32 @@ func (s *Store) Branch(repoID, branchID string) (*domain.Branch, error) {
 	return nil, ErrBranchNotFound
 }
 
+// Tab (Sadf90e) returns the tab with the given ID on the given open branch.
+// Returns ErrRepoNotFound / ErrBranchNotFound / ErrTabNotFound to match the
+// other resource-lookup helpers in this package. Used by the tab-scope
+// settings handler so a 404 can be issued before reaching RepoStore.
+func (s *Store) Tab(repoID, branchID, tabID string) (*domain.Tab, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	r, ok := s.repos[repoID]
+	if !ok {
+		return nil, ErrRepoNotFound
+	}
+	for _, b := range r.OpenBranches {
+		if b.ID != branchID {
+			continue
+		}
+		for _, t := range b.TabSet.Tabs {
+			if t.ID == tabID {
+				cp := t
+				return &cp, nil
+			}
+		}
+		return nil, ErrTabNotFound
+	}
+	return nil, ErrBranchNotFound
+}
+
 // ResolveLegacyBranchID (S1e8d02) tries to interpret `id` as a pre-S1e8d02
 // branch-name-based ID and returns the current path-based ID for the
 // matching live branch. Used by HTTP handlers that want to issue a 302

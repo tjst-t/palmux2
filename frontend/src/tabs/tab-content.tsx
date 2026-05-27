@@ -1,14 +1,9 @@
-import { Suspense } from 'react'
+import { Suspense, useEffect } from 'react'
 
 import type { Tab } from '../lib/api'
 import { getRenderer } from '../lib/tab-registry'
-import { useBranchSettingsStore } from '../stores/branch-settings-store'
+import { DEFAULT_TAB_SETTINGS, useTabSettingsStore } from '../stores/tab-settings-store'
 import { TerminalView } from './terminal-view'
-
-// S1f75ec-2: stable fallback — module-level constant prevents Zustand from
-// seeing a new object reference on every render (which would cause an infinite
-// re-render loop when the branch settings haven't been fetched yet).
-const DEFAULT_BRANCH_SETTINGS = { claude_mode: 'agent' as const }
 
 interface Props {
   tab: Tab
@@ -16,10 +11,6 @@ interface Props {
   branchId: string
 }
 
-// S022 — Tab modules (Files / Git / Sprint) are now lazy-loaded via
-// React.lazy to keep the initial bundle small. Terminal-backed tabs
-// (Claude, Bash) are still synchronous because they are the most common
-// landing surface and need to mount immediately.
 function TabFallback() {
   return (
     <div
@@ -36,19 +27,23 @@ function TabFallback() {
 }
 
 export function TabContent({ tab, repoId, branchId }: Props) {
-  // S1f75ec-2: for the canonical `claude` tab, the actual rendered component
-  // depends on `claude_mode`. When mode is "tui" we render the claude-tui
-  // component instead. The `claude-tui` tab itself is hidden from the tab bar
-  // so there is always exactly one "Claude" entry.
-  // Subscribe directly to the settings slice so Zustand triggers a re-render
-  // when patchSettings writes a new value.
-  const branchSettings = useBranchSettingsStore((s) => {
-    const key = `${repoId}/${branchId}`
-    return s.settings[key] ?? DEFAULT_BRANCH_SETTINGS
+  // Sadf90e: for Claude tabs, the rendered component depends on this tab's
+  // claude_mode setting (tab-scoped, not branch-scoped). Two Claude tabs on
+  // the same branch can render different components — one agent, one tui.
+  const tabSettings = useTabSettingsStore((s) => {
+    const key = `${repoId}/${branchId}/${tab.id}`
+    return s.settings[key] ?? DEFAULT_TAB_SETTINGS
   })
+  const fetchTabSettings = useTabSettingsStore((s) => s.fetchSettings)
+
+  useEffect(() => {
+    if (tab.type !== 'claude') return
+    void fetchTabSettings(repoId, branchId, tab.id)
+  }, [repoId, branchId, tab.id, tab.type, fetchTabSettings])
+
   const effectiveTabType = (() => {
     if (tab.type === 'claude') {
-      return branchSettings.claude_mode === 'tui' ? 'claude-tui' : 'claude'
+      return tabSettings.claude_mode === 'tui' ? 'claude-tui' : 'claude'
     }
     return tab.type
   })()

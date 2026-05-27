@@ -83,9 +83,12 @@ export interface Branch {
   category?: BranchCategory
 }
 
-// BranchSettings is the per-branch settings shape returned by
-// GET /api/repos/{repoId}/branches/{branchId}/settings (S1f75ec-2).
-export interface BranchSettings {
+// TabSettings is the per-tab settings shape returned by
+// GET /api/repos/{repoId}/branches/{branchId}/tabs/{tabId}/settings (Sadf90e).
+// Replaces the S1f75ec-2 branch-level BranchSettings: claude_mode is now a
+// property of the individual Claude tab so two tabs in the same workspace
+// can hold independent modes.
+export interface TabSettings {
   claude_mode: 'agent' | 'tui'
 }
 

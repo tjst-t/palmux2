@@ -8,7 +8,7 @@ import {
   selectRepoById,
   usePalmuxStore,
 } from '../stores/palmux-store'
-import { useBranchSettingsStore } from '../stores/branch-settings-store'
+import { DEFAULT_TAB_SETTINGS, useTabSettingsStore } from '../stores/tab-settings-store'
 
 import { confirmDialog } from './context-menu/confirm-dialog'
 import { useContextMenu } from './context-menu/store'
@@ -19,12 +19,6 @@ import styles from './tab-bar.module.css'
 interface Props {
   branch: Branch
 }
-
-// S1f75ec-2: stable fallback — must be a module-level constant so Zustand's
-// shallow-equal check doesn't see a new object reference on every render and
-// cause an infinite re-render loop when the branch settings haven't been
-// fetched yet.
-const DEFAULT_BRANCH_SETTINGS = { claude_mode: 'agent' as const }
 
 // S009: defaults match the server side (settings.maxClaudeTabsPerBranch /
 // settings.maxBashTabsPerBranch). When the user configures different
@@ -59,20 +53,22 @@ export function TabBar({ branch }: Props) {
     repoId ? selectRepoById(repoId)(s) : undefined,
   )
 
-  // S1f75ec-2: per-branch settings (claude_mode) — used to select the
-  // active Claude implementation and show the mode badge.
-  // Subscribe directly to the settings slice for this branch so Zustand
-  // triggers a re-render when patchSettings writes a new value.
-  const fetchBranchSettings = useBranchSettingsStore((s) => s.fetchSettings)
-  const branchSettings = useBranchSettingsStore((s) => {
-    const key = `${repoId ?? ''}/${branch.id}`
-    return s.settings[key] ?? DEFAULT_BRANCH_SETTINGS
-  })
+  // Sadf90e: per-tab claude_mode settings — used to show the mode badge on
+  // every Claude tab (not just the first one). Subscribe to the settings
+  // dictionary so any patchSettings write triggers a re-render.
+  const fetchTabSettings = useTabSettingsStore((s) => s.fetchSettings)
+  const tabSettingsMap = useTabSettingsStore((s) => s.settings)
 
   useEffect(() => {
     if (!repoId) return
-    void fetchBranchSettings(repoId, branch.id)
-  }, [repoId, branch.id, fetchBranchSettings])
+    // Fetch settings for every Claude tab on this branch so the badge can
+    // render synchronously after the first paint.
+    branch.tabSet.tabs.forEach((t) => {
+      if (t.type === 'claude') {
+        void fetchTabSettings(repoId, branch.id, t.id)
+      }
+    })
+  }, [repoId, branch.id, branch.tabSet.tabs, fetchTabSettings])
 
   // S020: drag-and-drop reorder state. Tracked locally because the order
   // is committed to the server only on drop; while dragging we only show
@@ -169,11 +165,10 @@ export function TabBar({ branch }: Props) {
 
   // S009: split the flat tab list into consecutive same-type groups so
   // we can drop a `+` after each Multiple()=true group (Claude, Bash).
-  // S1f75ec-2: filter out the `claude-tui` tab — it is rendered inside
-  // the Claude tab based on branch.claude_mode; showing it separately
-  // would create a noisy second "Claude (TUI)" entry in the tab bar.
-  const visibleTabs = branch.tabSet.tabs.filter((t) => t.type !== 'claude-tui')
-  const groups = groupTabsByType(visibleTabs)
+  // Sadf90e: the standalone `claude-tui` tab type is gone — claudetui's
+  // Provider now returns 0 tabs from OnBranchOpen, so it never appears in
+  // branch.tabSet.tabs in the first place. No filter needed.
+  const groups = groupTabsByType(branch.tabSet.tabs)
 
   // Currently-selected tab id (URL-decoded so colon-bearing ids match).
   const activeId = decodeURIComponent(tabId ?? '')
@@ -245,9 +240,14 @@ export function TabBar({ branch }: Props) {
                       ? claudeUnread
                       : 0
                   }
-                  // S1f75ec-2: show mode badge on the (single) canonical Claude tab
-                  modeBadge={t.type === 'claude' && t.id === claudeBadgeOwnerId
-                    ? (branchSettings.claude_mode === 'tui' ? 'TUI' : 'Agent')
+                  // Sadf90e: every Claude tab gets its own mode badge so the
+                  // user can tell at a glance which tabs are agent and which
+                  // are tui. Falls back to the shared DEFAULT_TAB_SETTINGS
+                  // module constant so the Zustand selector returns a stable
+                  // reference when fetchSettings hasn't completed yet.
+                  modeBadge={t.type === 'claude'
+                    ? ((tabSettingsMap[`${repoId}/${branch.id}/${t.id}`] ?? DEFAULT_TAB_SETTINGS)
+                        .claude_mode === 'tui' ? 'TUI' : 'Agent')
                     : undefined}
                   onSelect={() => {
                     if (renamingTabId) return

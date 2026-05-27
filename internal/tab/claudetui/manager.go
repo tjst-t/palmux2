@@ -38,9 +38,9 @@ type managerEntry struct {
 	watcher *SessionWatcher // may be nil if no worktree was provided
 }
 
-// Manager holds one [Daemon] per (repoID, branchID) pair and provides
-// lifecycle methods that mirror the claudeagent.Manager pattern so that Story
-// 2's Provider implementation can be a thin adapter.
+// Manager holds one [Daemon] per (repoID, branchID, tabID) tuple. Sadf90e
+// switched the key from per-branch to per-tab so two Claude tabs in the same
+// workspace can hold independent claude processes.
 //
 // Thread safety: all methods are safe for concurrent use.
 type Manager struct {
@@ -63,25 +63,26 @@ func NewManager(cfg ManagerConfig) *Manager {
 	}
 }
 
-// key builds the map key for (repoID, branchID).
-func (m *Manager) key(repoID, branchID string) string {
-	return repoID + "/" + branchID
+// key builds the map key for (repoID, branchID, tabID). Sadf90e: tabID is
+// included so multiple Claude tabs on the same branch get distinct entries.
+func (m *Manager) key(repoID, branchID, tabID string) string {
+	return repoID + "/" + branchID + "/" + tabID
 }
 
-// Get returns the Daemon for (repoID, branchID), or nil if none exists.
-func (m *Manager) Get(repoID, branchID string) *Daemon {
+// Get returns the Daemon for (repoID, branchID, tabID), or nil if none exists.
+func (m *Manager) Get(repoID, branchID, tabID string) *Daemon {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	e := m.entries[m.key(repoID, branchID)]
+	e := m.entries[m.key(repoID, branchID, tabID)]
 	if e == nil {
 		return nil
 	}
 	return e.daemon
 }
 
-// EnsureDaemon returns the existing Daemon for (repoID, branchID) or creates a
-// new one.  The subprocess is NOT spawned yet — it starts lazily on the first
-// WebSocket attach (priority_rule 4).
+// EnsureDaemon returns the existing Daemon for (repoID, branchID, tabID) or
+// creates a new one. The subprocess is NOT spawned yet — it starts lazily on
+// the first WebSocket attach (priority_rule 4).
 //
 // worktree is the absolute path to the branch worktree. When non-empty,
 // EnsureDaemon:
@@ -94,18 +95,20 @@ func (m *Manager) Get(repoID, branchID string) *Daemon {
 //
 // Passing an empty worktree silently skips session detection (useful in tests
 // that don't need the fsnotify machinery).
-func (m *Manager) EnsureDaemon(ctx context.Context, repoID, branchID, worktree string) (*Daemon, error) {
+func (m *Manager) EnsureDaemon(ctx context.Context, repoID, branchID, tabID, worktree string) (*Daemon, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	k := m.key(repoID, branchID)
+	k := m.key(repoID, branchID, tabID)
 	if e, ok := m.entries[k]; ok {
 		return e.daemon, nil
 	}
 
 	// Look up the persisted session ID so we can pre-seed the new Daemon.
+	// SessionStore is keyed by (repoID, branchID, tabID) since Sadf90e —
+	// see store.go for the layout.
 	var initialSessionID string
 	if m.cfg.Store != nil {
-		if sid, ok := m.cfg.Store.LoadActive(repoID, branchID); ok {
+		if sid, ok := m.cfg.Store.LoadActive(repoID, branchID, tabID); ok {
 			initialSessionID = sid
 		}
 	}
@@ -116,10 +119,11 @@ func (m *Manager) EnsureDaemon(ctx context.Context, repoID, branchID, worktree s
 		Worktree:      worktree,
 		RingSize:      m.cfg.RingSize,
 		ResumeOnDeath: m.cfg.ResumeOnDeath,
-		Logger:        m.cfg.Logger.With("repo", repoID, "branch", branchID),
+		Logger:        m.cfg.Logger.With("repo", repoID, "branch", branchID, "tab", tabID),
 		NotifyHub:     m.cfg.NotifyHub,
 		RepoID:        repoID,
 		BranchID:      branchID,
+		TabID:         tabID,
 	})
 
 	// Pre-seed session ID if we loaded one from the store.  This unblocks
@@ -139,14 +143,14 @@ func (m *Manager) EnsureDaemon(ctx context.Context, repoID, branchID, worktree s
 			w, werr := NewSessionWatcher(td)
 			if werr == nil {
 				entry.watcher = w
-				go m.watcherLoop(repoID, branchID, d, w)
+				go m.watcherLoop(repoID, branchID, tabID, d, w)
 			} else {
 				m.cfg.Logger.Warn("claudetui: failed to start session watcher",
-					"repo", repoID, "branch", branchID, "err", werr)
+					"repo", repoID, "branch", branchID, "tab", tabID, "err", werr)
 			}
 		} else {
 			m.cfg.Logger.Warn("claudetui: TranscriptDir failed",
-				"repo", repoID, "branch", branchID, "err", err)
+				"repo", repoID, "branch", branchID, "tab", tabID, "err", err)
 		}
 	}
 
@@ -156,7 +160,7 @@ func (m *Manager) EnsureDaemon(ctx context.Context, repoID, branchID, worktree s
 
 // watcherLoop runs as a background goroutine and forwards SessionEvents from
 // the watcher to the Daemon and SessionStore.
-func (m *Manager) watcherLoop(repoID, branchID string, d *Daemon, w *SessionWatcher) {
+func (m *Manager) watcherLoop(repoID, branchID, tabID string, d *Daemon, w *SessionWatcher) {
 	for ev := range w.Events() {
 		if ev.SessionID == "" {
 			continue
@@ -167,23 +171,24 @@ func (m *Manager) watcherLoop(repoID, branchID string, d *Daemon, w *SessionWatc
 		// Persist so the next Manager creation (after a server restart) can
 		// pre-seed the new Daemon with the same session ID.
 		if m.cfg.Store != nil {
-			if err := m.cfg.Store.SetActive(repoID, branchID, ev.SessionID); err != nil {
+			if err := m.cfg.Store.SetActive(repoID, branchID, tabID, ev.SessionID); err != nil {
 				m.cfg.Logger.Warn("claudetui: failed to persist session ID",
-					"repo", repoID, "branch", branchID,
+					"repo", repoID, "branch", branchID, "tab", tabID,
 					"session", ev.SessionID, "err", err)
 			}
 		}
 		m.cfg.Logger.Info("claudetui: session ID detected",
-			"repo", repoID, "branch", branchID,
+			"repo", repoID, "branch", branchID, "tab", tabID,
 			"session", ev.SessionID, "event", ev.EventType)
 	}
 }
 
-// CloseDaemon shuts down and removes the Daemon for (repoID, branchID).  It is
-// a no-op if no daemon exists.  This is called by Story 2's OnBranchClose.
-func (m *Manager) CloseDaemon(ctx context.Context, repoID, branchID string) error {
+// CloseDaemon shuts down and removes the Daemon for (repoID, branchID, tabID).
+// No-op if no daemon exists. Called from the tab-removal handler so a deleted
+// Claude(tui) tab does not leave a zombie process / watcher behind.
+func (m *Manager) CloseDaemon(ctx context.Context, repoID, branchID, tabID string) error {
 	m.mu.Lock()
-	k := m.key(repoID, branchID)
+	k := m.key(repoID, branchID, tabID)
 	e, ok := m.entries[k]
 	if !ok {
 		m.mu.Unlock()
@@ -199,8 +204,38 @@ func (m *Manager) CloseDaemon(ctx context.Context, repoID, branchID string) erro
 	m.cfg.Logger.Info("claudetui: daemon closed",
 		"repo", repoID,
 		"branch", branchID,
+		"tab", tabID,
 	)
 	return nil
+}
+
+// CloseBranchDaemons (Sadf90e) shuts down every Daemon belonging to the given
+// branch. Called from Provider.OnBranchClose because the provider no longer
+// owns the canonical tab list and instead asks the Manager to garbage-collect
+// everything for the closing branch. Errors from individual daemons are
+// logged, not propagated.
+func (m *Manager) CloseBranchDaemons(ctx context.Context, repoID, branchID string) {
+	prefix := repoID + "/" + branchID + "/"
+	m.mu.Lock()
+	var matched []*managerEntry
+	for k, e := range m.entries {
+		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
+			matched = append(matched, e)
+			delete(m.entries, k)
+		}
+	}
+	m.mu.Unlock()
+
+	for _, e := range matched {
+		if e.watcher != nil {
+			e.watcher.Close()
+		}
+		e.daemon.Shutdown()
+	}
+	if len(matched) > 0 {
+		m.cfg.Logger.Info("claudetui: branch daemons closed",
+			"repo", repoID, "branch", branchID, "count", len(matched))
+	}
 }
 
 // ShutdownAll shuts down all managed daemons.  Should be called on process
@@ -235,8 +270,8 @@ func (m *Manager) Len() int {
 
 // EnsureStarted is a convenience helper: EnsureDaemon then EnsureStarted.
 // Useful for testing.  Pass empty worktree to skip session detection.
-func (m *Manager) EnsureStarted(ctx context.Context, repoID, branchID string) (*Daemon, error) {
-	d, err := m.EnsureDaemon(ctx, repoID, branchID, "")
+func (m *Manager) EnsureStarted(ctx context.Context, repoID, branchID, tabID string) (*Daemon, error) {
+	d, err := m.EnsureDaemon(ctx, repoID, branchID, tabID, "")
 	if err != nil {
 		return nil, fmt.Errorf("claudetui manager: ensure daemon: %w", err)
 	}

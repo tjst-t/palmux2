@@ -102,13 +102,24 @@ function buildTheme(): Terminal['options']['theme'] {
   }
 }
 
-function buildWsUrl(repoId: string, branchId: string): string {
+// Sadf90e: claudetui's WS / resize endpoints are now keyed by {tabId} so two
+// Claude(tui) tabs on the same branch each get their own daemon.
+function buildWsUrl(repoId: string, branchId: string, tabId: string): string {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${proto}//${window.location.host}/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/tabs/claude-tui/attach`
+  return (
+    `${proto}//${window.location.host}` +
+    `/api/repos/${encodeURIComponent(repoId)}` +
+    `/branches/${encodeURIComponent(branchId)}` +
+    `/tabs/${encodeURIComponent(tabId)}/tui/attach`
+  )
 }
 
-function buildResizeUrl(repoId: string, branchId: string): string {
-  return `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/tabs/claude-tui/resize`
+function buildResizeUrl(repoId: string, branchId: string, tabId: string): string {
+  return (
+    `/api/repos/${encodeURIComponent(repoId)}` +
+    `/branches/${encodeURIComponent(branchId)}` +
+    `/tabs/${encodeURIComponent(tabId)}/tui/resize`
+  )
 }
 
 // Status type maps to data-testid=claude-tui-status values used in E2E.
@@ -118,18 +129,27 @@ type Status = 'connecting' | 'connected' | 'streaming' | 'disconnected'
 // undefined means no role event has been received from the server yet.
 type Role = 'active' | 'viewer'
 
-export function ClaudeTuiTab({ repoId, branchId }: TabViewProps) {
+export function ClaudeTuiTab({ repoId, branchId, tabId }: TabViewProps) {
   const viewport = useViewport()
-  return <ClaudeTuiDesktop repoId={repoId} branchId={branchId} showFilePicker={isMobile(viewport)} />
+  return (
+    <ClaudeTuiDesktop
+      repoId={repoId}
+      branchId={branchId}
+      tabId={tabId}
+      showFilePicker={isMobile(viewport)}
+    />
+  )
 }
 
 function ClaudeTuiDesktop({
   repoId,
   branchId,
+  tabId,
   showFilePicker,
 }: {
   repoId: string
   branchId: string
+  tabId: string
   showFilePicker: boolean
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -252,7 +272,7 @@ function ClaudeTuiDesktop({
     let streamingTimer: ReturnType<typeof setTimeout> | null = null
 
     const ws = new ReconnectingWebSocket({
-      url: buildWsUrl(repoId, branchId),
+      url: buildWsUrl(repoId, branchId, tabId),
       binaryType: 'arraybuffer',
       onState: (s) => {
         if (s === 'open') {
@@ -320,7 +340,7 @@ function ClaudeTuiDesktop({
 
     function sendResizeNow(cols: number, rows: number): void {
       if (cols <= 0 || rows <= 0) return
-      void api.post(buildResizeUrl(repoId, branchId), { cols, rows }).catch(() => {
+      void api.post(buildResizeUrl(repoId, branchId, tabId), { cols, rows }).catch(() => {
         // Non-fatal — the WS connection may not have started the daemon yet.
       })
     }

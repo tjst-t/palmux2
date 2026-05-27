@@ -97,7 +97,7 @@ func TestMaybeEmitPermissionPrompt(t *testing.T) {
 	last := ""
 
 	// First call: should emit.
-	last = maybeEmitPermissionPrompt(hub, "repo1", "branch1", buildGrid(question), last)
+	last = maybeEmitPermissionPrompt(hub, "repo1", "branch1", "claude:claude", buildGrid(question), last)
 	if last != question {
 		t.Fatalf("expected lastQuestion=%q, got %q", question, last)
 	}
@@ -107,7 +107,7 @@ func TestMaybeEmitPermissionPrompt(t *testing.T) {
 	}
 
 	// Second call with same question: should NOT emit (dedup).
-	last = maybeEmitPermissionPrompt(hub, "repo1", "branch1", buildGrid(question), last)
+	last = maybeEmitPermissionPrompt(hub, "repo1", "branch1", "claude:claude", buildGrid(question), last)
 	snap = hub.Snapshot("repo1", "branch1")
 	if snap.UnreadCount != 1 {
 		t.Fatalf("expected still 1 unread after dedup, got %d", snap.UnreadCount)
@@ -115,7 +115,7 @@ func TestMaybeEmitPermissionPrompt(t *testing.T) {
 
 	// Third call with different question: should emit.
 	q2 := "Do you want me to delete files?"
-	last = maybeEmitPermissionPrompt(hub, "repo1", "branch1", buildGrid(q2), last)
+	last = maybeEmitPermissionPrompt(hub, "repo1", "branch1", "claude:claude", buildGrid(q2), last)
 	if last != q2 {
 		t.Fatalf("expected lastQuestion=%q after second emit, got %q", q2, last)
 	}
@@ -132,7 +132,7 @@ func TestMaybeEmitTaskComplete(t *testing.T) {
 	var zeroTime time.Time
 
 	// BEL in chunk: should emit.
-	after := maybeEmitTaskComplete(hub, "repo2", "branch2", []byte("\x07"), zeroTime)
+	after := maybeEmitTaskComplete(hub, "repo2", "branch2", "claude:claude", []byte("\x07"), zeroTime)
 	if after.IsZero() {
 		t.Fatal("expected non-zero lastBEL after BEL emit")
 	}
@@ -142,7 +142,7 @@ func TestMaybeEmitTaskComplete(t *testing.T) {
 	}
 
 	// Immediate second BEL: throttle should prevent emission.
-	after2 := maybeEmitTaskComplete(hub, "repo2", "branch2", []byte("\x07"), after)
+	after2 := maybeEmitTaskComplete(hub, "repo2", "branch2", "claude:claude", []byte("\x07"), after)
 	if !after2.Equal(after) {
 		t.Fatalf("expected throttle to leave lastBEL unchanged; got %v vs %v", after2, after)
 	}
@@ -153,7 +153,7 @@ func TestMaybeEmitTaskComplete(t *testing.T) {
 
 	// No BEL in chunk: should not emit.
 	before := after
-	after3 := maybeEmitTaskComplete(hub, "repo2", "branch2", []byte("heartbeat\n"), before)
+	after3 := maybeEmitTaskComplete(hub, "repo2", "branch2", "claude:claude", []byte("heartbeat\n"), before)
 	if !after3.Equal(before) {
 		t.Fatalf("expected no change without BEL, got %v vs %v", after3, before)
 	}

@@ -112,8 +112,11 @@ type Daemon struct {
 	// (permission_prompt, task_complete) detected from the emulator grid / BEL.
 	// May be nil — events are silently discarded in that case.
 	notifyHub *notify.Hub
-	// repoID and branchID identify the workspace; stamped onto every event.
-	repoID, branchID string
+	// repoID, branchID, tabID identify the workspace and tab; stamped onto
+	// every event so the Activity Inbox can route notifications back to the
+	// originating tab (Sadf90e — tabID was added so two Claude-tui tabs in the
+	// same workspace produce distinguishable events).
+	repoID, branchID, tabID string
 
 	// eventMu guards the per-daemon event-detection state fields below.
 	eventMu sync.Mutex
@@ -190,10 +193,12 @@ type DaemonConfig struct {
 	// When nil the Emulator still runs but clipboard events are silently
 	// discarded.  Main wires this from the process-wide hub.
 	NotifyHub *notify.Hub
-	// RepoID and BranchID identify the workspace.  They are stamped onto
-	// every [notify.CopyEvent] emitted by the Emulator.
+	// RepoID, BranchID, TabID identify the workspace and tab. They are
+	// stamped onto every [notify.CopyEvent] emitted by the Emulator and onto
+	// every Activity Inbox event published by event_detection.
 	RepoID   string
 	BranchID string
+	TabID    string
 }
 
 // NewDaemon creates a Daemon from cfg.  No subprocess is spawned yet.
@@ -222,6 +227,7 @@ func NewDaemon(cfg DaemonConfig) *Daemon {
 		notifyHub:      cfg.NotifyHub,
 		repoID:         cfg.RepoID,
 		branchID:       cfg.BranchID,
+		tabID:          cfg.TabID,
 		daemonCtx:      ctx,
 		daemonCancel:   cancel,
 		sessionIDReady: make(chan struct{}),
@@ -697,14 +703,14 @@ func (d *Daemon) detectEvents(chunk []byte) {
 
 	// 1. BEL detection (task_complete).
 	d.lastBELAt = maybeEmitTaskComplete(
-		d.notifyHub, d.repoID, d.branchID,
+		d.notifyHub, d.repoID, d.branchID, d.tabID,
 		chunk, d.lastBELAt,
 	)
 
 	// 2. Grid permission-prompt scan (cheap: only bottom 8 rows).
 	g := d.emulator.GridSnapshot()
 	d.lastPermissionQuestion = maybeEmitPermissionPrompt(
-		d.notifyHub, d.repoID, d.branchID,
+		d.notifyHub, d.repoID, d.branchID, d.tabID,
 		g, d.lastPermissionQuestion,
 	)
 }
