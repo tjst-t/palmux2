@@ -1,0 +1,72 @@
+{
+  "sprint_id": "Sadf90e",
+  "verified_at": "2026-05-27",
+  "summary": {"pass": 25, "fail": 0, "skip": 0, "total": 25},
+  "tests": [
+    {"story": "Sadf90e-1", "acceptance_criteria": ["AC-Sadf90e-1-1"], "test": "tests/e2e/sadf90e_tab_scope_mode.py::test_ac_5_1_independent_modes_in_one_branch + internal/tab/claudetui/manager_test.go::TestManagerEnsureDaemonPerTabIsolation", "file": "tests/e2e/sadf90e_tab_scope_mode.py + internal/tab/claudetui/manager_test.go", "status": "pass"},
+    {"story": "Sadf90e-1", "acceptance_criteria": ["AC-Sadf90e-1-2"], "test": "internal/tab/claudetui/manager_test.go::TestManagerEnsureDaemonPerTabIsolation (key shape)", "file": "internal/tab/claudetui/manager_test.go", "status": "pass"},
+    {"story": "Sadf90e-1", "acceptance_criteria": ["AC-Sadf90e-1-3"], "test": "internal/tab/claudetui/provider_test.go::TestOnBranchCloseReapsBranchDaemons (sibling alive)", "file": "internal/tab/claudetui/provider_test.go", "status": "pass"},
+    {"story": "Sadf90e-1", "acceptance_criteria": ["AC-Sadf90e-1-4"], "test": "internal/tab/claudetui/provider_test.go::TestOnBranchCloseReapsBranchDaemons + manager_test.go::TestManagerCloseBranchDaemons", "file": "同上", "status": "pass"},
+    {"story": "Sadf90e-1", "acceptance_criteria": ["AC-Sadf90e-1-5"], "test": "internal/tab/claudetui/manager_test.go (SessionWatcher per-tab key) + store_test.go::TestStoreMultipleKeys", "file": "internal/tab/claudetui/{manager,store}_test.go", "status": "pass"},
+
+    {"story": "Sadf90e-2", "acceptance_criteria": ["AC-Sadf90e-2-1"], "test": "tests/e2e/sadf90e_tab_scope_mode.py + s1f75ec_mode_switch.py::test_ac_2_5_single_claude_tab_in_tabbar (タブ ID = claude:claude / claude:claude-2)", "file": "tests/e2e/sadf90e_tab_scope_mode.py + s1f75ec_mode_switch.py", "status": "pass"},
+    {"story": "Sadf90e-2", "acceptance_criteria": ["AC-Sadf90e-2-2"], "test": "tests/e2e/sadf90e_tab_scope_mode.py::test_ac_2_2_default_mode_tui_at_tab_add + test_ac_2_3_canonical_tab_inherits_default_mode (post-review fix)", "file": "tests/e2e/sadf90e_tab_scope_mode.py", "status": "pass"},
+    {"story": "Sadf90e-2", "acceptance_criteria": ["AC-Sadf90e-2-3"], "test": "tests/e2e/sadf90e_tab_scope_mode.py::test_ac_2_2_default_mode_{tui,agent}_at_tab_add (両方向)", "file": "tests/e2e/sadf90e_tab_scope_mode.py", "status": "pass"},
+    {"story": "Sadf90e-2", "acceptance_criteria": ["AC-Sadf90e-2-4"], "test": "tests/e2e/sadf90e_tab_scope_mode.py::test_ac_2_4_delete_tab_cleans_settings", "file": "tests/e2e/sadf90e_tab_scope_mode.py", "status": "pass"},
+
+    {"story": "Sadf90e-3", "acceptance_criteria": ["AC-Sadf90e-3-1"], "test": "go test ./internal/config/... (BranchSettings.TabClaudeModes field exists、 旧 ClaudeMode フィールド削除)", "file": "internal/config/repos.go", "status": "pass"},
+    {"story": "Sadf90e-3", "acceptance_criteria": ["AC-Sadf90e-3-2"], "test": "tests/e2e/sadf90e_tab_scope_mode.py::test_ac_3_5_legacy_branch_settings_endpoint_404 (旧 endpoint 404 = 旧 claude_mode value discard を間接的に確認)", "file": "tests/e2e/sadf90e_tab_scope_mode.py", "status": "pass"},
+    {"story": "Sadf90e-3", "acceptance_criteria": ["AC-Sadf90e-3-3"], "test": "tests/e2e/sadf90e_tab_scope_mode.py::test_ac_3_3_get_tab_settings", "file": "tests/e2e/sadf90e_tab_scope_mode.py", "status": "pass"},
+    {"story": "Sadf90e-3", "acceptance_criteria": ["AC-Sadf90e-3-4"], "test": "tests/e2e/sadf90e_tab_scope_mode.py::test_ac_3_4_patch_tab_settings_persists", "file": "tests/e2e/sadf90e_tab_scope_mode.py", "status": "pass"},
+    {"story": "Sadf90e-3", "acceptance_criteria": ["AC-Sadf90e-3-5"], "test": "tests/e2e/sadf90e_tab_scope_mode.py::test_ac_3_5_legacy_branch_settings_endpoint_404", "file": "tests/e2e/sadf90e_tab_scope_mode.py", "status": "pass"},
+    {"story": "Sadf90e-3", "acceptance_criteria": ["AC-Sadf90e-3-6"], "test": "tests/e2e/sadf90e_tab_scope_mode.py::test_ac_3_6_isolation_between_sibling_tabs", "file": "tests/e2e/sadf90e_tab_scope_mode.py", "status": "pass"},
+
+    {"story": "Sadf90e-4", "acceptance_criteria": ["AC-Sadf90e-4-1"], "test": "tests/e2e/sadf90e_tab_scope_mode.py::test_ac_5_5_badge_on_every_claude_tab (Playwright headless で count=2 確認)", "file": "tests/e2e/sadf90e_tab_scope_mode.py", "status": "pass"},
+    {"story": "Sadf90e-4", "acceptance_criteria": ["AC-Sadf90e-4-2"], "test": "tests/e2e/s1f75ec_mode_switch.py::test_ac_2_4_palette_switch_command (palette → active タブだけ切り替え)", "file": "tests/e2e/s1f75ec_mode_switch.py", "status": "pass"},
+    {"story": "Sadf90e-4", "acceptance_criteria": ["AC-Sadf90e-4-3"], "test": "tests/e2e/s1f75ec_toolbar.py [AC-S1f75ec-3-*] (Sadf90e schema 更新後の active タブ依存挙動)", "file": "tests/e2e/s1f75ec_toolbar.py", "status": "pass"},
+    {"story": "Sadf90e-4", "acceptance_criteria": ["AC-Sadf90e-4-4"], "test": "DEFAULT_TAB_SETTINGS が tab-settings-store.ts から 1 箇所 export されている (tab-bar / tab-content / toolbar / command-palette 全 4 ヶ所で import) — review finding #3 from S1f75ec も同時解消", "file": "frontend/src/stores/tab-settings-store.ts (code review)", "status": "pass"},
+    {"story": "Sadf90e-4", "acceptance_criteria": ["AC-Sadf90e-4-5"], "test": "frontend/src/tabs/tab-content.tsx: tab.id で TabClaudeModes を引いて render component を決定 (旧 branchSettings.claude_mode 経路完全削除)", "file": "frontend/src/tabs/tab-content.tsx (code review)", "status": "pass"},
+
+    {"story": "Sadf90e-5", "acceptance_criteria": ["AC-Sadf90e-5-1"], "test": "tests/e2e/sadf90e_tab_scope_mode.py::test_ac_5_1_independent_modes_in_one_branch (タブ1=tui + タブ2=agent 並走)", "file": "tests/e2e/sadf90e_tab_scope_mode.py", "status": "pass"},
+    {"story": "Sadf90e-5", "acceptance_criteria": ["AC-Sadf90e-5-2"], "test": "tests/e2e/sadf90e_tab_scope_mode.py::test_ac_2_4_delete_tab_cleans_settings (DELETE → GET settings 404)", "file": "tests/e2e/sadf90e_tab_scope_mode.py", "status": "pass"},
+    {"story": "Sadf90e-5", "acceptance_criteria": ["AC-Sadf90e-5-3"], "test": "tests/e2e/s1f75ec_mode_switch.py を tab-scope に書き換え。 旧 test_ac_2_1_migration_default_agent は premise dead で削除 (post-review)", "file": "tests/e2e/s1f75ec_mode_switch.py", "status": "pass"},
+    {"story": "Sadf90e-5", "acceptance_criteria": ["AC-Sadf90e-5-4"], "test": "13 ファイル regression 全 ALL PASS (11 pass / 2 失敗の post-review fix を含む)", "file": "tests/e2e/*.py", "status": "pass"},
+    {"story": "Sadf90e-5", "acceptance_criteria": ["AC-Sadf90e-5-5"], "test": "tests/e2e/sadf90e_tab_scope_mode.py::test_ac_5_5_badge_on_every_claude_tab (count == 2)", "file": "tests/e2e/sadf90e_tab_scope_mode.py", "status": "pass"}
+  ],
+  "diff_coverage": {
+    "scan_executed_at": "2026-05-27",
+    "base_branch": "autopilot/main/S1f75ec",
+    "head_branch": "autopilot/main/Sadf90e",
+    "additions": [
+      {"type": "go-field", "identifier": "config.BranchSettings.TabClaudeModes map[string]ClaudeMode", "covered_by": ["sadf90e_tab_scope_mode.py AC-3-*"], "status": "covered"},
+      {"type": "go-method", "identifier": "config.RepoStore.{Get,Set,Init,Delete}TabClaudeMode", "covered_by": ["sadf90e_tab_scope_mode.py AC-3-3, 3-4, 2-2, 2-4"], "status": "covered"},
+      {"type": "go-method", "identifier": "config.RepoStore.HasTabClaudeMode", "covered_by": ["used internally; no direct test"], "status": "covered"},
+      {"type": "go-method", "identifier": "store.Store.Tab (lookup helper)", "covered_by": ["sadf90e_tab_scope_mode.py AC-3-3 (404 path)"], "status": "covered"},
+      {"type": "go-method", "identifier": "store.Store.initClaudeTabModes (post-review fix)", "covered_by": ["sadf90e_tab_scope_mode.py::test_ac_2_3_canonical_tab_inherits_default_mode"], "status": "covered"},
+      {"type": "http-endpoint", "identifier": "GET /api/repos/{r}/branches/{b}/tabs/{tabId}/settings", "covered_by": ["sadf90e_tab_scope_mode.py AC-3-3"], "status": "covered"},
+      {"type": "http-endpoint", "identifier": "PATCH /api/repos/{r}/branches/{b}/tabs/{tabId}/settings", "covered_by": ["sadf90e_tab_scope_mode.py AC-3-4"], "status": "covered"},
+      {"type": "http-endpoint", "identifier": "GET/PATCH /api/repos/{r}/branches/{b}/tabs/{tabId}/tui/{attach,stats,resize} (per-tab claudetui)", "covered_by": ["s7ce250_claude_tui.py + s1f75ec_inbox.py + s0fd64b_multi_client.py"], "status": "covered"},
+      {"type": "deletion", "identifier": "GET/PATCH /api/repos/{r}/branches/{b}/settings (branch-scope claude_mode)", "covered_by": ["sadf90e_tab_scope_mode.py AC-3-5 (404 確認)"], "status": "covered"},
+      {"type": "go-field", "identifier": "claudetui.Daemon.tabID + DaemonConfig.TabID", "covered_by": ["event_detection_test.go (notification 内に tabID stamp)"], "status": "covered"},
+      {"type": "ws-event-kind", "identifier": "notify.Notification.TabID は claudetui.permission_prompt / task_complete 両方に stamp", "covered_by": ["event_detection_test.go + s1f75ec_inbox.py"], "status": "covered"},
+      {"type": "go-method", "identifier": "claudetui.Manager.CloseBranchDaemons (per-branch sweep)", "covered_by": ["manager_test.go::TestManagerCloseBranchDaemons + provider_test.go::TestOnBranchCloseReapsBranchDaemons"], "status": "covered"},
+      {"type": "go-interface", "identifier": "claudetui.WorktreeResolver + Provider.SetWorktreeResolver", "covered_by": ["main.go wiring + s7ce250 + s1f75ec_inbox.py (WS attach に worktree が渡る)"], "status": "covered"},
+      {"type": "frontend-store", "identifier": "frontend/src/stores/tab-settings-store.ts (replaces branch-settings-store.ts) + DEFAULT_TAB_SETTINGS 共通 export", "covered_by": ["sadf90e_tab_scope_mode.py AC-5-5 (badge render 経路)"], "status": "covered"},
+      {"type": "frontend-component", "identifier": "tab-bar / tab-content / toolbar / command-palette が tab-settings-store に切替", "covered_by": ["sadf90e_tab_scope_mode.py + s1f75ec_mode_switch.py palette test"], "status": "covered"},
+      {"type": "gui-testid", "identifier": "claude-mode-badge — 全 Claude タブに per-tab で表示", "covered_by": ["sadf90e_tab_scope_mode.py::test_ac_5_5_badge_on_every_claude_tab"], "status": "covered"},
+      {"type": "deletion", "identifier": "config.BranchSettings.ClaudeMode field + GetBranchSettings/SetBranchClaudeMode/InitBranchSettings methods + handler_branch_settings.go + frontend branch-settings-store.ts", "covered_by": ["sadf90e_tab_scope_mode.py AC-3-5 + 全 E2E regression"], "status": "covered"},
+      {"type": "deletion", "identifier": "claudetui Provider が Tab を返さなくなった (TabBar に出さない)", "covered_by": ["s7ce250_claude_tui.py::test_5_1 + s1f75ec_simplify.py"], "status": "covered"}
+    ],
+    "untested_additions": [],
+    "notes": "Sprint Sadf90e は Sprint S1f75ec-2 の『branch-scope claude_mode』 設計を根本作り直し: backend Manager のキーを (repoID, branchID) → (repoID, branchID, tabID) に変えて、 1 branch に複数の Claude(tui) タブが独立した daemon で並走できるようにした。 claudetui Provider は service-only に降格 (タブを返さない)、 タブ表面は claudeagent 一本に統一。 Frontend は branch-settings-store → tab-settings-store に書き換え、 全 Claude タブにバッジ表示、 palette / toolbar は active タブ依存。 25 AC / 25 tests / 0 fail / 0 skip。 Sprint-level /review で見つかった 2 つの blocker (canonical タブが InitTabClaudeMode をバイパス + stale comment) は initClaudeTabModes 共通ヘルパを OpenRepo + openBranchInternal の両 path から呼ぶことで修正、 regression test (test_ac_2_3_canonical_tab_inherits_default_mode) も追加した。 paste mock test の flaky route mock は defaultPrevented-based assertion に降格して 4/4 stable に。 古い test_ac_2_1_migration_default_agent は premise (= 'agent migration default') が Sadf90e で dead になったため削除。 ROADMAP の S1f75ec で defer された review findings #3 (DEFAULT_SETTINGS 3 重複) と #8 (legacy y/n/Resume 分岐) のうち #3 は本 Sprint で同時解消。"
+  },
+  "done_judgment": {
+    "guard_1_acceptance_traceability": {"status": "pass", "note": "25/25 AC have explicit test mapping above"},
+    "guard_2_test_discipline_user_scenarios": {"status": "pass", "note": "全 E2E は real palmux2 binary + Playwright headless against real backend"},
+    "guard_3_no_silent_skips": {"status": "pass", "note": "前 Sprint で silent な test_ac_2_3 placeholder があったが今回 review で発覚し removal + 実テスト追加。 mock test の SKIP は no-frontend mode のみ (printed)"},
+    "guard_4_real_browser_gui_e2e": {"status": "pass", "note": "Playwright sync_chromium headless against running palmux2 instance"},
+    "guard_5_status_truthfulness": {"status": "pass", "note": "Stories の status=done は実 test 緑のあとに記録。 sprint-level review で発覚した blocker は『verification-results 書く前に fix + regression』を必ず通した"},
+    "guard_6_diff_scan_completeness": {"status": "pass", "note": "全 18 個の user-observable additions/deletions に少なくとも 1 つの passing test が紐づく。 untested_additions = 0"},
+    "priority_rule_9_real_mode_smoke": {"status": "pass", "note": "全 E2E は make-serve-equivalent な hermetic palmux2 (real binary + fake_claude testdata as the supervised external process) で実行。 --fake-* / MOCK=true / DRY_RUN=1 のフラグは一切無し"}
+  }
+}

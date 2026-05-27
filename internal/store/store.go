@@ -663,8 +663,44 @@ func (s *Store) OpenRepo(ctx context.Context, ghqPath string) (*domain.Repositor
 	snap := cloneRepo(repo)
 	s.mu.Unlock()
 
+	// Sadf90e (review fix): Branches discovered at OpenRepo time get their
+	// tab lists computed via recomputeTabs above, which bypasses store.AddTab
+	// and openBranchInternal. Seed TabClaudeModes for each Claude tab now so
+	// the global settings.claude.default_mode applies to the canonical first
+	// tab on a freshly-opened workspace. Idempotent — re-opening a repo with
+	// existing entries leaves them untouched.
+	s.initClaudeTabModes(repoID, snap.OpenBranches)
+
 	s.hub.Publish(Event{Type: EventRepoOpened, RepoID: repoID, Payload: snap})
 	return snap, nil
+}
+
+// initClaudeTabModes (Sadf90e) walks the given branches' tab lists and calls
+// RepoStore.InitTabClaudeMode for every Claude tab using the global
+// settings.claude.default_mode as the value. Called from both OpenRepo (for
+// branches discovered at startup) and openBranchInternal (for branches opened
+// later). Idempotent — existing entries are left unchanged. Errors are
+// logged, not propagated, so a transient repos.json write failure does not
+// block branch open.
+func (s *Store) initClaudeTabModes(repoID string, branches []*domain.Branch) {
+	if s.deps.RepoStore == nil || s.deps.Settings == nil {
+		return
+	}
+	defaultMode := configClaudeMode(s.deps.Settings.ClaudeDefaultMode())
+	for _, b := range branches {
+		if b == nil {
+			continue
+		}
+		for _, t := range b.TabSet.Tabs {
+			if t.Type != "claude" {
+				continue
+			}
+			if err := s.deps.RepoStore.InitTabClaudeMode(repoID, b.ID, t.ID, defaultMode); err != nil {
+				s.logger.Warn("initClaudeTabModes: InitTabClaudeMode failed",
+					"repo", repoID, "branch", b.Name, "tab", t.ID, "err", err)
+			}
+		}
+	}
 }
 
 // CloseRepo removes a repository from repos.json and kills every Palmux tmux

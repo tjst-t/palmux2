@@ -183,23 +183,6 @@ def _tab_settings_path(repo_id: str, branch_id: str, tab_id: str = "claude:claud
     )
 
 
-def test_ac_2_1_migration_default_agent(port: int) -> None:
-    """[AC-S1f75ec-2-1] Sadf90e: canonical claude tab GET /tabs/{tab}/settings returns claude_mode='agent'."""
-    fx = _get_fixture_module(port)
-    with fx.palmux2_test_fixture("s1f75ec-migration") as fixture:
-        branch_id = fixture.primary_branch_id(timeout_s=10.0)
-        code, body = _http_json(
-            port, "GET",
-            _tab_settings_path(fixture.repo_id, branch_id),
-        )
-        assert code == 200, f"[AC-S1f75ec-2-1] expected 200, got {code}: {body}"
-        assert isinstance(body, dict), f"[AC-S1f75ec-2-1] expected dict, got {body!r}"
-        assert body.get("claude_mode") == "agent", (
-            f"[AC-S1f75ec-2-1] expected claude_mode='agent' (default), got {body}"
-        )
-    passed("[AC-S1f75ec-2-1] canonical claude:claude tab defaults to claude_mode='agent'")
-
-
 def test_ac_2_2_patch_and_get_persistence(port: int) -> None:
     """[AC-S1f75ec-2-2] PATCH claude_mode='tui' → GET returns 'tui' (persisted) on the per-tab endpoint."""
     fx = _get_fixture_module(port)
@@ -555,8 +538,13 @@ def main() -> None:
         os.environ["PALMUX2_DEV_PORT_OVERRIDE"] = str(port)
         _get_fixture_module(port)
 
-        _run("test_ac_2_1_migration_default_agent",
-             lambda: test_ac_2_1_migration_default_agent(port))
+        # Sadf90e: removed test_ac_2_1_migration_default_agent — its premise
+        # (canonical Claude tab defaults to "agent" via S1f75ec migration
+        # policy) was invalidated by Sadf90e's "all tabs inherit
+        # settings.claude.default_mode" rule. Persistence AC is covered by
+        # test_ac_2_2_patch_and_get_persistence below; canonical-tab default
+        # inheritance is covered by sadf90e_tab_scope_mode.py::
+        # test_ac_2_3_canonical_tab_inherits_default_mode.
 
         _run("test_ac_2_2_patch_and_get_persistence",
              lambda: test_ac_2_2_patch_and_get_persistence(port))

@@ -325,6 +325,37 @@ def test_ac_3_6_isolation_between_sibling_tabs(port: int) -> None:
     passed("[AC-Sadf90e-3-6] sibling Claude tab modes are isolated")
 
 
+def test_ac_2_3_canonical_tab_inherits_default_mode(port: int) -> None:
+    """[AC-Sadf90e-2-3 review fix] Even the canonical Claude tab (= the one
+    auto-seeded by claudeagent.Manager.tabsForBranch at OnBranchOpen) must
+    inherit settings.claude.default_mode. Pre-fix this only applied to tabs
+    created via `+` (POST /tabs) — the very first claude:claude tab on a
+    fresh branch silently fell back to "agent" regardless of the global
+    override. This is the review-finding-#1 regression guard.
+
+    Important: the global default must be set BEFORE the fixture opens the
+    repo (= before OpenRepo runs and seeds the canonical tab's mode entry).
+    Setting it inside the `with` block is too late — the canonical tab is
+    already persisted with whatever default was active at OpenRepo time.
+    Because the hermetic palmux2 instance is shared across tests in this
+    file, we can PATCH /api/settings before entering palmux2_test_fixture.
+    """
+    fx = _get_fixture_module(port)
+    # Pin the default BEFORE fixture entry so OpenRepo sees the desired value.
+    _patch_settings_default_mode(port, "tui")
+    with fx.palmux2_test_fixture("sadf90e-canonical-default") as fixture:
+        branch_id = fixture.primary_branch_id(timeout_s=10.0)
+
+        _, body = _http_json(
+            port, "GET",
+            _tab_settings_path(fixture.repo_id, branch_id, "claude:claude"),
+        )
+        assert isinstance(body, dict) and body.get("claude_mode") == "tui", (
+            f"canonical claude:claude tab should inherit default_mode='tui', got {body!r}"
+        )
+    passed("[AC-Sadf90e-2-3 canonical] first Claude tab inherits global default_mode")
+
+
 def test_ac_2_2_default_mode_tui_at_tab_add(port: int) -> None:
     """[AC-Sadf90e-2-2 / 2-3] New Claude tab inherits settings.claude.default_mode=tui."""
     fx = _get_fixture_module(port)
@@ -513,6 +544,8 @@ def main() -> int:
              lambda: test_ac_3_5_legacy_branch_settings_endpoint_404(port))
         _run("test_ac_3_6_isolation_between_sibling_tabs",
              lambda: test_ac_3_6_isolation_between_sibling_tabs(port))
+        _run("test_ac_2_3_canonical_tab_inherits_default_mode",
+             lambda: test_ac_2_3_canonical_tab_inherits_default_mode(port))
         _run("test_ac_2_2_default_mode_tui_at_tab_add",
              lambda: test_ac_2_2_default_mode_tui_at_tab_add(port))
         _run("test_ac_2_2_default_mode_agent_at_tab_add",

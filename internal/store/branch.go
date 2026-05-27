@@ -110,11 +110,12 @@ func (s *Store) openBranchInternal(ctx context.Context, repoID, branchName strin
 	snap := cloneBranch(branch)
 	s.mu.Unlock()
 
-	// Sadf90e: per-tab claude_mode is initialised at tab-add time (see
-	// store.AddTab), not at branch-open time, because mode is a tab-scoped
-	// property now. Existing tabs created during OnBranchOpen above are
-	// initialised by the Provider's hook chain via store.initTabClaudeModes
-	// (see Sadf90e Story 2).
+	// Sadf90e (review fix): seed TabClaudeModes for every Claude tab on
+	// this branch. AddTab covers `+`-added tabs, but the canonical first
+	// Claude tab is auto-seeded by claudeagent.Manager.tabsForBranch and
+	// bypasses AddTab. Shared helper initClaudeTabModes is also called from
+	// OpenRepo for branches discovered at startup.
+	s.initClaudeTabModes(repoID, []*domain.Branch{snap})
 
 	if markUserOpened {
 		// S015-1-6: persist that the user opened this branch through Palmux
