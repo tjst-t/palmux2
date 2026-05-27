@@ -221,12 +221,14 @@ def test_mock_patch_request_shape(port: int) -> None:
                     timeout=PLAYWRIGHT_TIMEOUT,
                 )
                 page.wait_for_selector("[data-testid='claude-tab']", timeout=PLAYWRIGHT_TIMEOUT)
-                page.wait_for_selector("[data-testid='claude-mode-badge']", timeout=PLAYWRIGHT_TIMEOUT)
 
-                # Capture initial badge state — the stable observable signal of
-                # mode change. Used as the primary assertion (vs. route mock).
-                initial_badge = page.text_content("[data-testid='claude-mode-badge']") or ""
-                initial_badge = initial_badge.strip().lower()
+                # Sadf90e hotfix 2026-05-27: TUI モードはバッジ無し、 Agent モードのみ
+                # バッジ表示。 stable observable signal を「バッジの存在/不在」 +
+                # 表示時の text に切り替え。 (旧: 'Agent' ↔ 'TUI' の text 変化を anchor)
+                initial_count = page.locator("[data-testid='claude-mode-badge']").count()
+                initial_text = (page.text_content("[data-testid='claude-mode-badge']")
+                                if initial_count else "") or ""
+                initial_text = initial_text.strip().lower()
 
                 # Open palette and run switch command.
                 page.keyboard.press("Control+k")
@@ -235,20 +237,24 @@ def test_mock_patch_request_shape(port: int) -> None:
                 page.wait_for_selector("[data-testid='palette-item-switch-claude-mode']", timeout=PLAYWRIGHT_TIMEOUT)
                 page.keyboard.press("Enter")
 
-                # Wait for badge to change — that is the stable signal.
+                # Wait for badge presence/text to flip — stable signal of the
+                # mode switch handler having fired.
                 deadline = time.monotonic() + 5.0
-                final_badge = initial_badge
+                changed = False
                 while time.monotonic() < deadline:
-                    txt = page.text_content("[data-testid='claude-mode-badge']") or ""
-                    txt = txt.strip().lower()
-                    if txt and txt != initial_badge:
-                        final_badge = txt
+                    cur_count = page.locator("[data-testid='claude-mode-badge']").count()
+                    cur_text = (page.text_content("[data-testid='claude-mode-badge']")
+                                if cur_count else "") or ""
+                    cur_text = cur_text.strip().lower()
+                    if cur_count != initial_count or cur_text != initial_text:
+                        changed = True
                         break
                     time.sleep(0.1)
 
-                assert final_badge != initial_badge, (
-                    f"Badge did not change after switch-claude-mode "
-                    f"(initial={initial_badge!r}); switch handler did not fire"
+                assert changed, (
+                    f"Badge state did not change after switch-claude-mode "
+                    f"(initial_count={initial_count}, initial_text={initial_text!r}); "
+                    "switch handler did not fire"
                 )
 
                 # If the passive observer captured the PATCH body, also assert
@@ -269,10 +275,11 @@ def test_mock_patch_request_shape(port: int) -> None:
 
 
 def test_mock_get_returns_tui_shows_tui_badge(port: int) -> None:
-    """Mock: when GET /settings returns tui, UI shows 'TUI' badge.
+    """Mock: Sadf90e hotfix 2026-05-27: TUI mode shows NO mode badge.
 
     Uses Playwright route mocking to make GET /settings return
-    {"claude_mode": "tui"} for the branch, then checks the badge.
+    {"claude_mode": "tui"} for the branch, then asserts the badge is
+    absent (TUI is the default — no chip needed).
     """
     if not _USE_PREBUILT:
         print("SKIP: test_mock_get_returns_tui_shows_tui_badge (no embedded frontend)")
@@ -321,17 +328,20 @@ def test_mock_get_returns_tui_shows_tui_badge(port: int) -> None:
                     "document.getElementById('root').innerHTML.length > 100",
                     timeout=PLAYWRIGHT_TIMEOUT,
                 )
-                page.wait_for_selector("[data-testid='claude-mode-badge']", timeout=PLAYWRIGHT_TIMEOUT)
+                # Wait for the tab itself to render — the badge specifically
+                # should NOT appear because TUI mode no longer renders one.
+                page.wait_for_selector("[data-testid='claude-tab']", timeout=PLAYWRIGHT_TIMEOUT)
+                # Give the tab-settings fetch a moment to land + paint.
+                time.sleep(0.5)
 
-                badge = page.locator("[data-testid='claude-mode-badge']").first
-                text = badge.inner_text().strip().upper()
-                assert text == "TUI", (
-                    f"[mock] expected badge='TUI' when settings returns tui, got {text!r}"
+                count = page.locator("[data-testid='claude-mode-badge']").count()
+                assert count == 0, (
+                    f"[mock] expected 0 mode badges in TUI mode (Sadf90e hotfix), got {count}"
                 )
             finally:
                 browser.close()
 
-    passed("[mock] GET /settings returning tui → claude-mode-badge shows 'TUI'")
+    passed("[mock] GET /settings returning tui → no mode badge rendered (hotfix)")
 
 
 def test_mock_get_returns_agent_shows_agent_badge(port: int) -> None:

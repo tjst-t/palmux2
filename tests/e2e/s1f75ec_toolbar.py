@@ -377,14 +377,16 @@ def test_ac_3_3_tui_mode_esc_esc_enabled(port: int) -> None:
                     "document.getElementById('root').innerHTML.length > 100",
                     timeout=PLAYWRIGHT_TIMEOUT,
                 )
-                # Wait for branch settings to load (badge shows TUI).
-                page.wait_for_selector("[data-testid='claude-mode-badge']", timeout=PLAYWRIGHT_TIMEOUT)
-                badge_text = page.locator("[data-testid='claude-mode-badge']").first.inner_text().strip().upper()
-                assert badge_text == "TUI", (
-                    f"[AC-S1f75ec-3-3] expected badge=TUI, got {badge_text!r}"
-                )
+                # Sadf90e hotfix 2026-05-27: TUI mode no longer renders a
+                # claude-mode-badge (Agent mode only). The ESC ESC button
+                # being enabled is the actual AC — poll for it directly.
                 page.wait_for_selector("[data-testid='toolbar-esc-esc-btn']", timeout=PLAYWRIGHT_TIMEOUT)
+                deadline = time.monotonic() + 10.0
                 btn = page.locator("[data-testid='toolbar-esc-esc-btn']").first
+                while time.monotonic() < deadline:
+                    if not btn.is_disabled():
+                        break
+                    time.sleep(0.1)
                 assert not btn.is_disabled(), (
                     "[AC-S1f75ec-3-3] ESC ESC button should be enabled when claude_mode=tui"
                 )

@@ -395,7 +395,10 @@ def test_ac_2_6_claude_tui_url_redirects_to_claude(port: int) -> None:
 
 
 def test_ac_2_7_mode_badge_visible(port: int) -> None:
-    """[AC-S1f75ec-2-7] data-testid='claude-mode-badge' shows current mode."""
+    """[AC-S1f75ec-2-7 / Sadf90e hotfix] mode badge:
+    - Agent mode → badge visible with text 'Agent'
+    - TUI mode → no badge (default mode, no chip needed)
+    """
     if not _USE_PREBUILT:
         print("SKIP: test_ac_2_7 (no embedded frontend in go-run mode)")
         return
@@ -404,7 +407,12 @@ def test_ac_2_7_mode_badge_visible(port: int) -> None:
     with fx.palmux2_test_fixture("s1f75ec-badge") as fixture:
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
 
-        # Default mode is "agent" for existing branches.
+        # Pin this tab to agent mode so we get a deterministic badge.
+        tab_settings_path = _tab_settings_path(fixture.repo_id, branch_id)
+        code, _ = _http_json(port, "PATCH", tab_settings_path,
+                             body={"claude_mode": "agent"})
+        assert code == 200, f"PATCH /settings agent: {code}"
+
         url = (
             f"http://localhost:{port}"
             f"/{urllib.parse.quote(fixture.repo_id, safe='')}"
@@ -420,22 +428,39 @@ def test_ac_2_7_mode_badge_visible(port: int) -> None:
                     "document.getElementById('root').innerHTML.length > 100",
                     timeout=PLAYWRIGHT_TIMEOUT,
                 )
+                # Agent mode → badge present with text 'Agent'.
                 page.wait_for_selector(
                     "[data-testid='claude-mode-badge']", timeout=PLAYWRIGHT_TIMEOUT
                 )
                 badge = page.locator("[data-testid='claude-mode-badge']").first
-                assert badge.is_visible(), "[AC-S1f75ec-2-7] claude-mode-badge not visible"
+                assert badge.is_visible(), "[AC-S1f75ec-2-7] agent-mode badge not visible"
                 text = badge.inner_text().strip().upper()
-                assert text in ("AGENT", "TUI"), (
-                    f"[AC-S1f75ec-2-7] badge text {text!r} not 'Agent' or 'TUI'"
+                assert text == "AGENT", (
+                    f"[AC-S1f75ec-2-7] agent badge text {text!r} != 'Agent'"
+                )
+
+                # Flip to TUI mode and confirm the badge disappears.
+                _http_json(port, "PATCH", tab_settings_path, body={"claude_mode": "tui"})
+                deadline = time.monotonic() + 5.0
+                while time.monotonic() < deadline:
+                    if page.locator("[data-testid='claude-mode-badge']").count() == 0:
+                        break
+                    time.sleep(0.1)
+                count = page.locator("[data-testid='claude-mode-badge']").count()
+                assert count == 0, (
+                    f"[AC-S1f75ec-2-7 hotfix] expected 0 badges in TUI mode, got {count}"
                 )
             finally:
                 browser.close()
-    passed("[AC-S1f75ec-2-7] claude-mode-badge is visible and shows Agent or TUI")
+    passed("[AC-S1f75ec-2-7] Agent → 'Agent' badge, TUI → no badge (hotfix 2026-05-27)")
 
 
 def test_ac_2_4_palette_switch_command(port: int) -> None:
-    """[AC-S1f75ec-2-4] ⌘K palette lists switch-claude-mode and can toggle mode."""
+    """[AC-S1f75ec-2-4] ⌘K palette lists switch-claude-mode and toggles the
+    active tab's mode. Sadf90e hotfix 2026-05-27: badge only renders in Agent
+    mode, so we assert backend state (PATCH/GET) rather than badge text
+    after the switch.
+    """
     if not _USE_PREBUILT:
         print("SKIP: test_ac_2_4 (no embedded frontend in go-run mode)")
         return
@@ -443,6 +468,12 @@ def test_ac_2_4_palette_switch_command(port: int) -> None:
     fx = _get_fixture_module(port)
     with fx.palmux2_test_fixture("s1f75ec-palette") as fixture:
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
+        # Pin the canonical tab to a known starting mode.
+        settings_path = _tab_settings_path(fixture.repo_id, branch_id)
+        code, _ = _http_json(port, "PATCH", settings_path,
+                             body={"claude_mode": "agent"})
+        assert code == 200
+
         url = (
             f"http://localhost:{port}"
             f"/{urllib.parse.quote(fixture.repo_id, safe='')}"
@@ -460,47 +491,35 @@ def test_ac_2_4_palette_switch_command(port: int) -> None:
                 )
                 page.wait_for_selector("[data-testid='claude-tab']", timeout=PLAYWRIGHT_TIMEOUT)
 
-                # Open palette with Ctrl+K, type ">switch-claude-mode"
+                # Open palette and confirm the switch item is present.
                 page.keyboard.press("Control+k")
                 page.wait_for_selector("[data-testid='palette-input']", timeout=PLAYWRIGHT_TIMEOUT)
                 page.fill("[data-testid='palette-input']", ">switch-claude-mode")
-                # Give the palette time to render results.
                 time.sleep(0.5)
-
-                # The switch-claude-mode command should appear in the results.
-                # Check by data-testid which is palette-item-switch-claude-mode.
                 item_selector = "[data-testid='palette-item-switch-claude-mode']"
                 page.wait_for_selector(item_selector, timeout=PLAYWRIGHT_TIMEOUT)
                 assert page.locator(item_selector).count() >= 1, (
                     "[AC-S1f75ec-2-4] switch-claude-mode palette item not found"
                 )
+                page.click(item_selector)
 
-                # Get badge text before switch.
-                page.keyboard.press("Escape")
-                page.wait_for_selector("[data-testid='claude-mode-badge']", timeout=5_000)
-                badge_before = page.locator("[data-testid='claude-mode-badge']").first.inner_text().strip().upper()
-
-                # Open palette again, select the command by clicking directly.
-                page.keyboard.press("Control+k")
-                page.wait_for_selector("[data-testid='palette-input']", timeout=PLAYWRIGHT_TIMEOUT)
-                page.fill("[data-testid='palette-input']", ">switch-claude-mode")
-                time.sleep(0.5)
-                page.wait_for_selector("[data-testid='palette-item-switch-claude-mode']", timeout=PLAYWRIGHT_TIMEOUT)
-                page.click("[data-testid='palette-item-switch-claude-mode']")
-
-                # Wait for the async patchSettings to complete and the badge to re-render.
-                time.sleep(2.0)
-                page.wait_for_selector("[data-testid='claude-mode-badge']", timeout=5_000)
-                badge_after = page.locator("[data-testid='claude-mode-badge']").first.inner_text().strip().upper()
-
-                expected_after = "TUI" if badge_before == "AGENT" else "AGENT"
-                assert badge_after == expected_after, (
-                    f"[AC-S1f75ec-2-4] expected badge to flip from {badge_before!r} to {expected_after!r}, "
-                    f"got {badge_after!r}"
+                # Wait for the PATCH round-trip to land, then verify mode flipped
+                # via the REST API (badge is not a reliable signal post-hotfix:
+                # TUI mode renders no badge, only Agent does).
+                deadline = time.monotonic() + 5.0
+                final_mode = "agent"
+                while time.monotonic() < deadline:
+                    _, body = _http_json(port, "GET", settings_path)
+                    if isinstance(body, dict) and body.get("claude_mode") == "tui":
+                        final_mode = "tui"
+                        break
+                    time.sleep(0.1)
+                assert final_mode == "tui", (
+                    f"[AC-S1f75ec-2-4] expected mode to flip agent → tui, got {final_mode!r}"
                 )
             finally:
                 browser.close()
-    passed("[AC-S1f75ec-2-4] palette switch-claude-mode command toggles mode badge")
+    passed("[AC-S1f75ec-2-4] palette switch-claude-mode command toggles active tab mode")
 
 
 # ─── Runner ──────────────────────────────────────────────────────────────────

@@ -58,6 +58,7 @@ export function TabBar({ branch }: Props) {
   // dictionary so any patchSettings write triggers a re-render.
   const fetchTabSettings = useTabSettingsStore((s) => s.fetchSettings)
   const tabSettingsMap = useTabSettingsStore((s) => s.settings)
+  const patchTabSettings = useTabSettingsStore((s) => s.patchSettings)
 
   useEffect(() => {
     if (!repoId) return
@@ -240,15 +241,17 @@ export function TabBar({ branch }: Props) {
                       ? claudeUnread
                       : 0
                   }
-                  // Sadf90e: every Claude tab gets its own mode badge so the
-                  // user can tell at a glance which tabs are agent and which
-                  // are tui. Falls back to the shared DEFAULT_TAB_SETTINGS
-                  // module constant so the Zustand selector returns a stable
-                  // reference when fetchSettings hasn't completed yet.
-                  modeBadge={t.type === 'claude'
-                    ? ((tabSettingsMap[`${repoId}/${branch.id}/${t.id}`] ?? DEFAULT_TAB_SETTINGS)
-                        .claude_mode === 'tui' ? 'TUI' : 'Agent')
-                    : undefined}
+                  // Sadf90e hotfix 2026-05-27: only show the Agent badge —
+                  // TUI is the default and doesn't need a chip. Falls back
+                  // to the shared DEFAULT_TAB_SETTINGS module constant so
+                  // Zustand selector returns a stable reference when
+                  // fetchSettings hasn't completed yet.
+                  modeBadge={(() => {
+                    if (t.type !== 'claude') return undefined
+                    const mode = (tabSettingsMap[`${repoId}/${branch.id}/${t.id}`]
+                      ?? DEFAULT_TAB_SETTINGS).claude_mode
+                    return mode === 'agent' ? 'Agent' : undefined
+                  })()}
                   onSelect={() => {
                     if (renamingTabId) return
                     goToTab(t.id)
@@ -343,6 +346,23 @@ export function TabBar({ branch }: Props) {
       | { label: string; onClick: () => void; danger?: boolean; disabled?: boolean }
       | { type: 'separator' }
     > = []
+    // Sadf90e hotfix 2026-05-27: Claude タブの右クリックメニューに mode 切替を追加。
+    // active tab に依存せず、 右クリックされた t.id をそのまま操作する (= sibling
+    // タブの mode は変えない、 Sadf90e の isolation 不変)。
+    if (t.type === 'claude') {
+      const currentMode = (tabSettingsMap[`${repoId}/${branch.id}/${t.id}`]
+        ?? DEFAULT_TAB_SETTINGS).claude_mode
+      const nextMode = currentMode === 'tui' ? 'agent' : 'tui'
+      const nextLabel = nextMode === 'tui' ? 'TUI' : 'Agent'
+      claudeItems.push({
+        label: `Switch to ${nextLabel} mode`,
+        onClick: () => {
+          void patchTabSettings(repoId!, branch.id, t.id, { claude_mode: nextMode })
+            .catch((err) => console.warn('switch claude mode failed:', err))
+        },
+      })
+      claudeItems.push({ type: 'separator' })
+    }
     // S020: rename now applies to every Multiple()=true tab type. The
     // backend persists Claude renames as a `tab_overrides.names` entry
     // and Bash renames via tmux RenameWindow + override migration.

@@ -456,7 +456,13 @@ def test_ac_5_1_independent_modes_in_one_branch(port: int) -> None:
 # ─── Browser tests ───────────────────────────────────────────────────────────
 
 def test_ac_5_5_badge_on_every_claude_tab(port: int) -> None:
-    """[AC-Sadf90e-5-5 / 4-1] Each Claude tab shows its own data-testid='claude-mode-badge'."""
+    """[AC-Sadf90e-5-5 / 4-1 + hotfix 2026-05-27] Per-tab mode badges:
+    - Agent mode tab → renders its own badge with text 'Agent'
+    - TUI mode tab → renders NO badge (default mode, no chip needed)
+
+    Setup: 2 Claude tabs in the same branch, tab1=agent, tab2=tui. Expect
+    exactly 1 badge in the tab bar (= tab1's).
+    """
     if not _USE_PREBUILT:
         print("SKIP: test_ac_5_5 (no embedded frontend in go-run mode)")
         return
@@ -466,10 +472,18 @@ def test_ac_5_5_badge_on_every_claude_tab(port: int) -> None:
         return
 
     fx = _get_fixture_module(port)
+    # Pin global default to agent so tab1 starts agent (deterministic).
+    _patch_settings_default_mode(port, "agent")
     with fx.palmux2_test_fixture("sadf90e-badge-each-tab") as fixture:
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
-        # Create a second Claude tab so there are 2 visible.
-        _ = _add_claude_tab(port, fixture.repo_id, branch_id)
+        tab2 = _add_claude_tab(port, fixture.repo_id, branch_id)
+        # Flip tab2 to tui so we have one of each.
+        code, _ = _http_json(
+            port, "PATCH",
+            _tab_settings_path(fixture.repo_id, branch_id, tab2),
+            body={"claude_mode": "tui"},
+        )
+        assert code == 200, f"PATCH tab2 to tui: {code}"
 
         url = (
             f"http://localhost:{port}"
@@ -486,17 +500,117 @@ def test_ac_5_5_badge_on_every_claude_tab(port: int) -> None:
                     "document.getElementById('root').innerHTML.length > 100",
                     timeout=PLAYWRIGHT_TIMEOUT,
                 )
-                # Wait for at least one badge so the FE finished its
-                # post-mount setting fetch.
+                page.wait_for_selector("[data-testid='claude-tab']",
+                                       timeout=PLAYWRIGHT_TIMEOUT)
+                # Wait for the Agent badge to mount (= tab-settings fetch
+                # has landed for tab1).
                 page.wait_for_selector("[data-testid='claude-mode-badge']",
                                        timeout=PLAYWRIGHT_TIMEOUT)
+                # Give the tui tab's settings fetch a beat to land too —
+                # otherwise the count read can race the second mount.
+                time.sleep(0.5)
                 count = page.locator("[data-testid='claude-mode-badge']").count()
-                assert count == 2, (
-                    f"expected 2 claude-mode-badge elements (one per tab), got {count}"
+                assert count == 1, (
+                    f"expected 1 claude-mode-badge (only the agent tab gets one), "
+                    f"got {count}"
+                )
+                text = page.locator("[data-testid='claude-mode-badge']").first.inner_text()
+                assert text.strip().upper() == "AGENT", (
+                    f"expected the single badge to read 'Agent', got {text!r}"
                 )
             finally:
                 browser.close()
-    passed("[AC-Sadf90e-5-5 / 4-1] every Claude tab has its own claude-mode-badge")
+    passed("[AC-Sadf90e-5-5 hotfix] Agent tab → 'Agent' badge; TUI tab → no badge")
+
+
+def test_hotfix_context_menu_switches_mode(port: int) -> None:
+    """[Sadf90e hotfix 2026-05-27] Right-click on a Claude tab → context menu
+    has 'Switch to TUI/Agent mode' item; clicking it PATCHes the tab's
+    mode without affecting siblings.
+    """
+    if not _USE_PREBUILT:
+        print("SKIP: test_hotfix_context_menu (no embedded frontend)")
+        return
+    sync_playwright = _get_playwright()
+    if sync_playwright is None:
+        print("SKIP: test_hotfix_context_menu (playwright not installed)")
+        return
+
+    fx = _get_fixture_module(port)
+    # Pin default=agent so we start in a known state.
+    _patch_settings_default_mode(port, "agent")
+    with fx.palmux2_test_fixture("sadf90e-ctxmenu-switch") as fixture:
+        branch_id = fixture.primary_branch_id(timeout_s=10.0)
+
+        url = (
+            f"http://localhost:{port}"
+            f"/{urllib.parse.quote(fixture.repo_id, safe='')}"
+            f"/{urllib.parse.quote(branch_id, safe='')}"
+            f"/claude"
+        )
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            try:
+                page = browser.new_page()
+                page.goto(url, timeout=PLAYWRIGHT_TIMEOUT, wait_until="load")
+                page.wait_for_function(
+                    "document.getElementById('root').innerHTML.length > 100",
+                    timeout=PLAYWRIGHT_TIMEOUT,
+                )
+                page.wait_for_selector("[data-testid='claude-tab']",
+                                       timeout=PLAYWRIGHT_TIMEOUT)
+                # Wait for the Agent badge to confirm initial state.
+                page.wait_for_selector("[data-testid='claude-mode-badge']",
+                                       timeout=PLAYWRIGHT_TIMEOUT)
+
+                # Right-click the canonical Claude tab.
+                claude_tab = page.locator("[data-testid='claude-tab']").first
+                claude_tab.click(button="right")
+
+                # The menu item label is "Switch to TUI mode" since we're
+                # in agent mode (toggle target).
+                switch_item = page.locator("text=Switch to TUI mode")
+                switch_item.wait_for(timeout=PLAYWRIGHT_TIMEOUT)
+                switch_item.click()
+
+                # After click, badge should disappear (now TUI mode).
+                deadline = time.monotonic() + 5.0
+                while time.monotonic() < deadline:
+                    if page.locator("[data-testid='claude-mode-badge']").count() == 0:
+                        break
+                    time.sleep(0.1)
+                count = page.locator("[data-testid='claude-mode-badge']").count()
+                assert count == 0, (
+                    f"expected 0 badges after switch to TUI via ctx menu, got {count}"
+                )
+
+                # Also verify backend state.
+                _, body = _http_json(
+                    port, "GET",
+                    _tab_settings_path(fixture.repo_id, branch_id, "claude:claude"),
+                )
+                assert isinstance(body, dict) and body.get("claude_mode") == "tui", (
+                    f"backend should report tui after ctx-menu switch, got {body!r}"
+                )
+
+                # Right-click again — menu should now offer Agent.
+                claude_tab.click(button="right")
+                switch_back = page.locator("text=Switch to Agent mode")
+                switch_back.wait_for(timeout=PLAYWRIGHT_TIMEOUT)
+                switch_back.click()
+
+                page.wait_for_selector("[data-testid='claude-mode-badge']",
+                                       timeout=PLAYWRIGHT_TIMEOUT)
+                _, body2 = _http_json(
+                    port, "GET",
+                    _tab_settings_path(fixture.repo_id, branch_id, "claude:claude"),
+                )
+                assert isinstance(body2, dict) and body2.get("claude_mode") == "agent", (
+                    f"backend should report agent after toggle back, got {body2!r}"
+                )
+            finally:
+                browser.close()
+    passed("[hotfix] right-click context menu toggles claude_mode (Agent ↔ TUI)")
 
 
 # ─── Runner ──────────────────────────────────────────────────────────────────
@@ -558,6 +672,8 @@ def main() -> int:
         if has_frontend:
             _run("test_ac_5_5_badge_on_every_claude_tab",
                  lambda: test_ac_5_5_badge_on_every_claude_tab(port))
+            _run("test_hotfix_context_menu_switches_mode",
+                 lambda: test_hotfix_context_menu_switches_mode(port))
         else:
             print("SKIP: test_ac_5_5 (no embedded frontend in go-run mode)")
             skipped_count += 1
