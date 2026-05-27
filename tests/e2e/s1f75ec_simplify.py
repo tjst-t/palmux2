@@ -175,10 +175,16 @@ def _get_fixture_module(port: int):
 # ─── Test cases ──────────────────────────────────────────────────────────────
 
 def _set_branch_claude_mode(port: int, repo_id: str, branch_id: str, mode: str) -> None:
-    """PATCH /api/repos/{repoId}/branches/{branchId}/settings to set claude_mode."""
+    """PATCH the canonical claude tab's settings to set claude_mode.
+
+    Sadf90e: mode is now tab-scoped (not branch-scoped). We always target the
+    auto-created canonical tab `claude:claude`.
+    """
+    tab_id_q = urllib.parse.quote("claude:claude", safe="")
     settings_url = (
         f"http://localhost:{port}/api/repos/{urllib.parse.quote(repo_id, safe='')}"
-        f"/branches/{urllib.parse.quote(branch_id, safe='')}/settings"
+        f"/branches/{urllib.parse.quote(branch_id, safe='')}"
+        f"/tabs/{tab_id_q}/settings"
     )
     body = json.dumps({"claude_mode": mode}).encode()
     req = urllib.request.Request(
@@ -259,10 +265,11 @@ def test_ac_s1f75ec_1_3_grid_mode_returns_raw(port: int) -> None:
         repo_id = fixture.repo_id
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
 
+        tab_id_q = urllib.parse.quote("claude:claude", safe="")
         uri = (
             f"ws://localhost:{port}"
             f"/api/repos/{urllib.parse.quote(repo_id)}"
-            f"/branches/{urllib.parse.quote(branch_id)}/tabs/claude-tui/attach"
+            f"/branches/{urllib.parse.quote(branch_id)}/tabs/{tab_id_q}/tui/attach"
             f"?mode=grid"
         )
 
@@ -310,16 +317,20 @@ def test_ac_s1f75ec_1_4_transcript_endpoint_404(port: int) -> None:
         repo_id = fixture.repo_id
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
 
-        path = (
+        # Sadf90e: tui endpoints moved to per-tab path. /transcript was deleted
+        # in S1f75ec-1 and remains absent; both the old and new path shapes
+        # must 404.
+        tab_id_q = urllib.parse.quote("claude:claude", safe="")
+        new_path = (
             f"/api/repos/{urllib.parse.quote(repo_id)}"
             f"/branches/{urllib.parse.quote(branch_id)}"
-            f"/tabs/claude-tui/transcript"
+            f"/tabs/{tab_id_q}/tui/transcript"
         )
-        code, body = _http_json(port, "GET", path)
+        code, body = _http_json(port, "GET", new_path)
         assert code == 404, (
-            f"[AC-S1f75ec-1-4] expected 404 from /transcript, got {code}: {body}"
+            f"[AC-S1f75ec-1-4] expected 404 from /tui/transcript, got {code}: {body}"
         )
-    passed("[AC-S1f75ec-1-4] GET /transcript returns 404")
+    passed("[AC-S1f75ec-1-4] GET /tui/transcript returns 404")
 
 
 def test_ac_s1f75ec_1_6_emulator_role_preserved() -> None:
@@ -392,10 +403,11 @@ def test_ac_s1f75ec_1_8_mobile_xterm_functional(port: int) -> None:
 
         # Verify the WS echo path works (uses /bin/cat via hermetic instance).
         marker = f"s1f75ec-echo-{int(time.time())}".encode()
+        tab_id_q = urllib.parse.quote("claude:claude", safe="")
         uri = (
             f"ws://localhost:{port}"
             f"/api/repos/{urllib.parse.quote(repo_id)}"
-            f"/branches/{urllib.parse.quote(branch_id)}/tabs/claude-tui/attach"
+            f"/branches/{urllib.parse.quote(branch_id)}/tabs/{tab_id_q}/tui/attach"
         )
 
         async def _echo_check() -> None:

@@ -169,10 +169,16 @@ def _get_fixture_module(port: int):
 
 
 def _set_branch_claude_mode(port: int, repo_id: str, branch_id: str, mode: str) -> None:
-    """PATCH /api/repos/{repoId}/branches/{branchId}/settings to set claude_mode."""
+    """PATCH the canonical claude tab's settings.
+
+    Sadf90e: mode is tab-scoped (not branch-scoped). We target the auto-created
+    canonical tab `claude:claude`.
+    """
+    tab_id_q = urllib.parse.quote("claude:claude", safe="")
     settings_url = (
         f"http://localhost:{port}/api/repos/{urllib.parse.quote(repo_id, safe='')}"
-        f"/branches/{urllib.parse.quote(branch_id, safe='')}/settings"
+        f"/branches/{urllib.parse.quote(branch_id, safe='')}"
+        f"/tabs/{tab_id_q}/settings"
     )
     body = json.dumps({"claude_mode": mode}).encode()
     req = urllib.request.Request(

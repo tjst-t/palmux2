@@ -244,9 +244,11 @@ def test_mock_esc_esc_btn_wired_on_tui(port: int) -> None:
             f"/{urllib.parse.quote(branch_id, safe='')}"
             f"/claude"
         )
+        # Sadf90e: per-tab settings endpoint.
         settings_path = (
             f"/api/repos/{urllib.parse.quote(fixture.repo_id)}"
-            f"/branches/{urllib.parse.quote(branch_id)}/settings"
+            f"/branches/{urllib.parse.quote(branch_id)}"
+            f"/tabs/{urllib.parse.quote('claude:claude', safe='')}/settings"
         )
 
         with sync_playwright() as p:
@@ -302,9 +304,11 @@ def test_mock_esc_esc_btn_disabled_on_agent(port: int) -> None:
             f"/{urllib.parse.quote(branch_id, safe='')}"
             f"/claude"
         )
+        # Sadf90e: per-tab settings endpoint.
         settings_path = (
             f"/api/repos/{urllib.parse.quote(fixture.repo_id)}"
-            f"/branches/{urllib.parse.quote(branch_id)}/settings"
+            f"/branches/{urllib.parse.quote(branch_id)}"
+            f"/tabs/{urllib.parse.quote('claude:claude', safe='')}/settings"
         )
 
         with sync_playwright() as p:

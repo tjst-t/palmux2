@@ -175,35 +175,41 @@ def _get_fixture_module(port: int):
 
 # ─── Test cases ──────────────────────────────────────────────────────────────
 
+def _tab_settings_path(repo_id: str, branch_id: str, tab_id: str = "claude:claude") -> str:
+    return (
+        f"/api/repos/{urllib.parse.quote(repo_id)}"
+        f"/branches/{urllib.parse.quote(branch_id)}"
+        f"/tabs/{urllib.parse.quote(tab_id, safe='')}/settings"
+    )
+
+
 def test_ac_2_1_migration_default_agent(port: int) -> None:
-    """[AC-S1f75ec-2-1] Existing branch → GET /settings returns claude_mode='agent'."""
+    """[AC-S1f75ec-2-1] Sadf90e: canonical claude tab GET /tabs/{tab}/settings returns claude_mode='agent'."""
     fx = _get_fixture_module(port)
     with fx.palmux2_test_fixture("s1f75ec-migration") as fixture:
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
         code, body = _http_json(
             port, "GET",
-            f"/api/repos/{urllib.parse.quote(fixture.repo_id)}"
-            f"/branches/{urllib.parse.quote(branch_id)}/settings",
+            _tab_settings_path(fixture.repo_id, branch_id),
         )
         assert code == 200, f"[AC-S1f75ec-2-1] expected 200, got {code}: {body}"
         assert isinstance(body, dict), f"[AC-S1f75ec-2-1] expected dict, got {body!r}"
         assert body.get("claude_mode") == "agent", (
-            f"[AC-S1f75ec-2-1] expected claude_mode='agent' (migration default), got {body}"
+            f"[AC-S1f75ec-2-1] expected claude_mode='agent' (default), got {body}"
         )
-    passed("[AC-S1f75ec-2-1] existing branch defaults to claude_mode='agent'")
+    passed("[AC-S1f75ec-2-1] canonical claude:claude tab defaults to claude_mode='agent'")
 
 
 def test_ac_2_2_patch_and_get_persistence(port: int) -> None:
-    """[AC-S1f75ec-2-2] PATCH claude_mode='tui' → GET returns 'tui' (persisted)."""
+    """[AC-S1f75ec-2-2] PATCH claude_mode='tui' → GET returns 'tui' (persisted) on the per-tab endpoint."""
     fx = _get_fixture_module(port)
     with fx.palmux2_test_fixture("s1f75ec-persist") as fixture:
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
+        settings_path = _tab_settings_path(fixture.repo_id, branch_id)
 
         # PATCH to tui
         code, body = _http_json(
-            port, "PATCH",
-            f"/api/repos/{urllib.parse.quote(fixture.repo_id)}"
-            f"/branches/{urllib.parse.quote(branch_id)}/settings",
+            port, "PATCH", settings_path,
             body={"claude_mode": "tui"},
         )
         assert code == 200, f"[AC-S1f75ec-2-2] PATCH failed: {code} {body}"
@@ -212,46 +218,32 @@ def test_ac_2_2_patch_and_get_persistence(port: int) -> None:
         )
 
         # GET to confirm persistence
-        code2, body2 = _http_json(
-            port, "GET",
-            f"/api/repos/{urllib.parse.quote(fixture.repo_id)}"
-            f"/branches/{urllib.parse.quote(branch_id)}/settings",
-        )
+        code2, body2 = _http_json(port, "GET", settings_path)
         assert code2 == 200, f"[AC-S1f75ec-2-2] GET after PATCH failed: {code2} {body2}"
         assert isinstance(body2, dict) and body2.get("claude_mode") == "tui", (
             f"[AC-S1f75ec-2-2] GET after PATCH: expected tui, got {body2}"
         )
 
         # Round-trip back to agent
-        _http_json(
-            port, "PATCH",
-            f"/api/repos/{urllib.parse.quote(fixture.repo_id)}"
-            f"/branches/{urllib.parse.quote(branch_id)}/settings",
-            body={"claude_mode": "agent"},
-        )
-        code3, body3 = _http_json(
-            port, "GET",
-            f"/api/repos/{urllib.parse.quote(fixture.repo_id)}"
-            f"/branches/{urllib.parse.quote(branch_id)}/settings",
-        )
+        _http_json(port, "PATCH", settings_path, body={"claude_mode": "agent"})
+        code3, body3 = _http_json(port, "GET", settings_path)
         assert isinstance(body3, dict) and body3.get("claude_mode") == "agent", (
             f"[AC-S1f75ec-2-2] round-trip to agent failed: {body3}"
         )
-    passed("[AC-S1f75ec-2-2] PATCH claude_mode → GET confirms persistence")
+    passed("[AC-S1f75ec-2-2] PATCH claude_mode → GET confirms persistence (tab-scoped)")
 
 
 def test_ac_2_3_global_default_override_tui(port: int) -> None:
-    """[AC-S1f75ec-2-3] settings.claude.default_mode='tui' → new branch defaults to tui.
+    """[AC-S1f75ec-2-3 / Sadf90e] settings.claude.default_mode='tui' → new claude TAB defaults to tui.
 
-    Verifies the path that was unwired pre-verify: opening a new branch
-    after PATCH /api/settings sets claude.default_mode=tui must persist
-    a BranchSettings entry with claude_mode='tui' (not the migration
-    fallback 'agent').
+    Sadf90e changed the semantics: default_mode is applied at AddTab time
+    (per tab), not at branch open time. So we set default_mode='tui', then
+    POST /tabs to add a new claude tab, and assert the new tab's settings
+    has claude_mode='tui'.
     """
-    import subprocess
     fx = _get_fixture_module(port)
     with fx.palmux2_test_fixture("s1f75ec-default-tui") as fixture:
-        fixture.primary_branch_id(timeout_s=10.0)  # ensure server up + primary open
+        branch_id = fixture.primary_branch_id(timeout_s=10.0)
 
         # Set global default = tui.
         code, _ = _http_json(
@@ -260,47 +252,36 @@ def test_ac_2_3_global_default_override_tui(port: int) -> None:
         )
         assert code == 200, f"[AC-S1f75ec-2-3] PATCH /api/settings: {code}"
 
-        # Create a brand-new local branch in the fixture repo, then open it
-        # via the public API.  palmux2 will gwq add the worktree, which runs
-        # InitBranchSettings(repoID, branchID, settings.ClaudeDefaultMode()).
-        subprocess.run(
-            ["git", "-C", str(fixture.path), "branch", "feature-default-tui", "main"],
-            check=True,
-        )
+        # Add a new Claude tab — Sadf90e: AddTab seeds settings from default_mode.
         code, body = _http_json(
             port, "POST",
-            f"/api/repos/{urllib.parse.quote(fixture.repo_id)}/branches/open",
-            body={"branchName": "feature-default-tui"},
+            f"/api/repos/{urllib.parse.quote(fixture.repo_id)}"
+            f"/branches/{urllib.parse.quote(branch_id)}/tabs",
+            body={"type": "claude"},
         )
-        assert code in (200, 201), f"[AC-S1f75ec-2-3] open new branch: {code} {body}"
+        assert code in (200, 201), f"[AC-S1f75ec-2-3] POST /tabs: {code} {body}"
         assert isinstance(body, dict)
-        new_branch_id = body.get("id")
-        assert new_branch_id, f"[AC-S1f75ec-2-3] open response missing id: {body}"
+        new_tab_id = body.get("id")
+        assert new_tab_id, f"[AC-S1f75ec-2-3] new tab missing id: {body}"
 
         code, settings = _http_json(
             port, "GET",
-            f"/api/repos/{urllib.parse.quote(fixture.repo_id)}"
-            f"/branches/{urllib.parse.quote(new_branch_id)}/settings",
+            _tab_settings_path(fixture.repo_id, branch_id, new_tab_id),
         )
-        assert code == 200, f"[AC-S1f75ec-2-3] GET new-branch settings: {code} {settings}"
+        assert code == 200, f"[AC-S1f75ec-2-3] GET new-tab settings: {code} {settings}"
         assert isinstance(settings, dict)
         assert settings.get("claude_mode") == "tui", (
-            f"[AC-S1f75ec-2-3] new branch should inherit global default 'tui', "
+            f"[AC-S1f75ec-2-3] new claude tab should inherit global default 'tui', "
             f"got {settings}"
         )
-    passed("[AC-S1f75ec-2-3] global default 'tui' applies to newly-opened branch")
+    passed("[AC-S1f75ec-2-3] global default 'tui' applies to newly-created claude tab")
 
 
 def test_ac_2_3_global_default_override_agent(port: int) -> None:
-    """[AC-S1f75ec-2-3] settings.claude.default_mode='agent' → new branch defaults to agent.
-
-    Inverse direction: global override switched to 'agent' must propagate
-    to newly-opened branches.
-    """
-    import subprocess
+    """[AC-S1f75ec-2-3 / Sadf90e] settings.claude.default_mode='agent' → new claude TAB defaults to agent."""
     fx = _get_fixture_module(port)
     with fx.palmux2_test_fixture("s1f75ec-default-agent") as fixture:
-        fixture.primary_branch_id(timeout_s=10.0)
+        branch_id = fixture.primary_branch_id(timeout_s=10.0)
 
         code, _ = _http_json(
             port, "PATCH", "/api/settings",
@@ -308,41 +289,36 @@ def test_ac_2_3_global_default_override_agent(port: int) -> None:
         )
         assert code == 200, f"[AC-S1f75ec-2-3] PATCH /api/settings: {code}"
 
-        subprocess.run(
-            ["git", "-C", str(fixture.path), "branch", "feature-default-agent", "main"],
-            check=True,
-        )
         code, body = _http_json(
             port, "POST",
-            f"/api/repos/{urllib.parse.quote(fixture.repo_id)}/branches/open",
-            body={"branchName": "feature-default-agent"},
+            f"/api/repos/{urllib.parse.quote(fixture.repo_id)}"
+            f"/branches/{urllib.parse.quote(branch_id)}/tabs",
+            body={"type": "claude"},
         )
-        assert code in (200, 201), f"[AC-S1f75ec-2-3] open new branch: {code} {body}"
-        new_branch_id = body.get("id")
-        assert new_branch_id
+        assert code in (200, 201), f"[AC-S1f75ec-2-3] POST /tabs: {code} {body}"
+        new_tab_id = body.get("id")
+        assert new_tab_id
 
         code, settings = _http_json(
             port, "GET",
-            f"/api/repos/{urllib.parse.quote(fixture.repo_id)}"
-            f"/branches/{urllib.parse.quote(new_branch_id)}/settings",
+            _tab_settings_path(fixture.repo_id, branch_id, new_tab_id),
         )
         assert isinstance(settings, dict)
         assert settings.get("claude_mode") == "agent", (
-            f"[AC-S1f75ec-2-3] new branch should inherit global default 'agent', "
+            f"[AC-S1f75ec-2-3] new claude tab should inherit global default 'agent', "
             f"got {settings}"
         )
-    passed("[AC-S1f75ec-2-3] global default 'agent' applies to newly-opened branch")
+    passed("[AC-S1f75ec-2-3] global default 'agent' applies to newly-created claude tab")
 
 
 def test_ac_2_2_invalid_mode_rejected(port: int) -> None:
-    """[AC-S1f75ec-2-2] PATCH with invalid claude_mode → 4xx error."""
+    """[AC-S1f75ec-2-2] PATCH with invalid claude_mode → 4xx error (tab-scoped)."""
     fx = _get_fixture_module(port)
     with fx.palmux2_test_fixture("s1f75ec-invalid") as fixture:
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
         code, body = _http_json(
             port, "PATCH",
-            f"/api/repos/{urllib.parse.quote(fixture.repo_id)}"
-            f"/branches/{urllib.parse.quote(branch_id)}/settings",
+            _tab_settings_path(fixture.repo_id, branch_id),
             body={"claude_mode": "invalid_value"},
         )
         assert code >= 400, (

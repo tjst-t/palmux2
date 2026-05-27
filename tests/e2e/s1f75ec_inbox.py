@@ -220,11 +220,16 @@ def _poll_notifications(port: int, repo_id: str, branch_id: str,
 
 
 def _trigger_notification_via_ws(port: int, repo_id: str, branch_id: str) -> None:
-    """Connect to the claudetui WS to trigger daemon start and output collection."""
+    """Connect to the claudetui WS to trigger daemon start and output collection.
+
+    Sadf90e: WS endpoint moved from /tabs/claude-tui/attach to per-tab
+    /tabs/{tabId}/tui/attach. We use the canonical claude:claude tab.
+    """
+    tab_id_q = urllib.parse.quote("claude:claude", safe="")
     uri = (
         f"ws://localhost:{port}"
         f"/api/repos/{urllib.parse.quote(repo_id)}"
-        f"/branches/{urllib.parse.quote(branch_id)}/tabs/claude-tui/attach"
+        f"/branches/{urllib.parse.quote(branch_id)}/tabs/{tab_id_q}/tui/attach"
     )
     async def _ws_trigger() -> None:
         try:
@@ -460,10 +465,12 @@ def test_ac_4_4_sprint_dashboard_coexists(port: int) -> None:
             )
 
             # Verify claudetui WS is still functional after Sprint Dashboard activity.
+            # Sadf90e: per-tab WS endpoint, canonical tab id = claude:claude.
+            tab_id_q = urllib.parse.quote("claude:claude", safe="")
             uri = (
                 f"ws://localhost:{port}"
                 f"/api/repos/{urllib.parse.quote(repo_id)}"
-                f"/branches/{urllib.parse.quote(branch_id)}/tabs/claude-tui/attach"
+                f"/branches/{urllib.parse.quote(branch_id)}/tabs/{tab_id_q}/tui/attach"
             )
             async def _ws_check() -> None:
                 import websockets

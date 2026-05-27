@@ -201,28 +201,36 @@ def _get_fixture_module(port: int):
 # ─── Test cases ──────────────────────────────────────────────────────────────
 
 def test_ac_s7ce250_5_1_tab_appears_in_list(port: int) -> None:
-    """[AC-S7ce250-5-1] branch open → claude-tui tab in tab list."""
+    """[AC-S7ce250-5-1] branch open → canonical claude tab present.
+
+    Sadf90e: there is no separate 'claude-tui' tab type anymore. The Claude
+    tab is a single 'claude' type and the tui vs agent rendering is decided
+    client-side from the tab's settings.claude_mode. So we just verify the
+    canonical Claude tab is auto-created at branch open.
+    """
     fx = _get_fixture_module(port)
     with fx.palmux2_test_fixture("s7ce250-tab-list") as fixture:
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
         tabs = fixture.list_tabs(branch_id)
-        tab_ids = [t.get("id") for t in tabs]
-        tab_types = [t.get("type") for t in tabs]
-        assert "claude-tui" in tab_ids or "claude-tui" in tab_types, (
-            f"[AC-S7ce250-5-1] claude-tui tab not found in tabs: {tabs}"
-        )
         ct = next(
-            (t for t in tabs if t.get("id") == "claude-tui" or t.get("type") == "claude-tui"),
+            (t for t in tabs if t.get("id") == "claude:claude" and t.get("type") == "claude"),
             None,
         )
-        assert ct is not None
-        assert ct.get("name") == "Claude (TUI)", (
-            f"[AC-S7ce250-5-1] expected name='Claude (TUI)', got {ct.get('name')!r}"
+        assert ct is not None, (
+            f"[AC-S7ce250-5-1] canonical claude:claude tab not found in tabs: {tabs}"
         )
         assert ct.get("protected") is True, (
             f"[AC-S7ce250-5-1] expected protected=true, got {ct.get('protected')!r}"
         )
-    passed("[AC-S7ce250-5-1] branch open → claude-tui in tab list, name='Claude (TUI)', protected=true")
+        # Sadf90e: ensure no legacy 'claude-tui' tab leaks back into the list.
+        for t in tabs:
+            assert t.get("type") != "claude-tui", (
+                f"[AC-S7ce250-5-1] unexpected claude-tui tab in tabs: {t}"
+            )
+            assert t.get("id") != "claude-tui", (
+                f"[AC-S7ce250-5-1] unexpected claude-tui id in tabs: {t}"
+            )
+    passed("[AC-S7ce250-5-1] branch open → canonical 'claude:claude' tab present (protected=true)")
 
 
 def test_ac_s7ce250_5_1_browser_tab_label(port: int) -> None:
@@ -283,12 +291,14 @@ def test_ac_s7ce250_5_2_ws_attach_starts_daemon(port: int) -> None:
     with fx.palmux2_test_fixture("s7ce250-ws-attach") as fixture:
         repo_id = fixture.repo_id
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
+        tab_id = "claude:claude"  # Sadf90e: per-tab tui endpoints
+        tab_id_q = urllib.parse.quote(tab_id, safe="")
 
         # Before attach, daemon should be idle.
         code, stats = _http_json(
             port, "GET",
             f"/api/repos/{urllib.parse.quote(repo_id)}"
-            f"/branches/{urllib.parse.quote(branch_id)}/tabs/claude-tui/stats",
+            f"/branches/{urllib.parse.quote(branch_id)}/tabs/{tab_id_q}/tui/stats",
         )
         assert code == 200, f"stats before attach: {code}"
         assert stats.get("state") == "idle", (
@@ -298,7 +308,7 @@ def test_ac_s7ce250_5_2_ws_attach_starts_daemon(port: int) -> None:
         uri = (
             f"ws://localhost:{port}"
             f"/api/repos/{urllib.parse.quote(repo_id)}"
-            f"/branches/{urllib.parse.quote(branch_id)}/tabs/claude-tui/attach"
+            f"/branches/{urllib.parse.quote(branch_id)}/tabs/{tab_id_q}/tui/attach"
         )
 
         async def _connect_briefly() -> None:
@@ -321,7 +331,7 @@ def test_ac_s7ce250_5_2_ws_attach_starts_daemon(port: int) -> None:
             code, stats = _http_json(
                 port, "GET",
                 f"/api/repos/{urllib.parse.quote(repo_id)}"
-                f"/branches/{urllib.parse.quote(branch_id)}/tabs/claude-tui/stats",
+                f"/branches/{urllib.parse.quote(branch_id)}/tabs/{tab_id_q}/tui/stats",
             )
             if code == 200 and isinstance(stats, dict):
                 final_stats = stats
@@ -348,12 +358,13 @@ def test_ac_s7ce250_5_3_input_echoed_back(port: int) -> None:
     with fx.palmux2_test_fixture("s7ce250-echo") as fixture:
         repo_id = fixture.repo_id
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
+        tab_id_q = urllib.parse.quote("claude:claude", safe="")
 
         marker = f"s7ce250echo{int(time.time())}".encode()
         uri = (
             f"ws://localhost:{port}"
             f"/api/repos/{urllib.parse.quote(repo_id)}"
-            f"/branches/{urllib.parse.quote(branch_id)}/tabs/claude-tui/attach"
+            f"/branches/{urllib.parse.quote(branch_id)}/tabs/{tab_id_q}/tui/attach"
         )
 
         async def _echo_check() -> None:
@@ -394,11 +405,12 @@ def test_ac_s7ce250_5_4_resize_accepted(port: int) -> None:
     with fx.palmux2_test_fixture("s7ce250-resize") as fixture:
         repo_id = fixture.repo_id
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
+        tab_id_q = urllib.parse.quote("claude:claude", safe="")
 
         uri = (
             f"ws://localhost:{port}"
             f"/api/repos/{urllib.parse.quote(repo_id)}"
-            f"/branches/{urllib.parse.quote(branch_id)}/tabs/claude-tui/attach"
+            f"/branches/{urllib.parse.quote(branch_id)}/tabs/{tab_id_q}/tui/attach"
         )
 
         async def _attach_briefly() -> None:
@@ -412,7 +424,7 @@ def test_ac_s7ce250_5_4_resize_accepted(port: int) -> None:
         # POST resize — expects 204 No Content.
         resize_path = (
             f"/api/repos/{urllib.parse.quote(repo_id)}"
-            f"/branches/{urllib.parse.quote(branch_id)}/tabs/claude-tui/resize"
+            f"/branches/{urllib.parse.quote(branch_id)}/tabs/{tab_id_q}/tui/resize"
         )
         code, body = _http_json(port, "POST", resize_path, body={"cols": 120, "rows": 36})
         assert code == 204, (
@@ -423,7 +435,7 @@ def test_ac_s7ce250_5_4_resize_accepted(port: int) -> None:
         code2, stats = _http_json(
             port, "GET",
             f"/api/repos/{urllib.parse.quote(repo_id)}"
-            f"/branches/{urllib.parse.quote(branch_id)}/tabs/claude-tui/stats",
+            f"/branches/{urllib.parse.quote(branch_id)}/tabs/{tab_id_q}/tui/stats",
         )
         assert code2 == 200
         assert isinstance(stats, dict)
@@ -449,11 +461,12 @@ def test_ac_s7ce250_5_5_branch_close_shuts_down_daemon(port: int) -> None:
     with fx.palmux2_test_fixture("s7ce250-close") as fixture:
         repo_id = fixture.repo_id
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
+        tab_id_q = urllib.parse.quote("claude:claude", safe="")
 
         uri = (
             f"ws://localhost:{port}"
             f"/api/repos/{urllib.parse.quote(repo_id)}"
-            f"/branches/{urllib.parse.quote(branch_id)}/tabs/claude-tui/attach"
+            f"/branches/{urllib.parse.quote(branch_id)}/tabs/{tab_id_q}/tui/attach"
         )
 
         async def _attach_briefly() -> None:
@@ -474,7 +487,7 @@ def test_ac_s7ce250_5_5_branch_close_shuts_down_daemon(port: int) -> None:
         code, stats_before = _http_json(
             port, "GET",
             f"/api/repos/{urllib.parse.quote(repo_id)}"
-            f"/branches/{urllib.parse.quote(branch_id)}/tabs/claude-tui/stats",
+            f"/branches/{urllib.parse.quote(branch_id)}/tabs/{tab_id_q}/tui/stats",
         )
         assert code == 200
         assert isinstance(stats_before, dict)
@@ -502,7 +515,7 @@ def test_ac_s7ce250_5_5_branch_close_shuts_down_daemon(port: int) -> None:
             code2, stats_after = _http_json(
                 port, "GET",
                 f"/api/repos/{urllib.parse.quote(repo_id)}"
-                f"/branches/{urllib.parse.quote(branch_id)}/tabs/claude-tui/stats",
+                f"/branches/{urllib.parse.quote(branch_id)}/tabs/{tab_id_q}/tui/stats",
             )
             if code2 == 404:
                 # Branch/daemon fully removed.
@@ -540,11 +553,14 @@ def test_ac_s0fd64b_3_role_badge_visible(port: int) -> None:
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
         repo_id = fixture.repo_id
         base = f"http://localhost:{port}"
+        tab_id_q = urllib.parse.quote("claude:claude", safe="")
 
-        # Switch mode to 'tui' so the TUI component renders inside the Claude tab.
+        # Switch mode to 'tui' on the canonical claude tab via the Sadf90e
+        # per-tab settings endpoint.
         settings_url = (
             f"{base}/api/repos/{urllib.parse.quote(repo_id, safe='')}"
-            f"/branches/{urllib.parse.quote(branch_id, safe='')}/settings"
+            f"/branches/{urllib.parse.quote(branch_id, safe='')}"
+            f"/tabs/{tab_id_q}/settings"
         )
         import urllib.request as _req
         req = _req.Request(settings_url, method="PATCH",

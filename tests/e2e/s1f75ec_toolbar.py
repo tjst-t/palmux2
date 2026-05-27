@@ -309,11 +309,13 @@ def test_ac_3_5_agent_mode_esc_esc_disabled(port: int) -> None:
     fx = _get_fixture_module(port)
     with fx.palmux2_test_fixture("s1f75ec-tb-ac35") as fixture:
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
+        # Sadf90e: per-tab settings endpoint. Canonical tab id = claude:claude.
         # Ensure claude_mode is agent (default, but set explicitly).
+        tab_id_q = urllib.parse.quote("claude:claude", safe="")
         _http_json(
             port, "PATCH",
             f"/api/repos/{urllib.parse.quote(fixture.repo_id)}"
-            f"/branches/{urllib.parse.quote(branch_id)}/settings",
+            f"/branches/{urllib.parse.quote(branch_id)}/tabs/{tab_id_q}/settings",
             body={"claude_mode": "agent"},
         )
         url = (
@@ -350,11 +352,13 @@ def test_ac_3_3_tui_mode_esc_esc_enabled(port: int) -> None:
     fx = _get_fixture_module(port)
     with fx.palmux2_test_fixture("s1f75ec-tb-ac33") as fixture:
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
+        # Sadf90e: per-tab settings endpoint. Canonical tab id = claude:claude.
         # Set claude_mode=tui so the ESC ESC button is enabled.
+        tab_id_q = urllib.parse.quote("claude:claude", safe="")
         code, body = _http_json(
             port, "PATCH",
             f"/api/repos/{urllib.parse.quote(fixture.repo_id)}"
-            f"/branches/{urllib.parse.quote(branch_id)}/settings",
+            f"/branches/{urllib.parse.quote(branch_id)}/tabs/{tab_id_q}/settings",
             body={"claude_mode": "tui"},
         )
         assert code == 200, f"[AC-S1f75ec-3-3] PATCH to tui failed: {code} {body}"

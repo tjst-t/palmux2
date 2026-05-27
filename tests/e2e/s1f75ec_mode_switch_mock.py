@@ -185,9 +185,12 @@ def test_mock_patch_request_shape(port: int) -> None:
             f"/{urllib.parse.quote(branch_id, safe='')}"
             f"/claude"
         )
+        # Sadf90e: settings moved to per-tab endpoint. The canonical claude tab id
+        # is "claude:claude" — URL-encode the colon (':' becomes %3A).
         settings_path = (
             f"/api/repos/{urllib.parse.quote(fixture.repo_id)}"
-            f"/branches/{urllib.parse.quote(branch_id)}/settings"
+            f"/branches/{urllib.parse.quote(branch_id)}"
+            f"/tabs/{urllib.parse.quote('claude:claude', safe='')}/settings"
         )
 
         captured_patch_bodies: list[dict] = []
@@ -286,9 +289,12 @@ def test_mock_get_returns_tui_shows_tui_badge(port: int) -> None:
             f"/{urllib.parse.quote(branch_id, safe='')}"
             f"/claude"
         )
+        # Sadf90e: settings moved to per-tab endpoint. The canonical claude tab id
+        # is "claude:claude" — URL-encode the colon (':' becomes %3A).
         settings_path = (
             f"/api/repos/{urllib.parse.quote(fixture.repo_id)}"
-            f"/branches/{urllib.parse.quote(branch_id)}/settings"
+            f"/branches/{urllib.parse.quote(branch_id)}"
+            f"/tabs/{urllib.parse.quote('claude:claude', safe='')}/settings"
         )
 
         with sync_playwright() as p:
@@ -345,9 +351,12 @@ def test_mock_get_returns_agent_shows_agent_badge(port: int) -> None:
             f"/{urllib.parse.quote(branch_id, safe='')}"
             f"/claude"
         )
+        # Sadf90e: settings moved to per-tab endpoint. The canonical claude tab id
+        # is "claude:claude" — URL-encode the colon (':' becomes %3A).
         settings_path = (
             f"/api/repos/{urllib.parse.quote(fixture.repo_id)}"
-            f"/branches/{urllib.parse.quote(branch_id)}/settings"
+            f"/branches/{urllib.parse.quote(branch_id)}"
+            f"/tabs/{urllib.parse.quote('claude:claude', safe='')}/settings"
         )
 
         with sync_playwright() as p:

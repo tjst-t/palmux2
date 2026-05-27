@@ -158,10 +158,12 @@ def _get_fixture_module(port: int):
 # ─── WS helpers ───────────────────────────────────────────────────────────────
 
 def _attach_uri(port: int, repo_id: str, branch_id: str, mode: str = "") -> str:
+    # Sadf90e: per-tab tui endpoint, canonical tab is claude:claude.
+    tab_id_q = urllib.parse.quote("claude:claude", safe="")
     base = (
         f"ws://localhost:{port}"
         f"/api/repos/{urllib.parse.quote(repo_id)}"
-        f"/branches/{urllib.parse.quote(branch_id)}/tabs/claude-tui/attach"
+        f"/branches/{urllib.parse.quote(branch_id)}/tabs/{tab_id_q}/tui/attach"
     )
     if mode:
         base += f"?mode={mode}"

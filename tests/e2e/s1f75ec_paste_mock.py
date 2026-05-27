@@ -173,9 +173,12 @@ def _get_fixture_module(port: int):
 
 
 def _set_branch_claude_mode(port: int, repo_id: str, branch_id: str, mode: str) -> None:
+    # Sadf90e: per-tab settings endpoint. Target canonical claude:claude tab.
+    tab_id_q = urllib.parse.quote("claude:claude", safe="")
     settings_url = (
         f"http://localhost:{port}/api/repos/{urllib.parse.quote(repo_id, safe='')}"
-        f"/branches/{urllib.parse.quote(branch_id, safe='')}/settings"
+        f"/branches/{urllib.parse.quote(branch_id, safe='')}"
+        f"/tabs/{tab_id_q}/settings"
     )
     body = json.dumps({"claude_mode": mode}).encode()
     req = urllib.request.Request(
