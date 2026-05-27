@@ -637,6 +637,95 @@ def test_ac_s1f75ec_5_3_text_paste_no_upload(port: int) -> None:
     passed("[AC-S1f75ec-5-3] text paste does NOT call /api/upload (regression OK)")
 
 
+def test_hotfix_ctrl_v_text_paste(port: int) -> None:
+    """hotfix 2026-05-27: Ctrl+V でテキストペーストが動くこと。
+
+    Pre-hotfix: claude-tui-tab.tsx には attachCustomKeyEventHandler が無く、
+    xterm.js が Ctrl+V を literal \\x16 として PTY に送ってしまい、 テキスト
+    ペーストも画像ペーストもキーボードから出来なかった (paste イベント経路
+    だけが画像対応、 つまり右クリック paste しか効かなかった)。
+
+    このテストは「Ctrl+V を押す → 事前に clipboard に書いた text が WS で
+    PTY に送られる」 ことを実機検証する。 WS bidirectional frames を観測。
+    """
+    if not _USE_PREBUILT:
+        print("SKIP: test_hotfix_ctrl_v_text_paste (no embedded frontend)")
+        return
+    sync_playwright = _get_playwright()
+    fx = _get_fixture_module(port)
+    with fx.palmux2_test_fixture("s1f75ec-ctrlv-text") as fixture:
+        branch_id = fixture.primary_branch_id(timeout_s=10.0)
+        repo_id = fixture.repo_id
+        _set_branch_claude_mode(port, repo_id, branch_id, "tui")
+
+        url = (
+            f"http://localhost:{port}"
+            f"/{urllib.parse.quote(repo_id, safe='')}"
+            f"/{urllib.parse.quote(branch_id, safe='')}"
+            f"/claude"
+        )
+
+        sent_frames: list[str] = []
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            try:
+                # Granting clipboard-read/write lets navigator.clipboard.readText()
+                # succeed in headless Chromium for the page's origin.
+                context = browser.new_context()
+                context.grant_permissions(
+                    ["clipboard-read", "clipboard-write"],
+                    origin=f"http://localhost:{port}",
+                )
+                page = context.new_page()
+
+                def on_ws(ws):
+                    def on_frame_sent(payload):
+                        try:
+                            # Binary frame may arrive as bytes; text as str.
+                            if isinstance(payload, (bytes, bytearray)):
+                                sent_frames.append(payload.decode("utf-8", "replace"))
+                            else:
+                                sent_frames.append(str(payload))
+                        except Exception:
+                            pass
+                    ws.on("framesent", on_frame_sent)
+                page.on("websocket", on_ws)
+
+                page.goto(url, timeout=PLAYWRIGHT_TIMEOUT, wait_until="load")
+                page.wait_for_function(
+                    "document.getElementById('root').innerHTML.length > 100",
+                    timeout=PLAYWRIGHT_TIMEOUT,
+                )
+                page.wait_for_selector("[data-testid='claude-tui-terminal']", timeout=PLAYWRIGHT_TIMEOUT)
+
+                # Write a unique marker to the clipboard, then focus the term + Ctrl+V.
+                marker = f"PASTE-MARKER-{int(time.time())}"
+                page.evaluate(
+                    "(t) => navigator.clipboard.writeText(t)",
+                    marker,
+                )
+                page.click("[data-testid='claude-tui-terminal']")
+                # xterm.js focuses its hidden textarea on the click. Now Ctrl+V.
+                page.keyboard.press("Control+v")
+
+                # Wait briefly for the async clipboard.readText → sendRaw chain.
+                deadline = time.monotonic() + 5.0
+                found = False
+                while time.monotonic() < deadline:
+                    if any(marker in f for f in sent_frames):
+                        found = True
+                        break
+                    time.sleep(0.1)
+
+                assert found, (
+                    f"[hotfix] Ctrl+V did NOT send clipboard text over WS. "
+                    f"marker={marker!r}, sent_frames={sent_frames[-5:]!r}"
+                )
+            finally:
+                browser.close()
+    passed("[hotfix] Ctrl+V でテキストペーストが PTY に送られる")
+
+
 def test_ac_s1f75ec_5_4_mobile_file_picker_visible(port: int) -> None:
     """[AC-S1f75ec-5-4] mobile viewport shows file picker button."""
     if not _USE_PREBUILT:
@@ -945,6 +1034,10 @@ def main() -> None:
             _run(
                 "test_ac_s1f75ec_5_3_text_paste_no_upload",
                 lambda: test_ac_s1f75ec_5_3_text_paste_no_upload(port),
+            )
+            _run(
+                "test_hotfix_ctrl_v_text_paste",
+                lambda: test_hotfix_ctrl_v_text_paste(port),
             )
             _run(
                 "test_ac_s1f75ec_5_4_mobile_file_picker_visible",

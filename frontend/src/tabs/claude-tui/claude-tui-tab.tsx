@@ -328,6 +328,47 @@ function ClaudeTuiDesktop({
       ws.send(enc.encode(data).buffer)
     })
 
+    // --- Ctrl+V / Cmd+V paste handler ---
+    // hotfix 2026-05-27: without this, xterm.js handles Ctrl+V as a literal
+    // \x16 control char and sends it to the PTY — so neither image upload
+    // nor plain text paste works. Mirror the bash terminal-view.tsx pattern:
+    // intercept the keydown, read clipboard manually, route image vs text.
+    // The container-level `paste` event listener still covers right-click
+    // → paste / mobile / OS-level paste menus.
+    term.attachCustomKeyEventHandler((ev) => {
+      if (ev.type !== 'keydown') return true
+      const isPaste = (ev.ctrlKey || ev.metaKey) && (ev.key === 'v' || ev.key === 'V')
+      if (!isPaste) return true
+      // Return false → tell xterm.js to stop default handling for this key.
+      // The async work below will send the resulting text / path via sendRaw.
+      void (async () => {
+        // Prefer clipboard.read() for image-aware paste; fall back to text.
+        if (typeof navigator !== 'undefined' && navigator.clipboard
+            && 'read' in navigator.clipboard) {
+          try {
+            const items = await navigator.clipboard.read()
+            for (const item of items) {
+              const imgType = item.types.find((t) => t.startsWith('image/'))
+              if (imgType) {
+                const blob = await item.getType(imgType)
+                await uploadAndSendTui(blob, sendRaw, repoId, branchId, setIsUploading)
+                return
+              }
+            }
+          } catch {
+            // permission denied / non-secure context — fall through to text.
+          }
+        }
+        try {
+          const text = await navigator.clipboard.readText()
+          if (text) sendRaw(text)
+        } catch {
+          // ignore: nothing we can do without clipboard access.
+        }
+      })()
+      return false
+    })
+
     // --- Paste event: image blob intercept --------------------------------
     // Listen on the container div so we only fire when the xterm is focused
     // (or the container has an active element). Image blobs are intercepted;
