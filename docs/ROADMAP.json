@@ -7462,7 +7462,7 @@
               "status": "pending"
             }
           ],
-          "tasks": []
+          "tasks": {}
         },
         "Sadf90e-2": {
           "id": "Sadf90e-2",
@@ -7495,7 +7495,7 @@
               "status": "pending"
             }
           ],
-          "tasks": []
+          "tasks": {}
         },
         "Sadf90e-3": {
           "id": "Sadf90e-3",
@@ -7540,7 +7540,7 @@
               "status": "pending"
             }
           ],
-          "tasks": []
+          "tasks": {}
         },
         "Sadf90e-4": {
           "id": "Sadf90e-4",
@@ -7579,7 +7579,7 @@
               "status": "pending"
             }
           ],
-          "tasks": []
+          "tasks": {}
         },
         "Sadf90e-5": {
           "id": "Sadf90e-5",
@@ -7618,7 +7618,7 @@
               "status": "pending"
             }
           ],
-          "tasks": []
+          "tasks": {}
         }
       }
     }
@@ -7795,9 +7795,12 @@
       ],
       "reason": "Sprint B (S0fd64b) で実装された internal/tab/claudetui/ の MobileChatView + grid mode WS + transcript endpoint を本 sprint で撤去するため。 また Sprint B で導入された ?mode=grid 経路や mobile chat E2E は本 sprint で削除対象。 S0fd64b は main にマージ済み (v0.8.0)。"
     },
-    "Sadf90e": [
-      "S1f75ec"
-    ]
+    "Sadf90e": {
+      "depends_on": [
+        "S1f75ec"
+      ],
+      "reason": "S1f75ec で導入された branch.claude_mode + branch-scope settings API を tab-scope に作り直す。 S1f75ec が main にマージされる前提"
+    }
   },
   "backlog": [
     {
