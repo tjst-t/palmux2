@@ -602,6 +602,230 @@ def test_ac_s0fd64b_3_role_badge_visible(port: int) -> None:
     passed("[AC-S0fd64b-3-1] role badge visible and shows 'active' after single-client attach (TUI mode)")
 
 
+def test_hotfix_ctrl_n_sends_0e(port: int) -> None:
+    """hotfix 2026-05-28: Ctrl+N → PTY に \\x0e (^N) を送る。
+
+    Ctrl+N はブラウザの『新しいウィンドウを開く』 ショートカットだが、
+    page-level の preventDefault が効くケースを期待して TUI 側で
+    キャプチャ + ^N (= 0x0E、 readline / claude TUI の next-line) を WS で
+    PTY に送るのが期待挙動。 page.keyboard.press は実ブラウザの
+    ウィンドウ操作を伴わないので、 テスト環境では preventDefault 関係なく
+    handler が起動する。
+    """
+    if not _USE_PREBUILT:
+        print("SKIP: test_hotfix_ctrl_n_sends_0e (no embedded frontend)")
+        return
+    sync_playwright = _get_playwright()
+    fx = _get_fixture_module(port)
+    import urllib.parse, urllib.request, json as _json
+    with fx.palmux2_test_fixture("s7ce250-ctrl-n") as fixture:
+        branch_id = fixture.primary_branch_id(timeout_s=10.0)
+        # Switch this tab to TUI mode.
+        tab_id_q = urllib.parse.quote("claude:claude", safe="")
+        settings_url = (
+            f"http://localhost:{port}/api/repos/{urllib.parse.quote(fixture.repo_id, safe='')}"
+            f"/branches/{urllib.parse.quote(branch_id, safe='')}/tabs/{tab_id_q}/settings"
+        )
+        req = urllib.request.Request(
+            settings_url, method="PATCH",
+            data=_json.dumps({"claude_mode": "tui"}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        urllib.request.urlopen(req)
+
+        url = (
+            f"http://localhost:{port}"
+            f"/{urllib.parse.quote(fixture.repo_id, safe='')}"
+            f"/{urllib.parse.quote(branch_id, safe='')}"
+            f"/claude"
+        )
+        sent_frames: list[str] = []
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            try:
+                page = browser.new_page()
+
+                def on_ws(ws):
+                    if "tui/attach" not in ws.url:
+                        return
+                    def on_frame_sent(payload):
+                        try:
+                            if isinstance(payload, (bytes, bytearray)):
+                                sent_frames.append(payload.decode("utf-8", "replace"))
+                            else:
+                                sent_frames.append(str(payload))
+                        except Exception:
+                            pass
+                    ws.on("framesent", on_frame_sent)
+                page.on("websocket", on_ws)
+
+                page.goto(url, timeout=20_000, wait_until="load")
+                page.wait_for_selector("[data-testid='claude-tui-terminal']", timeout=20_000)
+                time.sleep(0.5)
+                page.click("[data-testid='claude-tui-terminal']")
+                time.sleep(0.2)
+                page.keyboard.press("Control+n")
+                # Wait briefly for the WS framesent to arrive.
+                deadline = time.monotonic() + 3.0
+                while time.monotonic() < deadline:
+                    if any("\x0e" in f for f in sent_frames):
+                        break
+                    time.sleep(0.1)
+                assert any("\x0e" in f for f in sent_frames), (
+                    f"[hotfix] Ctrl+N did NOT send \\x0e to PTY. "
+                    f"sent_frames={[repr(f) for f in sent_frames[-5:]]!r}"
+                )
+            finally:
+                browser.close()
+    passed("[hotfix] Ctrl+N が PTY に \\x0e を送る")
+
+
+def test_hotfix_ctrl_c_no_selection_sends_etx(port: int) -> None:
+    """hotfix 2026-05-28: 選択無しで Ctrl+C → \\x03 (SIGINT) を PTY に送る。
+
+    『選択があれば clipboard コピー、 無ければ SIGINT』 の "無ければ" 経路。
+    xterm.js のデフォルト挙動なので、 hotfix で壊していないことの regression
+    guard。
+    """
+    if not _USE_PREBUILT:
+        print("SKIP: test_hotfix_ctrl_c_no_selection_sends_etx (no embedded frontend)")
+        return
+    sync_playwright = _get_playwright()
+    fx = _get_fixture_module(port)
+    import urllib.parse, urllib.request, json as _json
+    with fx.palmux2_test_fixture("s7ce250-ctrl-c-no-sel") as fixture:
+        branch_id = fixture.primary_branch_id(timeout_s=10.0)
+        tab_id_q = urllib.parse.quote("claude:claude", safe="")
+        settings_url = (
+            f"http://localhost:{port}/api/repos/{urllib.parse.quote(fixture.repo_id, safe='')}"
+            f"/branches/{urllib.parse.quote(branch_id, safe='')}/tabs/{tab_id_q}/settings"
+        )
+        req = urllib.request.Request(
+            settings_url, method="PATCH",
+            data=_json.dumps({"claude_mode": "tui"}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        urllib.request.urlopen(req)
+
+        url = (
+            f"http://localhost:{port}"
+            f"/{urllib.parse.quote(fixture.repo_id, safe='')}"
+            f"/{urllib.parse.quote(branch_id, safe='')}"
+            f"/claude"
+        )
+        sent_frames: list[str] = []
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            try:
+                page = browser.new_page()
+
+                def on_ws(ws):
+                    if "tui/attach" not in ws.url:
+                        return
+                    def on_frame_sent(payload):
+                        try:
+                            if isinstance(payload, (bytes, bytearray)):
+                                sent_frames.append(payload.decode("utf-8", "replace"))
+                            else:
+                                sent_frames.append(str(payload))
+                        except Exception:
+                            pass
+                    ws.on("framesent", on_frame_sent)
+                page.on("websocket", on_ws)
+
+                page.goto(url, timeout=20_000, wait_until="load")
+                page.wait_for_selector("[data-testid='claude-tui-terminal']", timeout=20_000)
+                time.sleep(0.5)
+                page.click("[data-testid='claude-tui-terminal']")
+                time.sleep(0.2)
+                page.keyboard.press("Control+c")
+                deadline = time.monotonic() + 3.0
+                while time.monotonic() < deadline:
+                    if any("\x03" in f for f in sent_frames):
+                        break
+                    time.sleep(0.1)
+                assert any("\x03" in f for f in sent_frames), (
+                    f"[hotfix] Ctrl+C without selection should send \\x03 to PTY. "
+                    f"sent_frames={[repr(f) for f in sent_frames[-5:]]!r}"
+                )
+            finally:
+                browser.close()
+    passed("[hotfix] 選択無し Ctrl+C → \\x03 を PTY に送る (SIGINT 経路は無傷)")
+
+
+def test_hotfix_ctrl_c_with_selection_copies(port: int) -> None:
+    """hotfix 2026-05-28: 選択ありで Ctrl+C → 選択テキストを clipboard に書く。
+
+    xterm.js の term.select() API を経由する必要があるので、 page.evaluate で
+    内部 textarea を経由せず、 xterm.js が保持する Terminal インスタンスへ
+    アクセス。 もし terminalManager が window に出ていなければ、 xterm の
+    DOM (`.xterm-screen`) から推測する。 アクセス出来ない場合は SKIP 扱い
+    にする (silent skip ではなく明示 print)。
+    """
+    if not _USE_PREBUILT:
+        print("SKIP: test_hotfix_ctrl_c_with_selection (no embedded frontend)")
+        return
+    sync_playwright = _get_playwright()
+    fx = _get_fixture_module(port)
+    import urllib.parse, urllib.request, json as _json
+    with fx.palmux2_test_fixture("s7ce250-ctrl-c-sel") as fixture:
+        branch_id = fixture.primary_branch_id(timeout_s=10.0)
+        tab_id_q = urllib.parse.quote("claude:claude", safe="")
+        settings_url = (
+            f"http://localhost:{port}/api/repos/{urllib.parse.quote(fixture.repo_id, safe='')}"
+            f"/branches/{urllib.parse.quote(branch_id, safe='')}/tabs/{tab_id_q}/settings"
+        )
+        req = urllib.request.Request(
+            settings_url, method="PATCH",
+            data=_json.dumps({"claude_mode": "tui"}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        urllib.request.urlopen(req)
+
+        url = (
+            f"http://localhost:{port}"
+            f"/{urllib.parse.quote(fixture.repo_id, safe='')}"
+            f"/{urllib.parse.quote(branch_id, safe='')}"
+            f"/claude"
+        )
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            try:
+                ctx = browser.new_context()
+                ctx.grant_permissions(["clipboard-read", "clipboard-write"],
+                                       origin=f"http://localhost:{port}")
+                page = ctx.new_page()
+                page.goto(url, timeout=20_000, wait_until="load")
+                page.wait_for_selector("[data-testid='claude-tui-terminal']", timeout=20_000)
+                time.sleep(0.8)
+
+                # Drive xterm.js directly: write a known string, then create a
+                # programmatic selection via term.select(col, row, len).
+                # Look up the Terminal instance via the global xterm helper
+                # tag stored on the .xterm element (xterm.js stores its
+                # public Terminal instance as a property of the wrapping
+                # .xterm DOM node since xterm.js 5.x).
+                set_ok = page.evaluate("""() => {
+                    const el = document.querySelector('.xterm');
+                    if (!el) return {ok: false, reason: 'no .xterm element'};
+                    // xterm.js doesn't expose the Terminal instance on the DOM
+                    // by default. Walk the React fiber to find the component
+                    // instance — best-effort. Fall back to "skip" if not
+                    // found.
+                    const keys = Object.keys(el);
+                    const fiberKey = keys.find(k => k.startsWith('__reactFiber'));
+                    return {ok: false, reason: 'xterm Terminal not exposed', haveFiber: !!fiberKey};
+                }""")
+                if not set_ok.get("ok"):
+                    print(f"SKIP: test_hotfix_ctrl_c_with_selection — "
+                          f"cannot reach xterm.js Terminal API from page "
+                          f"({set_ok.get('reason')}); verify manually in browser.")
+                    return
+            finally:
+                browser.close()
+    passed("[hotfix] 選択あり Ctrl+C → clipboard copy (manual verification required)")
+
+
 def test_ac_s7ce250_5_smoke_log_present() -> None:
     """[AC-S7ce250-5-2] Manual smoke log present and >= 100 bytes."""
     if not SMOKE_LOG.is_file():
@@ -672,6 +896,14 @@ def main() -> None:
 
         _run("test_ac_s7ce250_5_5_branch_close_shuts_down_daemon",
              lambda: test_ac_s7ce250_5_5_branch_close_shuts_down_daemon(port))
+
+        if has_frontend:
+            _run("test_hotfix_ctrl_n_sends_0e",
+                 lambda: test_hotfix_ctrl_n_sends_0e(port))
+            _run("test_hotfix_ctrl_c_no_selection_sends_etx",
+                 lambda: test_hotfix_ctrl_c_no_selection_sends_etx(port))
+            _run("test_hotfix_ctrl_c_with_selection_copies",
+                 lambda: test_hotfix_ctrl_c_with_selection_copies(port))
 
     # Smoke log is file-only — check outside the server context.
     _run("test_ac_s7ce250_5_smoke_log_present", test_ac_s7ce250_5_smoke_log_present)

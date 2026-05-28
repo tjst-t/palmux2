@@ -361,6 +361,35 @@ function ClaudeTuiDesktop({
     let pasteHandled = false
     term.attachCustomKeyEventHandler((ev) => {
       if (ev.type !== 'keydown') return true
+
+      // Ctrl+C / Cmd+C with active selection → copy to clipboard.
+      // Without a selection, fall through so xterm.js sends ETX (^C) to
+      // the PTY for SIGINT. hotfix 2026-05-28.
+      const isCopy = (ev.ctrlKey || ev.metaKey) && (ev.key === 'c' || ev.key === 'C')
+      if (isCopy) {
+        const sel = term.getSelection()
+        if (sel) {
+          ev.preventDefault()
+          void navigator.clipboard.writeText(sel).catch(() => { /* ignore */ })
+          term.clearSelection()
+          return false
+        }
+        // No selection → let xterm.js handle Ctrl+C normally (send ^C).
+        return true
+      }
+
+      // Ctrl+N → send the literal ^N byte (\x0e) to the PTY so TUI apps
+      // can use it for "next line" navigation. The browser's default for
+      // Ctrl+N is "open new window", which most browsers do NOT let pages
+      // preventDefault — calling preventDefault here is best-effort.
+      // hotfix 2026-05-28.
+      if (ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey
+          && (ev.key === 'n' || ev.key === 'N')) {
+        ev.preventDefault()
+        sendRaw('\x0e')
+        return false
+      }
+
       const isPaste = (ev.ctrlKey || ev.metaKey) && (ev.key === 'v' || ev.key === 'V')
       if (!isPaste) return true
       pasteHandled = false
