@@ -168,6 +168,11 @@ function ClaudeTuiDesktop({
   const [isUploading, setIsUploading] = useState(false)
   // ref to the WS instance so event handlers (paste/drop) can access it
   const wsRef = useRef<ReconnectingWebSocket | null>(null)
+  // Queue of image blobs waiting to be uploaded. Filled by the paste-event
+  // handler (sync); drained by a useEffect that runs OUTSIDE the paste
+  // event call stack — fetch/XHR from inside a paste-event-context hangs
+  // indefinitely in Chromium, so we defer the network call.
+  const [pendingImage, setPendingImage] = useState<Blob | null>(null)
 
   const handleReconnect = useCallback(() => {
     setStatus('connecting')
@@ -335,14 +340,31 @@ function ClaudeTuiDesktop({
     // intercept the keydown, read clipboard manually, route image vs text.
     // The container-level `paste` event listener still covers right-click
     // → paste / mobile / OS-level paste menus.
+    // Ctrl+V / Cmd+V paste handler. Mirrors the bash terminal-view.tsx
+    // pattern: intercept the keydown via xterm.js's custom key handler,
+    // read clipboard async, route image (upload + path) vs text (sendRaw).
+    // Returning false suppresses xterm.js's default Ctrl+V handling so the
+    // literal \x16 control char is not sent to the PTY.
+    // Ctrl+V / Cmd+V paste handler. Mirrors the bash terminal-view.tsx
+    // pattern: intercept the keydown via xterm.js's custom key handler,
+    // read clipboard async, route image (upload + path) vs text (sendRaw).
+    // Returning false suppresses xterm.js's default Ctrl+V handling so the
+    // literal \x16 is not sent to the PTY.
+    //
+    // Note: the document-level capture-phase paste listener below also
+    // catches the native paste event that fires on xterm.js's textarea
+    // when Ctrl+V is pressed. The two paths are complementary — whichever
+    // resolves first wins via the `handled` guard. The async clipboard.read
+    // path covers browsers where the native paste event is suppressed by
+    // xterm.js's own handler; the sync paste-event path covers browsers
+    // where clipboard.read async hangs from inside a key-event call stack.
+    let pasteHandled = false
     term.attachCustomKeyEventHandler((ev) => {
       if (ev.type !== 'keydown') return true
       const isPaste = (ev.ctrlKey || ev.metaKey) && (ev.key === 'v' || ev.key === 'V')
       if (!isPaste) return true
-      // Return false → tell xterm.js to stop default handling for this key.
-      // The async work below will send the resulting text / path via sendRaw.
+      pasteHandled = false
       void (async () => {
-        // Prefer clipboard.read() for image-aware paste; fall back to text.
         if (typeof navigator !== 'undefined' && navigator.clipboard
             && 'read' in navigator.clipboard) {
           try {
@@ -350,8 +372,10 @@ function ClaudeTuiDesktop({
             for (const item of items) {
               const imgType = item.types.find((t) => t.startsWith('image/'))
               if (imgType) {
+                if (pasteHandled) return
+                pasteHandled = true
                 const blob = await item.getType(imgType)
-                await uploadAndSendTui(blob, sendRaw, repoId, branchId, setIsUploading)
+                setPendingImage(blob)
                 return
               }
             }
@@ -359,15 +383,53 @@ function ClaudeTuiDesktop({
             // permission denied / non-secure context — fall through to text.
           }
         }
+        if (pasteHandled) return
         try {
           const text = await navigator.clipboard.readText()
-          if (text) sendRaw(text)
+          if (text) {
+            pasteHandled = true
+            sendRaw(text)
+          }
         } catch {
-          // ignore: nothing we can do without clipboard access.
+          // ignore.
         }
       })()
       return false
     })
+
+    // Document-level capture-phase paste listener. The image blob is
+    // captured synchronously from clipboardData, then stashed in React
+    // state — the actual upload runs in a useEffect, OUTSIDE the
+    // paste-event call stack (fetch from a paste-event hangs in Chromium).
+    const onDocPaste = (e: Event) => {
+      const ce = e as ClipboardEvent
+      if (!ce.composedPath().includes(container)) return
+      if (!ce.clipboardData) return
+      let file: File | null = null
+      const files = ce.clipboardData.files
+      if (files) {
+        for (let i = 0; i < files.length; i++) {
+          const f = files.item(i)
+          if (f && f.type.startsWith('image/')) { file = f; break }
+        }
+      }
+      if (!file && ce.clipboardData.items) {
+        for (let i = 0; i < ce.clipboardData.items.length; i++) {
+          const it = ce.clipboardData.items[i]
+          if (it.kind === 'file' && it.type.startsWith('image/')) {
+            const f = it.getAsFile()
+            if (f) { file = f; break }
+          }
+        }
+      }
+      if (!file) return
+      ce.preventDefault()
+      ce.stopImmediatePropagation()
+      if (pasteHandled) return
+      pasteHandled = true
+      setPendingImage(file)
+    }
+    document.addEventListener('paste', onDocPaste, true)
 
     // --- Paste event: image blob intercept --------------------------------
     // Listen on the container div so we only fire when the xterm is focused
@@ -375,6 +437,7 @@ function ClaudeTuiDesktop({
     // text paste falls through to xterm.js bracketed paste mode unchanged.
     const container = containerRef.current!
     container.addEventListener('paste', handlePaste as EventListener)
+
 
     // --- SIGWINCH chain: ResizeObserver → FitAddon → POST /resize ---
     let resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null
@@ -417,6 +480,7 @@ function ClaudeTuiDesktop({
       onResizeDisp.dispose()
       onClipboardDisp.dispose()
       container.removeEventListener('paste', handlePaste as EventListener)
+      document.removeEventListener('paste', onDocPaste, true)
       wsRef.current = null
       if (streamingTimer) clearTimeout(streamingTimer)
       if (resizeDebounceTimer) clearTimeout(resizeDebounceTimer)
@@ -439,6 +503,39 @@ function ClaudeTuiDesktop({
       m.terminal.options.fontSize = fontSize
     }
   }, [fontSize, repoId, branchId])
+
+  // Process pending pasted image OUTSIDE the paste-event call stack.
+  // Chromium's fetch/XHR initiated from inside a paste-event handler
+  // never completes the underlying network request (observed empirically
+  // in headless Chromium, and the user reported the same symptom in real
+  // browsers). Scheduling the upload from a useEffect that fires after
+  // React commits the setPendingImage state unblocks the request.
+  useEffect(() => {
+    if (!pendingImage) return
+    const blob = pendingImage
+    setPendingImage(null)
+    const fd = new FormData()
+    const file = blob instanceof File ? blob : new File([blob], guessNameTui(blob), { type: blob.type })
+    fd.append('file', file)
+    setIsUploading(true)
+    void fetch(uploadEndpointTui(repoId, branchId), {
+      method: 'POST',
+      body: fd,
+      credentials: 'include',
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`upload ${res.status}`)
+        return res.json() as Promise<{ path?: string }>
+      })
+      .then((data) => {
+        if (data.path && wsRef.current) {
+          const enc = new TextEncoder()
+          wsRef.current.send(enc.encode(data.path + '\r').buffer)
+        }
+      })
+      .catch(() => { /* silent: network / parse error */ })
+      .finally(() => setIsUploading(false))
+  }, [pendingImage, repoId, branchId])
 
   const statusLabel: Record<Status, string> = {
     connecting:   'connecting',
