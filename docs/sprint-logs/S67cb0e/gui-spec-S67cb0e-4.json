@@ -1,0 +1,42 @@
+{
+  "$file": "gui-spec-S67cb0e-4.json",
+  "$comment": "description フィールドを Markdown レンダリング (Sprint Detail + Overview)。 共通 MarkdownBlock component を抽出し Files Markdown viewer と同じリンクポリシーを適用。",
+  "sprint": "S67cb0e",
+  "story": "S67cb0e-4",
+  "story_type": "gui",
+  "state_diagram": "stateDiagram-v2\n    [*] --> NoDesc: description 空 → 何も描画しない (既存挙動)\n    NoDesc --> Rendered: description あり\n    Rendered --> Rendered: GFM (list/heading/code/table/emphasis) レンダリング\n    Rendered --> SamePage: アンカー(#) クリック → スムーズスクロール\n    Rendered --> RouterNav: 同一オリジン相対/絶対パス → React Router navigate\n    Rendered --> NewTab: 外部 http(s) リンク → target=_blank rel=noopener",
+  "scenarios": {
+    "entry_point": "Sprint Detail (sprint-detail.tsx の description 表示位置) と Overview の currentSprint.description。",
+    "happy_path": "ROADMAP.json の description に書いた Markdown (箇条書き・見出し・コードブロック・表・強調) が整形表示され、 リンクは種別に応じた挙動になる。",
+    "data_states": {
+      "empty": "description 空 → 何も描画しない (既存と同じ、 空 <p> も出さない)",
+      "loading": "Detail/Overview の既存 loading に従う",
+      "error": "n/a (レンダリングはクライアント完結。 不正 Markdown も ReactMarkdown が安全に処理)"
+    },
+    "edge_cases": [
+      "description に生 HTML が混在 → ReactMarkdown のデフォルト (rehype-raw 不使用) で sanitize されエスケープ表示 (XSS 防止、 markdown-view.tsx と同方針)",
+      "非常に長い description → セクション内でスクロール (レイアウト崩れなし)",
+      "改行のみ (\\n) → GFM の soft break として処理"
+    ],
+    "success_feedback": "見出し/リスト/コード/表/強調が HTML 要素 (h1-h6, ul/ol/li, code/pre, table, strong/em) としてレンダリングされる",
+    "failure_feedback": "n/a"
+  },
+  "endpoint_contracts": [
+    {
+      "path": "(なし)",
+      "method": "(client-side rendering only — 既存 overview / sprintDetail レスポンスの description フィールドをそのまま描画)",
+      "registered": false,
+      "request_fields": null,
+      "response_fields": null
+    }
+  ],
+  "data_testid": [
+    "sprint-detail-description (Detail の description コンテナ、 内部に rendered markdown)",
+    "sprint-overview-current-description (Overview currentSprint description コンテナ)",
+    "markdown-block (共通コンポーネントのルート、 任意)"
+  ],
+  "test_files": {
+    "e2e": "tests/e2e/s67cb0e_sprint_tab_polish.py",
+    "note": "fixture の ROADMAP に Markdown 入り description を仕込み、 Detail で <ul>/<code>/<h*>/<strong> 等の要素が DOM に出ることを Playwright で assert。 外部リンクが target=_blank になることも確認。 共通 MarkdownBlock の純粋ロジック (リンク分類) は frontend に Vitest unit を任意で追加。"
+  }
+}

@@ -11,11 +11,18 @@
 // below. Each screen owns its own data hook (use-sprint-data.ts) and a
 // Refresh / offline indicator in its header.
 //
+// S67cb0e-2: setViewAndUrl now pushes history for user-initiated
+// navigations (replace: false) so browser back/forward work. Only the
+// initial URL normalization uses replace: true.
+// The `view` state is derived from searchParams so that browser
+// back/forward (which only updates searchParams) re-renders the correct
+// view without needing a separate useState sync.
+//
 // We don't use nested <Routes> here because the surrounding TabContent
 // already renders SprintView for the `/sprint` URL; the Tab system
 // doesn't currently support nested route segments per tab.
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import type { TabViewProps } from '../../lib/tab-registry'
@@ -43,14 +50,30 @@ function isView(v: string | null): v is View {
 
 export function SprintView({ repoId, branchId }: TabViewProps) {
   const [searchParams, setSearchParams] = useSearchParams()
-  const initialView: View = isView(searchParams.get('view')) ? (searchParams.get('view') as View) : 'overview'
-  const [view, setView] = useState<View>(initialView)
+
+  // S67cb0e-2: derive view from searchParams as single source of truth.
+  // This ensures browser back/forward (which changes searchParams without
+  // a React state transition) automatically re-renders the correct view.
+  const rawView = searchParams.get('view')
+  const view: View = isView(rawView) ? rawView : 'overview'
+
+  // Normalize an invalid (present-but-unrecognised) ?view= to overview.
+  // We render Overview immediately (view already falls back above), then
+  // rewrite the URL in a useEffect with replace:true so no extra history
+  // entry is added. Option A — never call setSearchParams during render.
+  useEffect(() => {
+    if (rawView !== null && !isView(rawView)) {
+      const sp = new URLSearchParams(searchParams)
+      sp.set('view', 'overview')
+      setSearchParams(sp, { replace: true })
+    }
+  }, [rawView, searchParams, setSearchParams])
+
   const sprintId = searchParams.get('sprintId') ?? ''
   const filter = searchParams.get('filter') ?? ''
 
   const setViewAndUrl = useCallback(
-    (next: View, extra: Record<string, string | null> = {}) => {
-      setView(next)
+    (next: View, extra: Record<string, string | null> = {}, replace = false) => {
       const sp = new URLSearchParams(searchParams)
       sp.set('view', next)
       for (const [k, v] of Object.entries(extra)) {
@@ -62,21 +85,23 @@ export function SprintView({ repoId, branchId }: TabViewProps) {
       // current one again.
       if (next !== 'detail') sp.delete('sprintId')
       if (next !== 'decisions') sp.delete('filter')
-      setSearchParams(sp, { replace: true })
+      setSearchParams(sp, { replace })
     },
     [searchParams, setSearchParams],
   )
 
   const navigateToSprintDetail = useCallback(
     (id: string) => {
-      setViewAndUrl('detail', { sprintId: id })
+      // User-initiated navigation — push history (replace: false).
+      setViewAndUrl('detail', { sprintId: id }, false)
     },
     [setViewAndUrl],
   )
 
   const setDecisionFilter = useCallback(
     (f: string) => {
-      setViewAndUrl('decisions', { filter: f || null })
+      // Filter changes push history so the user can back out of a filter.
+      setViewAndUrl('decisions', { filter: f || null }, false)
     },
     [setViewAndUrl],
   )
@@ -89,7 +114,8 @@ export function SprintView({ repoId, branchId }: TabViewProps) {
           type="button"
           className={`${styles.subtab} ${view === v.id ? styles.subtabActive : ''}`}
           data-testid={`sprint-subtab-${v.id}`}
-          onClick={() => setViewAndUrl(v.id)}
+          // Subtab clicks push history so the user can navigate back.
+          onClick={() => setViewAndUrl(v.id, {}, false)}
         >
           {v.label}
         </button>

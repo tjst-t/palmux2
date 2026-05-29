@@ -1,0 +1,65 @@
+{
+  "sprint": "S67cb0e",
+  "run_at": "2026-05-29T15:31:00Z",
+  "server_command": "make serve INSTANCE=dev (isolated dev rig — port 8200, --tmux-prefix=_pmx_dev_, production binary embedding built frontend; NOT mock mode)",
+  "summary": {
+    "total": 26,
+    "pass": 26,
+    "fail": 0,
+    "skip": 0
+  },
+  "tests": [
+    { "name": "[AC-S67cb0e-1-1] table renders with 5 headers", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-1", "acceptance_criteria": ["AC-S67cb0e-1-1"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-1-2] API: statusKind backs pills", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-1", "acceptance_criteria": ["AC-S67cb0e-1-2"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-1-2] status pills rendered (S_A/S_B/S_C)", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-1", "acceptance_criteria": ["AC-S67cb0e-1-2"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-1-3] API: dependsOn backs chips", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-1", "acceptance_criteria": ["AC-S67cb0e-1-3"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-1-3] dep chip click navigates to prereq (stopPropagation)", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-1", "acceptance_criteria": ["AC-S67cb0e-1-3"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-1-4] API: milestone flags back ★", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-1", "acceptance_criteria": ["AC-S67cb0e-1-4"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-1-4] milestone ★ present S_B / absent S_A", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-1", "acceptance_criteria": ["AC-S67cb0e-1-4"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-1-5] row activation by keyboard (Enter + Space)", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-1", "acceptance_criteria": ["AC-S67cb0e-1-5"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-1-6] thead th computed position == sticky", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-1", "acceptance_criteria": ["AC-S67cb0e-1-6"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-2-1] pushState: row click→detail, Back→overview", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-2", "acceptance_criteria": ["AC-S67cb0e-2-1"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-2-2] invalid ?view= normalized via replace (no extra history)", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-2", "acceptance_criteria": ["AC-S67cb0e-2-2"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-2-3] Overview→Detail→Back→Overview→Forward→Detail", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-2", "acceptance_criteria": ["AC-S67cb0e-2-3"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-2-4] Detail(A)→Detail(B)→Back→A→Forward→B (pushState)", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-2", "acceptance_criteria": ["AC-S67cb0e-2-4"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-3-1] Prev/Next/select present", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-3", "acceptance_criteria": ["AC-S67cb0e-3-1"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-3-2] Prev disabled at first; Next disabled at last", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-3", "acceptance_criteria": ["AC-S67cb0e-3-2"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-3-3] Prev/Next switch sprint + update URL (pushState)", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-3", "acceptance_criteria": ["AC-S67cb0e-3-3"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-3-4] dropdown lists all sprints, current selected", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-3", "acceptance_criteria": ["AC-S67cb0e-3-4"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-3-5] dropdown select navigates + Back returns (pushState)", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-3", "acceptance_criteria": ["AC-S67cb0e-3-5"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-3-6] order sourced from existing /sprint/overview (no new endpoint)", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-3", "acceptance_criteria": ["AC-S67cb0e-3-6"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-4-1] API: detail description carries markdown source", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-4", "acceptance_criteria": ["AC-S67cb0e-4-1"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-4-1] description rendered as HTML headings", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-4", "acceptance_criteria": ["AC-S67cb0e-4-1"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-4-2] list rendered (<li>)", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-4", "acceptance_criteria": ["AC-S67cb0e-4-2"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-4-3] code + table + strong + em rendered", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-4", "acceptance_criteria": ["AC-S67cb0e-4-3"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-4-4] external link target=_blank + rel=noopener", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-4", "acceptance_criteria": ["AC-S67cb0e-4-4"], "status": "pass", "error": null },
+    { "name": "[AC-S67cb0e-4-5] Sprint + Files viewer share MarkdownBlock", "file": "tests/e2e/s67cb0e_sprint_tab_polish.py", "story": "S67cb0e-4", "acceptance_criteria": ["AC-S67cb0e-4-5"], "status": "pass", "error": null },
+    { "name": "TestOverviewTimeline_MilestoneAndDependsOn (handler-driven Go unit)", "file": "internal/tab/sprint/handler_test.go", "story": "S67cb0e-1", "acceptance_criteria": ["AC-S67cb0e-1-1", "AC-S67cb0e-1-3", "AC-S67cb0e-1-4"], "status": "pass", "error": null }
+  ],
+  "diff_coverage": {
+    "surfaces": [
+      { "type": "api", "identifier": "timeline[].milestone (bool, additive)", "introduced_in_files": ["internal/tab/sprint/handler.go", "frontend/src/tabs/sprint/types.ts"], "resolution": "covered", "test": "[AC-S67cb0e-1-4] + TestOverviewTimeline_MilestoneAndDependsOn" },
+      { "type": "api", "identifier": "timeline[].dependsOn ([]string, never null, additive)", "introduced_in_files": ["internal/tab/sprint/handler.go", "frontend/src/tabs/sprint/types.ts"], "resolution": "covered", "test": "[AC-S67cb0e-1-3] + TestOverviewTimeline_MilestoneAndDependsOn" },
+      { "type": "gui", "identifier": "<table data-testid=sprint-timeline-table> + rows sprint-timeline-{id}", "introduced_in_files": ["frontend/src/tabs/sprint/screens/overview.tsx"], "resolution": "covered", "test": "[AC-S67cb0e-1-1]/[AC-S67cb0e-1-5]" },
+      { "type": "gui", "identifier": "status pill sprint-timeline-status-{id}", "introduced_in_files": ["frontend/src/tabs/sprint/screens/overview.tsx"], "resolution": "covered", "test": "[AC-S67cb0e-1-2]" },
+      { "type": "gui", "identifier": "depends-on chip sprint-timeline-dep-{from}-{to} (clickable)", "introduced_in_files": ["frontend/src/tabs/sprint/screens/overview.tsx"], "resolution": "covered", "test": "[AC-S67cb0e-1-3]" },
+      { "type": "gui", "identifier": "milestone ★ column", "introduced_in_files": ["frontend/src/tabs/sprint/screens/overview.tsx"], "resolution": "covered", "test": "[AC-S67cb0e-1-4]" },
+      { "type": "gui", "identifier": "MarkdownBlock shared component", "introduced_in_files": ["frontend/src/components/markdown-block.tsx", "frontend/src/components/markdown-link-helpers.ts", "frontend/src/components/markdown-block.module.css"], "resolution": "covered", "test": "[AC-S67cb0e-4-1..4-5]" },
+      { "type": "gui", "identifier": "sprint-detail-description / sprint-overview-current-description (markdown)", "introduced_in_files": ["frontend/src/tabs/sprint/screens/sprint-detail.tsx", "frontend/src/tabs/sprint/screens/overview.tsx"], "resolution": "covered", "test": "[AC-S67cb0e-4-1]/[AC-S67cb0e-4-5]" },
+      { "type": "gui", "identifier": "sprint-detail-prev / sprint-detail-next / sprint-detail-sprint-select", "introduced_in_files": ["frontend/src/tabs/sprint/screens/sprint-detail.tsx"], "resolution": "covered", "test": "[AC-S67cb0e-3-1..3-5]" },
+      { "type": "behavior", "identifier": "pushState navigation (view derived from searchParams; invalid view normalized via replace)", "introduced_in_files": ["frontend/src/tabs/sprint/sprint-view.tsx"], "resolution": "covered", "test": "[AC-S67cb0e-2-1..2-4]" }
+    ],
+    "note": "No new HTTP endpoint added (Story 3 reuses /sprint/overview, AC-3-6). dependencies() handler shares TimelineEntry; its dependsOn emits [] (not null). No data-path / ADR-path files touched."
+  },
+  "done_judgment": {
+    "S67cb0e-1": { "guard1_user_review_required_not_done": "pass", "guard2_nil_injection_mock": "pass", "guard3_mock_mode_not_real_smoke": "n/a", "guard4_priority_rule_9_exception_valid": "n/a", "guard5_call_path_grep": "n/a", "guard6_deferred_comment_clean": "pass", "guard7_adr_conformance": "n/a", "guard8_destructive_multi_version_test": "n/a", "overall": "ok" },
+    "S67cb0e-2": { "guard1_user_review_required_not_done": "pass", "guard2_nil_injection_mock": "n/a", "guard3_mock_mode_not_real_smoke": "n/a", "guard4_priority_rule_9_exception_valid": "n/a", "guard5_call_path_grep": "n/a", "guard6_deferred_comment_clean": "pass", "guard7_adr_conformance": "n/a", "guard8_destructive_multi_version_test": "n/a", "overall": "ok" },
+    "S67cb0e-3": { "guard1_user_review_required_not_done": "pass", "guard2_nil_injection_mock": "n/a", "guard3_mock_mode_not_real_smoke": "n/a", "guard4_priority_rule_9_exception_valid": "n/a", "guard5_call_path_grep": "n/a", "guard6_deferred_comment_clean": "pass", "guard7_adr_conformance": "n/a", "guard8_destructive_multi_version_test": "n/a", "overall": "ok" },
+    "S67cb0e-4": { "guard1_user_review_required_not_done": "pass", "guard2_nil_injection_mock": "n/a", "guard3_mock_mode_not_real_smoke": "n/a", "guard4_priority_rule_9_exception_valid": "n/a", "guard5_call_path_grep": "n/a", "guard6_deferred_comment_clean": "pass", "guard7_adr_conformance": "n/a", "guard8_destructive_multi_version_test": "n/a", "overall": "ok" }
+  },
+  "notes": [
+    "全 21 ROADMAP AC が production-mode 実機 (make serve INSTANCE=dev、 real Chromium、 real backend、 network mock 無し) で pass。 test-discipline Rule 2/4 準拠。",
+    "guard3-5/7/8 は palmux2 (single-user web terminal、 data-path/ADR/Vault 無し) では n/a。 guard8_rationale は decisions.json に記録済み。",
+    "既知の pre-existing lint error: frontend/src/tabs/claude-tui/claude-tui-tab.tsx:545 (react-hooks/set-state-in-effect) — hotfix a8e86da 由来、 本 Sprint の diff 外。 stash 確認済み。 suppress せず backlog 候補として記録。"
+  ]
+}

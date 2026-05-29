@@ -77,6 +77,8 @@ export interface TimelineEntry {
   id: string
   title: string
   statusKind: Sprint['statusKind']
+  milestone?: boolean
+  dependsOn?: string[]
 }
 
 export interface Dependency {

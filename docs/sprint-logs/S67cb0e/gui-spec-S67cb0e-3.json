@@ -1,0 +1,46 @@
+{
+  "$file": "gui-spec-S67cb0e-3.json",
+  "$comment": "Sprint Detail に Prev/Next ボタン + 全 Sprint ドロップダウン。 sprint 順序は overview.timeline 配列 (execution_order 順で backend が emit) を再利用。",
+  "sprint": "S67cb0e",
+  "story": "S67cb0e-3",
+  "story_type": "gui",
+  "state_diagram": "stateDiagram-v2\n    [*] --> NoSprint: ?view=detail で sprintId 無し → 既存 'Pick a sprint' empty\n    NoSprint --> ShowingFirst: dropdown / overview から sprint 選択\n    ShowingFirst --> ShowingMid: Next ▶ (prev 有効化)\n    ShowingMid --> ShowingMid: prev/next/dropdown\n    ShowingMid --> ShowingLast: 末尾まで Next → Next disabled\n    ShowingFirst --> ShowingFirst: Prev disabled (先頭)\n    state ShowingFirst { PrevDisabled }\n    state ShowingLast { NextDisabled }",
+  "scenarios": {
+    "entry_point": "Sprint Detail (?view=detail&sprintId={id})。 ヘッダの Prev / Next ボタン + 全 Sprint <select> ドロップダウン。",
+    "happy_path": "Detail を開いた状態で Next ▶ を押すと execution_order 上の次の Sprint に切替、 dropdown で任意 Sprint を選ぶと即その Detail に切替。 いずれも URL の sprintId が更新され (pushState)、 戻るで前の Sprint に戻れる。",
+    "data_states": {
+      "empty": "sprintId 無し → 既存 'Pick a sprint from the Overview timeline' empty (Prev/Next/dropdown も sprint 一覧取得後に表示)",
+      "loading": "Detail body は既存 'Loading…'。 ナビゲーションコントロールは timeline 取得後に有効化",
+      "error": "Detail fetch 失敗 → 既存 ErrorBanner。 ナビゲーションコントロールは残す (別 sprint に移動して回復可能)"
+    },
+    "edge_cases": [
+      "execution_order 先頭 sprint → Prev disabled (aria-disabled + 非クリック)",
+      "execution_order 末尾 sprint → Next disabled",
+      "現在の sprintId が execution_order に無い (旧 ID 等) → dropdown は該当なしで先頭を暫定 index に、 Prev/Next は index 0 起点で動作 (クラッシュしない)",
+      "sprint が 1 個のみ → Prev も Next も disabled、 dropdown は 1 項目"
+    ],
+    "success_feedback": "Detail body が選択 Sprint に切替わり、 ViewHeader の 'Sprint Detail · {id}' とドロップダウン selected が同期、 URL sprintId 更新",
+    "failure_feedback": "存在しない sprintId に飛んだ場合は Detail の既存 404 系エラー表示に委ねる"
+  },
+  "endpoint_contracts": [
+    {
+      "path": "/api/repos/{repoId}/branches/{branchId}/sprint/overview",
+      "method": "GET",
+      "registered": true,
+      "request_fields": null,
+      "response_fields": {
+        "timeline": "TimelineEntry[] — Prev/Next/dropdown の sprint 順序リストとして再利用。 backend は ROADMAP の sprint を execution_order 順に emit (overview() の rm.Sprints ループ順 = parser の順序)。 新規エンドポイント追加しない (AC-S67cb0e-3-6)"
+      }
+    }
+  ],
+  "data_testid": [
+    "sprint-detail-prev (◀ Prev ボタン)",
+    "sprint-detail-next (Next ▶ ボタン)",
+    "sprint-detail-sprint-select (<select> ドロップダウン)",
+    "sprint-detail-status (既存維持)"
+  ],
+  "test_files": {
+    "e2e": "tests/e2e/s67cb0e_sprint_tab_polish.py",
+    "note": "Prev/Next の disabled は locator.is_disabled() / get_attribute('disabled') で確認。 dropdown は select_option で別 sprint を選び Detail 切替を assert。 切替後 page.go_back() で前 sprint に戻ることも確認 (Story 2 連動)。"
+  }
+}

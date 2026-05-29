@@ -1,0 +1,42 @@
+{
+  "sprint": "S67cb0e",
+  "touched_adrs": [],
+  "entries": [
+    {
+      "category": "planning",
+      "title": "Story 1 は小さな additive backend 変更を伴う (純 FE ではない)",
+      "body": "JIRA 風テーブルの 'Depends on' / 'Milestone' 列に必要なデータが既存 overview レスポンスの timeline 要素に無い (TimelineEntry は {id,title,statusKind} のみ)。 milestone は parser.Sprint.Milestone に、 依存は projectDependencies に既に存在するので、 TimelineEntry に milestone bool + dependsOn []string を additive 追加して overview() で埋める方針を採用。 代替案 (Overview screen が /dependencies も fetch してクライアント join) は 2 リクエスト + milestone がどちらの endpoint にも無い問題が残るため不採用。 新規エンドポイントは追加しない (既存レスポンスへのフィールド追加のみ) ので AC-S67cb0e-3-6 の 'no new endpoint' 方針とも整合。 propose 時に 'FE のみ' と説明したが、 この additive backend touch を含む点を明記。",
+      "reference": "internal/tab/sprint/handler.go:140-146,196-203; parser/types.go:51-57,107-109",
+      "needsHuman": false
+    },
+    {
+      "category": "planning",
+      "title": "E2E は palmux2 既存の Python + sync_playwright 規約に従う (gui-spec の TS spec は使わない)",
+      "body": "gui-spec の出力契約は tests/e2e/{slug}.e2e.spec.ts / .mock.spec.ts (TS) だが、 palmux2 は CLAUDE.md テスト方針で 'E2E: tests/e2e/sNNN_*.py (Python + Playwright headless)' を確立済み。 既存 39 本の E2E が全て Python harness (_fixture.palmux2_test_fixture + sync_playwright, real Chromium, real backend)。 test-discipline Rule 2/4 (実ブラウザ・実バックエンド・network mock 禁止・UI state 観測) は言語非依存に満たされるため、 project 規約を優先し 1 Sprint = 1 Python ファイル (s67cb0e_sprint_tab_polish.py、 AC は [AC-S67cb0e-N-M] タグ) とする。 backend additive field は handler_test.go の Go unit でも確認。 mock spec 層は palmux2 に存在しない (Go unit + Python E2E の 2 層) ため作らない。",
+      "reference": "CLAUDE.md テスト方針; tests/e2e/s028_sprint_json.py; tests/e2e/_fixture.py",
+      "needsHuman": false
+    },
+    {
+      "category": "planning",
+      "title": "Markdown レンダリングは共通 MarkdownBlock コンポーネントに抽出",
+      "body": "Sprint Detail / Overview の description 用に ReactMarkdown を直書きするのではなく、 frontend/src/components/markdown-block.tsx に共通化。 files/viewers/markdown-view.tsx の確立済みリンク分類 (anchor smooth scroll / 相対パス Router navigate / 同一オリジン絶対 Router / 外部 target=_blank rel=noopener) と remark-gfm + rehype-slug + sanitize 方針を再利用し、 markdown-view.tsx 自体もこの共通コンポーネントに寄せて重複排除する。 テーマ・リンク挙動の一貫性を担保。",
+      "reference": "frontend/src/tabs/files/viewers/markdown-view.tsx",
+      "needsHuman": false
+    },
+    {
+      "category": "planning",
+      "title": "Sprint ドロップダウンは native <select>、 順序は overview.timeline 再利用",
+      "body": "Prev/Next/dropdown の sprint 順序リストは新規エンドポイントを足さず既存 sprintApi.overview() の timeline 配列 (backend が ROADMAP の sprint 順 = parser 順で emit) を再利用 (AC-S67cb0e-3-6)。 ドロップダウンは ⌘K 風 fuzzy ではなく native <select> を採用 (Sprint 数は数十、 全 sprint 一覧から直接ジャンプという要件にはネイティブセレクトで十分かつアクセシブル・モバイル対応も自動)。",
+      "reference": "frontend/src/tabs/sprint/api.ts:48-49; handler.go overview()",
+      "needsHuman": false
+    },
+    {
+      "category": "planning",
+      "title": "guard8 (data path destructive test) は n/a",
+      "body": "本 Sprint は Sprint Dashboard タブの UI polish + sprint handler への additive read-only フィールド追加のみ。 test-discipline Rule 8 の data path ディレクトリ (internal/server/, internal/proxyfuse/, cmd/storage-core/ 等) を一切 touch せず、 destructive な書き込み経路も持たない。 よって destructive multi-version scenario test は n/a。",
+      "reference": "test-discipline.md Rule 8",
+      "needsHuman": false,
+      "guard8_rationale": "n/a — UI polish + read-only additive sprint-overview field のみ。 data path 非該当、 production data 書き込み経路なし。"
+    }
+  ]
+}

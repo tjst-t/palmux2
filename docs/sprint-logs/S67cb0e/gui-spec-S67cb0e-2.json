@@ -1,0 +1,42 @@
+{
+  "$file": "gui-spec-S67cb0e-2.json",
+  "$comment": "Sprint タブ内遷移を pushState 化してブラウザ履歴に載せる。 react-router useSearchParams の replace フラグを user 起点遷移で false にする。",
+  "sprint": "S67cb0e",
+  "story": "S67cb0e-2",
+  "story_type": "gui",
+  "state_diagram": "stateDiagram-v2\n    [*] --> Overview: タブを開く (?view=overview、 初回 URL 正規化は replace:true)\n    Overview --> Detail: timeline 行クリック (pushState — history +1)\n    Detail --> DetailB: prev/next/dropdown で別 sprint (pushState — history +1)\n    Detail --> Overview: ブラウザ戻る (popstate)\n    DetailB --> Detail: ブラウザ戻る (popstate)\n    Overview --> Detail: ブラウザ進む (popstate)",
+  "scenarios": {
+    "entry_point": "Sprint タブ。 subtab クリック / timeline 行クリック / Story 3 の prev・next・dropdown 操作、 およびブラウザの戻る/進むボタン。",
+    "happy_path": "Overview → 行クリックで Detail → ブラウザ戻るで Overview に戻る → ブラウザ進むで Detail に戻る。 各 user 起点遷移が history entry を 1 つずつ積む。",
+    "data_states": {
+      "empty": "n/a (ナビゲーション挙動。 データ状態には依存しない)",
+      "loading": "遷移直後は遷移先 view の通常 loading 表示",
+      "error": "n/a"
+    },
+    "edge_cases": [
+      "初回マウントで ?view= が invalid (isView=false) → 'overview' に矯正、 ただし replace:true で履歴を汚さない",
+      "同一 view への再遷移 (例 Overview で Overview subtab を再クリック) → URL 不変なら history を増やさない (react-router は同一 location への push を抑制)",
+      "Detail で sprintId 無し → Story 3 ロジックが default sprint に解決、 その正規化は replace:true"
+    ],
+    "success_feedback": "URL の ?view / ?sprintId クエリが変化し、 ブラウザ履歴スタックに積まれる (戻る/進むが活きる)",
+    "failure_feedback": "n/a"
+  },
+  "endpoint_contracts": [
+    {
+      "path": "(なし)",
+      "method": "(client-side routing only)",
+      "registered": false,
+      "request_fields": null,
+      "response_fields": null
+    }
+  ],
+  "data_testid": [
+    "sprint-subtab-{view} (既存維持)",
+    "sprint-timeline-{id} (Story 1)",
+    "テスト判定は page.go_back() / page.go_forward() 後の data-testid 可視状態 + URL クエリで行う"
+  ],
+  "test_files": {
+    "e2e": "tests/e2e/s67cb0e_sprint_tab_polish.py",
+    "note": "Playwright の page.go_back() / page.go_forward() を使い、 戻る/進む後の表示 view と URL search params を assert。 history が pushState で積まれていることを実ブラウザ挙動で確認 (Rule 4: UI state 観測)。"
+  }
+}

@@ -1,11 +1,16 @@
 // Sprint Detail screen — header (status / branch) + stories list +
 // acceptance matrix + test results summary + recent decisions.
+//
+// S67cb0e-3: Prev/Next buttons + sprint select dropdown for keyboard /
+// mouse navigation through all sprints in roadmap order.
+// S67cb0e-4: description is rendered via MarkdownBlock.
 
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { MarkdownBlock } from '../../../components/markdown-block'
 import { sprintApi } from '../api'
 import styles from '../sprint-view.module.css'
-import type { SprintDetailResponse } from '../types'
+import type { OverviewResponse, SprintDetailResponse } from '../types'
 import { useSprintData } from '../use-sprint-data'
 
 import { ErrorBanner, ParseErrorsBanner, ViewHeader } from './view-header'
@@ -41,6 +46,39 @@ export function SprintDetailView({
     key: sprintId,
   })
 
+  // S67cb0e-3: fetch overview to get the ordered sprint list for prev/next.
+  // Cached independently of sprintDetail — lightweight, rarely changes.
+  const [overviewData, setOverviewData] = useState<OverviewResponse | null>(null)
+  const overviewETagRef = useRef<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    // Reset the ETag on repoId/branchId change so a workspace switch does an
+    // unconditional GET. Otherwise the stale If-None-Match could yield a 304,
+    // leaving prev/next/dropdown showing the previous workspace's sprint list.
+    overviewETagRef.current = null
+    sprintApi.overview(repoId, branchId, overviewETagRef.current).then((res) => {
+      if (cancelled) return
+      if (res.status !== 304 && res.body !== null) {
+        overviewETagRef.current = res.etag
+        setOverviewData(res.body)
+      }
+    }).catch(() => {/* silently ignore — prev/next just won't render */})
+    return () => { cancelled = true }
+  }, [repoId, branchId])
+
+  const timeline = overviewData?.timeline ?? []
+  const currentIndex = timeline.findIndex((t) => t.id === sprintId)
+  const prevId = currentIndex > 0 ? timeline[currentIndex - 1].id : null
+  // When the current sprint isn't in the list (currentIndex === -1) keep Prev
+  // disabled but let Next jump to the first real sprint, so navigation isn't a
+  // dead end for a renamed/deleted sprint.
+  const nextId =
+    currentIndex >= 0
+      ? currentIndex < timeline.length - 1
+        ? timeline[currentIndex + 1].id
+        : null
+      : (timeline[0]?.id ?? null)
+
   if (!sprintId) {
     return (
       <>
@@ -66,7 +104,55 @@ export function SprintDetailView({
         loading={loading}
         onRefresh={refresh}
         testIdPrefix="sprint-detail"
-      />
+      >
+        {/* S67cb0e-3: prev/next/dropdown navigation */}
+        {timeline.length > 0 && (
+          <>
+            <button
+              type="button"
+              className={styles.navBtn}
+              data-testid="sprint-detail-prev"
+              disabled={prevId === null}
+              onClick={() => prevId && onOpenSprint(prevId)}
+              title="Previous sprint"
+            >
+              ◀ Prev
+            </button>
+            <select
+              className={styles.sprintSelect}
+              data-testid="sprint-detail-sprint-select"
+              aria-label="Jump to sprint"
+              // When the current sprintId isn't in the fetched timeline
+              // (e.g. renamed/deleted sprint), select a placeholder option
+              // so the dropdown always reflects what the body actually shows
+              // rather than silently claiming sprint[0].
+              value={sprintId}
+              onChange={(e) => {
+                if (e.target.value) onOpenSprint(e.target.value)
+              }}
+            >
+              {currentIndex < 0 && (
+                <option value={sprintId}>{sprintId} (not in roadmap)</option>
+              )}
+              {timeline.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.id} — {t.title}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className={styles.navBtn}
+              data-testid="sprint-detail-next"
+              disabled={nextId === null}
+              onClick={() => nextId && onOpenSprint(nextId)}
+              title="Next sprint"
+            >
+              Next ▶
+            </button>
+          </>
+        )}
+      </ViewHeader>
       <ErrorBanner message={error} />
       <ParseErrorsBanner errors={data?.parseErrors} />
 
@@ -86,9 +172,9 @@ export function SprintDetailView({
               </span>
             </h3>
             {data.sprint.description && (
-              <p style={{ margin: '8px 0', fontSize: 13, color: 'var(--color-fg-muted)' }}>
-                {data.sprint.description}
-              </p>
+              <div style={{ marginTop: 8 }} data-testid="sprint-detail-description">
+                <MarkdownBlock>{data.sprint.description}</MarkdownBlock>
+              </div>
             )}
           </section>
 

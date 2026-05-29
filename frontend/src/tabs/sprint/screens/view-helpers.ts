@@ -18,3 +18,18 @@ export function statusClass(kind: string): string {
       return styles.statusPending
   }
 }
+
+/** Returns the CSS Module class for a colored status pill (Story 1 table). */
+export function statusPillClass(kind: string): string {
+  const base = styles.statusPill
+  switch (kind) {
+    case 'done':
+      return `${base} ${styles.pillDone}`
+    case 'in-progress':
+      return `${base} ${styles.pillInProgress}`
+    case 'blocked':
+      return `${base} ${styles.pillBlocked}`
+    default:
+      return `${base} ${styles.pillPending}`
+  }
+}
