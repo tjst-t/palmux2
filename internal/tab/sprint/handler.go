@@ -140,9 +140,11 @@ type ActiveAutopilot struct {
 // TimelineEntry is one (id, title, status) row used for the linear
 // timeline at the bottom of Overview.
 type TimelineEntry struct {
-	ID         string `json:"id"`
-	Title      string `json:"title"`
-	StatusKind string `json:"statusKind"`
+	ID         string   `json:"id"`
+	Title      string   `json:"title"`
+	StatusKind string   `json:"statusKind"`
+	Milestone  bool     `json:"milestone"`
+	DependsOn  []string `json:"dependsOn"`
 }
 
 func (h *handler) overview(w http.ResponseWriter, r *http.Request) {
@@ -193,12 +195,42 @@ func (h *handler) overview(w http.ResponseWriter, r *http.Request) {
 
 	resp.ActiveAutopilot = scanActiveAutopilot(autopilotDir)
 
+	// Build a prereq lookup: sprintID → []prereqIDs from dependencies.
+	// projectDependencies emits Refs = [from, prereq1, prereq2, ...].
+	prereqMap := map[string][]string{}
+	for _, d := range rm.Dependencies {
+		if len(d.Refs) < 1 {
+			continue
+		}
+		from := d.Refs[0]
+		if _, ok := prereqMap[from]; !ok {
+			prereqMap[from] = []string{}
+		}
+		if len(d.Refs) > 1 {
+			// Deduplicate prereqs for this sprint.
+			seen := map[string]struct{}{}
+			for _, prereq := range d.Refs[1:] {
+				if _, dup := seen[prereq]; dup {
+					continue
+				}
+				seen[prereq] = struct{}{}
+				prereqMap[from] = append(prereqMap[from], prereq)
+			}
+		}
+	}
+
 	resp.Timeline = make([]TimelineEntry, 0, len(rm.Sprints))
 	for _, s := range rm.Sprints {
+		dependsOn := prereqMap[s.ID]
+		if dependsOn == nil {
+			dependsOn = []string{}
+		}
 		resp.Timeline = append(resp.Timeline, TimelineEntry{
 			ID:         s.ID,
 			Title:      s.Title,
 			StatusKind: s.StatusKind,
+			Milestone:  s.Milestone,
+			DependsOn:  dependsOn,
 		})
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -343,6 +375,8 @@ func (h *handler) dependencies(w http.ResponseWriter, r *http.Request) {
 			ID:         s.ID,
 			Title:      s.Title,
 			StatusKind: s.StatusKind,
+			Milestone:  s.Milestone,
+			DependsOn:  []string{},
 		})
 	}
 	resp.Mermaid = buildMermaid(resp.Sprints, resp.Dependencies)

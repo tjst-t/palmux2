@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sprint Detail — prev/next + markdown (S67cb0e prototype)</title>
+  <link rel="stylesheet" href="s67cb0e-sprint-tab.css" />
+</head>
+<body>
+  <div class="root">
+    <div class="protoNav">
+      <span style="color:var(--color-fg-dim)">S67cb0e prototype:</span>
+      <a href="s67cb0e-overview.html">Overview (table)</a>
+      <a href="s67cb0e-detail.html"><b style="color:var(--color-accent)">Sprint Detail (nav + markdown)</b></a>
+    </div>
+
+    <nav class="subtabs" aria-label="Sprint dashboard sections">
+      <a class="subtab" href="s67cb0e-overview.html" data-testid="sprint-subtab-overview">Overview</a>
+      <a class="subtab subtabActive" href="s67cb0e-detail.html" data-testid="sprint-subtab-detail">Sprint Detail</a>
+      <span class="subtab" data-testid="sprint-subtab-dependencies">Dependencies</span>
+      <span class="subtab" data-testid="sprint-subtab-decisions">Decisions</span>
+      <span class="subtab" data-testid="sprint-subtab-refine">Refine</span>
+    </nav>
+
+    <div class="body">
+      <!-- Story 3: header with prev/next + dropdown -->
+      <div class="viewHeader">
+        <h2 class="viewTitle">Sprint Detail · Sadf90e</h2>
+        <div class="viewActions detailNav">
+          <button class="navBtn" data-testid="sprint-detail-prev" title="前の Sprint (execution_order)">◀ Prev</button>
+          <select class="sprintSelect" data-testid="sprint-detail-sprint-select" aria-label="Jump to sprint">
+            <option>S016 — Sprint Dashboard tab (claude-skills 連携)</option>
+            <option>S028 — Sprint tab JSON support</option>
+            <option>S1f75ec — Track B Sprint C — claude-tui simplify</option>
+            <option selected>Sadf90e — Claude タブの mode をタブ単位設定に作り直す</option>
+            <option>S67cb0e — Sprint タブ UX polish</option>
+          </select>
+          <button class="navBtn" data-testid="sprint-detail-next" title="次の Sprint (execution_order)">Next ▶</button>
+          <button class="iconButton" data-testid="sprint-detail-refresh">↻</button>
+        </div>
+      </div>
+      <div class="note">
+        <b>S67cb0e-3</b>: Prev / Next（<code>execution_order</code> 順）+ 全 Sprint <code>&lt;select&gt;</code>。
+        先頭で Prev、末尾で Next が disabled。 sprint 順序は既存 <code>overview.timeline</code> を再利用（新エンドポイント無し）。
+        切替は pushState（<b>S67cb0e-2</b>）なので、別 Sprint に飛んだあとブラウザ戻るで元の Sprint に戻れる。
+      </div>
+
+      <!-- Story 4: markdown-rendered description -->
+      <section class="section">
+        <h3 class="sectionTitle">
+          Sadf90e: Claude タブの mode をタブ単位設定に作り直す
+          <span class="statusDone" style="margin-left:8px;font-size:12px" data-testid="sprint-detail-status">[done]</span>
+        </h3>
+
+        <div class="note">
+          <b>S67cb0e-4</b>: description を Markdown レンダリング（共通 <code>MarkdownBlock</code> = Files の md viewer と同じリンクポリシー）。
+          下は Before（生テキスト）→ After（描画後）の比較。
+        </div>
+
+        <div class="compareGrid">
+          <div class="compareCol">
+            <h4>Before（現状: 生テキスト）</h4>
+            <div class="beforePlain">Sprint S1f75ec-2 で『タブバー単一化 + branch.claude_mode』 を実装したが、 実態は backend に『claudeagent N 個 + claudetui 1 個』が並存し、 frontend が claudetui を非表示にして claudeagent の中身を claudetui で描画するという構造的に脆い設計だった。 結果として:
+  - 1 branch に 2 つの Claude タブがあっても全部同じ daemon を共有
+  - バッジは最初のタブだけに表示
+  - ⌘K で切り替えると同 branch の全タブが連動
+
+5 stories:
+  -1 claudetui を per-tab daemon 化
+  -2 統一 'claude' Provider に統合</div>
+          </div>
+
+          <div class="compareCol">
+            <h4>After（S67cb0e-4: Markdown 描画）</h4>
+            <div class="markdownBlock" data-testid="sprint-detail-description">
+              <p>Sprint S1f75ec-2 で『タブバー単一化 + <code>branch.claude_mode</code>』を実装したが、実態は backend に『claudeagent N 個 + claudetui 1 個』が並存し、frontend が claudetui を非表示にして claudeagent の中身を claudetui で描画するという<strong>構造的に脆い設計</strong>だった。結果として:</p>
+              <ul>
+                <li>1 branch に 2 つの Claude タブがあっても全部同じ daemon を共有（= タブ単位 mode は実現不能）</li>
+                <li>バッジは最初のタブだけに表示、他タブが何 mode か区別できない</li>
+                <li>⌘K で切り替えると同 branch の全タブが連動（= 意図しない巻き込み）</li>
+              </ul>
+              <h3>5 stories</h3>
+              <ol>
+                <li><code>-1</code> claudetui を per-tab daemon 化（<code>Multiple=true</code>）</li>
+                <li><code>-2</code> claudeagent + claudetui を統一 <code>claude</code> Provider に統合</li>
+                <li><code>-3</code> repos.json schema 変更 + tab-scope API 新設</li>
+              </ol>
+              <blockquote>ユーザフィードバック 2026-05-27: 『agent モードと TUI モードの設定ってタブ単位では設定できない？』</blockquote>
+              <p>関連: <a href="#">docs/06-claude-tab-roadmap.md</a>（内部リンク → Router navigate）/
+                 <a href="https://docs.anthropic.com" target="_blank" rel="noopener">外部ドキュメント ↗</a>（新規タブ）</p>
+              <table>
+                <thead><tr><th>破壊的変更</th><th>影響</th></tr></thead>
+                <tbody>
+                  <tr><td><code>BranchSettings.ClaudeMode</code> 削除</td><td>既存設定 discard</td></tr>
+                  <tr><td><code>claudetui.Multiple()==true</code></td><td>per-tab daemon</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Stories list (unchanged — shown for context) -->
+      <section class="section">
+        <h3 class="sectionTitle">Stories (5)</h3>
+        <div class="storiesList">
+          <div class="storyItem">
+            <div class="storyHeader">
+              <h4>Sadf90e-1: claudetui を per-tab daemon 化 (Multiple=true)</h4>
+              <span class="statusDone" style="font-size:12px">[done]</span>
+            </div>
+            <p class="storyMeta" style="font-style:italic">開発者として、同じ branch に複数の TUI タブを開いて、それぞれ独立した claude プロセスを並走させたい。</p>
+            <div class="storyMeta">5 acceptance criteria · 0 tasks</div>
+            <ul class="acList">
+              <li class="acDone">✓ claudetui.Provider.Multiple() == true。2 つの独立した daemon が起動</li>
+              <li class="acDone">✓ Manager の lookup key が (repoID, branchID, tabID)</li>
+            </ul>
+          </div>
+        </div>
+        <p style="margin:8px 0 0;font-size:11px;color:var(--color-fg-dim)">
+          ※ Story の user_story / AC text は今回 Markdown 化の対象外（description フィールドのみ）。
+        </p>
+      </section>
+    </div>
+  </div>
+</body>
+</html>

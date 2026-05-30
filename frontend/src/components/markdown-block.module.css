@@ -1,0 +1,111 @@
+/* MarkdownBlock — shared Fog-palette Markdown renderer (S67cb0e-4).
+   Used by Sprint Detail / Overview descriptions and any other view that
+   needs plain-text→Markdown rendering without the Files-specific image
+   src rewriting or SPA-relative-path navigation of MarkdownView. */
+
+.markdownBlock {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-fg);
+}
+
+.markdownBlock > *:first-child {
+  margin-top: 0;
+}
+
+.markdownBlock > *:last-child {
+  margin-bottom: 0;
+}
+
+.markdownBlock :global(h1),
+.markdownBlock :global(h2),
+.markdownBlock :global(h3) {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 14px 0 6px;
+  color: var(--color-fg);
+}
+
+.markdownBlock :global(h1) {
+  font-size: 16px;
+}
+
+.markdownBlock :global(p) {
+  margin: 6px 0;
+  color: var(--color-fg-muted);
+}
+
+.markdownBlock :global(ul),
+.markdownBlock :global(ol) {
+  margin: 6px 0;
+  padding-left: 22px;
+  color: var(--color-fg-muted);
+}
+
+.markdownBlock :global(li) {
+  margin: 3px 0;
+}
+
+.markdownBlock :global(code) {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--color-elevated, #1a1c25);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--color-accent-light, #9ba6ff);
+}
+
+.markdownBlock :global(pre) {
+  background: #0c0e14;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  overflow: auto;
+  margin: 8px 0;
+}
+
+.markdownBlock :global(pre code) {
+  background: none;
+  padding: 0;
+  color: var(--color-fg);
+}
+
+.markdownBlock :global(a) {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.markdownBlock :global(a:hover) {
+  text-decoration: underline;
+}
+
+.markdownBlock :global(table) {
+  border-collapse: collapse;
+  font-size: 12px;
+  margin: 8px 0;
+  width: 100%;
+}
+
+.markdownBlock :global(th),
+.markdownBlock :global(td) {
+  border: 1px solid var(--color-border);
+  padding: 5px 9px;
+  text-align: left;
+}
+
+.markdownBlock :global(th) {
+  background: var(--color-elevated, #1a1c25);
+  color: var(--color-fg-muted);
+  font-weight: 600;
+}
+
+.markdownBlock :global(strong) {
+  color: var(--color-fg);
+}
+
+.markdownBlock :global(blockquote) {
+  border-left: 3px solid var(--color-accent);
+  margin: 8px 0;
+  padding: 2px 12px;
+  color: var(--color-fg-muted);
+}

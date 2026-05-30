@@ -1,0 +1,47 @@
+{
+  "$file": "gui-spec-S67cb0e-1.json",
+  "$comment": "Overview timeline を JIRA 風テーブル化。 palmux2 の E2E は tests/e2e/sNNN_*.py (Python + sync_playwright, real Chromium, real backend) で行う — TS *.spec.ts ではない (CLAUDE.md テスト方針)。",
+  "sprint": "S67cb0e",
+  "story": "S67cb0e-1",
+  "story_type": "gui",
+  "state_diagram": "stateDiagram-v2\n    [*] --> Loading: Sprint タブ Overview を開く\n    Loading --> Empty: timeline=[] (ROADMAP に sprint なし)\n    Loading --> Table: timeline 取得成功\n    Loading --> ErrorBanner: overview fetch 失敗\n    Table --> Detail: 行クリック / Enter / Space\n    Table --> Detail: Depends-on チップクリック (該当 prereq sprint へ)\n    Table --> Table: 縦スクロール (thead は sticky のまま残る)",
+  "scenarios": {
+    "entry_point": "Sprint タブ → Overview サブタブ (?view=overview)。 'Sprint timeline' セクション。",
+    "happy_path": "ユーザが Overview を開くと timeline が <table> でレンダリングされ (ID / Title / Status / Depends on / Milestone 列)、 行をクリックすると該当 Sprint の Detail に遷移する。",
+    "data_states": {
+      "empty": "timeline=[] のとき従来同様 'Loading…' / 空表示 (テーブル自体は描画されない、 既存挙動を退行させない)",
+      "loading": "data 未取得時は既存の 'Loading…' プレースホルダ",
+      "error": "overview fetch 失敗時は ErrorBanner (既存 view-header の ErrorBanner を再利用)"
+    },
+    "edge_cases": [
+      "Title が長い → CSS で省略 (テーブルセルは折返し or ellipsis、 dot 時代の truncate(24) は廃止し列幅で制御)",
+      "depends_on が空 → Depends on セルは空 (チップ 0 個)",
+      "milestone=false → Milestone セルは空 (★ なし)",
+      "依存先 Sprint が timeline に存在しない ID → チップは描画するがクリックは Detail に遷移 (404 は Detail 側の既存エラー表示に委ねる)"
+    ],
+    "success_feedback": "行クリックで URL が ?view=detail&sprintId={id} に変わり Sprint Detail が表示される (Story 2 の pushState 経由)",
+    "failure_feedback": "ErrorBanner にメッセージ表示 (既存パターン)"
+  },
+  "endpoint_contracts": [
+    {
+      "path": "/api/repos/{repoId}/branches/{branchId}/sprint/overview",
+      "method": "GET",
+      "registered": true,
+      "request_fields": null,
+      "response_fields": {
+        "timeline": "TimelineEntry[] — 既存 {id, title, statusKind} に additive で {milestone bool, dependsOn []string} を追加 (handler.go の TimelineEntry struct + overview() のマッピング、 parser.Sprint.Milestone + projectDependencies から導出)",
+        "note": "新規エンドポイントは追加しない。 既存 overview レスポンスの timeline 要素に 2 フィールド追加するのみ。 dependencies エンドポイントの Sprints[] も同じ TimelineEntry を共有するので additive 変更が波及するが無害"
+      }
+    }
+  ],
+  "data_testid": [
+    "sprint-overview-timeline (テーブルのコンテナ、 既存維持)",
+    "sprint-timeline-table (新規: <table>)",
+    "sprint-timeline-{id} (各 <tr>、 既存 testid を行レベルで維持)",
+    "sprint-timeline-dep-{from}-{to} (Depends on チップ、 任意)"
+  ],
+  "test_files": {
+    "e2e": "tests/e2e/s67cb0e_sprint_tab_polish.py",
+    "note": "palmux2 convention: 1 Python file per Sprint, AC は [AC-S67cb0e-1-N] タグで紐付け。 TS mock spec は palmux2 では使わない (Go unit test + Python Playwright E2E の 2 層)。 backend additive field は handler_test.go の Go unit test でも確認。"
+  }
+}

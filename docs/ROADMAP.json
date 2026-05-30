@@ -2,13 +2,13 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 43,
-    "sprints_total": 43,
+    "sprints_done": 44,
+    "sprints_total": 44,
     "percent": 100,
     "current_sprint": null,
-    "done": 43,
+    "done": 44,
     "in_progress": 0,
-    "total": 43,
+    "total": 44,
     "remaining": 0,
     "percentage": 100
   },
@@ -55,7 +55,8 @@
     "S7ce250",
     "S0fd64b",
     "S1f75ec",
-    "Sadf90e"
+    "Sadf90e",
+    "S67cb0e"
   ],
   "sprints": {
     "S001": {
@@ -7622,6 +7623,244 @@
         }
       },
       "completedAt": "2026-05-27"
+    },
+    "S67cb0e": {
+      "title": "Sprint タブ UX polish (table timeline + browser history + prev/next + Markdown description)",
+      "status": "done",
+      "milestone": false,
+      "description": "Sprint Dashboard タブの 4 つの UX 改善:\n  1. Overview timeline を 'dot' ピル群から JIRA 風テーブル化 (ID / Title / Status / Depends on / Milestone 列、 sticky header、 行クリック遷移)\n  2. Sprint タブ内遷移を pushState 化し、 ブラウザ「戻る/進む」 で Overview ⇄ Detail を辿れるようにする\n  3. Sprint Detail に Prev / Next ボタン + 全 Sprint ドロップダウンを追加し、 Overview に戻らずに連続レビュー可能にする\n  4. Sprint Detail / Overview の description フィールドを ReactMarkdown + remark-gfm でレンダリング (Files Markdown viewer と同じリンクポリシー)\n\nユーザフィードバック 2026-05-29: 『Sprintタブを改善したい。 sprint timeline はもっと JIRA のようにテーブルで表記してほしい。 クリックすると、 Sprint Detail タブに行くのはいいけど、 ちゃんと履歴にのっけてブラウザで行く戻るができるようにしてほしい。 Sprint Detail タブで前、 次ボタン及びドロップダウンメニューで、 別のスプリントに移動できるようにしてほしい。 Sprint Detail の上のところ、 ちゃんとマークダウンでフォーマットして表示してほしい。』\n\n対象外:\n  - Overview timeline の sort / filter / column resize (将来 Backlog 候補、 今回はテーブル化のみ)\n  - Sprint Detail Story リストの Markdown 化 (description フィールドのみ対象、 user_story / AC text は今回触らない)\n  - 新規 API エンドポイント (prev/next ドロップダウンは既存 sprintApi.overview() の timeline を再利用)\n\n依存: なし (Sprint 関連基盤 S016 / S028 は完了済み、 frontend 改修のみ)",
+      "stories": {
+        "S67cb0e-1": {
+          "title": "Overview timeline を JIRA 風テーブル化",
+          "status": "done",
+          "user_review_required": false,
+          "review_reason": null,
+          "user_story": "Palmux2 ユーザとして、 Sprint Overview の timeline を表形式 (ID / Title / Status / Depends on / Milestone) で見たい。 なぜなら、 進捗を一覧スキャンしやすく、 Sprint 間の比較・把握が早くなるから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S67cb0e-1-1",
+              "description": "Overview の 'Sprint timeline' セクションが <table> (thead + tbody) でレンダリングされ、 列は Sprint ID / Title / Status / Depends on / Milestone の 5 つ",
+              "test": "tests/e2e/s67cb0e_sprint_tab_polish.py [AC-S67cb0e-1-1]",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S67cb0e-1-2",
+              "description": "Status は既存の statusKind バッジを再利用 (done / in_progress / pending / blocked / partial の色分け維持)",
+              "test": "tests/e2e/s67cb0e_sprint_tab_polish.py [AC-S67cb0e-1-2]",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S67cb0e-1-3",
+              "description": "Depends on 列に依存先 Sprint ID のチップが並ぶ (ROADMAP.json の dependencies から取得)。 チップクリックで該当 Sprint の Detail に遷移可能",
+              "test": "tests/e2e/s67cb0e_sprint_tab_polish.py [AC-S67cb0e-1-3]",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S67cb0e-1-4",
+              "description": "Milestone 列に ROADMAP.json で milestone:true の Sprint には ★ または同等の視覚マーカーが表示される",
+              "test": "tests/e2e/s67cb0e_sprint_tab_polish.py [AC-S67cb0e-1-4]",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S67cb0e-1-5",
+              "description": "行 (tr) をクリック / Enter / Space で Sprint Detail に遷移。 既存 testid 'sprint-timeline-{id}' は <tr> レベルで維持",
+              "test": "tests/e2e/s67cb0e_sprint_tab_polish.py [AC-S67cb0e-1-5]",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S67cb0e-1-6",
+              "description": "<thead> が sticky で、 行を縦スクロールしても列名 (ID / Title / Status / Depends on / Milestone) が画面上に残る",
+              "test": "tests/e2e/s67cb0e_sprint_tab_polish.py [AC-S67cb0e-1-6]",
+              "status": "pass"
+            }
+          ],
+          "tasks": {
+            "S67cb0e-1-1": {
+              "title": "TimelineEntry に milestone + dependsOn を additive 追加 (backend)",
+              "description": "internal/tab/sprint/handler.go: TimelineEntry struct に Milestone bool `json:\"milestone\"` と DependsOn []string `json:\"dependsOn\"` を追加。 overview() で parser.Sprint.Milestone を渡し、 projectDependencies/rm.Dependencies から各 sprint の prereq ID 配列を導出して埋める。 dependencies() ハンドラの Sprints[] も同 struct を共有するので milestone/dependsOn が付くが無害 (空でも可)。 frontend types.ts の TimelineEntry にも milestone?/dependsOn? を追記。",
+              "status": "done"
+            },
+            "S67cb0e-1-2": {
+              "title": "Overview timeline を <table> に置換 (frontend)",
+              "description": "overview.tsx:122-139 の dot button 群を <table data-testid=sprint-timeline-table> に置換。 thead = ID / Title / Status / Depends on / Milestone。 tbody の各 <tr data-testid=sprint-timeline-{id}> は role=button + tabIndex=0 + onClick/onKeyDown(Enter,Space) で onOpenSprint。 Status は既存 statusClass バッジ、 Depends on は dependsOn を ID チップ列 (チップ click → onOpenSprint、 stopPropagation)、 Milestone は milestone? '★' : ''。",
+              "status": "done"
+            },
+            "S67cb0e-1-3": {
+              "title": "テーブル CSS (sticky thead + チップ + 行 hover/フォーカス)",
+              "description": "sprint-view.module.css に timelineTable / sticky thead (position:sticky; top:0) / depChip / milestoneStar / 行 hover・focus-visible スタイルを追加。 Fog palette のテーマ変数を使用。 既存 .timeline/.timelineDot は不要になれば削除。",
+              "status": "done"
+            },
+            "S67cb0e-1-4": {
+              "title": "Go unit test (handler additive field)",
+              "description": "handler_test.go に overview レスポンスの timeline 要素が milestone/dependsOn を含むことを確認するケースを追加 (依存・milestone を持つ fixture roadmap で検証)。",
+              "status": "done"
+            }
+          }
+        },
+        "S67cb0e-2": {
+          "title": "Sprint タブ内遷移を pushState 化してブラウザ履歴に載せる",
+          "status": "done",
+          "user_review_required": false,
+          "review_reason": null,
+          "user_story": "Palmux2 ユーザとして、 Sprint timeline から Detail に遷移したあと、 ブラウザの『戻る』 ボタンで Overview に戻りたい。 なぜなら、 普通の Web ナビゲーション感覚で行き来したいから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S67cb0e-2-1",
+              "description": "user 起点の遷移 (subtab クリック / timeline 行クリック / Story 3 の prev・next・dropdown) は setSearchParams を replace:false (= pushState) で呼ぶ。 sprint-view.tsx:65 の現行 replace:true を修正する",
+              "test": "tests/e2e/s67cb0e_sprint_tab_polish.py [AC-S67cb0e-2-1]",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S67cb0e-2-2",
+              "description": "初回マウント時の URL 正規化 (isView で invalid な ?view= を 'overview' に矯正する等) は replace:true のまま、 履歴を増やさない",
+              "test": "tests/e2e/s67cb0e_sprint_tab_polish.py [AC-S67cb0e-2-2]",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S67cb0e-2-3",
+              "description": "Overview → Detail(任意 Sprint) → 戻る で Overview に戻る。 さらに進む で Detail に戻れる",
+              "test": "tests/e2e/s67cb0e_sprint_tab_polish.py [AC-S67cb0e-2-3]",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S67cb0e-2-4",
+              "description": "Detail(SprintA) → Detail(SprintB) → 戻る で Detail(SprintA) に戻る (Story 3 の prev/next も含めて履歴が一段ずつ積まれる)",
+              "test": "tests/e2e/s67cb0e_sprint_tab_polish.py [AC-S67cb0e-2-4]",
+              "status": "pass"
+            }
+          ],
+          "tasks": {
+            "S67cb0e-2-1": {
+              "title": "setViewAndUrl の replace フラグを user 起点で false に",
+              "description": "sprint-view.tsx: setViewAndUrl に { replace } オプションを追加。 user 起点 (subtab クリック / timeline 行クリック / prev・next・dropdown) は replace:false (pushState)、 初回マウントの URL 正規化のみ replace:true。 navigateToSprintDetail / setDecisionFilter も pushState 経由に。",
+              "status": "done"
+            },
+            "S67cb0e-2-2": {
+              "title": "初回 URL 正規化を replace:true で実施",
+              "description": "invalid な ?view= の矯正や detail で sprintId 欠落時の default 解決を、 useEffect 等で replace:true 実行 (履歴を汚さない)。 view の useState 初期化と URL の二重管理にならないよう、 view を searchParams 由来に一本化することも検討 (state ドリフト防止)。",
+              "status": "done"
+            }
+          }
+        },
+        "S67cb0e-3": {
+          "title": "Sprint Detail に Prev / Next ボタン + 全 Sprint ドロップダウン",
+          "status": "done",
+          "user_review_required": false,
+          "review_reason": null,
+          "user_story": "Palmux2 ユーザとして、 Sprint Detail を開いたまま、 前/次の Sprint や任意の Sprint に直接ジャンプしたい。 なぜなら、 Sprint を順番にレビューする際に Overview に戻る往復を省きたいから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S67cb0e-3-1",
+              "description": "Sprint Detail ヘッダ (ViewHeader 付近) に '◀ Prev' / 'Next ▶' ボタンが表示される。 順序は ROADMAP.json の execution_order に従う",
+              "test": "tests/e2e/s67cb0e_sprint_tab_polish.py [AC-S67cb0e-3-1]",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S67cb0e-3-2",
+              "description": "execution_order の先頭 Sprint で Prev ボタンが disabled、 末尾 Sprint で Next ボタンが disabled",
+              "test": "tests/e2e/s67cb0e_sprint_tab_polish.py [AC-S67cb0e-3-2]",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S67cb0e-3-3",
+              "description": "Prev / Next クリックで Detail が次の Sprint に切り替わり、 URL の sprintId クエリも更新される (pushState 経由)",
+              "test": "tests/e2e/s67cb0e_sprint_tab_polish.py [AC-S67cb0e-3-3]",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S67cb0e-3-4",
+              "description": "<select> ドロップダウンに全 Sprint (execution_order 順) が並び、 現在表示中の Sprint が selected。 ID + title が見える形式 (例: 'S001 — Plan モード UI')",
+              "test": "tests/e2e/s67cb0e_sprint_tab_polish.py [AC-S67cb0e-3-4]",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S67cb0e-3-5",
+              "description": "ドロップダウンで別 Sprint を選択すると Detail がその Sprint に切り替わる (pushState 経由 → 戻るで前の Sprint に戻れる)",
+              "test": "tests/e2e/s67cb0e_sprint_tab_polish.py [AC-S67cb0e-3-5]",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S67cb0e-3-6",
+              "description": "Sprint リストの取得は既存 sprintApi.overview() の timeline 配列を再利用 (新規バックエンド endpoint を追加しない)",
+              "test": "internal/tab/sprint/handler_test.go (no new endpoint surface)",
+              "status": "pass"
+            }
+          ],
+          "tasks": {
+            "S67cb0e-3-1": {
+              "title": "sprint 順序リストを Detail に供給",
+              "description": "SprintDetailView が sprint 一覧 (id+title、 execution_order 順) を得られるようにする。 overview fetch の timeline を再利用 — SprintView 親で overview を 1 度取得して detail に props で渡すか、 SprintDetailView 内で sprintApi.overview() を別途呼ぶ。 新規エンドポイントは追加しない (AC-3-6)。",
+              "status": "done"
+            },
+            "S67cb0e-3-2": {
+              "title": "Prev/Next ボタン + dropdown を ViewHeader 付近に実装",
+              "description": "sprint-detail.tsx: 現在 sprintId の index を sprint 順序リストから求め、 ◀ Prev (index-1) / Next ▶ (index+1) ボタンと <select data-testid=sprint-detail-sprint-select> を描画。 先頭で Prev disabled、 末尾で Next disabled。 選択/クリックで onOpenSprint(id) (pushState 経由 = Story 2)。 dropdown option ラベルは '{id} — {title}'、 現在 sprint を selected。",
+              "status": "done"
+            },
+            "S67cb0e-3-3": {
+              "title": "ナビゲーションコントロールの CSS + レスポンシブ",
+              "description": "Prev/Next/select の配置 CSS を sprint-view.module.css に追加。 モバイル幅 (<600px) でも収まるレイアウト (ボタンアイコン化 or 折返し)。 disabled スタイル。",
+              "status": "done"
+            }
+          }
+        },
+        "S67cb0e-4": {
+          "title": "description フィールドを Markdown レンダリング (Sprint Detail + Overview)",
+          "status": "done",
+          "user_review_required": false,
+          "review_reason": null,
+          "user_story": "Palmux2 ユーザとして、 Sprint Detail / Overview に表示される description が Markdown としてレンダリングされてほしい。 なぜなら、 ROADMAP.json に書いた箇条書き・見出し・リンク・コード・表が平文で潰れず読めるから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S67cb0e-4-1",
+              "description": "Sprint Detail (sprint-detail.tsx:88-92) の <p>{description}</p> が ReactMarkdown + remark-gfm レンダリングに置換される",
+              "test": "tests/e2e/s67cb0e_sprint_tab_polish.py [AC-S67cb0e-4-1]",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S67cb0e-4-2",
+              "description": "Overview (overview.tsx:88) の currentSprint.description も同じ Markdown レンダラに置換される (Sprint Detail と一貫した見た目)",
+              "test": "tests/e2e/s67cb0e_sprint_tab_polish.py [AC-S67cb0e-4-2]",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S67cb0e-4-3",
+              "description": "リスト (- / 1.) / 見出し (#) / インラインコード (`x`) / コードブロック (```) / 表 (GFM table) / 強調 (** *) が正しくレンダリングされる",
+              "test": "tests/e2e/s67cb0e_sprint_tab_polish.py [AC-S67cb0e-4-3]",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S67cb0e-4-4",
+              "description": "リンクポリシーは markdown-view.tsx と同じ規則: 外部 http(s) リンクは target=_blank rel=noopener、 同一オリジン絶対パスは React Router navigate、 アンカー (#) はスムーズスクロール",
+              "test": "tests/e2e/s67cb0e_sprint_tab_polish.py [AC-S67cb0e-4-4]",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S67cb0e-4-5",
+              "description": "Markdown レンダリングは共通 component に抽出される (例: frontend/src/components/markdown-block.tsx)。 Files Markdown viewer と Sprint タブが同じ component を import (テーマ・リンクポリシー一貫)",
+              "test": "frontend/src/components/markdown-block.test.tsx (unit) + tests/e2e/s67cb0e_sprint_tab_polish.py [AC-S67cb0e-4-5]",
+              "status": "pass"
+            }
+          ],
+          "tasks": {
+            "S67cb0e-4-1": {
+              "title": "共通 MarkdownBlock コンポーネント抽出",
+              "description": "frontend/src/components/markdown-block.tsx を新設。 ReactMarkdown + remark-gfm + rehype-slug をラップし、 markdown-view.tsx のリンク分類ロジック (anchor / 相対パス / 同一オリジン絶対 / 外部) を共通化。 files/viewers/markdown-view.tsx もこの共通コンポーネントを使うようにリファクタ (重複排除)。 CSS Module は markdown-view の look を踏襲。",
+              "status": "done"
+            },
+            "S67cb0e-4-2": {
+              "title": "Sprint Detail / Overview の description を MarkdownBlock に置換",
+              "description": "sprint-detail.tsx:88-92 の <p>{description}</p> を <MarkdownBlock> に。 overview.tsx:88 の currentSprint.description も同様に置換。 description 空時は従来通り何も描画しない。 data-testid (sprint-detail-description / sprint-overview-current-description) を付与。",
+              "status": "done"
+            },
+            "S67cb0e-4-3": {
+              "title": "MarkdownBlock の unit test (任意) + リンクポリシー確認",
+              "description": "frontend に MarkdownBlock のリンク分類純粋ロジックの Vitest unit を追加 (任意)。 外部リンク target=_blank rel=noopener、 内部リンク Router navigate を確認。",
+              "status": "done"
+            }
+          }
+        }
+      }
     }
   },
   "dependencies": {

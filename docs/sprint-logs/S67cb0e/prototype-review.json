@@ -1,0 +1,34 @@
+{
+  "sprint_range": ["S67cb0e"],
+  "screens": [
+    {
+      "file": "prototype/s67cb0e-overview.html",
+      "story": "S67cb0e-1",
+      "feedback_rounds": 0,
+      "approved": true
+    },
+    {
+      "file": "prototype/s67cb0e-detail.html",
+      "story": "S67cb0e-3",
+      "feedback_rounds": 0,
+      "approved": true
+    },
+    {
+      "file": "prototype/s67cb0e-detail.html",
+      "story": "S67cb0e-4",
+      "feedback_rounds": 0,
+      "approved": true
+    }
+  ],
+  "design_decisions": [
+    "Sprint timeline は dot ピル群から JIRA 風テーブル (ID / Title / Status / Depends on / Milestone) に — sticky thead、 行クリック/Enter/Space で Detail へ",
+    "Status は colored pill 表示 (done/in-progress/pending/blocked、 既存 statusKind 配色を踏襲)",
+    "Depends-on は monospace ID チップで、 チップ自体クリックで該当 prereq Sprint の Detail へジャンプ可能",
+    "Sprint Detail のナビゲーションは ◀ Prev / native <select> dropdown / Next ▶。 順序は execution_order = overview.timeline 再利用 (新エンドポイント無し)",
+    "description は共通 MarkdownBlock (Files md viewer と同じリンクポリシー) で GFM レンダリング。 外部リンク target=_blank、 内部リンク Router navigate",
+    "data-testid を全 interactive 要素に付与 (sprint-timeline-table / sprint-timeline-{id} / sprint-detail-prev|next|sprint-select / sprint-detail-description)",
+    "専用 stylesheet (s67cb0e-sprint-tab.css) を使い、 既存 prototype の共有 styles.css を汚さない"
+  ],
+  "approved_by_user": true,
+  "approved_at": "2026-05-29"
+}

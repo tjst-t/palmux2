@@ -1,15 +1,19 @@
 // Overview screen — project header + progress bar + current sprint
-// summary + active autopilot list + sprint timeline.
+// summary + active autopilot list + sprint timeline (JIRA-style table).
+// S67cb0e-1: timeline is now a JIRA-style table (ID / Title / Status /
+// Depends on / Milestone) with sticky thead and keyboard navigation.
+// S67cb0e-4: current sprint description uses MarkdownBlock.
 
 import { useCallback } from 'react'
 
+import { MarkdownBlock } from '../../../components/markdown-block'
 import { sprintApi } from '../api'
 import styles from '../sprint-view.module.css'
 import type { OverviewResponse } from '../types'
 import { useSprintData } from '../use-sprint-data'
 
 import { ErrorBanner, ParseErrorsBanner, ViewHeader } from './view-header'
-import { statusClass } from './view-helpers'
+import { statusClass, statusPillClass } from './view-helpers'
 
 interface OverviewViewProps {
   repoId: string
@@ -84,9 +88,9 @@ export function OverviewView({ repoId, branchId, onOpenSprint }: OverviewViewPro
                 </span>
               </p>
               {data.currentSprint.description && (
-                <p style={{ marginTop: 8, fontSize: 13, color: 'var(--color-fg-muted)' }}>
-                  {truncate(data.currentSprint.description, 320)}
-                </p>
+                <div style={{ marginTop: 8 }} data-testid="sprint-overview-current-description">
+                  <MarkdownBlock>{data.currentSprint.description}</MarkdownBlock>
+                </div>
               )}
             </section>
           )}
@@ -121,29 +125,82 @@ export function OverviewView({ repoId, branchId, onOpenSprint }: OverviewViewPro
 
           <section className={styles.section}>
             <h3 className={styles.sectionTitle}>Sprint timeline</h3>
-            <div className={styles.timeline} data-testid="sprint-overview-timeline">
-              {(data.timeline ?? []).map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  className={`${styles.timelineDot} ${statusClass(t.statusKind)}`}
-                  onClick={() => onOpenSprint(t.id)}
-                  data-testid={`sprint-timeline-${t.id}`}
-                  data-statuskind={t.statusKind}
-                >
-                  <span>{t.id}</span>
-                  <span style={{ color: 'var(--color-fg-muted)' }}>{truncate(t.title, 24)}</span>
-                </button>
-              ))}
+            <div className={styles.timelineTableWrap} data-testid="sprint-overview-timeline">
+              <table className={styles.timelineTable} data-testid="sprint-timeline-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: 96 }}>Sprint</th>
+                    <th>Title</th>
+                    <th style={{ width: 120 }}>Status</th>
+                    <th style={{ width: 170 }}>Depends on</th>
+                    <th style={{ width: 90, textAlign: 'center' }}>Milestone</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(data.timeline ?? []).map((t) => (
+                    <tr
+                      key={t.id}
+                      role="button"
+                      tabIndex={0}
+                      data-testid={`sprint-timeline-${t.id}`}
+                      data-statuskind={t.statusKind}
+                      onClick={() => onOpenSprint(t.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          onOpenSprint(t.id)
+                        } else if (e.key === ' ') {
+                          e.preventDefault()
+                          onOpenSprint(t.id)
+                        }
+                      }}
+                    >
+                      <td className={styles.cellId}>{t.id}</td>
+                      <td className={styles.cellTitle}>{t.title}</td>
+                      <td>
+                        <span
+                          className={statusPillClass(t.statusKind)}
+                          data-testid={`sprint-timeline-status-${t.id}`}
+                        >
+                          {t.statusKind}
+                        </span>
+                      </td>
+                      <td>
+                        {(t.dependsOn ?? []).length > 0 ? (
+                          <div className={styles.depChips}>
+                            {(t.dependsOn ?? []).map((dep) => (
+                              <button
+                                key={dep}
+                                type="button"
+                                className={styles.depChip}
+                                data-testid={`sprint-timeline-dep-${t.id}-${dep}`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  onOpenSprint(dep)
+                                }}
+                              >
+                                {dep}
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className={styles.depNone}>—</span>
+                        )}
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        {t.milestone ? (
+                          <span className={styles.milestoneStar} title="milestone">★</span>
+                        ) : (
+                          <span className={styles.milestoneNone}>—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </section>
         </>
       )}
     </>
   )
-}
-
-function truncate(s: string, n: number) {
-  if (s.length <= n) return s
-  return s.slice(0, n - 1) + '…'
 }

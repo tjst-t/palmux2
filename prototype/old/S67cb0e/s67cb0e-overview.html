@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sprint Overview — JIRA-style timeline (S67cb0e prototype)</title>
+  <link rel="stylesheet" href="s67cb0e-sprint-tab.css" />
+</head>
+<body>
+  <div class="root">
+    <div class="protoNav">
+      <span style="color:var(--color-fg-dim)">S67cb0e prototype:</span>
+      <a href="s67cb0e-overview.html"><b style="color:var(--color-accent)">Overview (table)</b></a>
+      <a href="s67cb0e-detail.html">Sprint Detail (nav + markdown)</a>
+    </div>
+
+    <!-- subtabs (unchanged from current) -->
+    <nav class="subtabs" aria-label="Sprint dashboard sections">
+      <a class="subtab subtabActive" href="s67cb0e-overview.html" data-testid="sprint-subtab-overview">Overview</a>
+      <a class="subtab" href="s67cb0e-detail.html" data-testid="sprint-subtab-detail">Sprint Detail</a>
+      <span class="subtab" data-testid="sprint-subtab-dependencies">Dependencies</span>
+      <span class="subtab" data-testid="sprint-subtab-decisions">Decisions</span>
+      <span class="subtab" data-testid="sprint-subtab-refine">Refine</span>
+    </nav>
+
+    <div class="body">
+      <div class="viewHeader">
+        <h2 class="viewTitle">Overview</h2>
+        <div class="viewActions">
+          <button class="iconButton" data-testid="sprint-overview-refresh">↻ Refresh</button>
+        </div>
+      </div>
+
+      <!-- project + progress (unchanged) -->
+      <section class="section">
+        <h3 class="sectionTitle" data-testid="sprint-overview-project">Palmux v2</h3>
+        <p style="margin:0;color:var(--color-fg-muted);font-size:13px">
+          ブラウザから tmux と複数の Claude Code エージェントを並行運用できる Web ターミナルクライアント。
+        </p>
+        <div style="margin-top:12px" data-testid="sprint-overview-progress">
+          <div class="progressTrack"><div class="progressFill" style="width:97.7%"></div></div>
+          <span class="progressLabel">43 / 44 sprints (97.7%) · 1 pending</span>
+        </div>
+      </section>
+
+      <!-- Story 1: JIRA-style timeline table -->
+      <section class="section">
+        <h3 class="sectionTitle">Sprint timeline</h3>
+        <div class="note">
+          <b>S67cb0e-1</b>: dot ピル群 → JIRA 風テーブル。 列 = ID / Title / Status / Depends on / Milestone。
+          <code>&lt;thead&gt;</code> は sticky（テーブル内をスクロールしても列名が残る）。 行クリック / Enter / Space で Sprint Detail へ（<b>S67cb0e-2</b> の pushState 経由なのでブラウザ戻るで Overview に戻れる）。
+        </div>
+
+        <div class="timelineTableWrap" data-testid="sprint-overview-timeline">
+          <table class="timelineTable" data-testid="sprint-timeline-table">
+            <thead>
+              <tr>
+                <th style="width:96px">Sprint</th>
+                <th>Title</th>
+                <th style="width:120px">Status</th>
+                <th style="width:170px">Depends on</th>
+                <th style="width:90px;text-align:center">Milestone</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr data-testid="sprint-timeline-S016" tabindex="0" data-statuskind="done">
+                <td class="cellId">S016</td>
+                <td class="cellTitle">Sprint Dashboard tab (claude-skills 連携)</td>
+                <td><span class="statusPill pillDone">done</span></td>
+                <td><div class="depChips"><span class="depChip" data-testid="sprint-timeline-dep-S016-S012">S012</span></div></td>
+                <td style="text-align:center"><span class="milestoneNone">—</span></td>
+              </tr>
+              <tr data-testid="sprint-timeline-S028" tabindex="0" data-statuskind="done">
+                <td class="cellId">S028</td>
+                <td class="cellTitle">Sprint tab JSON support</td>
+                <td><span class="statusPill pillDone">done</span></td>
+                <td><span class="depNone">—</span></td>
+                <td style="text-align:center"><span class="milestoneNone">—</span></td>
+              </tr>
+              <tr data-testid="sprint-timeline-S1f75ec" tabindex="0" data-statuskind="done">
+                <td class="cellId">S1f75ec</td>
+                <td class="cellTitle">Track B Sprint C — claude-tui simplify + paste/drop</td>
+                <td><span class="statusPill pillDone">done</span></td>
+                <td><div class="depChips"><span class="depChip" data-testid="sprint-timeline-dep-S1f75ec-S0fd64b">S0fd64b</span></div></td>
+                <td style="text-align:center"><span class="milestoneStar" title="milestone">★</span></td>
+              </tr>
+              <tr data-testid="sprint-timeline-Sadf90e" tabindex="0" data-statuskind="done">
+                <td class="cellId">Sadf90e</td>
+                <td class="cellTitle">Claude タブの mode をタブ単位設定に作り直す</td>
+                <td><span class="statusPill pillDone">done</span></td>
+                <td><div class="depChips"><span class="depChip" data-testid="sprint-timeline-dep-Sadf90e-S1f75ec">S1f75ec</span></div></td>
+                <td style="text-align:center"><span class="milestoneStar" title="milestone">★</span></td>
+              </tr>
+              <tr class="rowCurrent" data-testid="sprint-timeline-S67cb0e" tabindex="0" data-statuskind="pending">
+                <td class="cellId">S67cb0e</td>
+                <td class="cellTitle">Sprint タブ UX polish (table timeline + history + prev/next + Markdown)</td>
+                <td><span class="statusPill pillPending">pending</span></td>
+                <td><span class="depNone">—</span></td>
+                <td style="text-align:center"><span class="milestoneNone">—</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin:10px 0 0;font-size:11px;color:var(--color-fg-dim)">
+          ※ in_progress 行は <span class="statusPill pillInProgress" style="font-size:10px">in-progress</span> /
+          blocked 行は <span class="statusPill pillBlocked" style="font-size:10px">blocked</span> の色になる（既存 statusKind 配色を踏襲）。
+        </p>
+      </section>
+    </div>
+  </div>
+</body>
+</html>

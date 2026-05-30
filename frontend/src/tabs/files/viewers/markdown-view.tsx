@@ -19,13 +19,17 @@
 // `<img src>` is resolved similarly: relative paths are rewritten to
 // `/api/repos/.../files/raw?path=...` so the existing Files-API + S010
 // MIME map serves the bytes (no extra endpoint needed).
+//
+// S67cb0e: The shared link-classification + GFM rendering now lives in
+// MarkdownBlock. MarkdownView injects custom `a` (adds relative-path
+// navigation) and `img` (src rewriting) overrides so Files-specific
+// behaviour is preserved without duplicating the core rendering stack.
 
 import { useCallback, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import ReactMarkdown from 'react-markdown'
-import rehypeSlug from 'rehype-slug'
-import remarkGfm from 'remark-gfm'
 
+import { MarkdownBlock } from '../../../components/markdown-block'
+import { classifyLink } from '../../../components/markdown-link-helpers'
 import styles from './markdown-view.module.css'
 import type { ViewerProps } from './types'
 
@@ -65,83 +69,6 @@ function normalizePath(p: string): string {
   return out.join('/')
 }
 
-type LinkKind =
-  | { kind: 'anchor'; id: string }
-  | { kind: 'relative'; resolved: string }
-  | { kind: 'absolute-same-origin'; pathname: string; search: string; hash: string }
-  | { kind: 'external'; href: string }
-  | { kind: 'unknown' }
-
-/** Classify an `<a href>` into one of the 4 SPA-handling buckets.
- *  `currentPath` is the worktree-relative path of the markdown file
- *  currently being rendered (used as the base for relative links).
- *  Module-private — kept here (not in a sibling `links.ts`) because it
- *  has no consumer outside this file and the logic is short enough that
- *  splitting it would add files-to-track without buying anything. */
-function classifyLink(href: string | undefined, currentPath: string): LinkKind {
-  if (!href) return { kind: 'unknown' }
-  // 1. pure anchor
-  if (href.startsWith('#')) {
-    return { kind: 'anchor', id: decodeURIComponent(href.slice(1)) }
-  }
-  // 4. external schemes — http/https, plus mailto/tel which we also want
-  //    to leave to the browser. We *don't* try to enumerate every scheme;
-  //    anything matching `<scheme>:` (excluding our own relative paths)
-  //    is treated as external.
-  if (/^[a-z][a-z0-9+.-]*:/i.test(href)) {
-    if (typeof window !== 'undefined') {
-      try {
-        const u = new URL(href, window.location.origin)
-        if (u.origin === window.location.origin) {
-          return {
-            kind: 'absolute-same-origin',
-            pathname: u.pathname,
-            search: u.search,
-            hash: u.hash,
-          }
-        }
-      } catch {
-        // fall through to external
-      }
-    }
-    return { kind: 'external', href }
-  }
-  // 3. site-absolute (`/foo`) — same-origin SPA route
-  if (href.startsWith('/')) {
-    if (typeof window !== 'undefined') {
-      try {
-        const u = new URL(href, window.location.origin)
-        return {
-          kind: 'absolute-same-origin',
-          pathname: u.pathname,
-          search: u.search,
-          hash: u.hash,
-        }
-      } catch {
-        // fall through
-      }
-    }
-    return { kind: 'absolute-same-origin', pathname: href, search: '', hash: '' }
-  }
-  // 2. relative path — resolve against the markdown file's directory.
-  //    Split off any `?query#hash` so the path joins cleanly.
-  let pathPart = href
-  let suffix = ''
-  const hashIdx = pathPart.indexOf('#')
-  const queryIdx = pathPart.indexOf('?')
-  // Whichever delimiter comes first wins — both are part of `suffix`.
-  const cut =
-    queryIdx === -1 ? hashIdx : hashIdx === -1 ? queryIdx : Math.min(queryIdx, hashIdx)
-  if (cut !== -1) {
-    suffix = pathPart.slice(cut)
-    pathPart = pathPart.slice(0, cut)
-  }
-  const base = dirnameOf(currentPath)
-  const joined = base ? `${base}/${pathPart}` : pathPart
-  const resolved = normalizePath(joined) + suffix
-  return { kind: 'relative', resolved }
-}
-
 /** Build the SPA URL for a worktree-relative file under the current
  *  Files tab. `pathPart` may include `?query#hash` — those pass through
  *  unchanged. */
@@ -166,16 +93,41 @@ function buildFilesUrl(
   return `${base}${tail}${suffix}`
 }
 
+/** Classify a relative path href for Files-tab navigation. Returns null
+ *  when the href is not a relative path (caller should fall back to the
+ *  shared classifyLink).
+ *
+ *  Stays local (not in the shared markdown-link-helpers.ts) because it
+ *  resolves against `currentPath` — context the shared MarkdownBlock has
+ *  no notion of; only the Files viewer knows which file is open. */
+function classifyRelative(href: string, currentPath: string): { resolved: string } | null {
+  if (!href) return null
+  if (href.startsWith('#') || href.startsWith('/') || /^[a-z][a-z0-9+.-]*:/i.test(href)) {
+    return null
+  }
+  // Relative path — resolve against the markdown file's directory.
+  let pathPart = href
+  let suffix = ''
+  const hashIdx = pathPart.indexOf('#')
+  const queryIdx = pathPart.indexOf('?')
+  const cut =
+    queryIdx === -1 ? hashIdx : hashIdx === -1 ? queryIdx : Math.min(queryIdx, hashIdx)
+  if (cut !== -1) {
+    suffix = pathPart.slice(cut)
+    pathPart = pathPart.slice(0, cut)
+  }
+  const base = dirnameOf(currentPath)
+  const joined = base ? `${base}/${pathPart}` : pathPart
+  const resolved = normalizePath(joined) + suffix
+  return { resolved }
+}
+
 export function MarkdownView({ body, path, apiBase, repoId, branchId, tabId }: ViewerProps) {
   const navigate = useNavigate()
   const containerRef = useRef<HTMLDivElement | null>(null)
 
   // S027 AC-5: when the page loads with a URL fragment (`#section`),
   // scroll to that heading after the markdown DOM has been rendered.
-  // ReactMarkdown renders synchronously inside this component, but the
-  // ids only become available after commit; one rAF is sufficient.
-  // We re-run when `body.content` changes so a tab-swap that lands on a
-  // freshly-loaded file with a hash still scrolls.
   useEffect(() => {
     if (!body) return
     if (typeof window === 'undefined') return
@@ -185,8 +137,6 @@ export function MarkdownView({ body, path, apiBase, repoId, branchId, tabId }: V
     let raf1 = 0
     let raf2 = 0
     raf1 = requestAnimationFrame(() => {
-      // double-rAF: the first frame schedules layout, the second
-      // guarantees the headings are mounted with their slug ids.
       raf2 = requestAnimationFrame(() => {
         const root = containerRef.current
         if (!root) return
@@ -200,9 +150,7 @@ export function MarkdownView({ body, path, apiBase, repoId, branchId, tabId }: V
     }
   }, [body])
 
-  // S027 AC-4: browser back/forward through anchor history. We listen
-  // to popstate (fires for pushState entries) and hashchange (fires
-  // when only the hash differs); both scroll the new hash into view.
+  // S027 AC-4: browser back/forward through anchor history.
   useEffect(() => {
     if (typeof window === 'undefined') return
     const onHashRestore = () => {
@@ -222,24 +170,31 @@ export function MarkdownView({ body, path, apiBase, repoId, branchId, tabId }: V
     }
   }, [])
 
+  // Files-specific link handler: adds relative-path navigation on top of
+  // the shared classifyLink logic. MarkdownBlock's built-in `a` handler
+  // is replaced by this one, which handles relative paths and delegates
+  // all other cases to the same logic MarkdownBlock would use.
   const handleAnchorClick = useCallback(
     (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
-      // Modifier keys / non-primary buttons → let the browser handle
-      // (e.g. Cmd-click to open in new tab).
       if (e.defaultPrevented) return
       if (e.button !== 0) return
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
-      const c = classifyLink(href, path)
+
+      // Check for Files-specific relative path first.
+      const rel = classifyRelative(href, path)
+      if (rel && repoId && branchId && tabId) {
+        e.preventDefault()
+        navigate(buildFilesUrl(repoId, branchId, tabId, rel.resolved))
+        return
+      }
+
+      const c = classifyLink(href)
       if (c.kind === 'anchor') {
         e.preventDefault()
         const root = containerRef.current
         const el = root?.querySelector<HTMLElement>(`#${CSS.escape(c.id)}`) ?? null
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
         if (typeof window !== 'undefined') {
-          // pushState so the browser back button restores the previous
-          // hash (AC-S027-1-4). We only push when the hash actually
-          // changes — repeated clicks on the same heading don't deepen
-          // the back-stack.
           const next = `#${c.id}`
           if (window.location.hash !== next) {
             window.history.pushState(window.history.state, '', next)
@@ -247,15 +202,7 @@ export function MarkdownView({ body, path, apiBase, repoId, branchId, tabId }: V
         }
         return
       }
-      if (c.kind === 'relative' && repoId && branchId && tabId) {
-        e.preventDefault()
-        navigate(buildFilesUrl(repoId, branchId, tabId, c.resolved))
-        return
-      }
-      if (c.kind === 'absolute-same-origin') {
-        // If it's a Palmux2 SPA route (anything not `/api/`, `/auth`,
-        // or static asset paths) we route through React Router. Cross-
-        // app jumps (e.g. /api/...) fall back to the browser default.
+      if (c.kind === 'same-origin') {
         if (
           c.pathname.startsWith('/api/') ||
           c.pathname.startsWith('/auth') ||
@@ -275,14 +222,13 @@ export function MarkdownView({ body, path, apiBase, repoId, branchId, tabId }: V
 
   if (!body) return <p className={styles.placeholder}>Loading…</p>
   return (
-    <div className={styles.wrap} data-testid="markdown-view">
-      <div className={styles.markdown} ref={containerRef}>
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          rehypePlugins={[rehypeSlug]}
+    <div className={styles.wrap} data-testid="markdown-view" ref={containerRef}>
+      <div className={styles.markdown}>
+        <MarkdownBlock
           components={{
             a({ href, children, ...rest }) {
-              const c = classifyLink(href, path)
+              const rel = classifyRelative(href ?? '', path)
+              const c = classifyLink(href)
               if (c.kind === 'external') {
                 return (
                   <a
@@ -296,14 +242,13 @@ export function MarkdownView({ body, path, apiBase, repoId, branchId, tabId }: V
                   </a>
                 )
               }
-              const linkKind =
-                c.kind === 'anchor'
+              const linkKind = rel
+                ? 'relative'
+                : c.kind === 'anchor'
                   ? 'anchor'
-                  : c.kind === 'relative'
-                    ? 'relative'
-                    : c.kind === 'absolute-same-origin'
-                      ? 'absolute'
-                      : 'unknown'
+                  : c.kind === 'same-origin'
+                    ? 'absolute'
+                    : 'unknown'
               return (
                 <a
                   {...rest}
@@ -317,8 +262,7 @@ export function MarkdownView({ body, path, apiBase, repoId, branchId, tabId }: V
             },
             img({ src, alt, ...rest }) {
               // Resolve relative image src to the Files raw API so the
-              // existing MIME map / cache layer serves the bytes. Leave
-              // absolute / data:/blob: / external untouched.
+              // existing MIME map / cache layer serves the bytes.
               let resolved = src ?? ''
               if (resolved && !/^[a-z][a-z0-9+.-]*:/i.test(resolved) && !resolved.startsWith('/')) {
                 const base = dirnameOf(path)
@@ -331,7 +275,7 @@ export function MarkdownView({ body, path, apiBase, repoId, branchId, tabId }: V
           }}
         >
           {body.content}
-        </ReactMarkdown>
+        </MarkdownBlock>
       </div>
     </div>
   )
