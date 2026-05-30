@@ -578,6 +578,55 @@ def test_playwright_stories(repo_id: str, branch_id: str) -> None:
             browser.close()
 
 
+def test_default_sprint_resolution(repo_id: str, branch_id: str) -> None:
+    """[HOTFIX-default-sprint] Opening Sprint Detail with no sprintId resolves
+    a default: in-progress sprint → else next non-done → else last sprint.
+
+    Fixture has S_A=done, S_B=in_progress, S_C=pending, so the default must
+    resolve to the in-progress sprint S_B, via replace (so Back does not
+    bounce on the bare ?view=detail URL).
+    """
+    try:
+        from playwright.sync_api import sync_playwright  # type: ignore  # noqa: PLC0415
+    except ImportError:
+        fail("playwright not installed — required for S67cb0e E2E")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        try:
+            ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+            page = ctx.new_page()
+
+            # Open Sprint Detail directly with NO sprintId.
+            page.goto(f"{BASE_URL}/{repo_id}/{branch_id}/sprint?view=detail",
+                      wait_until="networkidle")
+            page.wait_for_selector("[data-testid='sprint-detail-header']", timeout=10000)
+            page.wait_for_function("() => location.search.includes('sprintId=S_B')",
+                                   timeout=8000)
+            assert_("sprintId=S_B" in page.url,
+                    f"default detail should resolve to in-progress S_B: {page.url}")
+            ok("HOTFIX-default-sprint", "no sprintId → resolves to in-progress S_B")
+
+            # Resolution used replace (not push): from overview → bare detail →
+            # Back must land on overview, not bounce on a bare detail URL.
+            page.goto(f"{BASE_URL}/{repo_id}/{branch_id}/sprint?view=overview",
+                      wait_until="networkidle")
+            page.wait_for_selector("[data-testid='sprint-overview-timeline']", timeout=8000)
+            page.goto(f"{BASE_URL}/{repo_id}/{branch_id}/sprint?view=detail",
+                      wait_until="networkidle")
+            page.wait_for_function("() => location.search.includes('sprintId=S_B')",
+                                   timeout=8000)
+            page.go_back()
+            page.wait_for_selector("[data-testid='sprint-overview-timeline']", timeout=8000)
+            assert_("sprintId=" not in page.url,
+                    f"Back from resolved detail should reach overview: {page.url}")
+            ok("HOTFIX-default-sprint", "resolution used replace (Back → overview, no bounce)")
+
+            ctx.close()
+        finally:
+            browser.close()
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -627,6 +676,7 @@ def main() -> int:
 
         # --- Browser-driven authoritative tests (required) ---
         test_playwright_stories(repo_id, branch_id)
+        test_default_sprint_resolution(repo_id, branch_id)
 
     print("S67cb0e E2E: PASS")
     return 0

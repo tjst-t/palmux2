@@ -98,6 +98,18 @@ export function SprintView({ repoId, branchId }: TabViewProps) {
     [setViewAndUrl],
   )
 
+  // Used when Sprint Detail is opened without a sprintId (e.g. the user
+  // clicked the "Sprint Detail" subtab directly). The detail screen resolves
+  // a default sprint from the timeline and calls this to put it in the URL
+  // via replace — so no junk `?view=detail` (no sprintId) history entry is
+  // left behind to bounce back to.
+  const resolveDefaultSprint = useCallback(
+    (id: string) => {
+      setViewAndUrl('detail', { sprintId: id }, true)
+    },
+    [setViewAndUrl],
+  )
+
   const setDecisionFilter = useCallback(
     (f: string) => {
       // Filter changes push history so the user can back out of a filter.
@@ -142,6 +154,7 @@ export function SprintView({ repoId, branchId }: TabViewProps) {
             branchId={branchId}
             sprintId={sprintId}
             onOpenSprint={navigateToSprintDetail}
+            onResolveDefaultSprint={resolveDefaultSprint}
           />
         )}
         {view === 'dependencies' && (
