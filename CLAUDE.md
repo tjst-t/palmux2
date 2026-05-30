@@ -19,7 +19,16 @@
 
 ## 実装ステータス
 
-現在: **v0.3.0 リリース済み (S001〜S029 完了)**。Phase 0〜3 のコア機能 + Phase 4 の磨き込み (S016 Sprint Dashboard、S017 virtualization、S018 検索/export、S019 rewind、S020 タブ UX、S021 Subagent worktree、S022 モバイル UX、S023/S024 Drawer redesign、S025 fixture cleanup、S026 HTML preview、S027 Markdown SPA navigation、S028 JSON canonical roadmap、S029 [BREAKING] Git タブ minimal redesign) まで実装済み。Phase 5+ は需要が明確になってから検討 (`docs/VISION.json` 参照)。
+現在: **v0.9.0 リリース済み (全 Sprint 完了)**。Phase 0〜4 のコア + 磨き込みに加え、以降のスプリントで以下を実装済み:
+
+- **S001〜S029**: Phase 0〜3 コア機能 + Phase 4 磨き込み (S016 Sprint Dashboard、S017 virtualization、S018 検索/export、S019 rewind、S020 タブ UX、S021 Subagent worktree、S022 モバイル UX、S023/S024 Drawer redesign、S025 fixture cleanup、S026 HTML preview、S027 Markdown SPA navigation、S028 JSON canonical roadmap、S029 [BREAKING] Git タブ minimal redesign)
+- **S030〜S033**: ghq Repository 管理 UI、⌘K Command palette redesign、ユーザ定義 palette コマンド、Files タブ CRUD
+- **S1e8d02 [BREAKING]**: Workspace-centric domain refactor (worktree path = identity、`git checkout` で ID 不変)
+- **S43cfb1 / S4b9df4 / S13b16a / Saa8506**: Claude タブ・FE のリファクタリング + lint sweep + E2E hygiene
+- **S1d2278 → S7ce250 → S0fd64b → S1f75ec → Sadf90e (Track B)**: PTY daemon + headless emulator による claude-tui タブ、mode のタブ単位設定化
+- **S67cb0e**: Sprint タブ UX polish (JIRA 風 table timeline + pushState 履歴 + Prev/Next/dropdown + Markdown レンダリング + 既定 Sprint 解決)
+
+Phase 5+ は需要が明確になってから検討 (`docs/VISION.json` 参照)。リリース履歴・進捗の source of truth は git タグと **`docs/ROADMAP.json`**。
 
 実装の生きた進捗は **`docs/ROADMAP.json`** が source of truth。各 Sprint の決定ログは `docs/sprint-logs/{SprintID}/decisions.json` を参照。
 
