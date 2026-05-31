@@ -173,6 +173,14 @@ function ClaudeTuiDesktop({
   // event call stack — fetch/XHR from inside a paste-event-context hangs
   // indefinitely in Chromium, so we defer the network call.
   const [pendingImage, setPendingImage] = useState<Blob | null>(null)
+  // Dedupe guard for the upload effect below. We deliberately do NOT clear
+  // pendingImage with setState inside that effect: pendingImage is one of its
+  // dependencies, so resetting it there re-triggers the effect — a cascading
+  // render that react-hooks/set-state-in-effect (correctly) rejects. A ref
+  // records the last Blob we uploaded instead; each paste produces a fresh
+  // Blob reference, and the ref survives StrictMode's double-invoke, so the
+  // same image is never uploaded twice.
+  const uploadedImageRef = useRef<Blob | null>(null)
 
   const handleReconnect = useCallback(() => {
     setStatus('connecting')
@@ -251,7 +259,7 @@ function ClaudeTuiDesktop({
   useEffect(() => {
     if (!containerRef.current) return
 
-    const key = `${repoId}/${branchId}/claude-tui`
+    const key = `${repoId}/${branchId}/${tabId}`
 
     const term = new Terminal({
       cursorBlink: true,
@@ -520,18 +528,25 @@ function ClaudeTuiDesktop({
     return () => {
       terminalManager.remove(key)
     }
+    // tabId MUST be a dependency: panel.tsx reuses this same component
+    // instance when the user switches between two Claude(tui) tabs in the
+    // same workspace (React keeps the element at the same tree position and
+    // only changes props). Without tabId here the effect never re-runs on a
+    // tab switch, so the WS + terminal stay bound to the first tab's daemon
+    // and both tabs render the same session. Mirrors terminal-view.tsx,
+    // which already keys its mount effect on tabId.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repoId, branchId, reconnectSeq])
+  }, [repoId, branchId, tabId, reconnectSeq])
 
   // Live font-size update without tearing down the WS.
   useEffect(() => {
-    const key = `${repoId}/${branchId}/claude-tui`
+    const key = `${repoId}/${branchId}/${tabId}`
     const m = terminalManager.get(key)
     if (!m) return
     if (m.terminal.options.fontSize !== fontSize) {
       m.terminal.options.fontSize = fontSize
     }
-  }, [fontSize, repoId, branchId])
+  }, [fontSize, repoId, branchId, tabId])
 
   // Process pending pasted image OUTSIDE the paste-event call stack.
   // Chromium's fetch/XHR initiated from inside a paste-event handler
@@ -540,9 +555,9 @@ function ClaudeTuiDesktop({
   // browsers). Scheduling the upload from a useEffect that fires after
   // React commits the setPendingImage state unblocks the request.
   useEffect(() => {
-    if (!pendingImage) return
+    if (!pendingImage || uploadedImageRef.current === pendingImage) return
     const blob = pendingImage
-    setPendingImage(null)
+    uploadedImageRef.current = pendingImage
     const fd = new FormData()
     const file = blob instanceof File ? blob : new File([blob], guessNameTui(blob), { type: blob.type })
     fd.append('file', file)
