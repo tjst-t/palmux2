@@ -21,8 +21,21 @@ export interface ManagedTerminal {
   key: string
   terminal: Terminal
   ws: ReconnectingWebSocket
+  /** Wire encoding for sendInput payloads. 'json' (default) wraps data in the
+   *  `{type:'input',data}` frame the tmux-backed Bash terminal-view expects;
+   *  'raw' sends the bytes as a UTF-8 ArrayBuffer, which is what the claude-tui
+   *  daemon's PTY consumes (it has no JSON envelope). Lets the Toolbar drive
+   *  either terminal type through the same terminalManager.sendInput() path. */
+  encoding?: 'json' | 'raw'
   /** Optional cleanup hook the view registers (e.g. ResizeObserver disconnect). */
   dispose?: () => void
+}
+
+// encodeInput renders a sendInput payload for the wire according to the
+// terminal's encoding. Shared by sendInput() and flushPending().
+function encodeInput(m: ManagedTerminal, data: string): string | ArrayBuffer {
+  if (m.encoding === 'raw') return new TextEncoder().encode(data).buffer as ArrayBuffer
+  return JSON.stringify({ type: 'input', data })
 }
 
 class TerminalManager {
@@ -59,7 +72,7 @@ class TerminalManager {
     const m = this.active.get(key)
     if (!m) return
     for (const data of queue) {
-      m.ws.send(JSON.stringify({ type: 'input', data }))
+      m.ws.send(encodeInput(m, data))
     }
     this.pending.delete(key)
   }
@@ -129,7 +142,7 @@ class TerminalManager {
       this.pending.set(key, q)
       return true
     }
-    m.ws.send(JSON.stringify({ type: 'input', data }))
+    m.ws.send(encodeInput(m, data))
     return true
   }
 
