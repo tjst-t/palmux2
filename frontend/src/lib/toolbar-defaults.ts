@@ -39,6 +39,7 @@ export const DEFAULT_TOOLBAR_CONFIG: ToolbarConfig = {
       [
         { type: 'key', key: 'Esc' },
         { type: 'key', key: '/clear', text: '/clear' },
+        { type: 'key', key: '/resume', text: '/resume' },
         { type: 'key', key: '/compact', text: '/compact' },
         { type: 'key', key: '/init', text: '/init' },
         { type: 'key', key: '/memory', text: '/memory' },
