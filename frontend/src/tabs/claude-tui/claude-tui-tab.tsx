@@ -525,6 +525,53 @@ function ClaudeTuiDesktop({
       return true
     })
 
+    // --- Single-finger vertical scroll (mobile / touch) ---
+    // xterm.js translates a touch drag into text selection / input focus, not
+    // scrollback movement, so on a phone the only way to scroll history is the
+    // thin scrollbar. We convert a one-finger vertical drag into
+    // term.scrollLines(). Two-finger gestures are left untouched so the
+    // MainArea pinch (font size) / horizontal swipe (tab switch) handlers keep
+    // working. We only preventDefault once we've actually consumed a line, so a
+    // tap still reaches xterm (focus / cursor) normally.
+    let touchLastY = 0
+    let touchAccum = 0
+    let touchActive = false
+
+    const cellHeight = (): number => {
+      const rows = term.rows || 1
+      const h = container.clientHeight
+      return h > 0 ? h / rows : fontSize * 1.2
+    }
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) { touchActive = false; return }
+      touchActive = true
+      touchLastY = e.touches[0].clientY
+      touchAccum = 0
+    }
+    const onTouchMove = (e: TouchEvent) => {
+      if (!touchActive || e.touches.length !== 1) return
+      const y = e.touches[0].clientY
+      touchAccum += y - touchLastY
+      touchLastY = y
+      const step = cellHeight()
+      if (step <= 0) return
+      // Dragging DOWN (positive accum, finger toward bottom) reveals OLDER
+      // lines → scroll up → negative scrollLines() argument.
+      const lines = Math.trunc(touchAccum / step)
+      if (lines !== 0) {
+        term.scrollLines(-lines)
+        touchAccum -= lines * step
+        e.preventDefault()
+      }
+    }
+    const onTouchEnd = () => { touchActive = false }
+
+    container.addEventListener('touchstart', onTouchStart, { passive: true })
+    container.addEventListener('touchmove', onTouchMove, { passive: false })
+    container.addEventListener('touchend', onTouchEnd, { passive: true })
+    container.addEventListener('touchcancel', onTouchEnd, { passive: true })
+
     const dispose = () => {
       ro.disconnect()
       onDataDisp.dispose()
@@ -532,6 +579,10 @@ function ClaudeTuiDesktop({
       onClipboardDisp.dispose()
       container.removeEventListener('paste', handlePaste as EventListener)
       document.removeEventListener('paste', onDocPaste, true)
+      container.removeEventListener('touchstart', onTouchStart)
+      container.removeEventListener('touchmove', onTouchMove)
+      container.removeEventListener('touchend', onTouchEnd)
+      container.removeEventListener('touchcancel', onTouchEnd)
       wsRef.current = null
       if (streamingTimer) clearTimeout(streamingTimer)
       if (resizeDebounceTimer) clearTimeout(resizeDebounceTimer)
