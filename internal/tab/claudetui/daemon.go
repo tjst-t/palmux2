@@ -71,6 +71,10 @@ type Stats struct {
 	Alive bool `json:"alive"`
 	// State is the string representation of the current daemon state.
 	State string `json:"state"`
+	// ScrollbackLines is the number of lines in the server-side emulator's
+	// scrollback buffer (diagnostic — reflects how much history a fresh attach
+	// would replay).
+	ScrollbackLines int `json:"scrollback_lines"`
 }
 
 // Daemon owns the PTY subprocess and multiplexes its output to an arbitrary
@@ -117,6 +121,13 @@ type Daemon struct {
 	// originating tab (Sadf90e — tabID was added so two Claude-tui tabs in the
 	// same workspace produce distinguishable events).
 	repoID, branchID, tabID string
+
+	// feedMu serializes the readLoop's (ring.Write + emulator.Feed) pair with
+	// the attach-time (emulator.RenderSnapshot + ring.Subscribe) pair so a new
+	// client's screen-state replay and its live subscription are atomic with
+	// respect to incoming PTY bytes — no chunk is double-applied or lost at the
+	// boundary. Held only for the duration of a single chunk's write+feed.
+	feedMu sync.Mutex
 
 	// eventMu guards the per-daemon event-detection state fields below.
 	eventMu sync.Mutex
@@ -244,6 +255,24 @@ func NewDaemon(cfg DaemonConfig) *Daemon {
 // WebSocket mode.
 func (d *Daemon) GridSnapshot() Grid {
 	return d.emulator.GridSnapshot()
+}
+
+// RenderSnapshotAndSubscribe atomically (a) captures an ANSI reconstruction of
+// the emulator's current screen and (b) registers a live ring subscriber, both
+// under feedMu so they line up at exactly one PTY-chunk boundary with the
+// readLoop's (ring.Write + emulator.Feed). This is the claude-tui replacement
+// for Ring.SnapshotAndSubscribe: the replay sent to a new client is the
+// collapsed current screen, not the raw repaint history (which would stack old
+// frames into the scrollback as garbage — "scroll up → broken logs"). See
+// Emulator.RenderSnapshot.
+//
+// The caller must call [Ring.Unsubscribe] on the returned [Subscription].
+func (d *Daemon) RenderSnapshotAndSubscribe() ([]byte, *Subscription) {
+	d.feedMu.Lock()
+	defer d.feedMu.Unlock()
+	snapshot := d.emulator.RenderSnapshot()
+	sub := d.ring.Subscribe()
+	return snapshot, sub
 }
 
 // EnsureStarted lazily spawns the subprocess on the first call.  Subsequent
@@ -422,6 +451,12 @@ func (d *Daemon) readLoop(ptmx *os.File) {
 			if r.n > 0 {
 				chunk := make([]byte, r.n)
 				copy(chunk, buf[:r.n])
+				// feedMu makes (ring.Write + emulator.Feed) atomic w.r.t. a
+				// concurrent attach, which takes the same lock around
+				// (RenderSnapshot + Subscribe). This guarantees a new client's
+				// rendered screen and its live subscription line up exactly at
+				// one chunk boundary.
+				d.feedMu.Lock()
 				// Ring.Write broadcasts to subscribers under the ring lock (Fix 3).
 				if _, werr := d.ring.Write(chunk); werr != nil {
 					d.logger.Warn("claudetui: ring write error", "err", werr)
@@ -430,6 +465,7 @@ func (d *Daemon) readLoop(ptmx *os.File) {
 				// emulator.Feed is a synchronous state-machine update; it does
 				// not block and adds only a small constant overhead per chunk.
 				d.emulator.Feed(chunk)
+				d.feedMu.Unlock()
 				// Event detection: scan for BEL (task_complete) and grid pattern
 				// (permission_prompt).  Both calls are fast and non-blocking.
 				d.detectEvents(chunk)
@@ -617,6 +653,7 @@ func (d *Daemon) CurrentStats() Stats {
 		AttachedClients: d.attachedCount.Load(),
 		Alive:           st == StateRunning,
 		State:           st.String(),
+		ScrollbackLines: d.emulator.ScrollbackLen(),
 	}
 }
 

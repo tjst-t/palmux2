@@ -150,6 +150,24 @@ func (r *Ring) SnapshotAndSubscribe() ([]byte, *Subscription) {
 	return data, sub
 }
 
+// Subscribe registers a live subscriber WITHOUT replaying the ring contents.
+// Used by the claude-tui attach path, which replays the emulator's rendered
+// current screen instead of the raw byte history (see
+// Daemon.RenderSnapshotAndSubscribe). The caller is responsible for ordering
+// the render relative to this subscription; Daemon does so under feedMu.
+//
+// The caller must call [Ring.Unsubscribe] on the returned [Subscription].
+func (r *Ring) Subscribe() *Subscription {
+	sub := &Subscription{
+		Ch:   make(chan []byte, 256),
+		Done: make(chan struct{}),
+	}
+	r.mu.Lock()
+	r.subs[sub] = struct{}{}
+	r.mu.Unlock()
+	return sub
+}
+
 // Unsubscribe removes a subscriber registered via [Ring.SnapshotAndSubscribe].
 // After this call the subscription's Done channel is closed; in-flight chunks
 // already enqueued in Ch are still readable.

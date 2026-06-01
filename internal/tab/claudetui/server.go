@@ -73,15 +73,20 @@ func AttachHandler(d *Daemon) http.Handler {
 			d.roles.OnUnsubscribe(roleSub)
 		}()
 
-		// Fix 3: SnapshotAndSubscribe is atomic — no live bytes can slip
-		// between the snapshot and the subscribe call.
-		snapshot, ringSub := d.ring.SnapshotAndSubscribe()
+		// Replay the emulator's CURRENT rendered screen (not the raw byte ring)
+		// and atomically subscribe to live output. claude does not use the
+		// alternate screen — it repaints in place — so replaying the raw ring
+		// history into a fresh xterm would stack every past frame into the
+		// scrollback as garbage (the "scroll up shows broken logs" bug). The
+		// render snapshot is a single clean frame; RenderSnapshotAndSubscribe
+		// orders it atomically against live bytes under the daemon's feedMu.
+		snapshot, ringSub := d.RenderSnapshotAndSubscribe()
 		defer d.ring.Unsubscribe(ringSub)
 
-		// Replay ring buffer to the new client.
+		// Replay the rendered screen to the new client.
 		if len(snapshot) > 0 {
 			if wErr := conn.Write(ioCtx, websocket.MessageBinary, snapshot); wErr != nil {
-				slog.Warn("claudetui: ring replay write error", "err", wErr)
+				slog.Warn("claudetui: render replay write error", "err", wErr)
 				return
 			}
 		}

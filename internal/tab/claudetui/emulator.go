@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"log/slog"
+	"strings"
 	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
@@ -149,6 +150,87 @@ func (e *Emulator) GridSnapshot() Grid {
 	g.Cursor.X = pos.X
 	g.Cursor.Y = pos.Y
 	return g
+}
+
+// RenderSnapshot returns a self-contained ANSI byte sequence that, when
+// written to a fresh xterm, reproduces the emulator's scrollback history AND
+// its current visible screen — i.e. exactly what a user attached from the start
+// would see, scrollable and clean.
+//
+// This is what new WebSocket clients replay on attach, INSTEAD of the raw byte
+// ring. The raw ring is the concatenation of every repaint frame claude has
+// emitted; claude does not use the alternate screen, so replaying that raw
+// history into a fresh terminal re-runs every frame's cursor moves and line
+// feeds and stacks the partial repaint frames into the scrollback as garbage
+// ("scroll up → broken logs"). The server-side vt emulator, by contrast, has
+// already resolved all those repaints into a clean scrollback + screen, so we
+// serialize THAT instead.
+//
+// The sequence is:
+//
+//	ESC[?25l                 hide cursor while we paint
+//	ESC[H ESC[2J             home + clear (drop any stale frame in the client)
+//	<scrollback row>CRLF …   each historical line, SGR-styled, pushed so it
+//	                         lands in the client's scrollback
+//	<screen rows joined CRLF, no trailing newline so the last row doesn't scroll>
+//	ESC[<y>;<x>H             restore the cursor to the live position (1-based)
+//	ESC[?25h                 show cursor
+//
+// uv.Line.Render() / Emulator.Render() emit per-row SGR styling; we translate
+// the '\n' separators to CRLF and frame the result.
+func (e *Emulator) RenderSnapshot() []byte {
+	var b strings.Builder
+	b.WriteString("\x1b[?25l") // hide cursor
+	b.WriteString("\x1b[H")    // cursor home
+	b.WriteString("\x1b[2J")   // clear entire screen
+
+	// Scrollback first: each line, oldest → newest, terminated by CRLF so the
+	// client terminal feeds it into its own scrollback before the live screen.
+	if sb := e.em.Scrollback(); sb != nil {
+		n := sb.Len()
+		for y := 0; y < n; y++ {
+			b.WriteString(sb.Line(y).Render())
+			b.WriteString("\r\n")
+		}
+	}
+
+	// Current screen. Render() joins rows with '\n'; use CRLF so each row
+	// starts at col 1. No trailing newline so the last visible row does not
+	// scroll the screen up by one.
+	screen := strings.ReplaceAll(e.em.Render(), "\n", "\r\n")
+	b.WriteString(screen)
+
+	// Restore the cursor to the live position (CursorPosition is 0-based;
+	// ANSI CUP is 1-based).
+	pos := e.em.CursorPosition()
+	b.WriteString("\x1b[")
+	b.WriteString(itoa(pos.Y + 1))
+	b.WriteByte(';')
+	b.WriteString(itoa(pos.X + 1))
+	b.WriteByte('H')
+	b.WriteString("\x1b[?25h") // show cursor
+	return []byte(b.String())
+}
+
+// itoa is a tiny allocation-light positive-int formatter for ANSI parameters.
+func itoa(n int) string {
+	if n <= 0 {
+		return "1"
+	}
+	var buf [6]byte
+	i := len(buf)
+	for n > 0 {
+		i--
+		buf[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(buf[i:])
+}
+
+// ScrollbackLen returns the number of lines currently in the emulator's
+// scrollback buffer. Exposed via Stats for diagnostics.
+func (e *Emulator) ScrollbackLen() int {
+	return e.em.ScrollbackLen()
 }
 
 // Resize changes the terminal dimensions.  It is called from Daemon.Resize so
