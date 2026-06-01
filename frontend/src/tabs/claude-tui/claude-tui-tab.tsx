@@ -266,6 +266,11 @@ function ClaudeTuiDesktop({
       fontFamily: readThemeVar('--font-mono', 'monospace'),
       fontSize,
       lineHeight: 1.2,
+      // Real scrollback: the backend now replays the emulator's CURRENT
+      // rendered screen on attach (Daemon.RenderSnapshotAndSubscribe) instead
+      // of the raw repaint-history byte ring, so the scrollback only fills with
+      // genuine forward output, not stacked stale frames. This restores normal
+      // scroll-up behaviour without the "broken logs" garbage.
       scrollback: 5000,
       allowProposedApi: true,
       minimumContrastRatio: 4.5,
@@ -280,6 +285,15 @@ function ClaudeTuiDesktop({
 
     term.open(containerRef.current)
     try { fit.fit() } catch { /* ignore — 0-size container at mount */ }
+    // Focus the terminal immediately so the user can type right away. This
+    // effect re-runs on every tab switch (tabId is a dependency), so switching
+    // to a Claude(tui) tab puts the caret in its terminal without an extra
+    // click — the tab-bar click would otherwise leave focus on the tab button.
+    // rAF defers until after layout so focus reliably sticks on the now-visible
+    // container.
+    requestAnimationFrame(() => {
+      try { term.focus() } catch { /* terminal disposed before rAF — ignore */ }
+    })
 
     // --- WebSocket (raw binary, no JSON framing) ---
     let streamingTimer: ReturnType<typeof setTimeout> | null = null
@@ -523,7 +537,12 @@ function ClaudeTuiDesktop({
       if (resizeDebounceTimer) clearTimeout(resizeDebounceTimer)
     }
 
-    terminalManager.acquire({ key, terminal: term, ws, dispose })
+    // encoding 'raw': the claude-tui daemon's PTY consumes bare UTF-8 bytes,
+    // not the `{type:'input'}` JSON the Bash terminal-view uses. This lets the
+    // Toolbar drive this terminal via terminalManager.sendInput() (see
+    // useFocusedTerminal, which now resolves a termKey for TUI-mode claude
+    // tabs) without the buttons sending a literal JSON string to claude.
+    terminalManager.acquire({ key, terminal: term, ws, encoding: 'raw', dispose })
 
     return () => {
       terminalManager.remove(key)
@@ -599,35 +618,39 @@ function ClaudeTuiDesktop({
         <span data-testid="claude-tui-status" className={styles.status}>
           {statusLabel[status]}
         </span>
-        {role !== undefined && (
-          <span
-            data-testid="claude-tui-role-badge"
-            className={`${styles.roleBadge} ${role === 'active' ? styles.roleBadgeActive : styles.roleBadgeViewer}`}
-          >
-            {role}
-          </span>
-        )}
+        <div className={styles.statusBarRight}>
+          {role !== undefined && (
+            <span
+              data-testid="claude-tui-role-badge"
+              className={`${styles.roleBadge} ${role === 'active' ? styles.roleBadgeActive : styles.roleBadgeViewer}`}
+            >
+              {role}
+            </span>
+          )}
+          {showFilePicker && (
+            <button
+              data-testid="claude-tui-file-picker-btn"
+              className={styles.filePickerBtn}
+              onClick={() => fileInputRef.current?.click()}
+              type="button"
+              aria-label="Attach file"
+              title="Attach file"
+            >
+              📎
+            </button>
+          )}
+        </div>
       </div>
       {showFilePicker && (
-        <div className={styles.filePickerBar}>
-          <button
-            data-testid="claude-tui-file-picker-btn"
-            className={styles.filePickerBtn}
-            onClick={() => fileInputRef.current?.click()}
-            type="button"
-          >
-            Attach file
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept="image/*,*/*"
-            className={styles.filePickerInput}
-            onChange={handleFilePickerChange}
-            aria-hidden="true"
-          />
-        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/*,*/*"
+          className={styles.filePickerInput}
+          onChange={handleFilePickerChange}
+          aria-hidden="true"
+        />
       )}
       <div
         ref={containerRef}

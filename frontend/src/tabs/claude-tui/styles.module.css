@@ -23,8 +23,18 @@
   color: var(--color-fg-muted);
 }
 
-.roleBadge {
+/* Right-aligned cluster in the status bar: role badge + (mobile) attach
+ * button. The status bar is always present (24px), so hosting the attach
+ * affordance here avoids a dedicated bar that permanently eats terminal
+ * height on mobile. */
+.statusBarRight {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.roleBadge {
   padding: 1px 6px;
   border-radius: 3px;
   font-size: 10px;
@@ -83,35 +93,26 @@
   background-color: var(--color-accent-dark);
 }
 
-/* ── File picker bar (mobile only) ────────────────────────────────────── */
-
-.filePickerBar {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  padding: var(--space-2) var(--space-3);
-  background-color: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
-}
+/* ── File picker button (mobile only, lives in the status bar) ─────────── */
 
 .filePickerBtn {
-  width: 100%;
-  padding: var(--space-2) var(--space-4);
-  background-color: var(--color-elevated);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 20px;
+  padding: 0 6px;
+  background: transparent;
   color: var(--color-fg-muted);
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
+  border: none;
+  border-radius: 3px;
   font-size: 13px;
-  font-family: var(--font-ui, sans-serif);
+  line-height: 1;
   cursor: pointer;
-  text-align: center;
-  min-height: 40px;
 }
 
 .filePickerBtn:active {
-  background-color: var(--color-accent);
-  color: #fff;
-  border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 
 .filePickerInput {
