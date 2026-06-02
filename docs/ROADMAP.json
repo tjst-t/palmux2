@@ -3,14 +3,14 @@
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
     "sprints_done": 44,
-    "sprints_total": 44,
-    "percent": 100,
-    "current_sprint": null,
+    "sprints_total": 45,
+    "percent": 97,
+    "current_sprint": "Sfccb3f",
     "done": 44,
     "in_progress": 0,
-    "total": 44,
-    "remaining": 0,
-    "percentage": 100
+    "total": 45,
+    "remaining": 1,
+    "percentage": 97
   },
   "execution_order": [
     "S001",
@@ -56,7 +56,8 @@
     "S0fd64b",
     "S1f75ec",
     "Sadf90e",
-    "S67cb0e"
+    "S67cb0e",
+    "Sfccb3f"
   ],
   "sprints": {
     "S001": {
@@ -7861,6 +7862,131 @@
           }
         }
       }
+    },
+    "Sfccb3f": {
+      "title": "Ubuntu installer + HTTPS via Caddy + Palmux OS foundation (Nix)",
+      "status": "planned",
+      "milestone": true,
+      "description": "palmux2 を Ubuntu VM (友人の自前仮想基盤) に **ワンライナーで再現可能・冪等にデプロイ** する基盤を Nix で構築する。 将来の Palmux OS (qcow2/ISO) 配布の足場でもあり、 同じ flake から NixOS image を nixos-generators で生成できる構造にする。\n\n採用方針 (議論経緯):\n  1. 当初 Ansible role を検討 → アトミック性に欠ける\n  2. Nix flake を検討 → 採用。 ただし非 NixOS の Ubuntu 上では Nix 単独だとシステム配線 (systemd / /etc) が宙ぶらりんになる\n  3. **system-manager (numtide) + home-manager の組合せ** で Ubuntu でも config 完全 declarative を達成\n  4. 秘密 (CF token / basic auth password hash) は /nix/store が world-readable なので Nix の外 (/etc/caddy/palmux.env, root:caddy 0640) に分離\n  5. 公開パラメータ (DOMAIN / ACME_EMAIL / BASIC_AUTH_USER) は install.sh が env vars を受け取って /etc/palmux/flake.nix を生成、 そこから system-manager/home-manager に流す\n\nスコープ: 既存 scripts/install.sh (plain bash) は **設計ノートとして残し**、 Caddy/basic_auth/systemd の設計判断 (env file 分離、 自動 bind 切替、 setcap) を Nix module に **移植** する (ゼロから再設計しない)。\n\n3 stories:\n  -1 palmux flake + Nix bootstrap install.sh + minimal profile (palmux2 / tmux / ghq / gwq / portman / Node / Claude CLI / Go / build-essential / python3 / gh / jq / unzip + home-manager user systemd)\n  -2 Caddy + Cloudflare DNS-01 + edge basic auth (system-manager module、 秘密は /etc/caddy/palmux.env で注入、 palmux2 unit は Caddy 有効時 127.0.0.1 バインド)\n  -3 server-stability module (unattended-upgrades + 8G swap + vm.swappiness/panic sysctls + auto-reboot) + PROFILE=full で shell-UX cluster (bat/rg/fd/delta/eza/fzf/starship/zoxide/yazi + bashrc.d integration)\n\nスコープ外:\n  - palmux2 自身のコード変更 (binary は GitHub Release から取る)\n  - NixOS qcow2/ISO 生成 (将来 Sprint、 同じ flake から nixos-generators で生やす)\n  - rootless netns / userns sysctl (palmux2 v0.8.0 で未使用)\n  - LSP servers (palmux2 v2 では未使用、 palmux v1 のみ)\n  - infisical / docker / monitoring / containerlab / qemu (ansible-dev-server 固有でユーザ環境依存)\n\n参考: ansible-dev-server (tjst-t/ansible-dev-server) の roles を比較分析した結果、 server-stability + dev-essentials のうち palmux2 OS として取り込むべき最小セットを Story-3 に集約。\n\n受け入れ検証は Ubuntu test VM (ubuntu@192.168.1.41、 wipe 自由) で curl | bash → ブラウザから HTTPS + basic_auth でアクセス確認。",
+      "stories": {
+        "Sfccb3f-1": {
+          "id": "Sfccb3f-1",
+          "status": "planned",
+          "title": "Nix bootstrap install.sh + palmux flake (minimal profile)",
+          "user_story": "自宅サーバー / VPS で palmux2 を常駐させたい個人開発者として、 Ubuntu 22.04+ VM 上で `curl -fsSL .../install.sh | bash` 一発で palmux2 + tmux + ghq + gwq + port-manager + Node + Claude CLI + Go + build-essential + python3 + gh + jq + unzip を Nix 経由で declarative にセットアップしたい。 なぜなら、 plain bash インストーラは half-state や個別バージョン差分で再現性が壊れがちで、 友人の VM や新規環境に展開するたびに詰まり所がぶり返すから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sfccb3f-1-1",
+              "description": "Ubuntu 22.04+ VM で `curl -fsSL .../scripts/install.sh | bash` を実行すると、 Determinate Systems Nix installer が走り、 続いて env vars から /etc/palmux/flake.nix が生成される",
+              "test": "tests/e2e/sfccb3f_installer.py [AC-Sfccb3f-1-1]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sfccb3f-1-2",
+              "description": "system-manager switch + home-manager switch が成功し、 palmux2 / tmux / ghq / gwq / portman / claude / node / go / make / gh / unzip / jq / python3 が PATH から呼べる (palmux2 --version が tag 一致)",
+              "test": "tests/e2e/sfccb3f_installer.py [AC-Sfccb3f-1-2]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sfccb3f-1-3",
+              "description": "home-manager が user systemd unit を生成、 systemctl --user enable --now palmux2 で起動 → http://<VM>:8080 で palmux2 UI が応答する",
+              "test": "tests/e2e/sfccb3f_installer.py [AC-Sfccb3f-1-3] (Playwright headless)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sfccb3f-1-4",
+              "description": "同じワンライナーを再実行すると冪等 (世代追加のみ、 差分なしならステートメント数 0)。 PALMUX_VERSION で固定 → 指定 tag が deploy される",
+              "test": "tests/e2e/sfccb3f_installer.py [AC-Sfccb3f-1-4]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sfccb3f-1-5",
+              "description": "system-manager rollback + home-manager rollback で前世代に戻り、 palmux2 が前バージョンに戻る (アトミック性確認)",
+              "test": "tests/e2e/sfccb3f_installer.py [AC-Sfccb3f-1-5]",
+              "status": "pending"
+            }
+          ],
+          "tasks": {}
+        },
+        "Sfccb3f-2": {
+          "id": "Sfccb3f-2",
+          "status": "planned",
+          "title": "Caddy + Cloudflare DNS-01 + edge basic auth (system-manager module)",
+          "user_story": "palmux2 を自分のドメイン名で外部公開したい個人開発者として、 DOMAIN + CLOUDFLARE_API_TOKEN をワンライナーに渡すだけで Caddy + Let's Encrypt (DNS-01) で HTTPS 終端し、 さらに BASIC_AUTH_USER + BASIC_AUTH_PASSWORD で edge basic auth もかけたい。 なぜなら、 手動で Caddy + 証明書 + bcrypt + systemd を整えるのは詰まりやすく、 設定漏れで 8080 が公開されたり証明書が更新されなかったりする事故が起きやすいから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sfccb3f-2-1",
+              "description": "DOMAIN=palmux.example.com CLOUDFLARE_API_TOKEN=cf_xxx 付きでワンライナー実行 → caddy-dns/cloudflare plugin 入り Caddy が Nix store にビルド/配置され、 system-manager 経由で /etc/systemd/system/caddy.service が起動する",
+              "test": "tests/e2e/sfccb3f_installer.py [AC-Sfccb3f-2-1]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sfccb3f-2-2",
+              "description": "https://<DOMAIN> でアクセス → Let's Encrypt 証明書 (Issuer = Let's Encrypt) で TLS 確立、 palmux2 UI が応答する",
+              "test": "tests/e2e/sfccb3f_installer.py [AC-Sfccb3f-2-2] (Playwright + TLS 確認)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sfccb3f-2-3",
+              "description": "palmux2 home-manager unit は Caddy 有効時に自動で 127.0.0.1:8080 バインドに切替、 curl http://<VM-IP>:8080 が応答しない (外部公開されないこと)",
+              "test": "tests/e2e/sfccb3f_installer.py [AC-Sfccb3f-2-3]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sfccb3f-2-4",
+              "description": "DOMAIN 単独 / CLOUDFLARE_API_TOKEN 単独でワンライナー実行するとエラー終了 (片肺バリデーション)。 BASIC_AUTH_USER 単独 / BASIC_AUTH_PASSWORD 単独も同様",
+              "test": "tests/e2e/sfccb3f_installer.py [AC-Sfccb3f-2-4]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sfccb3f-2-5",
+              "description": "BASIC_AUTH_USER + BASIC_AUTH_PASSWORD 追加 → https://<DOMAIN> アクセス時に basic auth ダイアログ、 正しい認証情報のみ palmux2 に到達する。 password hash は bcrypt で /etc/caddy/palmux.env (root:caddy 0640) に保存、 Nix が生成した caddy 設定には {env.BASIC_AUTH_HASH} 参照のみ書かれる (平文 hash は Nix store に含まれない)",
+              "test": "tests/e2e/sfccb3f_installer.py [AC-Sfccb3f-2-5]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sfccb3f-2-6",
+              "description": "ワンライナー再実行で CF token / basic auth password の差し替えができ、 /etc/caddy/palmux.env のみ rewrite、 Caddy が無停止 reload (systemctl reload caddy)。 Nix 世代は変わらない (差し替えは Nix 外で完結)",
+              "test": "tests/e2e/sfccb3f_installer.py [AC-Sfccb3f-2-6]",
+              "status": "pending"
+            }
+          ],
+          "tasks": {}
+        },
+        "Sfccb3f-3": {
+          "id": "Sfccb3f-3",
+          "status": "planned",
+          "title": "server-stability module + opt-in PROFILE=full (dev-essentials cluster)",
+          "user_story": "露出した VM で palmux2 を長期稼働させたい個人開発者として、 security update 自動適用 + swap + OOM panic auto-reboot を declarative に有効化したい。 さらに PROFILE=full で開発体験を上げる shell-UX クラスタ (bat / ripgrep / fd / git-delta / eza / fzf / starship / zoxide / yazi + bashrc.d integration) も任意で有効化したい。 なぜなら、 unattended-upgrades と swap config は VPS を公開する上での最低ライン、 shell-UX は dev サーバとしての操作快適性に直結するから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sfccb3f-3-1",
+              "description": "install.sh 実行後、 unattended-upgrades が enabled、 /etc/apt/apt.conf.d/50unattended-upgrades + 20auto-upgrades が system-manager 経由で配置され、 unattended-upgrade --dry-run が success を返す (kernel/bootloader 除外)",
+              "test": "tests/e2e/sfccb3f_installer.py [AC-Sfccb3f-3-1]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sfccb3f-3-2",
+              "description": "/swapfile (8G) が作成され swapon -s で active、 sysctl で vm.swappiness=10 / vm.panic_on_oom=1 / kernel.panic=10 が永続化、 /etc/sysctl.d/ に system-manager 管理ファイルが置かれる",
+              "test": "tests/e2e/sfccb3f_installer.py [AC-Sfccb3f-3-2]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sfccb3f-3-3",
+              "description": "PROFILE=full 付きで再実行すると、 bat / ripgrep / fd / git-delta / eza / fzf / starship / zoxide / yazi が PATH に追加、 bashrc.d integration (starship init bash 等) が有効化、 source ~/.bashrc 後にプロンプトが starship になる",
+              "test": "tests/e2e/sfccb3f_installer.py [AC-Sfccb3f-3-3]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sfccb3f-3-4",
+              "description": "PROFILE=full → 次回 PROFILE=minimal (or 未指定) で再実行すると、 shell-UX cluster が世代から取り除かれ、 bashrc.d integration が無効化 (rollback ではなく forward switch で minimal に戻る)",
+              "test": "tests/e2e/sfccb3f_installer.py [AC-Sfccb3f-3-4]",
+              "status": "pending"
+            }
+          ],
+          "tasks": {}
+        }
+      }
     }
   },
   "dependencies": {
@@ -8040,6 +8166,10 @@
         "S1f75ec"
       ],
       "reason": "S1f75ec で導入された branch.claude_mode + branch-scope settings API を tab-scope に作り直す。 S1f75ec が main にマージされる前提"
+    },
+    "Sfccb3f": {
+      "depends_on": [],
+      "reason": "他 Sprint との依存なし。 既存 43 Sprints は全て done、 in-progress はない。 純粋追加。"
     }
   },
   "backlog": [
