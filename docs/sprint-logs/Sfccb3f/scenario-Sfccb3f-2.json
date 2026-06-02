@@ -10,9 +10,9 @@
       "description": "DOMAIN + CLOUDFLARE_API_TOKEN を渡して install.sh 実行 → Caddy が caddy-dns/cloudflare 入りで起動、 Let's Encrypt 証明書で HTTPS 終端、 palmux2 unit は 127.0.0.1 バインドに切替",
       "preconditions": [
         "scenario-1 of Sfccb3f-1 完了 (palmux2 起動済み)",
-        "** 本物の Cloudflare zone (テスト用 sub-domain) **",
-        "** 有効な CLOUDFLARE_API_TOKEN (Zone:DNS:Edit + Zone:Zone:Read scope) **",
-        "VM がインターネット側からアクセス可能 (port 443 開放)"
+        "DNS: palmux-deploy-test.tjstkm.net → 192.168.1.43 (CF zone tjstkm.net 内、 ユーザ管理下)",
+        "Secret: ~/.config/palmux-deploy-test/secrets.env に CLOUDFLARE_API_TOKEN + ACME_EMAIL (chmod 600、 test harness が SSH 経由で env として注入)",
+        "同一 LAN 内 (DNS-01 は CF API 経由なのでインターネット inbound 不要)"
       ],
       "steps": [
         {
@@ -32,10 +32,8 @@
         }
       ],
       "cleanup": [
-        "test harness が VM を初期化 + 必要なら Cloudflare DNS record を清掃 (テスト用 subdomain の A レコードのみ)"
-      ],
-      "needs_human": true,
-      "needs_human_reason": "AC-Sfccb3f-2-2 (Let's Encrypt 証明書 + Issuer 確認) は本物の Cloudflare zone + 有効 token + 公開到達性を要する。 sprint-auto.md L110 escalate 条件 (外部認証情報) に該当。 verify phase で Guard 1 が fail → needs_user_review へ降ろす"
+        "test harness が VM を初期化 (nix-collect-garbage + /etc/{palmux,caddy} 削除)。 ACME 用に発行された _acme-challenge.* TXT は Let's Encrypt 側で自動 cleanup (caddy が消す)。 A レコード自体は永続"
+      ]
     },
     {
       "id": "scenario-2",
@@ -67,7 +65,7 @@
       "description": "edge basic auth: BASIC_AUTH_USER + PASSWORD で認証必須化、 bcrypt hash 化 + env file 分離、 password rotate は再実行で完結",
       "preconditions": [
         "scenario-1 完了 (HTTPS active)",
-        "** 本物の Cloudflare zone + valid token **"
+        "scenario-1 と同じ secrets file 設定 (~/.config/palmux-deploy-test/secrets.env)"
       ],
       "steps": [
         {
@@ -91,9 +89,7 @@
           "expected": "exit 0; /etc/caddy/palmux.env の BASIC_AUTH_HASH が変わる; curl -u alice:S3cret!1 → 401; curl -u alice:NewS3cret!2 → 200 (AC-2-6)"
         }
       ],
-      "cleanup": ["test harness が VM を初期化"],
-      "needs_human": true,
-      "needs_human_reason": "Cloudflare zone + token + 公開到達性が必要 (scenario-1 と同じ)。 ただし scenario-2 (バリデーション) は creds 不要で自動実行可、 scenario-3 のみ手動 smoke 対象"
+      "cleanup": ["test harness が VM を初期化"]
     }
   ]
 }

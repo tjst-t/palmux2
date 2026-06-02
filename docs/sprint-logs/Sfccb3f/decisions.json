@@ -104,9 +104,18 @@
     {
       "timestamp": "2026-06-02T00:00:00Z",
       "category": "test",
-      "title": "AC-Sfccb3f-2-2 (Let's Encrypt 証明書) は run phase で needs_user_review 候補",
-      "detail": "Let's Encrypt DNS-01 challenge 経由の証明書発行は、 (1) 本物の Cloudflare zone (palmux.example.com の様な実在 zone)、 (2) 有効な CLOUDFLARE_API_TOKEN (Zone:DNS:Edit + Zone:Zone:Read)、 (3) インターネット到達性、 の 3 つが揃わないと verify 不能。 sprint-auto.md L110『外部認証情報必要時は escalate』に該当。 verify phase でこの AC は automatic test では PASS にせず、 sprint-done-judgment Guard 1 (実機 smoke 未実施) で needs_user_review に降ろし、 milestone でユーザに manual smoke を依頼する。 priority_rule 9 障害シナリオ exception には該当しない (これは外部認証情報の話、 障害シナリオではない)",
+      "title": "AC-Sfccb3f-2-2 (Let's Encrypt 証明書) は escalate 候補 → 後に **full auto verify 可** に格上げ (下記の amend 参照)",
+      "detail": "(当初) Let's Encrypt DNS-01 challenge 経由の証明書発行は、 (1) 本物の Cloudflare zone、 (2) 有効な CLOUDFLARE_API_TOKEN、 (3) インターネット到達性、 が要件。 sprint-auto.md L110『外部認証情報必要時は escalate』該当。 → (amend) ユーザが palmux-deploy-test.tjstkm.net (zone: tjstkm.net) を CF 管理下に立て、 scoped token を ~/.config/palmux-deploy-test/secrets.env で提供することで unblock。 同一 LAN 内なので DNS は内部 IP 解決、 ACME challenge は CF API 経由でインターネット不要。 verify phase で AC-Sfccb3f-2-2 を **fully automated E2E** として扱う",
       "reference": "sprint-auto.md L110-122、 VISION process_constraints、 priority_rule 0",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-02T00:00:00Z",
+      "category": "test",
+      "title": "[AMEND] Test 環境確定 — ubuntu@192.168.1.43 + palmux-deploy-test.tjstkm.net",
+      "detail": "Plan commit 後にユーザが test VM を立てた: ubuntu@192.168.1.43 (Ubuntu 24.04.4 LTS、 sudo 可、 hostname palmux-deploy-test)、 DNS palmux-deploy-test.tjstkm.net A → 192.168.1.43 (CF zone tjstkm.net 内、 ユーザ管理下)、 dev box と VM は同一 LAN (egress 130.62.1.166)。 これにより当初 needs_user_review 候補だった AC-Sfccb3f-2-2/-5/-6 (Let's Encrypt 証明書 + basic_auth 認証フロー) もすべて full auto E2E で verify 可能。 scenario-Sfccb3f-2.json の needs_human flag を解除する (別 commit で反映)。 Secrets は ~/.config/palmux-deploy-test/secrets.env (CLOUDFLARE_API_TOKEN + ACME_EMAIL、 chmod 600、 git 管理外) で受け取り、 test harness が SSH 経由で VM の install.sh 起動時に env として注入する",
+      "reference": "User 提供 (chat、 2026-06-02)",
       "adr_ref": null,
       "drift_flag": "none"
     },
