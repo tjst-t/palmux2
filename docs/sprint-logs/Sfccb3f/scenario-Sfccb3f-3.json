@@ -1,0 +1,100 @@
+{
+  "story": "Sfccb3f-3",
+  "story_type": "cli",
+  "user_role": "個人開発者 (露出した VM で palmux2 を長期稼働させたい人)",
+  "entry_point": "install.sh (default profile = minimal、 PROFILE=full で opt-in) + 各種 system level コマンドで状態検証",
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "linked_ac": ["AC-Sfccb3f-3-1", "AC-Sfccb3f-3-2"],
+      "description": "install.sh 実行後、 unattended-upgrades + swap + panic-reboot sysctl がデフォルトで有効",
+      "preconditions": ["fresh Ubuntu 22.04+ VM"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "user runs install.sh (env: 最小、 PROFILE 未指定 → minimal)",
+          "expected": "exit 0"
+        },
+        {
+          "n": 2,
+          "action": "user runs `systemctl is-enabled unattended-upgrades`",
+          "expected": "stdout = 'enabled'; exit 0 (AC-3-1)"
+        },
+        {
+          "n": 3,
+          "action": "user runs `ls /etc/apt/apt.conf.d/{20auto-upgrades,50unattended-upgrades}`",
+          "expected": "両ファイル存在; mode 0644 (AC-3-1)"
+        },
+        {
+          "n": 4,
+          "action": "user runs `sudo unattended-upgrade --dry-run -v 2>&1 | head -50`",
+          "expected": "exit 0; 出力に 'Allowed origins' + security pocket、 'Package excludes' に kernel|linux-image|linux-headers パターンを含む (AC-3-1)"
+        },
+        {
+          "n": 5,
+          "action": "user runs `swapon -s`",
+          "expected": "/swapfile が listed; Size 列が ~8GB (8388608 KB ± 数 KB) (AC-3-2)"
+        },
+        {
+          "n": 6,
+          "action": "user runs `sysctl vm.swappiness vm.panic_on_oom kernel.panic`",
+          "expected": "vm.swappiness = 10; vm.panic_on_oom = 1; kernel.panic = 10 (AC-3-2)"
+        },
+        {
+          "n": 7,
+          "action": "user runs `ls /etc/sysctl.d/` and `grep -lE 'swappiness|panic_on_oom|kernel.panic' /etc/sysctl.d/*`",
+          "expected": "system-manager 管理の sysctl ファイル (palmux-* 等の prefix) が存在し、 上記値が永続化されている (AC-3-2)"
+        }
+      ],
+      "cleanup": []
+    },
+    {
+      "id": "scenario-2",
+      "linked_ac": ["AC-Sfccb3f-3-3"],
+      "description": "PROFILE=full で shell-UX cluster + bashrc.d integration が追加される",
+      "preconditions": ["scenario-1 完了 (PROFILE=minimal 状態)"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "user reruns with `PROFILE=full curl ... | PROFILE=full bash`",
+          "expected": "exit 0; system-manager / home-manager switch で新 generation"
+        },
+        {
+          "n": 2,
+          "action": "user runs `for c in bat rg fd delta eza fzf starship zoxide yazi; do command -v \"$c\" || echo MISSING:$c; done`",
+          "expected": "MISSING:0 件; 全コマンドの絶対パスが返る (AC-3-3)"
+        },
+        {
+          "n": 3,
+          "action": "user runs `ls ~/.bashrc.d/ && bash -lc 'echo $PS1' && bash -lc 'starship --version'`",
+          "expected": "~/.bashrc.d/ にファイル存在 (starship init 等); $PS1 か bash -lc 出力に starship prompt の特徴 (色 escape など) を含む; starship --version が応答 (AC-3-3)"
+        }
+      ],
+      "cleanup": []
+    },
+    {
+      "id": "scenario-3",
+      "linked_ac": ["AC-Sfccb3f-3-4"],
+      "description": "PROFILE=full → PROFILE=minimal (or 未指定) に switch back で shell-UX cluster が外れる",
+      "preconditions": ["scenario-2 完了 (PROFILE=full 状態)"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "user reruns without PROFILE env (default: minimal)",
+          "expected": "exit 0; 新 generation。 system-manager profile が minimal に戻る"
+        },
+        {
+          "n": 2,
+          "action": "user runs `command -v starship zoxide yazi`",
+          "expected": "全 exit non-zero (not found) (AC-3-4)"
+        },
+        {
+          "n": 3,
+          "action": "user runs `ls ~/.bashrc.d/`",
+          "expected": "starship init 等の home-manager 管理ファイルが消えている (or 空)"
+        }
+      ],
+      "cleanup": ["test harness が VM 初期化"]
+    }
+  ]
+}

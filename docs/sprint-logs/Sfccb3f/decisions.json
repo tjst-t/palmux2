@@ -1,0 +1,135 @@
+{
+  "sprint": "Sfccb3f",
+  "touched_adrs": [],
+  "decisions": [
+    {
+      "timestamp": "2026-06-02T00:00:00Z",
+      "category": "planning",
+      "title": "Sprint kickoff — autopilot/main/Sfccb3f ブランチ作成",
+      "detail": "main から autopilot/main/Sfccb3f を切り、 Sprint propose 時の ROADMAP 修正 + 既存 scripts/install.sh (bash 版、 設計ノート) を kickoff commit (cda47f2)。 sprint-auto.md ステップ 0 に従う",
+      "reference": "sprint-auto.md L14-22",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-02T00:00:00Z",
+      "category": "planning",
+      "title": "User story 形式検証 — 全 3 Story PASS",
+      "detail": "Sfccb3f-1/-2/-3 すべて『{役割}として、{やりたいこと}をしたい。なぜなら、{理由}だから。』形式に準拠。 タスク分解形式 (『〜を実装する』) ではない。 リライト不要",
+      "reference": "sprint-plan.md L34-38",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-02T00:00:00Z",
+      "category": "planning",
+      "title": "Story 粒度評価 — 3 Story 構成維持",
+      "detail": "Sprint propose 時に user との対話で 3 Story (bootstrap / HTTPS / server-stability) に既に分割済。 各 Story が独立に deliverable で、 横断する concerns なし。 さらなる分割不要",
+      "reference": "sprint-plan.md L40-45",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-02T00:00:00Z",
+      "category": "planning",
+      "title": "ADR ディレクトリ不在 — touched_adrs = []",
+      "detail": "docs/DESIGN/adr/ ディレクトリが存在しない。 ADR 制約なし。 touched_adrs は空配列。 Guard 7 (ADR conformance grep) は default fallback set (ADR-0014/0033/0034) を試みるが、 これらも実体なしなので no-op",
+      "reference": "sprint-plan.md L15-27",
+      "adr_ref": null,
+      "drift_flag": "adr_missing"
+    },
+    {
+      "timestamp": "2026-06-02T00:00:00Z",
+      "category": "planning",
+      "title": "Story type 分類 — 全 3 Story を cli に分類、 gui-spec skip",
+      "detail": "本 Sprint は palmux2 の UI/UX 変更を含まない。 install.sh + Nix flake + system-manager/home-manager 設定の構築が主体。 各 Story の AC に含まれる『ブラウザで応答確認』『HTTPS でアクセス』は install 成否の smoke check であり、 GUI behavior 変更ではない。 よって全 3 Story を story_type=cli に分類し、 gui-spec skill 起動は省略。 Playwright は CLI-driven E2E (subprocess + HTTP/browser smoke) の補助ツールとして使う",
+      "reference": "story-scenarios.md L9-21、 sprint-plan.md L48-53",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-02T00:00:00Z",
+      "category": "architecture",
+      "title": "palmux2 derivation = fetchurl(GitHub Release prebuilt binary)",
+      "detail": "buildGoModule (source ビルド) ではなく GitHub Release の prebuilt amd64/arm64 バイナリを fetchurl で取り込み、 sha256 pin する。 理由: VISION の tech_constraints『単一バイナリ配布、 Linux amd64/arm64 のリリース自動化済み』に従う。 vite + npm build を Nix sandbox 内で走らせると fragility が高く、 既存 release pipeline と二重メンテになる",
+      "reference": "VISION tech_constraints / success_criteria『単一バイナリ配布』",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-02T00:00:00Z",
+      "category": "architecture",
+      "title": "Claude CLI = npm install -g (Nix の外、 install.sh post-switch)",
+      "detail": "@anthropic-ai/claude-code は npm 経由で /usr/local/lib/node_modules に install する (install.sh の最終 step として実行)。 Nix derivation でラップしない。 理由: Claude CLI は更新頻度が高く、 nixpkgs 化 / 手動 derivation 化は lag を生む。 palmux2 は特定 Claude CLI バージョンに依存しない。 Nix 純度を一部捨てる代わりに UX (常に最新が入る) を取る",
+      "reference": "DESIGN_PRINCIPLES priority_rule 6『既存資産活用 > 新規実装』",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-02T00:00:00Z",
+      "category": "architecture",
+      "title": "Caddy + caddy-dns/cloudflare = nixpkgs 優先 + caddyserver.com API フォールバック",
+      "detail": "実装方針: (a) nixpkgs の caddy.withPlugins (or caddy-dns-cloudflare package) が利用可能であれば優先採用、 (b) 利用不可なら caddyserver.com/api/download?os=linux&arch=...&p=github.com%2Fcaddy-dns%2Fcloudflare を fetchurl + sha256 pin で取り込む。 run phase で実装時に決定。 いずれも Nix store 内、 hash pin で reproducible",
+      "reference": "DESIGN_PRINCIPLES priority_rule 6 + propose 議論 (caddyserver.com API 検証済 200)",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-02T00:00:00Z",
+      "category": "architecture",
+      "title": "秘密管理: /etc/caddy/palmux.env (root:caddy 0640) は Nix の外",
+      "detail": "CLOUDFLARE_API_TOKEN / BASIC_AUTH_HASH は install.sh が /etc/caddy/palmux.env に書く (root:caddy 0640)。 Nix 生成の Caddyfile / systemd unit は EnvironmentFile + {env.X} 参照のみ。 理由: /nix/store は world-readable で、 ここに秘密を書くと全 user に漏れる。 sops-nix / agenix も同じ思想 (encrypted file を Nix の外、 復号 hook で system service に注入)",
+      "reference": "propose 議論 / sops-nix 思想",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-02T00:00:00Z",
+      "category": "architecture",
+      "title": "host-specific /etc/palmux/flake.nix を install.sh が env から生成",
+      "detail": "公開パラメータ (DOMAIN / ACME_EMAIL / BASIC_AUTH_USER / PROFILE) は install.sh が env vars を受け取り、 /etc/palmux/flake.nix を template から生成する。 そのファイルが `inputs.palmux2.url = \"github:tjst-t/palmux2\"` を import し、 mkPalmuxHost に host params を渡す。 git 管理対象外 (/etc 配下のローカルファイル)、 flake.lock は /etc/palmux/ 内で管理",
+      "reference": "propose 議論",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-02T00:00:00Z",
+      "category": "architecture",
+      "title": "palmux2 unit bind addr = caddy 有無で自動切替",
+      "detail": "home-manager-palmux module が host.caddy.enable オプションを参照し、 enable=true なら ExecStart=palmux2 --addr=127.0.0.1:8080、 enable=false なら 0.0.0.0:8080。 8080 を Caddy 有効時に晒さないことで AC-Sfccb3f-2-3 を満たす。 install.sh は env (DOMAIN 等) の有無で host.caddy.enable を /etc/palmux/flake.nix に反映",
+      "reference": "Sprint description / Sfccb3f-2 AC-3",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-02T00:00:00Z",
+      "category": "test",
+      "title": "AC-Sfccb3f-2-2 (Let's Encrypt 証明書) は run phase で needs_user_review 候補",
+      "detail": "Let's Encrypt DNS-01 challenge 経由の証明書発行は、 (1) 本物の Cloudflare zone (palmux.example.com の様な実在 zone)、 (2) 有効な CLOUDFLARE_API_TOKEN (Zone:DNS:Edit + Zone:Zone:Read)、 (3) インターネット到達性、 の 3 つが揃わないと verify 不能。 sprint-auto.md L110『外部認証情報必要時は escalate』に該当。 verify phase でこの AC は automatic test では PASS にせず、 sprint-done-judgment Guard 1 (実機 smoke 未実施) で needs_user_review に降ろし、 milestone でユーザに manual smoke を依頼する。 priority_rule 9 障害シナリオ exception には該当しない (これは外部認証情報の話、 障害シナリオではない)",
+      "reference": "sprint-auto.md L110-122、 VISION process_constraints、 priority_rule 0",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-02T00:00:00Z",
+      "category": "test",
+      "title": "E2E test 駆動戦略 — Python + paramiko (SSH) + Playwright headless",
+      "detail": "test VM (ubuntu@192.168.1.41) に対し paramiko で SSH connect、 (a) snapshot rollback or `apt-get purge / nix uninstall` で初期化、 (b) curl | bash 実行、 (c) systemctl --user 検証、 (d) Playwright (本ホスト側) で http(s)://VM-IP:8080 (or DOMAIN) に対し HTTP smoke + UI 要素確認、 (e) sysctl / swapon / systemctl is-enabled で server-stability 検証、 (f) shell command 出力で profile 切替確認。 全テストは tests/e2e/sfccb3f_installer.py 単一ファイルに集約、 [AC-Sfccb3f-{StoryID}-{N}] タグで AC とリンク。 priority_rule 0 + Rule 7 (本番モード必須) を満たすため MOCK/Fake は使わない",
+      "reference": "VISION process_constraints、 priority_rule 0、 test-discipline.md Rule 7",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-02T00:00:00Z",
+      "category": "planning",
+      "title": "Tasks 分解 — Sfccb3f-1/-2/-3 で計 16 Tasks",
+      "detail": "Story-1: 7 Tasks (flake top-level / palmux2 package / minimal profile / home-manager module / mkPalmuxHost lib / install.sh Nix bootstrap / E2E 1-*) / Story-2: 5 Tasks (caddy-cloudflare package / system-manager caddy module / install.sh Caddy enablement / palmux unit bind switch / E2E 2-*) / Story-3: 4 Tasks (system-manager server module / full profile / install.sh PROFILE / E2E 3-*)。 ROADMAP.json に jq mutation で書き込み済み",
+      "reference": "sprint-plan.md L54-59",
+      "adr_ref": null,
+      "drift_flag": "none"
+    }
+  ],
+  "done_judgment": {
+    "$comment": "Filled by sprint verify per Story. Each Story records 6-Guard outcomes."
+  }
+}

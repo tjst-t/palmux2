@@ -1,0 +1,95 @@
+{
+  "story": "Sfccb3f-1",
+  "story_type": "cli",
+  "user_role": "個人開発者 (自宅サーバー / VPS / ホームラボ運用者)",
+  "entry_point": "scripts/install.sh を curl-pipe 経由でワンライナー実行、 続いて systemctl --user、 最後にブラウザ HTTP smoke",
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "linked_ac": ["AC-Sfccb3f-1-1", "AC-Sfccb3f-1-2", "AC-Sfccb3f-1-3"],
+      "description": "Fresh Ubuntu VM 上でワンライナー実行し palmux2 + 周辺ツールが入り、 systemd user service として起動、 ブラウザから UI が見える",
+      "preconditions": [
+        "Ubuntu 22.04 or 24.04 VM (テスト時は ubuntu@192.168.1.41)",
+        "sudo 可能な regular user",
+        "インターネット到達性 (GitHub Release + nodesource + nixos.org + npm registry)"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "action": "user runs `curl -fsSL https://raw.githubusercontent.com/tjst-t/palmux2/autopilot/main/Sfccb3f/scripts/install.sh | bash` on the VM",
+          "expected": "exit 0; stdout contains markers '==> Nix installed' or 'Determinate Systems', '==> system-manager switch', '==> home-manager switch', '==> Installed: palmux2 v…'; /etc/palmux/flake.nix が生成されている"
+        },
+        {
+          "n": 2,
+          "action": "user runs `for c in palmux2 tmux ghq gwq portman claude node go make gh jq unzip python3; do command -v \"$c\" || echo MISSING:$c; done`",
+          "expected": "MISSING:行が 0 件; 全コマンドの絶対パスが /usr/bin/, /usr/local/bin/, or /nix/store/.../bin/ のいずれかに存在 (AC-1-2)"
+        },
+        {
+          "n": 3,
+          "action": "user runs `palmux2 --version`",
+          "expected": "stdout が v[0-9]+\\.[0-9]+\\.[0-9]+ にマッチ、 exit 0 (AC-1-2)"
+        },
+        {
+          "n": 4,
+          "action": "user runs `systemctl --user enable --now palmux2` (linger は install.sh が enable 済み)",
+          "expected": "exit 0; `systemctl --user is-active palmux2` が active を返す (AC-1-3)"
+        },
+        {
+          "n": 5,
+          "action": "test harness が Playwright headless で http://<VM-IP>:8080/ にアクセス",
+          "expected": "HTTP 200; レスポンス HTML に palmux2 SPA root marker (例: <title> や data-testid=\"app-root\" 等) が含まれる (AC-1-3)"
+        }
+      ],
+      "cleanup": [
+        "test harness が VM 上で `nix-collect-garbage -d` + `sudo rm -rf /etc/palmux /etc/caddy` で初期化 (次 scenario の冪等性検証のため)"
+      ]
+    },
+    {
+      "id": "scenario-2",
+      "linked_ac": ["AC-Sfccb3f-1-4"],
+      "description": "同じワンライナー再実行で冪等。 PALMUX_VERSION でバージョン固定可能",
+      "preconditions": ["scenario-1 完了直後の状態"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "user reruns same `curl ... | bash` (env vars 同じ)",
+          "expected": "exit 0; system-manager / home-manager switch がいずれも 'no changes' or 'activated configuration matches' に近い出力。 generation 数が +1 する (差分 0 でも generation は 1 ステップ進むのが Nix の仕様)。 palmux2 --version は変わらず"
+        },
+        {
+          "n": 2,
+          "action": "user reruns with `PALMUX_VERSION=v0.7.0 curl ... | PALMUX_VERSION=v0.7.0 bash` (or similar — install.sh が env を pass)",
+          "expected": "exit 0; `palmux2 --version` が v0.7.0 を返す。 /etc/palmux/flake.nix の palmux2 input ref が v0.7.0 に変わっている"
+        }
+      ],
+      "cleanup": []
+    },
+    {
+      "id": "scenario-3",
+      "linked_ac": ["AC-Sfccb3f-1-5"],
+      "description": "system-manager / home-manager の rollback で前世代に戻る (アトミック性)",
+      "preconditions": [
+        "scenario-2 step 2 完了 (palmux2 = v0.7.0、 前世代 = v0.8.0 の状態)"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "action": "user runs `sudo nix run github:numtide/system-manager -- rollback` (or `system-manager rollback`; 正確 sub-command は run phase で確認)",
+          "expected": "exit 0; system 側の generation が一段戻る"
+        },
+        {
+          "n": 2,
+          "action": "user runs `nix run home-manager/master -- rollback` (or `home-manager rollback`)",
+          "expected": "exit 0; user 側 generation も一段戻る"
+        },
+        {
+          "n": 3,
+          "action": "user runs `palmux2 --version`",
+          "expected": "v0.8.0 を返す"
+        }
+      ],
+      "cleanup": [
+        "test harness が VM を初期状態に戻す (sudo nix profile rollback, etc.)"
+      ]
+    }
+  ]
+}

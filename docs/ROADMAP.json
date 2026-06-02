@@ -7906,7 +7906,43 @@
               "status": "pending"
             }
           ],
-          "tasks": {}
+          "tasks": {
+            "Sfccb3f-1-1": {
+              "title": "nix/flake.nix top-level (inputs: nixpkgs, home-manager, system-manager; outputs: lib.mkPalmuxHost, packages, profiles)",
+              "description": "",
+              "status": "planned"
+            },
+            "Sfccb3f-1-2": {
+              "title": "nix/packages/palmux2.nix — fetchurl-based wrapper of GitHub Release prebuilt binary, sha256 pin",
+              "description": "VISION の単一バイナリ配布方針に合わせ buildGoModule ではなく prebuilt binary を Nix 化",
+              "status": "planned"
+            },
+            "Sfccb3f-1-3": {
+              "title": "nix/profiles/minimal.nix — palmux2 + tmux + ghq + gwq + port-manager + nodejs_20 + go + gnumake + gcc + python3 + gh + jq + unzip",
+              "description": "Claude CLI は install.sh が npm 経由で post-switch に入れる",
+              "status": "planned"
+            },
+            "Sfccb3f-1-4": {
+              "title": "nix/modules/home-manager-palmux.nix — user systemd.services.palmux2 (bind addr は host.caddy.enable で 127.0.0.1 か 0.0.0.0 を選択)",
+              "description": "",
+              "status": "planned"
+            },
+            "Sfccb3f-1-5": {
+              "title": "nix/lib/mkPalmuxHost.nix — function (domain, acmeEmail, basicAuth, profile) → {systemConfig, homeConfig}",
+              "description": "host-specific /etc/palmux/flake.nix が呼び出す entry point",
+              "status": "planned"
+            },
+            "Sfccb3f-1-6": {
+              "title": "scripts/install.sh rewrite to Nix bootstrap (Determinate Systems installer + /etc/palmux/flake.nix gen + system-manager switch + home-manager switch + npm i -g @anthropic-ai/claude-code)",
+              "description": "既存 bash 版 install.sh は設計参考として残置",
+              "status": "planned"
+            },
+            "Sfccb3f-1-7": {
+              "title": "tests/e2e/sfccb3f_installer.py — paramiko SSH (192.168.1.41) + Playwright headless で [AC-Sfccb3f-1-1..5] を検証",
+              "description": "",
+              "status": "planned"
+            }
+          }
         },
         "Sfccb3f-2": {
           "id": "Sfccb3f-2",
@@ -7951,7 +7987,33 @@
               "status": "pending"
             }
           ],
-          "tasks": {}
+          "tasks": {
+            "Sfccb3f-2-1": {
+              "title": "nix/packages/caddy-cloudflare.nix — Caddy with caddy-dns/cloudflare plugin",
+              "description": "nixpkgs caddy.withPlugins が利用可なら採用、 不可なら caddyserver.com/api/download を fetchurl + sha256 pin で取り込み",
+              "status": "planned"
+            },
+            "Sfccb3f-2-2": {
+              "title": "nix/modules/system-manager-caddy.nix — caddy user/group, /etc/caddy/Caddyfile, /etc/systemd/system/caddy.service, EnvironmentFile, setcap cap_net_bind_service+ep",
+              "description": "Caddyfile は basic_auth ブロックを host.basicAuth.enable で条件付き挿入",
+              "status": "planned"
+            },
+            "Sfccb3f-2-3": {
+              "title": "scripts/install.sh — Caddy 関連 env (DOMAIN / CLOUDFLARE_API_TOKEN / ACME_EMAIL / BASIC_AUTH_USER / BASIC_AUTH_PASSWORD) 処理、 /etc/caddy/palmux.env 生成 (root:caddy 0640、 bcrypt は caddy hash-password)、 /etc/palmux/flake.nix の host.caddy.* 反映、 バリデーション",
+              "description": "",
+              "status": "planned"
+            },
+            "Sfccb3f-2-4": {
+              "title": "home-manager-palmux モジュール拡張: host.caddy.enable に応じて palmux2 unit bind addr を 127.0.0.1:8080 ↔ 0.0.0.0:8080 に切替",
+              "description": "",
+              "status": "planned"
+            },
+            "Sfccb3f-2-5": {
+              "title": "tests/e2e/sfccb3f_installer.py 追加 — [AC-Sfccb3f-2-1..6] (scenario-1/-3 は needs_human flag、 scenario-2 バリデーションは fully auto)",
+              "description": "",
+              "status": "planned"
+            }
+          }
         },
         "Sfccb3f-3": {
           "id": "Sfccb3f-3",
@@ -7984,7 +8046,28 @@
               "status": "pending"
             }
           ],
-          "tasks": {}
+          "tasks": {
+            "Sfccb3f-3-1": {
+              "title": "nix/modules/system-manager-server.nix — unattended-upgrades + /etc/apt/apt.conf.d/{20,50} templates + /swapfile (8G) activation + sysctl永続化 (vm.swappiness=10 / vm.panic_on_oom=1 / kernel.panic=10)",
+              "description": "",
+              "status": "planned"
+            },
+            "Sfccb3f-3-2": {
+              "title": "nix/profiles/full.nix — minimal + [bat, ripgrep, fd, git-delta, eza, fzf, starship, zoxide, yazi] + home-manager 経由で bashrc.d integration (starship init, delta git config)",
+              "description": "",
+              "status": "planned"
+            },
+            "Sfccb3f-3-3": {
+              "title": "scripts/install.sh — PROFILE env (default minimal、 値 full でフル装備、 /etc/palmux/flake.nix の profile attr に反映)",
+              "description": "",
+              "status": "planned"
+            },
+            "Sfccb3f-3-4": {
+              "title": "tests/e2e/sfccb3f_installer.py 追加 — [AC-Sfccb3f-3-1..4] (unattended-upgrade --dry-run, swapon -s, sysctl 検証, PROFILE 切替)",
+              "description": "",
+              "status": "planned"
+            }
+          }
         }
       }
     }
