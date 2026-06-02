@@ -333,9 +333,14 @@ def test_AC_Sfccb3f_2_4() -> None:
 def test_AC_Sfccb3f_2_5() -> None:
     """[AC-Sfccb3f-2-5] BASIC_AUTH 有効化 → 認証なし 401、 正しい creds で 200。 hash は env file のみ"""
     secrets = load_secrets()
+    user = secrets.get("BASIC_AUTH_USER")
+    pw = secrets.get("BASIC_AUTH_PASSWORD")
+    if not user or not pw:
+        raise AssertionError(
+            "secrets.env に BASIC_AUTH_USER と BASIC_AUTH_PASSWORD を設定してください "
+            "(無効化したい場合は AC-2-5 と AC-2-6 を skip してください)"
+        )
     rsync_repo()  # ensure latest install.sh
-    user = "alice"
-    pw = "S3cret-Tested!1"
     cmd = _install_cmd_with_caddy(secrets, basic_user=user, basic_pass=pw)
     p = ssh(cmd, timeout=3600)
     assert p.returncode == 0, f"install.sh rc={p.returncode}\n{p.stderr[-2000:]}"
@@ -364,9 +369,11 @@ def test_AC_Sfccb3f_2_5() -> None:
 def test_AC_Sfccb3f_2_6() -> None:
     """[AC-Sfccb3f-2-6] 再実行 (新 password) → 旧 creds 拒否、 新 creds で 200、 Caddy 無停止 reload"""
     secrets = load_secrets()
-    user = "alice"
-    old_pw = "S3cret-Tested!1"
-    new_pw = "Rotated-Pwd-99!"
+    user = secrets.get("BASIC_AUTH_USER")
+    old_pw = secrets.get("BASIC_AUTH_PASSWORD")
+    if not user or not old_pw:
+        raise AssertionError("secrets.env に BASIC_AUTH_USER/PASSWORD が必要 (AC-2-5 と同じ)")
+    new_pw = old_pw + "-rot"  # rotated variant — test only mutates locally
 
     # Caddy が稼働中であることを記録
     p1 = ssh("sudo systemctl show -p MainPID --value caddy")
