@@ -95,10 +95,22 @@ if [ -r /etc/os-release ]; then
   esac
 fi
 
-# Story-2 validations (currently warn-only — Story-2 will enforce + wire Caddy)
-if [ -n "$DOMAIN" ] || [ -n "$CLOUDFLARE_API_TOKEN" ] || [ -n "$BASIC_AUTH_USER" ] || [ -n "$BASIC_AUTH_PASSWORD" ]; then
-  warn "DOMAIN / CLOUDFLARE_API_TOKEN / BASIC_AUTH_* are accepted but Caddy integration lands in Story Sfccb3f-2"
-  warn "Story-1 では値は /etc/palmux/flake.nix に書かれるが、 Caddy 設定は生成されない"
+# Caddy + basic_auth env validation (片肺禁止)
+if { [ -n "$DOMAIN" ] && [ -z "$CLOUDFLARE_API_TOKEN" ]; } || \
+   { [ -z "$DOMAIN" ] && [ -n "$CLOUDFLARE_API_TOKEN" ]; }; then
+  die "DOMAIN and CLOUDFLARE_API_TOKEN must be set together"
+fi
+if { [ -n "$BASIC_AUTH_USER" ] && [ -z "$BASIC_AUTH_PASSWORD" ]; } || \
+   { [ -z "$BASIC_AUTH_USER" ] && [ -n "$BASIC_AUTH_PASSWORD" ]; }; then
+  die "BASIC_AUTH_USER and BASIC_AUTH_PASSWORD must be set together"
+fi
+if [ -n "$BASIC_AUTH_USER" ] && [ -z "$DOMAIN" ]; then
+  die "BASIC_AUTH_* requires DOMAIN + CLOUDFLARE_API_TOKEN (Caddy)"
+fi
+
+CADDY_ENABLED=0
+if [ -n "$DOMAIN" ]; then
+  CADDY_ENABLED=1
 fi
 
 USERNAME="$(id -un)"
@@ -273,6 +285,110 @@ nix run \
   home-manager/master -- \
   switch --flake "/etc/palmux#${USERNAME}" -b backup
 
+# --- Caddy + Cloudflare DNS-01 + edge basic_auth (Story-2) ------------------
+#
+# Note: We bypass numtide/system-manager here because the pinned commit
+# (dc1baae, 2026-05-11) references NixOS modules that were removed from
+# nixos-unstable (e.g., security/dhparams.nix). install.sh writes /etc/caddy/
+# config + /etc/systemd/system/caddy.service directly, using a Nix-built
+# caddy-cloudflare binary. This is a hybrid: Nix manages the binary, bash
+# manages the system glue. system-manager can be revisited later when the
+# upstream compatibility issue is resolved.
+
+if [ "$CADDY_ENABLED" = "1" ]; then
+  log "preparing Caddy (system user + /var/lib/caddy)"
+  if ! id -u caddy >/dev/null 2>&1; then
+    sudo useradd --system --home /var/lib/caddy --create-home \
+      --user-group --shell /usr/sbin/nologin caddy
+  fi
+  sudo install -d -m 0750 -o caddy -g caddy /var/lib/caddy
+  sudo install -d -m 0755 /etc/caddy
+
+  log "building caddy-cloudflare via Nix (will use binary from /nix/store)"
+  CADDY_BIN_DIR="$(
+    nix build --no-link --print-out-paths \
+      --extra-experimental-features 'nix-command flakes' \
+      "${PALMUX_FLAKE_REF}#packages.${NIX_SYSTEM}.caddy-cloudflare"
+  )"
+  CADDY_BIN="${CADDY_BIN_DIR}/bin/caddy"
+  [ -x "$CADDY_BIN" ] || die "caddy binary not found at $CADDY_BIN"
+  log "caddy binary: $CADDY_BIN"
+
+  BASIC_AUTH_HASH=""
+  if [ -n "$BASIC_AUTH_USER" ]; then
+    log "hashing basic-auth password (bcrypt via $CADDY_BIN)"
+    BASIC_AUTH_HASH="$("$CADDY_BIN" hash-password --plaintext "$BASIC_AUTH_PASSWORD")"
+  fi
+
+  log "writing /etc/caddy/palmux.env (root:caddy 0640)"
+  # printf to avoid shell-expansion of bcrypt $... segments
+  {
+    printf 'CLOUDFLARE_API_TOKEN=%s\n' "$CLOUDFLARE_API_TOKEN"
+    if [ -n "$BASIC_AUTH_USER" ]; then
+      printf 'BASIC_AUTH_USER=%s\n' "$BASIC_AUTH_USER"
+      printf 'BASIC_AUTH_HASH=%s\n' "$BASIC_AUTH_HASH"
+    fi
+  } | sudo tee /etc/caddy/palmux.env >/dev/null
+  sudo chown root:caddy /etc/caddy/palmux.env
+  sudo chmod 0640 /etc/caddy/palmux.env
+
+  log "writing /etc/caddy/Caddyfile (domain=${DOMAIN}, basic_auth=$( [ -n "$BASIC_AUTH_USER" ] && echo yes || echo no ))"
+  {
+    echo "{"
+    [ -n "$ACME_EMAIL" ] && echo "    email ${ACME_EMAIL}"
+    echo "}"
+    echo ""
+    echo "${DOMAIN} {"
+    if [ -n "$BASIC_AUTH_USER" ]; then
+      echo "    basic_auth {"
+      echo "        {env.BASIC_AUTH_USER} {env.BASIC_AUTH_HASH}"
+      echo "    }"
+    fi
+    echo "    reverse_proxy 127.0.0.1:8080"
+    echo "    tls {"
+    echo "        dns cloudflare {env.CLOUDFLARE_API_TOKEN}"
+    echo "    }"
+    echo "    encode zstd gzip"
+    echo "}"
+  } | sudo tee /etc/caddy/Caddyfile >/dev/null
+
+  log "installing /etc/systemd/system/caddy.service (ExecStart=${CADDY_BIN})"
+  sudo tee /etc/systemd/system/caddy.service >/dev/null <<EOF
+[Unit]
+Description=Caddy web server (with caddy-dns/cloudflare for Let's Encrypt DNS-01)
+Documentation=https://caddyserver.com/docs/
+After=network.target network-online.target
+Requires=network-online.target
+
+[Service]
+Type=notify
+User=caddy
+Group=caddy
+EnvironmentFile=/etc/caddy/palmux.env
+ExecStart=${CADDY_BIN} run --environ --config /etc/caddy/Caddyfile
+ExecReload=${CADDY_BIN} reload --config /etc/caddy/Caddyfile --force
+TimeoutStopSec=5s
+LimitNOFILE=1048576
+PrivateTmp=true
+ProtectSystem=full
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  sudo systemctl daemon-reload
+  sudo systemctl enable caddy
+  log "reloading Caddy (if already running) or starting it"
+  if sudo systemctl is-active --quiet caddy; then
+    sudo systemctl reload caddy || sudo systemctl restart caddy
+  else
+    sudo systemctl start caddy
+  fi
+fi
+
 # --- linger + service ------------------------------------------------------
 
 if [ "${SKIP_SERVICE:-0}" != "1" ]; then
@@ -302,7 +418,15 @@ cat <<EOM
     go       $(go version 2>/dev/null | awk '{print $3}' || echo '?')
 
 ==> Next:
-    1. Open  http://$(hostname -I 2>/dev/null | awk '{print $1}'):8080
+$(if [ "$CADDY_ENABLED" = "1" ]; then
+  echo "    1. Open  https://${DOMAIN}/  (Let's Encrypt cert via Cloudflare DNS-01)"
+  if [ -n "$BASIC_AUTH_USER" ]; then
+    echo "       (basic auth: user=${BASIC_AUTH_USER})"
+  fi
+else
+  echo "    1. Open  http://$(hostname -I 2>/dev/null | awk '{print $1}'):8080"
+fi)
     2. To update later, re-run this same one-liner. Nix produces a new
-       generation; failures roll back automatically.
+       generation; failures roll back automatically. Secrets (CF token,
+       basic auth password) can be rotated by re-running with new env vars.
 EOM

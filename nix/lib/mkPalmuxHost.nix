@@ -1,8 +1,11 @@
 # mkPalmuxHost: host-specific /etc/palmux/flake.nix が呼ぶ entry point。
 #
-# 公開パラメータを受け取り、 home-manager + (Story-2/-3 で) system-manager の
-# configuration を出力する。 秘密 (CF token / basic_auth password hash) は
-# /etc/caddy/palmux.env で注入し、 ここには現れない。
+# 公開パラメータ (domain / acmeEmail / basicAuth.user 等) を受け取り、
+# home-manager configurations と、 caddy 有効時は system-manager
+# systemConfigs を返す。
+#
+# 秘密 (CF token / basic_auth password hash) は /etc/caddy/palmux.env で
+# 注入し、 ここには現れない。
 { inputs }:
 
 { system ? "x86_64-linux"
@@ -10,19 +13,19 @@
 , homeDirectory ? "/home/${username}"
 , hostname ? "palmux-host"
 
-  # Caddy / HTTPS / basic_auth は Story-2 で追加
 , domain ? null
 , acmeEmail ? null
 , basicAuth ? { enable = false; user = null; }
 
-  # 開発体験 (minimal / full) は Story-3 で full を追加
 , profile ? "minimal"
 }:
 
 let
+  lib = inputs.nixpkgs.lib;
   pkgs = inputs.nixpkgs.legacyPackages.${system};
 
   palmux2-pkg = pkgs.callPackage ../packages/palmux2.nix { };
+  caddy-cloudflare = pkgs.callPackage ../packages/caddy-cloudflare.nix { };
 
   caddyEnabled = domain != null;
   bindAddr = if caddyEnabled then "127.0.0.1:8080" else "0.0.0.0:8080";
@@ -43,6 +46,10 @@ let
     inherit palmux2-pkg username homeDirectory bindAddr;
     profilePackages = selectedProfile.packages;
   };
+
+  caddyModule = import ../modules/system-manager-caddy.nix {
+    inherit pkgs caddy-cloudflare domain acmeEmail basicAuth;
+  };
 in
 {
   homeConfigurations.${username} = inputs.home-manager.lib.homeManagerConfiguration {
@@ -50,7 +57,11 @@ in
     modules = [ homeManagerModule ];
   };
 
-  # Story-2 / Story-3 で systemConfigs.default に caddy / server-stability modules を追加。
-  # Story-1 段階では system-level 変更なしのため未定義 (install.sh が条件分岐で system-manager
-  # switch をスキップする)。
+  # systemConfigs.default は Caddy 有効時のみ出力 (install.sh が空判定で
+  # system-manager switch をスキップ可能)
+  systemConfigs = lib.optionalAttrs caddyEnabled {
+    default = inputs.system-manager.lib.makeSystemConfig {
+      modules = [ caddyModule ];
+    };
+  };
 }

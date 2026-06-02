@@ -31,6 +31,7 @@
     {
       packages = forEachSystem ({ system, pkgs }: {
         palmux2 = pkgs.callPackage ./nix/packages/palmux2.nix { };
+        caddy-cloudflare = pkgs.callPackage ./nix/packages/caddy-cloudflare.nix { };
         default = self.packages.${system}.palmux2;
       });
 
