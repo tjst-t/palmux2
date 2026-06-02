@@ -1,34 +1,42 @@
 #!/usr/bin/env bash
 #
-# Palmux installer / updater for Ubuntu/Debian.
+# palmux2 — Nix-based installer/updater for Ubuntu/Debian.
 #
-# One-liner:
+# One-liner (production):
 #   curl -fsSL https://raw.githubusercontent.com/tjst-t/palmux2/main/scripts/install.sh | bash
 #
-# Re-running the same command upgrades to the latest versions.
+# Re-running the same command upgrades to the latest pinned versions atomically
+# (Nix world: home-manager switch creates a new generation; failure rolls back).
 #
 # Environment overrides (all optional):
-#   PALMUX_VERSION         palmux release tag, e.g. "v0.8.0" (default: latest)
+#   PALMUX_VERSION         palmux2 release tag (informational, actual pin is in flake.nix)
+#   PROFILE                "minimal" | "full"        (default: minimal — Story-3 adds full)
+#   PALMUX_FLAKE_REF       palmux2 flake input URL  (default: github:tjst-t/palmux2)
+#                          test override: PALMUX_FLAKE_REF=path:/tmp/palmux2-src
 #   GHQ_VERSION            ghq release tag (default: latest)
 #   GWQ_VERSION            gwq release tag (default: latest)
 #   PORTMAN_VERSION        port-manager release tag (default: latest)
 #   NODE_MAJOR             Node.js major version line (default: 20)
-#   SKIP_NODE=1            don't install Node.js and @anthropic-ai/claude-code
-#   SKIP_SERVICE=1         don't install the systemd user unit for palmux
-#   SKIP_PORTMAN=1         don't install port-manager
+#   SKIP_NODE=1            skip Node.js + @anthropic-ai/claude-code install
+#   SKIP_SERVICE=1         skip systemctl --user enable palmux2
 #
-# HTTPS via Caddy + Cloudflare DNS-01 (opt-in — set BOTH to enable):
+# HTTPS via Caddy + Cloudflare DNS-01 (Story-2 — set BOTH to enable):
 #   DOMAIN                 e.g. palmux.example.com
-#   CLOUDFLARE_API_TOKEN   scoped CF API token with Zone:DNS:Edit + Zone:Zone:Read
+#   CLOUDFLARE_API_TOKEN   scoped CF token (Zone:DNS:Edit + Zone:Zone:Read)
 #   ACME_EMAIL             (optional) email for Let's Encrypt notifications
 #
-# HTTP basic auth at the Caddy edge (opt-in — requires Caddy enabled above):
+# HTTP basic auth at the Caddy edge (Story-2 — requires Caddy):
 #   BASIC_AUTH_USER        username
-#   BASIC_AUTH_PASSWORD    plaintext password (will be bcrypt-hashed by Caddy)
+#   BASIC_AUTH_PASSWORD    plaintext password (bcrypt-hashed by Caddy)
 #
 set -euo pipefail
 
-PALMUX_VERSION="${PALMUX_VERSION:-latest}"
+# --- env / defaults --------------------------------------------------------
+
+PALMUX_VERSION="${PALMUX_VERSION:-}" # currently informational
+PROFILE="${PROFILE:-minimal}"
+PALMUX_FLAKE_REF="${PALMUX_FLAKE_REF:-github:tjst-t/palmux2}"
+
 GHQ_VERSION="${GHQ_VERSION:-latest}"
 GWQ_VERSION="${GWQ_VERSION:-latest}"
 PORTMAN_VERSION="${PORTMAN_VERSION:-latest}"
@@ -40,47 +48,41 @@ ACME_EMAIL="${ACME_EMAIL:-}"
 BASIC_AUTH_USER="${BASIC_AUTH_USER:-}"
 BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-}"
 
-PALMUX_REPO="tjst-t/palmux2"
 GHQ_REPO="x-motemen/ghq"
 GWQ_REPO="d-kuro/gwq"
 PORTMAN_REPO="tjst-t/port-manager"
 
-INSTALL_CADDY=0
-if [ -n "$DOMAIN" ] && [ -n "$CLOUDFLARE_API_TOKEN" ]; then
-  INSTALL_CADDY=1
-elif [ -n "$DOMAIN" ] || [ -n "$CLOUDFLARE_API_TOKEN" ]; then
-  printf '\033[1;31merror:\033[0m DOMAIN and CLOUDFLARE_API_TOKEN must be set together\n' >&2
-  exit 1
-fi
-
-if { [ -n "$BASIC_AUTH_USER" ] && [ -z "$BASIC_AUTH_PASSWORD" ]; } || \
-   { [ -z "$BASIC_AUTH_USER" ] && [ -n "$BASIC_AUTH_PASSWORD" ]; }; then
-  printf '\033[1;31merror:\033[0m BASIC_AUTH_USER and BASIC_AUTH_PASSWORD must be set together\n' >&2
-  exit 1
-fi
-if [ -n "$BASIC_AUTH_USER" ] && [ "$INSTALL_CADDY" != "1" ]; then
-  printf '\033[1;31merror:\033[0m BASIC_AUTH_* requires DOMAIN + CLOUDFLARE_API_TOKEN (Caddy)\n' >&2
-  exit 1
-fi
-
 PREFIX="/usr/local"
 BIN_DIR="${PREFIX}/bin"
-UNIT_DIR="${PREFIX}/lib/systemd/user"
 
-log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
+# --- helpers ---------------------------------------------------------------
+
+log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m==>\033[0m %s\n' "$*" >&2; }
-die()  { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
+die() {
+  printf '\033[1;31merror:\033[0m %s\n' "$*" >&2
+  exit 1
+}
 
-# --- preflight ---------------------------------------------------------------
+# --- preflight -------------------------------------------------------------
 
-[ "$(id -u)" -ne 0 ] || die "run as a regular user; the script invokes sudo where needed"
+[ "$(id -u)" -ne 0 ] || die "run as a regular user; the script uses sudo as needed"
 command -v sudo >/dev/null 2>&1 || die "sudo is required"
-
-[ "$(uname -s)" = "Linux" ] || die "unsupported OS: $(uname -s) (Linux only)"
+[ "$(uname -s)" = "Linux" ] || die "unsupported OS: $(uname -s)"
 
 case "$(uname -m)" in
-  x86_64|amd64)  PALMUX_ARCH=amd64; GHQ_ARCH=amd64; GWQ_ARCH=x86_64 ;;
-  aarch64|arm64) PALMUX_ARCH=arm64; GHQ_ARCH=arm64; GWQ_ARCH=arm64  ;;
+  x86_64 | amd64)
+    NIX_SYSTEM="x86_64-linux"
+    GHQ_ARCH=amd64
+    GWQ_ARCH=x86_64
+    PORTMAN_ARCH=amd64
+    ;;
+  aarch64 | arm64)
+    NIX_SYSTEM="aarch64-linux"
+    GHQ_ARCH=arm64
+    GWQ_ARCH=arm64
+    PORTMAN_ARCH=arm64
+    ;;
   *) die "unsupported arch: $(uname -m)" ;;
 esac
 
@@ -88,25 +90,71 @@ if [ -r /etc/os-release ]; then
   # shellcheck disable=SC1091
   . /etc/os-release
   case "${ID:-}-${ID_LIKE:-}" in
-    ubuntu-*|debian-*|*-*ubuntu*|*-*debian*) : ;;
-    *) warn "non-Debian/Ubuntu distro detected (${ID:-unknown}); apt steps will likely fail" ;;
+    ubuntu-* | debian-* | *-*ubuntu* | *-*debian*) : ;;
+    *) warn "non-Debian/Ubuntu distro (${ID:-unknown}); apt steps will likely fail" ;;
   esac
 fi
 
-# --- apt packages ------------------------------------------------------------
+# Story-2 validations (currently warn-only — Story-2 will enforce + wire Caddy)
+if [ -n "$DOMAIN" ] || [ -n "$CLOUDFLARE_API_TOKEN" ] || [ -n "$BASIC_AUTH_USER" ] || [ -n "$BASIC_AUTH_PASSWORD" ]; then
+  warn "DOMAIN / CLOUDFLARE_API_TOKEN / BASIC_AUTH_* are accepted but Caddy integration lands in Story Sfccb3f-2"
+  warn "Story-1 では値は /etc/palmux/flake.nix に書かれるが、 Caddy 設定は生成されない"
+fi
 
-log "installing base apt packages"
+USERNAME="$(id -un)"
+USER_HOME="$(getent passwd "$USERNAME" | cut -d: -f6)"
+HOSTNAME_VALUE="$(hostname)"
+
+log "User: ${USERNAME}, Home: ${USER_HOME}, Host: ${HOSTNAME_VALUE}"
+log "Profile: ${PROFILE}, Flake ref: ${PALMUX_FLAKE_REF}"
+
+# --- apt: base packages (curl/git/jq are bootstrap deps) ----------------------
+
+log "installing base apt packages (curl, git, ca-certificates, jq, unzip, xz-utils)"
 sudo apt-get update -qq
-sudo apt-get install -y -qq tmux git curl ca-certificates gnupg unzip jq
+sudo apt-get install -y -qq curl git ca-certificates gnupg jq unzip xz-utils
 
-# --- Node.js + Claude Code CLI ----------------------------------------------
+# --- Nix install (Determinate Systems installer) -----------------------------
 
+if ! command -v nix >/dev/null 2>&1; then
+  log "installing Nix (Determinate Systems installer, multi-user / systemd)"
+  curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix \
+    | sudo sh -s -- install linux --no-confirm --init systemd
+else
+  log "Nix already installed: $(nix --version | head -1)"
+fi
+
+# Source Nix profile for current shell so subsequent nix invocations work.
+# Determinate puts it in /etc/profile.d/nix.sh (system) or
+# /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh.
+for f in \
+  /etc/profile.d/nix.sh \
+  /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh \
+  "$USER_HOME/.nix-profile/etc/profile.d/nix.sh"; do
+  # shellcheck disable=SC1090
+  [ -r "$f" ] && . "$f"
+done
+
+command -v nix >/dev/null 2>&1 || die "Nix install succeeded but nix not on PATH; reopen shell"
+
+# Ensure experimental-features
+sudo install -d -m 0755 /etc/nix
+if ! sudo grep -qE "^experimental-features.*flakes" /etc/nix/nix.conf 2>/dev/null; then
+  log "enabling Nix experimental-features = nix-command flakes"
+  echo "experimental-features = nix-command flakes" | sudo tee -a /etc/nix/nix.conf >/dev/null
+  # Reload nix-daemon if running
+  sudo systemctl reload nix-daemon 2>/dev/null || sudo systemctl restart nix-daemon 2>/dev/null || true
+fi
+
+# --- Node.js (NodeSource, apt) ---------------------------------------------
+
+# Node is apt-managed (not Nix) so that `sudo npm install -g` works against
+# the system prefix /usr/lib/node_modules without Nix-store-readonly issues.
 if [ "${SKIP_NODE:-0}" != "1" ]; then
   current_node_major=""
   if command -v node >/dev/null 2>&1; then
-    current_node_major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || true)
+    current_node_major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || true)"
   fi
-
   if [ "$current_node_major" != "$NODE_MAJOR" ]; then
     log "installing Node.js ${NODE_MAJOR}.x from NodeSource"
     curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | sudo -E bash -
@@ -119,7 +167,7 @@ if [ "${SKIP_NODE:-0}" != "1" ]; then
   sudo npm install -g --silent @anthropic-ai/claude-code
 fi
 
-# --- helpers -----------------------------------------------------------------
+# --- ghq / gwq / port-manager (binary releases, outside Nix) ---------------
 
 resolve_tag() {
   local repo="$1" tag="$2"
@@ -130,268 +178,125 @@ resolve_tag() {
   fi
 }
 
-WORKDIR=$(mktemp -d)
+WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
-# --- palmux ------------------------------------------------------------------
-
-PALMUX_TAG=$(resolve_tag "$PALMUX_REPO" "$PALMUX_VERSION")
-[ -n "$PALMUX_TAG" ] && [ "$PALMUX_TAG" != "null" ] || die "could not resolve palmux release tag"
-
-installed_palmux=""
-command -v palmux >/dev/null 2>&1 && installed_palmux=$(palmux --version 2>/dev/null || true)
-
-if [ "$installed_palmux" = "$PALMUX_TAG" ]; then
-  log "palmux ${PALMUX_TAG} already installed"
+# gwq
+GWQ_TAG="$(resolve_tag "$GWQ_REPO" "$GWQ_VERSION")"
+if [ -n "$GWQ_TAG" ] && [ "$GWQ_TAG" != "null" ]; then
+  installed_gwq=""
+  if command -v gwq >/dev/null 2>&1; then
+    installed_gwq="$(gwq version 2>/dev/null | awk 'NR==1 {print $3}' || true)"
+  fi
+  gwq_clean="${GWQ_TAG#v}"
+  if [ "$installed_gwq" = "$gwq_clean" ] || [ "$installed_gwq" = "$GWQ_TAG" ]; then
+    log "gwq ${GWQ_TAG} already installed"
+  else
+    log "installing gwq ${GWQ_TAG}"
+    curl -fsSL -o "${WORKDIR}/gwq.tar.gz" \
+      "https://github.com/${GWQ_REPO}/releases/download/${GWQ_TAG}/gwq_Linux_${GWQ_ARCH}.tar.gz"
+    tar -xzf "${WORKDIR}/gwq.tar.gz" -C "${WORKDIR}"
+    sudo install -m 0755 "${WORKDIR}/gwq" "${BIN_DIR}/gwq"
+  fi
 else
-  log "installing palmux ${PALMUX_TAG}"
-  curl -fsSL -o "${WORKDIR}/palmux" \
-    "https://github.com/${PALMUX_REPO}/releases/download/${PALMUX_TAG}/palmux-linux-${PALMUX_ARCH}"
-  chmod +x "${WORKDIR}/palmux"
-  sudo install -m 0755 "${WORKDIR}/palmux" "${BIN_DIR}/palmux"
+  warn "could not resolve gwq tag; skipping"
 fi
 
-# --- ghq ---------------------------------------------------------------------
-
-GHQ_TAG=$(resolve_tag "$GHQ_REPO" "$GHQ_VERSION")
-[ -n "$GHQ_TAG" ] && [ "$GHQ_TAG" != "null" ] || die "could not resolve ghq release tag"
-
-installed_ghq=""
-if command -v ghq >/dev/null 2>&1; then
-  installed_ghq=$(ghq --version 2>/dev/null | awk '{print $3}' || true)
-fi
-ghq_want="${GHQ_TAG#v}"
-if [ "$installed_ghq" = "$ghq_want" ]; then
-  log "ghq ${GHQ_TAG} already installed"
-else
-  log "installing ghq ${GHQ_TAG}"
-  curl -fsSL -o "${WORKDIR}/ghq.zip" \
-    "https://github.com/${GHQ_REPO}/releases/download/${GHQ_TAG}/ghq_linux_${GHQ_ARCH}.zip"
-  unzip -q -o "${WORKDIR}/ghq.zip" -d "${WORKDIR}/ghq"
-  sudo install -m 0755 "${WORKDIR}/ghq/ghq_linux_${GHQ_ARCH}/ghq" "${BIN_DIR}/ghq"
-fi
-
-# --- gwq ---------------------------------------------------------------------
-
-GWQ_TAG=$(resolve_tag "$GWQ_REPO" "$GWQ_VERSION")
-[ -n "$GWQ_TAG" ] && [ "$GWQ_TAG" != "null" ] || die "could not resolve gwq release tag"
-
-installed_gwq=""
-if command -v gwq >/dev/null 2>&1; then
-  installed_gwq=$(gwq version 2>/dev/null | awk 'NR==1 {print $3}' || true)
-fi
-if [ "$installed_gwq" = "$GWQ_TAG" ] || [ "v${installed_gwq}" = "$GWQ_TAG" ]; then
-  log "gwq ${GWQ_TAG} already installed"
-else
-  log "installing gwq ${GWQ_TAG}"
-  curl -fsSL -o "${WORKDIR}/gwq.tar.gz" \
-    "https://github.com/${GWQ_REPO}/releases/download/${GWQ_TAG}/gwq_Linux_${GWQ_ARCH}.tar.gz"
-  tar -xzf "${WORKDIR}/gwq.tar.gz" -C "${WORKDIR}"
-  sudo install -m 0755 "${WORKDIR}/gwq" "${BIN_DIR}/gwq"
-fi
-
-# --- port-manager ------------------------------------------------------------
-
-if [ "${SKIP_PORTMAN:-0}" != "1" ]; then
-  PORTMAN_TAG=$(resolve_tag "$PORTMAN_REPO" "$PORTMAN_VERSION")
-  [ -n "$PORTMAN_TAG" ] && [ "$PORTMAN_TAG" != "null" ] || die "could not resolve port-manager release tag"
-
+# port-manager
+PORTMAN_TAG="$(resolve_tag "$PORTMAN_REPO" "$PORTMAN_VERSION")"
+if [ -n "$PORTMAN_TAG" ] && [ "$PORTMAN_TAG" != "null" ]; then
   installed_portman=""
-  command -v portman >/dev/null 2>&1 && installed_portman=$(portman --version 2>/dev/null | awk '{print $NF}' || true)
-  portman_want="${PORTMAN_TAG#v}"
-
-  if [ "$installed_portman" = "$portman_want" ] || [ "$installed_portman" = "$PORTMAN_TAG" ]; then
+  if command -v portman >/dev/null 2>&1; then
+    installed_portman="$(portman --version 2>/dev/null | awk '{print $NF}' || true)"
+  fi
+  portman_clean="${PORTMAN_TAG#v}"
+  if [ "$installed_portman" = "$portman_clean" ] || [ "$installed_portman" = "$PORTMAN_TAG" ]; then
     log "port-manager ${PORTMAN_TAG} already installed"
   else
     log "installing port-manager ${PORTMAN_TAG}"
     curl -fsSL -o "${WORKDIR}/portman" \
-      "https://github.com/${PORTMAN_REPO}/releases/download/${PORTMAN_TAG}/port-manager_${portman_want}_linux_${PALMUX_ARCH}"
+      "https://github.com/${PORTMAN_REPO}/releases/download/${PORTMAN_TAG}/port-manager_${portman_clean}_linux_${PORTMAN_ARCH}"
     chmod +x "${WORKDIR}/portman"
     sudo install -m 0755 "${WORKDIR}/portman" "${BIN_DIR}/portman"
   fi
+else
+  warn "could not resolve port-manager tag; skipping"
 fi
 
-# --- Caddy + Cloudflare DNS-01 (opt-in) --------------------------------------
+# --- /etc/palmux/flake.nix generation --------------------------------------
 
-if [ "$INSTALL_CADDY" = "1" ]; then
-  log "installing Caddy with caddy-dns/cloudflare plugin (custom build)"
-  curl -fsSL -o "${WORKDIR}/caddy" \
-    "https://caddyserver.com/api/download?os=linux&arch=${PALMUX_ARCH}&p=github.com%2Fcaddy-dns%2Fcloudflare"
-  chmod +x "${WORKDIR}/caddy"
-  sudo install -m 0755 "${WORKDIR}/caddy" "${BIN_DIR}/caddy"
-  # let Caddy bind 80/443 without running as root
-  sudo setcap 'cap_net_bind_service=+ep' "${BIN_DIR}/caddy"
+log "generating /etc/palmux/flake.nix"
+sudo install -d -m 0755 /etc/palmux
 
-  if ! id -u caddy >/dev/null 2>&1; then
-    sudo useradd --system --home /var/lib/caddy --create-home \
-      --user-group --shell /usr/sbin/nologin caddy
-  fi
-  sudo install -d -m 0750 -o caddy -g caddy /etc/caddy
-  sudo install -d -m 0750 -o caddy -g caddy /var/lib/caddy
+# Build the optional attrs block (domain / acmeEmail / basicAuth)
+# carefully — using printf to avoid shell-expansion accidents.
+OPTIONAL_ATTRS=""
+if [ -n "$DOMAIN" ]; then
+  OPTIONAL_ATTRS+=$'\n    domain = "'"$DOMAIN"'";'
+fi
+if [ -n "$ACME_EMAIL" ]; then
+  OPTIONAL_ATTRS+=$'\n    acmeEmail = "'"$ACME_EMAIL"'";'
+fi
+if [ -n "$BASIC_AUTH_USER" ]; then
+  OPTIONAL_ATTRS+=$'\n    basicAuth = { enable = true; user = "'"$BASIC_AUTH_USER"'"; };'
+fi
 
-  BASIC_AUTH_HASH=""
-  if [ -n "$BASIC_AUTH_USER" ]; then
-    log "hashing basic-auth password (bcrypt via caddy hash-password)"
-    BASIC_AUTH_HASH=$(/usr/local/bin/caddy hash-password --plaintext "$BASIC_AUTH_PASSWORD")
-  fi
+sudo tee /etc/palmux/flake.nix >/dev/null <<EOF
+# Generated by scripts/install.sh — do not edit by hand.
+# Re-run the installer (with updated env vars) to regenerate.
+{
+  description = "palmux2 host configuration for ${HOSTNAME_VALUE}";
 
-  log "writing /etc/caddy/palmux.env (root:caddy, 0640)"
-  {
-    printf 'CLOUDFLARE_API_TOKEN=%s\n' "$CLOUDFLARE_API_TOKEN"
-    if [ -n "$BASIC_AUTH_USER" ]; then
-      printf 'BASIC_AUTH_USER=%s\n' "$BASIC_AUTH_USER"
-      printf 'BASIC_AUTH_HASH=%s\n' "$BASIC_AUTH_HASH"
-    fi
-  } | sudo tee /etc/caddy/palmux.env >/dev/null
-  sudo chown root:caddy /etc/caddy/palmux.env
-  sudo chmod 0640 /etc/caddy/palmux.env
-  # remove the legacy filename if an older install left it behind
-  sudo rm -f /etc/caddy/cloudflare.env
+  inputs.palmux2.url = "${PALMUX_FLAKE_REF}";
 
-  log "writing /etc/caddy/Caddyfile (domain=${DOMAIN}, basic_auth=$( [ -n "$BASIC_AUTH_USER" ] && echo yes || echo no ))"
-  {
-    echo "{"
-    if [ -n "$ACME_EMAIL" ]; then
-      echo "    email ${ACME_EMAIL}"
-    fi
-    echo "}"
-    echo ""
-    echo "${DOMAIN} {"
-    if [ -n "$BASIC_AUTH_USER" ]; then
-      echo "    basic_auth {"
-      echo "        {env.BASIC_AUTH_USER} {env.BASIC_AUTH_HASH}"
-      echo "    }"
-    fi
-    echo "    reverse_proxy 127.0.0.1:8080"
-    echo "    tls {"
-    echo "        dns cloudflare {env.CLOUDFLARE_API_TOKEN}"
-    echo "    }"
-    echo "    encode zstd gzip"
-    echo "}"
-  } | sudo tee /etc/caddy/Caddyfile >/dev/null
-
-  log "installing /etc/systemd/system/caddy.service"
-  sudo tee /etc/systemd/system/caddy.service >/dev/null <<'EOF'
-[Unit]
-Description=Caddy
-Documentation=https://caddyserver.com/docs/
-After=network.target network-online.target
-Requires=network-online.target
-
-[Service]
-Type=notify
-User=caddy
-Group=caddy
-EnvironmentFile=/etc/caddy/palmux.env
-ExecStart=/usr/local/bin/caddy run --environ --config /etc/caddy/Caddyfile
-ExecReload=/usr/local/bin/caddy reload --config /etc/caddy/Caddyfile --force
-TimeoutStopSec=5s
-LimitNOFILE=1048576
-PrivateTmp=true
-ProtectSystem=full
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-
-[Install]
-WantedBy=multi-user.target
+  outputs = { palmux2, ... }: palmux2.lib.mkPalmuxHost {
+    system = "${NIX_SYSTEM}";
+    username = "${USERNAME}";
+    homeDirectory = "${USER_HOME}";
+    hostname = "${HOSTNAME_VALUE}";
+    profile = "${PROFILE}";${OPTIONAL_ATTRS}
+  };
+}
 EOF
 
-  sudo systemctl daemon-reload
-  sudo systemctl enable caddy
-  if sudo systemctl is-active --quiet caddy; then
-    log "reloading Caddy (already running)"
-    sudo systemctl reload caddy || sudo systemctl restart caddy
-  else
-    log "starting Caddy"
-    sudo systemctl start caddy
-  fi
-fi
+# --- home-manager switch ---------------------------------------------------
 
-# --- systemd user unit for palmux --------------------------------------------
+log "running home-manager switch (this may take a few minutes on first run)"
+nix run \
+  --extra-experimental-features 'nix-command flakes' \
+  home-manager/master -- \
+  switch --flake "/etc/palmux#${USERNAME}" -b backup
+
+# --- linger + service ------------------------------------------------------
 
 if [ "${SKIP_SERVICE:-0}" != "1" ]; then
-  if [ "$INSTALL_CADDY" = "1" ]; then
-    PALMUX_BIND="127.0.0.1:8080"
-  else
-    PALMUX_BIND="0.0.0.0:8080"
+  if ! loginctl show-user "$USERNAME" 2>/dev/null | grep -q "Linger=yes"; then
+    log "enabling user linger (so palmux2 keeps running after logout)"
+    sudo loginctl enable-linger "$USERNAME"
   fi
 
-  log "installing systemd user unit at ${UNIT_DIR}/palmux.service (bind=${PALMUX_BIND})"
-  sudo install -d -m 0755 "$UNIT_DIR"
-  sudo tee "${UNIT_DIR}/palmux.service" >/dev/null <<EOF
-[Unit]
-Description=Palmux web terminal
-After=default.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/palmux --addr=${PALMUX_BIND}
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=default.target
-EOF
-  systemctl --user daemon-reload 2>/dev/null || \
-    warn "systemctl --user daemon-reload skipped (no user session)"
+  log "enabling palmux2 user systemd service"
+  systemctl --user daemon-reload || true
+  systemctl --user enable --now palmux2 || warn "systemctl --user enable failed (may need to reopen shell)"
 fi
 
-# --- summary -----------------------------------------------------------------
-
-if [ "$INSTALL_CADDY" = "1" ]; then
-  ACCESS_URL="https://${DOMAIN}"
-else
-  ACCESS_URL="http://<host>:8080"
-fi
+# --- summary ---------------------------------------------------------------
 
 cat <<EOM
 
-==> Installed:
-    palmux  $(palmux --version 2>/dev/null || echo "?")
-    ghq     $(ghq --version 2>/dev/null | awk '{print $3}' || echo "?")
-    gwq     $(gwq version 2>/dev/null | awk 'NR==1 {print $3}' || echo "?")
-    portman $(portman --version 2>/dev/null | awk '{print $NF}' || echo "(skipped)")
-    node    $(node --version 2>/dev/null || echo "(skipped)")
-    claude  $(claude --version 2>/dev/null | head -1 || echo "(skipped)")
-    caddy   $(if [ "$INSTALL_CADDY" = "1" ]; then caddy version 2>/dev/null | awk '{print $1}'; else echo "(not enabled)"; fi)
+==> palmux2 installed via Nix (profile=${PROFILE}).
 
-==> Next steps:
-    1. Enable + start palmux:
-         systemctl --user enable --now palmux
-    2. Keep it running after logout:
-         sudo loginctl enable-linger \$USER
-    3. Open  ${ACCESS_URL}
-EOM
+    palmux2  $(palmux2 --version 2>/dev/null || echo '?')
+    tmux     $(tmux -V 2>/dev/null || echo '?')
+    ghq      $(ghq --version 2>/dev/null | awk '{print $3}' || echo '?')
+    gwq      $(gwq version 2>/dev/null | awk 'NR==1 {print $3}' || echo '?')
+    portman  $(portman --version 2>/dev/null | awk '{print $NF}' || echo '(skipped)')
+    node     $(node --version 2>/dev/null || echo '(skipped)')
+    claude   $(claude --version 2>/dev/null | head -1 || echo '(skipped)')
+    go       $(go version 2>/dev/null | awk '{print $3}' || echo '?')
 
-if [ "$INSTALL_CADDY" = "1" ]; then
-  if [ -n "$BASIC_AUTH_USER" ]; then
-    AUTH_NOTE="basic_auth enabled (user=${BASIC_AUTH_USER})"
-  else
-    AUTH_NOTE="no basic_auth (pass BASIC_AUTH_USER + BASIC_AUTH_PASSWORD to enable)"
-  fi
-  cat <<EOM
-
-==> Caddy is serving ${DOMAIN} -> 127.0.0.1:8080 with Let's Encrypt
-    (DNS-01 challenge via Cloudflare). Certificates renew automatically.
-    Auth at edge: ${AUTH_NOTE}
-    To rotate secrets (CF token / basic auth password): re-run this installer
-      with the new env vars; Caddy will reload automatically.
-    Caddy logs:  journalctl -u caddy -f
-EOM
-else
-  cat <<EOM
-
-    For production, set an auth token:
-         systemctl --user edit palmux
-       and add:
-         [Service]
-         ExecStart=
-         ExecStart=/usr/local/bin/palmux --addr=0.0.0.0:8080 --token=<your-secret>
-
-    To enable HTTPS later, re-run with DOMAIN=... CLOUDFLARE_API_TOKEN=...
-EOM
-fi
-
-cat <<EOM
-
-==> To update later, re-run the same one-liner.
+==> Next:
+    1. Open  http://$(hostname -I 2>/dev/null | awk '{print $1}'):8080
+    2. To update later, re-run this same one-liner. Nix produces a new
+       generation; failures roll back automatically.
 EOM
