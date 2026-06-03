@@ -1,0 +1,50 @@
+{
+  "$file": "gui-spec-S0c6a1b-3.json",
+  "$comment": "GUI spec for S0c6a1b-3 (empty-state CTA + login hints). Derived autonomously (sprint auto). Tests follow test-discipline.md Rules 2/4.",
+  "story": "S0c6a1b-3",
+  "story_type": "gui",
+  "user_role": "palmux2 をインストールしたばかりの個人開発者",
+  "entry_point": "リポジトリ未登録 (repos.length==0) のときの main-layout empty-state 画面。",
+  "state_diagram": "stateDiagram-v2\n    [*] --> CheckRepos: app load (GET /api/repos)\n    CheckRepos --> EmptyWithCTA: repos.length == 0 -> show data-testid=empty-setup-cta + empty-setup-hint-gh + empty-setup-hint-claude\n    CheckRepos --> DefaultEmpty: repos.length >= 1 -> legacy text 'Pick a branch from the drawer.' (no CTA)\n    EmptyWithCTA --> HostTermActive: click empty-setup-cta -> navigate /host--0000/host/bash:bash, terminal renders",
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "linked_ac": ["AC-S0c6a1b-3-1", "AC-S0c6a1b-3-2"],
+      "description": "リポジトリ 0 件のとき CTA + ログインヒントが出て、クリックで Host ターミナルが開く",
+      "preconditions": ["Open 済みリポジトリが 0 件 (hermetic instance、または全 repo close 済み)"],
+      "steps": [
+        {"n": 1, "action": "/ を開く (repoId/branchId 未選択)", "expected": "data-testid=empty-setup-cta が表示される。従来の 'Open a repository to get started.' 文言に加えて CTA ボタンがある"},
+        {"n": 2, "action": "CTA 周辺のヒントを確認", "expected": "data-testid=empty-setup-hint-gh に `gh auth login`、data-testid=empty-setup-hint-claude に claude (ログイン) のコマンドヒントが表示される"},
+        {"n": 3, "action": "data-testid=empty-setup-cta をクリック", "expected": "URL=/host--0000/host/bash:bash に遷移し、ターミナルが描画される"}
+      ]
+    },
+    {
+      "id": "scenario-2",
+      "linked_ac": ["AC-S0c6a1b-3-3"],
+      "description": "リポジトリが 1 件以上 Open されていれば CTA は出ず従来文言に戻る (回帰なし)",
+      "preconditions": ["少なくとも 1 件の repo を Open (hermetic fixture)"],
+      "steps": [
+        {"n": 1, "action": "repo を 1 件 open した状態で / (branch 未選択) を開く", "expected": "data-testid=empty-setup-cta が存在しない。'Pick a branch from the drawer.' の従来文言が表示される"}
+      ]
+    },
+    {
+      "id": "scenario-mobile",
+      "linked_ac": ["AC-S0c6a1b-3-1"],
+      "description": "モバイル viewport (<600px) でも CTA が表示されタップで Host ターミナルが開く (priority_rule 10)",
+      "steps": [
+        {"n": 1, "action": "viewport 390x780、repos 0 件で / を開く", "expected": "data-testid=empty-setup-cta が表示される"},
+        {"n": 2, "action": "CTA をタップ", "expected": "URL=/host--0000/host/bash:bash、ターミナルが描画される"}
+      ]
+    }
+  ],
+  "endpoint_contracts": [
+    {"path": "/api/repos", "method": "GET", "registered": true, "request_fields": null, "response_fields": "Repository[] — empty array drives the CTA; MUST NOT include host--0000"},
+    {"path": "/api/host", "method": "GET", "registered": false, "request_fields": null, "response_fields": {"repoId": "string", "branchId": "string", "displayName": "string"}}
+  ],
+  "data_testids": ["empty-setup-cta", "empty-setup-hint-gh", "empty-setup-hint-claude"],
+  "test_files": {
+    "e2e": "tests/e2e/s0c6a1b_host_terminal.py",
+    "mock": "tests/e2e/s0c6a1b_host_terminal_mock.py"
+  },
+  "notes": "empty-state の repo-count 依存トグル (AC-3-1 vs 3-3) は共有 dev instance では再現しづらいため、hermetic binary を 0-repo / 1-repo で立てる mock テスト (s0c6a1b_host_terminal_mock.py) で確実に検証する。"
+}

@@ -1,0 +1,105 @@
+{
+  "$file": "scenario-S0c6a1b-1.json",
+  "$comment": "API scenario for S0c6a1b-1 (予約 Host スコープ BE). Tests drive a real HTTP/WS client against a running `make serve INSTANCE=dev` instance — never internal handlers. See test-discipline.md Rule 2.",
+  "story": "S0c6a1b-1",
+  "story_type": "api",
+  "user_role": "個人開発者 (install 直後、まだ git リポジトリを Open していない)",
+  "entry_point": "http://127.0.0.1:<dev-port>/api — open-access モード (--token 無し) なので自動発行される palmux_session Cookie で認証。WS は ws://127.0.0.1:<dev-port>/api/.../attach",
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "linked_ac": ["AC-S0c6a1b-1-1", "AC-S0c6a1b-1-2"],
+      "description": "Host スコープが常設され、既定 Bash タブに attach すると lazy にセッションが生成され $HOME で動く。追加 Bash も作れる。",
+      "preconditions": [
+        "Open 済みリポジトリが 0 件でもよい (Host は repo に依存しない)",
+        "テスト開始時点で tmux に _palmux_host--0000_host セッションが存在しない (lazy spawn を検証するため、あれば kill しておく)"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "action": "GET /api/repos/host--0000/branches/host/tabs",
+          "expected": "200。レスポンスの tabs に type=\"bash\" の既定タブ (tabId=bash:bash) が少なくとも 1 つ含まれる。Files/Git/Sprint/Claude タブは含まれない"
+        },
+        {
+          "n": 2,
+          "action": "ステップ1の直後に tmux セッション一覧を確認 (テスト用に tmux ls 相当を叩く or 次ステップ前提)。まだ attach していない",
+          "expected": "_palmux_host--0000_host セッションは存在しない (lazy spawn: GET tabs だけでは tmux を作らない)"
+        },
+        {
+          "n": 3,
+          "action": "WS connect ws://.../api/repos/host--0000/branches/host/tabs/bash:bash/attach?cols=80&rows=24",
+          "expected": "WS 接続成立。サーバが _palmux_host--0000_host セッション + palmux:bash:bash ウィンドウを lazy 生成する。接続後 tmux にそのセッションが存在する"
+        },
+        {
+          "n": 4,
+          "action": "WS で input メッセージ {type:\"input\",data:\"echo HOST_PWD=$PWD\\n\"} を送る",
+          "expected": "output ストリームに 'HOST_PWD=' に続けてユーザの $HOME パス (os.UserHomeDir 相当) が現れる。cwd が $HOME であることを確認"
+        },
+        {
+          "n": 5,
+          "action": "POST /api/repos/host--0000/branches/host/tabs  body {\"type\":\"bash\"}",
+          "expected": "2xx。2 つ目の Bash タブが作られる"
+        },
+        {
+          "n": 6,
+          "action": "GET /api/repos/host--0000/branches/host/tabs",
+          "expected": "200。tabs に bash:bash と bash:bash-2 の 2 つの Bash タブが列挙される (複数 Bash 保持可)"
+        }
+      ],
+      "cleanup": [
+        "DELETE /api/repos/host--0000/branches/host/tabs/bash:bash-2 で追加タブを削除",
+        "tmux kill-session -t _palmux_host--0000_host (次テストの lazy spawn precondition を回復)"
+      ]
+    },
+    {
+      "id": "scenario-2",
+      "linked_ac": ["AC-S0c6a1b-1-3"],
+      "description": "生成済み Host セッションは Orphans に出ず、sync ループに kill されず、切断→再接続後も生存する。",
+      "preconditions": [
+        "scenario-1 ステップ3 相当で _palmux_host--0000_host セッションが生成済み (一度 attach して作る)"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "action": "GET /api/orphan-sessions",
+          "expected": "200。レスポンスのセッション一覧に _palmux_host--0000_host が含まれない (_palmux_ 接頭辞 + repoID が -- を含むため IsPalmuxSession=true ＝ orphan ではない)"
+        },
+        {
+          "n": 2,
+          "action": "WS を切断し、sync ループ周期 (約5秒) 以上待つ",
+          "expected": "待機後も tmux に _palmux_host--0000_host セッション + palmux:bash:bash ウィンドウが残っている (sync が zombie 扱いで kill しない)"
+        },
+        {
+          "n": 3,
+          "action": "再度 WS connect ws://.../api/repos/host--0000/branches/host/tabs/bash:bash/attach",
+          "expected": "再 attach 成功。直前に echo した内容のスクロールバックが見える等、同一セッションへ復帰している"
+        }
+      ],
+      "cleanup": ["tmux kill-session -t _palmux_host--0000_host"]
+    },
+    {
+      "id": "scenario-3",
+      "linked_ac": ["AC-S0c6a1b-1-4"],
+      "description": "Host スコープは実リポジトリ一覧を汚さない (repos.json / repo 一覧 API / Open 候補 / worktree list に出ない)。",
+      "preconditions": [],
+      "steps": [
+        {
+          "n": 1,
+          "action": "GET /api/repos (Open 済みリポジトリ一覧)",
+          "expected": "200。repoId=host--0000 のエントリが含まれない"
+        },
+        {
+          "n": 2,
+          "action": "GET /api/repos/available (Open 候補 = ghq list 由来)",
+          "expected": "200。host--0000 が候補に含まれない"
+        },
+        {
+          "n": 3,
+          "action": "サーバの config-dir の repos.json をディスク上で確認 (副作用観測)",
+          "expected": "host--0000 のエントリが永続化されていない"
+        }
+      ],
+      "cleanup": []
+    }
+  ]
+}

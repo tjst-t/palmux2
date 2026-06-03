@@ -3,14 +3,14 @@
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
     "sprints_done": 45,
-    "sprints_total": 46,
-    "percent": 97,
+    "sprints_total": 47,
+    "percent": 95,
     "current_sprint": "S85caca",
     "done": 45,
     "in_progress": 1,
-    "total": 46,
-    "remaining": 0,
-    "percentage": 97
+    "total": 47,
+    "remaining": 1,
+    "percentage": 95
   },
   "execution_order": [
     "S001",
@@ -58,7 +58,8 @@
     "Sadf90e",
     "S67cb0e",
     "Sfccb3f",
-    "S85caca"
+    "S85caca",
+    "S0c6a1b"
   ],
   "sprints": {
     "S001": {
@@ -8145,6 +8146,101 @@
           "tasks": {}
         }
       }
+    },
+    "S0c6a1b": {
+      "title": "リポジトリ非依存「Host」ターミナル (install 直後の gh/claude ログイン導線)",
+      "status": "pending",
+      "milestone": true,
+      "description": "install.sh / Nix one-liner で palmux2 を入れた直後、ユーザはまず gh auth login・claude(ログイン) 等のホストレベルのセットアップを行う必要があるが、現状のターミナルモデルは Repository → Workspace → Bash/Claude タブに固定されており、リポジトリを Open するまでターミナルが出せない (鶏卵問題)。\n\nOrphans セクション (内部実装: store.OrphanSessions が _palmux_ 接頭辞を持たない tmux セッションを全列挙) は今回の用途に不適: (1) 無関係な tmux セッションが全部「ゴミ」として見える、(2) read-only・モーダルのみ・使い捨てで UI から新規ターミナルを作れない、(3) インストール直後は orphan が 0 件のことすらある。\n\n採用アーキテクチャ (ユーザ確定 2026-06-03、Option A):\n  - 予約済み synthetic Repository/Workspace を 1 つ常設し、既存の {repoId}/{branchId}/{tabId} タブ機構をまるごと再利用する (新 API/イベント/ストアをほぼ足さない)\n  - 予約 ID は `--` を必ず含める (例 repoId=host--0000 / branchId=host)。ParseSessionName/IsPalmuxSession (internal/domain/naming.go) が『接頭辞 + post-prefix repoID に --』を要求するため。これで _palmux_ 接頭辞付きセッションとして認識され、Orphans 化も sync ループの誤 kill も防げる\n  - スコープは Bash ターミナルのみ (cwd=$HOME)。AddTab がそのまま使えるので書き込み可・複数可・再接続・TerminalManager キャッシュ・OSC52 コピペが全部再利用できる\n  - Drawer に専用 'Host' セクション (Repositories とも Orphans とも別枠) として描画。URL /host--0000/host/bash:bash で reload/戻る進むに耐える\n  - リポジトリ未登録時の empty-state に『Open setup terminal』CTA + gh auth login / claude のコマンドヒント\n\nスコープ外:\n  - Orphans セクションの改修 (ユーザ確定: 今回は触らない。Host 追加で orphans 依存自体が減る)\n  - Host スコープでの Files/Git/Sprint/Claude タブ (host に worktree が無いため無意味/範囲外)\n  - gh/claude のログイン状態の自動検出バッジ (将来 Sprint 候補)\n\n実装上の注意:\n  - 予約スコープを repos.json 永続化・repo-picker・git worktree list・sync_worktree から除外し、実リポジトリ一覧を汚さない\n  - 予約 branch を store の既知 branch 群に含め、sync_tmux/sync_worktree がその session を zombie 扱いして kill しないようにする\n\n検証: make serve INSTANCE=dev で立てた dev インスタンスに対し Playwright(headless) で、(a) リポジトリ 0 件状態で Host セクション/CTA から Bash ターミナルが開き入力に応答する、(b) Orphans 一覧に host セッションが出ない、(c) reload/戻る進む後もターミナルが生存する、を実機検証する。",
+      "stories": {
+        "S0c6a1b-1": {
+          "id": "S0c6a1b-1",
+          "status": "pending",
+          "title": "予約「Host」スコープ (BE): palmux 管理セッション + Bash 限定 + repos/worktree/orphan からの除外",
+          "user_story": "複数リポジトリで Claude Code を併走させる個人開発者として、リポジトリを Open する前にホストターミナルを使いたい。なぜなら、install 直後に gh auth login や claude のログインといったホストレベルのセットアップを実行する必要があるから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S0c6a1b-1-1",
+              "description": "起動時に予約 Host スコープ (repoId=host--0000 / branchId=host) が論理エントリとして常設され、GET /api/repos/host--0000/branches/host/tabs が既定 Bash タブ (metadata) を返す。tmux セッションは起動時には作らず (lazy spawn, priority_rule 4)、初回 attach 時に _palmux_ 接頭辞付きで生成される",
+              "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-1-1]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S0c6a1b-1-2",
+              "description": "Host スコープの Bash タブに WS attach でき、input/output/resize が双方向に動作する。pty の cwd は $HOME。追加の Bash ターミナルを作成/削除でき複数保持できる",
+              "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-1-2]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S0c6a1b-1-3",
+              "description": "初回 attach 後に生成された Host セッション (_palmux_host--0000_host) は GET /api/orphan-sessions に現れない (_palmux_ 接頭辞 + repoID が -- を含むため)。かつ sync ループで kill されず、WS 切断→再接続後もセッション/ウィンドウが生存し再 attach できる",
+              "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-1-3]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S0c6a1b-1-4",
+              "description": "予約 Host スコープは repos.json 永続化・repo-picker の候補・`git worktree list` 由来の Workspace 一覧・sync_worktree のイベントに現れない (実リポジトリ一覧を汚さない)",
+              "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-1-4]",
+              "status": "pending"
+            }
+          ],
+          "tasks": {}
+        },
+        "S0c6a1b-2": {
+          "id": "S0c6a1b-2",
+          "status": "pending",
+          "title": "Drawer 専用「Host」セクション (FE): 別枠表示 + ルーティング + Bash 追加/削除",
+          "user_story": "PC・スマホから同じ環境を使う個人開発者として、Drawer の専用 Host セクションからホストターミナルをワンクリックで開きたい。なぜなら、Repositories や Orphans と混ざるとゴミに埋もれて見つけづらいから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S0c6a1b-2-1",
+              "description": "Drawer に Host 専用セクション (Repositories とも Orphans とも別枠) が表示され、クリックで /{hostRepoId}/{hostBranchId}/bash:bash に遷移してターミナルが開く",
+              "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-2-1]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S0c6a1b-2-2",
+              "description": "Host ターミナル選択はブラウザの reload・戻る/進む後も pushState で保持され、同じターミナルに復帰する",
+              "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-2-2]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S0c6a1b-2-3",
+              "description": "Host セクション内から追加の Bash ターミナルを作成/削除でき、セクション内に列挙される。Host セクションには Files/Git/Sprint/Claude タブは表示されない",
+              "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-2-3]",
+              "status": "pending"
+            }
+          ],
+          "tasks": {}
+        },
+        "S0c6a1b-3": {
+          "id": "S0c6a1b-3",
+          "status": "pending",
+          "title": "初回オンボーディング (FE): empty-state の『Open setup terminal』CTA + gh/claude ログインヒント",
+          "user_story": "palmux2 をインストールしたばかりの個人開発者として、リポジトリ未登録の画面に『セットアップ用ターミナルを開く』導線と gh/claude のログイン手順を見たい。なぜなら、インストール直後に何を認証すべきか分からないから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S0c6a1b-3-1",
+              "description": "Open 済みリポジトリが 0 件のとき、empty-state (main-layout) に『Open setup terminal』CTA が表示され、クリックで Host ターミナルが開く",
+              "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-3-1]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S0c6a1b-3-2",
+              "description": "CTA 付近に `gh auth login` と claude(ログイン) のコマンドヒントが表示される",
+              "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-3-2]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S0c6a1b-3-3",
+              "description": "リポジトリを 1 件以上 Open 済みの場合は CTA は従来の empty-state 文言に戻る (回帰なし)",
+              "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-3-3]",
+              "status": "pending"
+            }
+          ],
+          "tasks": {}
+        }
+      }
     }
   },
   "dependencies": {
@@ -8334,6 +8430,10 @@
         "Sfccb3f"
       ],
       "reason": "Sfccb3f のデプロイ基盤 (caddy-cloudflare バイナリ / install.sh / Caddy + DNS-01) の上に portman 連携を載せるため。 Sfccb3f 完了が前提"
+    },
+    "S0c6a1b": {
+      "depends_on": [],
+      "reason": "既存 45 Sprint・進行中 S85caca (deploy/portman 系) とは独立。palmux2 アプリ本体 (store/server/frontend) の純粋追加で、既存タブ機構を再利用するためコード競合も限定的。"
     }
   },
   "backlog": [
