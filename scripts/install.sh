@@ -285,6 +285,71 @@ nix run \
   home-manager/master -- \
   switch --flake "/etc/palmux#${USERNAME}" -b backup
 
+# --- Server stability: unattended-upgrades + swap + sysctl (Story-3) ----------
+#
+# These are run unconditionally — they harden any palmux2 host (whether or not
+# Caddy is enabled). Idempotent: configs are overwritten each run, swapfile is
+# created only if missing.
+SWAP_FILE="${SWAP_FILE:-/swapfile}"
+SWAP_SIZE_GB="${SWAP_SIZE_GB:-8}"
+SWAP_SWAPPINESS="${SWAP_SWAPPINESS:-10}"
+KERNEL_PANIC_REBOOT_SECONDS="${KERNEL_PANIC_REBOOT_SECONDS:-10}"
+
+# unattended-upgrades
+log "configuring unattended-upgrades"
+sudo apt-get install -y -qq unattended-upgrades
+sudo tee /etc/apt/apt.conf.d/20auto-upgrades >/dev/null <<'EOF'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::Download-Upgradeable-Packages "1";
+APT::Periodic::AutocleanInterval "7";
+EOF
+sudo tee /etc/apt/apt.conf.d/50unattended-upgrades >/dev/null <<'EOF'
+Unattended-Upgrade::Allowed-Origins {
+    "${distro_id}:${distro_codename}-security";
+    "${distro_id}ESMApps:${distro_codename}-apps-security";
+    "${distro_id}ESM:${distro_codename}-infra-security";
+};
+Unattended-Upgrade::Package-Blacklist {
+    "linux-image";
+    "linux-headers";
+    "linux-generic";
+    "grub";
+    "shim";
+};
+Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+Unattended-Upgrade::MinimalSteps "true";
+Unattended-Upgrade::InstallOnShutdown "false";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+Unattended-Upgrade::Automatic-Reboot "false";
+Unattended-Upgrade::DevRelease "auto";
+EOF
+sudo systemctl enable --now unattended-upgrades.service >/dev/null 2>&1 || true
+
+# swap
+if [ ! -f "$SWAP_FILE" ]; then
+  log "creating ${SWAP_SIZE_GB}G swapfile at ${SWAP_FILE}"
+  sudo fallocate -l "${SWAP_SIZE_GB}G" "$SWAP_FILE"
+  sudo chmod 600 "$SWAP_FILE"
+  sudo mkswap "$SWAP_FILE" >/dev/null
+fi
+if ! swapon --show=NAME --noheadings | grep -qx "$SWAP_FILE"; then
+  sudo swapon "$SWAP_FILE" || warn "swapon failed (already enabled?)"
+fi
+if ! grep -qE "^${SWAP_FILE}[[:space:]]" /etc/fstab; then
+  echo "${SWAP_FILE} none swap sw 0 0" | sudo tee -a /etc/fstab >/dev/null
+fi
+
+# sysctl: swappiness + panic-on-oom + auto-reboot on panic
+log "writing /etc/sysctl.d/99-palmux.conf"
+sudo tee /etc/sysctl.d/99-palmux.conf >/dev/null <<EOF
+# Managed by palmux2 install.sh (Sprint Sfccb3f Story-3).
+vm.swappiness = ${SWAP_SWAPPINESS}
+vm.panic_on_oom = 1
+kernel.panic = ${KERNEL_PANIC_REBOOT_SECONDS}
+EOF
+sudo sysctl --system >/dev/null
+
 # --- Caddy + Cloudflare DNS-01 + edge basic_auth (Story-2) ------------------
 #
 # Note: We bypass numtide/system-manager here because the pinned commit

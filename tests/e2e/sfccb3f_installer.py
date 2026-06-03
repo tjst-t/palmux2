@@ -392,24 +392,85 @@ def test_AC_Sfccb3f_2_6() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Story Sfccb3f-3 — server-stability + PROFILE=full   (TODO Story-3)
+# Story Sfccb3f-3 — server-stability + PROFILE=full
 # ---------------------------------------------------------------------------
 
 
+def _install_cmd_profile(profile: str) -> str:
+    return (
+        f"cd /tmp && PROFILE={profile} PALMUX_FLAKE_REF=path:/tmp/palmux2-src "
+        f"bash /tmp/palmux2-src/scripts/install.sh"
+    )
+
+
 def test_AC_Sfccb3f_3_1() -> None:
-    raise NotImplementedError("Story-3 で実装")
+    """[AC-Sfccb3f-3-1] unattended-upgrades enabled + dry-run success + kernel exclude"""
+    # 直前の Story-2 で既に server-stability も走っているはずだが、 確認のため再実行
+    rsync_repo()
+    p = ssh(_install_cmd_profile("minimal"), timeout=3600)
+    assert p.returncode == 0, f"install.sh rc={p.returncode}\n{p.stderr[-2000:]}"
+    p = ssh("systemctl is-enabled unattended-upgrades")
+    assert p.stdout.strip() == "enabled", f"unattended-upgrades not enabled: {p.stdout!r}"
+    p = ssh("test -f /etc/apt/apt.conf.d/20auto-upgrades && test -f /etc/apt/apt.conf.d/50unattended-upgrades && echo OK")
+    assert "OK" in p.stdout
+    # dry-run: returns 0, lists allowed origins, lists package excludes
+    p = ssh("sudo unattended-upgrade --dry-run -v 2>&1 | head -100", check=False)
+    assert "Allowed origins" in p.stdout or "Checking" in p.stdout, f"dry-run unexpected: {p.stdout[:500]!r}"
+    p = ssh("grep -E 'linux-(image|headers|generic)' /etc/apt/apt.conf.d/50unattended-upgrades | wc -l")
+    assert int(p.stdout.strip()) >= 2, "kernel packages not excluded in 50unattended-upgrades"
 
 
 def test_AC_Sfccb3f_3_2() -> None:
-    raise NotImplementedError("Story-3 で実装")
+    """[AC-Sfccb3f-3-2] /swapfile 8G + swapon active + vm.swappiness/panic_on_oom/kernel.panic 永続化"""
+    p = ssh("test -f /swapfile && stat -c '%s' /swapfile")
+    bytes_ = int(p.stdout.strip())
+    expected = 8 * 1024 * 1024 * 1024
+    assert bytes_ == expected, f"/swapfile size {bytes_} != {expected}"
+    p = ssh("swapon --show=NAME,TYPE,SIZE --noheadings")
+    assert "/swapfile" in p.stdout, f"/swapfile not active: {p.stdout!r}"
+    # sysctl values
+    p = ssh("sysctl -n vm.swappiness vm.panic_on_oom kernel.panic")
+    lines = p.stdout.strip().splitlines()
+    assert lines[0] == "10", f"vm.swappiness={lines[0]!r}, want 10"
+    assert lines[1] == "1", f"vm.panic_on_oom={lines[1]!r}, want 1"
+    assert lines[2] == "10", f"kernel.panic={lines[2]!r}, want 10"
+    # 永続化: /etc/sysctl.d/99-palmux.conf
+    p = ssh("grep -cE '^(vm\\.swappiness|vm\\.panic_on_oom|kernel\\.panic)' /etc/sysctl.d/99-palmux.conf")
+    assert p.stdout.strip() == "3", "99-palmux.conf does not contain all 3 sysctls"
+    # /etc/fstab 永続化
+    p = ssh("grep -cE '^/swapfile' /etc/fstab")
+    assert int(p.stdout.strip()) >= 1, "swapfile not in /etc/fstab"
 
 
 def test_AC_Sfccb3f_3_3() -> None:
-    raise NotImplementedError("Story-3 で実装")
+    """[AC-Sfccb3f-3-3] PROFILE=full → bat/rg/fd/delta/eza/fzf/starship/zoxide/yazi が PATH + starship init"""
+    rsync_repo()
+    p = ssh(_install_cmd_profile("full"), timeout=3600)
+    assert p.returncode == 0, f"install.sh PROFILE=full rc={p.returncode}\n{p.stderr[-3000:]}"
+    cmds = ["bat", "rg", "fd", "delta", "eza", "fzf", "starship", "zoxide", "yazi"]
+    p = ssh("bash -lc 'for c in " + " ".join(cmds) + '; do command -v "$c" >/dev/null || echo "MISSING:$c"; done\'')
+    missing = [ln for ln in p.stdout.splitlines() if ln.startswith("MISSING:")]
+    assert not missing, f"PROFILE=full missing: {missing}"
+    # bash 起動時に starship init が実行されていること: .bashrc 中に "starship init" を含む
+    # (home-manager が programs.starship.enable=true で自動配置)
+    p = ssh("bash -lc 'grep -lE \"starship init|starship.init\" ~/.bashrc ~/.bashrc.d/* /etc/bash.bashrc 2>/dev/null | head -3' || echo NONE")
+    assert "NONE" not in p.stdout and p.stdout.strip() != "", \
+        f"starship init not wired into bash: {p.stdout!r}"
 
 
 def test_AC_Sfccb3f_3_4() -> None:
-    raise NotImplementedError("Story-3 で実装")
+    """[AC-Sfccb3f-3-4] PROFILE=full → PROFILE=minimal (default) で shell-UX cluster が外れる"""
+    rsync_repo()
+    p = ssh(_install_cmd_profile("minimal"), timeout=3600)
+    assert p.returncode == 0, f"install.sh PROFILE=minimal rc={p.returncode}\n{p.stderr[-2000:]}"
+    # full 限定の binaries が消えていることを確認 (空 stdout = 全部 missing = OK)
+    cmds = ["bat", "starship", "zoxide", "yazi"]
+    p = ssh("bash -lc 'for c in " + " ".join(cmds) + '; do command -v "$c" >/dev/null && echo "STILL:$c" || true; done\'', check=False)
+    still = [ln for ln in p.stdout.splitlines() if ln.startswith("STILL:")]
+    assert not still, f"PROFILE=minimal still has full-only binaries: {still}"
+    # starship init line が消えていること
+    p = ssh("bash -lc 'grep -E \"starship init\" ~/.bashrc ~/.bashrc.d/* /etc/bash.bashrc 2>/dev/null || echo CLEAN'", check=False)
+    assert "CLEAN" in p.stdout, f"starship init not removed: {p.stdout!r}"
 
 
 # ---------------------------------------------------------------------------

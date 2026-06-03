@@ -32,7 +32,7 @@ let
 
   profileSet = {
     minimal = pkgs.callPackage ../profiles/minimal.nix { inherit palmux2-pkg; };
-    # full は Story-3 で追加
+    full = pkgs.callPackage ../profiles/full.nix { inherit palmux2-pkg; };
   };
 
   selectedProfile =
@@ -45,6 +45,7 @@ let
   homeManagerModule = import ../modules/home-manager-palmux.nix {
     inherit palmux2-pkg username homeDirectory bindAddr;
     profilePackages = selectedProfile.packages;
+    profileName = profile;
   };
 
   caddyModule = import ../modules/system-manager-caddy.nix {
