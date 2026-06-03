@@ -421,8 +421,11 @@ if [ "$CADDY_ENABLED" = "1" ]; then
   sudo install -d -m 0755 /etc/caddy
 
   log "building caddy-cloudflare via Nix (will use binary from /nix/store)"
+  # --no-write-lock-file: when PALMUX_FLAKE_REF is a remote (github:) ref, nix
+  # cannot write a lock file back to it. A committed flake.lock pins inputs;
+  # this flag lets the build proceed against the remote ref regardless.
   CADDY_BIN_DIR="$(
-    nix build --no-link --print-out-paths \
+    nix build --no-link --print-out-paths --no-write-lock-file \
       --extra-experimental-features 'nix-command flakes' \
       "${PALMUX_FLAKE_REF}#packages.${NIX_SYSTEM}.caddy-cloudflare"
   )"
