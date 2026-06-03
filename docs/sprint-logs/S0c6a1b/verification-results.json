@@ -2,41 +2,136 @@
   "$file": "verification-results.json",
   "sprint": "S0c6a1b",
   "verified_at": "2026-06-03T10:30:00Z",
-  "summary": { "total_ac": 10, "pass": 10, "fail": 0, "skip": 0, "no_test": 0 },
-  "build": { "go_build": "pass", "go_vet": "pass", "go_test": "pass", "tsc": "pass", "eslint": "pass", "make_build": "pass" },
+  "summary": {
+    "total_ac": 10,
+    "pass": 10,
+    "fail": 0,
+    "skip": 0,
+    "no_test": 0
+  },
+  "build": {
+    "go_build": "pass",
+    "go_vet": "pass",
+    "go_test": "pass",
+    "tsc": "pass",
+    "eslint": "pass",
+    "make_build": "pass"
+  },
   "test_runs": [
     {
       "file": "tests/e2e/s0c6a1b_host_terminal.py",
       "mode": "real (bin/palmux on isolated port, --tmux-prefix _pmx_s0ctest_, fresh config-dir)",
       "result": "ALL PASS",
-      "covers": ["AC-S0c6a1b-1-1","AC-S0c6a1b-1-2","AC-S0c6a1b-1-3","AC-S0c6a1b-1-4","AC-S0c6a1b-2-1","AC-S0c6a1b-2-2","AC-S0c6a1b-2-3"]
+      "covers": [
+        "AC-S0c6a1b-1-1",
+        "AC-S0c6a1b-1-2",
+        "AC-S0c6a1b-1-3",
+        "AC-S0c6a1b-1-4",
+        "AC-S0c6a1b-2-1",
+        "AC-S0c6a1b-2-2",
+        "AC-S0c6a1b-2-3"
+      ]
     },
     {
       "file": "tests/e2e/s0c6a1b_host_terminal_mock.py",
       "mode": "real hermetic bin/palmux (embedded frontend) at 0-repo and 1-repo; real Chromium; NOT page.route",
       "result": "ALL PASS",
-      "covers": ["AC-S0c6a1b-3-1","AC-S0c6a1b-3-2","AC-S0c6a1b-3-3"]
+      "covers": [
+        "AC-S0c6a1b-3-1",
+        "AC-S0c6a1b-3-2",
+        "AC-S0c6a1b-3-3"
+      ]
     }
   ],
   "acceptance_criteria": [
-    { "id": "AC-S0c6a1b-1-1", "status": "pass", "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-1-1]", "note": "default bash tab present; no tmux session before attach (lazy)" },
-    { "id": "AC-S0c6a1b-1-2", "status": "pass", "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-1-2]", "note": "WS attach lazily created session; cwd=/home/ubuntu; bash:bash + bash:bash-2" },
-    { "id": "AC-S0c6a1b-1-3", "status": "pass", "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-1-3]", "note": "host session absent from orphan list; survived sync window + re-attach" },
-    { "id": "AC-S0c6a1b-1-4", "status": "pass", "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-1-4]", "note": "host absent from /api/repos and /api/repos/available" },
-    { "id": "AC-S0c6a1b-2-1", "status": "pass", "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-2-1]", "note": "drawer-host-section separate; click→host terminal renders; bash-only; mobile reachable (priority_rule 10)" },
-    { "id": "AC-S0c6a1b-2-2", "status": "pass", "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-2-2]", "note": "reload + browser back preserve host terminal URL" },
-    { "id": "AC-S0c6a1b-2-3", "status": "pass", "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-2-3]", "note": "add/remove host bash terminals listed; add auto-picks bash-2" },
-    { "id": "AC-S0c6a1b-3-1", "status": "pass", "test": "tests/e2e/s0c6a1b_host_terminal_mock.py [AC-S0c6a1b-3-1]", "note": "0 repos → empty-setup-cta shown; click→host terminal" },
-    { "id": "AC-S0c6a1b-3-2", "status": "pass", "test": "tests/e2e/s0c6a1b_host_terminal_mock.py [AC-S0c6a1b-3-2]", "note": "gh auth login + claude login hints present" },
-    { "id": "AC-S0c6a1b-3-3", "status": "pass", "test": "tests/e2e/s0c6a1b_host_terminal_mock.py [AC-S0c6a1b-3-3]", "note": ">=1 repo → CTA hidden, legacy text (no regression)" }
+    {
+      "id": "AC-S0c6a1b-1-1",
+      "status": "pass",
+      "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-1-1]",
+      "note": "default bash tab present; no tmux session before attach (lazy)"
+    },
+    {
+      "id": "AC-S0c6a1b-1-2",
+      "status": "pass",
+      "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-1-2]",
+      "note": "WS attach lazily created session; cwd=/home/ubuntu; bash:bash + bash:bash-2"
+    },
+    {
+      "id": "AC-S0c6a1b-1-3",
+      "status": "pass",
+      "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-1-3]",
+      "note": "host session absent from orphan list; survived sync window + re-attach"
+    },
+    {
+      "id": "AC-S0c6a1b-1-4",
+      "status": "pass",
+      "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-1-4]",
+      "note": "host absent from /api/repos and /api/repos/available"
+    },
+    {
+      "id": "AC-S0c6a1b-2-1",
+      "status": "pass",
+      "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-2-1]",
+      "note": "drawer-host-section separate; single Host entry (no per-term rows, no +); click→host terminal renders; TabBar bash-only (no claude-tab); mobile reachable (priority_rule 10)"
+    },
+    {
+      "id": "AC-S0c6a1b-2-2",
+      "status": "pass",
+      "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-2-2]",
+      "note": "reload + browser back preserve host terminal URL"
+    },
+    {
+      "id": "AC-S0c6a1b-2-3",
+      "status": "pass",
+      "test": "tests/e2e/s0c6a1b_host_terminal.py [AC-S0c6a1b-2-3]",
+      "note": "multiple host bash via TabBar tab-add-bash; remove reflected in TabBar (refine 2026-06-03: drawer no longer manages terminals)"
+    },
+    {
+      "id": "AC-S0c6a1b-3-1",
+      "status": "pass",
+      "test": "tests/e2e/s0c6a1b_host_terminal_mock.py [AC-S0c6a1b-3-1]",
+      "note": "0 repos → empty-setup-cta shown; click→host terminal"
+    },
+    {
+      "id": "AC-S0c6a1b-3-2",
+      "status": "pass",
+      "test": "tests/e2e/s0c6a1b_host_terminal_mock.py [AC-S0c6a1b-3-2]",
+      "note": "gh auth login + claude login hints present"
+    },
+    {
+      "id": "AC-S0c6a1b-3-3",
+      "status": "pass",
+      "test": "tests/e2e/s0c6a1b_host_terminal_mock.py [AC-S0c6a1b-3-3]",
+      "note": ">=1 repo → CTA hidden, legacy text (no regression)"
+    }
   ],
   "rule6_diff_scan": {
     "user_observable_surfaces_added": [
-      { "surface": "GET /api/host", "type": "api-route", "tested_by": "AC-S0c6a1b-2-1 (drawer-host-section populates from it) + boot smoke" },
-      { "surface": "data-testid drawer-host-section / drawer-host-terminal / drawer-host-add-btn / drawer-host-term-<id> / drawer-host-term-remove-<id>", "type": "gui", "tested_by": "AC-S0c6a1b-2-1/2-3" },
-      { "surface": "data-testid empty-setup-cta / empty-setup-hint-gh / empty-setup-hint-claude", "type": "gui", "tested_by": "AC-S0c6a1b-3-1/3-2/3-3" },
-      { "surface": "data-testid terminal-view", "type": "gui", "tested_by": "AC-S0c6a1b-2-1 (terminal render assertion)" },
-      { "surface": "host scope bash tab CRUD via existing /api/repos/host--0000/branches/host/tabs[/{id}]", "type": "api-route(reuse)", "tested_by": "AC-S0c6a1b-1-2/2-3" }
+      {
+        "surface": "GET /api/host",
+        "type": "api-route",
+        "tested_by": "AC-S0c6a1b-2-1 (drawer-host-section populates from it) + boot smoke"
+      },
+      {
+        "surface": "data-testid drawer-host-section / drawer-host-terminal / drawer-host-add-btn / drawer-host-term-<id> / drawer-host-term-remove-<id>",
+        "type": "gui",
+        "tested_by": "AC-S0c6a1b-2-1/2-3"
+      },
+      {
+        "surface": "data-testid empty-setup-cta / empty-setup-hint-gh / empty-setup-hint-claude",
+        "type": "gui",
+        "tested_by": "AC-S0c6a1b-3-1/3-2/3-3"
+      },
+      {
+        "surface": "data-testid terminal-view",
+        "type": "gui",
+        "tested_by": "AC-S0c6a1b-2-1 (terminal render assertion)"
+      },
+      {
+        "surface": "host scope bash tab CRUD via existing /api/repos/host--0000/branches/host/tabs[/{id}]",
+        "type": "api-route(reuse)",
+        "tested_by": "AC-S0c6a1b-1-2/2-3"
+      }
     ],
     "result": "pass — every added user-observable surface is exercised by a passing test"
   },
@@ -96,5 +191,10 @@
   },
   "known_limitations": [
     "Host extra bash terminals (bash-2+) are not proactively recovered by sync after a tmux-server death (host is excluded from eager recovery for lazy-spawn). Direct re-attach to bash:bash-N recreates that window via EnsureTabWindow. Acceptable for an ephemeral setup scope; no AC requires cross-server-death recovery."
-  ]
+  ],
+  "refine": {
+    "at": "2026-06-03",
+    "change": "Drawer Host section collapsed to a single entry; per-terminal rows + \"+\" removed (duplicated the TabBar). Terminal add/remove/switch now via TabBar only.",
+    "reran": "both E2E files ALL PASS"
+  }
 }

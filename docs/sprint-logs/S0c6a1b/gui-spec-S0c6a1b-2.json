@@ -5,57 +5,155 @@
   "story_type": "gui",
   "user_role": "PC・スマホから同じ環境を使う個人開発者",
   "entry_point": "Drawer の Host セクション (PC: 常設ペイン, モバイル: Drawer モーダル)。クリックで /host--0000/host/bash:bash へ遷移。",
-  "state_diagram": "stateDiagram-v2\n    [*] --> DrawerReady: app load (GET /api/host returns {repoId:host--0000,branchId:host,displayName:Host})\n    DrawerReady --> HostTermActive: click drawer-host-terminal -> navigate /host--0000/host/bash:bash, WS attach, terminal renders\n    HostTermActive --> HostTermActive: reload / browser back-forward -> pushState restores same terminal (URL unchanged)\n    HostTermActive --> MultiTerm: click drawer-host-add-btn -> POST tabs {type:bash} -> bash:bash-2 listed\n    MultiTerm --> HostTermActive: click drawer-host-term-remove-<id> -> DELETE tabs/{id} -> row disappears\n    DrawerReady --> DrawerReady: Host section contains NO Files/Git/Sprint/Claude rows (bash only)",
+  "state_diagram": "stateDiagram-v2\n    [*] --> DrawerReady: app load (GET /api/host)\n    DrawerReady --> HostTermActive: click drawer-host-terminal (single Host entry) -> navigate /host--0000/host/bash:bash, terminal renders\n    HostTermActive --> HostTermActive: reload / back-forward -> pushState restores same terminal\n    HostTermActive --> MultiTerm: TabBar tab-add-bash -> bash:bash-2 tab\n    MultiTerm --> HostTermActive: close bash:bash-2 in TabBar -> tab disappears\n    note right of DrawerReady: Drawer shows ONLY the Host entry; terminals live in the TabBar (bash-only)",
   "scenarios": [
     {
       "id": "scenario-1",
-      "linked_ac": ["AC-S0c6a1b-2-1"],
+      "linked_ac": [
+        "AC-S0c6a1b-2-1"
+      ],
       "description": "Drawer の Host セクションが Repositories/Orphans と別枠で表示され、クリックで Host ターミナルが開く",
       "steps": [
-        {"n": 1, "action": "ブラウザで / を開く", "expected": "Drawer に data-testid=drawer-host-section が存在し、data-testid=drawer-repo-list (Repositories) および orphan セクションとは別の DOM ノードである"},
-        {"n": 2, "action": "data-testid=drawer-host-terminal をクリック", "expected": "URL が /host--0000/host/bash:bash になり、ターミナル (xterm) コンテナが描画される (backend WS attach 成立後にプロンプトが見える)"},
-        {"n": 3, "action": "Host セクション内の行を確認", "expected": "Files/Git/Sprint/Claude タブ行が存在しない (bash ターミナルのみ)"}
+        {
+          "n": 1,
+          "action": "ブラウザで / を開く",
+          "expected": "Drawer に data-testid=drawer-host-section が存在し、data-testid=drawer-repo-list (Repositories) および orphan セクションとは別の DOM ノードである"
+        },
+        {
+          "n": 2,
+          "action": "data-testid=drawer-host-terminal をクリック",
+          "expected": "URL が /host--0000/host/bash:bash になり、ターミナル (xterm) コンテナが描画される (backend WS attach 成立後にプロンプトが見える)"
+        },
+        {
+          "n": 3,
+          "action": "Drawer の Host セクションの中身を確認",
+          "expected": "drawer-host-terminal の単一エントリのみ。個別ターミナル行(drawer-host-term-*)も + ボタン(drawer-host-add-btn)も無い。TabBar 側は bash タブのみ(claude-tab 無し)"
+        }
       ]
     },
     {
       "id": "scenario-2",
-      "linked_ac": ["AC-S0c6a1b-2-2"],
+      "linked_ac": [
+        "AC-S0c6a1b-2-2"
+      ],
       "description": "reload と戻る/進むで Host ターミナル選択が保持される",
       "steps": [
-        {"n": 1, "action": "Host ターミナルを開いた状態 (URL=/host--0000/host/bash:bash) で page.reload()", "expected": "reload 後も URL=/host--0000/host/bash:bash、ターミナルが再描画される"},
-        {"n": 2, "action": "別の場所 (例: Drawer の repo or /) に遷移してから browser back", "expected": "戻ると URL=/host--0000/host/bash:bash に復帰し同じ Host ターミナルが表示される"}
+        {
+          "n": 1,
+          "action": "Host ターミナルを開いた状態 (URL=/host--0000/host/bash:bash) で page.reload()",
+          "expected": "reload 後も URL=/host--0000/host/bash:bash、ターミナルが再描画される"
+        },
+        {
+          "n": 2,
+          "action": "別の場所 (例: Drawer の repo or /) に遷移してから browser back",
+          "expected": "戻ると URL=/host--0000/host/bash:bash に復帰し同じ Host ターミナルが表示される"
+        }
       ]
     },
     {
       "id": "scenario-3",
-      "linked_ac": ["AC-S0c6a1b-2-3"],
-      "description": "Host セクションから Bash ターミナルを追加・削除でき列挙される",
+      "linked_ac": [
+        "AC-S0c6a1b-2-3"
+      ],
+      "description": "Host スコープの複数 Bash は上部 TabBar で管理（drawer は Host 単一エントリのみ）",
       "steps": [
-        {"n": 1, "action": "data-testid=drawer-host-add-btn をクリック", "expected": "Host セクションに 2 つ目の行 (data-testid=drawer-host-term-bash:bash-2) が現れる。GET host tabs で bash:bash と bash:bash-2 が返る"},
-        {"n": 2, "action": "data-testid=drawer-host-term-remove-bash:bash-2 をクリック", "expected": "bash:bash-2 の行が消え、GET host tabs から bash:bash-2 が消える"}
+        {
+          "n": 1,
+          "action": "Drawer の Host セクションを確認",
+          "expected": "drawer-host-terminal の単一エントリのみ。drawer-host-add-btn と drawer-host-term-* 行は存在しない"
+        },
+        {
+          "n": 2,
+          "action": "上部 TabBar の data-testid=tab-add-bash をクリック",
+          "expected": "tab-bash:bash-2 がタブバーに現れ、GET host tabs に bash:bash-2 が含まれる"
+        },
+        {
+          "n": 3,
+          "action": "bash:bash-2 を削除 (TabBar コンテキストメニュー close / API DELETE)",
+          "expected": "tab-bash:bash-2 がタブバーから消える"
+        }
       ]
     },
     {
       "id": "scenario-mobile",
-      "linked_ac": ["AC-S0c6a1b-2-1"],
+      "linked_ac": [
+        "AC-S0c6a1b-2-1"
+      ],
       "description": "モバイル viewport (<600px) でも Host セクションに到達しターミナルが開ける (priority_rule 10)",
       "steps": [
-        {"n": 1, "action": "viewport を 390x780 に設定して / を開き、Drawer モーダルを開く (ハンバーガ/トグル)", "expected": "data-testid=drawer-host-section が表示される"},
-        {"n": 2, "action": "data-testid=drawer-host-terminal をタップ", "expected": "URL=/host--0000/host/bash:bash、ターミナルが描画される"}
+        {
+          "n": 1,
+          "action": "viewport を 390x780 に設定して / を開き、Drawer モーダルを開く (ハンバーガ/トグル)",
+          "expected": "data-testid=drawer-host-section が表示される"
+        },
+        {
+          "n": 2,
+          "action": "data-testid=drawer-host-terminal をタップ",
+          "expected": "URL=/host--0000/host/bash:bash、ターミナルが描画される"
+        }
       ]
     }
   ],
   "endpoint_contracts": [
-    {"path": "/api/host", "method": "GET", "registered": false, "request_fields": null, "response_fields": {"repoId": "string (host--0000)", "branchId": "string (host)", "displayName": "string (Host)"}},
-    {"path": "/api/repos/host--0000/branches/host/tabs", "method": "GET", "registered": true, "request_fields": null, "response_fields": {"tabs": "Tab[] {id,type,name}", "activeTabId": "string"}},
-    {"path": "/api/repos/host--0000/branches/host/tabs", "method": "POST", "registered": true, "request_fields": {"type": "string (bash)", "name": "string (optional)"}, "response_fields": {"id": "string", "type": "string", "name": "string"}},
-    {"path": "/api/repos/host--0000/branches/host/tabs/{tabId}", "method": "DELETE", "registered": true, "request_fields": null, "response_fields": "204 No Content"},
-    {"path": "/api/repos/host--0000/branches/host/tabs/{tabId}/attach", "method": "WS", "registered": true, "request_fields": "{type:input|resize, data?, cols?, rows?}", "response_fields": "binary pty output"}
+    {
+      "path": "/api/host",
+      "method": "GET",
+      "registered": false,
+      "request_fields": null,
+      "response_fields": {
+        "repoId": "string (host--0000)",
+        "branchId": "string (host)",
+        "displayName": "string (Host)"
+      }
+    },
+    {
+      "path": "/api/repos/host--0000/branches/host/tabs",
+      "method": "GET",
+      "registered": true,
+      "request_fields": null,
+      "response_fields": {
+        "tabs": "Tab[] {id,type,name}",
+        "activeTabId": "string"
+      }
+    },
+    {
+      "path": "/api/repos/host--0000/branches/host/tabs",
+      "method": "POST",
+      "registered": true,
+      "request_fields": {
+        "type": "string (bash)",
+        "name": "string (optional)"
+      },
+      "response_fields": {
+        "id": "string",
+        "type": "string",
+        "name": "string"
+      }
+    },
+    {
+      "path": "/api/repos/host--0000/branches/host/tabs/{tabId}",
+      "method": "DELETE",
+      "registered": true,
+      "request_fields": null,
+      "response_fields": "204 No Content"
+    },
+    {
+      "path": "/api/repos/host--0000/branches/host/tabs/{tabId}/attach",
+      "method": "WS",
+      "registered": true,
+      "request_fields": "{type:input|resize, data?, cols?, rows?}",
+      "response_fields": "binary pty output"
+    }
   ],
-  "data_testids": ["drawer-host-section", "drawer-host-terminal", "drawer-host-term-<tabId>", "drawer-host-add-btn", "drawer-host-term-remove-<tabId>"],
+  "data_testids": [
+    "drawer-host-section",
+    "drawer-host-terminal",
+    "tab-add-bash",
+    "tab-bash:<n>"
+  ],
   "test_files": {
     "e2e": "tests/e2e/s0c6a1b_host_terminal.py",
     "mock": "tests/e2e/s0c6a1b_host_terminal_mock.py"
   },
-  "notes": "CLAUDE.md 規約により Sprint ごとに 1 E2E ファイル。本 Story の AC は s0c6a1b_host_terminal.py に [AC-S0c6a1b-2-N] タグで集約。GET /api/host は registered:false = Story 1/2 で実装する backend task。"
+  "notes": "CLAUDE.md 規約により Sprint ごとに 1 E2E ファイル。本 Story の AC は s0c6a1b_host_terminal.py に [AC-S0c6a1b-2-N] タグで集約。GET /api/host は registered:false = Story 1/2 で実装する backend task。 refine 2026-06-03: drawer Host セクションは単一エントリ化。個別ターミナルの add/remove/switch は TabBar (tab-add-bash / tab-{id}) が担当。"
 }

@@ -706,23 +706,21 @@
 }
 
 /* Orphan section (legacy from S015). Kept simple. */
-/* S0c6a1b — Host section: reserved, repository-independent terminal scope. */
+/* S0c6a1b — Host section: a single reserved, repository-independent terminal
+   entry. Individual bash terminals are managed from the top TabBar, so this
+   section is intentionally just the "Host" entry. */
 .hostSection {
   padding: 6px 10px;
   border-top: 1px solid var(--color-border);
 }
-.hostHeader {
+.hostTitle,
+.hostTitleActive {
   display: flex;
   align-items: center;
   gap: 6px;
-}
-.hostTitle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
+  width: 100%;
   min-width: 0;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--color-fg);
@@ -730,80 +728,17 @@
   border: 0;
   cursor: pointer;
   font-family: inherit;
-  padding: 4px 4px;
+  padding: 5px 6px;
   text-align: left;
   border-radius: 6px;
 }
 .hostTitle:hover {
   background: var(--color-elevated);
 }
-.hostAdd {
-  flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
-  line-height: 1;
-  font-size: 14px;
-  color: var(--color-fg-muted);
-  background: transparent;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  cursor: pointer;
-}
-.hostAdd:hover {
-  color: var(--color-accent);
-  border-color: var(--color-accent);
-}
-.hostList {
-  list-style: none;
-  margin: 4px 0 0;
-  padding: 0 0 0 18px;
-}
-.hostItem {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.hostTerm,
-.hostTermActive {
-  flex: 1;
-  min-width: 0;
-  text-align: left;
-  font-size: 12px;
-  font-family: inherit;
-  color: var(--color-fg-muted);
-  background: transparent;
-  border: 0;
-  border-radius: 5px;
-  padding: 3px 6px;
-  cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.hostTerm:hover {
-  background: var(--color-elevated);
-  color: var(--color-fg);
-}
-.hostTermActive {
+.hostTitleActive {
   color: var(--color-accent);
   background: color-mix(in srgb, var(--color-accent) 12%, transparent);
   border-left: 2px solid var(--color-accent);
-}
-.hostTermRemove {
-  flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
-  line-height: 1;
-  font-size: 12px;
-  color: var(--color-fg-dim);
-  background: transparent;
-  border: 0;
-  border-radius: 4px;
-  cursor: pointer;
-}
-.hostTermRemove:hover {
-  color: var(--color-error);
-  background: var(--color-elevated);
 }
 
 .orphanSection {

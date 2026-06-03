@@ -1031,94 +1031,44 @@ function SubBranchRow({
 }
 
 // HostSection (S0c6a1b) renders the reserved, repository-independent Host
-// scope as a dedicated section — separate from Repositories and Orphans — so
-// the user can open a terminal (e.g. for `gh auth login` / `claude` login)
-// before opening any repo. Bash-only; reuses the standard tab add/remove
-// store actions keyed by the reserved host IDs.
+// scope as a single dedicated entry — separate from Repositories and Orphans
+// — so the user can open a terminal (e.g. for `gh auth login` / `claude`
+// login) before opening any repo. Clicking it opens the host terminal; the
+// individual bash terminals are added/removed/switched from the top TabBar
+// (like any workspace), so the drawer intentionally shows ONLY the "Host"
+// entry — no per-terminal rows, no "+" (refine 2026-06-03: those duplicated
+// the TabBar).
 function HostSection() {
   const hostRepo = usePalmuxStore((s) => s.hostRepo)
-  const addTab = usePalmuxStore((s) => s.addTab)
-  const removeTab = usePalmuxStore((s) => s.removeTab)
   const navigate = useNavigate()
   const location = useLocation()
-  const { repoId: activeRepoId, tabId: activeTabId } = useParams()
+  const { repoId: activeRepoId } = useParams()
 
   if (!hostRepo) return null
   const branch = hostRepo.openBranches[0]
   if (!branch) return null
-  const tabs = branch.tabSet.tabs
   const isActive = activeRepoId === hostRepo.id
-  const decodedActiveTab = activeTabId ? decodeURIComponent(activeTabId) : undefined
 
-  const go = (tabId: string) =>
-    navigate(`/${hostRepo.id}/${branch.id}/${encodeURIComponent(tabId)}${location.search}`)
-
-  const onAdd = async () => {
-    // No explicit name → the server auto-picks the next free window
-    // (bash-2, bash-3, …). Passing "bash" would collide with the canonical
-    // bash:bash window and 400.
-    const tab = await addTab(hostRepo.id, branch.id, 'bash')
-    if (tab?.id) go(tab.id)
-  }
-  const onRemove = async (tabId: string) => {
-    await removeTab(hostRepo.id, branch.id, tabId)
-  }
+  // Land on the last-active host tab if it still exists, else the first.
+  const remembered = readLastTabFor(hostRepo.id, branch.id)
+  const target =
+    (remembered && branch.tabSet.tabs.some((t) => t.id === remembered)
+      ? remembered
+      : branch.tabSet.tabs[0]?.id) ?? 'bash:bash'
 
   return (
     <section className={styles.hostSection} data-section="host" data-testid="drawer-host-section">
-      <div className={styles.hostHeader}>
-        <button
-          type="button"
-          className={styles.hostTitle}
-          data-testid="drawer-host-terminal"
-          onClick={() => go(tabs[0]?.id ?? 'bash:bash')}
-          title="Open a repository-independent terminal (gh / claude login, host commands)"
-        >
-          <span aria-hidden>🖥</span> {hostRepo.openBranches[0]?.name ?? 'Host'}
-        </button>
-        <button
-          type="button"
-          className={styles.hostAdd}
-          data-testid="drawer-host-add-btn"
-          onClick={onAdd}
-          title="New host terminal"
-          aria-label="New host terminal"
-        >
-          +
-        </button>
-      </div>
-      <ul className={styles.hostList}>
-        {tabs.map((t) => {
-          const active = isActive && decodedActiveTab === t.id
-          return (
-            <li key={t.id} className={styles.hostItem}>
-              <button
-                type="button"
-                className={active ? styles.hostTermActive : styles.hostTerm}
-                data-testid={`drawer-host-term-${t.id}`}
-                onClick={() => go(t.id)}
-              >
-                {t.name}
-              </button>
-              {tabs.length > 1 && (
-                <button
-                  type="button"
-                  className={styles.hostTermRemove}
-                  data-testid={`drawer-host-term-remove-${t.id}`}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    void onRemove(t.id)
-                  }}
-                  title="Close terminal"
-                  aria-label={`Close ${t.name}`}
-                >
-                  ×
-                </button>
-              )}
-            </li>
-          )
-        })}
-      </ul>
+      <button
+        type="button"
+        className={isActive ? styles.hostTitleActive : styles.hostTitle}
+        data-testid="drawer-host-terminal"
+        onClick={() =>
+          navigate(`/${hostRepo.id}/${branch.id}/${encodeURIComponent(target)}${location.search}`)
+        }
+        title="Open a repository-independent terminal (gh / claude login, host commands)"
+      >
+        <span aria-hidden>🖥</span> {branch.name}
+      </button>
     </section>
   )
 }

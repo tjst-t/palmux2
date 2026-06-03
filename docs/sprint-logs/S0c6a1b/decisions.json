@@ -121,6 +121,15 @@
       "reference": "sprint-run.md (parallelize where dependencies allow); 本 sprint は依存上 1 wave",
       "adr_ref": null,
       "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-03T13:41:22Z",
+      "category": "refine",
+      "title": "Drawer Host セクションは単一エントリに簡略化 (TabBar と重複排除)",
+      "detail": "ユーザ refine (2026-06-03): 複数 Bash 表示時、上部 TabBar と Drawer の両方にターミナルが出て重複していた。TabBar が個別ターミナルの追加(+)/削除/切替を担うので、Drawer の Host セクションは『Host』単一エントリのみにし、個別ターミナル行・+ ボタン・× を削除。AC-S0c6a1b-2-3 を TabBar 経由の add/remove 検証に改訂。data-testid drawer-host-add-btn / drawer-host-term-* / drawer-host-term-remove-* は廃止。",
+      "reference": "ユーザ feedback; priority_rule 8 (UI 簡潔)",
+      "adr_ref": null,
+      "drift_flag": "none"
     }
   ]
 }
