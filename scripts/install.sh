@@ -13,6 +13,13 @@
 #   PROFILE                "minimal" | "full"        (default: minimal — Story-3 adds full)
 #   PALMUX_FLAKE_REF       palmux2 flake input URL  (default: github:tjst-t/palmux2)
 #                          test override: PALMUX_FLAKE_REF=path:/tmp/palmux2-src
+#   PALMUX_INSTALLER_URL   URL the generated ~/update-palmux2.sh re-fetches this
+#                          script from (default: derived from PALMUX_FLAKE_REF)
+#
+# This installer writes ~/update-palmux2.sh on success — re-run that to update
+# and re-apply config without re-supplying options/secrets (secrets are reused
+# from /etc/caddy/palmux.env; export CLOUDFLARE_API_TOKEN / BASIC_AUTH_PASSWORD
+# to rotate them).
 #   GHQ_VERSION            ghq release tag (default: latest)
 #   GWQ_VERSION            gwq release tag (default: latest)
 #   PORTMAN_VERSION        port-manager release tag (default: latest)
@@ -113,6 +120,27 @@ if [ -r /etc/os-release ]; then
   esac
 fi
 
+# --- reuse persisted secrets on re-install ----------------------------------
+# So the generated update helper (~/update-palmux2.sh) and routine re-runs need
+# not re-supply secrets: when a non-secret option is set (DOMAIN /
+# BASIC_AUTH_USER) but the matching secret is not, read it back from the host.
+# The plaintext basic-auth password is never stored — only its bcrypt hash — so
+# that is reused as-is (provide BASIC_AUTH_PASSWORD to rotate it).
+CADDY_ENV_FILE="/etc/caddy/palmux.env"
+REUSE_BASIC_AUTH_HASH=""
+if [ -n "$DOMAIN" ] && [ -z "$CLOUDFLARE_API_TOKEN" ] && sudo test -r "$CADDY_ENV_FILE" 2>/dev/null; then
+  _tok="$(sudo sed -n 's/^CLOUDFLARE_API_TOKEN=//p' "$CADDY_ENV_FILE" 2>/dev/null || true)"
+  if [ -n "$_tok" ]; then
+    CLOUDFLARE_API_TOKEN="$_tok"
+    log "reusing CLOUDFLARE_API_TOKEN from ${CADDY_ENV_FILE}"
+  fi
+  unset _tok
+fi
+if [ -n "$BASIC_AUTH_USER" ] && [ -z "$BASIC_AUTH_PASSWORD" ] && sudo test -r "$CADDY_ENV_FILE" 2>/dev/null; then
+  REUSE_BASIC_AUTH_HASH="$(sudo sed -n 's/^BASIC_AUTH_HASH=//p' "$CADDY_ENV_FILE" 2>/dev/null || true)"
+  [ -n "$REUSE_BASIC_AUTH_HASH" ] && log "reusing basic-auth hash from ${CADDY_ENV_FILE} (set BASIC_AUTH_PASSWORD to rotate)"
+fi
+
 # PORTMAN_ROUTING=1 preflight: requires DOMAIN + CLOUDFLARE_API_TOKEN
 if [ "$PORTMAN_ROUTING" = "1" ]; then
   [ -n "$DOMAIN" ] || die "PORTMAN_ROUTING=1 requires DOMAIN to be set"
@@ -124,9 +152,12 @@ if { [ -n "$DOMAIN" ] && [ -z "$CLOUDFLARE_API_TOKEN" ]; } || \
    { [ -z "$DOMAIN" ] && [ -n "$CLOUDFLARE_API_TOKEN" ]; }; then
   die "DOMAIN and CLOUDFLARE_API_TOKEN must be set together"
 fi
-if { [ -n "$BASIC_AUTH_USER" ] && [ -z "$BASIC_AUTH_PASSWORD" ]; } || \
-   { [ -z "$BASIC_AUTH_USER" ] && [ -n "$BASIC_AUTH_PASSWORD" ]; }; then
-  die "BASIC_AUTH_USER and BASIC_AUTH_PASSWORD must be set together"
+# A user without a password is allowed only when an existing hash can be reused.
+if [ -n "$BASIC_AUTH_USER" ] && [ -z "$BASIC_AUTH_PASSWORD" ] && [ -z "$REUSE_BASIC_AUTH_HASH" ]; then
+  die "BASIC_AUTH_USER set without BASIC_AUTH_PASSWORD (and no existing hash to reuse)"
+fi
+if [ -z "$BASIC_AUTH_USER" ] && [ -n "$BASIC_AUTH_PASSWORD" ]; then
+  die "BASIC_AUTH_PASSWORD set without BASIC_AUTH_USER"
 fi
 if [ -n "$BASIC_AUTH_USER" ] && [ -z "$DOMAIN" ]; then
   die "BASIC_AUTH_* requires DOMAIN + CLOUDFLARE_API_TOKEN (Caddy)"
@@ -459,13 +490,19 @@ if [ "$CADDY_ENABLED" = "1" ]; then
 
   BASIC_AUTH_HASH=""
   if [ -n "$BASIC_AUTH_USER" ]; then
-    # bcrypt runs on every request (Caddy basic_auth is not cached), so the cost
-    # factor is per-request latency. Default 8 keeps edge auth snappy; override
-    # with BASIC_AUTH_BCRYPT_COST. (Caddy hash-password default is 14 ≈ ~900ms.)
-    log "hashing basic-auth password (bcrypt cost=${BASIC_AUTH_BCRYPT_COST} via $CADDY_BIN)"
-    BASIC_AUTH_HASH="$("$CADDY_BIN" hash-password \
-      --algorithm bcrypt --bcrypt-cost "$BASIC_AUTH_BCRYPT_COST" \
-      --plaintext "$BASIC_AUTH_PASSWORD")"
+    if [ -n "$BASIC_AUTH_PASSWORD" ]; then
+      # bcrypt runs on every request (Caddy basic_auth is not cached), so the
+      # cost factor is per-request latency. Default 8 keeps edge auth snappy;
+      # override with BASIC_AUTH_BCRYPT_COST. (Caddy hash-password default 14 ≈ ~900ms.)
+      log "hashing basic-auth password (bcrypt cost=${BASIC_AUTH_BCRYPT_COST} via $CADDY_BIN)"
+      BASIC_AUTH_HASH="$("$CADDY_BIN" hash-password \
+        --algorithm bcrypt --bcrypt-cost "$BASIC_AUTH_BCRYPT_COST" \
+        --plaintext "$BASIC_AUTH_PASSWORD")"
+    else
+      # No password provided — reuse the existing hash read back above.
+      log "keeping existing basic-auth hash (no BASIC_AUTH_PASSWORD provided)"
+      BASIC_AUTH_HASH="$REUSE_BASIC_AUTH_HASH"
+    fi
   fi
 
   log "writing /etc/caddy/palmux.env (root:caddy 0640)"
@@ -1001,6 +1038,58 @@ if [ "${SKIP_SERVICE:-0}" != "1" ]; then
   systemctl --user enable --now palmux2 || warn "systemctl --user enable failed (may need to reopen shell)"
 fi
 
+# --- generate update helper -------------------------------------------------
+# Records the (non-secret) options used for this install so future updates are a
+# single command: ~/update-palmux2.sh. Secrets are intentionally NOT written
+# here — install.sh reads the CF token + basic-auth hash back from
+# /etc/caddy/palmux.env on re-run (see "reuse persisted secrets" above). To
+# rotate a secret, export CLOUDFLARE_API_TOKEN / BASIC_AUTH_PASSWORD before running.
+UPDATE_SCRIPT="${USER_HOME}/update-palmux2.sh"
+
+# Where the helper re-fetches install.sh from: honor an explicit
+# PALMUX_INSTALLER_URL, else derive from PALMUX_FLAKE_REF so it tracks the same
+# source this install came from.
+if [ -n "${PALMUX_INSTALLER_URL:-}" ]; then
+  INSTALLER_LINE="curl -fsSL \"${PALMUX_INSTALLER_URL}\" | bash"
+else
+  case "$PALMUX_FLAKE_REF" in
+    github:*\?ref=*)
+      _gh="${PALMUX_FLAKE_REF#github:}"; _repo="${_gh%%\?*}"; _ref="${_gh#*ref=}"; _ref="${_ref%%&*}"
+      INSTALLER_LINE="curl -fsSL \"https://raw.githubusercontent.com/${_repo}/refs/heads/${_ref}/scripts/install.sh\" | bash"
+      ;;
+    path:*)
+      INSTALLER_LINE="bash \"${PALMUX_FLAKE_REF#path:}/scripts/install.sh\""
+      ;;
+    github:*/*)
+      INSTALLER_LINE="curl -fsSL \"https://raw.githubusercontent.com/${PALMUX_FLAKE_REF#github:}/main/scripts/install.sh\" | bash"
+      ;;
+    *)
+      INSTALLER_LINE="curl -fsSL \"https://raw.githubusercontent.com/tjst-t/palmux2/main/scripts/install.sh\" | bash"
+      ;;
+  esac
+fi
+
+log "writing update helper ${UPDATE_SCRIPT}"
+{
+  echo '#!/usr/bin/env bash'
+  echo '#'
+  echo '# Generated by palmux2 install.sh — re-run to update palmux2 + tooling and'
+  echo "# re-apply this host's config. Secrets (CF token, basic-auth password) are"
+  echo '# NOT stored here; install.sh reuses them from /etc/caddy/palmux.env.'
+  echo '# To rotate a secret, export CLOUDFLARE_API_TOKEN / BASIC_AUTH_PASSWORD first.'
+  echo '# To pin versions, export PALMUX_VERSION / GHQ_VERSION / GWQ_VERSION / PORTMAN_VERSION.'
+  echo 'set -euo pipefail'
+  echo "export PROFILE=$(printf '%q' "$PROFILE")"
+  echo "export PALMUX_FLAKE_REF=$(printf '%q' "$PALMUX_FLAKE_REF")"
+  [ "$PORTMAN_ROUTING" = "1" ] && echo 'export PORTMAN_ROUTING=1'
+  [ -n "$DOMAIN" ] && echo "export DOMAIN=$(printf '%q' "$DOMAIN")"
+  [ -n "$ACME_EMAIL" ] && echo "export ACME_EMAIL=$(printf '%q' "$ACME_EMAIL")"
+  [ -n "$BASIC_AUTH_USER" ] && echo "export BASIC_AUTH_USER=$(printf '%q' "$BASIC_AUTH_USER")"
+  echo "export BASIC_AUTH_BCRYPT_COST=$(printf '%q' "$BASIC_AUTH_BCRYPT_COST")"
+  echo "$INSTALLER_LINE"
+} > "$UPDATE_SCRIPT"
+chmod 0755 "$UPDATE_SCRIPT"
+
 # --- summary ---------------------------------------------------------------
 
 cat <<EOM
@@ -1033,7 +1122,8 @@ elif [ "$CADDY_ENABLED" = "1" ]; then
 else
   echo "    1. Open  http://$(hostname -I 2>/dev/null | awk '{print $1}'):8080"
 fi)
-    $(if [ "$PORTMAN_ROUTING" = "1" ]; then echo "3."; else echo "2."; fi) To update later, re-run this same one-liner. Nix produces a new
-       generation; failures roll back automatically. Secrets (CF token,
-       basic auth password) can be rotated by re-running with new env vars.
+    $(if [ "$PORTMAN_ROUTING" = "1" ]; then echo "3."; else echo "2."; fi) To update later, just run:  ${USER_HOME}/update-palmux2.sh
+       (generated with this host's options; reuses secrets from /etc/caddy/palmux.env).
+       Nix produces a new generation; failures roll back automatically. Rotate
+       secrets by exporting CLOUDFLARE_API_TOKEN / BASIC_AUTH_PASSWORD first.
 EOM
