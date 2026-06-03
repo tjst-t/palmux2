@@ -32,6 +32,12 @@
 # HTTP basic auth at the Caddy edge (Story-2 — requires Caddy):
 #   BASIC_AUTH_USER        username
 #   BASIC_AUTH_PASSWORD    plaintext password (bcrypt-hashed by Caddy)
+#   BASIC_AUTH_BCRYPT_COST bcrypt cost factor (default 8). Caddy runs bcrypt on
+#                          EVERY request (basic_auth is not cached), so a high
+#                          cost adds that much latency per request (~2x per +1:
+#                          cost14≈900ms, 12≈230ms, 10≈55ms, 8≈14ms on a small
+#                          vCPU). 8 is a good speed/security balance for a
+#                          single-user box behind TLS; raise it if you prefer.
 #
 # Portman dynamic subdomain routing (S85caca — opt-in):
 #   PORTMAN_ROUTING=1      opt-in: switch Caddy to portman-owned dynamic subdomain
@@ -56,6 +62,7 @@ CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
 ACME_EMAIL="${ACME_EMAIL:-}"
 BASIC_AUTH_USER="${BASIC_AUTH_USER:-}"
 BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-}"
+BASIC_AUTH_BCRYPT_COST="${BASIC_AUTH_BCRYPT_COST:-8}"
 
 PORTMAN_ROUTING="${PORTMAN_ROUTING:-0}"
 
@@ -452,8 +459,13 @@ if [ "$CADDY_ENABLED" = "1" ]; then
 
   BASIC_AUTH_HASH=""
   if [ -n "$BASIC_AUTH_USER" ]; then
-    log "hashing basic-auth password (bcrypt via $CADDY_BIN)"
-    BASIC_AUTH_HASH="$("$CADDY_BIN" hash-password --plaintext "$BASIC_AUTH_PASSWORD")"
+    # bcrypt runs on every request (Caddy basic_auth is not cached), so the cost
+    # factor is per-request latency. Default 8 keeps edge auth snappy; override
+    # with BASIC_AUTH_BCRYPT_COST. (Caddy hash-password default is 14 ≈ ~900ms.)
+    log "hashing basic-auth password (bcrypt cost=${BASIC_AUTH_BCRYPT_COST} via $CADDY_BIN)"
+    BASIC_AUTH_HASH="$("$CADDY_BIN" hash-password \
+      --algorithm bcrypt --bcrypt-cost "$BASIC_AUTH_BCRYPT_COST" \
+      --plaintext "$BASIC_AUTH_PASSWORD")"
   fi
 
   log "writing /etc/caddy/palmux.env (root:caddy 0640)"
