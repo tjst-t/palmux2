@@ -112,6 +112,15 @@
       "reference": "priority_rule 7 (明示的); bootstrap は並列 fetch (/api/repos,/api/settings,/api/orphan-sessions)",
       "adr_ref": null,
       "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-03T09:56:48Z",
+      "category": "implementation",
+      "title": "並列 worktree sub-agent でなく inline 実装 (3 story が密結合)",
+      "detail": "S0c6a1b-1(BE) は非並列な foundation。S0c6a1b-2(drawer) と -3(empty-state CTA) は両方とも同じ FE host-store plumbing (GET /api/host + store slice) を必要とし、並列 worktree だと palmux-store.ts で衝突する。throughput 利得が無く merge risk のみ増えるため、単一 wave として coherent に inline 実装し、その後 /review + build/test/lint/E2E で検証する。",
+      "reference": "sprint-run.md (parallelize where dependencies allow); 本 sprint は依存上 1 wave",
+      "adr_ref": null,
+      "drift_flag": "none"
     }
   ]
 }

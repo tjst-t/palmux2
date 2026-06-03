@@ -27,6 +27,7 @@
 - **S43cfb1 / S4b9df4 / S13b16a / Saa8506**: Claude タブ・FE のリファクタリング + lint sweep + E2E hygiene
 - **S1d2278 → S7ce250 → S0fd64b → S1f75ec → Sadf90e (Track B)**: PTY daemon + headless emulator による claude-tui タブ、mode のタブ単位設定化
 - **S67cb0e**: Sprint タブ UX polish (JIRA 風 table timeline + pushState 履歴 + Prev/Next/dropdown + Markdown レンダリング + 既定 Sprint 解決)
+- **S0c6a1b**: リポジトリ非依存「Host」ターミナル。install 直後の `gh auth login` / `claude` ログイン用に、 リポジトリを Open せずに使える bash 専用ターミナル scope。予約 synthetic Repository (`repoId=host--0000` / `branchId=host`) を store に注入して既存タブ機構を再利用。tmux セッションは初回 attach 時に lazy 生成。`GET /api/host` で descriptor 公開、 Drawer 専用セクション + empty-state CTA から到達。 repos.json / `/api/repos` / repo-picker / sync_worktree / Orphans から除外 (`store.IsHostRepoID` ガード)
 
 Phase 5+ は需要が明確になってから検討 (`docs/VISION.json` 参照)。リリース履歴・進捗の source of truth は git タグと **`docs/ROADMAP.json`**。
 
