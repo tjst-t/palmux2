@@ -101,6 +101,10 @@ func New(deps Deps) (*Store, error) {
 	if err := s.hydrate(context.Background()); err != nil {
 		return nil, fmt.Errorf("store: hydrate: %w", err)
 	}
+	// S0c6a1b: inject the reserved, repository-independent host scope so the
+	// user can open a terminal before opening any ghq repo. Skeleton only —
+	// PopulateTabs (called after providers register) computes its bash tab.
+	s.seedHostScope()
 	return s, nil
 }
 
@@ -223,6 +227,12 @@ func (s *Store) Repos() []*domain.Repository {
 	s.applyCategoriesAllUnlocked()
 	out := make([]*domain.Repository, 0, len(s.repos))
 	for _, r := range s.repos {
+		if IsHostRepoID(r.ID) {
+			// S0c6a1b: the reserved host scope is exposed via GET /api/host,
+			// not the repo list — keep it out of /api/repos so it never
+			// pollutes the Repositories section or repos.json.
+			continue
+		}
 		out = append(out, cloneRepo(r))
 	}
 	s.mu.Unlock()
@@ -409,6 +419,13 @@ func (s *Store) buildBranchFromWorktree(repo *domain.Repository, wt worktree.Wor
 // providers. Singletons stay deterministic; non-tmux providers were
 // already unaffected.
 func (s *Store) recomputeTabs(ctx context.Context, branch *domain.Branch) {
+	if IsHostRepoID(branch.RepoID) {
+		// S0c6a1b: reserved host scope is bash-only (no Claude/Files/Git/Sprint)
+		// and always advertises the canonical bash tab even before its tmux
+		// session is lazily created.
+		s.recomputeHostTabs(ctx, branch)
+		return
+	}
 	windows, err := s.deps.Tmux.ListWindows(ctx, branch.TabSet.TmuxSession)
 	listFailed := err != nil
 	if listFailed {

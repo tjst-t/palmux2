@@ -320,8 +320,15 @@ func (s *Store) ensureWorktree(ctx context.Context, repoFullPath, branchName str
 // collectOpenSpecs queries every Provider and merges their declared windows
 // + verifies they didn't try to register duplicate tabs.
 func (s *Store) collectOpenSpecs(ctx context.Context, branch *domain.Branch, resume bool) ([]tab.WindowSpec, error) {
+	hostScope := IsHostRepoID(branch.RepoID)
 	var windows []tab.WindowSpec
 	for _, p := range s.registry.Providers() {
+		if hostScope && p.Type() != "bash" {
+			// S0c6a1b: the reserved host scope is bash-only. Skip Claude (would
+			// spawn a claude window/agent), Files/Git/Sprint (no windows) so a
+			// lazy attach only ever materialises the bash session.
+			continue
+		}
 		res, err := p.OnBranchOpen(ctx, tab.OpenParams{Branch: branch, Resume: resume})
 		if err != nil {
 			return nil, fmt.Errorf("OnBranchOpen %s: %w", p.Type(), err)

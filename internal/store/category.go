@@ -153,6 +153,9 @@ func (s *Store) applyCategoriesUnlocked(repo *domain.Repository) {
 // write lock.
 func (s *Store) applyCategoriesAllUnlocked() {
 	for _, r := range s.repos {
+		if IsHostRepoID(r.ID) {
+			continue // S0c6a1b: reserved host scope has no ghq categorization
+		}
 		s.applyCategoriesUnlocked(r)
 	}
 }

@@ -33,6 +33,20 @@ func (h *handlers) listRepos(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, h.store.Repos())
 }
 
+// host (S0c6a1b) returns the reserved, repository-independent host scope
+// descriptor. The Drawer renders this as a dedicated section (separate from
+// Repositories and Orphans) and the empty-state CTA links to it. The reserved
+// IDs are server-authoritative so the frontend never hardcodes them; tabs are
+// reached via the normal /api/repos/{repoId}/branches/{branchId}/tabs routes.
+func (h *handlers) host(w http.ResponseWriter, _ *http.Request) {
+	repoID, branchID, displayName := h.store.HostScope()
+	writeJSON(w, http.StatusOK, map[string]string{
+		"repoId":      repoID,
+		"branchId":    branchID,
+		"displayName": displayName,
+	})
+}
+
 func (h *handlers) availableRepos(w http.ResponseWriter, r *http.Request) {
 	all, err := h.store.AvailableRepos(r.Context())
 	if err != nil {

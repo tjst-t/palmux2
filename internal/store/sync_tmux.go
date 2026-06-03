@@ -42,6 +42,13 @@ func (s *Store) SyncTmux(ctx context.Context) error {
 	for _, repo := range s.repos {
 		for _, b := range repo.OpenBranches {
 			tracked[b.TabSet.TmuxSession] = true
+			if IsHostRepoID(repo.ID) {
+				// S0c6a1b: keep the host session *tracked* (so it is never
+				// zombie-killed once it exists) but never eagerly recover it
+				// — the host tmux session is created lazily on first attach
+				// (priority_rule 4: lazy spawn).
+				continue
+			}
 			if !live[b.TabSet.TmuxSession] {
 				toRecover = append(toRecover, recovery{repoID: repo.ID, branchID: b.ID, branch: cloneBranch(b)})
 			}

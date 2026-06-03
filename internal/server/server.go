@@ -94,6 +94,7 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("GET /api/health", h.health)
 
 	mux.HandleFunc("GET /api/repos", h.listRepos)
+	mux.HandleFunc("GET /api/host", h.host) // S0c6a1b: reserved host scope descriptor
 	mux.HandleFunc("GET /api/repos/available", h.availableRepos)
 	// S030: clone must be registered BEFORE {repoId}/open to avoid ambiguity.
 	mux.HandleFunc("POST /api/repos/clone", h.cloneRepo)

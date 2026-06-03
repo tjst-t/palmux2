@@ -35,6 +35,12 @@ func (s *Store) SyncWorktree(ctx context.Context) error {
 	s.mu.RUnlock()
 
 	for _, repo := range repos {
+		if IsHostRepoID(repo.ID) {
+			// S0c6a1b: the reserved host scope has no git worktree to
+			// reconcile — skip it so we never run `git worktree list` on
+			// $HOME nor close/rename the synthetic branch.
+			continue
+		}
 		wts, err := worktree.List(ctx, repo.FullPath)
 		if err != nil {
 			s.logger.Warn("sync_worktree: List", "repo", repo.GHQPath, "err", err)
