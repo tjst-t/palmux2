@@ -1,0 +1,45 @@
+{
+  "sprint": "S85caca",
+  "touched_adrs": [],
+  "decisions": [
+    {
+      "timestamp": "2026-06-03T00:00:00Z",
+      "category": "planning",
+      "title": "portman↔Caddy 連携を Sfccb3f follow-up Sprint として分離",
+      "detail": "Sfccb3f (installer) 完了後、 ユーザが『expose したサービスに適切なサブドメインが付かない』と指摘。 ansible-dev-server 同等の portman↔Caddy 動的ルーティングを新 Sprint S85caca として起票。 Caddy 構成の全面作り替え + systemd unit 群を伴うため hotfix ではなく Sprint 規模",
+      "reference": "User 指摘 2026-06-03",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-03T00:00:00Z",
+      "category": "architecture",
+      "title": "モデル B (portman 全所有) 採用 + palmux2 は palmux2.<base> 固定 subdomain",
+      "detail": "ユーザ確定: (1) ansible 実績の『portman が Caddy ルーティング全所有』モデル B、 (2) palmux2 は host_pattern の palmux2--main--... ではなく palmux2.<base> のきれいな固定 subdomain (portman の permanent service は {name}.{domain_suffix} で生えることを binary strings で確認: permanentNameLink . DomainSuffix)、 (3) ベースホスト = portman dashboard、 (4) 認証は Caddy エッジで全 subdomain に basic_auth (app 非依存・1か所集約が美しい、 とユーザ判断)、 (5) 現構成は壊して良い",
+      "reference": "User 確定 2026-06-03 / ansible-dev-server caddy.json + portman role",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-03T00:00:00Z",
+      "category": "architecture",
+      "title": "PORTMAN_ROUTING=1 opt-in でモデル切替",
+      "detail": "モデル B は palmux2 を base host から subdomain に動かす破壊的構成変更。 公開インストーラの default は Sfccb3f-2 の『palmux2 を base host に basic_auth』のまま維持し、 PORTMAN_ROUTING=1 のときだけモデル B (caddy.json + portman 連携) に切替える。 友人の素の VM では simple 構成、 portman を使いたい host だけ opt-in",
+      "reference": "DESIGN_PRINCIPLES priority_rule 3 (中間状態を残さない) + 後方互換",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-03T00:00:00Z",
+      "category": "test",
+      "title": "[OPEN] エッジ basic_auth × portman route 全所有 の両立方法は run で確定",
+      "detail": "portman は srv0.routes を sync で置換するので、 静的 basic_auth route を置いても消える。 全 subdomain への basic_auth を維持する方法を run phase で実機検証して決定する。 候補: (a) portman config に global-auth option があるか、 (b) 前段 auth Caddy server → portman server に proxy の 2 段構成、 (c) server-level authentication handler を portman が保持するか。 priority_rule 0 (skip 禁止) のため AC-1-3 (全 subdomain auth) は必ず実機で PASS させる",
+      "reference": "ansible caddy.json (routes:[]) / portman type=caddy admin API",
+      "adr_ref": null,
+      "drift_flag": "none"
+    }
+  ],
+  "done_judgment": {
+    "$comment": "Filled by sprint verify per Story."
+  }
+}
