@@ -795,6 +795,21 @@ fi
 # Only runs when PORTMAN_ROUTING=1. Creates /etc/portman config, installs
 # 4 systemd system units (portman-serve, portman-sync, portman-gc service +
 # timer), and runs an initial portman sync to register the palmux2 route.
+#
+# Troubleshooting — wildcard cert never obtained (palmux2.<base> /
+# *.<base> return TLS "internal error"):
+#   If the Caddy log shows the DNS-01 challenge VALIDATING but then
+#   "HTTP 404 ... No order for ID" / "No such authorization" / "Certificate
+#   not found" against acme-v02 (production), the host's *production ACME
+#   account* is in a corrupt phantom-order state (orders vanish at finalize).
+#   This is a host-state issue, NOT an install.sh/caddy.json bug (the same
+#   config obtains a staging cert end-to-end and DNS-01 validates). Recover by
+#   forcing a fresh ACME account registration (existing certs are preserved):
+#     sudo systemctl stop caddy
+#     sudo rm -rf /var/lib/caddy/.local/share/caddy/acme/acme-v02.api.letsencrypt.org-directory/users
+#     sudo systemctl start caddy   # Caddy re-registers and re-issues the wildcard
+#   install.sh deliberately does NOT do this automatically — wiping a working
+#   ACME account on a healthy host would be destructive.
 
 if [ "$PORTMAN_ROUTING" = "1" ]; then
   log "PORTMAN_ROUTING=1: configuring portman model B routing"

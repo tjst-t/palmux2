@@ -329,19 +329,39 @@ def test_AC_S85caca_1_3() -> None:
         status, _, _ = _https_get(url, user=user, password=pw, timeout=15)
         assert status == 200, f"expected 200 with auth at {url}, got {status}"
 
-    # caddy.json must contain the literal {env.BASIC_AUTH_HASH} placeholder, NOT the real hash
+    # caddy.json must reference credentials only via {env.*} placeholders, never
+    # the real bcrypt hash or the plaintext password. Inspect the actual
+    # http_basic account fields by parsing JSON (a naive substring check would
+    # false-positive when the password collides with a JSON token like "password").
     p = ssh("sudo cat /etc/caddy/caddy.json")
     caddy_json_content = p.stdout
-    assert "{env.BASIC_AUTH_HASH}" in caddy_json_content, (
-        "caddy.json does not contain {env.BASIC_AUTH_HASH} placeholder"
-    )
-    # No literal bcrypt hash (starts with $2a$, $2b$, or $2y$)
-    assert not re.search(r'\$2[aby]\$', caddy_json_content), (
-        f"literal bcrypt hash leaked into /etc/caddy/caddy.json"
-    )
-    # Plaintext password must not appear
-    assert pw not in caddy_json_content, (
-        "plaintext password found in /etc/caddy/caddy.json"
+    cfg = json.loads(caddy_json_content)
+
+    def _find_http_basic_accounts(node) -> list:
+        found = []
+        if isinstance(node, dict):
+            if node.get("handler") == "authentication":
+                hb = node.get("providers", {}).get("http_basic", {})
+                found.extend(hb.get("accounts", []))
+            for v in node.values():
+                found.extend(_find_http_basic_accounts(v))
+        elif isinstance(node, list):
+            for v in node:
+                found.extend(_find_http_basic_accounts(v))
+        return found
+
+    accounts = _find_http_basic_accounts(cfg)
+    assert accounts, "no http_basic accounts found in caddy.json edge-auth route"
+    for acct in accounts:
+        assert acct.get("password") == "{env.BASIC_AUTH_HASH}", (
+            f"caddy.json password field is not the env placeholder: {acct.get('password')!r}"
+        )
+        assert acct.get("username") == "{env.BASIC_AUTH_USER}", (
+            f"caddy.json username field is not the env placeholder: {acct.get('username')!r}"
+        )
+    # Defense-in-depth: no literal bcrypt hash anywhere in the file.
+    assert not re.search(r"\$2[aby]\$", caddy_json_content), (
+        "literal bcrypt hash leaked into /etc/caddy/caddy.json"
     )
 
     # Real bcrypt hash must be in palmux.env (root:caddy 0640)
@@ -446,28 +466,39 @@ def test_AC_S85caca_2_2() -> None:
 
     # Create a throwaway git repo in a deterministic temp dir
     repo_dir = "/tmp/portman-e2e-repo"
+    # -c user.* inline: the VM may have no global git identity (commit would
+    # exit 128 with "Author identity unknown").
     p = ssh(
-        f"rm -rf {repo_dir} && git init {repo_dir} && "
-        f"cd {repo_dir} && git commit --allow-empty -m init"
+        f"rm -rf {repo_dir} && git init -q {repo_dir} && cd {repo_dir} && "
+        "git -c user.email=e2e@example.com -c user.name=e2e commit -q --allow-empty -m init"
     )
-    assert p.returncode == 0, f"git init failed: {p.stderr!r}"
+    assert p.returncode == 0, f"git init failed: rc={p.returncode} {p.stderr!r}"
 
-    # Launch python3 -m http.server via portman exec --expose in background.
-    # portman will pick a port from its configured range, register the route,
-    # and print the hostname it registered.
-    # We use nohup + setsid to detach; capture PID for later cleanup.
+    # Launch `portman exec --expose -- python3 -m http.server {}` detached.
+    # `{}` is portman's documented port placeholder. The process must outlive
+    # this ssh call, so fully detach it: setsid (new session) + redirect all of
+    # stdin/stdout/stderr away from the ssh channel — otherwise ssh hangs waiting
+    # on the channel held open by the backgrounded child. We record the session
+    # leader PID server-side (it stays valid across `exec`) so AC-2-3 can kill
+    # the whole process group.
+    pgid_file = "/tmp/portman-e2e-pgid"
+    # `setsid --fork` forks the session leader and returns immediately, so the
+    # remote shell completes (ssh returns) while the child runs detached. A bare
+    # `setsid ... &` would keep the ssh channel open and hang. `$$` inside the
+    # inner bash is the session-leader PID (preserved across `exec`) → AC-2-3
+    # kills `-PGID`.
     launch_cmd = (
-        f"cd {repo_dir} && "
-        "PORTMAN_CONFIG_DIR=/etc/portman "
-        "nohup portman exec --name demo --worktree wt --expose -- "
+        f"cd {repo_dir} && PORTMAN_CONFIG_DIR=/etc/portman "
+        f"setsid --fork bash -c 'echo $$ > {pgid_file}; "
+        "exec portman exec --name demo --worktree wt --expose -- "
         "python3 -m http.server {} "
-        f"> /tmp/portman-e2e-demo.log 2>&1 & echo $!"
+        "> /tmp/portman-e2e-demo.log 2>&1' "
+        "</dev/null >/dev/null 2>&1; echo launched"
     )
     p = ssh(launch_cmd, timeout=30)
-    # Save PID for cleanup
-    demo_pid = p.stdout.strip().splitlines()[-1].strip()
-    # Wait for route to register
-    time.sleep(5)
+    assert "launched" in p.stdout, f"launch did not return cleanly: {p.stdout!r} {p.stderr!r}"
+    # Wait for portman to lease a port, start http.server, and register the route.
+    time.sleep(8)
 
     # Discover the published hostname. The ground truth is the route portman
     # actually registered in Caddy (its @id is "portman-<hostname>"), so query
@@ -497,8 +528,8 @@ def test_AC_S85caca_2_2() -> None:
         f"expected directory listing from http.server, got: {body[:300]!r}"
     )
 
-    # Store state for AC-2-3
-    p = ssh(f"echo {demo_pid} > /tmp/portman-e2e-pid && echo {hostname} > /tmp/portman-e2e-hostname")
+    # Store hostname for AC-2-3 (the process-group PID is already in pgid_file).
+    p = ssh(f"echo {hostname} > /tmp/portman-e2e-hostname")
     assert p.returncode == 0
 
 
@@ -508,26 +539,28 @@ def test_AC_S85caca_2_3() -> None:
     user = secrets.get("BASIC_AUTH_USER") or None
     pw = secrets.get("BASIC_AUTH_PASSWORD") or None
 
-    # Retrieve saved PID and hostname from AC-2-2 (which runs first in a full run)
-    p = ssh("cat /tmp/portman-e2e-pid 2>/dev/null && cat /tmp/portman-e2e-hostname 2>/dev/null", check=False)
-    lines = [l.strip() for l in p.stdout.strip().splitlines() if l.strip()]
-    if len(lines) >= 2:
-        demo_pid, hostname = lines[0], lines[1]
-    else:
-        demo_pid, hostname = None, _discover_demo_hostname()
+    # Retrieve hostname from AC-2-2 (which runs first in a full run); else discover.
+    p = ssh("cat /tmp/portman-e2e-hostname 2>/dev/null", check=False)
+    hostname = p.stdout.strip() or _discover_demo_hostname()
 
     # AC-2-3 verifies that releasing a lease REMOVES its route — that requires a
     # live demo route to exist first (created by AC-2-2). If we can't find one,
     # the precondition is unmet: fail loudly rather than silently passing.
-    assert hostname is not None, (
+    assert hostname, (
         "AC-S85caca-2-3 requires the demo expose route from AC-S85caca-2-2. "
         "No demo route found (run the full Story 2, not just 2-3)."
     )
 
-    # Kill the demo process (so the upstream is down and the lease goes stale)
-    if demo_pid:
-        ssh(f"kill {demo_pid} 2>/dev/null || true", check=False)
-    ssh("pkill -f 'portman exec.*demo' 2>/dev/null; pkill -f 'http.server' 2>/dev/null; true", check=False)
+    # Kill the demo process group (so the upstream is down and the lease goes
+    # stale). The session-leader PID was recorded by AC-2-2 in the pgid file;
+    # killing -PGID takes down portman exec + its http.server child. pkill is a
+    # belt-and-suspenders fallback.
+    ssh(
+        "PGID=$(cat /tmp/portman-e2e-pgid 2>/dev/null); "
+        "[ -n \"$PGID\" ] && kill -TERM -\"$PGID\" 2>/dev/null; "
+        "pkill -f 'portman exec.*demo' 2>/dev/null; pkill -f 'http.server' 2>/dev/null; true",
+        check=False,
+    )
     time.sleep(2)
 
     # Reconcile: gc removes stale leases, sync reconciles Caddy routes.
@@ -552,7 +585,7 @@ def test_AC_S85caca_2_3() -> None:
     )
 
     # Cleanup temp files
-    ssh("rm -f /tmp/portman-e2e-pid /tmp/portman-e2e-hostname /tmp/portman-e2e-demo.log", check=False)
+    ssh("rm -f /tmp/portman-e2e-pgid /tmp/portman-e2e-hostname /tmp/portman-e2e-demo.log", check=False)
     ssh("rm -rf /tmp/portman-e2e-repo", check=False)
 
 
