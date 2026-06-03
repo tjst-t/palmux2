@@ -1,0 +1,30 @@
+{
+  "sprint": "S85caca",
+  "timestamp": "2026-06-03T06:53:35Z",
+  "mode": "real (production) — priority_rule 9 / test-discipline Rule 7",
+  "target": "ubuntu@192.168.1.43 (palmux-deploy-test.tjstkm.net), deployed via PORTMAN_ROUTING=1 install.sh",
+  "test_file": "tests/e2e/s85caca_portman.py",
+  "logs": [
+    "docs/sprint-logs/S85caca/e2e-story1.log",
+    "docs/sprint-logs/S85caca/e2e-full.log",
+    "docs/sprint-logs/S85caca/e2e-final.log",
+    "docs/sprint-logs/S85caca/local-validation.log"
+  ],
+  "acceptance_criteria": [
+    {"id": "AC-S85caca-1-1", "status": "pass", "note": "caddy.json active, ExecStart→caddy.json, tls automation subjects include <base>+*.<base>, admin API up"},
+    {"id": "AC-S85caca-1-2", "status": "pass", "note": "palmux2.<base> 200 + dashboard <base> 200 (with auth), LE wildcard cert"},
+    {"id": "AC-S85caca-1-3", "status": "pass", "note": "401 without creds / 200 with; caddy.json http_basic fields = {env.*} placeholders (JSON-verified), real hash only in palmux.env root:caddy 0640"},
+    {"id": "AC-S85caca-1-4", "status": "pass", "note": "palmux2 127.0.0.1:8080, portman dashboard 127.0.0.1:8090, caddy only on :443"},
+    {"id": "AC-S85caca-2-1", "status": "pass", "note": "config.toml + services.json correct; portman-serve active, portman-sync enabled (After/BindsTo caddy), portman-gc.timer active"},
+    {"id": "AC-S85caca-2-2", "status": "pass", "note": "portman exec --expose published demo--wt--<repo>.<base> live (200, http.server directory listing) behind basic_auth"},
+    {"id": "AC-S85caca-2-3", "status": "pass", "note": "after kill + gc + sync, route removed (404/502)"},
+    {"id": "AC-S85caca-2-4", "status": "pass", "note": "idempotent install.sh re-run stable (no dup routes); model-B artifacts gated under PORTMAN_ROUTING=1; preflight dies without DOMAIN"}
+  ],
+  "environmental_notes": [
+    "Wildcard cert initially failed: the VM production ACME account was in a corrupt phantom-order state ('No order for ID' at finalize). One-time manual account reset (NOT install.sh) recovered it; documented as a troubleshooting note in install.sh. Not a defect in the deliverable (staging cert succeeded end-to-end, DNS-01 validated, clock synced).",
+    "All model-B config (caddy.json, /etc/portman/*, systemd units, edge auth) is produced by install.sh and verified via the AC-2-4 idempotent full re-deploy."
+  ],
+  "done_judgment": {
+    "$comment": "Full 6-guard judgment deferred to sprint verify/done. sprint run result: both stories implemented, story-level /review (high) run + fixes applied, all 8 AC pass on real VM in production mode."
+  }
+}

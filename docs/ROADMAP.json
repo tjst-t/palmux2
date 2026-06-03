@@ -7,9 +7,9 @@
     "percent": 97,
     "current_sprint": "S85caca",
     "done": 45,
-    "in_progress": 0,
+    "in_progress": 1,
     "total": 46,
-    "remaining": 1,
+    "remaining": 0,
     "percentage": 97
   },
   "execution_order": [
@@ -8074,13 +8074,13 @@
     },
     "S85caca": {
       "title": "portman ↔ Caddy 動的サブドメインルーティング (deploy follow-up)",
-      "status": "planned",
+      "status": "in_progress",
       "milestone": true,
       "description": "Sfccb3f でデプロイした palmux2 host に、 ansible-dev-server と同等の portman↔Caddy 連携を入れる。 expose した dev サーバが {name}--{worktree}--{repo}.<base> のサブドメインで自動的にアクセス可能になる。\n\n採用アーキテクチャ (ユーザ確定、 2026-06-03):\n  - モデル B (portman が Caddy ルーティングを全所有)。 ansible 実績構成に追従\n  - ベースホスト palmux-deploy-test.tjstkm.net = portman ダッシュボード\n  - palmux2 = palmux2.<base> (permanent service `palmux2` → portman の {name}.{domain_suffix} で固定サブドメイン化。 host_pattern の {name}--{wt}--{repo} ではない)\n  - expose dev サーバ = {name}--{worktree}--{repo}.<base>\n  - 認証 = Caddy エッジで全 subdomain に basic_auth (app 非依存、 1 か所集約)。 必要時に subdomain 単位で除外可\n  - 証明書 = *.<base> wildcard を Cloudflare DNS-01 で取得 (既存 caddy-cloudflare バイナリ再利用)\n\n前提 (確認済み):\n  - *.palmux-deploy-test.tjstkm.net の wildcard DNS は既に 192.168.1.43 に解決 (ユーザ設定済み)\n  - Caddy admin API (localhost:2019) 到達可\n  - portman 0.3.1: permanent service は {name}.{domain_suffix}、 lease は host_pattern、 config は /etc/portman/{config.toml,services.json} (PORTMAN_CONFIG_DIR で上書き可)、 type=caddy で admin API に route 注入\n\n既知の技術リスク (run phase で解く):\n  - portman は srv0.routes を全所有する (ansible caddy.json は routes:[] で起動)。 エッジ basic_auth を全 route にかける方法が非自明 — portman が sync で routes を置換するため、 静的 auth route は消える。 解決候補: (a) portman に global-auth config option があるか確認、 (b) 前段に auth 専用 Caddy server を立てて portman 管理 server に proxy、 (c) Caddy の listener_wrappers / server-level authentication handler を portman が保持するか確認。 run で実機検証して決定\n\nスコープ:\n  - install.sh を PORTMAN_ROUTING=1 (opt-in) で分岐。 OFF 時は Sfccb3f-2 の『palmux2 を base host に basic_auth』構成のまま (デフォルト維持)、 ON 時のみモデル B\n  - Caddy 構成を Caddyfile → caddy.json (portman 連携モデル) に切替 (PORTMAN_ROUTING=1 時)\n  - portman config.toml + services.json + portman-sync/serve/gc systemd unit\n\nスコープ外:\n  - palmux2 本体のコード変更\n  - portman 自体の機能追加 (上流リポジトリ tjst-t/port-manager の範疇)\n\n検証: ubuntu@192.168.1.43 で PORTMAN_ROUTING=1 デプロイ → palmux2.<base> で palmux2、 <base> で dashboard、 `portman exec --name demo --expose -- python3 -m http.server {}` で demo--*--*.<base> が basic_auth 付き HTTPS で応答することを Playwright/curl で確認。",
       "stories": {
         "S85caca-1": {
           "id": "S85caca-1",
-          "status": "planned",
+          "status": "done",
           "title": "Caddy を portman-owned JSON 構成 + wildcard DNS-01 + エッジ basic_auth に作り替え",
           "user_story": "palmux2 host を運用する個人開発者として、 PORTMAN_ROUTING=1 でデプロイすると Caddy が *.<base> の wildcard 証明書を持ち、 portman 管理ルートにエッジで basic_auth がかかり、 palmux2 が palmux2.<base> ・ portman ダッシュボードが <base> でアクセスできるようにしたい。 なぜなら、 dev サーバを subdomain で手軽に公開しつつ、 認証は Caddy 1 か所で集約管理したいから。",
           "acceptance_criteria": [
@@ -8088,32 +8088,32 @@
               "id": "AC-S85caca-1-1",
               "description": "PORTMAN_ROUTING=1 デプロイ後、 Caddy は caddy.json (or 同等) で起動し、 tls automation policy が <base> + *.<base> を Cloudflare DNS-01 で自動化。 admin API (localhost:2019) が有効",
               "test": "tests/e2e/s85caca_portman.py [AC-S85caca-1-1]",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S85caca-1-2",
               "description": "https://palmux2.<base>/ が palmux2 UI を返し (TLS issuer=Let's Encrypt、 wildcard cert)、 https://<base>/ が portman ダッシュボードを返す",
               "test": "tests/e2e/s85caca_portman.py [AC-S85caca-1-2]",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S85caca-1-3",
               "description": "palmux2.<base> ・ <base> ・ 任意の expose subdomain すべてに Caddy エッジで basic_auth がかかる (認証なし 401、 正しい creds 200)。 hash は /etc/caddy/palmux.env のみ",
               "test": "tests/e2e/s85caca_portman.py [AC-S85caca-1-3]",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S85caca-1-4",
               "description": "palmux2 unit は 127.0.0.1 バインドのまま、 Caddy だけが :443 を公開。 portman dashboard も localhost バインドで Caddy 経由のみ公開",
               "test": "tests/e2e/s85caca_portman.py [AC-S85caca-1-4]",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {}
         },
         "S85caca-2": {
           "id": "S85caca-2",
-          "status": "planned",
+          "status": "done",
           "title": "portman config + services.json + sync/serve/gc systemd + install.sh 統合",
           "user_story": "palmux2 host を運用する個人開発者として、 `portman exec --name demo --expose -- <cmd>` を実行すると demo--<worktree>--<repo>.<base> で即座に HTTPS アクセスできるようにしたい。 なぜなら、 dev サーバの公開をポート管理もルート登録も手作業なしで済ませたいから。",
           "acceptance_criteria": [
@@ -8121,25 +8121,25 @@
               "id": "AC-S85caca-2-1",
               "description": "/etc/portman/config.toml ([proxy] type=caddy, caddy_api=localhost:2019, domain_suffix=<base>, host_pattern) + services.json (palmux2 を permanent expose) が配置され、 portman-serve (dashboard) + portman-sync (oneshot, After/BindsTo caddy) + portman-gc (timer) systemd unit が enable",
               "test": "tests/e2e/s85caca_portman.py [AC-S85caca-2-1]",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S85caca-2-2",
               "description": "`portman exec --name demo --worktree wt --expose -- python3 -m http.server {}` 実行中、 https://demo--wt--<repo>.<base>/ が basic_auth 付きで 200 を返し、 当該 http.server の出力が見える",
               "test": "tests/e2e/s85caca_portman.py [AC-S85caca-2-2]",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S85caca-2-3",
               "description": "lease 解放 (portman release or プロセス終了 + portman gc) 後に portman sync すると、 当該 subdomain ルートが Caddy から除去され 502/404 になる",
               "test": "tests/e2e/s85caca_portman.py [AC-S85caca-2-3]",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S85caca-2-4",
               "description": "install.sh は PORTMAN_ROUTING 未指定時は従来 (Sfccb3f-2: palmux2 を base host に basic_auth) のまま。 PORTMAN_ROUTING=1 のときだけモデル B。 再実行で冪等",
               "test": "tests/e2e/s85caca_portman.py [AC-S85caca-2-4]",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {}

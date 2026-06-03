@@ -37,6 +37,33 @@
       "reference": "ansible caddy.json (routes:[]) / portman type=caddy admin API",
       "adr_ref": null,
       "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-03T05:56:56Z",
+      "category": "architecture",
+      "title": "[RESOLVED] エッジ basic_auth は caddy.json に先頭・非終端の authentication route を pre-seed して実現 (2段構成不要)",
+      "detail": "OPEN だった『portman 全所有 routes にエッジ basic_auth をかける方法』を port-manager ソース (internal/proxy/caddy.go) 読解で解決。 portman は srv0.routes を全置換しない: AddRoute は POST .../srv0/routes で1件ずつ append、 RemoveRoute は @id=portman-{host} を DELETE するだけ。 非 portman-@id の route は sync で消えない。 → caddy.json の srv0.routes[0] に matcher なし・非終端の authentication(http_basic) route (@id=edge-basic-auth) を pre-seed すれば、 全リクエストに basic_auth がかかった後 portman が後ろに append する reverse_proxy route へ fall-through する。 これは Caddyfile の basic_auth ディレクティブが生成する JSON と同型。 decisions.json の当初前提『sync で routes 置換されるので静的 auth route は消える』は誤りだった。 hash は {env.BASIC_AUTH_HASH} で /etc/caddy/palmux.env から注入 (Sfccb3f Caddyfile で実証済みの placeholder 展開を踏襲)。 caddy 再起動時は portman-sync.service (BindsTo/WantedBy caddy) が route を再注入。 実機で『auth route が sync 後も生存し全 subdomain で 401/200』を必ず検証する (priority_rule 9)。",
+      "reference": "port-manager internal/proxy/caddy.go AddRoute/RemoveRoute/SyncAll / ansible caddy.json (routes:[])",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-03T05:56:56Z",
+      "category": "execution",
+      "title": "S85caca-1 / -2 を単一 implementation agent で実装 (parallel worktree 分割しない)",
+      "detail": "sprint run 既定の『Story 毎に並列 worktree sub-agent』を本 Sprint では採らない。 理由: (1) 両 Story とも scripts/install.sh と Caddy 構成を共有編集するため並列 worktree は確実に merge conflict、 (2) Story-1 の AC-1-2 (palmux2.<base> が palmux2 UI を返す) は Story-2 の portman permanent-service route が無いと成立せず、  AC が相互依存、 (3) 検証は単一の共有 VM (192.168.1.43) を mutate するため並列デプロイは race。 よって PORTMAN_ROUTING=1 という1つの cohesive feature として1 worktree agent が両 Story 分を実装 + E2E (tests/e2e/s85caca_portman.py 全8 AC) を author し、 local 検証 (shellcheck/bash -n/caddy.json 等の jq 妥当性) のみ。 review agent が diff を /review。 main agent が merge 後に実 VM デプロイ + 全 E2E (本番モード, mock 無し) を逐次実行し、 各 Story は自分の AC が実機 PASS した時のみ done にする。 test-discipline Rule 5 (status は実態を反映) 準拠。",
+      "reference": "test-discipline.md Rule 5 / sprint-run.md wave 分割ルール (依存 Story は後 wave) / ROADMAP dependencies S85caca→Sfccb3f",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-03T06:39:34Z",
+      "category": "test",
+      "title": "[ENV] wildcard cert 失敗の root cause は VM の production ACME アカウント破損 (install.sh の欠陥ではない)",
+      "detail": "初回 PORTMAN_ROUTING=1 デプロイ後、 palmux2.<base> が TLSV1_ALERT_INTERNAL_ERROR (wildcard cert 未取得)。 調査: DNS-01 challenge は成功 (authz valid) するが production LE で finalize 時に 'HTTP 404 No order for ID' / 'No such authorization' / 'Certificate not found' が再現。 staging は end-to-end 成功、 VM clock は NTP 同期済み、 apex cert は Sfccb3f 時の cached を流用していただけ。 → 既存の production ACME アカウント (/var/lib/caddy/.local/share/caddy/acme/acme-v02*/users/tjstkm@gmail.com) が phantom-order 状態で破損していたのが原因。 アカウント users dir を退避削除して fresh 登録させると wildcard cert が ~11s で正常取得 ('certificate obtained successfully') し、 palmux2.<base> が 401 (TLS OK + edge basic_auth 動作) を返すようになった。 これはこの test VM 固有の環境問題で、 install.sh / caddy.json の構造的欠陥ではない (同一構成が staging で成功・DNS-01 成功が証左)。 install.sh が ACME アカウントを破壊的に消す処理は入れない (公開ホストで危険)。 デプロイ時の one-time host cleanup として処理。",
+      "reference": "caddy journal acme logs / 手動 account reset 06:38 で wildcard 取得成功",
+      "adr_ref": null,
+      "drift_flag": "none"
     }
   ],
   "done_judgment": {
