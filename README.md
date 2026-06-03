@@ -62,7 +62,64 @@ launch otherwise.
 
 ## Install
 
-### From a release (recommended)
+### Nix one-liner (Ubuntu/Debian) — full host setup
+
+For a fresh Ubuntu/Debian host, `scripts/install.sh` provisions everything via
+Nix (Determinate Systems installer + home-manager): palmux2 plus all required
+and optional tools (tmux, ghq, gwq, portman, Node + Claude Code), a user
+systemd service, and — optionally — Caddy with HTTPS. Re-running upgrades in
+place (atomic Nix generations; failures roll back automatically).
+
+```bash
+# Plain HTTP on :8080 (palmux2 + tooling + user service)
+curl -fsSL https://raw.githubusercontent.com/tjst-t/palmux2/main/scripts/install.sh | bash
+```
+
+**HTTPS via Caddy + Cloudflare DNS-01 + edge basic auth.** Point your domain's
+DNS at the host and use a scoped Cloudflare token (`Zone:DNS:Edit` +
+`Zone:Zone:Read`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tjst-t/palmux2/main/scripts/install.sh \
+| DOMAIN=palmux.example.com \
+  CLOUDFLARE_API_TOKEN=cf_xxx ACME_EMAIL=you@example.com \
+  BASIC_AUTH_USER=admin BASIC_AUTH_PASSWORD=secret \
+  bash
+```
+
+**Dynamic subdomain routing (`PORTMAN_ROUTING=1`, "model B").** palmux2 is served
+at `palmux2.<base>`, the portman dashboard at `<base>`, and every
+`portman exec --expose`d dev server at `<name>--<worktree>--<repo>.<base>`, all
+behind one edge basic auth. Requires a **wildcard** `*.<base>` DNS record
+pointing at the host:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tjst-t/palmux2/main/scripts/install.sh \
+| PORTMAN_ROUTING=1 \
+  DOMAIN=example.com \
+  CLOUDFLARE_API_TOKEN=cf_xxx ACME_EMAIL=you@example.com \
+  BASIC_AUTH_USER=admin BASIC_AUTH_PASSWORD=secret \
+  bash
+```
+
+Key environment variables (all optional):
+
+| Env | Default | Purpose |
+| --- | --- | --- |
+| `PROFILE` | `minimal` | `minimal` or `full` toolset |
+| `DOMAIN` | (none) | Enables Caddy HTTPS for this hostname |
+| `CLOUDFLARE_API_TOKEN` | (none) | Cloudflare token for the Let's Encrypt DNS-01 challenge (required with `DOMAIN`) |
+| `ACME_EMAIL` | (none) | Let's Encrypt contact email |
+| `BASIC_AUTH_USER` / `BASIC_AUTH_PASSWORD` | (none) | HTTP basic auth at the Caddy edge |
+| `BASIC_AUTH_BCRYPT_COST` | `8` | bcrypt cost; Caddy runs it on every request, so higher = more latency |
+| `PORTMAN_ROUTING` | `0` | `1` = portman-owned dynamic subdomain routing (model B) |
+| `PALMUX_VERSION` | `latest` | Pin a specific palmux2 release tag |
+| `SKIP_NODE` / `SKIP_SERVICE` | `0` | Skip Node + Claude Code / the user service |
+
+On success the installer writes **`~/update-palmux2.sh`** for one-command
+updates — see [Updating](#updating).
+
+### From a release (binary only)
 
 Pre-built Linux binaries are attached to every tag — `linux/amd64` and
 `linux/arm64`. They embed the frontend, so the only runtime requirements are
@@ -246,6 +303,22 @@ at the home screen.
 ---
 
 ## Updating
+
+**If you used the [Nix one-liner](#install)**, updating is a single command.
+The installer writes `~/update-palmux2.sh` on success, baking in the options you
+used and reusing secrets from the host (`/etc/caddy/palmux.env`), so nothing
+needs re-supplying:
+
+```bash
+~/update-palmux2.sh        # update palmux2 + tooling and re-apply config
+```
+
+To rotate a secret, `export CLOUDFLARE_API_TOKEN=…` / `export BASIC_AUTH_PASSWORD=…`
+before running it; to pin versions, `export PALMUX_VERSION=…` (and similarly
+`GHQ_VERSION` / `GWQ_VERSION` / `PORTMAN_VERSION`). Re-running the original
+one-liner with the full environment works too.
+
+**Manual binary install** instead:
 
 1. Download the new binary from
    <https://github.com/tjst-t/palmux2/releases>.
@@ -437,7 +510,64 @@ Palmux はフロントエンドを embed した単一の Go バイナリ。tmux 
 
 ## インストール
 
-### リリース版から（推奨）
+### Nix ワンライナー（Ubuntu/Debian）— ホスト一式の構築
+
+まっさらな Ubuntu/Debian ホスト向けに、`scripts/install.sh` が Nix
+（Determinate Systems インストーラ + home-manager）で一式を構築する: palmux2
+本体と必須・任意ツール（tmux, ghq, gwq, portman, Node + Claude Code）、ユーザ
+systemd サービス、そして任意で HTTPS 付き Caddy。再実行はインプレース更新
+（Nix 世代でアトミック、失敗時は自動ロールバック）。
+
+```bash
+# プレーン HTTP :8080（palmux2 + ツール群 + ユーザサービス）
+curl -fsSL https://raw.githubusercontent.com/tjst-t/palmux2/main/scripts/install.sh | bash
+```
+
+**Caddy + Cloudflare DNS-01 で HTTPS + エッジ basic 認証。** ドメインの DNS を
+ホストに向け、スコープ付き Cloudflare トークン（`Zone:DNS:Edit` +
+`Zone:Zone:Read`）を使う:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tjst-t/palmux2/main/scripts/install.sh \
+| DOMAIN=palmux.example.com \
+  CLOUDFLARE_API_TOKEN=cf_xxx ACME_EMAIL=you@example.com \
+  BASIC_AUTH_USER=admin BASIC_AUTH_PASSWORD=secret \
+  bash
+```
+
+**動的サブドメインルーティング（`PORTMAN_ROUTING=1`, モデルB）。** palmux2 を
+`palmux2.<base>`、portman ダッシュボードを `<base>`、`portman exec --expose`
+した dev サーバを `<name>--<worktree>--<repo>.<base>` で公開し、すべてエッジの
+basic 認証 1 か所で保護する。**ワイルドカード** `*.<base>` の DNS レコードを
+ホストに向けておく必要がある:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tjst-t/palmux2/main/scripts/install.sh \
+| PORTMAN_ROUTING=1 \
+  DOMAIN=example.com \
+  CLOUDFLARE_API_TOKEN=cf_xxx ACME_EMAIL=you@example.com \
+  BASIC_AUTH_USER=admin BASIC_AUTH_PASSWORD=secret \
+  bash
+```
+
+主な環境変数（すべて任意）:
+
+| Env | 既定 | 用途 |
+| --- | --- | --- |
+| `PROFILE` | `minimal` | `minimal` / `full` のツールセット |
+| `DOMAIN` | (なし) | このホスト名で Caddy HTTPS を有効化 |
+| `CLOUDFLARE_API_TOKEN` | (なし) | Let's Encrypt DNS-01 用 Cloudflare トークン（`DOMAIN` と同時指定が必須） |
+| `ACME_EMAIL` | (なし) | Let's Encrypt 連絡先メール |
+| `BASIC_AUTH_USER` / `BASIC_AUTH_PASSWORD` | (なし) | Caddy エッジの HTTP basic 認証 |
+| `BASIC_AUTH_BCRYPT_COST` | `8` | bcrypt コスト。Caddy はリクエストごとに計算するため高いほど遅い |
+| `PORTMAN_ROUTING` | `0` | `1` = portman 主導の動的サブドメインルーティング（モデルB） |
+| `PALMUX_VERSION` | `latest` | palmux2 リリースタグの固定 |
+| `SKIP_NODE` / `SKIP_SERVICE` | `0` | Node + Claude Code / ユーザサービスをスキップ |
+
+成功時にインストーラは **`~/update-palmux2.sh`** を生成する（1コマンド更新用）
+— [アップデート](#アップデート) を参照。
+
+### リリース版から（バイナリのみ）
 
 タグごとに Linux バイナリ (`linux/amd64`, `linux/arm64`) を添付している。
 フロントエンドが同梱されているので、ランタイムで必要なのは
@@ -619,6 +749,22 @@ URL はブックマーク可。Open されていないブランチへのリン�
 ---
 
 ## アップデート
+
+**[Nix ワンライナー](#インストール) で入れた場合**、更新は1コマンド。インス
+トーラが成功時に `~/update-palmux2.sh` を生成し、使用したオプションを埋め込み、
+シークレットはホスト（`/etc/caddy/palmux.env`）から再利用するので、何も渡し直す
+必要はない:
+
+```bash
+~/update-palmux2.sh        # palmux2 + ツール群を更新し設定を再適用
+```
+
+シークレットをローテーションするときは実行前に `export CLOUDFLARE_API_TOKEN=…`
+/ `export BASIC_AUTH_PASSWORD=…` を、バージョンを固定するときは
+`export PALMUX_VERSION=…`（`GHQ_VERSION` / `GWQ_VERSION` / `PORTMAN_VERSION` も
+同様）を足す。元のワンライナーをフル env で再実行してもよい。
+
+**バイナリを手動で入れる場合:**
 
 1. 新バイナリを <https://github.com/tjst-t/palmux2/releases> からダウンロード
 2. 同梱の recipe を使っているなら `make serve`、そうでなければ走っている
