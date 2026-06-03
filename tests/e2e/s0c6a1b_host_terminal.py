@@ -298,21 +298,19 @@ def story2_gui(page) -> None:
     except Exception:  # noqa: BLE001
         fail("AC-S0c6a1b-2-1", f"host terminal did not open; url={page.url}")
 
-    # No Files/Git/Sprint/Claude rows inside the Host section. Check the
-    # actual terminal-row testids (not raw innerHTML, which legitimately
-    # includes the word "claude" in the section's helper tooltip text).
-    term_rows = page.locator("[data-testid^='drawer-host-term-']")
-    bad = []
-    for i in range(term_rows.count()):
-        tid = term_rows.nth(i).get_attribute("data-testid") or ""
-        # rows are drawer-host-term-<tabId> and drawer-host-term-remove-<tabId>
-        rest = tid.replace("drawer-host-term-remove-", "").replace("drawer-host-term-", "")
-        if not rest.startswith("bash"):
-            bad.append(tid)
-    if bad:
-        fail("AC-S0c6a1b-2-1", f"Host section has non-bash rows: {bad}")
+    # Drawer Host section is a SINGLE "Host" entry (refine 2026-06-03):
+    # no per-terminal rows and no "+" button — terminals are managed in the
+    # top TabBar. And the TabBar must be bash-only (no claude/files/git tab).
+    if page.locator("[data-testid='drawer-host-add-btn']").count() != 0:
+        fail("AC-S0c6a1b-2-1", "drawer-host-add-btn should be gone (TabBar owns add)")
+    elif page.locator("[data-testid^='drawer-host-term-']").count() != 0:
+        fail("AC-S0c6a1b-2-1", "Host section should not list per-terminal rows")
+    elif page.locator("[data-testid='claude-tab']").count() != 0:
+        fail("AC-S0c6a1b-2-1", "host scope TabBar must not contain a Claude tab")
+    elif page.locator("[data-testid='tab-bash:bash']").count() == 0:
+        fail("AC-S0c6a1b-2-1", "host scope TabBar missing the bash tab")
     else:
-        ok("AC-S0c6a1b-2-1", "Host section is bash-only")
+        ok("AC-S0c6a1b-2-1", "Host drawer = single entry; TabBar bash-only")
 
     # [AC-S0c6a1b-2-2] reload + back preserve selection
     page.reload()
@@ -331,31 +329,35 @@ def story2_gui(page) -> None:
     except Exception:  # noqa: BLE001
         fail("AC-S0c6a1b-2-2", f"back did not restore host url; url={page.url}")
 
-    # [AC-S0c6a1b-2-3] add / remove bash terminals
+    # [AC-S0c6a1b-2-3] multiple bash terminals managed via the top TabBar
+    # (refine 2026-06-03: drawer no longer adds/removes). Add via the TabBar
+    # per-type "+" (tab-add-bash); verify the new tab appears in the bar and
+    # in GET host tabs; then remove via API and confirm it leaves the bar.
     page.goto(BASE_URL + f"/{HOST_REPO}/{HOST_BRANCH}/bash:bash")
-    page.wait_for_selector("[data-testid='drawer-host-section']", timeout=PLAYWRIGHT_TIMEOUT)
-    add = page.locator("[data-testid='drawer-host-add-btn']")
+    page.wait_for_selector("[data-testid='tab-bash:bash']", timeout=PLAYWRIGHT_TIMEOUT)
+    add = page.locator("[data-testid='tab-add-bash']")
     if add.count() == 0:
-        fail("AC-S0c6a1b-2-3", "drawer-host-add-btn not found")
+        fail("AC-S0c6a1b-2-3", "tab-add-bash (TabBar +) not found")
     else:
         add.first.click()
         try:
-            page.wait_for_selector("[data-testid^='drawer-host-term-bash:bash-2']",
-                                   timeout=PLAYWRIGHT_TIMEOUT)
-            ok("AC-S0c6a1b-2-3", "added second host terminal row")
+            page.wait_for_selector("[data-testid='tab-bash:bash-2']", timeout=PLAYWRIGHT_TIMEOUT)
+            ids = [t.get("id") for t in host_tabs()]
+            if "bash:bash-2" in ids:
+                ok("AC-S0c6a1b-2-3", f"TabBar + added host bash-2 (tabs={ids})")
+            else:
+                fail("AC-S0c6a1b-2-3", f"bash-2 tab in bar but not in host tabs: {ids}")
         except Exception:  # noqa: BLE001
-            fail("AC-S0c6a1b-2-3", "second host terminal row did not appear")
-        rm = page.locator("[data-testid='drawer-host-term-remove-bash:bash-2']")
-        if rm.count() > 0:
-            rm.first.click()
-            try:
-                page.wait_for_selector("[data-testid^='drawer-host-term-bash:bash-2']",
-                                       state="detached", timeout=PLAYWRIGHT_TIMEOUT)
-                ok("AC-S0c6a1b-2-3", "removed second host terminal row")
-            except Exception:  # noqa: BLE001
-                fail("AC-S0c6a1b-2-3", "second host terminal row not removed")
-        else:
-            fail("AC-S0c6a1b-2-3", "remove control for bash:bash-2 not found")
+            fail("AC-S0c6a1b-2-3", "second bash tab did not appear in TabBar")
+        # Remove via API and confirm the tab leaves the bar.
+        http("DELETE", f"/api/repos/{HOST_REPO}/branches/{HOST_BRANCH}"
+                       f"/tabs/{urllib.parse.quote('bash:bash-2')}")
+        try:
+            page.wait_for_selector("[data-testid='tab-bash:bash-2']",
+                                   state="detached", timeout=PLAYWRIGHT_TIMEOUT)
+            ok("AC-S0c6a1b-2-3", "removed bash-2 reflected in TabBar")
+        except Exception:  # noqa: BLE001
+            fail("AC-S0c6a1b-2-3", "bash-2 tab did not disappear from TabBar after delete")
 
 
 def story2_mobile(page) -> None:
