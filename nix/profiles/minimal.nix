@@ -6,11 +6,13 @@
 #   - gwq / port-manager (GitHub Release binary、 nixpkgs 不在)
 #   - git / curl / jq / unzip (apt bootstrap で既に入っている)
 #   - CA certs (apt の ca-certificates が /etc/ssl/certs/ を提供)
+#
+# tmux は home-manager-palmux モジュールが programs.tmux.enable で配置するので
+# ここには入れない (duplicate 回避)。
 { palmux2-pkg, pkgs }:
 {
   packages = with pkgs; [
     palmux2-pkg
-    tmux
     ghq
     go
     gcc

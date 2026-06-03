@@ -27,6 +27,17 @@
 
       programs.bash.enable = true;
 
+      # tmux: mouse wheel で履歴を見られるようにする。
+      # programs.tmux.enable=true は tmux を home.packages にも追加するため
+      # minimal/full profile から tmux を外して duplicate を避ける。
+      programs.tmux = {
+        enable = true;
+        mouse = true;
+        terminal = "tmux-256color";
+        historyLimit = 50000;
+        keyMode = "emacs";
+      };
+
       systemd.user.services.palmux2 = {
         Unit = {
           Description = "palmux2 — web-based tmux client";
