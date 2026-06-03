@@ -809,19 +809,30 @@ fi
 # timer), and runs an initial portman sync to register the palmux2 route.
 #
 # Troubleshooting — wildcard cert never obtained (palmux2.<base> /
-# *.<base> return TLS "internal error"):
-#   If the Caddy log shows the DNS-01 challenge VALIDATING but then
-#   "HTTP 404 ... No order for ID" / "No such authorization" / "Certificate
-#   not found" against acme-v02 (production), the host's *production ACME
-#   account* is in a corrupt phantom-order state (orders vanish at finalize).
-#   This is a host-state issue, NOT an install.sh/caddy.json bug (the same
-#   config obtains a staging cert end-to-end and DNS-01 validates). Recover by
-#   forcing a fresh ACME account registration (existing certs are preserved):
+# *.<base> return TLS "internal error", and the SPA loads but its API calls
+# fail with "Failed to fetch"):
+#   Symptom in the Caddy log: the DNS-01 challenge VALIDATES, but then acme-v02
+#   (production) returns "No order for ID" / "No such authorization" /
+#   "accountDoesNotExist", repeated "creating new account", and the cert never
+#   lands (staging works end-to-end; DNS-01 itself is fine).
+#   Root cause: `portman sync` mutating Caddy via the admin API DURING the
+#   wildcard's DNS-01 validation window reloads the config and re-inits Caddy's
+#   ACME provider before the account/order is persisted, orphaning the order.
+#   Prevention: this installer now waits for the wildcard cert before the first
+#   portman sync (see the wait loop below), and portman-sync.service is enabled
+#   only after that, so a fresh install serializes cert-then-routes.
+#   Recovery if a host is already stuck in this state (clears orphaned ACME
+#   account state; obtains the cert with no admin-API thrash; existing certs are
+#   preserved):
+#     sudo systemctl disable --now portman-sync.service
 #     sudo systemctl stop caddy
 #     sudo rm -rf /var/lib/caddy/.local/share/caddy/acme/acme-v02.api.letsencrypt.org-directory/users
-#     sudo systemctl start caddy   # Caddy re-registers and re-issues the wildcard
-#   install.sh deliberately does NOT do this automatically — wiping a working
-#   ACME account on a healthy host would be destructive.
+#     sudo systemctl start caddy            # waits/obtains the wildcard cert cleanly
+#     # once .../certificates/.../wildcard_.<base>/*.crt exists:
+#     sudo systemctl enable portman-sync.service
+#     PORTMAN_CONFIG_DIR=/etc/portman portman sync
+#   install.sh deliberately does NOT reset ACME accounts automatically — wiping a
+#   working account on a healthy host would be destructive.
 
 if [ "$PORTMAN_ROUTING" = "1" ]; then
   log "PORTMAN_ROUTING=1: configuring portman model B routing"
@@ -943,6 +954,32 @@ EOF
   sudo systemctl enable --now portman-serve.service
   sudo systemctl enable portman-sync.service
   sudo systemctl enable --now portman-gc.timer
+
+  # IMPORTANT: wait for Caddy to obtain the *.${DOMAIN} wildcard cert BEFORE the
+  # first portman sync. `portman sync` mutates Caddy via the admin API, which
+  # triggers a config reload. Doing that during the wildcard's DNS-01 validation
+  # window (~tens of seconds) repeatedly re-inits Caddy's ACME provider before
+  # the new account/order is persisted, orphaning the order — Let's Encrypt then
+  # reports "No order for ID" / "accountDoesNotExist" and the wildcard cert never
+  # lands (DNS-01 itself validates fine; staging slips through because it's
+  # faster). Serializing cert-then-sync avoids the thrash. Cert issuance happened
+  # on the earlier `systemctl restart caddy`, when portman-sync.service was not
+  # yet enabled, so this is a clean window to wait on.
+  CADDY_CERT_DIR="/var/lib/caddy/.local/share/caddy/certificates"
+  log "waiting for Caddy to obtain the *.${DOMAIN} wildcard cert before portman sync (up to 240s)"
+  cert_ready=0
+  for _i in $(seq 1 48); do
+    if sudo find "$CADDY_CERT_DIR" -path "*wildcard_.${DOMAIN}*" -name '*.crt' 2>/dev/null | grep -q .; then
+      cert_ready=1
+      break
+    fi
+    sleep 5
+  done
+  if [ "$cert_ready" = "1" ]; then
+    log "wildcard cert obtained — proceeding with portman sync"
+  else
+    warn "wildcard cert not obtained within timeout; proceeding anyway (Caddy + portman-sync.service keep retrying). If https://palmux2.${DOMAIN}/ shows a TLS error, see the ACME troubleshooting note above."
+  fi
 
   # Initial portman sync to register the palmux2 route in Caddy immediately.
   # Non-fatal: portman-sync.service will reconcile on next caddy (re)start.

@@ -73,6 +73,15 @@
       "reference": "curl -w 計測 / caddy hash-password --bcrypt-cost / Caddy basic_auth は非キャッシュ",
       "adr_ref": null,
       "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-03T08:30:56Z",
+      "category": "bugfix",
+      "title": "[CORRECTED root cause] wildcard cert 失敗の真因は portman sync の admin-API thrash (install.sh の順序バグ)。 cert→sync を直列化して修正",
+      "detail": "ユーザの手動インストール (fresh VM palmux-deploy-test2) で『SPA は出るが API が Failed to fetch』。 調査: backend は健全 (/api/repos 直 200) で、 palmux2.<base> が TLS internal error = wildcard cert 未取得。 Caddy log は acme-v02 で No order for ID / No such authorization / accountDoesNotExist + creating new account ×7 = アカウント/オーダーが永続化前に消える。 真因は『以前の ENV 仮説 (VM 固有のアカウント破損)』ではなく、 install.sh が caddy 起動直後の wildcard cert DNS-01 検証中 (~数十秒) に portman sync で admin API を叩き、 config reload が Caddy の ACME provider を再初期化してオーダーを orphan させること。 06:38 の『修復』が効いたのは account reset ではなく portman-sync を止めて thrash を除いたから (clean restart で 11s 取得) と判明。 修正: install.sh の portman ブロックで初回 portman sync の前に *.DOMAIN wildcard cert ファイルの出現を最大240s待つ (cert→routes を直列化)。 portman-sync.service は初回 caddy restart 時点で未 enable なので初回発行は元々 clean window。 ユーザ VM は手動 recovery (portman-sync 停止 + account reset + clean restart + sync) で復旧、 全経路 200 (SPA/API/dashboard) 確認。",
+      "reference": "caddy journal acme-v02 errors / 06:38 clean-restart 成功 / 手動 recovery 08:27 で wildcard 95s 取得",
+      "adr_ref": null,
+      "drift_flag": "none"
     }
   ],
   "done_judgment": {
