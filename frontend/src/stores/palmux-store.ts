@@ -693,7 +693,8 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
       `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/tabs/${encodeURIComponent(tabId)}`,
       { name },
     )
-    await get().reloadRepos()
+    if (repoId === HOST_REPO_ID) await get().refreshHost()
+    else await get().reloadRepos()
   },
   reorderTabs: async (repoId, branchId, order) => {
     // Optimistic: shuffle the local cache so the TabBar reflects the drop

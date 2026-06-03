@@ -100,8 +100,9 @@ func (s *Store) HostScope() (repoID, branchID, displayName string) {
 func (s *Store) recomputeHostTabs(ctx context.Context, branch *domain.Branch) {
 	const bashType = "bash"
 
-	windows, err := s.deps.Tmux.ListWindows(ctx, branch.TabSet.TmuxSession)
-	listFailed := err != nil // session not created yet (lazy) → no live windows
+	// ListWindows errors when the session does not exist yet (lazy spawn);
+	// that's fine — we fall through to seeding the canonical bash tab below.
+	windows, _ := s.deps.Tmux.ListWindows(ctx, branch.TabSet.TmuxSession)
 
 	var names []string
 	for _, w := range windows {
@@ -112,7 +113,7 @@ func (s *Store) recomputeHostTabs(ctx context.Context, branch *domain.Branch) {
 	}
 	// Always seed the canonical bash window name so the host scope shows at
 	// least one Bash tab as metadata — even when the session is still lazy
-	// (listFailed) and has no live windows yet.
+	// and has no live windows yet.
 	if len(names) == 0 {
 		names = []string{bashType} // canonical "bash" → tab id bash:bash
 	}
@@ -130,7 +131,6 @@ func (s *Store) recomputeHostTabs(ctx context.Context, branch *domain.Branch) {
 	}
 	tabs = s.applyTabOverrides(branch, tabs)
 	branch.TabSet.Tabs = tabs
-	_ = listFailed // documented intent; canonical seeding covers both cases
 }
 
 // displayNameForBash mirrors the bash provider's display naming for a window

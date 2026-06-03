@@ -65,6 +65,12 @@ func (s *Store) AddTab(ctx context.Context, repoID, branchID, providerType, name
 	if !provider.Multiple() {
 		return domain.Tab{}, fmt.Errorf("%w: %q is a singleton", ErrInvalidArg, providerType)
 	}
+	// S0c6a1b: the reserved host scope is bash-only. Reject any other tab
+	// type at the API boundary — otherwise the tab would be created and then
+	// silently stripped by recomputeHostTabs, leaving FE/BE out of sync.
+	if IsHostRepoID(repoID) && providerType != "bash" {
+		return domain.Tab{}, fmt.Errorf("%w: host scope only supports bash tabs", ErrInvalidArg)
+	}
 
 	s.mu.RLock()
 	repo, ok := s.repos[repoID]
