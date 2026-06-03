@@ -18,13 +18,21 @@
 , basicAuth ? { enable = false; user = null; }
 
 , profile ? "minimal"
+
+  # palmux2 version override (install.sh が `latest` を resolve した結果を渡す)。
+  # null の時は palmux2.nix の baked-in default を使う。
+, palmux2Version ? null
+, palmux2Hash ? null
 }:
 
 let
   lib = inputs.nixpkgs.lib;
   pkgs = inputs.nixpkgs.legacyPackages.${system};
 
-  palmux2-pkg = pkgs.callPackage ../packages/palmux2.nix { };
+  palmux2-pkg = pkgs.callPackage ../packages/palmux2.nix {
+    version = palmux2Version;
+    hash = palmux2Hash;
+  };
   caddy-cloudflare = pkgs.callPackage ../packages/caddy-cloudflare.nix { };
 
   caddyEnabled = domain != null;

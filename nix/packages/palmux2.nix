@@ -1,23 +1,35 @@
-{ stdenv, fetchurl, lib }:
+{ stdenv
+, fetchurl
+, lib
+  # Override hooks: mkPalmuxHost passes these when install.sh has resolved
+  # "latest" to a concrete tag and computed its hash. When null, the baked-in
+  # defaults below are used.
+, version ? null
+, hash ? null
+,
+}:
 
 let
-  version = "0.8.0";
+  defaultVersion = "0.9.2";
+  defaultHashes = {
+    amd64 = "sha256-g84bLnf72yfYUNQ1ZrOD7+714Bzz8tVv8PolZZ2iFRo=";
+    arm64 = "sha256-HpFsPDKZy3ZhY/4G+W70oFE+NKHUtYn7YaYq0QkQV/4=";
+  };
+
+  effectiveVersion = if version != null then version else defaultVersion;
   arch =
     if stdenv.hostPlatform.isx86_64 then "amd64"
     else if stdenv.hostPlatform.isAarch64 then "arm64"
     else throw "palmux2: unsupported arch ${stdenv.hostPlatform.system}";
-  hashes = {
-    amd64 = "sha256-Ec/87L6JBZIaXD4nSdExwlNP9lD/RkfNfeg03mjz11E=";
-    arm64 = "sha256-FPOxhDciVz9JV71XU2KZX+czpN+Ul9V6yaKKm9fm94E=";
-  };
+  effectiveHash = if hash != null then hash else defaultHashes.${arch};
 in
 stdenv.mkDerivation {
   pname = "palmux2";
-  inherit version;
+  version = effectiveVersion;
 
   src = fetchurl {
-    url = "https://github.com/tjst-t/palmux2/releases/download/v${version}/palmux-linux-${arch}";
-    hash = hashes.${arch};
+    url = "https://github.com/tjst-t/palmux2/releases/download/v${effectiveVersion}/palmux-linux-${arch}";
+    hash = effectiveHash;
   };
 
   dontUnpack = true;
