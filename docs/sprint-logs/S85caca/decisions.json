@@ -64,6 +64,15 @@
       "reference": "caddy journal acme logs / 手動 account reset 06:38 で wildcard 取得成功",
       "adr_ref": null,
       "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-03T07:46:50Z",
+      "category": "performance",
+      "title": "edge basic_auth bcrypt cost を 14→8 に下げ、 per-request 遅延を ~900ms→~15ms に",
+      "detail": "ユーザ報告『アクセスが全体的に遅い』を調査。 計測: palmux2 backend は TTFB ~1ms だが Caddy 経由で ~900ms/req (warm でも一定)。 切り分け: no-creds 401=38ms, correct-creds 200=951ms, wrong-creds 401=905ms → 差分 ~870ms は edge basic_auth の bcrypt 比較。 hash は caddy hash-password default の $2a$14$ (2^14 rounds ≈ 0.9s on 1vCPU)。 Caddy basic_auth は per-request に bcrypt を再計算する (cache 無し) ため、 SPA の全 asset/API がそれぞれ ~900ms 待たされていた。 修正: install.sh の hash 生成を --algorithm bcrypt --bcrypt-cost $BASIC_AUTH_BCRYPT_COST (default 8) に変更 (Caddy v2.11.3 が --bcrypt-cost をサポート)。 既定/モデルB 両方の hash 経路に効く。 ユーザが cost 8 を選択。 再デプロイ後 $2a$08$ で authenticated 200 が ~53ms (cold, TLS 含む) / bcrypt 部分 ~15ms に短縮。 全 AC は引き続き PASS。 cost は BASIC_AUTH_BCRYPT_COST で調整可。",
+      "reference": "curl -w 計測 / caddy hash-password --bcrypt-cost / Caddy basic_auth は非キャッシュ",
+      "adr_ref": null,
+      "drift_flag": "none"
     }
   ],
   "done_judgment": {
