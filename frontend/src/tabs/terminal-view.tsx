@@ -356,7 +356,7 @@ export function TerminalView({
   }, [fontSize, repoId, branchId, tabId, orphanName, orphanIdx])
 
   return (
-    <div className={styles.wrap}>
+    <div className={styles.wrap} data-testid="terminal-view">
       <div ref={containerRef} className={styles.term} />
       {connState !== 'open' && (
         <div className={styles.overlay}>

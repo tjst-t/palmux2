@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { useViewport } from '../hooks/use-viewport'
-import { selectBranchById, usePalmuxStore } from '../stores/palmux-store'
+import { HOST_REPO_ID, selectBranchById, usePalmuxStore } from '../stores/palmux-store'
 
 import { Drawer } from './drawer'
 import { Header } from './header'
@@ -63,7 +63,7 @@ export function MainLayout() {
         <div className={styles.body}>
           <Header />
           <div className={styles.empty}>
-            <p>{repos.length === 0 ? 'Open a repository to get started.' : 'Pick a branch from the drawer.'}</p>
+            {repos.length === 0 ? <SetupEmptyState /> : <p>Pick a branch from the drawer.</p>}
           </div>
         </div>
         {showMobileDrawer && <MobileDrawerOverlay onClose={() => setMobileDrawerOpen(false)} />}
@@ -103,6 +103,44 @@ export function MainLayout() {
         {showToolbar && <Toolbar />}
       </div>
       {showMobileDrawer && <MobileDrawerOverlay onClose={() => setMobileDrawerOpen(false)} />}
+    </div>
+  )
+}
+
+// SetupEmptyState (S0c6a1b) is shown when no repository is open yet — the
+// first thing a fresh install sees. It points the user at a Host terminal so
+// they can authenticate the CLIs (gh / claude) before opening any repo.
+function SetupEmptyState() {
+  const navigate = useNavigate()
+  const hostRepo = usePalmuxStore((s) => s.hostRepo)
+  const branchId = hostRepo?.openBranches[0]?.id ?? 'host'
+  const tabId = hostRepo?.openBranches[0]?.tabSet.tabs[0]?.id ?? 'bash:bash'
+  const repoId = hostRepo?.id ?? HOST_REPO_ID
+  const openHost = () =>
+    navigate(`/${repoId}/${branchId}/${encodeURIComponent(tabId)}`)
+
+  return (
+    <div className={styles.setup}>
+      <p className={styles.setupLead}>Open a repository to get started.</p>
+      <p className={styles.setupSub}>
+        First time here? Authenticate the CLIs from a host terminal first — no repository needed.
+      </p>
+      <button
+        type="button"
+        className={styles.setupCta}
+        data-testid="empty-setup-cta"
+        onClick={openHost}
+      >
+        🖥 Open setup terminal
+      </button>
+      <ul className={styles.setupHints}>
+        <li>
+          <code data-testid="empty-setup-hint-gh">gh auth login</code>
+        </li>
+        <li>
+          <code data-testid="empty-setup-hint-claude">claude  (then /login)</code>
+        </li>
+      </ul>
     </div>
   )
 }

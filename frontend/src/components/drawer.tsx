@@ -232,6 +232,8 @@ export function Drawer() {
           onDeleteRepo={(repoId, ghqPath) => setDeleteTarget({ repoId, ghqPath })}
         />
 
+        <HostSection />
+
         <OrphanSection
           sessions={orphanSessions}
           onAttach={(name, idx, windowName) => setOrphanTarget({ name, idx, windowName })}
@@ -1025,6 +1027,99 @@ function SubBranchRow({
         )}
       </div>
     </div>
+  )
+}
+
+// HostSection (S0c6a1b) renders the reserved, repository-independent Host
+// scope as a dedicated section — separate from Repositories and Orphans — so
+// the user can open a terminal (e.g. for `gh auth login` / `claude` login)
+// before opening any repo. Bash-only; reuses the standard tab add/remove
+// store actions keyed by the reserved host IDs.
+function HostSection() {
+  const hostRepo = usePalmuxStore((s) => s.hostRepo)
+  const addTab = usePalmuxStore((s) => s.addTab)
+  const removeTab = usePalmuxStore((s) => s.removeTab)
+  const navigate = useNavigate()
+  const location = useLocation()
+  const { repoId: activeRepoId, tabId: activeTabId } = useParams()
+
+  if (!hostRepo) return null
+  const branch = hostRepo.openBranches[0]
+  if (!branch) return null
+  const tabs = branch.tabSet.tabs
+  const isActive = activeRepoId === hostRepo.id
+  const decodedActiveTab = activeTabId ? decodeURIComponent(activeTabId) : undefined
+
+  const go = (tabId: string) =>
+    navigate(`/${hostRepo.id}/${branch.id}/${encodeURIComponent(tabId)}${location.search}`)
+
+  const onAdd = async () => {
+    // No explicit name → the server auto-picks the next free window
+    // (bash-2, bash-3, …). Passing "bash" would collide with the canonical
+    // bash:bash window and 400.
+    const tab = await addTab(hostRepo.id, branch.id, 'bash')
+    if (tab?.id) go(tab.id)
+  }
+  const onRemove = async (tabId: string) => {
+    await removeTab(hostRepo.id, branch.id, tabId)
+  }
+
+  return (
+    <section className={styles.hostSection} data-section="host" data-testid="drawer-host-section">
+      <div className={styles.hostHeader}>
+        <button
+          type="button"
+          className={styles.hostTitle}
+          data-testid="drawer-host-terminal"
+          onClick={() => go(tabs[0]?.id ?? 'bash:bash')}
+          title="Open a repository-independent terminal (gh / claude login, host commands)"
+        >
+          <span aria-hidden>🖥</span> {hostRepo.openBranches[0]?.name ?? 'Host'}
+        </button>
+        <button
+          type="button"
+          className={styles.hostAdd}
+          data-testid="drawer-host-add-btn"
+          onClick={onAdd}
+          title="New host terminal"
+          aria-label="New host terminal"
+        >
+          +
+        </button>
+      </div>
+      <ul className={styles.hostList}>
+        {tabs.map((t) => {
+          const active = isActive && decodedActiveTab === t.id
+          return (
+            <li key={t.id} className={styles.hostItem}>
+              <button
+                type="button"
+                className={active ? styles.hostTermActive : styles.hostTerm}
+                data-testid={`drawer-host-term-${t.id}`}
+                onClick={() => go(t.id)}
+              >
+                {t.name}
+              </button>
+              {tabs.length > 1 && (
+                <button
+                  type="button"
+                  className={styles.hostTermRemove}
+                  data-testid={`drawer-host-term-remove-${t.id}`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void onRemove(t.id)
+                  }}
+                  title="Close terminal"
+                  aria-label={`Close ${t.name}`}
+                >
+                  ×
+                </button>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </section>
   )
 }
 

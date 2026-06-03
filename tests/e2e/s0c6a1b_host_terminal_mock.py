@@ -166,7 +166,9 @@ def test_cta_shown_and_hints(port: int) -> None:
 
             page.locator("[data-testid='empty-setup-cta']").click()
             try:
-                page.wait_for_url("**/host--0000/host/bash:bash", timeout=PLAYWRIGHT_TIMEOUT)
+                page.wait_for_url(
+                    lambda u: "host--0000/host/bash" in u, timeout=PLAYWRIGHT_TIMEOUT
+                )
                 ok("AC-S0c6a1b-3-1", "CTA navigates to host terminal")
             except Exception:  # noqa: BLE001
                 fail("AC-S0c6a1b-3-1", f"CTA did not open host terminal; url={page.url}")

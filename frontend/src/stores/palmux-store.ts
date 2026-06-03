@@ -5,8 +5,10 @@ import {
   type AvailableRepoEntry,
   type Branch,
   type BranchPickerEntry,
+  type HostScope,
   type OrphanSession,
   type Repository,
+  type TabSet,
   type SubagentCleanupCandidate,
   type SubagentCleanupResult,
   type Tab,
@@ -213,6 +215,12 @@ interface PalmuxStoreState {
   branchPicker: { repoId: string; entries: BranchPickerEntry[] } | null
   orphanSessions: OrphanSession[]
   serverInfo: ServerInfo
+  /** S0c6a1b: reserved, repository-independent host scope descriptor. */
+  host: HostScope | null
+  /** S0c6a1b: synthetic Repository (one branch) for the host scope. Kept out
+   *  of `repos` so it never appears in the Repositories list; selectors fall
+   *  back to it so /host--0000/host/<tab> routes resolve. */
+  hostRepo: Repository | null
 
   globalSettings: GlobalSettings
   deviceSettings: DeviceSettings
@@ -232,6 +240,8 @@ interface PalmuxStoreState {
   reloadAvailableRepos: () => Promise<void>
   reloadBranchPicker: (repoId: string) => Promise<void>
   reloadOrphanSessions: () => Promise<void>
+  /** S0c6a1b: (re)load the host scope descriptor + its bash tab list. */
+  refreshHost: () => Promise<void>
   applyEvent: (ev: RemoteEvent) => void
   setConnectionStatus: (status: ConnectionStatus) => void
   setFocusedPanel: (panel: FocusedPanel) => void
@@ -297,6 +307,8 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
   repos: [],
   availableRepos: [],
   branchPicker: null,
+  host: null,
+  hostRepo: null,
   orphanSessions: [],
   serverInfo: {},
   globalSettings: {},
@@ -326,9 +338,15 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
         notifications,
         orphanSessions: orphans ?? [],
         serverInfo: info ?? {},
-        bootstrapped: true,
         loading: false,
       })
+      // S0c6a1b: load the reserved host scope BEFORE flipping `bootstrapped`
+      // so the /host--0000/host/* route resolves on a cold load / reload —
+      // otherwise MainLayout's "branch not found → bounce to /" effect fires
+      // in the window between bootstrapped=true and hostRepo being set.
+      // Best-effort: a failure must not block bootstrap.
+      await get().refreshHost().catch(() => {})
+      set({ bootstrapped: true })
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err), loading: false })
     }
@@ -364,6 +382,35 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
     }
   },
 
+  refreshHost: async () => {
+    try {
+      const desc = get().host ?? (await api.get<HostScope>('/api/host'))
+      const tabSet = await api.get<TabSet>(
+        `/api/repos/${encodeURIComponent(desc.repoId)}/branches/${encodeURIComponent(desc.branchId)}/tabs`,
+      )
+      const branch: Branch = {
+        id: desc.branchId,
+        name: desc.displayName,
+        worktreePath: '',
+        repoId: desc.repoId,
+        isPrimary: false,
+        tabSet,
+        lastActivity: new Date().toISOString(),
+        category: 'user',
+      }
+      const hostRepo: Repository = {
+        id: desc.repoId,
+        ghqPath: '',
+        fullPath: '',
+        starred: false,
+        openBranches: [branch],
+      }
+      set({ host: desc, hostRepo })
+    } catch {
+      // best-effort — leave any previously-loaded host scope intact
+    }
+  },
+
   applyEvent: (ev) => {
     // Phase 3 takes the simple-but-correct route: any domain event triggers
     // a /api/repos refresh. Phase 10 can swap in fine-grained updates.
@@ -380,7 +427,10 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
       'tab.reordered',
     ])
     if (domainEvents.has(ev.type)) {
-      void get().reloadRepos()
+      // S0c6a1b: host-scoped tab events refresh the host scope (not in
+      // /api/repos); everything else refreshes the repo list.
+      if (ev.repoId === HOST_REPO_ID) void get().refreshHost()
+      else void get().reloadRepos()
     }
     // S1e8d02: in-place `git checkout` rewrites only the branch's
     // display name. The BranchID, tmux session, Claude agent process,
@@ -627,14 +677,16 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
       `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/tabs`,
       { type, name },
     )
-    await get().reloadRepos()
+    if (repoId === HOST_REPO_ID) await get().refreshHost()
+    else await get().reloadRepos()
     return tab
   },
   removeTab: async (repoId, branchId, tabId) => {
     await api.delete(
       `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/tabs/${encodeURIComponent(tabId)}`,
     )
-    await get().reloadRepos()
+    if (repoId === HOST_REPO_ID) await get().refreshHost()
+    else await get().reloadRepos()
   },
   renameTab: async (repoId, branchId, tabId, name) => {
     await api.patch(
@@ -867,12 +919,21 @@ function applyLocalOrder(tabs: Tab[], order: string[]): Tab[] {
   return out
 }
 
-// Convenience selectors
+// S0c6a1b: reserved host scope repo id (mirrors store.HostRepoID on the BE).
+export const HOST_REPO_ID = 'host--0000'
+
+// Convenience selectors. Both fall back to the synthetic host repo so that
+// /host--0000/host/<tab> routes resolve even though the host scope is kept
+// out of `repos` (and thus out of the Repositories list).
 export const selectRepoById = (id: string) => (s: PalmuxStoreState) =>
-  s.repos.find((r) => r.id === id)
+  s.repos.find((r) => r.id === id) ??
+  (s.hostRepo && s.hostRepo.id === id ? s.hostRepo : undefined)
 
 export const selectBranchById = (repoId: string, branchId: string) => (s: PalmuxStoreState) =>
-  s.repos.find((r) => r.id === repoId)?.openBranches.find((b) => b.id === branchId)
+  s.repos.find((r) => r.id === repoId)?.openBranches.find((b) => b.id === branchId) ??
+  (s.hostRepo && s.hostRepo.id === repoId
+    ? s.hostRepo.openBranches.find((b) => b.id === branchId)
+    : undefined)
 
 export const selectBranchNotifications =
   (repoId: string, branchId: string) =>

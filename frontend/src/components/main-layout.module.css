@@ -32,6 +32,64 @@
   padding: var(--space-5);
 }
 
+/* S0c6a1b — first-run setup empty state (no repos open yet). */
+.setup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: 420px;
+  text-align: center;
+}
+.setupLead {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-fg);
+}
+.setupSub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-fg-muted);
+  line-height: 1.5;
+}
+.setupCta {
+  margin-top: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  color: #fff;
+  background: var(--color-accent);
+  border: 0;
+  border-radius: 8px;
+  padding: 9px 16px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.setupCta:hover {
+  background: var(--color-accent-dark, #5c6ae0);
+}
+.setupHints {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.setupHints code {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--color-fg);
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 4px 10px;
+}
+
 .mobileDrawer {
   position: fixed;
   inset: 0;

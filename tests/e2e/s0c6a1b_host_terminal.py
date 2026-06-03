@@ -213,10 +213,10 @@ def story1_api() -> None:
     elif out:
         fail("AC-S0c6a1b-1-2", f"cwd not $HOME ({home}); got: {out[-200:]!r}")
 
-    # add a 2nd bash tab
+    # add a 2nd bash tab (no name → server auto-picks bash-2)
     code, body = http_json(
         "POST", f"/api/repos/{HOST_REPO}/branches/{HOST_BRANCH}/tabs",
-        body={"type": "bash", "name": "bash"},
+        body={"type": "bash"},
     )
     if code in (200, 201):
         time.sleep(0.5)
@@ -292,23 +292,32 @@ def story2_gui(page) -> None:
 
     page.locator("[data-testid='drawer-host-terminal']").first.click()
     try:
-        page.wait_for_url("**/host--0000/host/bash:bash", timeout=PLAYWRIGHT_TIMEOUT)
+        page.wait_for_url(lambda u: "host--0000/host/bash" in u, timeout=PLAYWRIGHT_TIMEOUT)
         page.wait_for_selector("[data-testid='terminal-view'], .xterm", timeout=PLAYWRIGHT_TIMEOUT)
         ok("AC-S0c6a1b-2-1", "click navigates to host terminal + xterm renders")
     except Exception:  # noqa: BLE001
         fail("AC-S0c6a1b-2-1", f"host terminal did not open; url={page.url}")
 
-    # No Files/Git/Sprint/Claude rows inside the Host section
-    sect_html = page.locator("[data-testid='drawer-host-section']").inner_html().lower()
-    if any(w in sect_html for w in ("files", "git", "sprint", "claude")):
-        fail("AC-S0c6a1b-2-1", "Host section contains non-bash tab rows")
+    # No Files/Git/Sprint/Claude rows inside the Host section. Check the
+    # actual terminal-row testids (not raw innerHTML, which legitimately
+    # includes the word "claude" in the section's helper tooltip text).
+    term_rows = page.locator("[data-testid^='drawer-host-term-']")
+    bad = []
+    for i in range(term_rows.count()):
+        tid = term_rows.nth(i).get_attribute("data-testid") or ""
+        # rows are drawer-host-term-<tabId> and drawer-host-term-remove-<tabId>
+        rest = tid.replace("drawer-host-term-remove-", "").replace("drawer-host-term-", "")
+        if not rest.startswith("bash"):
+            bad.append(tid)
+    if bad:
+        fail("AC-S0c6a1b-2-1", f"Host section has non-bash rows: {bad}")
     else:
         ok("AC-S0c6a1b-2-1", "Host section is bash-only")
 
     # [AC-S0c6a1b-2-2] reload + back preserve selection
     page.reload()
     try:
-        page.wait_for_url("**/host--0000/host/bash:bash", timeout=PLAYWRIGHT_TIMEOUT)
+        page.wait_for_url(lambda u: "host--0000/host/bash" in u, timeout=PLAYWRIGHT_TIMEOUT)
         page.wait_for_selector("[data-testid='terminal-view'], .xterm", timeout=PLAYWRIGHT_TIMEOUT)
         ok("AC-S0c6a1b-2-2", "reload preserved host terminal")
     except Exception:  # noqa: BLE001
@@ -317,7 +326,7 @@ def story2_gui(page) -> None:
     page.wait_for_selector("body", timeout=PLAYWRIGHT_TIMEOUT)
     page.go_back()
     try:
-        page.wait_for_url("**/host--0000/host/bash:bash", timeout=PLAYWRIGHT_TIMEOUT)
+        page.wait_for_url(lambda u: "host--0000/host/bash" in u, timeout=PLAYWRIGHT_TIMEOUT)
         ok("AC-S0c6a1b-2-2", "browser back restored host terminal URL")
     except Exception:  # noqa: BLE001
         fail("AC-S0c6a1b-2-2", f"back did not restore host url; url={page.url}")
@@ -353,14 +362,17 @@ def story2_mobile(page) -> None:
     page.set_viewport_size({"width": 390, "height": 780})
     page.goto(BASE_URL + "/")
     page.wait_for_selector("body", timeout=PLAYWRIGHT_TIMEOUT)
-    toggle = page.locator("[data-testid='drawer-toggle'], [aria-label*='drawer' i], "
-                          "[data-testid='mobile-drawer-open']")
-    if toggle.count() > 0:
-        toggle.first.click()
+    # Open the mobile drawer via the header hamburger (aria-label="Toggle drawer").
+    toggle = page.locator("[aria-label='Toggle drawer']")
+    try:
+        toggle.first.click(timeout=PLAYWRIGHT_TIMEOUT)
+    except Exception:  # noqa: BLE001
+        fail("AC-S0c6a1b-2-1", "mobile: drawer toggle not found")
+        return
     try:
         page.wait_for_selector("[data-testid='drawer-host-section']", timeout=PLAYWRIGHT_TIMEOUT)
         page.locator("[data-testid='drawer-host-terminal']").first.click()
-        page.wait_for_url("**/host--0000/host/bash:bash", timeout=PLAYWRIGHT_TIMEOUT)
+        page.wait_for_url(lambda u: "host--0000/host/bash" in u, timeout=PLAYWRIGHT_TIMEOUT)
         ok("AC-S0c6a1b-2-1", "mobile: host section reachable + terminal opens (priority_rule 10)")
     except Exception:  # noqa: BLE001
         fail("AC-S0c6a1b-2-1", "mobile: host section/terminal not reachable")

@@ -106,6 +106,15 @@ export interface Tab {
   windowName?: string
 }
 
+// HostScope (S0c6a1b) is the reserved, repository-independent terminal scope
+// returned by GET /api/host. The Drawer renders it as a dedicated section and
+// the empty-state CTA links to it. Reserved IDs are server-authoritative.
+export interface HostScope {
+  repoId: string
+  branchId: string
+  displayName: string
+}
+
 export interface AvailableRepoEntry {
   id: string
   ghqPath: string
