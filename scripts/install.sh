@@ -19,6 +19,10 @@
 #   NODE_MAJOR             Node.js major version line (default: 20)
 #   SKIP_NODE=1            skip Node.js + @anthropic-ai/claude-code install
 #   SKIP_SERVICE=1         skip systemctl --user enable palmux2
+#   CLAUDE_BYPASS_PERMISSIONS=1
+#                          set ~/.claude/settings.json permissions.defaultMode=
+#                          bypassPermissions (disables ALL Claude permission
+#                          prompts — single-user autonomous box only)
 #
 # HTTPS via Caddy + Cloudflare DNS-01 (Story-2 — set BOTH to enable):
 #   DOMAIN                 e.g. palmux.example.com
@@ -204,6 +208,24 @@ if [ "${SKIP_NODE:-0}" != "1" ]; then
 
   log "installing/upgrading @anthropic-ai/claude-code"
   sudo npm install -g --silent @anthropic-ai/claude-code
+fi
+
+# --- Claude Code: optional bypass-permissions default ----------------------
+#
+# Opt-in (CLAUDE_BYPASS_PERMISSIONS=1) because it disables ALL of Claude Code's
+# permission prompts — appropriate for a single-user autonomous dev box, NOT a
+# safe silent default for a public installer. Merges into the user's real
+# ~/.claude/settings.json (preserving theme etc.); NOT managed by home-manager
+# so palmux2's own UI can still write to it.
+if [ "${CLAUDE_BYPASS_PERMISSIONS:-0}" = "1" ]; then
+  log "configuring Claude Code: permissions.defaultMode = bypassPermissions"
+  CLAUDE_SETTINGS="${USER_HOME}/.claude/settings.json"
+  install -d -m 0755 "${USER_HOME}/.claude"
+  [ -f "$CLAUDE_SETTINGS" ] || echo '{}' > "$CLAUDE_SETTINGS"
+  CS_TMP="$(mktemp)"
+  jq '.permissions.defaultMode = "bypassPermissions"
+      | .skipDangerousModePermissionPrompt = true' \
+    "$CLAUDE_SETTINGS" > "$CS_TMP" && mv "$CS_TMP" "$CLAUDE_SETTINGS"
 fi
 
 # --- ghq / gwq / port-manager (binary releases, outside Nix) ---------------
