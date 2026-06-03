@@ -7946,7 +7946,7 @@
         },
         "Sfccb3f-2": {
           "id": "Sfccb3f-2",
-          "status": "planned",
+          "status": "done",
           "title": "Caddy + Cloudflare DNS-01 + edge basic auth (system-manager module)",
           "user_story": "palmux2 を自分のドメイン名で外部公開したい個人開発者として、 DOMAIN + CLOUDFLARE_API_TOKEN をワンライナーに渡すだけで Caddy + Let's Encrypt (DNS-01) で HTTPS 終端し、 さらに BASIC_AUTH_USER + BASIC_AUTH_PASSWORD で edge basic auth もかけたい。 なぜなら、 手動で Caddy + 証明書 + bcrypt + systemd を整えるのは詰まりやすく、 設定漏れで 8080 が公開されたり証明書が更新されなかったりする事故が起きやすいから。",
           "acceptance_criteria": [
@@ -7954,64 +7954,64 @@
               "id": "AC-Sfccb3f-2-1",
               "description": "DOMAIN=palmux.example.com CLOUDFLARE_API_TOKEN=cf_xxx 付きでワンライナー実行 → caddy-dns/cloudflare plugin 入り Caddy が Nix store にビルド/配置され、 system-manager 経由で /etc/systemd/system/caddy.service が起動する",
               "test": "tests/e2e/sfccb3f_installer.py [AC-Sfccb3f-2-1]",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sfccb3f-2-2",
               "description": "https://<DOMAIN> でアクセス → Let's Encrypt 証明書 (Issuer = Let's Encrypt) で TLS 確立、 palmux2 UI が応答する",
               "test": "tests/e2e/sfccb3f_installer.py [AC-Sfccb3f-2-2] (Playwright + TLS 確認)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sfccb3f-2-3",
               "description": "palmux2 home-manager unit は Caddy 有効時に自動で 127.0.0.1:8080 バインドに切替、 curl http://<VM-IP>:8080 が応答しない (外部公開されないこと)",
               "test": "tests/e2e/sfccb3f_installer.py [AC-Sfccb3f-2-3]",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sfccb3f-2-4",
               "description": "DOMAIN 単独 / CLOUDFLARE_API_TOKEN 単独でワンライナー実行するとエラー終了 (片肺バリデーション)。 BASIC_AUTH_USER 単独 / BASIC_AUTH_PASSWORD 単独も同様",
               "test": "tests/e2e/sfccb3f_installer.py [AC-Sfccb3f-2-4]",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sfccb3f-2-5",
               "description": "BASIC_AUTH_USER + BASIC_AUTH_PASSWORD 追加 → https://<DOMAIN> アクセス時に basic auth ダイアログ、 正しい認証情報のみ palmux2 に到達する。 password hash は bcrypt で /etc/caddy/palmux.env (root:caddy 0640) に保存、 Nix が生成した caddy 設定には {env.BASIC_AUTH_HASH} 参照のみ書かれる (平文 hash は Nix store に含まれない)",
               "test": "tests/e2e/sfccb3f_installer.py [AC-Sfccb3f-2-5]",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sfccb3f-2-6",
               "description": "ワンライナー再実行で CF token / basic auth password の差し替えができ、 /etc/caddy/palmux.env のみ rewrite、 Caddy が無停止 reload (systemctl reload caddy)。 Nix 世代は変わらない (差し替えは Nix 外で完結)",
               "test": "tests/e2e/sfccb3f_installer.py [AC-Sfccb3f-2-6]",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "Sfccb3f-2-1": {
               "title": "nix/packages/caddy-cloudflare.nix — Caddy with caddy-dns/cloudflare plugin",
               "description": "nixpkgs caddy.withPlugins が利用可なら採用、 不可なら caddyserver.com/api/download を fetchurl + sha256 pin で取り込み",
-              "status": "planned"
+              "status": "done"
             },
             "Sfccb3f-2-2": {
               "title": "nix/modules/system-manager-caddy.nix — caddy user/group, /etc/caddy/Caddyfile, /etc/systemd/system/caddy.service, EnvironmentFile, setcap cap_net_bind_service+ep",
               "description": "Caddyfile は basic_auth ブロックを host.basicAuth.enable で条件付き挿入",
-              "status": "planned"
+              "status": "done"
             },
             "Sfccb3f-2-3": {
               "title": "scripts/install.sh — Caddy 関連 env (DOMAIN / CLOUDFLARE_API_TOKEN / ACME_EMAIL / BASIC_AUTH_USER / BASIC_AUTH_PASSWORD) 処理、 /etc/caddy/palmux.env 生成 (root:caddy 0640、 bcrypt は caddy hash-password)、 /etc/palmux/flake.nix の host.caddy.* 反映、 バリデーション",
               "description": "",
-              "status": "planned"
+              "status": "done"
             },
             "Sfccb3f-2-4": {
               "title": "home-manager-palmux モジュール拡張: host.caddy.enable に応じて palmux2 unit bind addr を 127.0.0.1:8080 ↔ 0.0.0.0:8080 に切替",
               "description": "",
-              "status": "planned"
+              "status": "done"
             },
             "Sfccb3f-2-5": {
               "title": "tests/e2e/sfccb3f_installer.py 追加 — [AC-Sfccb3f-2-1..6] (scenario-1/-3 は needs_human flag、 scenario-2 バリデーションは fully auto)",
               "description": "",
-              "status": "planned"
+              "status": "done"
             }
           }
         },

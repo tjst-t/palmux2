@@ -381,12 +381,12 @@ EOF
 
   sudo systemctl daemon-reload
   sudo systemctl enable caddy
-  log "reloading Caddy (if already running) or starting it"
-  if sudo systemctl is-active --quiet caddy; then
-    sudo systemctl reload caddy || sudo systemctl restart caddy
-  else
-    sudo systemctl start caddy
-  fi
+  # restart (not reload): systemd's EnvironmentFile is only read at process
+  # start, so a `reload` would not pick up rotated CLOUDFLARE_API_TOKEN /
+  # BASIC_AUTH_HASH in /etc/caddy/palmux.env. restart is sub-second on Caddy
+  # and is the only way to guarantee a secret rotation re-run is effective.
+  log "(re)starting Caddy"
+  sudo systemctl restart caddy
 fi
 
 # --- linger + service ------------------------------------------------------
