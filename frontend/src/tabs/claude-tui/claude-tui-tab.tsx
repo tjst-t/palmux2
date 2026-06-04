@@ -412,6 +412,18 @@ function ClaudeTuiDesktop({
         return false
       }
 
+      // Ctrl+Z → do NOT let xterm.js send the literal ^Z byte (\x1a /
+      // SIGTSTP) to the PTY: there is no job-control shell here to `fg` it
+      // back, so suspending claude just sends it to the background and the
+      // tab appears dead. Remap Ctrl+Z to Claude Code's in-TUI Undo
+      // (readline-style C-_, byte \x1f) instead. hotfix 2026-06-04.
+      if (ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey
+          && (ev.key === 'z' || ev.key === 'Z')) {
+        ev.preventDefault()
+        sendRaw('\x1f')
+        return false
+      }
+
       const isPaste = (ev.ctrlKey || ev.metaKey) && (ev.key === 'v' || ev.key === 'V')
       if (!isPaste) return true
       pasteHandled = false
