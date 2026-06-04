@@ -29,7 +29,8 @@
 #   CLAUDE_BYPASS_PERMISSIONS=1
 #                          set ~/.claude/settings.json permissions.defaultMode=
 #                          bypassPermissions (disables ALL Claude permission
-#                          prompts — single-user autonomous box only)
+#                          prompts — single-user autonomous box only). Persisted
+#                          into ~/update-palmux2.sh so updates keep re-applying it.
 #
 # HTTPS via Caddy + Cloudflare DNS-01 (Story-2 — set BOTH to enable):
 #   DOMAIN                 e.g. palmux.example.com
@@ -63,6 +64,7 @@ GHQ_VERSION="${GHQ_VERSION:-latest}"
 GWQ_VERSION="${GWQ_VERSION:-latest}"
 PORTMAN_VERSION="${PORTMAN_VERSION:-latest}"
 NODE_MAJOR="${NODE_MAJOR:-20}"
+CLAUDE_BYPASS_PERMISSIONS="${CLAUDE_BYPASS_PERMISSIONS:-0}"
 
 DOMAIN="${DOMAIN:-}"
 CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
@@ -272,7 +274,7 @@ fi
 # safe silent default for a public installer. Merges into the user's real
 # ~/.claude/settings.json (preserving theme etc.); NOT managed by home-manager
 # so palmux2's own UI can still write to it.
-if [ "${CLAUDE_BYPASS_PERMISSIONS:-0}" = "1" ]; then
+if [ "$CLAUDE_BYPASS_PERMISSIONS" = "1" ]; then
   log "configuring Claude Code: permissions.defaultMode = bypassPermissions"
   CLAUDE_SETTINGS="${USER_HOME}/.claude/settings.json"
   install -d -m 0755 "${USER_HOME}/.claude"
@@ -1082,6 +1084,7 @@ log "writing update helper ${UPDATE_SCRIPT}"
   echo "export PROFILE=$(printf '%q' "$PROFILE")"
   echo "export PALMUX_FLAKE_REF=$(printf '%q' "$PALMUX_FLAKE_REF")"
   [ "$PORTMAN_ROUTING" = "1" ] && echo 'export PORTMAN_ROUTING=1'
+  [ "$CLAUDE_BYPASS_PERMISSIONS" = "1" ] && echo 'export CLAUDE_BYPASS_PERMISSIONS=1'
   [ -n "$DOMAIN" ] && echo "export DOMAIN=$(printf '%q' "$DOMAIN")"
   [ -n "$ACME_EMAIL" ] && echo "export ACME_EMAIL=$(printf '%q' "$ACME_EMAIL")"
   [ -n "$BASIC_AUTH_USER" ] && echo "export BASIC_AUTH_USER=$(printf '%q' "$BASIC_AUTH_USER")"
