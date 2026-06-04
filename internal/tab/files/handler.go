@@ -3,6 +3,7 @@ package files
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -637,6 +638,24 @@ func (h *handler) previewFile(w http.ResponseWriter, r *http.Request) {
 	}
 	if etag, err := EtagFor(root, path); err == nil {
 		w.Header().Set("ETag", etag)
+	}
+	// Markdown: render to a self-contained styled HTML document so the
+	// full-screen "Open in new tab" shows formatted Markdown rather than
+	// raw source. Other types fall through to the byte-serving path
+	// below (HTML renders natively, images / source surface as-is).
+	if isMarkdownPath(info.Path) {
+		doc, rerr := renderMarkdownDoc(body, filepath.Base(info.Path))
+		if rerr != nil {
+			writeErr(w, fmt.Errorf("render markdown preview: %w", rerr))
+			return
+		}
+		w.Header().Set("Content-Security-Policy", mdPreviewCSP)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("X-Palmux-Path", info.Path)
+		w.Header().Set("X-Palmux-Size", strconv.FormatInt(info.Size, 10))
+		_, _ = w.Write(doc)
+		return
 	}
 	w.Header().Set("Content-Security-Policy", rawCSP)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
