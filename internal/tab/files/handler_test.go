@@ -56,6 +56,33 @@ func TestMimeForPath(t *testing.T) {
 	}
 }
 
+// TestEnsureTextCharset guards the full-screen "Open" preview mojibake
+// fix: the sniffed MIME for Markdown / source files has no charset, and
+// with `nosniff` the browser decodes UTF-8 (CJK) with the platform
+// default unless we anchor charset=utf-8 on text/* responses.
+func TestEnsureTextCharset(t *testing.T) {
+	cases := map[string]string{
+		// text/* without charset → charset appended.
+		"text/markdown":   "text/markdown; charset=utf-8",
+		"text/plain":      "text/plain; charset=utf-8",
+		"text/x-go":       "text/x-go; charset=utf-8",
+		"text/x-python":   "text/x-python; charset=utf-8",
+		"text/typescript": "text/typescript; charset=utf-8",
+		// Already has charset → unchanged.
+		"text/html; charset=utf-8": "text/html; charset=utf-8",
+		// Non-text MIME → unchanged.
+		"image/png":                "image/png",
+		"application/octet-stream": "application/octet-stream",
+		"application/json":         "application/json",
+		"":                         "",
+	}
+	for in, want := range cases {
+		if got := ensureTextCharset(in); got != want {
+			t.Errorf("ensureTextCharset(%q) = %q; want %q", in, got, want)
+		}
+	}
+}
+
 func TestWantsJSON(t *testing.T) {
 	cases := []struct {
 		accept string

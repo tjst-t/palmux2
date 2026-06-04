@@ -470,15 +470,14 @@ export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum, o
       data-html-view-mode={isHtml ? htmlViewMode : undefined}
     >
       <header className={styles.header}>
-        <span className={styles.path}>
+        <span className={styles.path} title={stat.path}>
           {stat.path}
-          {dirty && (
-            <span className={styles.dirtyDot} data-testid="dirty-indicator" title="Unsaved changes">
-              {' '}
-              ●
-            </span>
-          )}
         </span>
+        {dirty && (
+          <span className={styles.dirtyDot} data-testid="dirty-indicator" title="Unsaved changes">
+            ●
+          </span>
+        )}
         <span className={styles.actions}>
           <span className={styles.meta}>
             {fmtBytes(stat.size)} · {stat.mime || 'unknown'}

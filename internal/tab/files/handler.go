@@ -61,6 +61,22 @@ func mimeForPath(name string) string {
 	return ""
 }
 
+// ensureTextCharset appends `; charset=utf-8` to a text MIME type that
+// lacks an explicit charset. The sniffed MIME for Markdown / source
+// files (`text/markdown`, `text/plain`, `text/x-go`, …) has no charset,
+// and because every preview response carries `X-Content-Type-Options:
+// nosniff`, the browser won't auto-detect one — it falls back to the
+// platform default and renders multibyte UTF-8 (e.g. Japanese) as
+// mojibake. Anchoring UTF-8 on text/* responses fixes that. Non-text
+// MIME types (images, octet-stream) are returned unchanged.
+func ensureTextCharset(ct string) string {
+	lower := strings.ToLower(ct)
+	if strings.HasPrefix(lower, "text/") && !strings.Contains(lower, "charset=") {
+		return ct + "; charset=utf-8"
+	}
+	return ct
+}
+
 // rawCSP is the Content-Security-Policy header attached to every raw
 // response (S026). It applies *inside* the sandboxed iframe that
 // renders HTML previews, providing defense-in-depth alongside the
@@ -628,8 +644,14 @@ func (h *handler) previewFile(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", mt)
 	} else {
 		// Fall back to the sniffed MIME — important for arbitrary
-		// binary assets the rendered HTML may reference.
-		w.Header().Set("Content-Type", info.MIME)
+		// binary assets the rendered HTML may reference. Anchor a
+		// UTF-8 charset on text/* types: the sniffed MIME for
+		// Markdown / source files (`text/markdown`, `text/plain`,
+		// `text/x-go`, …) carries no charset, and with `nosniff` the
+		// browser won't infer one — it decodes the body with the
+		// platform default and renders multibyte UTF-8 (CJK) as
+		// mojibake in the full-screen "Open" preview. (Hotfix.)
+		w.Header().Set("Content-Type", ensureTextCharset(info.MIME))
 	}
 	w.Header().Set("X-Palmux-Path", info.Path)
 	w.Header().Set("X-Palmux-Size", strconv.FormatInt(info.Size, 10))
