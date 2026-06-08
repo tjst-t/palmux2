@@ -17,9 +17,11 @@ export interface ContextMenuAction {
     | 'open'
     | 'rename'
     | 'move'
+    | 'download'
     | 'copy-path'
     | 'open-on-github'
     | 'delete'
+    | 'batch-download'
     | 'batch-move'
     | 'batch-copy'
     | 'batch-delete'
@@ -116,6 +118,15 @@ export function FilesContextMenu({ x, y, target, selectedPaths, onAction, onClos
           <button
             className={styles.item}
             role="menuitem"
+            onClick={() => handle('download')}
+            data-testid="files-ctx-download"
+          >
+            <span className={styles.icon}>⬇</span>
+            <span>Download</span>
+          </button>
+          <button
+            className={styles.item}
+            role="menuitem"
             onClick={() => handle('copy-path')}
             data-testid="files-ctx-copy-path"
           >
@@ -147,6 +158,16 @@ export function FilesContextMenu({ x, y, target, selectedPaths, onAction, onClos
 
       {isBatch && (
         <>
+          <button
+            className={styles.item}
+            role="menuitem"
+            onClick={() => handle('batch-download')}
+            data-testid="files-ctx-batch-download"
+          >
+            <span className={styles.icon}>⬇</span>
+            <span>Download {count} items…</span>
+          </button>
+          <div className={styles.divider} />
           <button
             className={styles.item}
             role="menuitem"

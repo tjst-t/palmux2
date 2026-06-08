@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Files · download — folder context menu (zip)</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b> / Files</span>
+      <span class="headerSpacer"></span>
+      <button class="headerBtn">⌘K</button>
+      <button class="headerBtn">🔔</button>
+    </header>
+
+    <aside class="drawer">
+      <div class="statusStrip"><span class="brand">PALMUX</span></div>
+      <div class="section"><span class="sectionTitle">Repositories</span></div>
+      <ul class="repos">
+        <li class="repo"><div class="repoRow"><span class="repoNum">1</span><button class="repoName"><span class="scope">tjst-t/</span>palmux2</button><button class="starBtn" data-on="true">★</button><button class="addBranchBtn">+</button><button class="moreBtn">⋯</button></div></li>
+      </ul>
+    </aside>
+
+    <main class="main">
+      <div class="tabBar">
+        <button class="tab"><span class="tabIcon">◆</span> Claude</button>
+        <button class="tab tabActive"><span class="tabIcon">📁</span> Files</button>
+        <button class="tab"><span class="tabIcon">⎇</span> Git</button>
+      </div>
+
+      <div class="filesShell">
+        <div class="filesHeader">
+          <nav class="filesCrumbs">
+            <span>📁 root</span>
+            <span style="color:var(--color-fg-faint);">/</span>
+            <span><b>src</b></span>
+            <span style="color:var(--color-fg-faint);">/</span>
+            <span><b>components</b></span>
+          </nav>
+          <div class="filesHeaderActions">
+            <button class="iconBtn">🔍 Search</button>
+          </div>
+        </div>
+
+        <div class="filesBody">
+          <div class="filesListPane" style="position:relative;">
+            <ul class="fileList" data-testid="files-list">
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">..</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">command-palette/</span><span class="fileMeta">14 items</span></button></li>
+              <li>
+                <button class="fileRow fileRowSelected fileRowContextOpen" data-testid="file-row-icons">
+                  <span class="fileIcon fileIconDir">📁</span>
+                  <span class="fileName">icons/</span>
+                  <span class="fileMeta">21 items</span>
+                </button>
+              </li>
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">inbox/</span><span class="fileMeta">5 items</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconFile">📄</span><span class="fileName">drawer.tsx</span><span class="fileMeta">22.4 KB</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconFile">📄</span><span class="fileName">header.tsx</span><span class="fileMeta">4.9 KB</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconFile">📄</span><span class="fileName">repo-picker.tsx</span><span class="fileMeta">11.2 KB</span></button></li>
+            </ul>
+            <div class="fileListCTAs" data-testid="files-list-ctas">
+              <button class="fileCTAIcon" data-tip="New file" data-testid="files-new-file-btn" aria-label="New file"><span class="ctaGlyph">📄</span><span class="ctaPlus">+</span></button>
+              <button class="fileCTAIcon" data-tip="New folder" data-testid="files-new-folder-btn" aria-label="New folder"><span class="ctaGlyph">📁</span><span class="ctaPlus">+</span></button>
+            </div>
+          </div>
+
+          <div class="filesPreviewPane">
+            <p style="color:var(--color-fg-muted);">Right-click a <b>folder</b> → <b>Download</b> streams the whole directory as a <code>.zip</code> (here <code>icons.zip</code>), hierarchy preserved, empty sub-dirs included.</p>
+            <p style="color:var(--color-fg-dim);">The zip is generated on the fly and written straight to the response (<code>archive/zip</code> → <code>ResponseWriter</code>) — nothing is buffered to memory or temp files, so large trees won't OOM the server.</p>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Folder context menu — same item set; "Download" produces a zip of the
+       directory. -->
+  <div class="ctxMenu" role="menu" data-testid="files-context-menu" style="left: 380px; top: 175px;">
+    <button class="ctxItem" data-testid="files-ctx-open"><span class="ctxIcon">📂</span><span>Open</span><span class="ctxKbd">↵</span></button>
+    <button class="ctxItem" data-testid="files-ctx-rename"><span class="ctxIcon">✎</span><span>Rename…</span><span class="ctxKbd">F2</span></button>
+    <button class="ctxItem" data-testid="files-ctx-move"><span class="ctxIcon">→</span><span>Move…</span><span class="ctxKbd">⌘⇧M</span></button>
+    <div class="ctxDivider"></div>
+    <button class="ctxItem ctxItemHighlight" data-testid="files-ctx-download"><span class="ctxIcon">⬇</span><span>Download</span><span class="ctxKbd">.zip</span></button>
+    <button class="ctxItem" data-testid="files-ctx-copy-path"><span class="ctxIcon">📋</span><span>Copy path</span></button>
+    <button class="ctxItem" data-testid="files-ctx-github"><span class="ctxIcon">🌐</span><span>Open on GitHub</span></button>
+    <div class="ctxDivider"></div>
+    <button class="ctxItem ctxItemDanger" data-testid="files-ctx-delete"><span class="ctxIcon">🗑</span><span>Delete</span><span class="ctxKbd" style="color: rgba(239, 68, 68, 0.55);">⌫</span></button>
+  </div>
+</body>
+</html>

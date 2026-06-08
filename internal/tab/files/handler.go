@@ -1,6 +1,7 @@
 package files
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -894,4 +895,270 @@ func maxResultsParam(q map[string][]string, fallback int) int {
 		}
 	}
 	return fallback
+}
+
+// rfc5987Encode percent-encodes s for use as an RFC 5987 ext-value. Only
+// "attr-char" bytes (ALPHA / DIGIT and the set !#$&+-.^_`|~) are emitted
+// as-is; every other byte is emitted as %XX (uppercase hex). This is
+// stricter than url.PathEscape (which leaves =, :, @, etc. unencoded),
+// so the resulting value is accepted by strict RFC 5987 parsers.
+func rfc5987Encode(s string) string {
+	const attrChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" +
+		"0123456789" +
+		"!#$&+-.^_`|~"
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if strings.IndexByte(attrChars, c) >= 0 {
+			b.WriteByte(c)
+		} else {
+			fmt.Fprintf(&b, "%%%02X", c)
+		}
+	}
+	return b.String()
+}
+
+// contentDispositionAttachment builds a Content-Disposition header value for
+// an attachment download. It provides both an ASCII fallback filename (for
+// RFC 2183 compatibility) and the RFC 5987 encoded form for non-ASCII names
+// such as Japanese filenames (Sc7818e).
+func contentDispositionAttachment(filename string) string {
+	// Build ASCII fallback: replace any byte >127, control bytes (<0x20),
+	// '"', or '\' with '_'.
+	var asciiBytes []byte
+	for i := 0; i < len(filename); i++ {
+		b := filename[i]
+		if b > 127 || b < 0x20 || b == '"' || b == '\\' {
+			asciiBytes = append(asciiBytes, '_')
+		} else {
+			asciiBytes = append(asciiBytes, b)
+		}
+	}
+	asciiName := string(asciiBytes)
+	return fmt.Sprintf(`attachment; filename=%q; filename*=UTF-8''%s`, asciiName, rfc5987Encode(filename))
+}
+
+// downloadFile handles `GET {filesPrefix}/download` (Sc7818e).
+//
+// Single file: streams the file as an attachment with full Range support
+// (http.ServeContent handles Accept-Ranges / 206 Partial Content automatically).
+//
+// Directory or multiple paths: streams a zip archive directly to the
+// response without buffering — the response is chunked (no Content-Length).
+//
+// Query params:
+//
+//	?path=<rel>            — one or more repeated params (required)
+func (h *handler) downloadFile(w http.ResponseWriter, r *http.Request) {
+	root, err := h.branchPath(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	downloadFromRoot(w, r, root)
+}
+
+// downloadFromRoot is the root-resolved core of downloadFile. It is separated
+// so that unit tests can call it without a real store (the store-resolution
+// step is tested by E2E).
+func downloadFromRoot(w http.ResponseWriter, r *http.Request, root string) {
+	paths := r.URL.Query()["path"]
+	if len(paths) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path required"})
+		return
+	}
+
+	// Validate AND stat ALL paths before writing any response body
+	// (AC-Sc7818e-2-3). Statting upfront means a bad path (400) or a missing
+	// path (404) is reported before any bytes are streamed — never a partial
+	// zip. The collected FileInfo is reused by both branches below.
+	absPaths := make([]string, len(paths))
+	infos := make([]os.FileInfo, len(paths))
+	for i, p := range paths {
+		abs, err := resolveSafePath(root, p)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		fi, err := os.Stat(abs)
+		if err != nil {
+			if os.IsNotExist(err) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			writeErr(w, err)
+			return
+		}
+		absPaths[i] = abs
+		infos[i] = fi
+	}
+
+	// Single-file path: regular file, not a directory.
+	if len(paths) == 1 {
+		abs := absPaths[0]
+		fi := infos[0]
+		if fi.Mode().IsRegular() {
+			// Single regular file — stream with Range support.
+			f, err := os.Open(abs)
+			if err != nil {
+				if os.IsNotExist(err) {
+					http.Error(w, "not found", http.StatusNotFound)
+					return
+				}
+				writeErr(w, err)
+				return
+			}
+			defer f.Close()
+			name := filepath.Base(abs)
+			w.Header().Set("Content-Disposition", contentDispositionAttachment(name))
+			if mt := mimeForPath(abs); mt != "" {
+				w.Header().Set("Content-Type", mt)
+			}
+			http.ServeContent(w, r, fi.Name(), fi.ModTime(), f)
+			return
+		}
+	}
+
+	// Zip path: directory or multiple paths.
+	var zipName string
+	if len(paths) == 1 {
+		// Single directory.
+		rel := filepath.ToSlash(filepath.Clean(paths[0]))
+		zipName = filepath.Base(rel) + ".zip"
+	} else {
+		zipName = "download.zip"
+	}
+
+	w.Header().Set("Content-Disposition", contentDispositionAttachment(zipName))
+	w.Header().Set("Content-Type", "application/zip")
+
+	zw := zip.NewWriter(w)
+	defer zw.Close()
+
+	for i, p := range paths {
+		abs := absPaths[i]
+		relName := filepath.ToSlash(filepath.Clean(p))
+		fi := infos[i] // statted upfront; existence already guaranteed
+
+		if fi.Mode().IsRegular() {
+			if err := addFileToZip(zw, abs, relName, fi); err != nil {
+				// We've already started streaming — can't send a proper
+				// HTTP error. The zip will be incomplete but truncated
+				// gracefully by Close().
+				return
+			}
+		} else if fi.IsDir() {
+			// Walk the directory tree.
+			if err := addDirToZip(zw, abs, relName); err != nil {
+				return
+			}
+		}
+	}
+}
+
+// addFileToZip writes a single regular file as a zip entry named entryName.
+// entryName must be a worktree-relative slash-separated path with no leading
+// slash and no ".." segments.
+func addFileToZip(zw *zip.Writer, abs, entryName string, fi os.FileInfo) error {
+	if containsDotDotSegment(entryName) {
+		return fmt.Errorf("zip-slip: entry %q rejected", entryName)
+	}
+	fh := &zip.FileHeader{
+		Name:     entryName,
+		Method:   zip.Deflate,
+		Modified: fi.ModTime(),
+	}
+	ew, err := zw.CreateHeader(fh)
+	if err != nil {
+		return fmt.Errorf("zip create header %q: %w", entryName, err)
+	}
+	src, err := os.Open(abs)
+	if err != nil {
+		return fmt.Errorf("zip open %q: %w", abs, err)
+	}
+	defer src.Close()
+	if _, err := io.Copy(ew, src); err != nil {
+		return fmt.Errorf("zip copy %q: %w", entryName, err)
+	}
+	return nil
+}
+
+// addDirToZip recursively walks dirAbs and adds all entries under the zip
+// prefix dirRelName. Empty directories are included as entries ending with "/"
+// so they survive extraction (AC-Sc7818e-2-1).
+//
+// Symlinks inside the directory are skipped entirely — consistent with the
+// Grep/SearchEntries walks in browser.go — to prevent symlink-escape attacks
+// where a link inside the worktree could stream content from outside it.
+func addDirToZip(zw *zip.Writer, dirAbs, dirRelName string) error {
+	return filepath.WalkDir(dirAbs, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip symlinks (files and dirs): d.Type() is Lstat-based so it
+		// identifies the symlink itself without following it. This mirrors
+		// the guard in browser.go's Grep walk and prevents symlink-escape.
+		if d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+
+		// Compute the path relative to dirAbs.
+		rel, err := filepath.Rel(dirAbs, path)
+		if err != nil {
+			return fmt.Errorf("zip rel path: %w", err)
+		}
+		rel = filepath.ToSlash(rel)
+
+		// Build the zip entry name under the dir prefix.
+		var entryName string
+		if rel == "." {
+			// The directory itself (top-level in this walk).
+			if d.IsDir() {
+				entryName = dirRelName + "/"
+			} else {
+				entryName = dirRelName
+			}
+		} else {
+			entryName = dirRelName + "/" + rel
+			if d.IsDir() {
+				entryName += "/"
+			}
+		}
+
+		// Defensive zip-slip check.
+		if containsDotDotSegment(entryName) {
+			return fmt.Errorf("zip-slip: entry %q rejected", entryName)
+		}
+
+		fi, err := d.Info()
+		if err != nil {
+			return fmt.Errorf("zip stat %q: %w", path, err)
+		}
+
+		if d.IsDir() {
+			// Emit a directory entry so empty dirs survive.
+			fh := &zip.FileHeader{
+				Name:     entryName,
+				Method:   zip.Store,
+				Modified: fi.ModTime(),
+			}
+			_, err := zw.CreateHeader(fh)
+			return err
+		}
+
+		// Regular file.
+		return addFileToZip(zw, path, entryName, fi)
+	})
+}
+
+// containsDotDotSegment returns true if any slash-separated segment of the
+// path equals "..". Used as a defensive zip-slip guard.
+func containsDotDotSegment(p string) bool {
+	for _, seg := range strings.Split(p, "/") {
+		if seg == ".." {
+			return true
+		}
+	}
+	return false
 }

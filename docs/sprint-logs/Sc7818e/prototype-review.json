@@ -1,0 +1,15 @@
+{
+  "sprint_range": ["Sc7818e"],
+  "screens": [
+    {"file": "prototype/files-download-single.html", "story": "Sc7818e-3", "feedback_rounds": 0, "approved": true},
+    {"file": "prototype/files-download-folder.html", "story": "Sc7818e-3", "feedback_rounds": 0, "approved": true},
+    {"file": "prototype/files-download-batch.html", "story": "Sc7818e-3", "feedback_rounds": 0, "approved": true},
+    {"file": "prototype/files-download-preview.html", "story": "Sc7818e-3", "feedback_rounds": 0, "approved": true},
+    {"file": "prototype/files-download-mobile.html", "story": "Sc7818e-3", "feedback_rounds": 0, "approved": true}
+  ],
+  "design_decisions": [
+    "Reuse existing Fog v2.1 dark palette + files-context-menu/multiSelectBar/file-preview structure (no new aesthetic).",
+    "Accent treatment only on the new Download / Download N items… items.",
+    "Mobile: bottom-sheet context menu with 44px tap targets."
+  ]
+}

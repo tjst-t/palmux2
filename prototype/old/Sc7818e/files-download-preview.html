@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Files · download — preview header button</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b> / Files</span>
+      <span class="headerSpacer"></span>
+      <button class="headerBtn">⌘K</button>
+      <button class="headerBtn">🔔</button>
+    </header>
+
+    <aside class="drawer">
+      <div class="statusStrip"><span class="brand">PALMUX</span></div>
+      <div class="section"><span class="sectionTitle">Repositories</span></div>
+      <ul class="repos">
+        <li class="repo"><div class="repoRow"><span class="repoNum">1</span><button class="repoName"><span class="scope">tjst-t/</span>palmux2</button><button class="starBtn" data-on="true">★</button><button class="addBranchBtn">+</button><button class="moreBtn">⋯</button></div></li>
+      </ul>
+    </aside>
+
+    <main class="main">
+      <div class="tabBar">
+        <button class="tab"><span class="tabIcon">◆</span> Claude</button>
+        <button class="tab tabActive"><span class="tabIcon">📁</span> Files</button>
+        <button class="tab"><span class="tabIcon">⎇</span> Git</button>
+      </div>
+
+      <div class="filesShell">
+        <div class="filesHeader">
+          <nav class="filesCrumbs">
+            <span>📁 root</span>
+            <span style="color:var(--color-fg-faint);">/</span>
+            <span><b>src</b></span>
+            <span style="color:var(--color-fg-faint);">/</span>
+            <span><b>components</b></span>
+          </nav>
+          <div class="filesHeaderActions">
+            <button class="iconBtn">🔍 Search</button>
+          </div>
+        </div>
+
+        <div class="filesBody">
+          <div class="filesListPane" style="position:relative;">
+            <ul class="fileList" data-testid="files-list">
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">..</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconFile">📄</span><span class="fileName">drawer.tsx</span><span class="fileMeta">22.4 KB</span></button></li>
+              <li>
+                <button class="fileRow fileRowSelected" data-testid="file-row-header">
+                  <span class="fileIcon fileIconFile">📄</span><span class="fileName">header.tsx</span><span class="fileMeta">4.9 KB</span>
+                </button>
+              </li>
+              <li><button class="fileRow"><span class="fileIcon fileIconFile">📄</span><span class="fileName">repo-picker.tsx</span><span class="fileMeta">11.2 KB</span></button></li>
+            </ul>
+            <div class="fileListCTAs" data-testid="files-list-ctas">
+              <button class="fileCTAIcon" data-tip="New file" aria-label="New file"><span class="ctaGlyph">📄</span><span class="ctaPlus">+</span></button>
+              <button class="fileCTAIcon" data-tip="New folder" aria-label="New folder"><span class="ctaGlyph">📁</span><span class="ctaPlus">+</span></button>
+            </div>
+          </div>
+
+          <!-- File preview with header. NEW: "⬇ Download" button sits left of
+               the existing Edit toggle in the header actions group. -->
+          <div class="filesPreviewPane" style="padding:0; display:flex; flex-direction:column;" data-testid="file-preview">
+            <header class="previewHeader">
+              <span class="previewPath" title="src/components/header.tsx">src/components/<b>header.tsx</b></span>
+              <span class="previewActions">
+                <span class="previewMeta">4.9 KB · utf-8</span>
+                <button class="previewDlBtn" data-testid="file-preview-download" title="Download this file">⬇ Download</button>
+                <button class="previewEditBtn" title="Edit this file">✎ Edit</button>
+              </span>
+            </header>
+            <pre class="previewCode"><span class="cmt">// header.tsx — top app bar (brand · breadcrumb · ⌘K · 🔔)</span>
+<span class="kw">import</span> { useState } <span class="kw">from</span> <span class="str">'react'</span>
+<span class="kw">import</span> styles <span class="kw">from</span> <span class="str">'./header.module.css'</span>
+
+<span class="kw">export function</span> Header({ repo, branch, tab }: Props) {
+  <span class="kw">const</span> [open, setOpen] = useState(<span class="kw">false</span>)
+  <span class="kw">return</span> (
+    &lt;header className={styles.header}&gt;
+      &lt;span className={styles.brand}&gt;PALMUX&lt;/span&gt;
+      &lt;Breadcrumb repo={repo} branch={branch} tab={tab} /&gt;
+    &lt;/header&gt;
+  )
+}</pre>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

@@ -482,6 +482,15 @@ export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum, o
           <span className={styles.meta}>
             {fmtBytes(stat.size)} · {stat.mime || 'unknown'}
           </span>
+          <a
+            className={styles.editButton}
+            href={`${apiBase}/download?path=${encodeURIComponent(path)}`}
+            download
+            data-testid="file-preview-download"
+            title="Download this file"
+          >
+            ⬇ Download
+          </a>
           <button
             type="button"
             className={styles.editButton}

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Files · download — mobile (&lt;600px)</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Phone frame so the <600px layout is reviewable on a desktop browser.
+       In the real app this is just the responsive layout at a narrow width. */
+    body { display: grid; place-items: center; min-height: 100vh; background: #07080c; padding: 24px; }
+    .phone {
+      width: 390px; height: 780px;
+      border: 1px solid var(--color-border);
+      border-radius: 28px;
+      overflow: hidden;
+      position: relative;
+      background: var(--color-bg);
+      box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+    }
+    .phone .mHeader {
+      height: 44px; display: flex; align-items: center; gap: 8px;
+      padding: 0 12px; border-bottom: 1px solid var(--color-border);
+      background: var(--color-surface);
+    }
+    .phone .mCrumb { font-size: 12px; color: var(--color-fg-muted); }
+    .phone .mTabBar {
+      display: flex; gap: 4px; padding: 4px 8px;
+      border-bottom: 1px solid var(--color-border); background: var(--color-surface);
+    }
+    .phone .mTab {
+      flex: 1; text-align: center; font-size: 11px; padding: 6px 0;
+      border-radius: var(--radius-sm); border: 0; background: transparent;
+      color: var(--color-fg-muted); cursor: pointer;
+    }
+    .phone .mTabActive { background: var(--color-elevated); color: var(--color-fg); }
+    .phone .mList { list-style: none; margin: 0; padding: 4px 0; }
+    .phone .mList li > button {
+      display: flex; align-items: center; gap: 10px; width: 100%;
+      background: transparent; border: 0; padding: 11px 14px;
+      color: var(--color-fg); text-align: left; font-size: 13px; cursor: pointer;
+    }
+    .phone .mList .sel {
+      background: rgba(124,138,255,0.14);
+      box-shadow: inset 2px 0 0 var(--color-accent);
+    }
+    .phone .mMeta { margin-left: auto; font-size: 11px; color: var(--color-fg-dim); font-family: var(--font-mono); }
+    /* Bottom sheet context menu — mobile pattern: slide up from the bottom,
+       full width, large tap targets. Stays inside the viewport. */
+    .sheetScrim { position: absolute; inset: 0; background: rgba(0,0,0,0.45); }
+    .sheet {
+      position: absolute; left: 0; right: 0; bottom: 0;
+      background: var(--color-elevated);
+      border-top: 1px solid var(--color-border);
+      border-radius: 14px 14px 0 0;
+      padding: 8px 8px 16px;
+    }
+    .sheetGrip { width: 36px; height: 4px; border-radius: 2px; background: var(--color-fg-ghost); margin: 6px auto 10px; }
+    .sheet .ctxItem { font-size: 14px; padding: 12px 14px; }
+  </style>
+</head>
+<body>
+  <div class="phone">
+    <div class="mHeader">
+      <span class="headerBrand">PALMUX</span>
+      <span class="mCrumb"><b style="color:var(--color-fg)">palmux2</b> / main / Files</span>
+    </div>
+    <div class="mTabBar">
+      <button class="mTab">◆ Claude</button>
+      <button class="mTab mTabActive">📁 Files</button>
+      <button class="mTab">⎇ Git</button>
+    </div>
+
+    <ul class="mList" data-testid="files-list">
+      <li><button><span>📁</span><span>..</span></button></li>
+      <li><button><span>📁</span><span>command-palette/</span><span class="mMeta">14</span></button></li>
+      <li><button><span>📁</span><span>icons/</span><span class="mMeta">21</span></button></li>
+      <li><button class="sel"><span>📄</span><span>repo-picker.tsx</span><span class="mMeta">11.2 KB</span></button></li>
+      <li><button><span>📄</span><span>header.tsx</span><span class="mMeta">4.9 KB</span></button></li>
+      <li><button><span>📄</span><span>drawer.tsx</span><span class="mMeta">22.4 KB</span></button></li>
+    </ul>
+
+    <!-- Long-press a row on touch → bottom-sheet actions. The Download item
+         is reachable without horizontal overflow; tap targets are 44px-tall. -->
+    <div class="sheetScrim"></div>
+    <div class="sheet" role="menu" data-testid="files-context-menu">
+      <div class="sheetGrip"></div>
+      <button class="ctxItem" data-testid="files-ctx-open"><span class="ctxIcon">📂</span><span>Open</span></button>
+      <button class="ctxItem" data-testid="files-ctx-rename"><span class="ctxIcon">✎</span><span>Rename…</span></button>
+      <button class="ctxItem" data-testid="files-ctx-move"><span class="ctxIcon">→</span><span>Move…</span></button>
+      <div class="ctxDivider"></div>
+      <button class="ctxItem ctxItemHighlight" data-testid="files-ctx-download"><span class="ctxIcon">⬇</span><span>Download</span></button>
+      <button class="ctxItem" data-testid="files-ctx-copy-path"><span class="ctxIcon">📋</span><span>Copy path</span></button>
+      <div class="ctxDivider"></div>
+      <button class="ctxItem ctxItemDanger" data-testid="files-ctx-delete"><span class="ctxIcon">🗑</span><span>Delete</span></button>
+    </div>
+  </div>
+</body>
+</html>

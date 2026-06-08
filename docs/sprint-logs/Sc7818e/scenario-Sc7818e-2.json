@@ -1,0 +1,91 @@
+{
+  "$file": "scenario-Sc7818e-2.json",
+  "$comment": "API scenario for Sc7818e-2 (フォルダ/複数選択 zip download BE). Real HTTP client against `make serve INSTANCE=dev`. zip はレスポンスへ直接ストリームされる。See test-discipline.md Rule 2.",
+  "story": "Sc7818e-2",
+  "story_type": "api",
+  "user_role": "複数リポジトリで作業する個人開発者 (フォルダ/複数ファイルをまとめて取り出したい)",
+  "entry_point": "http://127.0.0.1:<dev-port>/api/repos/{repoId}/branches/{branchId}/files/download?path=...(&path=...) — palmux_session Cookie 認証",
+  "preconditions_global": [
+    "dev インスタンスに Open 済みの Repository + Workspace がある",
+    "worktree 内にテスト用ディレクトリ構造を fixture として配置できる"
+  ],
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "linked_ac": ["AC-Sc7818e-2-1"],
+      "description": "ディレクトリを指す download は階層・内容を保持した zip を返す (空ディレクトリ含む)。",
+      "preconditions": [
+        "worktree 内に dl_dir/ を作成し、dl_dir/a.txt, dl_dir/sub/b.txt を既知内容で配置、dl_dir/empty/ を空ディレクトリとして作成"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "action": "GET /files/download?path=dl_dir",
+          "expected": "200。Content-Disposition: attachment; filename=\"dl_dir.zip\"。ボディは有効な zip アーカイブ"
+        },
+        {
+          "n": 2,
+          "action": "返ってきた zip を展開し、エントリ一覧と各ファイル内容を fixture と比較",
+          "expected": "a.txt と sub/b.txt が元の相対パス・内容で含まれる。空ディレクトリ empty/ も zip エントリとして残り展開可能"
+        }
+      ],
+      "cleanup": ["fixture dl_dir/ を再帰削除"]
+    },
+    {
+      "id": "scenario-2",
+      "linked_ac": ["AC-Sc7818e-2-2"],
+      "description": "path クエリ複数指定で、選んだエントリだけを1つの zip にまとめる。",
+      "preconditions": [
+        "worktree 直下に a.txt, sub/b.txt を配置、dir2/ を内容付きで作成"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "action": "GET /files/download?path=a.txt&path=sub/b.txt&path=dir2",
+          "expected": "200。zip が返る。Content-Disposition の filename はデフォルト (例 \"download.zip\")"
+        },
+        {
+          "n": 2,
+          "action": "zip を展開しエントリを確認",
+          "expected": "a.txt, sub/b.txt, および dir2/ 配下のファイルが相対パス・内容一致で含まれる。指定していないファイルは含まれない"
+        }
+      ],
+      "cleanup": ["fixture a.txt, sub/, dir2/ を削除"]
+    },
+    {
+      "id": "scenario-3",
+      "linked_ac": ["AC-Sc7818e-2-3"],
+      "description": "zip 内エントリ名は worktree 相対のみ (zip-slip 耐性)。不正 path はそもそも 400。",
+      "preconditions": ["worktree 内に dl_dir/a.txt を配置"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "GET /files/download?path=dl_dir で得た zip の全エントリ名を検査",
+          "expected": "どのエントリ名も `../` を含まず、絶対パス (先頭 /) でもない"
+        },
+        {
+          "n": 2,
+          "action": "GET /files/download?path=dl_dir&path=../../etc (1つでも検証失敗する path を混ぜる)",
+          "expected": "400。zip を生成・返却しない (部分的な zip も返さない)"
+        }
+      ],
+      "cleanup": ["fixture dl_dir/ を削除"]
+    },
+    {
+      "id": "scenario-4",
+      "linked_ac": ["AC-Sc7818e-2-4"],
+      "description": "zip はストリーム生成され、サーバはアーカイブ全体をメモリに溜めない。",
+      "preconditions": [
+        "worktree 内に bigdir/ を作成し合計サイズが十分大きい (例: 各 5MiB × 4 ファイル) 既知データを配置"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "action": "GET /files/download?path=bigdir でレスポンスをストリーム受信 (chunk ごとに読む)",
+          "expected": "Content-Length を待たずに最初の chunk が早期に届く (Transfer-Encoding: chunked、または Content-Length 無しでストリーム配信)。最終的に展開して bigdir/ と内容一致"
+        }
+      ],
+      "cleanup": ["fixture bigdir/ を削除"]
+    }
+  ]
+}
