@@ -2,15 +2,15 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 46,
+    "sprints_done": 47,
     "sprints_total": 48,
-    "percent": 95,
-    "current_sprint": "Sc7818e",
-    "done": 46,
+    "percent": 97,
+    "current_sprint": null,
+    "done": 47,
     "in_progress": 1,
     "total": 48,
-    "remaining": 2,
-    "percentage": 95
+    "remaining": 1,
+    "percentage": 97
   },
   "execution_order": [
     "S001",
@@ -8245,13 +8245,13 @@
     },
     "Sc7818e": {
       "title": "Files タブ ダウンロード機能 (単一ファイル + フォルダ/複数選択 zip)",
-      "status": "in_progress",
+      "status": "done",
       "milestone": false,
       "description": "Files タブは list / read(preview) / search / grep / CRUD / upload を持つが、ブラウザ上のファイルをローカルに『取り出す』導線が無い。プレビューは previewMaxBytes で打ち切られ、バイナリも丸ごとは取得できない。本 Sprint で Files タブにダウンロード機能を追加する。\n\nユーザ確定スコープ (2026-06-08):\n  - 単一ファイルのダウンロード + フォルダ/複数選択を zip でまとめてダウンロード\n  - 大容量/バイナリは全サイズ完全取得 (previewMaxBytes 制限を回避)\n\n採用アーキテクチャ:\n  - GET {prefix}/download エンドポイントを新設。単一ファイルは http.ServeContent でストリーム配信 (Range 対応・全サイズ)。Content-Disposition: attachment、非ASCII名は RFC5987 filename*=UTF-8'' でエンコード\n  - path がディレクトリ、または path クエリを複数指定 (?path=a&path=b) した場合は archive/zip でレスポンスへ直接ストリーム (メモリにバッファしない)。zip 内パスは worktree 相対で保持\n  - パス安全性は既存 internal/tab/files/security.go (resolveSecurePath: ../ → 400、symlink は EvalSymlinks 検証) を流用。zip 生成時も全エントリを同じ検証に通し、zip 内に ../ を含むパスを作らない\n  - 認証は Cookie ベース (HttpOnly, same-origin, credentials:'include')。FE は <a download href> のネイティブ遷移でストリーム取得し、JS 側でファイル全体をバッファしない\n\nスコープ外:\n  - ダウンロード進捗バー / 一時停止・再開 (ブラウザ標準のダウンロード UI に委譲)\n  - サーバ側での zip キャッシュ / 事前生成 (都度ストリーム生成)\n  - 認証トークン (Bearer) 専用クライアントからのダウンロード最適化 (Cookie 経路で足りる)\n\n検証: make serve INSTANCE=dev で立てた dev インスタンスに対し Playwright(headless) で、(a) テキスト/バイナリ/previewMaxBytes 超ファイルを単一 DL し全バイト一致、(b) フォルダ/複数選択を zip DL し階層・内容一致、(c) ../ などの不正パスが 400 になり zip 内にも漏れない、(d) コンテキストメニュー/プレビューヘッダ/batch/モバイル幅の各導線から DL が起動する、を実機 (本番モード) で検証する。",
       "stories": {
         "Sc7818e-1": {
           "id": "Sc7818e-1",
-          "status": "todo",
+          "status": "done",
           "title": "単一ファイルのダウンロード (BE): GET /download + ServeContent + 全サイズ + attachment",
           "user_story": "複数リポジトリで作業する個人開発者として、Files タブで見ているファイルを丸ごとローカルに保存したい。なぜなら、プレビューだけでなく実物のファイル (大容量・バイナリ含む) を手元に取り出したいから。",
           "acceptance_criteria": [
@@ -8259,43 +8259,43 @@
               "id": "AC-Sc7818e-1-1",
               "description": "GET {prefix}/download?path=<file> がファイルを Content-Disposition: attachment で返し、レスポンスボディが元ファイルと全バイト一致する。previewMaxBytes / defaultReadLimit を超えるテキストでも切り詰められず全サイズ取得できる",
               "test": "tests/e2e/sc7818e_files_download.py [AC-Sc7818e-1-1]",
-              "status": "todo"
+              "status": "pass"
             },
             {
               "id": "AC-Sc7818e-1-2",
               "description": "バイナリファイル (画像等) を download すると全バイト一致で取得でき、http.ServeContent により Range リクエスト (Accept-Ranges / 206 Partial Content) に応答する",
               "test": "tests/e2e/sc7818e_files_download.py [AC-Sc7818e-1-2]",
-              "status": "todo"
+              "status": "pass"
             },
             {
               "id": "AC-Sc7818e-1-3",
               "description": "Content-Disposition の filename が basename になり、非ASCII (日本語) ファイル名は RFC5987 filename*=UTF-8'' でエンコードされて文字化けしない",
               "test": "tests/e2e/sc7818e_files_download.py [AC-Sc7818e-1-3]",
-              "status": "todo"
+              "status": "pass"
             },
             {
               "id": "AC-Sc7818e-1-4",
               "description": "path に ../ を含む / worktree 外を指す / symlink で外部を指すリクエストは 400 を返し、ファイル内容を漏らさない (既存 security.go 経由)",
               "test": "tests/e2e/sc7818e_files_download.py [AC-Sc7818e-1-4]",
-              "status": "todo"
+              "status": "pass"
             }
           ],
           "tasks": {
             "Sc7818e-1-1": {
               "id": "Sc7818e-1-1",
               "title": "handler.go に downloadFile を実装 (resolveSecurePath → os.Open → http.ServeContent)、provider.go の RegisterRoutes に GET {prefix}/download を登録",
-              "status": "todo"
+              "status": "done"
             },
             "Sc7818e-1-2": {
               "id": "Sc7818e-1-2",
               "title": "Content-Disposition ヘッダ生成ヘルパ (ASCII fallback + RFC5987 filename*)。handler_test.go にユニットテスト追加",
-              "status": "todo"
+              "status": "done"
             }
           }
         },
         "Sc7818e-2": {
           "id": "Sc7818e-2",
-          "status": "todo",
+          "status": "done",
           "title": "フォルダ/複数選択の zip ダウンロード (BE): archive/zip ストリーム + パス検証",
           "user_story": "複数リポジトリで作業する個人開発者として、フォルダや複数選択したファイルをまとめて zip でダウンロードしたい。なぜなら、1ファイルずつ保存するのは手間で、ディレクトリ構造ごと取り出したいから。",
           "acceptance_criteria": [
@@ -8303,43 +8303,43 @@
               "id": "AC-Sc7818e-2-1",
               "description": "GET {prefix}/download?path=<dir> がディレクトリを zip でストリーム配信し、Content-Disposition: attachment; filename=\"<dir>.zip\"。zip を展開すると元の階層・内容が一致する (空ディレクトリも含む)",
               "test": "tests/e2e/sc7818e_files_download.py [AC-Sc7818e-2-1]",
-              "status": "todo"
+              "status": "pass"
             },
             {
               "id": "AC-Sc7818e-2-2",
               "description": "path クエリを複数指定 (?path=a.txt&path=sub/b.txt&path=dir) すると指定エントリを1つの zip にまとめて返し、各エントリの相対パス・内容が一致する",
               "test": "tests/e2e/sc7818e_files_download.py [AC-Sc7818e-2-2]",
-              "status": "todo"
+              "status": "pass"
             },
             {
               "id": "AC-Sc7818e-2-3",
               "description": "zip 内のエントリ名はすべて worktree 相対で、../ や絶対パスを含まない (zip-slip 耐性)。いずれかの path が security 検証に失敗したら zip を生成せず 400 を返す",
               "test": "tests/e2e/sc7818e_files_download.py [AC-Sc7818e-2-3]",
-              "status": "todo"
+              "status": "pass"
             },
             {
               "id": "AC-Sc7818e-2-4",
               "description": "zip はレスポンスへ直接ストリーム書き込みされ、サーバはファイル全体をメモリにバッファしない (大容量ディレクトリでも OOM しない)",
               "test": "tests/e2e/sc7818e_files_download.py [AC-Sc7818e-2-4]",
-              "status": "todo"
+              "status": "pass"
             }
           ],
           "tasks": {
             "Sc7818e-2-1": {
               "id": "Sc7818e-2-1",
               "title": "downloadFile を拡張: path がディレクトリ/複数のとき archive/zip.NewWriter(w) で walk しながらストリーム書き込み。各エントリを resolveSecurePath で検証",
-              "status": "todo"
+              "status": "done"
             },
             "Sc7818e-2-2": {
               "id": "Sc7818e-2-2",
               "title": "zip-slip / 複数 path / 空ディレクトリ / 検証失敗時 400 のユニットテストを handler_test.go に追加",
-              "status": "todo"
+              "status": "done"
             }
           }
         },
         "Sc7818e-3": {
           "id": "Sc7818e-3",
-          "status": "todo",
+          "status": "done",
           "title": "ダウンロード UI 導線 (FE): コンテキストメニュー + プレビューヘッダ + batch + モバイル",
           "user_story": "PC・スマホから同じ環境を使う個人開発者として、ファイル一覧・プレビュー・複数選択のどこからでもダウンロードを起動したい。なぜなら、操作の起点がバラバラだと毎回探す手間がかかるから。",
           "acceptance_criteria": [
@@ -8347,37 +8347,37 @@
               "id": "AC-Sc7818e-3-1",
               "description": "ファイル一覧のコンテキストメニューに、単一ファイルで「Download」、フォルダで「Download」、batch モード (N≥2 選択) で「Download N items…」が表示され、クリックで download URL への <a download> ネイティブ遷移が起動する",
               "test": "tests/e2e/sc7818e_files_download.py [AC-Sc7818e-3-1]",
-              "status": "todo"
+              "status": "pass"
             },
             {
               "id": "AC-Sc7818e-3-2",
               "description": "ファイルプレビューのヘッダにダウンロードボタンが表示され、クリックで現在開いているファイルの download が起動する",
               "test": "tests/e2e/sc7818e_files_download.py [AC-Sc7818e-3-2]",
-              "status": "todo"
+              "status": "pass"
             },
             {
               "id": "AC-Sc7818e-3-3",
               "description": "batch/フォルダ DL は ?path= を繰り返した zip URL へ遷移する。複数選択時のメニュー文言が選択数を反映する",
               "test": "tests/e2e/sc7818e_files_download.py [AC-Sc7818e-3-3]",
-              "status": "todo"
+              "status": "pass"
             },
             {
               "id": "AC-Sc7818e-3-4",
               "description": "モバイル幅 (<600px) でもコンテキストメニュー/プレビューヘッダのダウンロード導線が崩れず到達・起動できる",
               "test": "tests/e2e/sc7818e_files_download.py [AC-Sc7818e-3-4]",
-              "status": "todo"
+              "status": "pass"
             }
           ],
           "tasks": {
             "Sc7818e-3-1": {
               "id": "Sc7818e-3-1",
               "title": "files-context-menu.tsx に Download / Download (folder) / Download N items… を追加し、files-view.tsx で download URL を組み立て <a download> をプログラム的にトリガするヘルパを実装",
-              "status": "todo"
+              "status": "done"
             },
             "Sc7818e-3-2": {
               "id": "Sc7818e-3-2",
               "title": "file-preview.tsx のヘッダにダウンロードボタンを追加 (既存ヘッダアクション群に追従)。モバイル幅のスタイル調整",
-              "status": "todo"
+              "status": "done"
             }
           }
         }
@@ -8810,6 +8810,12 @@
       "description": "Sprint C (S1f75ec) 後の次 sprint 候補。 claude-tui の internal/tab/claudetui/ Daemon / Manager / Ring / emulator を internal/tab/ptytui/ として汎用化し、 claudetui + bash で共有する。 Bash タブから tmux 依存を撤廃 (= internal/tmux/ パッケージの使用箇所が claudetui+bash 経路から消える)。\n\n設計の核となる open question: 「daemon が長命プロセス (npm run dev / make watch 等) を持つとき、 palmux2 サーバ crash で subprocess を道連れにする regression をどう扱うか」 — 候補:\n  (a) systemd --user service として daemon を palmux2 サーバから独立させて supervisor 化 (大改修、 配布が複雑化)\n  (b) 短命タスク前提で regression を許容 + ユーザに事前通知 (シンプルだが Sprint A 級の UX 後退)\n  (c) bash daemon だけ tmux 残置 (= claudetui の対称性を諦める、 統一の意義が薄れる)\n  (d) `--persist-via-systemd` opt-in flag を導入し、 default は (b) で長命タスクは (a) パスに逃がす (中庸)\n\n推奨: design doc を先行で書いて (docs/sprint-logs/<sprint>/design.md) ユーザ決裁を取ってから sprint plan に進む。 規模目安: design = 0.5 sprint、 実装 = 1.5〜2 sprint。\n\n副次効果: internal/tmux/ パッケージは S1f75ec 後も `--tmux-prefix` 経由の host vs dev 名前空間分離で使われるが、 タブ実装での使用箇所が消えれば最終的に削除候補に。",
       "added_in": "S1f75ec planning discussion",
       "reason": "Sprint C と同梱だとスコープが破裂する + 長命プロセス supervision の設計判断が伴う。 専用 sprint として分離。 ユーザ要望でこの方向性自体は確定。"
+    },
+    {
+      "title": "Extract shared Files download-URL helper",
+      "description": "triggerDownload (files-view.tsx) and the inline href in file-preview.tsx both build `${apiBase}/download?path=...` independently — could drift if the route is renamed. Extract a shared helper. Source: Sc7818e sprint-level review.",
+      "source": "Sc7818e review",
+      "priority": "low"
     }
   ]
 }
