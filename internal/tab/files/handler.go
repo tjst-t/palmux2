@@ -968,20 +968,18 @@ func downloadFromRoot(w http.ResponseWriter, r *http.Request, root string) {
 		return
 	}
 
-	// Validate ALL paths before writing any response body (AC-Sc7818e-2-3).
+	// Validate AND stat ALL paths before writing any response body
+	// (AC-Sc7818e-2-3). Statting upfront means a bad path (400) or a missing
+	// path (404) is reported before any bytes are streamed — never a partial
+	// zip. The collected FileInfo is reused by both branches below.
 	absPaths := make([]string, len(paths))
+	infos := make([]os.FileInfo, len(paths))
 	for i, p := range paths {
 		abs, err := resolveSafePath(root, p)
 		if err != nil {
 			writeErr(w, err)
 			return
 		}
-		absPaths[i] = abs
-	}
-
-	// Single-file path: regular file, not a directory.
-	if len(paths) == 1 {
-		abs := absPaths[0]
 		fi, err := os.Stat(abs)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -991,6 +989,14 @@ func downloadFromRoot(w http.ResponseWriter, r *http.Request, root string) {
 			writeErr(w, err)
 			return
 		}
+		absPaths[i] = abs
+		infos[i] = fi
+	}
+
+	// Single-file path: regular file, not a directory.
+	if len(paths) == 1 {
+		abs := absPaths[0]
+		fi := infos[0]
 		if fi.Mode().IsRegular() {
 			// Single regular file — stream with Range support.
 			f, err := os.Open(abs)
@@ -1032,13 +1038,7 @@ func downloadFromRoot(w http.ResponseWriter, r *http.Request, root string) {
 	for i, p := range paths {
 		abs := absPaths[i]
 		relName := filepath.ToSlash(filepath.Clean(p))
-
-		fi, err := os.Stat(abs)
-		if err != nil {
-			// Skip missing paths in multi-path zip (not expected since
-			// resolveSafePath already accepted it; log and continue).
-			continue
-		}
+		fi := infos[i] // statted upfront; existence already guaranteed
 
 		if fi.Mode().IsRegular() {
 			if err := addFileToZip(zw, abs, relName, fi); err != nil {

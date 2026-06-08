@@ -30,6 +30,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -155,10 +156,13 @@ func makeDownloadRequest(t *testing.T, paths ...string) *http.Request {
 	t.Helper()
 	u := "/download"
 	for i, p := range paths {
+		// Percent-encode like the browser (encodeURIComponent) so the test
+		// exercises the real wire format, not bare UTF-8 in the query string.
+		enc := url.QueryEscape(p)
 		if i == 0 {
-			u += "?path=" + p
+			u += "?path=" + enc
 		} else {
-			u += "&path=" + p
+			u += "&path=" + enc
 		}
 	}
 	return httptest.NewRequest("GET", u, nil)
