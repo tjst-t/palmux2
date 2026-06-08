@@ -11,20 +11,99 @@
     "docs/sprint-logs/S85caca/local-validation.log"
   ],
   "acceptance_criteria": [
-    {"id": "AC-S85caca-1-1", "status": "pass", "note": "caddy.json active, ExecStart→caddy.json, tls automation subjects include <base>+*.<base>, admin API up"},
-    {"id": "AC-S85caca-1-2", "status": "pass", "note": "palmux2.<base> 200 + dashboard <base> 200 (with auth), LE wildcard cert"},
-    {"id": "AC-S85caca-1-3", "status": "pass", "note": "401 without creds / 200 with; caddy.json http_basic fields = {env.*} placeholders (JSON-verified), real hash only in palmux.env root:caddy 0640"},
-    {"id": "AC-S85caca-1-4", "status": "pass", "note": "palmux2 127.0.0.1:8080, portman dashboard 127.0.0.1:8090, caddy only on :443"},
-    {"id": "AC-S85caca-2-1", "status": "pass", "note": "config.toml + services.json correct; portman-serve active, portman-sync enabled (After/BindsTo caddy), portman-gc.timer active"},
-    {"id": "AC-S85caca-2-2", "status": "pass", "note": "portman exec --expose published demo--wt--<repo>.<base> live (200, http.server directory listing) behind basic_auth"},
-    {"id": "AC-S85caca-2-3", "status": "pass", "note": "after kill + gc + sync, route removed (404/502)"},
-    {"id": "AC-S85caca-2-4", "status": "pass", "note": "idempotent install.sh re-run stable (no dup routes); model-B artifacts gated under PORTMAN_ROUTING=1; preflight dies without DOMAIN"}
+    {
+      "id": "AC-S85caca-1-1",
+      "status": "pass",
+      "note": "caddy.json active, ExecStart→caddy.json, tls automation subjects include <base>+*.<base>, admin API up"
+    },
+    {
+      "id": "AC-S85caca-1-2",
+      "status": "pass",
+      "note": "palmux2.<base> 200 + dashboard <base> 200 (with auth), LE wildcard cert"
+    },
+    {
+      "id": "AC-S85caca-1-3",
+      "status": "pass",
+      "note": "401 without creds / 200 with; caddy.json http_basic fields = {env.*} placeholders (JSON-verified), real hash only in palmux.env root:caddy 0640"
+    },
+    {
+      "id": "AC-S85caca-1-4",
+      "status": "pass",
+      "note": "palmux2 127.0.0.1:8080, portman dashboard 127.0.0.1:8090, caddy only on :443"
+    },
+    {
+      "id": "AC-S85caca-2-1",
+      "status": "pass",
+      "note": "config.toml + services.json correct; portman-serve active, portman-sync enabled (After/BindsTo caddy), portman-gc.timer active"
+    },
+    {
+      "id": "AC-S85caca-2-2",
+      "status": "pass",
+      "note": "portman exec --expose published demo--wt--<repo>.<base> live (200, http.server directory listing) behind basic_auth"
+    },
+    {
+      "id": "AC-S85caca-2-3",
+      "status": "pass",
+      "note": "after kill + gc + sync, route removed (404/502)"
+    },
+    {
+      "id": "AC-S85caca-2-4",
+      "status": "pass",
+      "note": "idempotent install.sh re-run stable (no dup routes); model-B artifacts gated under PORTMAN_ROUTING=1; preflight dies without DOMAIN"
+    }
   ],
   "environmental_notes": [
     "Wildcard cert initially failed: the VM production ACME account was in a corrupt phantom-order state ('No order for ID' at finalize). One-time manual account reset (NOT install.sh) recovered it; documented as a troubleshooting note in install.sh. Not a defect in the deliverable (staging cert succeeded end-to-end, DNS-01 validated, clock synced).",
     "All model-B config (caddy.json, /etc/portman/*, systemd units, edge auth) is produced by install.sh and verified via the AC-2-4 idempotent full re-deploy."
   ],
   "done_judgment": {
-    "$comment": "Full 6-guard judgment deferred to sprint verify/done. sprint run result: both stories implemented, story-level /review (high) run + fixes applied, all 8 AC pass on real VM in production mode."
+    "$note": "Option A close (2026-06-08): 6-guard run post-hoc against the merged tree; all pass/n-a. AC verified pass on real VM (192.168.1.43) in production mode 2026-06-03 (see logs/e2e-final.log). No re-run of the VM smoke for this paperwork close — accepted by user.",
+    "stories": [
+      {
+        "story_id": "S85caca-1",
+        "guard1_user_review_required_not_done": "pass",
+        "guard2_nil_injection_mock": "n/a",
+        "guard3_mock_mode_not_real_smoke": "pass",
+        "guard4_priority_rule_9_exception_valid": "n/a",
+        "guard5_call_path_grep": "n/a",
+        "guard6_deferred_comment_clean": "pass",
+        "guard7_adr_conformance": "n/a",
+        "guard8_destructive_multi_version_test": "n/a",
+        "overall": "ok"
+      },
+      {
+        "story_id": "S85caca-2",
+        "guard1_user_review_required_not_done": "pass",
+        "guard2_nil_injection_mock": "n/a",
+        "guard3_mock_mode_not_real_smoke": "pass",
+        "guard4_priority_rule_9_exception_valid": "n/a",
+        "guard5_call_path_grep": "n/a",
+        "guard6_deferred_comment_clean": "pass",
+        "guard7_adr_conformance": "n/a",
+        "guard8_destructive_multi_version_test": "n/a",
+        "overall": "ok"
+      }
+    ]
+  },
+  "summary": {
+    "total": 8,
+    "pass": 8,
+    "fail": 0,
+    "skip": 0
+  },
+  "diff_coverage": {
+    "base": "main",
+    "note": "Sprint touched scripts/install.sh + Caddy/portman config + tests/e2e/s85caca_portman.py; no Go data-path code. User-observable surfaces (install.sh PORTMAN_ROUTING flow, Caddy wildcard routing + edge basic_auth) exercised by the 8 AC in s85caca_portman.py against the real VM.",
+    "additions": [
+      {
+        "type": "deploy",
+        "identifier": "install.sh PORTMAN_ROUTING=1 + Caddy JSON/portman/systemd",
+        "covered_by": [
+          "AC-S85caca-1-1..4",
+          "AC-S85caca-2-1..4"
+        ],
+        "resolution": "covered"
+      }
+    ]
   }
 }

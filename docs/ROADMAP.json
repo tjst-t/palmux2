@@ -2,15 +2,15 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 47,
+    "sprints_done": 48,
     "sprints_total": 48,
-    "percent": 97,
+    "percent": 100,
     "current_sprint": null,
-    "done": 47,
-    "in_progress": 1,
+    "done": 48,
+    "in_progress": 0,
     "total": 48,
-    "remaining": 1,
-    "percentage": 97
+    "remaining": 0,
+    "percentage": 100
   },
   "execution_order": [
     "S001",
@@ -8076,7 +8076,7 @@
     },
     "S85caca": {
       "title": "portman ↔ Caddy 動的サブドメインルーティング (deploy follow-up)",
-      "status": "in_progress",
+      "status": "done",
       "milestone": true,
       "description": "Sfccb3f でデプロイした palmux2 host に、 ansible-dev-server と同等の portman↔Caddy 連携を入れる。 expose した dev サーバが {name}--{worktree}--{repo}.<base> のサブドメインで自動的にアクセス可能になる。\n\n採用アーキテクチャ (ユーザ確定、 2026-06-03):\n  - モデル B (portman が Caddy ルーティングを全所有)。 ansible 実績構成に追従\n  - ベースホスト palmux-deploy-test.tjstkm.net = portman ダッシュボード\n  - palmux2 = palmux2.<base> (permanent service `palmux2` → portman の {name}.{domain_suffix} で固定サブドメイン化。 host_pattern の {name}--{wt}--{repo} ではない)\n  - expose dev サーバ = {name}--{worktree}--{repo}.<base>\n  - 認証 = Caddy エッジで全 subdomain に basic_auth (app 非依存、 1 か所集約)。 必要時に subdomain 単位で除外可\n  - 証明書 = *.<base> wildcard を Cloudflare DNS-01 で取得 (既存 caddy-cloudflare バイナリ再利用)\n\n前提 (確認済み):\n  - *.palmux-deploy-test.tjstkm.net の wildcard DNS は既に 192.168.1.43 に解決 (ユーザ設定済み)\n  - Caddy admin API (localhost:2019) 到達可\n  - portman 0.3.1: permanent service は {name}.{domain_suffix}、 lease は host_pattern、 config は /etc/portman/{config.toml,services.json} (PORTMAN_CONFIG_DIR で上書き可)、 type=caddy で admin API に route 注入\n\n既知の技術リスク (run phase で解く):\n  - portman は srv0.routes を全所有する (ansible caddy.json は routes:[] で起動)。 エッジ basic_auth を全 route にかける方法が非自明 — portman が sync で routes を置換するため、 静的 auth route は消える。 解決候補: (a) portman に global-auth config option があるか確認、 (b) 前段に auth 専用 Caddy server を立てて portman 管理 server に proxy、 (c) Caddy の listener_wrappers / server-level authentication handler を portman が保持するか確認。 run で実機検証して決定\n\nスコープ:\n  - install.sh を PORTMAN_ROUTING=1 (opt-in) で分岐。 OFF 時は Sfccb3f-2 の『palmux2 を base host に basic_auth』構成のまま (デフォルト維持)、 ON 時のみモデル B\n  - Caddy 構成を Caddyfile → caddy.json (portman 連携モデル) に切替 (PORTMAN_ROUTING=1 時)\n  - portman config.toml + services.json + portman-sync/serve/gc systemd unit\n\nスコープ外:\n  - palmux2 本体のコード変更\n  - portman 自体の機能追加 (上流リポジトリ tjst-t/port-manager の範疇)\n\n検証: ubuntu@192.168.1.43 で PORTMAN_ROUTING=1 デプロイ → palmux2.<base> で palmux2、 <base> で dashboard、 `portman exec --name demo --expose -- python3 -m http.server {}` で demo--*--*.<base> が basic_auth 付き HTTPS で応答することを Playwright/curl で確認。",
       "stories": {
