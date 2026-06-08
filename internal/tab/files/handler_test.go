@@ -415,3 +415,97 @@ func TestDownloadNoPaths(t *testing.T) {
 		t.Fatalf("status: got %d, want 400", rr.Code)
 	}
 }
+
+// TestDownloadDirSkipsSymlink verifies that symlinks inside a downloaded
+// directory are not included in the resulting zip (symlink-escape guard).
+func TestDownloadDirSkipsSymlink(t *testing.T) {
+	root := t.TempDir()
+	// Create: d/real.txt (a real file) and d/link -> /etc/hostname (external
+	// symlink) and d/inlink -> d/real.txt (intra-worktree symlink).
+	if err := os.MkdirAll(filepath.Join(root, "d"), 0o755); err != nil {
+		t.Fatalf("mkdir d: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "d", "real.txt"), []byte("real content"), 0o644); err != nil {
+		t.Fatalf("seed real.txt: %v", err)
+	}
+	// Create symlinks; skip the test if the filesystem doesn't support them.
+	if err := os.Symlink("/etc/hostname", filepath.Join(root, "d", "link")); err != nil {
+		t.Skip("symlink creation not supported:", err)
+	}
+	if err := os.Symlink(filepath.Join(root, "d", "real.txt"), filepath.Join(root, "d", "inlink")); err != nil {
+		t.Skip("symlink creation not supported:", err)
+	}
+
+	req := makeDownloadRequest(t, "d")
+	rr := httptest.NewRecorder()
+	downloadFromRoot(rr, req, root)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	body := rr.Body.Bytes()
+	zr, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
+	if err != nil {
+		t.Fatalf("zip.NewReader: %v", err)
+	}
+
+	names := map[string]bool{}
+	for _, f := range zr.File {
+		names[f.Name] = true
+	}
+
+	// real.txt must be present.
+	if !names["d/real.txt"] {
+		t.Errorf("zip missing d/real.txt; got %v", names)
+	}
+	// Symlinks must NOT appear.
+	if names["d/link"] {
+		t.Errorf("zip must NOT contain symlink entry d/link; got %v", names)
+	}
+	if names["d/inlink"] {
+		t.Errorf("zip must NOT contain intra-worktree symlink entry d/inlink; got %v", names)
+	}
+}
+
+// TestRFC5987Encode verifies that rfc5987Encode percent-encodes characters
+// that url.PathEscape would leave unencoded (=, @) and that attr-chars are
+// left as-is.
+func TestRFC5987Encode(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		// Pure attr-chars → unchanged.
+		{"report.pdf", "report.pdf"},
+		// = and @ must be percent-encoded (RFC 5987 attr-char set excludes them).
+		{"a=b@c.txt", "a%3Db%40c.txt"},
+		// Space must be percent-encoded.
+		{"my file.txt", "my%20file.txt"},
+		// Japanese characters → multi-byte UTF-8, each byte encoded.
+		// 設 = 0xE8 0xA8 0xAD
+		{"設", "%E8%A8%AD"},
+	}
+	for _, c := range cases {
+		if got := rfc5987Encode(c.input); got != c.want {
+			t.Errorf("rfc5987Encode(%q) = %q; want %q", c.input, got, c.want)
+		}
+	}
+}
+
+// TestContentDispositionControlBytes verifies that control characters (< 0x20)
+// in a filename are replaced with '_' in the ASCII fallback portion.
+func TestContentDispositionControlBytes(t *testing.T) {
+	// Filename with a tab (0x09) and a newline (0x0A) embedded.
+	filename := "file\tname\nhere.txt"
+	cd := contentDispositionAttachment(filename)
+	// The ASCII fallback (filename= part) must not contain raw control chars.
+	// Extract the quoted filename= value.
+	if strings.Contains(cd, "\t") || strings.Contains(cd, "\n") {
+		t.Errorf("Content-Disposition ASCII fallback contains raw control char: %q", cd)
+	}
+	// Should contain underscores replacing the control chars.
+	if !strings.Contains(cd, "file_name_here.txt") {
+		t.Errorf("Content-Disposition ASCII fallback should replace control chars with _: %q", cd)
+	}
+}

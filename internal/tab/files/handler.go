@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -898,23 +897,45 @@ func maxResultsParam(q map[string][]string, fallback int) int {
 	return fallback
 }
 
+// rfc5987Encode percent-encodes s for use as an RFC 5987 ext-value. Only
+// "attr-char" bytes (ALPHA / DIGIT and the set !#$&+-.^_`|~) are emitted
+// as-is; every other byte is emitted as %XX (uppercase hex). This is
+// stricter than url.PathEscape (which leaves =, :, @, etc. unencoded),
+// so the resulting value is accepted by strict RFC 5987 parsers.
+func rfc5987Encode(s string) string {
+	const attrChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" +
+		"0123456789" +
+		"!#$&+-.^_`|~"
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if strings.IndexByte(attrChars, c) >= 0 {
+			b.WriteByte(c)
+		} else {
+			fmt.Fprintf(&b, "%%%02X", c)
+		}
+	}
+	return b.String()
+}
+
 // contentDispositionAttachment builds a Content-Disposition header value for
 // an attachment download. It provides both an ASCII fallback filename (for
 // RFC 2183 compatibility) and the RFC 5987 encoded form for non-ASCII names
 // such as Japanese filenames (Sc7818e).
 func contentDispositionAttachment(filename string) string {
-	// Build ASCII fallback: replace any byte >127 or '"' or '\' with '_'.
+	// Build ASCII fallback: replace any byte >127, control bytes (<0x20),
+	// '"', or '\' with '_'.
 	var asciiBytes []byte
 	for i := 0; i < len(filename); i++ {
 		b := filename[i]
-		if b > 127 || b == '"' || b == '\\' {
+		if b > 127 || b < 0x20 || b == '"' || b == '\\' {
 			asciiBytes = append(asciiBytes, '_')
 		} else {
 			asciiBytes = append(asciiBytes, b)
 		}
 	}
 	asciiName := string(asciiBytes)
-	return fmt.Sprintf(`attachment; filename=%q; filename*=UTF-8''%s`, asciiName, url.PathEscape(filename))
+	return fmt.Sprintf(`attachment; filename=%q; filename*=UTF-8''%s`, asciiName, rfc5987Encode(filename))
 }
 
 // downloadFile handles `GET {filesPrefix}/download` (Sc7818e).
@@ -1065,10 +1086,21 @@ func addFileToZip(zw *zip.Writer, abs, entryName string, fi os.FileInfo) error {
 // addDirToZip recursively walks dirAbs and adds all entries under the zip
 // prefix dirRelName. Empty directories are included as entries ending with "/"
 // so they survive extraction (AC-Sc7818e-2-1).
+//
+// Symlinks inside the directory are skipped entirely — consistent with the
+// Grep/SearchEntries walks in browser.go — to prevent symlink-escape attacks
+// where a link inside the worktree could stream content from outside it.
 func addDirToZip(zw *zip.Writer, dirAbs, dirRelName string) error {
 	return filepath.WalkDir(dirAbs, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+
+		// Skip symlinks (files and dirs): d.Type() is Lstat-based so it
+		// identifies the symlink itself without following it. This mirrors
+		// the guard in browser.go's Grep walk and prevents symlink-escape.
+		if d.Type()&os.ModeSymlink != 0 {
+			return nil
 		}
 
 		// Compute the path relative to dirAbs.
