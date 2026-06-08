@@ -387,11 +387,32 @@ async def test_ui_batch_download(page: Page, repo_id: str, branch_id: str) -> No
             fail(f"[AC-Sc7818e-3-3] {f} not in batch zip url: {download.url}")
     ok(f"AC-Sc7818e-3-3: batch zip url ok (label={label!r})")
 
+    # Rule 6 coverage: the multi-select ACTION BAR also exposes a ⬇ Download
+    # button (data-testid files-batch-download) — exercise it too.
+    bar_btn = page.locator('[data-testid="files-batch-download"]')
+    if not await bar_btn.is_visible():
+        fail("[AC-Sc7818e-3-3] action-bar download button not visible with selection")
+    async with page.expect_download() as dlinfo2:
+        await bar_btn.click()
+    u2 = urllib.parse.unquote((await dlinfo2.value).url)
+    if u2.count("path=") < 3:
+        fail(f"[AC-Sc7818e-3-3] action-bar download url missing repeated path=: {u2}")
+    ok("AC-Sc7818e-3-3: action-bar ⬇ Download triggers zip url too")
+
 
 async def test_ui_mobile(page: Page, repo_id: str, branch_id: str) -> None:
-    """[AC-Sc7818e-3-4] mobile width: context menu + preview download reachable."""
-    await page.set_viewport_size({"width": 390, "height": 844})
+    """[AC-Sc7818e-3-4] mobile width: context menu + preview download reachable.
+
+    Runs in a FRESH context (clean localStorage) so files-memory does not
+    restore a previously-opened file — on mobile a restored selection hides the
+    list pane (`.body.previewOpen .listPane { display:none }`), which is correct
+    app behavior but not what this AC exercises. We verify both surfaces:
+    (1) the list context-menu download, and (2) the preview-header download.
+    """
     await api_create_file(repo_id, branch_id, "ui_mobile.txt", "m\n")
+
+    # (1) Context-menu download from the list (list is visible by default on
+    #     mobile when no file is restored/selected).
     await nav_to_files(page, repo_id, branch_id)
     await (await row_by_name(page, "ui_mobile.txt")).click(button="right")
     await page.locator('[data-testid="files-context-menu"]').wait_for(timeout=TIMEOUT)
@@ -405,8 +426,22 @@ async def test_ui_mobile(page: Page, repo_id: str, branch_id: str) -> None:
     async with page.expect_download() as dlinfo:
         await dl_item.click()
     await dlinfo.value
-    ok("AC-Sc7818e-3-4: mobile-width download reachable + triggers")
-    await page.set_viewport_size({"width": 1280, "height": 800})
+    ok("AC-Sc7818e-3-4: mobile context-menu download reachable + triggers")
+
+    # (2) Preview-header download on mobile: open the file (preview takes over
+    #     the pane on mobile) and download from the header button.
+    await (await row_by_name(page, "ui_mobile.txt")).click()
+    await page.locator('[data-testid="file-preview"]').wait_for(timeout=TIMEOUT)
+    pbtn = page.locator('[data-testid="file-preview-download"]')
+    if not await pbtn.is_visible():
+        fail("[AC-Sc7818e-3-4] preview download button not visible at mobile width")
+    pbox = await pbtn.bounding_box()
+    if pbox is None or pbox["x"] < 0 or pbox["x"] + pbox["width"] > 390 + 1:
+        fail(f"[AC-Sc7818e-3-4] preview download button overflows mobile viewport: {pbox}")
+    async with page.expect_download() as dlinfo2:
+        await pbtn.click()
+    await dlinfo2.value
+    ok("AC-Sc7818e-3-4: mobile preview-header download reachable + triggers")
 
 
 # ─── Runner ──────────────────────────────────────────────────────────────
@@ -439,7 +474,14 @@ async def main() -> None:
             await test_ui_ctx_folder_download(page, repo_id, branch_id)
             await test_ui_preview_download(page, repo_id, branch_id)
             await test_ui_batch_download(page, repo_id, branch_id)
-            await test_ui_mobile(page, repo_id, branch_id)
+
+            # Mobile test in a FRESH context (clean localStorage so files-memory
+            # does not restore a prior selection that would hide the list pane).
+            mobile_ctx = await browser.new_context(viewport={"width": 390, "height": 844})
+            mpage = await mobile_ctx.new_page()
+            await test_ui_mobile(mpage, repo_id, branch_id)
+            await mobile_ctx.close()
+
             await browser.close()
 
     print("\n=== Sc7818e PASS ===")
