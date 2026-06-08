@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Files · download — batch (Download N items… → zip)</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b> / Files</span>
+      <span class="headerSpacer"></span>
+      <button class="headerBtn">⌘K</button>
+      <button class="headerBtn">🔔</button>
+    </header>
+
+    <aside class="drawer">
+      <div class="statusStrip"><span class="brand">PALMUX</span></div>
+      <div class="section"><span class="sectionTitle">Repositories</span></div>
+      <ul class="repos">
+        <li class="repo"><div class="repoRow"><span class="repoNum">1</span><button class="repoName"><span class="scope">tjst-t/</span>palmux2</button><button class="starBtn" data-on="true">★</button><button class="addBranchBtn">+</button><button class="moreBtn">⋯</button></div></li>
+      </ul>
+    </aside>
+
+    <main class="main">
+      <div class="tabBar">
+        <button class="tab"><span class="tabIcon">◆</span> Claude</button>
+        <button class="tab tabActive"><span class="tabIcon">📁</span> Files</button>
+        <button class="tab"><span class="tabIcon">⎇</span> Git</button>
+      </div>
+
+      <div class="filesShell">
+        <div class="filesHeader">
+          <nav class="filesCrumbs">
+            <span>📁 root</span>
+            <span style="color:var(--color-fg-faint);">/</span>
+            <span><b>src</b></span>
+            <span style="color:var(--color-fg-faint);">/</span>
+            <span><b>components</b></span>
+          </nav>
+          <div class="filesHeaderActions">
+            <button class="iconBtn">🔍 Search</button>
+          </div>
+        </div>
+
+        <!-- Existing multi-select bar. NEW: a "⬇ Download" batch button is
+             added alongside Move / Delete. -->
+        <div class="multiSelectBar" data-testid="files-multi-select-bar">
+          <span class="count">3 selected</span>
+          <button class="multiSelectBtn" data-testid="files-batch-download">⬇ Download</button>
+          <button class="multiSelectBtn" data-testid="files-batch-move">→ Move…</button>
+          <button class="multiSelectBtn multiSelectBtnDanger" data-testid="files-batch-delete">🗑 Delete</button>
+          <button class="multiSelectBtn multiSelectBtnGhost" data-testid="files-multi-clear">✕ Cancel</button>
+        </div>
+
+        <div class="filesBody">
+          <div class="filesListPane" style="position:relative;">
+            <ul class="fileList" data-testid="files-list">
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">..</span></button></li>
+              <li><button class="fileRow"><span class="fileIcon fileIconDir">📁</span><span class="fileName">command-palette/</span><span class="fileMeta">14 items</span></button></li>
+              <li>
+                <button class="fileRow fileRowMultiSelected">
+                  <span class="fileIcon fileIconDir">📁</span><span class="fileName">icons/</span><span class="fileMeta">21 items</span>
+                </button>
+              </li>
+              <li><button class="fileRow"><span class="fileIcon fileIconFile">📄</span><span class="fileName">drawer.tsx</span><span class="fileMeta">22.4 KB</span></button></li>
+              <li>
+                <button class="fileRow fileRowMultiSelected fileRowContextOpen">
+                  <span class="fileIcon fileIconFile">📄</span><span class="fileName">repo-picker.tsx</span><span class="fileMeta">11.2 KB</span>
+                </button>
+              </li>
+              <li>
+                <button class="fileRow fileRowMultiSelected">
+                  <span class="fileIcon fileIconFile">📄</span><span class="fileName">repo-picker.module.css</span><span class="fileMeta">3.8 KB</span>
+                </button>
+              </li>
+              <li><button class="fileRow"><span class="fileIcon fileIconFile">📄</span><span class="fileName">subagent-cleanup-dialog.tsx</span><span class="fileMeta">5.4 KB</span></button></li>
+            </ul>
+            <div class="fileListCTAs" data-testid="files-list-ctas">
+              <button class="fileCTAIcon" data-tip="New file" aria-label="New file"><span class="ctaGlyph">📄</span><span class="ctaPlus">+</span></button>
+              <button class="fileCTAIcon" data-tip="New folder" aria-label="New folder"><span class="ctaGlyph">📁</span><span class="ctaPlus">+</span></button>
+            </div>
+          </div>
+
+          <div class="filesPreviewPane">
+            <p style="color:var(--color-fg-muted);">With <b>≥2 items selected</b>, right-clicking a selected row shows <b>Download 3 items…</b> — the label tracks the selection count. It bundles the exact selection (files + folders) into one zip.</p>
+            <p style="color:var(--color-fg-dim);">The request is a single GET with a repeated query param: <code>…/files/download?path=icons&amp;path=repo-picker.tsx&amp;path=repo-picker.module.css</code>. Same affordance also lives in the action bar as <b>⬇ Download</b>.</p>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Batch context menu — NEW "Download N items…" joins Move/Copy/Delete.
+       Rename / Open are dropped (single-item only), matching existing behavior. -->
+  <div class="ctxMenu" role="menu" data-testid="files-context-menu" style="left: 380px; top: 300px;">
+    <button class="ctxItem ctxItemHighlight" data-testid="files-ctx-batch-download"><span class="ctxIcon">⬇</span><span>Download 3 items…</span><span class="ctxKbd">.zip</span></button>
+    <div class="ctxDivider"></div>
+    <button class="ctxItem" data-testid="files-ctx-batch-move"><span class="ctxIcon">→</span><span>Move 3 items…</span><span class="ctxKbd">⌘⇧M</span></button>
+    <button class="ctxItem" data-testid="files-ctx-batch-copy"><span class="ctxIcon">📋</span><span>Copy 3 paths</span></button>
+    <div class="ctxDivider"></div>
+    <button class="ctxItem ctxItemDanger" data-testid="files-ctx-batch-delete"><span class="ctxIcon">🗑</span><span>Delete 3 items</span><span class="ctxKbd" style="color: rgba(239, 68, 68, 0.55);">⌫</span></button>
+  </div>
+</body>
+</html>

@@ -1,0 +1,89 @@
+{
+  "$file": "scenario-Sc7818e-1.json",
+  "$comment": "API scenario for Sc7818e-1 (単一ファイル download BE). Tests drive a real HTTP client against a running `make serve INSTANCE=dev` instance — never internal handlers. See test-discipline.md Rule 2. 認証は open-access モードで自動発行される palmux_session Cookie。",
+  "story": "Sc7818e-1",
+  "story_type": "api",
+  "user_role": "複数リポジトリで作業する個人開発者 (Files タブからファイルを丸ごと取り出したい)",
+  "entry_point": "http://127.0.0.1:<dev-port>/api/repos/{repoId}/branches/{branchId}/files/download?path=... — open-access モード (--token 無し) の palmux_session Cookie で認証",
+  "preconditions_global": [
+    "dev インスタンスに Open 済みの Repository + Workspace が 1 つある (なければ ghq + gwq で用意)",
+    "対象 worktree 直下に既知内容のテキスト/バイナリ/巨大ファイルをテスト fixture として配置できる"
+  ],
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "linked_ac": ["AC-Sc7818e-1-1"],
+      "description": "previewMaxBytes / defaultReadLimit を超えるテキストファイルを全サイズ取得し、Content-Disposition: attachment が付く。",
+      "preconditions": [
+        "worktree 直下に big.txt を配置。サイズは defaultReadLimit (= readFile の上限) を確実に超える (例: 2MiB の既知パターン)"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "action": "GET /api/repos/{repoId}/branches/{branchId}/files/download?path=big.txt (Accept ヘッダは付けない or text/html)",
+          "expected": "200。Content-Disposition ヘッダが `attachment` で始まり filename=\"big.txt\" を含む。Content-Type は JSON ではない (application/json でない)"
+        },
+        {
+          "n": 2,
+          "action": "レスポンスボディ全体を読み切り、ディスク上の big.txt とバイト比較する",
+          "expected": "Content-Length とボディ長が big.txt の実サイズに一致し、全バイトが一致する (truncated されていない)"
+        }
+      ],
+      "cleanup": ["fixture big.txt を削除"]
+    },
+    {
+      "id": "scenario-2",
+      "linked_ac": ["AC-Sc7818e-1-2"],
+      "description": "バイナリを全バイト取得でき、ServeContent により Range リクエストに 206 で応答する。",
+      "preconditions": ["worktree 直下に既知の小さな PNG (logo.png) を配置"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "GET /files/download?path=logo.png",
+          "expected": "200。Accept-Ranges: bytes ヘッダがある。ボディが logo.png と全バイト一致 (sha256 一致)"
+        },
+        {
+          "n": 2,
+          "action": "GET /files/download?path=logo.png に Range: bytes=0-9 ヘッダを付けて再取得",
+          "expected": "206 Partial Content。Content-Range: bytes 0-9/<total>。ボディが先頭 10 バイトと一致"
+        }
+      ],
+      "cleanup": ["fixture logo.png を削除"]
+    },
+    {
+      "id": "scenario-3",
+      "linked_ac": ["AC-Sc7818e-1-3"],
+      "description": "非ASCII ファイル名が RFC5987 で正しくエンコードされ文字化けしない。",
+      "preconditions": ["worktree 直下に日本語名ファイル `設計メモ.txt` を配置"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "GET /files/download?path=設計メモ.txt (path は URL エンコードして送る)",
+          "expected": "200。Content-Disposition に filename*=UTF-8''%E8%A8%AD%E8%A8%88%E3%83%A1%E3%83%A2.txt 形式の RFC5987 エンコード filename が含まれる。デコードすると `設計メモ.txt` に戻る"
+        }
+      ],
+      "cleanup": ["fixture 設計メモ.txt を削除"]
+    },
+    {
+      "id": "scenario-4",
+      "linked_ac": ["AC-Sc7818e-1-4"],
+      "description": "パストラバーサル / worktree 外 / symlink 経由の外部参照は 400 で拒否し内容を漏らさない。",
+      "preconditions": [
+        "worktree 内に worktree 外 (例 /etc/passwd) を指す symlink `evil` を配置"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "action": "GET /files/download?path=../../../../etc/passwd",
+          "expected": "400 (200 でない)。ボディに /etc/passwd の内容が含まれない"
+        },
+        {
+          "n": 2,
+          "action": "GET /files/download?path=evil (worktree 外を指す symlink)",
+          "expected": "400。外部ファイル内容を返さない"
+        }
+      ],
+      "cleanup": ["fixture symlink evil を削除"]
+    }
+  ]
+}

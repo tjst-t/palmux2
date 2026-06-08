@@ -1,0 +1,94 @@
+{
+  "$file": "gui-spec-Sc7818e-3.json",
+  "$comment": "GUI spec for Sc7818e-3 (Files タブ ダウンロード UI 導線). このプロジェクトの E2E は Python + Playwright (tests/e2e/*.py) が正典のため、.spec.ts ではなく .py を生成。E2E は real backend (make serve INSTANCE=dev)、mock は page.route で download エンドポイントを差し替えて URL 構築/メニュー表示ロジックを検証。",
+  "story": "Sc7818e-3",
+  "story_type": "gui",
+  "user_role": "PC・スマホから同じ環境を使う個人開発者",
+  "entry_point": "Files タブ (/{repoId}/{branchId}/files[/<path>])。ファイル一覧の右クリック(またはモバイルの長押し)コンテキストメニュー、複数選択時の batch メニュー、ファイルプレビューのヘッダ。",
+  "download_mechanism": {
+    "approach": "native <a download> anchor をプログラム的に click() してブラウザのダウンロード機構を起動する。JS でレスポンス body をバッファしない。Cookie 認証 (palmux_session) は same-origin なので自動付与。",
+    "url_shape": {
+      "apiBase": "/api/repos/{repoId}/branches/{branchId}/files",
+      "single_file": "{apiBase}/download?path={encodeURIComponent(path)}",
+      "folder": "{apiBase}/download?path={encodeURIComponent(dirPath)}",
+      "batch_multi": "{apiBase}/download?path={a}&path={b}&path={c} (選択した各 path を encodeURIComponent して path= を繰り返す)"
+    },
+    "playwright_observation": "page.expect_download() で download イベントを捕捉し、download.url / download.suggested_filename / download.path() の中身を assert する。download 属性付き anchor はページ遷移しないので URL バーは変わらない。"
+  },
+  "data_testids": {
+    "files-context-menu": "既存。コンテキストメニュー root",
+    "files-ctx-download": "新規。単一ファイル/フォルダの『Download』メニュー項目 (非 batch モード)",
+    "files-ctx-batch-download": "新規。batch モード (N≥2) の『Download N items…』メニュー項目",
+    "file-preview": "既存。プレビュー root",
+    "file-preview-download": "新規。プレビューヘッダのダウンロードボタン",
+    "files-row": "ファイル一覧の各行 (既存の選択/右クリック対象。実装で testid が無ければ付与)"
+  },
+  "state_diagram": "stateDiagram-v2\n    [*] --> Browsing: Files タブを開く\n    Browsing --> CtxSingle: ファイル/フォルダを右クリック (選択0-1)\n    Browsing --> CtxBatch: 複数選択(N>=2)した行を右クリック\n    Browsing --> Preview: ファイルをクリックして開く\n    CtxSingle --> DownloadStarted: 『Download』クリック → <a download> click()\n    CtxBatch --> DownloadStarted: 『Download N items…』クリック → zip URL の <a download> click()\n    Preview --> DownloadStarted: ヘッダのダウンロードボタンクリック\n    DownloadStarted --> Browsing: ブラウザがダウンロード開始 (ページ遷移なし)\n    CtxSingle --> Browsing: Esc / 外側クリックで閉じる\n    CtxBatch --> Browsing: Esc / 外側クリックで閉じる\n    note right of CtxBatch\n      『Download N items…』は N>=2 のときだけ出る。\n      文言の N は selectedPaths.size を反映。\n    end note\n    note right of DownloadStarted\n      single file → 単一 attachment。\n      folder / batch → ?path= 反復の zip。\n      エラー時 (400/404/500) は native download の性質上\n      ブラウザ側の挙動 (エラー body をDLするかDL失敗)。\n      アプリ内 toast は出さない (fetch+blob を使わない設計)。\n    end note",
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "linked_ac": ["AC-Sc7818e-3-1"],
+      "description": "単一ファイル/フォルダ/batch の各コンテキストメニューに Download 項目が出て、クリックでダウンロードが起動する。",
+      "steps": [
+        {"n": 1, "action": "Files タブでファイル行を右クリックしコンテキストメニューを開く", "expected": "files-ctx-download (『Download』) が表示される"},
+        {"n": 2, "action": "『Download』をクリック", "expected": "page.expect_download が download イベントを捕捉。download.url が {apiBase}/download?path=<file> に一致"},
+        {"n": 3, "action": "フォルダ行を右クリックして『Download』をクリック", "expected": "download.url が {apiBase}/download?path=<dir>。suggested_filename が <dir>.zip"},
+        {"n": 4, "action": "2 ファイルを選択し、選択行を右クリック", "expected": "files-ctx-batch-download (『Download 2 items…』) が表示される"}
+      ]
+    },
+    {
+      "id": "scenario-2",
+      "linked_ac": ["AC-Sc7818e-3-2"],
+      "description": "プレビューヘッダのダウンロードボタンで、開いているファイルがダウンロードされる。",
+      "steps": [
+        {"n": 1, "action": "ファイルをクリックしてプレビューを開く", "expected": "file-preview が表示され、ヘッダに file-preview-download ボタンがある"},
+        {"n": 2, "action": "file-preview-download をクリック", "expected": "download イベント捕捉。download.url が {apiBase}/download?path=<開いているファイル>"}
+      ]
+    },
+    {
+      "id": "scenario-3",
+      "linked_ac": ["AC-Sc7818e-3-3"],
+      "description": "batch/フォルダ DL は ?path= 反復の zip URL。メニュー文言が選択数を反映。",
+      "steps": [
+        {"n": 1, "action": "3 ファイルを選択し選択行を右クリック", "expected": "メニュー項目の文言が『Download 3 items…』(数が selectedPaths.size を反映)"},
+        {"n": 2, "action": "『Download 3 items…』をクリック", "expected": "download.url に path= が 3 回現れ、各選択ファイルの path が含まれる (zip)"}
+      ]
+    },
+    {
+      "id": "scenario-4",
+      "linked_ac": ["AC-Sc7818e-3-4"],
+      "description": "モバイル幅 (<600px) でも導線が崩れず起動できる。",
+      "steps": [
+        {"n": 1, "action": "viewport を 390x844 に設定して Files タブを開き、ファイル行のコンテキストメニューを開く", "expected": "files-ctx-download がビューポート内に収まって表示され (はみ出さない)、クリックで download が起動する"},
+        {"n": 2, "action": "モバイル幅でプレビューを開く", "expected": "file-preview-download ボタンがヘッダ内に見え、クリックで download が起動する"}
+      ]
+    }
+  ],
+  "mock_scenarios": [
+    {"id": "mock-1", "description": "選択 0-1 の右クリックでは batch-download が出ず download が出る。N>=2 で batch-download が出て single download は出ない。", "verifies": "メニュー表示分岐ロジック"},
+    {"id": "mock-2", "description": "batch メニュー文言が選択数 N を正しく反映する (2,3,5...)。", "verifies": "文言の数値反映"},
+    {"id": "mock-3", "description": "page.route で /files/download をインターセプトし fake attachment を fulfill。Download クリック時のリクエスト URL が単一は path 1個、folder/batch は path= 反復であることを assert。", "verifies": "URL 構築の正しさ (real backend 無しで)"},
+    {"id": "mock-4", "description": "download エンドポイントが 404/500 を返すケース: native <a download> なのでアプリ内 toast は出さない設計。少なくともアプリがクラッシュ/白画面にならず、メニューが閉じてブラウジングに戻ることを確認 (UI 回帰防止)。", "verifies": "エラー時の UI 非破壊"}
+  ],
+  "endpoint_contracts": [
+    {
+      "path": "/api/repos/{repoId}/branches/{branchId}/files/download",
+      "method": "GET",
+      "registered": false,
+      "registered_note": "Sc7818e-1 / Sc7818e-2 (BE) で provider.go の RegisterRoutes に追加予定。GUI 実装より前に BE Story が完了している必要がある (Sprint 内依存)。",
+      "request_fields": {
+        "path": "string (query, 1回以上。複数指定でその集合を zip 化。ディレクトリ指定で zip 化)"
+      },
+      "response_fields": {
+        "(body)": "single: ファイル本体 attachment (Content-Disposition: attachment; filename=...)。folder/multi: application/zip ストリーム (filename=*.zip)。",
+        "Content-Disposition": "attachment; filename=\"...\" (非ASCIIは RFC5987 filename*=UTF-8'')",
+        "Accept-Ranges": "bytes (単一ファイル, ServeContent 由来)"
+      }
+    }
+  ],
+  "test_files": {
+    "e2e": "tests/e2e/sc7818e_files_download.py",
+    "mock": "tests/e2e/sc7818e_files_download_mock.py"
+  },
+  "added_acceptance_criteria_note": "ROADMAP の Sc7818e-3 には既に 4 AC があり browser 観測可能。gui-spec 標準の補助 AC (state diagram confirmed / data-testid 完備 / mock pass / e2e pass) は decisions.json に記録し、ROADMAP には冗長追加しない。"
+}

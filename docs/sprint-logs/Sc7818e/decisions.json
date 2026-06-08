@@ -1,0 +1,81 @@
+{
+  "$file": "decisions.json",
+  "$comment": "Sc7818e (Files タブ ダウンロード機能) の sprint plan 決定ログ。設計判断・gui-spec 自動決定・scenario 分類を記録。",
+  "sprint": "Sc7818e",
+  "touched_adrs": [],
+  "guard8_rationale": "n/a — 本 Sprint は internal/tab/files/ + frontend のみを touch する。test-discipline Rule 8 が列挙する data path (internal/server, internal/proxyfuse, cmd/storage-core, cmd/proxy-fuse, cmd/workflow-worker, internal/workflow, internal/identity) はいずれも palmux2 に存在せず該当しない。destructive multi-version test は不要。",
+  "decisions": [
+    {
+      "timestamp": "2026-06-08T00:00:00Z",
+      "category": "planning",
+      "title": "ダウンロードは単一 GET {filesPrefix}/download エンドポイントに集約",
+      "detail": "単一ファイル / ディレクトリ / 複数 path をすべて GET {filesPrefix}/download?path=...(&path=...) で扱う。path が 1 つでファイルなら attachment ストリーム、ディレクトリまたは複数指定なら zip。/raw と対称な URL 契約にし route 追加を最小化する。別エンドポイント (/download-zip 等) は不採用。",
+      "reference": "VISION (Files タブ既存機能の自然な拡張) / 既存 /raw 契約との対称性",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-08T00:00:00Z",
+      "category": "planning",
+      "title": "単一ファイルは http.ServeContent でストリーム配信 (全サイズ・Range 対応)",
+      "detail": "readFile の previewMaxBytes / defaultReadLimit を回避し、os.Open → http.ServeContent で全サイズ配信。Range / If-Range / Last-Modified / ETag を標準ライブラリに委譲。バイナリも byte-exact。",
+      "reference": "ユーザ確定 2026-06-08『全サイズ完全ダウンロード』",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-08T00:00:00Z",
+      "category": "planning",
+      "title": "zip は archive/zip で ResponseWriter へ直接ストリーム",
+      "detail": "アーカイブ全体をメモリ/一時ファイルにバッファせず zip.NewWriter(w) で walk しながら書き込む。Content-Length は事前計算不可なので chunked になる。各エントリは既存 security.go の resolveSecurePath で検証し zip 内エントリ名は worktree 相対のみ (zip-slip 耐性)。空ディレクトリも zip エントリとして保持。",
+      "reference": "ユーザ確定『フォルダ/複数選択 (zip)』 + priority (大容量で OOM しない)",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-08T00:00:00Z",
+      "category": "planning",
+      "title": "Content-Disposition は ASCII fallback + RFC5987 filename*",
+      "detail": "filename=\"<ascii>\"; filename*=UTF-8''<percent-encoded> の二重指定で非ASCII (日本語) ファイル名の文字化けを防ぐ。",
+      "reference": "RFC 5987 / RFC 6266",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-08T00:00:00Z",
+      "category": "planning",
+      "title": "FE は native <a download> をプログラム的に click() してダウンロード起動",
+      "detail": "Cookie 認証 (palmux_session, HttpOnly, same-origin, credentials:'include') なので anchor のネイティブ遷移で自動的に認証が乗る。fetch+blob は使わず JS でファイル全体をバッファしない (大容量でもメモリ安全)。トレードオフ: HTTP ステータスを JS で観測できないため download 失敗時のアプリ内 toast は出さない (ブラウザ標準のダウンロード UI に委譲)。",
+      "reference": "frontend/src/lib/api.ts (cookie 認証) / ユーザ確定スコープ",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-08T00:00:00Z",
+      "category": "gui-spec",
+      "title": "Story 分類と test ファイル: 全 AC を tests/e2e/sc7818e_files_download.py に集約、mock は別ファイル",
+      "detail": "Sc7818e-1/2 = api、Sc7818e-3 = gui。このプロジェクトの E2E 正典は Python + Playwright (CLAUDE.md / 既存 s033) のため gui-spec 標準の .spec.ts ではなく .py を生成。e2e = tests/e2e/sc7818e_files_download.py (BE API + GUI 実機)、mock = tests/e2e/sc7818e_files_download_mock.py (メニュー分岐 / URL 構築 / エラー非破壊)。",
+      "reference": "CLAUDE.md テスト方針 / test-discipline Rule 2,4 / story-scenarios",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-08T00:00:00Z",
+      "category": "gui-spec",
+      "title": "新規 data-testid: files-ctx-download / files-ctx-batch-download / file-preview-download",
+      "detail": "実装サブエージェントは files-context-menu.tsx に files-ctx-download (単一/フォルダ) と files-ctx-batch-download (batch、文言は『Download N items…』で N=selectedPaths.size)、file-preview.tsx ヘッダに file-preview-download を付与する。Playwright は page.expect_download() で download.url / suggested_filename を assert する。",
+      "reference": "既存 files-context-menu.tsx の data-testid 命名規約",
+      "adr_ref": null,
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-06-08T00:00:00Z",
+      "category": "planning",
+      "title": "Sprint 内依存: BE (Story 1/2) → FE (Story 3)",
+      "detail": "Story 3 の e2e は real backend の /download に対して実ファイルを観測するため、Story 1/2 (エンドポイント) が先に存在する必要がある。並列 worktree 実行する場合も Story 3 の e2e 検証 (sprint verify) は BE マージ後。mock テスト (sprint run gate) は page.route で download を差し替えるので BE 不在でも通る。",
+      "reference": "test-discipline Rule 2 (real backend) / gui-spec endpoint_contracts registered:false",
+      "adr_ref": null,
+      "drift_flag": "none"
+    }
+  ]
+}
