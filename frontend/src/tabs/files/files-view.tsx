@@ -501,6 +501,25 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
     setRenameError(null)
   }, [])
 
+  // ── Sc7818e-3: download trigger — builds a multi-path query string and
+  // clicks a native <a download> so the browser streams the file directly
+  // from the server (no JS buffering). The same-origin cookie is carried
+  // automatically. For folders or multi-select the server returns a zip.
+  const triggerDownload = useCallback(
+    (paths: string[]) => {
+      if (paths.length === 0) return
+      const qs = paths.map((p) => `path=${encodeURIComponent(p)}`).join('&')
+      const a = document.createElement('a')
+      a.href = `${apiBase}/download?${qs}`
+      a.download = ''
+      a.rel = 'noopener'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+    },
+    [apiBase],
+  )
+
   // ── S033-2: context menu ──────────────────────────────────────────────────
   const handleContextMenu = useCallback((e: React.MouseEvent, entry: Entry) => {
     e.preventDefault()
@@ -541,8 +560,14 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
           }
           break
         }
+        case 'download':
+          triggerDownload([entry.path])
+          break
         case 'delete':
           setDeleteModalItems([entry])
+          break
+        case 'batch-download':
+          triggerDownload([...selectedPaths])
           break
         case 'batch-move':
           setMoveModalItems(
@@ -559,7 +584,7 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
           break
       }
     },
-    [ctxMenu, entries, selectedPaths, remoteUrlBase, startRename, onPick],
+    [ctxMenu, entries, selectedPaths, remoteUrlBase, startRename, onPick, triggerDownload],
   )
 
   // ── S033-3: multi-select keyboard shortcuts ───────────────────────────────
@@ -643,6 +668,14 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
           <span className={styles.multiSelectCount}>
             {selectedPaths.size} selected
           </span>
+          <button
+            className={styles.multiSelectBtn}
+            disabled={selectedPaths.size === 0}
+            onClick={() => triggerDownload([...selectedPaths])}
+            data-testid="files-batch-download"
+          >
+            ⬇ Download
+          </button>
           <button
             className={styles.multiSelectBtn}
             disabled={selectedPaths.size === 0}
