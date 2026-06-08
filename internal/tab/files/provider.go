@@ -82,4 +82,7 @@ func (p *Provider) RegisterRoutes(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("GET "+prefix+"/preview/{path...}", h.previewFile)
 	mux.HandleFunc("GET "+prefix+"/search", h.search)
 	mux.HandleFunc("GET "+prefix+"/grep", h.grep)
+	// Sc7818e: single-file download (Range/206 via ServeContent) or
+	// directory/multi-path zip streamed as an attachment.
+	mux.HandleFunc("GET "+prefix+"/download", h.downloadFile)
 }
