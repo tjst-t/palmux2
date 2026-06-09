@@ -8527,7 +8527,7 @@
         },
         "S8478ca-4": {
           "id": "S8478ca-4",
-          "status": "pending",
+          "status": "done",
           "title": "ポート自動検出 + Caddy 直結 + localhost 救済 (bind=instance proxy device)",
           "user_story": "container 内で dev サーバを立てる自分として、ポートを確保しなくてもブラウザから到達したい。なぜなら、隔離下では衝突しないので確保が不要で、Caddy が自動で繋いでくれてほしいから。",
           "acceptance_criteria": [
@@ -8535,42 +8535,42 @@
               "id": "AC-S8478ca-4-1",
               "description": "incus exec ... ss でコンテナ内のリッスンポートを自動検出し、WS event でフロントに通知する。2 つの isolated Workspace が両方 :5173 を bind しても衝突しない",
               "test": "tests/acceptance/s8478ca_ports.py [AC-S8478ca-4-1]",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S8478ca-4-2",
               "description": "検出したポートに対し Caddy スニペットを書き出し caddy reload して <workspace>.<domain> → <containerIP>:port を直結する。ホスト側ポートは確保しない。ブラウザから各 Workspace の dev サーバに到達できる",
               "test": "tests/acceptance/s8478ca_ports.py [AC-S8478ca-4-2]",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S8478ca-4-3",
               "description": "127.0.0.1 のみで listen する dev サーバに対し bind=instance の incus proxy device を張り、containerIP:port で到達可能にする (ホストポート確保なし)",
               "test": "tests/acceptance/s8478ca_ports.py [AC-S8478ca-4-3]",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S8478ca-4-4",
               "description": "host runtime (非隔離) の portman read 経路 (URL 一覧表示) は非回帰で、隔離下では portman を駆動しない",
               "test": "tests/acceptance/s8478ca_ports.py [AC-S8478ca-4-4]",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S8478ca-4-1": {
               "id": "S8478ca-4-1",
               "title": "incus ListListeningPorts (incus exec ss) + WS event emit",
-              "status": "pending"
+              "status": "done"
             },
             "S8478ca-4-2": {
               "id": "S8478ca-4-2",
               "title": "Caddy スニペット書き出し + reload で containerIP:port 直結 (netns/S034 の caddy.go を参考に内製)",
-              "status": "pending"
+              "status": "done"
             },
             "S8478ca-4-3": {
               "id": "S8478ca-4-3",
               "title": "ExposePort: bind=instance proxy device 自動付与 (localhost 救済)。UDP/HostPort 経路は型だけ用意 (Neko 将来用)",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
