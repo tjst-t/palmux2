@@ -148,21 +148,20 @@ def palmux_server():
     ssh(f"incus delete --force {INSTANCE_NAME} </dev/null 2>/dev/null || true")
     # Ensure the repo is open as HOST (not incus) at startup.
     # We write a fresh config that opens the workspace with kind=host.
-    config_json = json.dumps({
-        "repos": [{
-            "id": REPO_ID,
-            "ghqPath": "github.com/local/inctest",
-            "settings": {
-                "workspaces": {
-                    BRANCH_ID: {
-                        "runtime": {"kind": "host"}
-                    }
-                }
-            }
-        }]
-    })
+    # repos.json is a TOP-LEVEL ARRAY of RepoEntry; per-Workspace runtime lives
+    # under branchSettings.<branchID>.runtime (Story -3 schema).
+    config_json = json.dumps([{
+        "id": REPO_ID,
+        "ghqPath": "github.com/local/inctest",
+        "branchSettings": {
+            BRANCH_ID: {"runtime": {"kind": "host"}}
+        }
+    }])
     ssh(f"mkdir -p {CONFIG_DIR}")
-    ssh(f"echo '{config_json}' > {CONFIG_DIR}/repos.json")
+    # write via stdin to avoid shell-quoting issues with the JSON
+    import base64 as _b64
+    enc = _b64.b64encode(config_json.encode()).decode()
+    ssh(f"echo '{enc}' | base64 -d > {CONFIG_DIR}/repos.json")
 
     start_script = (
         "#!/bin/bash\n"

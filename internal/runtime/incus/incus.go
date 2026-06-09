@@ -70,6 +70,13 @@ type incusRuntime struct {
 	mu     sync.RWMutex
 	status runtime.Status
 
+	// startMu serialises Start so concurrent callers (e.g. a runtime switch and
+	// the sync_tmux recovery loop hitting tmuxFor at the same time) cannot both
+	// drive `incus init/start` and trip an "Instance is busy running a create
+	// operation" error. The second caller blocks, then sees State=ready and
+	// returns without re-doing the work.
+	startMu sync.Mutex
+
 	// Caddy runner — injectable for tests; nil means defaultCaddyRunner.
 	caddyRun caddyRunner
 
@@ -169,6 +176,14 @@ func (r *incusRuntime) setStatus(s runtime.Status) {
 // start → wait-for-agent.
 // [AC-S8478ca-2-1] [AC-S8478ca-2-2]
 func (r *incusRuntime) Start(ctx context.Context) error {
+	// Serialise Start: concurrent callers block here. The first does the work;
+	// the rest see State=ready below and return immediately (idempotent).
+	r.startMu.Lock()
+	defer r.startMu.Unlock()
+	if r.Status().State == runtime.StateReady {
+		return nil
+	}
+
 	r.setStatus(runtime.Status{State: runtime.StateStarting})
 
 	image := r.cfg.Image
@@ -1035,6 +1050,12 @@ func (c *incusTmuxClient) NewSession(ctx context.Context, opts tmux.NewSessionOp
 	// For the command case, wrap in sh -c "export ... && cmd" is fragile; leave
 	// them as shell env — the caller sets them in the Command string already.
 	_, err := c.incus(ctx, args...)
+	if err != nil && strings.Contains(err.Error(), "duplicate session") {
+		// Idempotent: the session already exists (e.g. a concurrent
+		// ensureSession from the sync_tmux recovery loop created it first during
+		// a runtime switch). The goal — a session with this name — is met.
+		return nil
+	}
 	return err
 }
 

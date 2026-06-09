@@ -103,6 +103,13 @@ func (h *handlers) patchWorkspaceRuntime(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Capture the runtime the workspace is CURRENTLY running on BEFORE we
+	// persist the new kind — the registry re-resolves the persisted config on
+	// every Get, so capturing after the persist would yield the NEW runtime and
+	// make the in-place restart a silent no-op (host session never killed /
+	// switch-back a no-op).
+	oldRT := h.store.CurrentRuntime(repoID, branchID)
+
 	cfg := &runtime.Config{Kind: k}
 	if err := h.store.RepoStore().SetWorkspaceRuntime(repoID, branchID, cfg); err != nil {
 		if err.Error() == store.ErrRepoNotFound.Error() || err.Error() == store.ErrBranchNotFound.Error() {
@@ -120,7 +127,7 @@ func (h *handlers) patchWorkspaceRuntime(w http.ResponseWriter, r *http.Request)
 	//   - the branch is not currently open
 	//   - the old and new kinds are the same
 	//   - no RuntimeRegistry is wired
-	restarted, restartErr := h.store.RestartBranchRuntime(r.Context(), repoID, branchID)
+	restarted, restartErr := h.store.RestartBranchRuntime(r.Context(), repoID, branchID, oldRT)
 	if restartErr != nil {
 		// Restart failure is surfaced as a non-fatal warning: the config was
 		// persisted successfully; the user can close+reopen to apply it.

@@ -234,6 +234,14 @@
       "decision": "FE mock テスト (s8478ca_runtime_switch_mock.py) の AC-refine-3/-4/-5 で page.route('**', catch_all) を _mock_apis() の前に登録することで Playwright の route 優先順位 (後登録 > 先登録) を利用し、特定 API mock が catch-all に上書きされる問題を解消した。",
       "rationale": "Playwright は同一パターンにマッチする複数のルートを後登録優先で処理する。catch-all ('**') を先に登録し、具体的な API mock を後登録することで、API URL は具体的ルートが処理し、それ以外は catch-all の continue_() に委ねる正しい優先順位になる。",
       "reference": "tests/e2e/s8478ca_runtime_switch_mock.py test_ac_refine_3/_4/_5 コメント参照; 7/7 pass 確認"
+    },
+    {
+      "id": "D-refine-fix",
+      "phase": "review",
+      "category": "implementation",
+      "decision": "in-place runtime switch のレビューで実バグ4件を VM E2E で検出・修正: (1) RestartBranchRuntime が persist 後に registry.Get して old runtime を取得していた→Get は config を再解決するため old が新側になり kill 先誤り/no-op。handler が persist 前に CurrentRuntime で old を捕捉して渡す形に。(2) host→incus で sync_tmux recovery が並行で tmuxFor を叩きコンテナ作成中に二重 Start→\"Instance is busy\"→host fallback で kill 済み host session を再生成。incus Start を startMu で直列化+冪等化 (ready なら即 return)。(3) tmuxFor の incus Start 失敗時 host fallback を除去 (isolation を黙って壊し host session を蘇らせるため)。(4) 直列化後も restart と sync_tmux が両方コンテナに session 作成→後発が \"duplicate session\"。incus NewSession を冪等化 (duplicate は成功扱い)。",
+      "rationale": "エージェントの unit テスト(fake registry は re-resolve しない)は通ったが実 VM で破綻。テストの repos.json fixture も {\"repos\":[...]}/settings.workspaces と誤っており top-level array + branchSettings に修正。全て host↔incus 双方向 4/4 VM E2E + 7/7 FE mock で確認。",
+      "reference": "tests/acceptance/s8478ca_runtime_switch.py 4/4, tests/e2e/s8478ca_runtime_switch_mock.py 7/7, go suite 21 pkgs ok."
     }
   ]
 }

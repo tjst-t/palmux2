@@ -469,9 +469,15 @@ func firstNonEmpty(values ...string) string {
 // final tab recompute. The slow operations (container Start, tmux session
 // create) run outside the lock to avoid blocking other store reads for
 // ~10 s during an incus launch.
-func (s *Store) RestartBranchRuntime(ctx context.Context, repoID, branchID string) (restarted bool, err error) {
-	if s.deps.RuntimeRegistry == nil {
-		return false, nil // nothing to restart without a registry
+// RestartBranchRuntime migrates an OPEN workspace to its newly-persisted
+// runtime. oldRT MUST be the runtime the workspace is CURRENTLY running on,
+// captured by the caller BEFORE persisting the new kind — the registry's Get
+// re-resolves the persisted config on every call (host is never cached, incus
+// is created-on-demand), so calling Get here after the persist would return the
+// NEW runtime and make this a silent no-op. See handler patchWorkspaceRuntime.
+func (s *Store) RestartBranchRuntime(ctx context.Context, repoID, branchID string, oldRT runtime.Runtime) (restarted bool, err error) {
+	if s.deps.RuntimeRegistry == nil || oldRT == nil {
+		return false, nil // nothing to restart without a registry / captured old runtime
 	}
 
 	// ── 1. Look up the branch under a read lock ──────────────────────────────
@@ -494,12 +500,8 @@ func (s *Store) RestartBranchRuntime(ctx context.Context, repoID, branchID strin
 	}
 
 	// ── 2. Determine old and new kinds ───────────────────────────────────────
-	// The registry still holds the OLD cached runtime (the persisted config was
-	// already changed, but the cache key hasn't been evicted yet).
-	oldRT := s.deps.RuntimeRegistry.Get(repoID, branchID)
-	if oldRT == nil {
-		return false, nil
-	}
+	// oldRT was captured by the caller BEFORE the persist (the registry would
+	// otherwise re-resolve to the new config — see the doc comment above).
 	oldKind := oldRT.Kind()
 
 	// Read the new config directly from repos.json (already updated by

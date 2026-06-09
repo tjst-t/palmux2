@@ -231,9 +231,14 @@ func (s *Store) tmuxFor(ctx context.Context, repoID, branchID string) tmux.Clien
 		if st := rt.Status(); st.State != runtime.StateReady {
 			s.logger.Info("store.tmuxFor: starting incus container", "repoID", repoID, "branchID", branchID)
 			if err := rt.Start(ctx); err != nil {
-				s.logger.Error("store.tmuxFor: incus Start failed — falling back to host",
+				// Do NOT fall back to s.deps.Tmux: recreating the session on the
+				// HOST tmux server silently breaks isolation and, during a
+				// host→incus switch, races the sync_tmux recovery loop into
+				// resurrecting the just-killed host session. Return the incus
+				// client; tmux ops surface the error and the next reconcile
+				// retries Start (now serialised + idempotent).
+				s.logger.Error("store.tmuxFor: incus Start failed (returning incus client, not host)",
 					"repoID", repoID, "branchID", branchID, "err", err)
-				return s.deps.Tmux
 			}
 		}
 	}
@@ -276,6 +281,16 @@ func (s *Store) WorkspaceRuntime(repoID, branchID string) runtime.Runtime {
 
 // RuntimeViewFor returns the domain.RuntimeView for the given workspace.
 // Falls back to a "host / ready / localhost" view when no registry is wired.
+// CurrentRuntime returns the runtime the workspace currently resolves to,
+// captured for callers that need the OLD runtime BEFORE persisting a change
+// (the registry re-resolves config on every Get). Returns nil if no registry.
+func (s *Store) CurrentRuntime(repoID, branchID string) runtime.Runtime {
+	if s.deps.RuntimeRegistry == nil {
+		return nil
+	}
+	return s.deps.RuntimeRegistry.Get(repoID, branchID)
+}
+
 func (s *Store) RuntimeViewFor(repoID, branchID string) *domain.RuntimeView {
 	if s.deps.RuntimeRegistry == nil {
 		return &domain.RuntimeView{Kind: "host", State: "ready", Address: "localhost"}

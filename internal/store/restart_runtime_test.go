@@ -148,7 +148,7 @@ func TestRestartBranchRuntime_SameKind(t *testing.T) {
 		t.Fatalf("SetWorkspaceRuntime: %v", err)
 	}
 
-	restarted, err := s.RestartBranchRuntime(context.Background(), repoID, branchID)
+	restarted, err := s.RestartBranchRuntime(context.Background(), repoID, branchID, hostRT)
 	if err != nil {
 		t.Fatalf("RestartBranchRuntime returned error: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestRestartBranchRuntime_BranchNotOpen(t *testing.T) {
 	reg := newFakeRegistry()
 	s, _ := newStoreWithRegistry(t, reg)
 
-	restarted, err := s.RestartBranchRuntime(context.Background(), "no-repo", "no-branch")
+	restarted, err := s.RestartBranchRuntime(context.Background(), "no-repo", "no-branch", &fakeRuntime{kind: runtime.KindHost})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestRestartBranchRuntime_NilRegistry(t *testing.T) {
 	repoDir := t.TempDir()
 	injectBranch(t, s, repoID, repoDir, "main", true)
 
-	restarted, err := s.RestartBranchRuntime(context.Background(), repoID, "anything")
+	restarted, err := s.RestartBranchRuntime(context.Background(), repoID, "anything", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestRestartBranchRuntime_KindChange(t *testing.T) {
 	// Seed the session on the main mock so ensureSession can verify HasSession.
 	mockTmux.SeedSession(sessionName)
 
-	restarted, err := s.RestartBranchRuntime(context.Background(), repoID, branchID)
+	restarted, err := s.RestartBranchRuntime(context.Background(), repoID, branchID, hostRT)
 	if err != nil {
 		t.Fatalf("RestartBranchRuntime: %v", err)
 	}
@@ -290,7 +290,7 @@ func TestRestartBranchRuntime_IncusStop(t *testing.T) {
 		t.Fatalf("SetWorkspaceRuntime: %v", err)
 	}
 
-	restarted, err := s.RestartBranchRuntime(context.Background(), repoID, branchID)
+	restarted, err := s.RestartBranchRuntime(context.Background(), repoID, branchID, incusRT)
 	if err != nil {
 		t.Fatalf("RestartBranchRuntime: %v", err)
 	}
