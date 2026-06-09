@@ -113,24 +113,49 @@ func (h *handlers) patchWorkspaceRuntime(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Publish a branch.runtimeChanged event so connected browsers update
-	// their header chip and drawer badge without a full reload.
+	// S8478ca-refine: if the workspace is currently open AND the kind actually
+	// changed, perform an in-place restart: kill the old session, stop/evict
+	// the old runtime, and bring up a fresh session in the new runtime.
+	// RestartBranchRuntime returns (false,nil) as a no-op when:
+	//   - the branch is not currently open
+	//   - the old and new kinds are the same
+	//   - no RuntimeRegistry is wired
+	restarted, restartErr := h.store.RestartBranchRuntime(r.Context(), repoID, branchID)
+	if restartErr != nil {
+		// Restart failure is surfaced as a non-fatal warning: the config was
+		// persisted successfully; the user can close+reopen to apply it.
+		// We return 200 with restarted=false so the FE can show a warning.
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":           true,
+			"restarted":    false,
+			"restartError": restartErr.Error(),
+			"runtime":      h.store.RuntimeViewFor(repoID, branchID),
+		})
+		return
+	}
+
 	rtView := h.store.RuntimeViewFor(repoID, branchID)
-	// The new config was just persisted; override Kind to the requested value
-	// so the FE sees the change immediately even before the registry rebuilds.
-	if rtView != nil {
+	// Ensure the FE sees the new kind immediately even when the runtime is
+	// still starting (state may be "starting" rather than "ready" yet).
+	if rtView != nil && rtView.Kind != string(k) {
 		rtView.Kind = string(k)
 	}
-	h.store.Hub().Publish(store.Event{
-		Type:     store.EventBranchRuntimeChanged,
-		RepoID:   repoID,
-		BranchID: branchID,
-		Payload:  rtView,
-	})
+
+	// For no-op cases (branch not open, same kind, no registry) the
+	// runtimeChanged event was NOT emitted. Emit it so the FE badge refreshes.
+	if !restarted {
+		h.store.Hub().Publish(store.Event{
+			Type:     store.EventBranchRuntimeChanged,
+			RepoID:   repoID,
+			BranchID: branchID,
+			Payload:  rtView,
+		})
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":      true,
-		"runtime": rtView,
+		"ok":        true,
+		"restarted": restarted,
+		"runtime":   rtView,
 	})
 }
 

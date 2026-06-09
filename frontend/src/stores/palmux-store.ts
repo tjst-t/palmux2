@@ -554,6 +554,11 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
         ),
       }))
     }
+    // S8478ca-refine: workspace was restarted in a new runtime. Force all
+    // terminal tabs to reconnect — the old tmux session is gone.
+    if (ev.type === 'branch.restarted' && ev.repoId && ev.branchId) {
+      _triggerBranchTerminalReconnect(ev.repoId, ev.branchId, get().repos)
+    }
 
     if (
       (ev.type === 'notification' || ev.type === 'notification.cleared') &&
@@ -966,12 +971,20 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
   },
 
   patchWorkspaceRuntime: async (repoId, branchId, kind) => {
-    await api.patch(
+    const resp = await api.patch<{
+      ok: boolean
+      restarted: boolean
+      restartError?: string
+      runtime?: RuntimeView
+    }>(
       `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/runtime`,
       { kind },
     )
-    // Optimistically update the local runtime view kind so the badge
-    // flips without waiting for the WS event.
+    // Update the local runtime view from the server response (contains the
+    // freshly-resolved RuntimeView after restart, or the updated kind for
+    // no-op cases). The WS branch.runtimeChanged event will arrive soon
+    // as well; this optimistic update reduces visible flicker.
+    const freshRuntime: RuntimeView = resp.runtime ?? { kind: kind as RuntimeView['kind'], state: 'stopped' }
     set((state) => ({
       repos: state.repos.map((r) =>
         r.id !== repoId
@@ -979,20 +992,41 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
           : {
               ...r,
               openBranches: r.openBranches.map((b) =>
-                b.id === branchId
-                  ? {
-                      ...b,
-                      runtime: b.runtime
-                        ? { ...b.runtime, kind: kind as RuntimeView['kind'] }
-                        : { kind: kind as RuntimeView['kind'], state: 'stopped' },
-                    }
-                  : b,
+                b.id === branchId ? { ...b, runtime: freshRuntime } : b,
               ),
             },
       ),
     }))
+    // S8478ca-refine: when the server performed an in-place restart, the
+    // tmux session was recreated in a new runtime. All active terminal tabs
+    // for this workspace need to reconnect.
+    if (resp.restarted) {
+      _triggerBranchTerminalReconnect(repoId, branchId, get().repos)
+    }
   },
 }))
+
+// S8478ca-refine: force terminal re-attachment for all terminal-backed tabs
+// (claude, bash) on a given workspace after an in-place runtime restart.
+// The tmux session was killed and recreated in the new runtime, so any live
+// WebSocket terminal connections are now stale. We evict the cached
+// ManagedTerminal entries from terminalManager (closing the old WS and
+// disposing the xterm.js terminal). The TerminalView component will detect
+// the removal on its next render cycle and re-mount, reconnecting the WS
+// against the freshly-started session.
+function _triggerBranchTerminalReconnect(repoId: string, branchId: string, repos: Repository[]): void {
+  // Import terminalManager lazily to avoid module init order issues.
+  import('../lib/terminal-manager').then(({ terminalManager }) => {
+    const branch = repos.find((r) => r.id === repoId)?.openBranches.find((b) => b.id === branchId)
+    if (!branch) return
+    for (const tab of branch.tabSet.tabs) {
+      if (tab.type === 'claude' || tab.type === 'bash') {
+        const key = `${repoId}/${branchId}/${tab.id}`
+        terminalManager.remove(key)
+      }
+    }
+  }).catch(() => {})
+}
 
 // S020: applyLocalOrder rebuilds the tabs slice with the user-requested
 // order applied within the contiguous Multiple()=true group whose IDs are

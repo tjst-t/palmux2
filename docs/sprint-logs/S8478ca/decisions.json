@@ -202,6 +202,38 @@
       "decision": "AC-4-3 の localhost 救済は bind=instance proxy device ではなく in-container Python relay を採用 (エージェント判断を実機で確認・承認)。design §5.3 を訂正。",
       "rationale": "VM 実機で `incus config device add … proxy … bind=instance` が unprivileged Incus 6.0 で起動失敗 (Failed to receive fd from listener process: abstract unix socket)。forkproxy の fd 受け渡しが userns 環境で不可。relay はコンテナ自身の netns 内で動き同等の到達性を得つつホストポートを消費しない。relay は双方向 TCP forwarder (SO_REUSEADDR, 接続毎スレッドペア, PID 追跡)。python3 は palmux-ws イメージに同梱。",
       "reference": "独立 E2E s8478ca_ports.py 5/5 pass。bind=instance 失敗を私が直接再現確認。"
+    },
+    {
+      "id": "D-refine-001",
+      "phase": "implementation",
+      "category": "architecture",
+      "decision": "Store.RestartBranchRuntime(ctx, repoID, branchID) を追加し、PATCH /runtime のレスポンスに restarted:bool フィールドを追加。Workspace が open で kind が変わる場合のみ (1) 旧セッション kill (2) incus の場合 Stop (3) registry Evict (4) ensureSession+recomputeTabs を実行し (true, nil) を返す。no-op (same kind / not open / nil registry) は (false, nil)。",
+      "rationale": "PATCH 側がリスタートの要否を判断せず、Store の知識に委ねる設計。ハンドラは restarted=false の no-op ケースでのみ EventBranchRuntimeChanged を emit し、true の場合はリスタート内部で publish するためイベント重複を防ぐ。",
+      "reference": "internal/store/branch.go RestartBranchRuntime; internal/server/handler_runtime.go patchWorkspaceRuntime; internal/store/restart_runtime_test.go (5/5 pass)"
+    },
+    {
+      "id": "D-refine-002",
+      "phase": "implementation",
+      "category": "implementation",
+      "decision": "RestartBranchRuntime は mu ロックを最小化する: Branch ルックアップ時の read lock と recomputeTabs 時の write lock のみ。コンテナ起動・tmux セッション生成 (各 ~数秒) はロック外で実行する。",
+      "rationale": "ロック保持中に incus start を待つと store の他の読み取り (sync_tmux ループ、WS attach) が数秒ブロックする。CloseBranch / ensureSession の先例に倣い、遅い外部 I/O はロック外で実行するパターンを採用。",
+      "reference": "internal/store/branch.go RestartBranchRuntime コメント参照"
+    },
+    {
+      "id": "D-refine-003",
+      "phase": "implementation",
+      "category": "frontend",
+      "decision": "ヘッダーの runtime-chip を clickable button 化し、popover menu (host / incus-container) + RuntimeChangeConfirm modal のフロー (data-testid: runtime-chip-menu / runtime-option-{kind} / runtime-change-confirm-ok) を実装。PATCH 失敗時は setChipMenuOpen(true) でメニューを再開しインライン error を表示 (data-testid=runtime-selector-error)。PATCH 成功で restarted:true の場合は terminalManager.remove(key) を全 terminal tab に対して呼んで WS 再接続を強制する。",
+      "rationale": "エラーメッセージ表示は menu 内の runtimeChipMenuError div に依存するため、menu が閉じた状態では表示できない。confirm 後に catch でメニューを再開することでユーザが「何が失敗したか」を確認できる。terminalManager.remove は xterm.js インスタンスを破棄し TerminalView の次レンダーで新規 WS attach が走るシンプルな再接続手法。",
+      "reference": "frontend/src/components/header.tsx handleConfirm; frontend/src/stores/palmux-store.ts _triggerBranchTerminalReconnect; tests/e2e/s8478ca_runtime_switch_mock.py 7/7 pass"
+    },
+    {
+      "id": "D-refine-004",
+      "phase": "testing",
+      "category": "testing",
+      "decision": "FE mock テスト (s8478ca_runtime_switch_mock.py) の AC-refine-3/-4/-5 で page.route('**', catch_all) を _mock_apis() の前に登録することで Playwright の route 優先順位 (後登録 > 先登録) を利用し、特定 API mock が catch-all に上書きされる問題を解消した。",
+      "rationale": "Playwright は同一パターンにマッチする複数のルートを後登録優先で処理する。catch-all ('**') を先に登録し、具体的な API mock を後登録することで、API URL は具体的ルートが処理し、それ以外は catch-all の continue_() に委ねる正しい優先順位になる。",
+      "reference": "tests/e2e/s8478ca_runtime_switch_mock.py test_ac_refine_3/_4/_5 コメント参照; 7/7 pass 確認"
     }
   ]
 }

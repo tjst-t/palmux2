@@ -40,8 +40,12 @@ export function RuntimeChangeConfirm({ newKind, onConfirm, onCancel }: Props) {
               fontFamily: 'var(--font-ui)',
             }}
           >
-            This workspace is currently open. Changing the runtime will take effect
-            the next time it is restarted.
+            This workspace is currently open. Changing to{' '}
+            <strong>{newKind}</strong> will immediately restart the workspace:
+            the current tmux session will be closed and a new one will be
+            created in the{' '}
+            {newKind === 'incus-container' ? 'Incus container' : 'host environment'}.
+            Unsaved terminal work will be lost.
           </p>
         </div>
         <div
@@ -83,7 +87,7 @@ export function RuntimeChangeConfirm({ newKind, onConfirm, onCancel }: Props) {
             data-testid="runtime-change-confirm-ok"
             onClick={onConfirm}
           >
-            Change runtime
+            Restart in {newKind}
           </button>
         </div>
       </div>

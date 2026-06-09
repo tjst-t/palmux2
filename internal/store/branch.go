@@ -454,3 +454,142 @@ func firstNonEmpty(values ...string) string {
 	}
 	return ""
 }
+
+// RestartBranchRuntime migrates an OPEN workspace to its newly-persisted
+// runtime (typically called just after SetWorkspaceRuntime changed the kind).
+// Returns (true, nil) when the restart was performed, (false, nil) for no-ops.
+//
+//   - If the branch is not currently open, this is a no-op (the change
+//     applies on the next open).
+//   - If the old and new kinds are the same, this is a no-op.
+//   - Otherwise: kill the session in the OLD runtime, stop+evict the OLD
+//     runtime, then call ensureSession in the NEW runtime.
+//
+// Locking: we hold s.mu only briefly for the in-memory lookups and for the
+// final tab recompute. The slow operations (container Start, tmux session
+// create) run outside the lock to avoid blocking other store reads for
+// ~10 s during an incus launch.
+func (s *Store) RestartBranchRuntime(ctx context.Context, repoID, branchID string) (restarted bool, err error) {
+	if s.deps.RuntimeRegistry == nil {
+		return false, nil // nothing to restart without a registry
+	}
+
+	// ── 1. Look up the branch under a read lock ──────────────────────────────
+	s.mu.RLock()
+	repo, ok := s.repos[repoID]
+	var branch *domain.Branch
+	if ok {
+		for _, b := range repo.OpenBranches {
+			if b.ID == branchID {
+				branch = b
+				break
+			}
+		}
+	}
+	s.mu.RUnlock()
+
+	if branch == nil {
+		// Branch not open — the persisted config will take effect on next open.
+		return false, nil
+	}
+
+	// ── 2. Determine old and new kinds ───────────────────────────────────────
+	// The registry still holds the OLD cached runtime (the persisted config was
+	// already changed, but the cache key hasn't been evicted yet).
+	oldRT := s.deps.RuntimeRegistry.Get(repoID, branchID)
+	if oldRT == nil {
+		return false, nil
+	}
+	oldKind := oldRT.Kind()
+
+	// Read the new config directly from repos.json (already updated by
+	// SetWorkspaceRuntime). We must NOT evict the cache until after killing the
+	// old session, so we derive the new kind from the persisted config directly.
+	newCfg := s.deps.RepoStore.ResolveWorkspaceRuntime(
+		repoID, branchID,
+		s.deps.Settings.DefaultRuntime(),
+	)
+	newKind := newCfg.Kind
+	if newKind == "" {
+		newKind = "host" // normalise zero value
+	}
+
+	if oldKind == runtime.Kind(newKind) {
+		// Same kind — nothing to do.
+		return false, nil
+	}
+
+	sessionName := branch.TabSet.TmuxSession
+	s.logger.Info("store.RestartBranchRuntime: migrating workspace runtime",
+		"repoID", repoID, "branchID", branchID,
+		"oldKind", oldKind, "newKind", newKind,
+		"session", sessionName,
+	)
+
+	// ── 3. Kill old tmux session using the OLD runtime's TmuxClient ──────────
+	oldTC := oldRT.TmuxClient()
+	if killErr := oldTC.KillSession(ctx, sessionName); killErr != nil {
+		s.logger.Warn("RestartBranchRuntime: KillSession (old runtime) failed",
+			"session", sessionName, "err", killErr)
+		// Non-fatal: the session may already be gone. Continue.
+	}
+
+	// ── 4. Stop the old runtime and evict it ─────────────────────────────────
+	if oldKind == runtime.KindIncusContainer {
+		if stopErr := oldRT.Stop(ctx); stopErr != nil {
+			s.logger.Warn("RestartBranchRuntime: Stop (old incus) failed",
+				"repoID", repoID, "branchID", branchID, "err", stopErr)
+		}
+	}
+	type evicterRegistry interface {
+		EvictRuntime(repoID, branchID string)
+	}
+	if er, ok2 := s.deps.RuntimeRegistry.(evicterRegistry); ok2 {
+		er.EvictRuntime(repoID, branchID)
+	}
+
+	// ── 5. Collect window specs (same as the normal open path) ───────────────
+	specs, specErr := s.collectOpenSpecs(ctx, branch, true) // resume=true: claude --resume
+	if specErr != nil {
+		return false, fmt.Errorf("RestartBranchRuntime collectOpenSpecs: %w", specErr)
+	}
+
+	// ── 6. Bring up the session in the NEW runtime ───────────────────────────
+	// tmuxFor now resolves the freshly-persisted config (cache was evicted above),
+	// creates the container if needed, and returns the new TmuxClient.
+	if sessErr := s.ensureSession(ctx, branch, specs); sessErr != nil {
+		return false, fmt.Errorf("RestartBranchRuntime ensureSession: %w", sessErr)
+	}
+
+	// ── 7. Recompute tabs + publish events ───────────────────────────────────
+	s.mu.Lock()
+	r2, ok3 := s.repos[repoID]
+	if ok3 {
+		for _, b := range r2.OpenBranches {
+			if b.ID == branchID {
+				s.recomputeTabs(ctx, b)
+				break
+			}
+		}
+	}
+	s.mu.Unlock()
+
+	rtView := s.RuntimeViewFor(repoID, branchID)
+	s.hub.Publish(Event{
+		Type:     EventBranchRuntimeChanged,
+		RepoID:   repoID,
+		BranchID: branchID,
+		Payload:  rtView,
+	})
+	// Also publish branch.restarted so FE terminal-views can force reconnect.
+	s.hub.Publish(Event{
+		Type:     "branch.restarted",
+		RepoID:   repoID,
+		BranchID: branchID,
+		Payload:  map[string]any{"runtime": rtView},
+	})
+
+	s.logger.Info("store.RestartBranchRuntime: done",
+		"repoID", repoID, "branchID", branchID, "newKind", newKind)
+	return true, nil
+}

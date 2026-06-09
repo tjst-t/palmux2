@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 
 import { useViewport } from '../hooks/use-viewport'
@@ -6,6 +6,7 @@ import { HOST_REPO_ID, selectBranchById, selectRepoById, usePalmuxStore } from '
 
 import { useCommandPaletteStore } from './command-palette/store'
 import { ActivityInbox } from './inbox/activity-inbox'
+import { RuntimeChangeConfirm } from './runtime-change-confirm'
 import { UploadsIndicator } from './uploads/uploads-indicator'
 import styles from './header.module.css'
 
@@ -25,10 +26,32 @@ export function Header() {
   const mobileDrawerOpen = usePalmuxStore((s) => s.mobileDrawerOpen)
   const setMobileDrawerOpen = usePalmuxStore((s) => s.setMobileDrawerOpen)
   const portmanURL = usePalmuxStore((s) => s.serverInfo.portmanURL)
+  const runtimeCaps = usePalmuxStore((s) => s.runtimeCaps)
+  const loadRuntimeCaps = usePalmuxStore((s) => s.loadRuntimeCaps)
+  const patchWorkspaceRuntime = usePalmuxStore((s) => s.patchWorkspaceRuntime)
   const showPalette = useCommandPaletteStore((s) => s.show)
   const wide = useWideViewport(SPLIT_MIN_WIDTH)
   const viewport = useViewport()
   const mobile = viewport === 'mobile'
+
+  // S8478ca-refine: runtime chip menu state
+  const [chipMenuOpen, setChipMenuOpen] = useState(false)
+  const [confirmKind, setConfirmKind] = useState<'host' | 'incus-container' | null>(null)
+  const [runtimeError, setRuntimeError] = useState<string | null>(null)
+  const [runtimePending, setRuntimePending] = useState(false)
+  const chipRef = useRef<HTMLButtonElement>(null)
+
+  // Close the menu when clicking outside
+  useEffect(() => {
+    if (!chipMenuOpen) return
+    const handler = (e: MouseEvent) => {
+      if (chipRef.current && !chipRef.current.closest('[data-testid="runtime-chip-anchor"]')?.contains(e.target as Node)) {
+        setChipMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [chipMenuOpen])
 
   const onToggleDrawer = () => {
     if (mobile) {
@@ -38,7 +61,51 @@ export function Header() {
     }
   }
 
+  const handleChipClick = () => {
+    if (!repoId || !branchId) return
+    // Load caps lazily on first open
+    void loadRuntimeCaps().catch(() => {})
+    setChipMenuOpen((o) => !o)
+    setRuntimeError(null)
+  }
+
+  const handleMenuSelect = (kind: 'host' | 'incus-container') => {
+    setChipMenuOpen(false)
+    if (branch?.runtime?.kind === kind) return // same kind — no-op
+    setConfirmKind(kind)
+  }
+
+  const handleConfirm = async () => {
+    const kind = confirmKind
+    setConfirmKind(null)
+    if (!kind || !repoId || !branchId) return
+    setRuntimePending(true)
+    setRuntimeError(null)
+    try {
+      await patchWorkspaceRuntime(repoId, branchId, kind)
+    } catch (err) {
+      setRuntimeError(err instanceof Error ? err.message : String(err))
+      // Re-open the chip menu so the inline error is visible to the user.
+      setChipMenuOpen(true)
+    } finally {
+      setRuntimePending(false)
+    }
+  }
+
+  const incusEntry = runtimeCaps?.kinds.find((k) => k.kind === 'incus-container')
+  const incusAvailable = incusEntry?.available ?? false
+  const incusReason = incusEntry?.reason ?? 'Incus is not installed on this host'
+
   return (
+    <>
+      {/* S8478ca-refine: confirm modal for runtime change from header chip */}
+      {confirmKind && (
+        <RuntimeChangeConfirm
+          newKind={confirmKind}
+          onConfirm={() => void handleConfirm()}
+          onCancel={() => setConfirmKind(null)}
+        />
+      )}
     <header className={styles.header}>
       <div className={styles.left}>
         <button
@@ -71,13 +138,70 @@ export function Header() {
             )}
             {branch?.runtime && (
               <span
-                className={styles.runtimeChip}
-                data-testid="runtime-chip"
-                data-runtime-state={branch.runtime.state}
-                title={`Runtime: ${branch.runtime.kind} · ${branch.runtime.state}${branch.runtime.address ? ` (${branch.runtime.address})` : ''}${branch.runtime.error ? ` — ${branch.runtime.error}` : ''}`}
+                className={styles.runtimeChipAnchor}
+                data-testid="runtime-chip-anchor"
               >
-                <span className={styles.rtDot} />
-                {branch.runtime.kind} · {branch.runtime.state}
+                <button
+                  ref={chipRef}
+                  className={`${styles.runtimeChip} ${styles.runtimeChipClickable}`}
+                  data-testid="runtime-chip"
+                  data-runtime-state={runtimePending ? 'starting' : branch.runtime.state}
+                  title={runtimePending
+                    ? 'Restarting workspace in new runtime…'
+                    : `Runtime: ${branch.runtime.kind} · ${branch.runtime.state}${branch.runtime.address ? ` (${branch.runtime.address})` : ''}${branch.runtime.error ? ` — ${branch.runtime.error}` : ''} — click to change`}
+                  onClick={handleChipClick}
+                  disabled={runtimePending}
+                  aria-haspopup="true"
+                  aria-expanded={chipMenuOpen}
+                >
+                  <span className={styles.rtDot} />
+                  {branch.runtime.kind} · {runtimePending ? 'restarting…' : branch.runtime.state}
+                </button>
+                {chipMenuOpen && (
+                  <div
+                    className={styles.runtimeChipMenu}
+                    data-testid="runtime-chip-menu"
+                    role="menu"
+                  >
+                    <div className={styles.runtimeChipMenuTitle}>Change runtime</div>
+                    <button
+                      className={`${styles.runtimeChipMenuOption} ${branch.runtime.kind === 'host' ? styles.runtimeChipMenuOptionActive : ''}`}
+                      data-testid="runtime-option-host"
+                      role="menuitem"
+                      onClick={() => handleMenuSelect('host')}
+                    >
+                      <span className={styles.runtimeChipMenuDot} /> host
+                      {branch.runtime.kind === 'host' && <span className={styles.runtimeChipMenuCurrent}>current</span>}
+                    </button>
+                    {incusAvailable ? (
+                      <button
+                        className={`${styles.runtimeChipMenuOption} ${branch.runtime.kind === 'incus-container' ? styles.runtimeChipMenuOptionActive : ''}`}
+                        data-testid="runtime-option-incus-container"
+                        role="menuitem"
+                        onClick={() => handleMenuSelect('incus-container')}
+                      >
+                        <span className={styles.runtimeChipMenuDot} /> incus-container
+                        {branch.runtime.kind === 'incus-container' && <span className={styles.runtimeChipMenuCurrent}>current</span>}
+                      </button>
+                    ) : (
+                      <button
+                        className={`${styles.runtimeChipMenuOption} ${styles.runtimeChipMenuOptionDisabled}`}
+                        data-testid="runtime-option-incus-container"
+                        role="menuitem"
+                        disabled
+                        title={incusReason}
+                      >
+                        <span className={styles.runtimeChipMenuDot} /> incus-container
+                        <span className={styles.runtimeChipMenuUnavailable}>unavailable</span>
+                      </button>
+                    )}
+                    {runtimeError && (
+                      <div className={styles.runtimeChipMenuError} data-testid="runtime-selector-error">
+                        {runtimeError}
+                      </div>
+                    )}
+                  </div>
+                )}
               </span>
             )}
           </>
@@ -130,6 +254,7 @@ export function Header() {
         <span className={`${styles.dot} ${styles[status]}`} title={status} />
       </div>
     </header>
+    </>
   )
 }
 

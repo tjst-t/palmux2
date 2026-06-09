@@ -140,6 +140,112 @@
   flex-shrink: 0;
 }
 
+/* S8478ca-refine: clickable chip variant */
+.runtimeChipClickable {
+  cursor: pointer;
+  border: none;
+  background: var(--color-elevated, #1a1c25);
+  font-family: var(--font-mono);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  color: var(--color-fg-muted);
+}
+.runtimeChipClickable:hover:not(:disabled) {
+  border-color: var(--color-accent, #7c8aff);
+  color: var(--color-accent, #7c8aff);
+}
+.runtimeChipClickable:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+/* S8478ca-refine: chip anchor for positioning the popover */
+.runtimeChipAnchor {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* S8478ca-refine: chip context menu (popover) */
+.runtimeChipMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 200;
+  min-width: 180px;
+  background: var(--color-elevated, #1a1c25);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius, 6px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  padding: 4px 0;
+  font-family: var(--font-ui);
+}
+.runtimeChipMenuTitle {
+  font-size: 11px;
+  color: var(--color-fg-dim, #6b6f7b);
+  padding: 4px 12px 6px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 2px;
+}
+.runtimeChipMenuOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 12px;
+  font-size: 13px;
+  color: var(--color-fg-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+.runtimeChipMenuOption:hover:not(:disabled) {
+  background: rgba(124, 138, 255, 0.08);
+  color: var(--color-fg);
+}
+.runtimeChipMenuOptionActive {
+  color: var(--color-fg);
+  font-weight: 500;
+}
+.runtimeChipMenuOptionDisabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.runtimeChipMenuDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.runtimeChipMenuCurrent {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--color-success, #64d2a0);
+  font-weight: 500;
+}
+.runtimeChipMenuUnavailable {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--color-fg-dim, #6b6f7b);
+}
+.runtimeChipMenuError {
+  font-size: 12px;
+  color: var(--color-error, #ef4444);
+  padding: 6px 12px;
+  border-top: 1px solid var(--color-border);
+  margin-top: 2px;
+}
+
 /* S8478ca-5: Host login scope (host--0000) label — distinct from runtime chip */
 .hostScopeLabel {
   display: inline-flex;
