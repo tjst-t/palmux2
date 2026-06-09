@@ -252,8 +252,8 @@ func (h *handlers) cloneRepo(w http.ResponseWriter, r *http.Request) {
 
 // deletePreviewResponse is returned by GET /api/repos/{repoId}/delete-preview.
 type deletePreviewResponse struct {
-	HasUnpushed bool                       `json:"hasUnpushed"`
-	Worktrees   []worktree.WorktreeStatus  `json:"worktrees"`
+	HasUnpushed bool                      `json:"hasUnpushed"`
+	Worktrees   []worktree.WorktreeStatus `json:"worktrees"`
 }
 
 // deletePreview handles GET /api/repos/{repoId}/delete-preview.

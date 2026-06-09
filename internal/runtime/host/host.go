@@ -155,6 +155,11 @@ func (h *hostRuntime) UnexposePort(_ context.Context, _ string) error {
 	return nil
 }
 
+// TmuxClient returns the host tmux.Client injected at construction.
+// For host this IS the global tmux.Client, so store behaviour is byte-identical
+// to the pre-S8478ca code paths.
+func (h *hostRuntime) TmuxClient() tmux.Client { return h.t }
+
 // DefaultRegistry is a Registry implementation that returns a host Runtime
 // for every (repoID, branchID) pair.  It is the default wired into the store
 // until Story S8478ca-3 adds per-workspace resolution.

@@ -246,14 +246,19 @@ func (h *wsHandlers) attachTab(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.tmux.NewGroupSession(ctx, branch.TabSet.TmuxSession, groupSession); err != nil {
+	// S8478ca-2: use the workspace-scoped tmux.Client so incus-container
+	// workspaces route NewGroupSession and Attach through `incus exec`.
+	// For host workspaces tc IS h.tmux — behaviour is byte-identical.
+	tc := h.store.TmuxFor(ctx, repoID, branchID)
+
+	if err := tc.NewGroupSession(ctx, branch.TabSet.TmuxSession, groupSession); err != nil {
 		h.logger.Warn("NewGroupSession", "err", err)
 		_ = c.Close(websocket.StatusInternalError, "failed to create session group")
 		return
 	}
 	defer func() {
 		// Best-effort cleanup; SyncTmux will sweep too.
-		_ = h.tmux.KillSession(context.Background(), groupSession)
+		_ = tc.KillSession(context.Background(), groupSession)
 	}()
 
 	// Initial pty size from the URL — clients fit before connecting so we
@@ -261,7 +266,7 @@ func (h *wsHandlers) attachTab(w http.ResponseWriter, r *http.Request) {
 	// session to 80x24 first. Anything missing/invalid falls back to defaults.
 	attachOpts := parseAttachOpts(r.URL.Query())
 
-	pty, resize, err := h.tmux.Attach(ctx, groupSession, target.WindowName, attachOpts)
+	pty, resize, err := tc.Attach(ctx, groupSession, target.WindowName, attachOpts)
 	if err != nil {
 		// S009-fix-2: surface the failure path so operators can grep for
 		// it. attachTab failures here are the user-facing "Reconnecting…"

@@ -196,6 +196,50 @@ func (s *Store) PopulateTabs(ctx context.Context) {
 	}
 }
 
+// TmuxFor returns the tmux.Client that should drive tmux operations for the
+// given workspace.
+//
+//   - host workspace (or no RuntimeRegistry configured): returns s.deps.Tmux
+//     unchanged — behaviour is byte-identical to pre-S8478ca.
+//   - incus-container workspace: returns the incusTmuxClient for that
+//     workspace's container.  If the container is not yet started, Start()
+//     is called first (idempotent — if it was already started this is a
+//     single status check).
+//
+// This is the single dispatch point that lets ensureSession, EnsureTabWindow,
+// AddTab, RemoveTab and the WS attach path all route correctly without knowing
+// which runtime a workspace uses.
+func (s *Store) TmuxFor(ctx context.Context, repoID, branchID string) tmux.Client {
+	return s.tmuxFor(ctx, repoID, branchID)
+}
+
+// tmuxFor is the private implementation; public TmuxFor is the store entry-point
+// for handlers that hold a *Store but not a branch pointer.
+func (s *Store) tmuxFor(ctx context.Context, repoID, branchID string) tmux.Client {
+	if s.deps.RuntimeRegistry == nil {
+		return s.deps.Tmux
+	}
+	rt := s.deps.RuntimeRegistry.Get(repoID, branchID)
+	if rt == nil {
+		return s.deps.Tmux
+	}
+	tc := rt.TmuxClient()
+	// For host runtimes TmuxClient() returns the same client as s.deps.Tmux.
+	// For incus-container runtimes we need to ensure the container is started
+	// before the first tmux call.
+	if rt.Kind() == runtime.KindIncusContainer {
+		if st := rt.Status(); st.State != runtime.StateReady {
+			s.logger.Info("store.tmuxFor: starting incus container", "repoID", repoID, "branchID", branchID)
+			if err := rt.Start(ctx); err != nil {
+				s.logger.Error("store.tmuxFor: incus Start failed — falling back to host",
+					"repoID", repoID, "branchID", branchID, "err", err)
+				return s.deps.Tmux
+			}
+		}
+	}
+	return tc
+}
+
 // Hub returns the broadcaster.
 func (s *Store) Hub() *EventHub { return s.hub }
 
@@ -433,7 +477,12 @@ func (s *Store) recomputeTabs(ctx context.Context, branch *domain.Branch) {
 		s.recomputeHostTabs(ctx, branch)
 		return
 	}
-	windows, err := s.deps.Tmux.ListWindows(ctx, branch.TabSet.TmuxSession)
+	// S8478ca-2: route through tmuxFor so incus-container workspaces query
+	// the in-container tmux server.  Note: tmuxFor may Start the container
+	// when kind=incus-container; we hold the write lock here so keep Start
+	// fast (it short-circuits via status check when the container is already
+	// running).  For host workspaces tmuxFor returns s.deps.Tmux unchanged.
+	windows, err := s.tmuxFor(ctx, branch.RepoID, branch.ID).ListWindows(ctx, branch.TabSet.TmuxSession)
 	listFailed := err != nil
 	if listFailed {
 		// Session may not exist yet; sync_tmux will recreate it within 5s.

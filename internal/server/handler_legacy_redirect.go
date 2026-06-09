@@ -30,7 +30,7 @@ import (
 //   - `/api/repos/{repoId}/branches/{branchId}/...` (most everything)
 //   - SPA-fallback `/{repoId}/{branchId}/...` is not handled here
 //     (the SPA does its own client-side legacy resolve via
-//      `ResolveLegacyBranchID` exposed through GET /api/repos)
+//     `ResolveLegacyBranchID` exposed through GET /api/repos)
 func legacyBranchIDRedirect(st *store.Store, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead &&

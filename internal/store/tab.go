@@ -151,7 +151,7 @@ func (s *Store) AddTab(ctx context.Context, repoID, branchID, providerType, name
 	if err != nil {
 		return domain.Tab{}, err
 	}
-	if err := s.deps.Tmux.NewWindow(ctx, sessionName, tmux.NewWindowOpts{Name: windowName, Cwd: cwd}); err != nil {
+	if err := s.tmuxFor(ctx, repoID, branchID).NewWindow(ctx, sessionName, tmux.NewWindowOpts{Name: windowName, Cwd: cwd}); err != nil {
 		return domain.Tab{}, err
 	}
 
@@ -235,7 +235,9 @@ func (s *Store) RemoveTab(ctx context.Context, repoID, branchID, tabID string) e
 	s.mu.RUnlock()
 
 	if target.WindowName != "" {
-		if err := s.deps.Tmux.KillWindowByName(ctx, sessionName, target.WindowName); err != nil {
+		// S8478ca-2: route through tmuxFor so incus workspaces kill the
+		// window in the in-container tmux server.
+		if err := s.tmuxFor(ctx, repoID, branchID).KillWindowByName(ctx, sessionName, target.WindowName); err != nil {
 			// S009-fix-2: the user's intent is "this tab should be
 			// gone". If tmux says the window is already gone (race
 			// against sync_tmux recovery, external `kill-window`, or
@@ -364,8 +366,9 @@ func (s *Store) RenameTab(ctx context.Context, repoID, branchID, tabID, newName 
 
 	// tmux-backed (Bash): rename the window AND migrate any existing
 	// override rows so the new ID inherits the previous metadata.
+	// S8478ca-2: route through tmuxFor for incus-container workspaces.
 	newWindowName := domain.WindowName(target.Type, newName)
-	if err := s.deps.Tmux.RenameWindow(ctx, sessionName, target.WindowName, newWindowName); err != nil {
+	if err := s.tmuxFor(ctx, repoID, branchID).RenameWindow(ctx, sessionName, target.WindowName, newWindowName); err != nil {
 		return err
 	}
 	newTabID := domain.TabID(target.Type, newName)
@@ -554,7 +557,10 @@ func (s *Store) EnsureTabWindow(ctx context.Context, repoID, branchID, tabID str
 	// 2. Make sure the specific window we're about to attach to is in
 	//    the session. If it isn't (host-instance recovery recreated the
 	//    base without enrichment, external tmux kill, etc.) recreate it.
-	have, err := s.deps.Tmux.ListWindows(ctx, branchSnap.TabSet.TmuxSession)
+	//    S8478ca-2: route through tmuxFor so incus workspaces target the
+	//    in-container tmux server.
+	tc := s.tmuxFor(ctx, repoID, branchID)
+	have, err := tc.ListWindows(ctx, branchSnap.TabSet.TmuxSession)
 	if err != nil {
 		return fmt.Errorf("list windows: %w", err)
 	}
@@ -566,7 +572,7 @@ func (s *Store) EnsureTabWindow(ctx context.Context, repoID, branchID, tabID str
 	// Missing — recreate. For Bash the cwd is the worktree path; the
 	// default shell starts automatically.
 	cwd := branchSnap.WorktreePath
-	if err := s.deps.Tmux.NewWindow(ctx, branchSnap.TabSet.TmuxSession, tmux.NewWindowOpts{
+	if err := tc.NewWindow(ctx, branchSnap.TabSet.TmuxSession, tmux.NewWindowOpts{
 		Name: target.WindowName,
 		Cwd:  cwd,
 	}); err != nil {

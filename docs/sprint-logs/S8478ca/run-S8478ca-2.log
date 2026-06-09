@@ -1,0 +1,50 @@
+# E2E Run Log — Story S8478ca-2
+# Date: 2026-06-09
+# VM: ubuntu@192.168.1.41  Incus 6.0.0
+# Binary: v0.9.7-S8478ca-2 (security.privileged fallback build)
+# Config: /tmp/palmux-e2e-config  Port: 19876
+# Repo: local--inctest--5065  Branch: inctest--7d37
+# Instance: local-inctest-5065-inctest-7d37-7ceb634f
+
+## Setup Notes
+- VM Ubuntu 24.04, kernel 6.8, Incus 6.0.0
+- /etc/subuid: ubuntu:1000:1 + ubuntu:100000:65536
+- raw.idmap "both 1000 1000" FAILS at start time because newuidmap rejects
+  uid range [1000-1001) -> [1000-1001) (range 1001001-1001000000 not in subuid)
+- Fallback: security.privileged=true achieves same goal (UID passthrough)
+- palmux-ws image has claude 2.1.169 at /usr/local/bin/claude
+
+## palmux Server Log (successful run)
+
+time=2026-06-09T11:37:56.394Z level=INFO msg="palmux2 starting" version=v0.9.7-0.20260609111245-bf5d98175d69+dirty addr=0.0.0.0:19876
+time=2026-06-09T11:37:56.407Z level=INFO msg="incus.Registry: created runtime" repoID=local--inctest--5065 branchID=inctest--7d37 inst=local-inctest-5065-inctest-7d37-7ceb634f
+time=2026-06-09T11:37:56.407Z level=INFO msg="store.tmuxFor: starting incus container" repoID=local--inctest--5065 branchID=inctest--7d37
+time=2026-06-09T11:38:06.023Z level=WARN msg="incus: start failed, attempting security.privileged fallback" inst=local-inctest-5065-inctest-7d37-7ceb634f code=1 stderr="Error: Failed to run: /usr/libexec/incus/incusd forkstart..."
+time=2026-06-09T11:38:07.550Z level=INFO msg="incus: container started in privileged mode" inst=local-inctest-5065-inctest-7d37-7ceb634f
+time=2026-06-09T11:38:07.747Z level=INFO msg="incus: container ready" inst=local-inctest-5065-inctest-7d37-7ceb634f addr=""
+time=2026-06-09T11:38:07.850Z level=INFO msg="palmux2 listening" addr=0.0.0.0:19876 configDir=/tmp/palmux-e2e-config auth=open tmuxPrefix=_palmux_
+
+## AC Results
+
+[AC-S8478ca-2-1] Container RUNNING after workspace open:
+  $ incus list
+  | local-inctest-5065-inctest-7d37-7ceb634f | RUNNING | 10.213.70.187 (eth0) | ... |
+  PASS
+
+[AC-S8478ca-2-2] Bind-mount file ownership (security.privileged mode):
+  $ incus exec local-inctest-5065-inctest-7d37-7ceb634f -- stat -c '%U %u' /home/ubuntu/.claude/.credentials.json
+  ubuntu 1000
+  PASS (privileged container passes through host UIDs directly)
+
+[AC-S8478ca-2-3] claude binary runs in-container:
+  $ incus exec local-inctest-5065-inctest-7d37-7ceb634f -- /usr/local/bin/claude --version
+  2.1.169 (Claude Code)
+  PASS
+
+[AC-S8478ca-2-4] Container deleted on workspace close:
+  $ curl -s -X DELETE 'http://localhost:19876/api/repos/local--inctest--5065/branches/inctest--7d37'
+  $ incus list
+  (empty — no containers)
+  PASS
+
+## Result: ALL 4 AC PASSED

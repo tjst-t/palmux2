@@ -90,6 +90,38 @@
       "decision": "runtime.Config は *runtime.Config (pointer) として BranchSettings.Runtime と RepoEntry.DefaultRuntime に格納し omitempty で省略する。nil = 未設定、非 nil = 明示指定。Settings.DefaultRuntime も同様のポインタ型とし、PATCH で非 nil かつ kind='' を受け取った場合は明示クリアとする。",
       "rationale": "nil と空 struct の区別が『未設定 (スキップ)』と『空指定 (ホストフォールバック)』の曖昧さを除去する。JSON omitempty と合わせて既存 repos.json/settings.json に余分フィールドを書かない (後方互換 §2.3)。ResolveWorkspaceRuntime は各ティアで Kind.IsValid() を確認し、無効時は次ティアへ透過する。",
       "reference": "docs/workspace-runtime-design.md §2.2/§2.3; AC-S8478ca-3-1/-2/-3"
+    },
+    {
+      "id": "D012",
+      "phase": "implementation",
+      "category": "architecture",
+      "decision": "Runtime.TmuxClient() を runtime.Runtime interface に追加し、incusRuntime は NewTmuxClient(inst, runner) を返す incusTmuxClient、hostRuntime は注入された host tmux.Client を返す。store.tmuxFor はこの method を呼んで workspace 単位の tmux.Client を解決する。",
+      "rationale": "tmux パッケージは context/io しか import しないので runtime → tmux の依存は循環なし。store が incus パッケージを直接 import しなくて済む。interface 追加は breaking change だが internal/ で全実装を管理できるため許容。",
+      "reference": "AC-S8478ca-2-1/-2/-3; handler_ws.go store.TmuxFor(ctx, repoID, branchID)"
+    },
+    {
+      "id": "D013",
+      "phase": "implementation",
+      "category": "implementation",
+      "decision": "raw.idmap 'both 1000 1000' のコンフィグ set は常に試みる。incus start が失敗した場合 (newuidmap rejection は incus start stderr には出ず incus info --show-log にしか出ない) は waitStopped + config unset raw.idmap + config set security.privileged true + retry start のフォールバックを実行する。",
+      "rationale": "test VM (Ubuntu 24.04 kernel 6.8) では /etc/subuid: ubuntu:100000:65536 しかなく idmap range 1001001-1001000000 をカバーできない。incus start stderr はユーザフレンドリーエラーのみで newuidmap 詳細が出ないため pattern match 不能。start 失敗時は一律 privileged fallback が最も堅牢。security.privileged は特権コンテナになるが bind-mount ファイル所有者が ubuntu (UID 1000 passthrough) になるため observable goal は同一。",
+      "reference": "run-S8478ca-2.log; incus info --show-log (newuidmap: uid range [1000-1001) -> [1000-1001) not allowed)"
+    },
+    {
+      "id": "D014",
+      "phase": "implementation",
+      "category": "implementation",
+      "decision": "waitStopped はコンテナが設定変更可能になるまでポーリングする。実装として config set security.privileged false (no-op) を probe として使い、busy 応答なしで成功したら抜ける。incus list JSON の status=STOPPED は操作ロックを反映しないため不十分だった。",
+      "rationale": "incus start 失敗後 incusd は内部的に stop operation を走らせる。その間 config set が 'Instance is busy running a stop operation' で拒否される。probe ベースの待機が status polling より確実。",
+      "reference": "run-S8478ca-2.log (Error: Failed to create instance update operation: Instance is busy running a stop operation)"
+    },
+    {
+      "id": "D015",
+      "phase": "implementation",
+      "category": "testing",
+      "decision": "E2E test fixture (palmux_server) は scp でスクリプトをアップロードして nohup + disown で palmux を起動する。SSH セッション内で直接 & で起動すると SSH が子プロセスの終了を待ってタイムアウトする。",
+      "rationale": "Python subprocess + SSH の組み合わせで background process を spawn するには SSH セッションを切り離す必要がある。nohup + disown がポータブルかつ追加依存なし。",
+      "reference": "tests/acceptance/s8478ca_incus_container.py palmux_server fixture"
     }
   ]
 }

@@ -12,6 +12,8 @@ package runtime
 import (
 	"context"
 	"io"
+
+	"github.com/tjst-t/palmux2/internal/tmux"
 )
 
 // Kind is a two-value discriminant for the runtime type.
@@ -154,4 +156,13 @@ type Runtime interface {
 
 	// UnexposePort removes a previously-created port mapping by its ID.
 	UnexposePort(ctx context.Context, mappingID string) error
+
+	// TmuxClient returns the tmux.Client that should be used to drive tmux
+	// operations inside this runtime.  For host this is the global
+	// tmux.Client (unchanged behaviour).  For incus-container it is an
+	// incusTmuxClient that routes all tmux calls through `incus exec`.
+	//
+	// The method must be cheap (cached / stateless); it must NOT start the
+	// runtime.  The store calls Start() separately before first use.
+	TmuxClient() tmux.Client
 }

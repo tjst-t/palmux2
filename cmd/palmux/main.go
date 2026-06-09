@@ -29,7 +29,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/gwq"
 	"github.com/tjst-t/palmux2/internal/notify"
 	"github.com/tjst-t/palmux2/internal/portman"
-	"github.com/tjst-t/palmux2/internal/runtime/host"
+	"github.com/tjst-t/palmux2/internal/runtime/incus"
 	"github.com/tjst-t/palmux2/internal/server"
 	"github.com/tjst-t/palmux2/internal/store"
 	"github.com/tjst-t/palmux2/internal/tab"
@@ -195,11 +195,12 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		return err
 	}
 
-	// S8478ca-1: default RuntimeRegistry wraps the tmux.Client in a host
-	// Runtime so every workspace resolves to "host" until Story -3 adds real
-	// per-workspace resolution.  Behaviour is identical to before — no tmux
-	// operations change.
-	runtimeRegistry := host.NewDefaultRegistry(tmuxClient)
+	// S8478ca-2: replace the host-only DefaultRegistry with the incus-aware
+	// Registry.  For workspaces configured as "host" (the default) it returns
+	// a host Runtime backed by tmuxClient — behaviour is byte-identical.  For
+	// workspaces configured as "incus-container" it constructs and caches an
+	// incusRuntime that routes all tmux calls through `incus exec`.
+	runtimeRegistry := incus.NewRegistry(repoStore, settingsStore, tmuxClient, slog.Default())
 
 	registry := tab.NewRegistry()
 	st, err := store.New(store.Deps{

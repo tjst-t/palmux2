@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/tjst-t/palmux2/internal/domain"
+	"github.com/tjst-t/palmux2/internal/runtime"
 	"github.com/tjst-t/palmux2/internal/tab"
 	"github.com/tjst-t/palmux2/internal/tmux"
 	"github.com/tjst-t/palmux2/internal/worktree"
@@ -241,9 +242,30 @@ func (s *Store) CloseBranch(ctx context.Context, repoID, branchID string) error 
 	}
 	s.mu.Unlock()
 
-	// Kill tmux first so client connections error out cleanly.
-	if err := s.deps.Tmux.KillSession(ctx, branch.TabSet.TmuxSession); err != nil {
+	// Kill tmux first so client connections error out cleanly.  Route through
+	// tmuxFor so incus-container workspaces kill the in-container session.
+	// S8478ca-2: after killing the session, stop the container if this was
+	// an incus-container workspace (Stop is `incus delete --force`).
+	tc := s.tmuxFor(ctx, repoID, branchID)
+	if err := tc.KillSession(ctx, branch.TabSet.TmuxSession); err != nil {
 		s.logger.Warn("CloseBranch: tmux kill", "session", branch.TabSet.TmuxSession, "err", err)
+	}
+	// Stop the runtime (no-op for host; deletes container for incus).
+	// Evict the cached entry so re-opening the workspace gets a fresh runtime.
+	if s.deps.RuntimeRegistry != nil {
+		rt := s.deps.RuntimeRegistry.Get(repoID, branchID)
+		if rt != nil && rt.Kind() == runtime.KindIncusContainer {
+			if stopErr := rt.Stop(ctx); stopErr != nil {
+				s.logger.Warn("CloseBranch: runtime Stop", "repoID", repoID, "branchID", branchID, "err", stopErr)
+			}
+		}
+		// Evict via optional interface — incus.Registry implements this.
+		type evicterRegistry interface {
+			EvictRuntime(repoID, branchID string)
+		}
+		if er, ok := s.deps.RuntimeRegistry.(evicterRegistry); ok {
+			er.EvictRuntime(repoID, branchID)
+		}
 	}
 	if !branch.IsPrimary && s.deps.Gwq != nil {
 		if err := s.deps.Gwq.Remove(ctx, repoFullPath, branch.Name); err != nil {
@@ -349,10 +371,16 @@ func (s *Store) collectOpenSpecs(ctx context.Context, branch *domain.Branch, res
 // or empty repos.json can't make us tear down its base sessions every
 // 5 s. Symmetric to the knownConnIDs filter introduced in fix-2 for
 // __grp_xxx group sessions.
+//
+// S8478ca-2: tmux operations are routed through tmuxFor(branch) so that
+// incus-container workspaces target the in-container tmux server instead of
+// the host tmux server.  For host workspaces tmuxFor returns s.deps.Tmux
+// unchanged — behaviour is byte-identical.
 func (s *Store) ensureSession(ctx context.Context, branch *domain.Branch, windows []tab.WindowSpec) error {
+	tc := s.tmuxFor(ctx, branch.RepoID, branch.ID)
 	cwd := branch.WorktreePath
 	sessionName := branch.TabSet.TmuxSession
-	exists, err := s.deps.Tmux.HasSession(ctx, sessionName)
+	exists, err := tc.HasSession(ctx, sessionName)
 	if err != nil {
 		return err
 	}
@@ -369,7 +397,7 @@ func (s *Store) ensureSession(ctx context.Context, branch *domain.Branch, window
 		if len(windows) == 0 {
 			// No terminal-backed providers (e.g. only Files/Git). Create a
 			// minimal placeholder window so the session is valid.
-			err = s.deps.Tmux.NewSession(ctx, tmux.NewSessionOpts{
+			err = tc.NewSession(ctx, tmux.NewSessionOpts{
 				Name:       branch.TabSet.TmuxSession,
 				WindowName: domain.WindowName("placeholder", "placeholder"),
 				Cwd:        cwd,
@@ -380,7 +408,7 @@ func (s *Store) ensureSession(ctx context.Context, branch *domain.Branch, window
 			return nil
 		}
 		first := windows[0]
-		err = s.deps.Tmux.NewSession(ctx, tmux.NewSessionOpts{
+		err = tc.NewSession(ctx, tmux.NewSessionOpts{
 			Name:       branch.TabSet.TmuxSession,
 			WindowName: first.Name,
 			Cwd:        firstNonEmpty(first.Cwd, cwd),
@@ -393,7 +421,7 @@ func (s *Store) ensureSession(ctx context.Context, branch *domain.Branch, window
 		windows = windows[1:]
 	}
 	// Get current windows once so we don't add duplicates.
-	have, err := s.deps.Tmux.ListWindows(ctx, branch.TabSet.TmuxSession)
+	have, err := tc.ListWindows(ctx, branch.TabSet.TmuxSession)
 	if err != nil {
 		return err
 	}
@@ -405,7 +433,7 @@ func (s *Store) ensureSession(ctx context.Context, branch *domain.Branch, window
 		if existing[w.Name] {
 			continue
 		}
-		err := s.deps.Tmux.NewWindow(ctx, branch.TabSet.TmuxSession, tmux.NewWindowOpts{
+		err := tc.NewWindow(ctx, branch.TabSet.TmuxSession, tmux.NewWindowOpts{
 			Name:    w.Name,
 			Cwd:     firstNonEmpty(w.Cwd, cwd),
 			Command: w.Command,
