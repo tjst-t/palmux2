@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S8478ca-5 · Open Repository — Runtime selector (Incus absent)</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app" aria-hidden="true" style="filter: blur(0.5px);">
+    <header class="header"><span class="headerBrand">PALMUX</span><span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b></span></header>
+    <aside class="drawer">
+      <div class="statusStrip"><span class="brand">PALMUX</span></div>
+      <div class="section"><span class="sectionTitle">Repositories</span></div>
+      <ul class="repos">
+        <li class="repo"><div class="repoRow"><span class="repoNum">1</span><button class="repoName"><span class="scope">tjst-t/</span>palmux2</button><button class="moreBtn">⋯</button></div></li>
+      </ul>
+    </aside>
+    <main class="main"><div class="tabBar"><button class="tab tabActive">◆ Claude</button></div></main>
+  </div>
+
+  <div class="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="open-repo-title">
+    <div class="modalCard" data-testid="open-repo-modal">
+      <div class="modalHeader">
+        <h2 class="modalTitle" id="open-repo-title">Open Repository</h2>
+        <p class="modalSub">Pick a repository, then choose where its Workspaces run.</p>
+      </div>
+      <div class="modalBody" style="padding: 0;">
+        <div style="padding: 14px 18px 6px;">
+          <input class="input" type="text" value="charmbracelet/bubbletea" data-testid="open-repo-input" style="width:100%;font-size:14px;">
+        </div>
+
+        <div style="padding: 6px 18px 16px;">
+          <div class="runtimeFieldset" data-testid="runtime-selector" role="radiogroup" aria-label="Workspace runtime">
+            <span class="runtimeFieldLabel">Runtime — where this Workspace runs</span>
+
+            <div class="runtimeOption" data-selected="true" data-testid="runtime-option-host" role="radio" aria-checked="true" tabindex="0">
+              <span class="runtimeRadio"></span>
+              <span class="runtimeName">host</span>
+              <span class="runtimeMeta">no isolation</span>
+              <span class="runtimeDesc">Runs directly on the host — legacy behaviour. Shares ports &amp; packages with everything else.</span>
+            </div>
+
+            <div class="incusTip" style="display:block;">
+              <div class="runtimeOption" data-selected="false" data-disabled="true" data-testid="runtime-option-incus-container-disabled" role="radio" aria-checked="false" aria-disabled="true">
+                <span class="runtimeRadio"></span>
+                <span class="runtimeName">incus-container<span class="runtimePill" style="opacity:.6">isolated</span></span>
+                <span class="runtimeMeta">Incus not found</span>
+                <span class="runtimeDesc">Requires Incus on this host.</span>
+              </div>
+              <!-- shown on hover/focus of the disabled option -->
+              <div class="incusTipBubble" data-testid="runtime-incus-install-tooltip" role="tooltip">
+                <b style="color:var(--color-fg);">Incus is not installed.</b><br>
+                Install it to run Workspaces in isolated containers:
+                <div style="margin-top:5px;"><code>sudo apt install incus &amp;&amp; incus admin init --minimal</code></div>
+                <a href="#" style="color:var(--color-accent-light);text-decoration:none;">Incus install guide →</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="paletteFootRow" style="border-top: 1px solid var(--color-border);">
+        <span><span class="kbd">↵</span> open</span>
+        <span style="margin-left:auto;color:var(--color-fg-faint);">Without Incus, Workspaces run on the host (no isolation).</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

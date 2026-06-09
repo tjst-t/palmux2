@@ -1,0 +1,24 @@
+{
+  "story": "S8478ca-1", "story_type": "library",
+  "user_role": "palmux を開発する自分 (Runtime interface の consumer = store)",
+  "entry_point": "internal/runtime パッケージ + 稼働中サーバの既存 tmux 経路",
+  "scenarios": [
+    {
+      "id": "scenario-1", "linked_ac": ["AC-S8478ca-1-1"],
+      "description": "Runtime interface が ExposePort を TCP/UDP + public で表現できる",
+      "preconditions": ["internal/runtime がビルド可能"],
+      "steps": [
+        {"n":1,"action":"consumer test が runtime.Runtime を実装し ExposePort(PortSpec{Proto:\"udp\",Public:true}) を呼ぶ","expected":"PortSpec が Proto/Public/HostPort/Internal を保持し、戻り PortMapping が proto を反映する (コンパイル + 値検証)"}
+      ]
+    },
+    {
+      "id": "scenario-2", "linked_ac": ["AC-S8478ca-1-2","AC-S8478ca-1-3"],
+      "description": "host ランタイム経由でも既存 Claude/Bash タブが同一挙動",
+      "preconditions": ["make serve INSTANCE=dev で dev インスタンス起動 (本番モード)"],
+      "steps": [
+        {"n":1,"action":"Workspace を開き Claude タブと Bash タブを attach、コマンド実行・resize する","expected":"host runtime 経由で従来同様に PTY I/O が流れ、出力・リサイズが正常 (回帰なし smoke)"},
+        {"n":2,"action":"host runtime の Status() を読む","expected":"State=ready, Address=localhost が即返る (async bring-up なし)"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "story": "S8478ca-5",
+  "title": "ランタイム選択 UI + state badge",
+  "story_type": "gui",
+  "user_role": "PC・スマホから同じ環境を使う自分",
+  "entry_point": "Repo Open modal / Workspace 設定 (runtime selector)、Header chip + Drawer badge (状態)",
+  "state_diagram": "stateDiagram-v2\n    [*] --> SelectorClosed\n    SelectorClosed --> SelectorOpen: Repo Open / WS 設定を開く\n    SelectorOpen --> LxdAvailable: GET /api/runtimes (Incus あり)\n    SelectorOpen --> LxdAbsent: GET /api/runtimes (Incus なし)\n    LxdAbsent --> LxdAbsent: incus-container disabled + install tooltip\n    LxdAvailable --> ConfirmChange: 開いてる WS の runtime を変更\n    LxdAvailable --> Persisted: 新規 WS で runtime 選択 → PATCH 200\n    ConfirmChange --> Persisted: Confirm → PATCH 200\n    ConfirmChange --> LxdAvailable: Cancel\n    Persisted --> Ready: badge=ready (host は即時)\n    Persisted --> Stopped: badge=stopped (非host 未起動)\n    Stopped --> Starting: attach で incus launch\n    Starting --> Ready: Status ready (WS event)\n    Starting --> Error: launch 失敗 (WS event)\n    Ready --> Stopped: WS close\n    Error --> Starting: 再試行\n    Persisted --> PatchError: PATCH 失敗\n    PatchError --> LxdAvailable: 元値に戻しインラインエラー",
+  "scenarios": [
+    {"id": "scenario-1", "linked_ac": ["AC-S8478ca-5-1"], "description": "runtime selector が host/incus-container を提示。Incus 不在時は incus-container を disabled + install tooltip", "steps": [
+      {"n": 1, "action": "Repo Open を開く", "expected": "runtime-selector が表示され runtime-option-host が選択可"},
+      {"n": 2, "action": "GET /api/runtimes が incus-container.available=false", "expected": "runtime-option-incus-container-disabled + hover で runtime-incus-install-tooltip"}
+    ]},
+    {"id": "scenario-2", "linked_ac": ["AC-S8478ca-5-2"], "description": "header chip + drawer badge が runtime view (starting/ready/error) に追従", "steps": [
+      {"n": 1, "action": "host runtime の WS を開く", "expected": "runtime-chip / workspace-runtime-badge が data-runtime-state=ready"},
+      {"n": 2, "action": "incus-container runtime view が starting→ready→error と変化 (WS event)", "expected": "badge の data-runtime-state が同じ順に追従、error は error メッセージを surface"},
+      {"n": 3, "action": "PATCH .../runtime が 500", "expected": "runtime-selector-error にインラインエラー、選択は元値に戻る"}
+    ]},
+    {"id": "scenario-3", "linked_ac": ["AC-S8478ca-5-3"], "description": "Host login scope (host--0000) は runtime selector/chip を出さず host-scope-label で区別", "steps": [
+      {"n": 1, "action": "Host login scope を開く", "expected": "host-scope-label が distinct ラベルで表示、runtime-selector / runtime-chip は不在"}
+    ]}
+  ],
+  "endpoint_contracts": [
+    {"purpose": "runtime caps (greying)", "method": "GET", "path": "/api/runtimes", "response": "{kinds:[{kind,available,reason?}]}"},
+    {"purpose": "per-Workspace runtime 設定", "method": "PATCH", "path": "/api/repos/{repoId}/branches/{branchId}/runtime", "request": "{kind}", "response": "200 / 500 {error}"},
+    {"purpose": "global 既定", "method": "PATCH", "path": "/api/settings", "request": "{defaultRuntime:{kind,image?}}", "response": "200"},
+    {"purpose": "runtime view (状態)", "method": "GET/WS", "path": "/api/repos/{repoId} (branch.runtime) + WS /api/events", "response": "branch.runtime:{kind,state,address,error}"}
+  ],
+  "data_testids": [
+    "repo-picker-open", "runtime-selector", "runtime-option-host", "runtime-option-incus-container",
+    "runtime-option-incus-container-disabled", "runtime-incus-install-tooltip",
+    "runtime-chip", "workspace-runtime-badge", "runtime-change-confirm",
+    "runtime-change-confirm-ok", "runtime-change-confirm-cancel",
+    "runtime-selector-error", "host-scope-label"
+  ],
+  "test_files": {
+    "e2e": "tests/e2e/s8478ca_runtime_ui.py",
+    "mock": "tests/e2e/s8478ca_runtime_ui_mock.py"
+  },
+  "gui_gates": [
+    "State diagram confirmed (user: たぶんOK, 2026-06-09)",
+    "mock tests pass (sprint run gate)",
+    "e2e tests pass (sprint verify gate)",
+    "all interactive elements carry data-testid",
+    "each AC (5-1/5-2/5-3) has a [AC-*]-tagged e2e test"
+  ]
+}

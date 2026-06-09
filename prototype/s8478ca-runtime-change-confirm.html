@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S8478ca-5 · Change runtime — confirm (open Workspace)</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app" aria-hidden="true" style="filter: blur(0.5px);">
+    <header class="header"><span class="headerBrand">PALMUX</span><span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>feature-x</b></span>
+      <span class="runtimeChip" data-runtime-state="ready"><span class="rtDot"></span>host · ready</span>
+    </header>
+    <aside class="drawer"><div class="statusStrip"><span class="brand">PALMUX</span></div></aside>
+    <main class="main"><div class="tabBar"><button class="tab tabActive">◆ Claude</button></div></main>
+  </div>
+
+  <div class="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="rt-confirm-title">
+    <div class="modalCard" data-testid="runtime-change-confirm" style="max-width: 440px;">
+      <div class="modalHeader">
+        <h2 class="modalTitle" id="rt-confirm-title">Change runtime to <code style="font-family:var(--font-mono);color:var(--color-accent-light)">incus-container</code>?</h2>
+        <p class="modalSub">Workspace <b>feature-x</b> is open.</p>
+      </div>
+      <div class="modalBody" style="font-family:var(--font-ui); font-size:13px; color:var(--color-fg-muted); line-height:1.65;">
+        <p>Switching runtime <b style="color:var(--color-fg)">restarts this Workspace's tabs</b>: the current
+        <code style="font-family:var(--font-mono)">host</code> tmux session is replaced by a fresh container session.</p>
+        <ul style="margin:10px 0 0; padding-left:18px;">
+          <li>Claude resumes via <code style="font-family:var(--font-mono)">claude --resume</code> (auth &amp; history are shared via <code style="font-family:var(--font-mono)">~/.claude</code>).</li>
+          <li>Running shell processes in Bash tabs are terminated.</li>
+          <li>Anything installed on the host stays; the new container starts clean.</li>
+        </ul>
+      </div>
+      <div class="modalFooter" style="display:flex; gap:8px; justify-content:flex-end; padding:14px 18px; border-top:1px solid var(--color-border);">
+        <button class="btn" data-testid="runtime-change-confirm-cancel">Cancel</button>
+        <button class="btn btnPrimary" data-testid="runtime-change-confirm-ok">Restart in incus-container</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

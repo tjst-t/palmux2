@@ -1,0 +1,63 @@
+{
+  "sprint": "S8478ca",
+  "title": "Workspace Runtime — host + incus-container 隔離 (Phase 5)",
+  "touched_adrs": [],
+  "decisions": [
+    {
+      "id": "D001",
+      "phase": "planning",
+      "category": "architecture",
+      "decision": "ランタイム種別は host / incus-container の 2 種のみ。incus-vm/remote/ssh-remote・palmux-agent push・internal/port allocator 内製・GHCR イメージ運用は将来 Sprint に降格。",
+      "rationale": "ユーザの目的『host を汚さずアプリ起動 + ネットワーク分離』に絞る trim 設計。over-engineering 回避。",
+      "reference": "docs/workspace-runtime-design.md §0, §9"
+    },
+    {
+      "id": "D002",
+      "phase": "planning",
+      "category": "implementation",
+      "decision": "コンテナ内 claude/tmux/gh/git は『薄い自作イメージ (案A)』に焼く。ローカル build → incus image import。GHCR/週次CI なし。",
+      "rationale": "ユーザは当初『ホスト binary を bind-mount (案C)』を選好したが、実体確認で claude は 236MB の native ELF + bash wrapper (systemd-run cgroup ラッパ) であり、bind-mount は依存・ラッパ前提で fragile。ユーザの真の要件は『バイナリ共有』ではなく『再認証しない』と判明 (会話 2026-06-09)。binary は堅牢にイメージ内へ、認証のみ共有する案Aに倒した。",
+      "reference": "host 実体確認: /usr/local/bin/claude=bash wrapper → ~/.local/share/claude/versions/2.1.169 (ELF 236M)"
+    },
+    {
+      "id": "D003",
+      "phase": "planning",
+      "category": "security",
+      "decision": "再認証回避のため bind-mount 対象を ~/ghq + ~/.claude + ~/.claude.json の 3 つにする (同一絶対パス rw)。OAuth トークンは ~/.claude/.credentials.json (key claudeAiOauth)、oauthAccount/onboarding/projects は $HOME 直下の ~/.claude.json にあるため両方必要。",
+      "rationale": "~/.claude のみだと ~/.claude.json (onboarding 状態) が欠けコンテナ内で onboarding 再発の恐れ。同時書き込み競合は『ホスト上で複数 claude が 1 つの ~/.claude.json を併走共有する現状』と同条件で新規競合クラスではない。",
+      "reference": "host 実体確認: ~/.claude/.credentials.json (600) + ~/.claude.json (600, keys: oauthAccount/projects/...)"
+    },
+    {
+      "id": "D004",
+      "phase": "planning",
+      "category": "implementation",
+      "decision": "Story 1 の host ランタイムは既存 tmux.Client を 1:1 で内包する behavior-preserving wrapper。store の tmux 直叩きを Runtime 経由に付け替えるが挙動は不変。",
+      "rationale": "最高リスク (稼働中アプリの中核経路改修) を回帰ゼロで通すため。host runtime は no-op に近い。",
+      "reference": "docs/workspace-runtime-design.md §3"
+    },
+    {
+      "id": "D005",
+      "phase": "planning",
+      "category": "architecture",
+      "decision": "ポート到達は managed bridge + Caddy 直結 (案A)。ホスト側ポート確保なし。localhost-only サーバは bind=instance proxy device で救済。Caddy 不在時は <containerIP>:port を surface する graceful degrade。host runtime の portman read 経路は非回帰。ExposePort は TCP/UDP + public の一般形を interface に残す (将来 Neko/WebRTC のため)。",
+      "rationale": "隔離が衝突を消すので確保不要。Caddy は main の S85caca + netns/S034 caddy.go に前例。UDP/public 抽象を残さないと Neko 載せ替えで retrofit になる。",
+      "reference": "docs/workspace-runtime-design.md §5, §7.6"
+    },
+    {
+      "id": "D006",
+      "phase": "planning",
+      "category": "implementation",
+      "decision": "Sprint 内実行順は -1(+-3 並走) → -2 → -4、-5 は -1/-3 後。autopilot は逐次で十分 (密結合)。E2E は test VM 192.168.1.41 で Incus+Caddy 実機 (本番モード)。",
+      "rationale": "Story 間データ依存 (1=土台, 2 は 1 依存, 4 は 2 依存, 5 は 1/3 依存)。",
+      "reference": "memory: project_test_vm (192.168.1.41 は workspace-runtime E2E + Incus 用、wipe 自由)"
+    },
+    {
+      "id": "D007",
+      "phase": "planning",
+      "category": "architecture",
+      "decision": "コンテナ backend は LXD ではなく Incus を採用。kind 名は incus-container。CLI は incus、managed bridge は incusbr0、package path は internal/runtime/incus。新規 Workspace の既定 runtime は Incus が在れば incus-container (無ければ host)。",
+      "rationale": "ユーザ提案 (2026-06-09)。Incus は Linux Containers の community fork (元 LXD リード Graber)、Debian 13 が既定採用、Arch/NixOS/Ubuntu(universe) でパッケージ提供 → ディストロ非依存で『自前ホスティング』VISION に合致。LXD は Canonical 管理 + snap + CLA で Ubuntu 中心。機能 (raw.idmap / disk bind-mount / bind=instance proxy device / exec / systemd PID1 / managed bridge) は等価で capability 損失なし。差分は runtime.Runtime interface 内に閉じる。既定コンテナは design §0 の既定方針通り。",
+      "reference": "docs/workspace-runtime-design.md §0/§5; Debian 13 Incus 既定; test VM (Ubuntu24.04) は universe/zabbly で Incus 可"
+    }
+  ]
+}

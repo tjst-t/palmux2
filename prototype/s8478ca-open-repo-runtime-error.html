@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S8478ca-5 · Runtime change — PATCH failed (inline error)</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app" aria-hidden="true" style="filter: blur(0.5px);">
+    <header class="header"><span class="headerBrand">PALMUX</span><span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>main</b></span></header>
+    <aside class="drawer"><div class="statusStrip"><span class="brand">PALMUX</span></div></aside>
+    <main class="main"><div class="tabBar"><button class="tab tabActive">◆ Claude</button></div></main>
+  </div>
+
+  <div class="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="open-repo-title">
+    <div class="modalCard" data-testid="open-repo-modal">
+      <div class="modalHeader">
+        <h2 class="modalTitle" id="open-repo-title">Open Repository</h2>
+        <p class="modalSub">Pick a repository, then choose where its Workspaces run.</p>
+      </div>
+      <div class="modalBody" style="padding: 0;">
+        <div style="padding: 14px 18px 6px;">
+          <input class="input" type="text" value="charmbracelet/bubbletea" data-testid="open-repo-input" style="width:100%;font-size:14px;">
+        </div>
+
+        <div style="padding: 6px 18px 4px;">
+          <div class="runtimeFieldset" data-testid="runtime-selector" role="radiogroup" aria-label="Workspace runtime">
+            <span class="runtimeFieldLabel">Runtime — where this Workspace runs</span>
+            <!-- selection reverted to host after the PATCH failed -->
+            <div class="runtimeOption" data-selected="true" data-testid="runtime-option-host" role="radio" aria-checked="true" tabindex="0">
+              <span class="runtimeRadio"></span>
+              <span class="runtimeName">host</span>
+              <span class="runtimeMeta">reverted</span>
+              <span class="runtimeDesc">Runs directly on the host.</span>
+            </div>
+            <div class="runtimeOption" data-selected="false" data-testid="runtime-option-incus-container" role="radio" aria-checked="false" tabindex="0">
+              <span class="runtimeRadio"></span>
+              <span class="runtimeName">incus-container<span class="runtimePill">isolated</span></span>
+              <span class="runtimeMeta">Incus detected</span>
+              <span class="runtimeDesc">Runs in an unprivileged Incus container.</span>
+            </div>
+          </div>
+        </div>
+        <!-- AC-5-2 failure feedback: PATCH .../runtime returned 500 -->
+        <div class="runtimeError" data-testid="runtime-selector-error" role="alert">
+          Couldn't save runtime: <b>failed to persist runtime</b> (HTTP 500). Selection reverted to <code style="font-family:var(--font-mono)">host</code>.
+        </div>
+      </div>
+      <div class="paletteFootRow" style="border-top: 1px solid var(--color-border); margin-top:10px;">
+        <span><span class="kbd">↵</span> retry</span>
+        <span style="margin-left:auto;color:var(--color-fg-faint);">Check the server log, then try again.</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

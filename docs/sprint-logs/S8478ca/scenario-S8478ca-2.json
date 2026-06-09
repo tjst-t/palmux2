@@ -1,0 +1,26 @@
+{
+  "story": "S8478ca-2", "story_type": "mixed",
+  "user_role": "複数 Claude を並行運用する個人開発者",
+  "entry_point": "Workspace 設定で runtime=incus-container を選び Claude/Bash タブを使う (test VM 実機)",
+  "scenarios": [
+    {
+      "id": "scenario-1", "linked_ac": ["AC-S8478ca-2-1","AC-S8478ca-2-3"],
+      "description": "incus-container で Claude が再認証なしに起動し close で破棄される",
+      "preconditions": ["test VM (192.168.1.41) に Incus 導入済", "薄い自作イメージを incus image import 済", "host の ~/.claude に有効な OAuth トークンあり"],
+      "steps": [
+        {"n":1,"action":"runtime=incus-container の Workspace を開く","expected":"incus launch されコンテナが起動、Status が starting→ready に遷移する"},
+        {"n":2,"action":"Claude タブを attach し claude --resume する","expected":"コンテナ内 claude が host の OAuth を使い再認証なしで起動、過去セッションを resume できる"},
+        {"n":3,"action":"Workspace を close する","expected":"incus delete --force でコンテナ (内部 state 含む) が破棄され、host に npm/pip/apt のパッケージやビルド成果物が残らない"}
+      ]
+    },
+    {
+      "id": "scenario-2", "linked_ac": ["AC-S8478ca-2-2","AC-S8478ca-2-4"],
+      "description": "認証/リポジトリ共有 + 二重起動防止",
+      "preconditions": ["同上"],
+      "steps": [
+        {"n":1,"action":"コンテナ内で ls ~/ghq と cat ~/.claude/.credentials.json の owner を確認","expected":"~/ghq 全体・~/.claude・~/.claude.json が同一絶対パスで見え、raw.idmap で owner=ubuntu(1000) 一致"},
+        {"n":2,"action":"同一 ~/.claude/projects/<path> に対し 2 つ目の claude を起動しようとする","expected":".palmux-lock で二重起動が防止される"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "sprint_range": ["S8478ca"],
+  "screens": [
+    {"file": "prototype/s8478ca-open-repo-runtime.html", "story": "S8478ca-5", "feedback_rounds": 1, "approved": true},
+    {"file": "prototype/s8478ca-open-repo-runtime-no-lxd.html", "story": "S8478ca-5", "feedback_rounds": 1, "approved": true},
+    {"file": "prototype/s8478ca-drawer-runtime-states.html", "story": "S8478ca-5", "feedback_rounds": 1, "approved": true},
+    {"file": "prototype/s8478ca-runtime-change-confirm.html", "story": "S8478ca-5", "feedback_rounds": 1, "approved": true},
+    {"file": "prototype/s8478ca-open-repo-runtime-error.html", "story": "S8478ca-5", "feedback_rounds": 1, "approved": true},
+    {"file": "prototype/s8478ca-host-scope.html", "story": "S8478ca-5", "feedback_rounds": 1, "approved": true}
+  ],
+  "design_decisions": [
+    "Container backend = Incus (not LXD): distro-agnostic, Debian-13 default, community fork — per user 2026-06-09 (decisions D007)",
+    "Default runtime = incus-container when Incus present, else host — green 'default' pill on the selector",
+    "Host login scope (host--0000) shows a dashed '⌂ Host' label and NO runtime selector/chip — distinct from runtime.kind=host (AC-5-3)",
+    "Reused Fog palette + existing styles.css shell; runtime tokens appended to styles.css",
+    "State colors: ready=success, starting=warning(pulse), stopped=dim, error=error — per CLAUDE.md theme"
+  ],
+  "note": "Filenames keep the '-no-lxd' suffix for screen identity though the content is Incus; not renamed to avoid churn."
+}

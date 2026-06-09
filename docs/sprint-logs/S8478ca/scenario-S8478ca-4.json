@@ -1,0 +1,25 @@
+{
+  "story": "S8478ca-4", "story_type": "api",
+  "user_role": "container 内で dev サーバを立てる自分",
+  "entry_point": "稼働中サーバ (test VM 実機) + ブラウザからの到達",
+  "scenarios": [
+    {
+      "id": "scenario-1", "linked_ac": ["AC-S8478ca-4-1","AC-S8478ca-4-2"],
+      "description": "ポート確保なしで 2 Workspace の dev サーバに到達",
+      "preconditions": ["test VM に Incus + Caddy 導入済", "2 つの incus-container Workspace"],
+      "steps": [
+        {"n":1,"action":"Workspace A と B のコンテナ内で両方 :5173 に 0.0.0.0 で dev サーバを立てる","expected":"衝突せず両方 listen。incus exec ss 由来のポート検出が WS event で通知される"},
+        {"n":2,"action":"ブラウザで A/B それぞれのサブドメインにアクセス","expected":"Caddy が <containerIP>:5173 に直結し A は A の、B は B の内容を返す。ホスト側ポートは確保されていない"}
+      ]
+    },
+    {
+      "id": "scenario-2", "linked_ac": ["AC-S8478ca-4-3","AC-S8478ca-4-4"],
+      "description": "localhost 救済 + host runtime 非回帰",
+      "preconditions": ["同上 + host runtime の Workspace 1 つ (portman 利用)"],
+      "steps": [
+        {"n":1,"action":"コンテナ内で 127.0.0.1:3000 のみで listen する dev サーバを立てる","expected":"bind=instance proxy device により <containerIP>:3000 で到達できる (ホストポート確保なし)"},
+        {"n":2,"action":"host runtime の Workspace で portman lease の URL 一覧を表示","expected":"既存 portman read 経路が非回帰で URL を表示。隔離 Workspace では portman を駆動しない"}
+      ]
+    }
+  ]
+}

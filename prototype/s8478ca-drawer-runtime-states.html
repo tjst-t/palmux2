@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S8478ca-5 · Drawer runtime state badges + header chip</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">tjst-t/<b>palmux2</b> / <b>feature-x</b></span>
+      <!-- AC-5-2: header runtime chip reflects the focused Workspace's runtime view -->
+      <span class="runtimeChip" data-testid="runtime-chip" data-runtime-state="ready" title="Runtime: incus-container · ready (10.42.0.5)">
+        <span class="rtDot"></span>incus-container · ready
+      </span>
+    </header>
+
+    <aside class="drawer">
+      <div class="statusStrip"><span class="brand">PALMUX</span></div>
+      <div class="section"><span class="sectionTitle">Repositories</span></div>
+      <ul class="repos">
+        <li class="repo">
+          <div class="repoRow"><span class="repoNum">1</span><button class="repoName"><span class="scope">tjst-t/</span>palmux2</button><button class="addBranchBtn">+</button><button class="moreBtn">⋯</button></div>
+          <ul class="branches">
+            <!-- AC-5-2: each Workspace entry shows a state badge driven by runtime view -->
+            <li class="branch"><div class="branchRow">
+              <span class="branchName">main</span>
+              <span class="wsBadge" data-testid="workspace-runtime-badge" data-runtime-state="ready" title="host · ready">
+                <span class="rtDot"></span>host
+              </span>
+            </div></li>
+            <li class="branch branchActive"><div class="branchRow">
+              <span class="branchName">feature-x</span>
+              <span class="wsBadge" data-testid="workspace-runtime-badge" data-runtime-state="ready" title="incus-container · ready">
+                <span class="rtDot"></span>ready
+              </span>
+            </div></li>
+            <li class="branch"><div class="branchRow">
+              <span class="branchName">spike-perf</span>
+              <span class="wsBadge" data-testid="workspace-runtime-badge" data-runtime-state="starting" title="incus-container · starting (incus launch…)">
+                <span class="rtDot"></span>starting…
+              </span>
+            </div></li>
+            <li class="branch"><div class="branchRow">
+              <span class="branchName">refactor-db</span>
+              <span class="wsBadge" data-testid="workspace-runtime-badge" data-runtime-state="stopped" title="incus-container · stopped (open a tab to start)">
+                <span class="rtDot"></span>stopped
+              </span>
+            </div></li>
+            <li class="branch"><div class="branchRow">
+              <span class="branchName">try-cuda</span>
+              <span class="wsBadge" data-testid="workspace-runtime-badge" data-runtime-state="error" title="incus launch failed: image &quot;palmux-ws&quot; not found">
+                <span class="rtDot"></span>error
+              </span>
+            </div></li>
+          </ul>
+        </li>
+      </ul>
+      <div class="drawerFooter">
+        <button class="addRepoBtn" data-testid="repo-picker-open" style="border-color: var(--color-accent); background: rgba(124,138,255,0.06);">
+          <span style="color:var(--color-fg-muted);">📂</span>
+          <span>Open Repository…</span>
+          <span style="margin-left:auto;font-family:var(--font-mono);font-size:10px;color:var(--color-fg-dim);">runtime selectable</span>
+        </button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="tabBar"><button class="tab tabActive">◆ Claude</button><button class="tab">⌨ Bash</button><button class="tab">📁 Files</button></div>
+      <div style="padding:24px; color:var(--color-fg-muted); font-family:var(--font-ui); font-size:13px; line-height:1.7;">
+        <p><b style="color:var(--color-fg);">feature-x</b> — runtime <code style="font-family:var(--font-mono);color:var(--color-accent-light)">incus-container</code>, state <b style="color:var(--color-success)">ready</b> at <code style="font-family:var(--font-mono)">10.42.0.5</code>.</p>
+        <p style="margin-top:8px;">Hover a badge in the drawer for the full state / address / error.
+        The <span class="runtimeChip" style="margin:0;"><span class="rtDot" data-runtime-state="ready"></span>chip</span> in the header mirrors the focused Workspace.</p>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

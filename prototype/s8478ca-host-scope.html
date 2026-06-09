@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S8478ca-5 · Host login scope (distinct from runtime.kind=host)</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb"><b>Host</b></span>
+      <!-- AC-5-3: the S0c6a1b login scope is labelled distinctly; NO runtime-chip here -->
+      <span class="hostScopeLabel" data-testid="host-scope-label" title="Repo-independent login terminal (gh auth / claude login)">
+        ⌂ Host · login terminal
+      </span>
+    </header>
+
+    <aside class="drawer">
+      <div class="statusStrip"><span class="brand">PALMUX</span></div>
+      <div class="section"><span class="sectionTitle">Host</span></div>
+      <ul class="repos">
+        <li class="repo">
+          <div class="repoRow">
+            <span class="repoNum" style="opacity:.5">⌂</span>
+            <button class="repoName" style="font-style:italic;color:var(--color-fg-muted);">Host login terminal</button>
+          </div>
+        </li>
+      </ul>
+      <div class="section" style="margin-top:14px;"><span class="sectionTitle">Repositories</span></div>
+      <ul class="repos">
+        <li class="repo"><div class="repoRow"><span class="repoNum">1</span><button class="repoName"><span class="scope">tjst-t/</span>palmux2</button></div></li>
+      </ul>
+    </aside>
+
+    <main class="main">
+      <div class="tabBar"><button class="tab tabActive">⌨ Bash</button></div>
+      <div style="padding:24px; color:var(--color-fg-muted); font-family:var(--font-ui); font-size:13px; line-height:1.7;">
+        <p>This is the repo-independent <b style="color:var(--color-fg)">Host</b> scope (<code style="font-family:var(--font-mono)">host--0000</code>) —
+        a bash-only terminal for <code style="font-family:var(--font-mono)">gh auth login</code> / <code style="font-family:var(--font-mono)">claude</code> login.</p>
+        <p style="margin-top:8px; padding:8px 10px; background:rgba(245,158,11,0.06); border:1px solid rgba(245,158,11,0.25); border-radius:var(--radius-sm);">
+          It is <b>not</b> a Workspace and has no <code style="font-family:var(--font-mono)">runtime</code> —
+          so it shows the <span class="hostScopeLabel" style="margin:0;">⌂ Host</span> label, never a
+          <code style="font-family:var(--font-mono)">runtime-selector</code> or
+          <code style="font-family:var(--font-mono)">runtime-chip</code>. Distinct from a Workspace whose
+          <code style="font-family:var(--font-mono)">runtime.kind = host</code>.</p>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

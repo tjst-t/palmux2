@@ -19,6 +19,42 @@
     </header>
 
     <section class="indexSection">
+      <h2>S8478ca · Workspace Runtime (host / incus-container)</h2>
+      <div class="cardGrid">
+        <a class="card" href="s8478ca-open-repo-runtime.html">
+          <span class="cardLabel">S8478ca-5</span>
+          <div class="cardTitle">Open Repository · runtime selector (Incus available)</div>
+          <p class="cardDesc">host / incus-container radio group. host default; incus-container shows the "isolated" pill. <code>data-testid=runtime-selector</code>.</p>
+        </a>
+        <a class="card" href="s8478ca-open-repo-runtime-no-incus.html">
+          <span class="cardLabel">S8478ca-5 · AC-1</span>
+          <div class="cardTitle">Open Repository · Incus absent</div>
+          <p class="cardDesc">incus-container greyed + install tooltip (<code>apt install incus</code>). Falls back to host.</p>
+        </a>
+        <a class="card" href="s8478ca-drawer-runtime-states.html">
+          <span class="cardLabel">S8478ca-5 · AC-2</span>
+          <div class="cardTitle">Drawer state badges + header chip</div>
+          <p class="cardDesc">ready / starting / stopped / error badges per Workspace, header runtime chip mirrors focus. WS-event driven.</p>
+        </a>
+        <a class="card" href="s8478ca-runtime-change-confirm.html">
+          <span class="cardLabel">S8478ca-5</span>
+          <div class="cardTitle">Change runtime · confirm (open Workspace)</div>
+          <p class="cardDesc">Restart-tabs warning when switching an open Workspace's runtime. Claude --resume keeps auth/history.</p>
+        </a>
+        <a class="card" href="s8478ca-open-repo-runtime-error.html">
+          <span class="cardLabel">S8478ca-5 · AC-2</span>
+          <div class="cardTitle">Runtime change · PATCH failed</div>
+          <p class="cardDesc">PATCH .../runtime 500 → inline error, selection reverts to host.</p>
+        </a>
+        <a class="card" href="s8478ca-host-scope.html">
+          <span class="cardLabel">S8478ca-5 · AC-3</span>
+          <div class="cardTitle">Host login scope · distinct label</div>
+          <p class="cardDesc">host--0000 login terminal labelled "⌂ Host" with NO runtime selector/chip — distinct from runtime.kind=host.</p>
+        </a>
+      </div>
+    </section>
+
+    <section class="indexSection">
       <h2>S030 · ghq Repository CRUD</h2>
       <div class="cardGrid">
         <a class="card" href="drawer-with-open.html">

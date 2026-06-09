@@ -31,7 +31,7 @@
     "言語: Go 1.25 (バックエンド) / TypeScript + React 19 (フロントエンド)",
     "配布: 単一バイナリ（フロントエンドは embed.FS）",
     "必須外部ツール: tmux ≥ 3.2 / git / ghq / gwq",
-    "任意外部ツール: claude CLI / portman / Caddy",
+    "任意外部ツール: claude CLI / portman / Caddy / Incus (incus-container ランタイムで Workspace を隔離するとき)",
     "WebSocket + REST のハイブリッド通信",
     "セッション管理は tmux に委譲（独自実装しない）"
   ],

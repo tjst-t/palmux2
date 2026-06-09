@@ -3,14 +3,14 @@
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
     "sprints_done": 48,
-    "sprints_total": 48,
-    "percent": 100,
-    "current_sprint": null,
+    "sprints_total": 49,
+    "percent": 97,
+    "current_sprint": "S8478ca",
     "done": 48,
-    "in_progress": 0,
-    "total": 48,
+    "in_progress": 1,
+    "total": 49,
     "remaining": 0,
-    "percentage": 100
+    "percentage": 97
   },
   "execution_order": [
     "S001",
@@ -60,7 +60,8 @@
     "Sfccb3f",
     "S85caca",
     "S0c6a1b",
-    "Sc7818e"
+    "Sc7818e",
+    "S8478ca"
   ],
   "sprints": {
     "S001": {
@@ -8382,6 +8383,236 @@
           }
         }
       }
+    },
+    "S8478ca": {
+      "title": "Workspace Runtime — host + incus-container 隔離 (Phase 5)",
+      "status": "in_progress",
+      "milestone": true,
+      "description": "Workspace の実行ランタイムを host / incus-container の 2 種で抽象化し、tmux 直叩きを Runtime 経由に付け替える。Incus コンテナで Claude/Bash を隔離して host 汚染 (npm -g/pip/apt/ビルド成果物/プロセス leak/ポート衝突) を防ぐ。\n\n参照仕様: docs/workspace-runtime-design.md (trim 版)。feat/workspace-runtime の初版実装はそのままマージせず、本書の絞ったスコープを正準とする。\n\n確定スコープ (plan S8478ca):\n  - ランタイム種別は host / incus-container のみ (incus-vm/remote/ssh-remote は将来検討)\n  - イメージ戦略: 薄い自作イメージ (案A)。Dockerfile に tmux/git/gh/claude(native binary)/systemd(PID1)/ubuntu(UID1000) を焼き、ローカル build → incus image import。GHCR/週次CI は将来 (trim 設計どおり)\n  - 認証はワークスペース毎に再認証しない: bind-mount で ~/ghq 全体 + ~/.claude (= .credentials.json の OAuth トークン + skills/memory) + ~/.claude.json ($HOME 直下、oauthAccount/onboarding/projects) を同一絶対パス rw 共有。raw.idmap both 1000 1000。同時書き込みは現状の host 複数 claude 併走と同条件 (新規競合クラスではない)\n  - ポートモデル: 隔離下は確保不要。managed bridge + Caddy が <containerIP>:port を直結。localhost-only サーバは bind=instance proxy device で救済。host runtime は portman 残置\n  - 既存 Workspace は host 既定 (後方互換、migration UI なし)\n\nスコープ外 (将来 Sprint): Browser タブ/Neko (backlog 登録済)、palmux-agent push 配布、internal/port allocator 内製、GHCR イメージ運用、incus-remote。\n\n設計判断 (Neko 将来要件のため今満たす): runtime.Runtime の ExposePort は TCP/UDP + public フラグの一般形を interface に残す。\n\n検証: test VM (192.168.1.41、Incus 用に確保・wipe 自由) で Incus 実機 (本番モード) E2E。Incus 上の Claude/Bash 起動、~/.claude 共有 + claude --resume が再認証なしで成立、2 Workspace の同ポート非衝突 + Caddy 到達、localhost-only サーバの bind=instance 救済を確認する。",
+      "stories": {
+        "S8478ca-1": {
+          "id": "S8478ca-1",
+          "status": "pending",
+          "title": "Runtime interface + host 実装 (土台・無回帰)",
+          "user_story": "Workspace を開発する自分として、runtime.Runtime interface と現状挙動を保つ host 実装がほしい。なぜなら、tmux 直叩きを段階的にランタイム経由へ付け替える土台が要るから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S8478ca-1-1",
+              "description": "runtime.Runtime interface が定義され、Kind/Config/Start/Stop/Status/NewTmuxSession/AttachTmuxSession/Exec/ListListeningPorts/ExposePort/UnexposePort を持つ。ExposePort は PortSpec{Internal,Proto(tcp|udp),Name,Public,HostPort} を受け取り、proto=udp と public フラグを表現できる (HTTP/Caddy 専用に縮めない)",
+              "test": "internal/runtime/runtime_test.go [AC-S8478ca-1-1]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S8478ca-1-2",
+              "description": "host ランタイム実装が Start/Stop を no-op に近い形 (即 ready) で提供し、NewTmuxSession/AttachTmuxSession/Exec が従来の tmux.Client 経路と同一の結果を返す",
+              "test": "internal/runtime/host/host_test.go [AC-S8478ca-1-2]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S8478ca-1-3",
+              "description": "既存の Claude タブ・Bash タブの起動/attach/resize が host runtime 経由に付け替えても完全に同一挙動で、回帰がない (dev VM 実機 smoke、本番モード)",
+              "test": "tests/acceptance/s8478ca_host_runtime.py [AC-S8478ca-1-3]",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S8478ca-1-1": {
+              "id": "S8478ca-1-1",
+              "title": "internal/runtime に Runtime interface + 共通型 (Kind/Config/Status/PortSpec/PortMapping/ListeningPort/ExecOpts) を定義",
+              "status": "pending"
+            },
+            "S8478ca-1-2": {
+              "id": "S8478ca-1-2",
+              "title": "internal/runtime/host に host 実装 (tmux.Client を内包) + unit test",
+              "status": "pending"
+            },
+            "S8478ca-1-3": {
+              "id": "S8478ca-1-3",
+              "title": "store の tmux 直叩き箇所を Runtime 経由に付け替え (host runtime をデフォルト注入)。回帰 smoke",
+              "status": "pending"
+            }
+          }
+        },
+        "S8478ca-2": {
+          "id": "S8478ca-2",
+          "status": "pending",
+          "title": "incus-container ランタイム (launch/delete + bind-mount + idmap + tmux via incus exec)",
+          "user_story": "複数 Claude を並行運用する個人開発者として、Workspace を Incus コンテナの中で動かしたい。なぜなら、npm/pip/apt やビルド成果物で host を汚さず、プロセスもポートも隔離したいから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S8478ca-2-1",
+              "description": "incus-container ランタイムが Start で incus launch、Stop/close で incus delete --force するライフサイクルを持ち、Status() が starting/ready/stopped/error を正しく反映する",
+              "test": "tests/acceptance/s8478ca_incus_container.py [AC-S8478ca-2-1]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S8478ca-2-2",
+              "description": "~/ghq 全体・~/.claude・~/.claude.json が同一絶対パスで rw bind-mount され、raw.idmap both 1000 1000 で UID 一致する。コンテナ内 claude が再認証なしで起動し (OAuth トークン共有)、他リポジトリも参照でき、~/.claude のファイル owner が一致する",
+              "test": "tests/acceptance/s8478ca_incus_container.py [AC-S8478ca-2-2]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S8478ca-2-3",
+              "description": "incus exec 経由で tmux セッション/claude が起動し、コンテナ内で claude --resume が成立する。WS attach でコンテナ内 PTY の I/O が透過する",
+              "test": "tests/acceptance/s8478ca_incus_container.py [AC-S8478ca-2-3]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S8478ca-2-4",
+              "description": "同一 ~/.claude/projects/<path> への二重起動を .palmux-lock で防止する。close 後はコンテナ (内部 state 含む) が破棄され host にパッケージ/ビルド成果物が残らない",
+              "test": "tests/acceptance/s8478ca_incus_container.py [AC-S8478ca-2-4]",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S8478ca-2-1": {
+              "id": "S8478ca-2-1",
+              "title": "images/workspace-default/Dockerfile (薄い版: tmux/git/gh/claude native binary/systemd PID1/ubuntu UID1000) を作成し make ターゲットでローカル build → incus image import。internal/runtime/incus に launch/delete + Status",
+              "status": "pending"
+            },
+            "S8478ca-2-2": {
+              "id": "S8478ca-2-2",
+              "title": "bind-mount (~/ghq + ~/.claude + ~/.claude.json) + raw.idmap 設定 + 再認証なし claude 起動の UID/トークン検証",
+              "status": "pending"
+            },
+            "S8478ca-2-3": {
+              "id": "S8478ca-2-3",
+              "title": "NewTmuxSession/AttachTmuxSession/Exec を incus exec 経由で実装。.palmux-lock 二重起動防止",
+              "status": "pending"
+            },
+            "S8478ca-2-4": {
+              "id": "S8478ca-2-4",
+              "title": "test VM 実機 E2E (本番モード): launch→claude --resume→close→破棄確認",
+              "status": "pending"
+            }
+          }
+        },
+        "S8478ca-3": {
+          "id": "S8478ca-3",
+          "status": "pending",
+          "title": "ランタイム解決 + 設定スキーマ (priority chain・後方互換)",
+          "user_story": "自前ホスティングの個人として、Workspace ごとに runtime を選び設定として保存したい。なぜなら、あるブランチは host・別は container と使い分けたいから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S8478ca-3-1",
+              "description": "repos.json (per-repo 既定 + per-Workspace 上書き) と settings.json (global defaultRuntime) に runtime スキーマが追加され、PATCH で永続化・バリデーション (不正 kind は弾く) される",
+              "test": "internal/config/runtime_test.go [AC-S8478ca-3-1]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S8478ca-3-2",
+              "description": "解決順 per-Workspace → per-repo → global → host fallback が正しく適用される。Incus 未インストール時は incus-container 指定でも host にフォールバックする",
+              "test": "internal/config/runtime_test.go [AC-S8478ca-3-2]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S8478ca-3-3",
+              "description": "runtime 無しの既存 repos.json エントリは host とみなされ挙動不変 (後方互換、migration UI なし)",
+              "test": "internal/config/runtime_test.go [AC-S8478ca-3-3]",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S8478ca-3-1": {
+              "id": "S8478ca-3-1",
+              "title": "config に runtime スキーマ (repos.json per-repo/per-WS + settings.json global) + PATCH/バリデーション",
+              "status": "pending"
+            },
+            "S8478ca-3-2": {
+              "id": "S8478ca-3-2",
+              "title": "ResolveWorkspaceRuntime (priority chain + Incus 在否フォールバック) + unit test",
+              "status": "pending"
+            }
+          }
+        },
+        "S8478ca-4": {
+          "id": "S8478ca-4",
+          "status": "pending",
+          "title": "ポート自動検出 + Caddy 直結 + localhost 救済 (bind=instance proxy device)",
+          "user_story": "container 内で dev サーバを立てる自分として、ポートを確保しなくてもブラウザから到達したい。なぜなら、隔離下では衝突しないので確保が不要で、Caddy が自動で繋いでくれてほしいから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S8478ca-4-1",
+              "description": "incus exec ... ss でコンテナ内のリッスンポートを自動検出し、WS event でフロントに通知する。2 つの isolated Workspace が両方 :5173 を bind しても衝突しない",
+              "test": "tests/acceptance/s8478ca_ports.py [AC-S8478ca-4-1]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S8478ca-4-2",
+              "description": "検出したポートに対し Caddy スニペットを書き出し caddy reload して <workspace>.<domain> → <containerIP>:port を直結する。ホスト側ポートは確保しない。ブラウザから各 Workspace の dev サーバに到達できる",
+              "test": "tests/acceptance/s8478ca_ports.py [AC-S8478ca-4-2]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S8478ca-4-3",
+              "description": "127.0.0.1 のみで listen する dev サーバに対し bind=instance の incus proxy device を張り、containerIP:port で到達可能にする (ホストポート確保なし)",
+              "test": "tests/acceptance/s8478ca_ports.py [AC-S8478ca-4-3]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S8478ca-4-4",
+              "description": "host runtime (非隔離) の portman read 経路 (URL 一覧表示) は非回帰で、隔離下では portman を駆動しない",
+              "test": "tests/acceptance/s8478ca_ports.py [AC-S8478ca-4-4]",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S8478ca-4-1": {
+              "id": "S8478ca-4-1",
+              "title": "incus ListListeningPorts (incus exec ss) + WS event emit",
+              "status": "pending"
+            },
+            "S8478ca-4-2": {
+              "id": "S8478ca-4-2",
+              "title": "Caddy スニペット書き出し + reload で containerIP:port 直結 (netns/S034 の caddy.go を参考に内製)",
+              "status": "pending"
+            },
+            "S8478ca-4-3": {
+              "id": "S8478ca-4-3",
+              "title": "ExposePort: bind=instance proxy device 自動付与 (localhost 救済)。UDP/HostPort 経路は型だけ用意 (Neko 将来用)",
+              "status": "pending"
+            }
+          }
+        },
+        "S8478ca-5": {
+          "id": "S8478ca-5",
+          "status": "pending",
+          "title": "ランタイム選択 UI + state badge (GUI)",
+          "user_story": "PC・スマホから同じ環境を使う自分として、Workspace の runtime を選び状態を見たい。なぜなら、container が起動中か ready かを把握したいから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S8478ca-5-1",
+              "description": "Repo Open / Workspace 設定で runtime (host / incus-container) を選択でき、Incus 未インストール時は incus-container がグレーアウト + インストール案内ツールチップになる",
+              "test": "tests/e2e/s8478ca_runtime_ui.py [AC-S8478ca-5-1]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S8478ca-5-2",
+              "description": "Header に runtime chip、Drawer の Workspace エントリに state badge (ready/starting/stopped/error) が表示され、Runtime.Status() の変化に追従する",
+              "test": "tests/e2e/s8478ca_runtime_ui.py [AC-S8478ca-5-2]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S8478ca-5-3",
+              "description": "runtime.kind=host と S0c6a1b の Host ターミナル scope (repoId=host--0000) が UI ラベル上で区別され、混同しない",
+              "test": "tests/e2e/s8478ca_runtime_ui.py [AC-S8478ca-5-3]",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S8478ca-5-1": {
+              "id": "S8478ca-5-1",
+              "title": "runtime selector UI (Repo Open modal + Workspace 設定) + Incus 未導入グレーアウト",
+              "status": "pending"
+            },
+            "S8478ca-5-2": {
+              "id": "S8478ca-5-2",
+              "title": "Header runtime chip + Drawer state badge (WS event 駆動)",
+              "status": "pending"
+            }
+          }
+        }
+      }
     }
   },
   "dependencies": {
@@ -8816,6 +9047,12 @@
       "description": "triggerDownload (files-view.tsx) and the inline href in file-preview.tsx both build `${apiBase}/download?path=...` independently — could drift if the route is renamed. Extract a shared helper. Source: Sc7818e sprint-level review.",
       "source": "Sc7818e review",
       "priority": "low"
+    },
+    {
+      "title": "Browser タブ (Neko 仮想ブラウザ) + playwright-cli 連携",
+      "description": "(S8478ca 由来 / 将来 Sprint) Workspace 配下のタブとして Bash の隣に Browser タブ (embed view, NeedsTmuxWindow=false) を追加。Neko (コンテナ化された仮想ブラウザ) を別コンテナ (Docker-in-Incus or 直接 Incus) で起こし、frontend は Caddy 経由の Neko UI を iframe 埋め込みするだけ。ユーザが認証したブラウザセッション (ログイン cookie) を Neko が保持し、Claude Code が playwright-cli の connectOverCDP でその実ブラウザを操作する。\n\n設計済み論点 (docs/workspace-runtime-design.md §7): (1) WebRTC メディアは Caddy(HTTP) を通らない → NEKO_WEBRTC_UDPMUX 固定 + NAT1TO1 + UDP proxy device (or coturn/TURN) で UDP 1-2 ポートだけ出す。S8478ca の ExposePort{Proto:udp,HostPort>0} 経路を使用。(2) CDP の localhost/Origin ガードは --remote-debugging-address=0.0.0.0 + --remote-allow-origins + bind=instance proxy device で吸収、または playwright を Neko 同居。(3) 認証セッションは ~/.config/palmux/neko-profiles/<WorkspaceID> に永続 bind-mount (コンテナは揮発・プロファイルは永続の例外)。WorkspaceID は worktree path 由来で checkout 不変。\n\n前提: S8478ca (Workspace Runtime) 完了。独立 Sprint 化 (UDP/WebRTC/CDP/永続プロファイルを含むため)。",
+      "added_in": "S8478ca",
+      "reason": "S8478ca propose 時にユーザ確定。設計は workspace-runtime-design.md §7 で済。実装は Runtime 基盤完成後の将来 Sprint。"
     }
   ]
 }

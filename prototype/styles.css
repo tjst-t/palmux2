@@ -1598,3 +1598,98 @@ button {
 .previewCode .cmt { color: var(--color-fg-dim); }
 .previewCode .kw { color: var(--color-accent-light); }
 .previewCode .str { color: var(--color-success); }
+
+/* ─────────────────────────────────────────────────────────────
+   S8478ca · Workspace Runtime selector + state badge
+   ───────────────────────────────────────────────────────────── */
+.runtimeFieldset {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 8px 10px 6px; border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm); background: var(--color-bg);
+}
+.runtimeFieldLabel {
+  font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--color-fg-dim); font-family: var(--font-mono);
+  padding: 2px 4px 4px;
+}
+.runtimeOption {
+  display: grid; grid-template-columns: 18px minmax(0,1fr) auto;
+  align-items: center; gap: 10px; padding: 6px 4px;
+  border-radius: var(--radius-sm); cursor: pointer; font-size: 13px;
+  border: 1px solid transparent;
+}
+.runtimeOption:hover { background: var(--color-surface); }
+.runtimeOption[data-selected="true"] {
+  background: rgba(124,138,255,0.08); border-color: rgba(124,138,255,0.28);
+}
+.runtimeOption[data-disabled="true"] { cursor: not-allowed; opacity: 0.5; }
+.runtimeOption[data-disabled="true"]:hover { background: transparent; }
+.runtimeRadio {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 1.5px solid var(--color-fg-muted); position: relative; justify-self: center;
+}
+.runtimeOption[data-selected="true"] .runtimeRadio { border-color: var(--color-accent); }
+.runtimeOption[data-selected="true"] .runtimeRadio::after {
+  content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--color-accent);
+}
+.runtimeName { font-family: var(--font-mono); font-size: 13px; font-weight: 500; color: var(--color-fg); }
+.runtimeOption[data-disabled="true"] .runtimeName { color: var(--color-fg-muted); }
+.runtimeDesc {
+  grid-column: 2/3; font-size: 11px; color: var(--color-fg-dim);
+  font-family: var(--font-ui); margin-top: 1px; line-height: 1.45;
+}
+.runtimeMeta { font-family: var(--font-mono); font-size: 10px; color: var(--color-fg-muted); text-align: right; }
+.runtimeOption[data-disabled="true"] .runtimeMeta { color: var(--color-warning); }
+.runtimePill {
+  font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600;
+  padding: 1px 6px; border-radius: 2px; margin-left: 6px;
+  color: var(--color-accent-light); background: rgba(124,138,255,0.10);
+  border: 1px solid rgba(124,138,255,0.28);
+}
+/* install tooltip */
+.incusTip {
+  position: relative; display: inline-flex;
+}
+.incusTipBubble {
+  position: absolute; bottom: calc(100% + 8px); right: 0;
+  width: 240px; padding: 8px 10px; z-index: 5;
+  background: var(--color-elevated); border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm); box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  font-family: var(--font-ui); font-size: 11px; line-height: 1.5; color: var(--color-fg-muted);
+}
+.incusTipBubble code { font-family: var(--font-mono); color: var(--color-accent-light); }
+/* runtime chip in header + state badges (shared state colors) */
+.runtimeChip {
+  display: inline-flex; align-items: center; gap: 6px; margin-left: 10px;
+  padding: 2px 8px; border-radius: 10px; font-family: var(--font-mono); font-size: 11px;
+  border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-fg-muted);
+}
+.rtDot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-fg-dim); }
+.wsBadge {
+  display: inline-flex; align-items: center; gap: 5px; margin-left: auto;
+  padding: 1px 7px; border-radius: 9px; font-family: var(--font-mono); font-size: 10px;
+  border: 1px solid var(--color-border); color: var(--color-fg-muted);
+}
+.wsBadge .rtDot { width: 6px; height: 6px; }
+/* state colors (data-runtime-state) */
+[data-runtime-state="ready"]   .rtDot, .rtDot[data-runtime-state="ready"]   { background: var(--color-success); }
+[data-runtime-state="starting"] .rtDot, .rtDot[data-runtime-state="starting"] { background: var(--color-warning); animation: rtPulse 1.1s ease-in-out infinite; }
+[data-runtime-state="stopped"] .rtDot, .rtDot[data-runtime-state="stopped"] { background: var(--color-fg-dim); }
+[data-runtime-state="error"]   .rtDot, .rtDot[data-runtime-state="error"]   { background: var(--color-error); }
+.wsBadge[data-runtime-state="error"] { color: var(--color-error); border-color: rgba(239,68,68,0.35); }
+.wsBadge[data-runtime-state="ready"] { color: var(--color-success); border-color: rgba(100,210,160,0.30); }
+@keyframes rtPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+.runtimeError {
+  margin: 8px 18px 0; padding: 7px 10px; font-size: 12px; font-family: var(--font-ui);
+  color: var(--color-error); background: rgba(239,68,68,0.08);
+  border: 1px solid rgba(239,68,68,0.30); border-radius: var(--radius-sm);
+}
+.hostScopeLabel {
+  display: inline-flex; align-items: center; gap: 7px; margin-left: 10px;
+  padding: 2px 9px; border-radius: 10px; font-family: var(--font-mono); font-size: 11px;
+  color: var(--color-fg-muted); background: rgba(245,158,11,0.06);
+  border: 1px dashed rgba(245,158,11,0.40);
+}
+/* branch row helpers (used by S8478ca drawer badges; harmless for older screens) */
+.branchRow { display: flex; align-items: center; gap: 6px; width: 100%; }
+.branchName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -1,0 +1,25 @@
+{
+  "story": "S8478ca-3", "story_type": "library",
+  "user_role": "自前ホスティングの個人 (config consumer)",
+  "entry_point": "internal/config の runtime スキーマ + ResolveWorkspaceRuntime",
+  "scenarios": [
+    {
+      "id": "scenario-1", "linked_ac": ["AC-S8478ca-3-1","AC-S8478ca-3-2"],
+      "description": "priority chain が正しく解決される",
+      "preconditions": ["repos.json/settings.json に runtime スキーマ"],
+      "steps": [
+        {"n":1,"action":"per-Workspace=incus-container, per-repo=host, global=host で ResolveWorkspaceRuntime を呼ぶ","expected":"per-Workspace が勝ち incus-container を返す"},
+        {"n":2,"action":"全指定なし + Incus 未インストールで解決","expected":"host にフォールバックする"},
+        {"n":3,"action":"settings PATCH に不正 kind を渡す","expected":"バリデーションエラーで弾かれ永続化されない"}
+      ]
+    },
+    {
+      "id": "scenario-2", "linked_ac": ["AC-S8478ca-3-3"],
+      "description": "後方互換",
+      "preconditions": ["runtime 無しの既存 repos.json"],
+      "steps": [
+        {"n":1,"action":"runtime キーの無い既存 Workspace を解決","expected":"host とみなされ既存挙動が不変 (migration なし)"}
+      ]
+    }
+  ]
+}
