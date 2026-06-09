@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -63,8 +64,12 @@ func (h *hostRuntime) Status() runtime.Status {
 // NewTmuxSession creates a tmux session by delegating to the injected
 // tmux.Client.  The window name is derived from the session name using the
 // palmux canonical form (palmux:placeholder:placeholder) so the session is
-// valid without needing caller-provided window details.  This is the minimal
-// entry point used by the store's ensureSession path.
+// valid without needing caller-provided window details.  NOTE (S8478ca-1):
+// this is NOT yet wired into the store's ensureSession path — production
+// session creation still calls tmux.Client directly. The store integration
+// that routes ensureSession through the resolved Runtime lands with the
+// incus runtime (Story S8478ca-2); until then this method is exercised only
+// by unit tests.
 func (h *hostRuntime) NewTmuxSession(ctx context.Context, session string) error {
 	err := h.t.NewSession(ctx, tmux.NewSessionOpts{
 		Name:       session,
@@ -97,7 +102,10 @@ func (h *hostRuntime) Exec(ctx context.Context, cmd []string, opts runtime.ExecO
 		c.Dir = opts.Dir
 	}
 	if len(opts.Env) > 0 {
-		c.Env = opts.Env
+		// Append to the inherited environment rather than replacing it, so the
+		// command keeps PATH/HOME etc. (replacing wholesale would break e.g.
+		// `claude --resume`). Mirrors how the incus runtime injects env.
+		c.Env = append(os.Environ(), opts.Env...)
 	}
 	var stdout, stderr bytes.Buffer
 	c.Stdout = &stdout
