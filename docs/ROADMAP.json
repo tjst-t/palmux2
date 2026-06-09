@@ -2,15 +2,15 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 48,
+    "sprints_done": 49,
     "sprints_total": 49,
-    "percent": 97,
-    "current_sprint": "S8478ca",
-    "done": 48,
-    "in_progress": 1,
+    "percent": 100,
+    "current_sprint": null,
+    "done": 49,
+    "in_progress": 0,
     "total": 49,
     "remaining": 0,
-    "percentage": 97
+    "percentage": 100
   },
   "execution_order": [
     "S001",
@@ -8386,7 +8386,7 @@
     },
     "S8478ca": {
       "title": "Workspace Runtime — host + incus-container 隔離 (Phase 5)",
-      "status": "in_progress",
+      "status": "done",
       "milestone": true,
       "description": "Workspace の実行ランタイムを host / incus-container の 2 種で抽象化し、tmux 直叩きを Runtime 経由に付け替える。Incus コンテナで Claude/Bash を隔離して host 汚染 (npm -g/pip/apt/ビルド成果物/プロセス leak/ポート衝突) を防ぐ。\n\n参照仕様: docs/workspace-runtime-design.md (trim 版)。feat/workspace-runtime の初版実装はそのままマージせず、本書の絞ったスコープを正準とする。\n\n確定スコープ (plan S8478ca):\n  - ランタイム種別は host / incus-container のみ (incus-vm/remote/ssh-remote は将来検討)\n  - イメージ戦略: 薄い自作イメージ (案A)。Dockerfile に tmux/git/gh/claude(native binary)/systemd(PID1)/ubuntu(UID1000) を焼き、ローカル build → incus image import。GHCR/週次CI は将来 (trim 設計どおり)\n  - 認証はワークスペース毎に再認証しない: bind-mount で ~/ghq 全体 + ~/.claude (= .credentials.json の OAuth トークン + skills/memory) + ~/.claude.json ($HOME 直下、oauthAccount/onboarding/projects) を同一絶対パス rw 共有。raw.idmap both 1000 1000。同時書き込みは現状の host 複数 claude 併走と同条件 (新規競合クラスではない)\n  - ポートモデル: 隔離下は確保不要。managed bridge + Caddy が <containerIP>:port を直結。localhost-only サーバは bind=instance proxy device で救済。host runtime は portman 残置\n  - 既存 Workspace は host 既定 (後方互換、migration UI なし)\n\nスコープ外 (将来 Sprint): Browser タブ/Neko (backlog 登録済)、palmux-agent push 配布、internal/port allocator 内製、GHCR イメージ運用、incus-remote。\n\n設計判断 (Neko 将来要件のため今満たす): runtime.Runtime の ExposePort は TCP/UDP + public フラグの一般形を interface に残す。\n\n検証: test VM (192.168.1.41、Incus 用に確保・wipe 自由) で Incus 実機 (本番モード) E2E。Incus 上の Claude/Bash 起動、~/.claude 共有 + claude --resume が再認証なしで成立、2 Workspace の同ポート非衝突 + Caddy 到達、localhost-only サーバの bind=instance 救済を確認する。",
       "stories": {

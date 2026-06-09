@@ -1,0 +1,32 @@
+{
+  "sprint": "S8478ca",
+  "verified_at": "2026-06-09",
+  "summary": "All 5 stories done. Go suite: 21 pkgs ok, 0 fail. make build (Go+embedded FE) OK. Real-mode E2E on test VM 192.168.1.41 (Incus 6.0.0, production mode, no fakes) for -2/-4; real dev instance for -5; unit+acceptance for -1/-3.",
+  "tests": {
+    "go_suite": "21 packages ok, 0 fail",
+    "build": "make build OK (v0.9.6-14)",
+    "e2e": {
+      "s8478ca_host_runtime.py": "AC-1-3 pass (real dev instance)",
+      "s8478ca_incus_container.py": "7/7 pass (real VM, unprivileged verified)",
+      "s8478ca_ports.py": "5/5 pass (real VM: no-collision, Caddy direct, relay, unprivileged, portman non-regressed)",
+      "s8478ca_runtime_ui.py": "3/3 pass (real dev instance)",
+      "s8478ca_runtime_ui_mock.py": "4/4 pass"
+    }
+  },
+  "done_judgment": {
+    "S8478ca-1": {"guard1_user_review":"pass","guard2_tests_exist":"pass","guard3_tests_pass":"pass","guard4_ac_traceability":"pass","guard5_no_silent_skip":"pass","guard6_real_mode_smoke":"pass","verdict":"done"},
+    "S8478ca-2": {"guard1_user_review":"pass","guard2_tests_exist":"pass","guard3_tests_pass":"pass","guard4_ac_traceability":"pass","guard5_no_silent_skip":"warn — incus E2E has SKIP_INCUS_E2E/VM-unreachable conditional skip; ran for real in prod mode here","guard6_real_mode_smoke":"pass — VM Incus, unprivileged confirmed, in-container tmux confirmed","verdict":"done"},
+    "S8478ca-3": {"guard1_user_review":"pass","guard2_tests_exist":"pass","guard3_tests_pass":"pass","guard4_ac_traceability":"pass","guard5_no_silent_skip":"pass","guard6_real_mode_smoke":"pass (config save/reload round-trip)","verdict":"done"},
+    "S8478ca-4": {"guard1_user_review":"pass","guard2_tests_exist":"pass","guard3_tests_pass":"pass","guard4_ac_traceability":"pass","guard5_no_silent_skip":"warn — same conditional VM skip; ran for real","guard6_real_mode_smoke":"pass — VM Incus+Caddy","verdict":"done"},
+    "S8478ca-5": {"guard1_user_review":"pass","guard2_tests_exist":"pass","guard3_tests_pass":"pass","guard4_ac_traceability":"pass","guard5_no_silent_skip":"pass","guard6_real_mode_smoke":"pass — real dev instance mock+e2e","verdict":"done"}
+  },
+  "review_findings_fixed": [
+    "S-1: host.Exec env now appends os.Environ() (was replacing → would drop PATH)",
+    "S-2: removed silent security.privileged fallback (kept UNPRIVILEGED; root cause = /etc/subuid+subgid root:1000:1)",
+    "S-2: detached-context for in-container tmux state ops (caller ctx cancel was killing the freshly-created in-container tmux server → AC-2-3 silently broken; added assertion exposed it)",
+    "S-2: baked image was missing tmux/git (apt swallowed failure); container outbound was blocked by Docker FORWARD DROP — both fixed + documented as host prereqs",
+    "S-4: bind=instance proxy device verified non-functional on unprivileged Incus 6.0 → in-container relay; design §5.3 corrected"
+  ],
+  "milestone": true,
+  "milestone_note": "S8478ca is a milestone. Recommend user review (sprint demo / browser check of runtime selector + badges; optional manual container check on VM) before merging autopilot/main/S8478ca → main."
+}
