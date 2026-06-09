@@ -22,6 +22,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/domain"
 	"github.com/tjst-t/palmux2/internal/ghq"
 	"github.com/tjst-t/palmux2/internal/gwq"
+	"github.com/tjst-t/palmux2/internal/runtime"
 	"github.com/tjst-t/palmux2/internal/tab"
 	"github.com/tjst-t/palmux2/internal/tmux"
 	"github.com/tjst-t/palmux2/internal/worktree"
@@ -54,6 +55,12 @@ type Deps struct {
 	// MaxConnsPerBranch caps simultaneous WS attachments per branch. 0 means
 	// unlimited. Wired from the --max-connections CLI flag.
 	MaxConnsPerBranch int
+	// RuntimeRegistry maps (repoID, branchID) to the live Runtime for that
+	// workspace.  Optional — when nil the store behaves exactly as before
+	// S8478ca (all tmux calls go directly through Deps.Tmux).  Story S8478ca-3
+	// will make resolution non-trivial; for now the default registry always
+	// returns a host Runtime.
+	RuntimeRegistry runtime.Registry
 }
 
 // Store is concurrency-safe.

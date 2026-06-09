@@ -29,6 +29,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/gwq"
 	"github.com/tjst-t/palmux2/internal/notify"
 	"github.com/tjst-t/palmux2/internal/portman"
+	"github.com/tjst-t/palmux2/internal/runtime/host"
 	"github.com/tjst-t/palmux2/internal/server"
 	"github.com/tjst-t/palmux2/internal/store"
 	"github.com/tjst-t/palmux2/internal/tab"
@@ -194,6 +195,12 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		return err
 	}
 
+	// S8478ca-1: default RuntimeRegistry wraps the tmux.Client in a host
+	// Runtime so every workspace resolves to "host" until Story -3 adds real
+	// per-workspace resolution.  Behaviour is identical to before — no tmux
+	// operations change.
+	runtimeRegistry := host.NewDefaultRegistry(tmuxClient)
+
 	registry := tab.NewRegistry()
 	st, err := store.New(store.Deps{
 		Tmux:              tmuxClient,
@@ -204,6 +211,7 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		Registry:          registry,
 		Logger:            slog.Default(),
 		MaxConnsPerBranch: maxConns,
+		RuntimeRegistry:   runtimeRegistry,
 	})
 	if err != nil {
 		return err

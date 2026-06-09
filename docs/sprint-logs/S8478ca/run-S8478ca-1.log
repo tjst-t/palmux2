@@ -1,0 +1,63 @@
+=== S8478ca-1 host runtime acceptance test (server=http://localhost:8201) ===
+
+--- server bootstrap smoke ---
+  [AC-S8478ca-1-3] server health OK (body keys=['configDir', 'open', 'phase', 'portmanURL', 'status', 'version'])
+
+--- host scope tabs (AC-S8478ca-1-3) ---
+  [AC-S8478ca-1-3] host scope has bash tab (ids=['bash:bash'])
+
+--- host bash WS I/O (AC-S8478ca-1-3) ---
+  [AC-S8478ca-1-3] host bash WS I/O flows correctly (marker=RTCHK_HOST found)
+
+--- open workspace tabs present (AC-S8478ca-1-3) ---
+  [AC-S8478ca-1-3] workspace clinical-hishow--Mirante-demo--406f/Mirante-demo--fca6 tabs=['claude:claude', 'files', 'git', 'sprint', 'bash:bash']
+
+--- open workspace bash WS I/O (AC-S8478ca-1-3) ---
+  [AC-S8478ca-1-3] workspace clinical-hishow--Mirante-demo--406f/Mirante-demo--fca6/bash:bash bash I/O flows (marker found)
+
+ALL PASS
+
+=== Unit Tests ===
+=== RUN   TestPortSpecFields
+--- PASS: TestPortSpecFields (0.00s)
+=== RUN   TestPortMappingFields
+--- PASS: TestPortMappingFields (0.00s)
+=== RUN   TestKindIsValid
+--- PASS: TestKindIsValid (0.00s)
+=== RUN   TestPortSpecUDPPublic
+--- PASS: TestPortSpecUDPPublic (0.00s)
+=== RUN   TestConfigFields
+--- PASS: TestConfigFields (0.00s)
+PASS
+ok  	github.com/tjst-t/palmux2/internal/runtime	(cached)
+=== RUN   TestHostStatusReady
+--- PASS: TestHostStatusReady (0.00s)
+=== RUN   TestHostKind
+--- PASS: TestHostKind (0.00s)
+=== RUN   TestHostConfig
+--- PASS: TestHostConfig (0.00s)
+=== RUN   TestHostStartStopNoOp
+--- PASS: TestHostStartStopNoOp (0.00s)
+=== RUN   TestHostNewTmuxSessionDelegates
+--- PASS: TestHostNewTmuxSessionDelegates (0.00s)
+=== RUN   TestHostExecCaptures
+--- PASS: TestHostExecCaptures (0.00s)
+=== RUN   TestHostExecNonZeroExit
+--- PASS: TestHostExecNonZeroExit (0.00s)
+=== RUN   TestHostExposePortStub
+--- PASS: TestHostExposePortStub (0.00s)
+=== RUN   TestHostExposePortUDPPublic
+--- PASS: TestHostExposePortUDPPublic (0.00s)
+=== RUN   TestHostUnexposePortStub
+--- PASS: TestHostUnexposePortStub (0.00s)
+=== RUN   TestHostListListeningPortsEmpty
+--- PASS: TestHostListListeningPortsEmpty (0.00s)
+=== RUN   TestDefaultRegistryAlwaysReturnsHost
+--- PASS: TestDefaultRegistryAlwaysReturnsHost (0.00s)
+PASS
+ok  	github.com/tjst-t/palmux2/internal/runtime/host	(cached)
+
+=== Store Tests (regression check) ===
+ok  	github.com/tjst-t/palmux2/internal/store	0.056s
+
+=== go vet ===
