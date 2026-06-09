@@ -10,10 +10,6 @@
 //   - If "--write-session <dir> <session_id>" is passed, writes a stub
 //     .jsonl file at <dir>/<session_id>.jsonl after startup so the
 //     SessionWatcher / Manager can detect it.
-//   - If "--emit-permission-prompt <text>" is passed, prints a permission
-//     prompt line "Do you want me to <text>?" so the emulator can detect it.
-//   - If "--emit-bel" is passed, emits a BEL byte (\x07) so the daemon
-//     can detect task_complete.
 //   - Otherwise it writes a heartbeat line once per second until SIGTERM/SIGINT.
 //
 // Flags recognised:
@@ -23,14 +19,14 @@
 //	--write-session <dir> <id>   write <dir>/<id>.jsonl then loop normally
 //	--print-cwd                  print "cwd: <os.Getwd()>" then loop normally
 //	--emit-osc52 <text>          emit OSC 52 clipboard-write sequence
-//	--emit-permission-prompt <t> print "Do you want me to <t>?" then loop
-//	--emit-bel                   emit BEL byte (\x07) then loop normally
+//	--settings <json-or-file>    accepted (ignored) — real claude consumes it
 //	--system-prompt <s>          accepted (ignored)
 //	--foo, --bar, etc.           any other flags are silently accepted
 package main
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -47,12 +43,17 @@ func main() {
 	writeSessionDir := ""
 	writeSessionID := ""
 	printCwd := false
-	emitOsc52 := ""           // non-empty → emit OSC 52 with this text as the payload
-	emitPermissionPrompt := "" // non-empty → emit a permission prompt line
-	emitBEL := false           // true → emit BEL byte
+	emitOsc52 := ""      // non-empty → emit OSC 52 with this text as the payload
+	dumpInvocation := "" // non-empty → write argv + PALMUX_* env as JSON to this path
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
+		case "--dump-invocation":
+			// Consumes next arg: path to write the invocation JSON to.
+			if i+1 < len(args) {
+				dumpInvocation = args[i+1]
+				i++
+			}
 		case "--exit-immediately":
 			exitImmediately = true
 		case "--resume":
@@ -75,14 +76,24 @@ func main() {
 				emitOsc52 = args[i+1]
 				i++
 			}
-		case "--emit-permission-prompt":
-			// Consumes next arg: the action text for the permission prompt.
-			if i+1 < len(args) {
-				emitPermissionPrompt = args[i+1]
-				i++
-			}
-		case "--emit-bel":
-			emitBEL = true
+		}
+	}
+
+	// Record how palmux invoked us (argv + injected PALMUX_* env) so spawn-time
+	// hook-injection can be asserted by tests.
+	if dumpInvocation != "" {
+		rec := map[string]any{
+			"argv": os.Args,
+			"env": map[string]string{
+				"PALMUX_NOTIFY_URL": os.Getenv("PALMUX_NOTIFY_URL"),
+				"PALMUX_TOKEN":      os.Getenv("PALMUX_TOKEN"),
+				"PALMUX_REPO_ID":    os.Getenv("PALMUX_REPO_ID"),
+				"PALMUX_BRANCH_ID":  os.Getenv("PALMUX_BRANCH_ID"),
+				"PALMUX_TAB_ID":     os.Getenv("PALMUX_TAB_ID"),
+			},
+		}
+		if b, err := json.Marshal(rec); err == nil {
+			_ = os.WriteFile(dumpInvocation, b, 0o644)
 		}
 	}
 
@@ -106,17 +117,6 @@ func main() {
 		b64 := base64.StdEncoding.EncodeToString([]byte(emitOsc52))
 		// Write to stdout: ESC ] 52 ; c ; <b64> BEL
 		fmt.Printf("\x1b]52;c;%s\x07", b64)
-	}
-
-	if emitPermissionPrompt != "" {
-		// Emit a permission-prompt line detectable by event_detection.go.
-		// Format matches permissionPromptRe: "Do you want me to <text>?"
-		fmt.Printf("Do you want me to %s?\n", emitPermissionPrompt)
-	}
-
-	if emitBEL {
-		// Emit a BEL byte (\x07) to trigger task_complete detection.
-		fmt.Printf("\x07")
 	}
 
 	if exitImmediately {

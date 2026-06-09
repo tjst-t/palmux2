@@ -29,6 +29,14 @@ type ManagerConfig struct {
 	// NotifyHub is forwarded to each Daemon so that OSC 52 clipboard-write
 	// sequences are published to the process-wide notify hub.  May be nil.
 	NotifyHub *notify.Hub
+	// NotifyURL / NotifyToken / HookBinPath wire the Claude Code notification
+	// hooks injected into each claude subprocess (see hooks.go). NotifyURL is
+	// the local /api/notify endpoint, NotifyToken the optional auth token, and
+	// HookBinPath the absolute path to the palmux binary used as the hook
+	// command. Empty NotifyURL or HookBinPath disables hook injection.
+	NotifyURL   string
+	NotifyToken string
+	HookBinPath string
 }
 
 // managerEntry bundles a Daemon with its associated SessionWatcher so both
@@ -124,6 +132,9 @@ func (m *Manager) EnsureDaemon(ctx context.Context, repoID, branchID, tabID, wor
 		RepoID:        repoID,
 		BranchID:      branchID,
 		TabID:         tabID,
+		NotifyURL:     m.cfg.NotifyURL,
+		NotifyToken:   m.cfg.NotifyToken,
+		HookBinPath:   m.cfg.HookBinPath,
 	})
 
 	// Pre-seed session ID if we loaded one from the store.  This unblocks

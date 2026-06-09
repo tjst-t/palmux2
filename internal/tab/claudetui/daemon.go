@@ -112,15 +112,23 @@ type Daemon struct {
 	emulator      *Emulator
 	logger        *slog.Logger
 
-	// notifyHub is the process-wide hub used to publish Activity Inbox events
-	// (permission_prompt, task_complete) detected from the emulator grid / BEL.
+	// notifyHub is the process-wide hub used to publish Activity Inbox events.
+	// claude-tui notifications now arrive via Claude Code hooks (see hooks.go +
+	// cmd/palmux/hook.go) rather than terminal screen-scraping; the hub is still
+	// referenced here for OSC 52 clipboard events forwarded by the Emulator.
 	// May be nil — events are silently discarded in that case.
 	notifyHub *notify.Hub
-	// repoID, branchID, tabID identify the workspace and tab; stamped onto
-	// every event so the Activity Inbox can route notifications back to the
-	// originating tab (Sadf90e — tabID was added so two Claude-tui tabs in the
-	// same workspace produce distinguishable events).
+	// repoID, branchID, tabID identify the workspace and tab; injected into the
+	// claude subprocess as PALMUX_* env so the hook handler can route
+	// notifications back to the originating tab (Sadf90e — tabID distinguishes
+	// two Claude-tui tabs in the same workspace).
 	repoID, branchID, tabID string
+
+	// Hook wiring (set by the Manager): the local notify endpoint URL, optional
+	// auth token, and the absolute path to the palmux binary used as the Claude
+	// Code hook command. When notifyURL or hookBinPath is empty, no hook
+	// settings/env are injected (e.g. in tests using fake_claude).
+	notifyURL, notifyToken, hookBinPath string
 
 	// feedMu serializes the readLoop's (ring.Write + emulator.Feed) pair with
 	// the attach-time (emulator.RenderSnapshot + ring.Subscribe) pair so a new
@@ -128,15 +136,6 @@ type Daemon struct {
 	// respect to incoming PTY bytes — no chunk is double-applied or lost at the
 	// boundary. Held only for the duration of a single chunk's write+feed.
 	feedMu sync.Mutex
-
-	// eventMu guards the per-daemon event-detection state fields below.
-	eventMu sync.Mutex
-	// lastPermissionQuestion is the most-recently emitted permission-prompt
-	// question string.  We only emit when the detected question changes (dedup).
-	lastPermissionQuestion string
-	// lastBELAt is the wall-clock time of the last task_complete BEL emission.
-	// Used to enforce the 2-second throttle window.
-	lastBELAt time.Time
 
 	// roles manages multi-client active/viewer assignment (Story 3).
 	roles *roleCoordinator
@@ -205,11 +204,21 @@ type DaemonConfig struct {
 	// discarded.  Main wires this from the process-wide hub.
 	NotifyHub *notify.Hub
 	// RepoID, BranchID, TabID identify the workspace and tab. They are
-	// stamped onto every [notify.CopyEvent] emitted by the Emulator and onto
-	// every Activity Inbox event published by event_detection.
+	// stamped onto every [notify.CopyEvent] emitted by the Emulator and
+	// injected into the claude subprocess as PALMUX_* env so the Claude Code
+	// hook handler can route notifications back to this tab.
 	RepoID   string
 	BranchID string
 	TabID    string
+
+	// NotifyURL is the local palmux notify endpoint (e.g.
+	// http://127.0.0.1:8080/api/notify) the injected hook posts to. NotifyToken
+	// is the optional auth token. HookBinPath is the absolute path to the palmux
+	// binary used as the hook command. When NotifyURL or HookBinPath is empty,
+	// no hook settings/env are injected.
+	NotifyURL   string
+	NotifyToken string
+	HookBinPath string
 }
 
 // NewDaemon creates a Daemon from cfg.  No subprocess is spawned yet.
@@ -239,6 +248,9 @@ func NewDaemon(cfg DaemonConfig) *Daemon {
 		repoID:         cfg.RepoID,
 		branchID:       cfg.BranchID,
 		tabID:          cfg.TabID,
+		notifyURL:      cfg.NotifyURL,
+		notifyToken:    cfg.NotifyToken,
+		hookBinPath:    cfg.HookBinPath,
 		daemonCtx:      ctx,
 		daemonCancel:   cancel,
 		sessionIDReady: make(chan struct{}),
@@ -313,6 +325,24 @@ func (d *Daemon) EnsureStarted(ctx context.Context) error {
 //
 // MUST be called while holding spawnMu.
 func (d *Daemon) spawnWithArgs(args []string) error {
+	// Inject Claude Code notification hooks scoped to this subprocess (see
+	// hooks.go). The settings travel via --settings so we touch neither the
+	// user's ~/.claude nor the repo's .claude; identity + callback URL travel as
+	// PALMUX_* env the hook command inherits.
+	env := appendOrReplace(os.Environ(), "TERM=xterm-256color")
+	if d.hookBinPath != "" && d.notifyURL != "" {
+		settings, err := buildHookSettings(d.hookBinPath)
+		if err != nil {
+			d.logger.Warn("claudetui: failed to build hook settings; "+
+				"notifications disabled for this spawn", "err", err)
+		} else {
+			args = append([]string{"--settings", settings}, args...)
+			for _, kv := range hookEnv(d.notifyURL, d.notifyToken, d.repoID, d.branchID, d.tabID) {
+				env = appendOrReplace(env, kv)
+			}
+		}
+	}
+
 	// exec.CommandContext uses daemonCtx so that cancellation (Shutdown) can
 	// terminate the subprocess while keeping it alive across WS disconnects.
 	cmd := exec.CommandContext(d.daemonCtx, d.claudeBin, args...)
@@ -324,8 +354,7 @@ func (d *Daemon) spawnWithArgs(args []string) error {
 	if d.worktree != "" {
 		cmd.Dir = d.worktree
 	}
-	// Inherit the full environment so interactive TUIs render correctly.
-	cmd.Env = appendOrReplace(os.Environ(), "TERM=xterm-256color")
+	cmd.Env = env
 
 	ptmx, err := creackpty.Start(cmd)
 	if err != nil {
@@ -466,9 +495,6 @@ func (d *Daemon) readLoop(ptmx *os.File) {
 				// not block and adds only a small constant overhead per chunk.
 				d.emulator.Feed(chunk)
 				d.feedMu.Unlock()
-				// Event detection: scan for BEL (task_complete) and grid pattern
-				// (permission_prompt).  Both calls are fast and non-blocking.
-				d.detectEvents(chunk)
 			}
 			if r.err != nil {
 				if r.err != io.EOF {
@@ -723,33 +749,6 @@ func (d *Daemon) Shutdown() {
 		d.shutdownWg.Wait()
 		d.logger.Info("claudetui: daemon shutdown complete")
 	})
-}
-
-// detectEvents scans a raw PTY chunk for Activity Inbox events:
-//  1. BEL (\x07) bytes → task_complete (throttled to 1 per 2 s).
-//  2. Grid pattern scan → permission_prompt (only on question change).
-//
-// Both detections use the process-wide NotifyHub wired in DaemonConfig.
-// When NotifyHub is nil, this method is a no-op (safe in tests that omit it).
-func (d *Daemon) detectEvents(chunk []byte) {
-	if d.notifyHub == nil {
-		return
-	}
-	d.eventMu.Lock()
-	defer d.eventMu.Unlock()
-
-	// 1. BEL detection (task_complete).
-	d.lastBELAt = maybeEmitTaskComplete(
-		d.notifyHub, d.repoID, d.branchID, d.tabID,
-		chunk, d.lastBELAt,
-	)
-
-	// 2. Grid permission-prompt scan (cheap: only bottom 8 rows).
-	g := d.emulator.GridSnapshot()
-	d.lastPermissionQuestion = maybeEmitPermissionPrompt(
-		d.notifyHub, d.repoID, d.branchID, d.tabID,
-		g, d.lastPermissionQuestion,
-	)
 }
 
 // appendOrReplace either appends "KEY=value" to env or replaces the existing

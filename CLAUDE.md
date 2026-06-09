@@ -26,6 +26,7 @@
 - **S1e8d02 [BREAKING]**: Workspace-centric domain refactor (worktree path = identity、`git checkout` で ID 不変)
 - **S43cfb1 / S4b9df4 / S13b16a / Saa8506**: Claude タブ・FE のリファクタリング + lint sweep + E2E hygiene
 - **S1d2278 → S7ce250 → S0fd64b → S1f75ec → Sadf90e (Track B)**: PTY daemon + headless emulator による claude-tui タブ、mode のタブ単位設定化
+- **claude-tui 通知の hook 化**: claude-tui タブの Activity Inbox 通知は、ターミナル画面のスクレイプ (BEL / permission 正規表現) をやめ、**Claude Code の公式 hook** で受ける。daemon spawn 時に `claude --settings '<json>'` で `Notification`/`Stop`/`UserPromptSubmit` hook を **そのプロセスにだけ** 注入 (ユーザの `~/.claude` も repo の `.claude/` も触らない)。識別子と callback は `PALMUX_NOTIFY_URL`/`PALMUX_TOKEN`/`PALMUX_REPO_ID`/`PALMUX_BRANCH_ID`/`PALMUX_TAB_ID` の env で渡し、hook コマンドは palmux 自身の `palmux hook` サブコマンド (`cmd/palmux/hook.go`) が stdin JSON + env を読んで `POST /api/notify` する。`Stop`=「あなたの番」/ `Notification`=許可待ち / `UserPromptSubmit`=自動クリア。安定 RequestID (`claudetui-hook-<tabId>`) で Inbox は 1 タブ 1 エントリに集約。設定生成は `internal/tab/claudetui/hooks.go`。
 - **S67cb0e**: Sprint タブ UX polish (JIRA 風 table timeline + pushState 履歴 + Prev/Next/dropdown + Markdown レンダリング + 既定 Sprint 解決)
 - **S0c6a1b**: リポジトリ非依存「Host」ターミナル。install 直後の `gh auth login` / `claude` ログイン用に、 リポジトリを Open せずに使える bash 専用ターミナル scope。予約 synthetic Repository (`repoId=host--0000` / `branchId=host`) を store に注入して既存タブ機構を再利用。tmux セッションは初回 attach 時に lazy 生成。`GET /api/host` で descriptor 公開、 Drawer 専用セクション + empty-state CTA から到達。 repos.json / `/api/repos` / repo-picker / sync_worktree / Orphans から除外 (`store.IsHostRepoID` ガード)
 

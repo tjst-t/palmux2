@@ -87,6 +87,14 @@ func resolveVersion() string {
 }
 
 func main() {
+	// `palmux hook ...` is the Claude Code hook handler invoked per claude-tui
+	// subprocess (see internal/tab/claudetui/hooks.go). Dispatch it before any
+	// flag parsing or server bootstrap: it must be a fast, side-effect-free
+	// process that POSTs one notification and exits.
+	if len(os.Args) > 1 && os.Args[1] == "hook" {
+		os.Exit(runHook(os.Args[2:]))
+	}
+
 	// Some Linux distros ship a slim mime DB that doesn't know about
 	// .webmanifest. Register the canonical type so PWAs install cleanly.
 	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
@@ -269,6 +277,13 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 	if err != nil {
 		return fmt.Errorf("claudetui session store: %w", err)
 	}
+	// Hook wiring: the palmux binary doubles as the Claude Code hook handler
+	// (`palmux hook`). Resolve its absolute path so the injected --settings
+	// command is unambiguous regardless of the claude subprocess's cwd.
+	hookBinPath, err := os.Executable()
+	if err != nil || hookBinPath == "" {
+		hookBinPath = os.Args[0]
+	}
 	claudetuiMgr := claudetui.NewManager(claudetui.ManagerConfig{
 		ClaudeBin:     claudeBin,
 		ClaudeArgs:    claudeArgs,
@@ -276,6 +291,10 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		ResumeOnDeath: true,    // Story 4: always resume on crash
 		Store:         tuiStore,
 		NotifyHub:     notifyHub, // S0fd64b-1: forward OSC 52 clipboard events
+		// Claude Code notification hooks injected per claude-tui subprocess.
+		NotifyURL:   localNotifyURL(addr, basePath),
+		NotifyToken: token,
+		HookBinPath: hookBinPath,
 	})
 	claudetuiProvider := claudetui.New(claudetuiMgr)
 	// Sadf90e: claudetui daemons live per-tab and are spawned lazily on the
@@ -458,6 +477,29 @@ func portFromAddr(addr string) string {
 		}
 	}
 	return ""
+}
+
+// localNotifyURL builds the loopback URL of the /api/notify endpoint that the
+// injected Claude Code hooks POST to. The hook runs on the same host as the
+// claude-tui subprocess, so 127.0.0.1 + the listen port + base path is always
+// reachable regardless of the server's bind address. Returns "" if the port
+// can't be derived (hook injection is then skipped).
+func localNotifyURL(addr, basePath string) string {
+	port := portFromAddr(addr)
+	if port == "" {
+		return ""
+	}
+	bp := basePath
+	if bp == "" {
+		bp = "/"
+	}
+	if !strings.HasPrefix(bp, "/") {
+		bp = "/" + bp
+	}
+	if !strings.HasSuffix(bp, "/") {
+		bp += "/"
+	}
+	return "http://127.0.0.1:" + port + bp + "api/notify"
 }
 
 // branchResolver adapts *store.Store into the small BranchResolver interface

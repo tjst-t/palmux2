@@ -2,14 +2,18 @@
 """Sprint S1f75ec Story 4 — Activity Inbox + Sprint Dashboard coexistence E2E.
 
 Verifies that:
-  - fake claude-bin emitting "Do you want me to ..." triggers a
-    claudetui.permission_prompt notification in the Activity Inbox
-  - fake claude-bin emitting BEL (\\x07) triggers a claudetui.task_complete
-    notification
-  - Activity Inbox events navigating to /{repo}/{branch}/claude
+  - a claudetui.permission_prompt notification (Claude Code Notification hook,
+    seeded via POST /api/notify — the path `palmux hook` uses) appears in the
+    Activity Inbox
+  - a claudetui.task_complete notification (Claude Code Stop hook) appears
+  - Activity Inbox events navigate to /{repo}/{branch}/claude
   - Sprint Dashboard filewatch and claude-tui SessionWatcher coexist on the
     same branch (different inotify subscriptions)
   - data-testid='activity-inbox-event-claudetui' appears on claudetui events
+
+NOTE: the original terminal screen-scraping detection (BEL byte / permission
+regex) was removed in favour of Claude Code hooks; these ACs now seed the
+notification through the same /api/notify endpoint the hook posts to.
 
 Acceptance criteria:
   [AC-S1f75ec-4-1] permission_prompt event appears in Activity Inbox
@@ -219,8 +223,33 @@ def _poll_notifications(port: int, repo_id: str, branch_id: str,
     return {}
 
 
+def _seed_hook_notification(port: int, repo_id: str, branch_id: str,
+                            notif_type: str, message: str,
+                            tab_id: str = "claude") -> None:
+    """Seed a claudetui.* notification via POST /api/notify.
+
+    This is the exact path the `palmux hook` subcommand uses when Claude Code
+    fires its Notification / Stop hooks (see cmd/palmux/hook.go). It replaced
+    the original terminal screen-scraping (BEL byte / permission regex) the
+    daemon used to do — that detection was removed, so these ACs now verify the
+    hook ingest → Activity Inbox path deterministically. tabId is stamped so the
+    inbox routes "Open Claude" to the originating tab.
+    """
+    body = {
+        "repoId": repo_id,
+        "branchId": branch_id,
+        "tabId": tab_id,
+        "type": notif_type,
+        "message": message,
+        "requestId": f"claudetui-hook-{tab_id}",
+    }
+    code, resp = _http_json(port, "POST", "/api/notify", body)
+    assert code in (200, 202), f"POST /api/notify returned {code}: {resp}"
+
+
 def _trigger_notification_via_ws(port: int, repo_id: str, branch_id: str) -> None:
-    """Connect to the claudetui WS to trigger daemon start and output collection.
+    """Attach to the claudetui WS to spawn the daemon (used by the Sprint /
+    claude-tui coexistence test, AC-4-4 — no notification side effect anymore).
 
     Sadf90e: WS endpoint moved from /tabs/claude-tui/attach to per-tab
     /tabs/{tabId}/tui/attach. We use the canonical claude:claude tab.
@@ -251,14 +280,21 @@ def _trigger_notification_via_ws(port: int, repo_id: str, branch_id: str) -> Non
 # ─── Test: AC-4-1 permission_prompt ──────────────────────────────────────────
 
 def test_ac_4_1_permission_prompt(port: int, fake_claude: Path) -> None:
-    """[AC-S1f75ec-4-1] Fake claude outputs permission prompt → notification appears."""
+    """[AC-S1f75ec-4-1] Claude Code Notification hook (permission_prompt) → inbox.
+
+    Seeds via POST /api/notify, the path `palmux hook` uses; the old terminal
+    permission-regex detection was removed in favour of hooks.
+    """
     fx = _get_fixture_module(port)
     with fx.palmux2_test_fixture("s1f75ec-inbox-perm") as fixture:
         repo_id = fixture.repo_id
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
 
-        # Trigger the daemon via WS (daemon spawns fake_claude which emits prompt).
-        _trigger_notification_via_ws(port, repo_id, branch_id)
+        _seed_hook_notification(
+            port, repo_id, branch_id,
+            "claudetui.permission_prompt",
+            "Claude needs your permission to read /etc/passwd",
+        )
 
         state = _poll_notifications(port, repo_id, branch_id,
                                     "claudetui.permission_prompt", timeout_s=15.0)
@@ -283,13 +319,21 @@ def test_ac_4_1_permission_prompt(port: int, fake_claude: Path) -> None:
 # ─── Test: AC-4-2 task_complete (BEL) ────────────────────────────────────────
 
 def test_ac_4_2_task_complete_bel(port: int, fake_claude: Path) -> None:
-    """[AC-S1f75ec-4-2] Fake claude outputs BEL → task_complete notification."""
+    """[AC-S1f75ec-4-2] Claude Code Stop hook → task_complete notification → inbox.
+
+    Seeds via POST /api/notify (the `palmux hook` path); the old BEL-byte
+    detection was removed in favour of hooks.
+    """
     fx = _get_fixture_module(port)
     with fx.palmux2_test_fixture("s1f75ec-inbox-bel") as fixture:
         repo_id = fixture.repo_id
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
 
-        _trigger_notification_via_ws(port, repo_id, branch_id)
+        _seed_hook_notification(
+            port, repo_id, branch_id,
+            "claudetui.task_complete",
+            "Claude finished — your turn",
+        )
 
         state = _poll_notifications(port, repo_id, branch_id,
                                     "claudetui.task_complete", timeout_s=15.0)
@@ -318,19 +362,18 @@ def test_ac_4_3_click_opens_claude(port: int, fake_claude: Path) -> None:
         repo_id = fixture.repo_id
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
 
-        # Trigger daemon to emit a notification.
-        _trigger_notification_via_ws(port, repo_id, branch_id)
+        # Seed a claudetui notification via the hook ingest path.
+        _seed_hook_notification(
+            port, repo_id, branch_id,
+            "claudetui.permission_prompt",
+            "Claude needs your permission to read /etc/passwd",
+        )
 
         # Wait until the notification appears in the API.
         state = _poll_notifications(port, repo_id, branch_id,
                                     "claudetui.permission_prompt", timeout_s=15.0)
         if not state:
-            # Try task_complete as fallback.
-            state = _poll_notifications(port, repo_id, branch_id,
-                                        "claudetui.task_complete", timeout_s=5.0)
-        if not state:
-            print("SKIP: test_ac_4_3 (no claudetui notification appeared; daemon output may not match pattern)")
-            return
+            fail("[AC-S1f75ec-4-3] seeded claudetui notification did not appear in /api/notifications")
 
         base_url = f"http://localhost:{port}"
         # Navigate to the bash tab first, then open inbox and click.
@@ -517,18 +560,18 @@ def test_ac_4_5_data_testid_present(port: int, fake_claude: Path) -> None:
         repo_id = fixture.repo_id
         branch_id = fixture.primary_branch_id(timeout_s=10.0)
 
-        # Trigger notification.
-        _trigger_notification_via_ws(port, repo_id, branch_id)
+        # Seed a claudetui notification via the hook ingest path.
+        _seed_hook_notification(
+            port, repo_id, branch_id,
+            "claudetui.permission_prompt",
+            "Claude needs your permission to read /etc/passwd",
+        )
 
         # Wait for notification.
         state = _poll_notifications(port, repo_id, branch_id,
                                     "claudetui.permission_prompt", timeout_s=15.0)
         if not state:
-            state = _poll_notifications(port, repo_id, branch_id,
-                                        "claudetui.task_complete", timeout_s=5.0)
-        if not state:
-            print("SKIP: test_ac_4_5 (no claudetui notification appeared)")
-            return
+            fail("[AC-S1f75ec-4-5] seeded claudetui notification did not appear in /api/notifications")
 
         base_url = f"http://localhost:{port}"
         url = (

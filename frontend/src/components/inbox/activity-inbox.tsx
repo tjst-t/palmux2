@@ -226,12 +226,17 @@ function InboxRowView({
   )
 
   // Detect claude-tui events: the latest notification (pending or last) has a
-  // claudetui.* type.  These come from the server-side emulator BEL / grid
-  // detection and are rendered with an "Open Claude" button.
+  // claudetui.* type.  These come from the Claude Code hooks injected per
+  // claude-tui subprocess and are rendered with an "Open Claude" button.
   const latestItem = live?.notifications?.slice().reverse().find((n) => !n.resolved)
   const isClaudeTuiEvent =
     (latestItem?.type ?? row.lastType ?? '').startsWith('claudetui.')
-  const claudeTuiUrl = urlForClaude(row.repoId, row.branchId)
+  // Route to the exact Claude tab that fired the hook (the notification carries
+  // its tabId) so a branch with two Claude tabs opens the right one. Fall back
+  // to the default 'claude' tab for older notifications without a tabId.
+  const claudeTuiUrl = latestItem?.tabId
+    ? urlForTab(row.repoId, row.branchId, latestItem.tabId)
+    : urlForClaude(row.repoId, row.branchId)
 
   const navigate = useNavigate()
   const location = useLocation()

@@ -89,6 +89,15 @@ func New(resolver SessionResolver, publisher Publisher) *Hub {
 const maxPerBranch = 50
 
 // IngestRequest is the payload accepted by POST /api/notify.
+//
+// External callers (Claude Code hooks via the `palmux hook` subcommand, manual
+// curl, etc.) may either identify the target by tmux session name OR pass an
+// explicit (RepoID, BranchID) pair. RequestID/TabID/TabName mirror the
+// in-process [InternalRequest] fields so hook-driven notifications dedupe and
+// route to a specific tab exactly like the claudeagent path. When Resolve is
+// true the request CLEARS the notification carrying RequestID instead of adding
+// one — used by the Claude Code UserPromptSubmit hook to dismiss a "your turn"
+// prompt once the user replies.
 type IngestRequest struct {
 	TmuxSession string `json:"tmuxSession"`
 	RepoID      string `json:"repoId,omitempty"`
@@ -96,10 +105,20 @@ type IngestRequest struct {
 	Type        string `json:"type"`
 	Message     string `json:"message,omitempty"`
 	Title       string `json:"title,omitempty"`
+	RequestID   string `json:"requestId,omitempty"`
+	TabID       string `json:"tabId,omitempty"`
+	TabName     string `json:"tabName,omitempty"`
+	Resolve     bool   `json:"resolve,omitempty"`
 }
 
-// Ingest records a notification. Returns the resolved repoID/branchID or an
-// error. If both TmuxSession and (RepoID,BranchID) are missing, fails.
+// Ingest records (or, when req.Resolve is set, clears) a notification. Returns
+// the resolved repoID/branchID or an error. If both TmuxSession and
+// (RepoID,BranchID) are missing, fails.
+//
+// The add path delegates to [Hub.IngestInternal] so external hook notifications
+// share the same dedup-by-RequestID semantics as the in-process publishers: a
+// stable RequestID refreshes the existing inbox entry in place rather than
+// piling up.
 func (h *Hub) Ingest(req IngestRequest) (string, string, error) {
 	repoID, branchID := strings.TrimSpace(req.RepoID), strings.TrimSpace(req.BranchID)
 	if repoID == "" || branchID == "" {
@@ -115,38 +134,21 @@ func (h *Hub) Ingest(req IngestRequest) (string, string, error) {
 			return "", "", errors.New("notify: unknown tmux session: " + req.TmuxSession)
 		}
 	}
-	t := strings.TrimSpace(req.Type)
-	if t == "" {
-		t = "info"
+
+	if req.Resolve {
+		// Clear the notification carrying RequestID (no-op if absent).
+		h.ClearByRequestID(repoID, branchID, req.RequestID)
+		return repoID, branchID, nil
 	}
-	n := Notification{
-		Type:      t,
-		Message:   req.Message,
+
+	h.IngestInternal(repoID, branchID, InternalRequest{
+		RequestID: req.RequestID,
+		Type:      req.Type,
 		Title:     req.Title,
-		CreatedAt: time.Now().UTC(),
-	}
-
-	key := repoID + "/" + branchID
-	h.mu.Lock()
-	state, ok := h.byBranch[key]
-	if !ok {
-		state = &BranchState{}
-		h.byBranch[key] = state
-	}
-	state.Notifications = append(state.Notifications, n)
-	if len(state.Notifications) > maxPerBranch {
-		state.Notifications = state.Notifications[len(state.Notifications)-maxPerBranch:]
-	}
-	state.UnreadCount++
-	state.LastMessage = n.Message
-	state.LastType = n.Type
-	state.LastAt = n.CreatedAt
-	snapshot := *state
-	h.mu.Unlock()
-
-	if h.publisher != nil {
-		h.publisher.Publish("notification", repoID, branchID, snapshot)
-	}
+		Message:   req.Message,
+		TabID:     req.TabID,
+		TabName:   req.TabName,
+	})
 	return repoID, branchID, nil
 }
 
