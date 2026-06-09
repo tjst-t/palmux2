@@ -8392,7 +8392,7 @@
       "stories": {
         "S8478ca-1": {
           "id": "S8478ca-1",
-          "status": "pending",
+          "status": "done",
           "title": "Runtime interface + host 実装 (土台・無回帰)",
           "user_story": "Workspace を開発する自分として、runtime.Runtime interface と現状挙動を保つ host 実装がほしい。なぜなら、tmux 直叩きを段階的にランタイム経由へ付け替える土台が要るから。",
           "acceptance_criteria": [
@@ -8400,36 +8400,36 @@
               "id": "AC-S8478ca-1-1",
               "description": "runtime.Runtime interface が定義され、Kind/Config/Start/Stop/Status/NewTmuxSession/AttachTmuxSession/Exec/ListListeningPorts/ExposePort/UnexposePort を持つ。ExposePort は PortSpec{Internal,Proto(tcp|udp),Name,Public,HostPort} を受け取り、proto=udp と public フラグを表現できる (HTTP/Caddy 専用に縮めない)",
               "test": "internal/runtime/runtime_test.go [AC-S8478ca-1-1]",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S8478ca-1-2",
               "description": "host ランタイム実装が Start/Stop を no-op に近い形 (即 ready) で提供し、NewTmuxSession/AttachTmuxSession/Exec が従来の tmux.Client 経路と同一の結果を返す",
               "test": "internal/runtime/host/host_test.go [AC-S8478ca-1-2]",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S8478ca-1-3",
               "description": "既存の Claude タブ・Bash タブの起動/attach/resize が host runtime 経由に付け替えても完全に同一挙動で、回帰がない (dev VM 実機 smoke、本番モード)",
               "test": "tests/acceptance/s8478ca_host_runtime.py [AC-S8478ca-1-3]",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S8478ca-1-1": {
               "id": "S8478ca-1-1",
               "title": "internal/runtime に Runtime interface + 共通型 (Kind/Config/Status/PortSpec/PortMapping/ListeningPort/ExecOpts) を定義",
-              "status": "pending"
+              "status": "done"
             },
             "S8478ca-1-2": {
               "id": "S8478ca-1-2",
               "title": "internal/runtime/host に host 実装 (tmux.Client を内包) + unit test",
-              "status": "pending"
+              "status": "done"
             },
             "S8478ca-1-3": {
               "id": "S8478ca-1-3",
               "title": "store の tmux 直叩き箇所を Runtime 経由に付け替え (host runtime をデフォルト注入)。回帰 smoke",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
@@ -8489,7 +8489,7 @@
         },
         "S8478ca-3": {
           "id": "S8478ca-3",
-          "status": "pending",
+          "status": "done",
           "title": "ランタイム解決 + 設定スキーマ (priority chain・後方互換)",
           "user_story": "自前ホスティングの個人として、Workspace ごとに runtime を選び設定として保存したい。なぜなら、あるブランチは host・別は container と使い分けたいから。",
           "acceptance_criteria": [
@@ -8497,31 +8497,31 @@
               "id": "AC-S8478ca-3-1",
               "description": "repos.json (per-repo 既定 + per-Workspace 上書き) と settings.json (global defaultRuntime) に runtime スキーマが追加され、PATCH で永続化・バリデーション (不正 kind は弾く) される",
               "test": "internal/config/runtime_test.go [AC-S8478ca-3-1]",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S8478ca-3-2",
               "description": "解決順 per-Workspace → per-repo → global → host fallback が正しく適用される。Incus 未インストール時は incus-container 指定でも host にフォールバックする",
               "test": "internal/config/runtime_test.go [AC-S8478ca-3-2]",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S8478ca-3-3",
               "description": "runtime 無しの既存 repos.json エントリは host とみなされ挙動不変 (後方互換、migration UI なし)",
               "test": "internal/config/runtime_test.go [AC-S8478ca-3-3]",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S8478ca-3-1": {
               "id": "S8478ca-3-1",
               "title": "config に runtime スキーマ (repos.json per-repo/per-WS + settings.json global) + PATCH/バリデーション",
-              "status": "pending"
+              "status": "done"
             },
             "S8478ca-3-2": {
               "id": "S8478ca-3-2",
               "title": "ResolveWorkspaceRuntime (priority chain + Incus 在否フォールバック) + unit test",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
