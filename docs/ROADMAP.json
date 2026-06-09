@@ -8576,7 +8576,7 @@
         },
         "S8478ca-5": {
           "id": "S8478ca-5",
-          "status": "pending",
+          "status": "done",
           "title": "ランタイム選択 UI + state badge (GUI)",
           "user_story": "PC・スマホから同じ環境を使う自分として、Workspace の runtime を選び状態を見たい。なぜなら、container が起動中か ready かを把握したいから。",
           "acceptance_criteria": [
@@ -8584,31 +8584,31 @@
               "id": "AC-S8478ca-5-1",
               "description": "Repo Open / Workspace 設定で runtime (host / incus-container) を選択でき、Incus 未インストール時は incus-container がグレーアウト + インストール案内ツールチップになる",
               "test": "tests/e2e/s8478ca_runtime_ui.py [AC-S8478ca-5-1]",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S8478ca-5-2",
               "description": "Header に runtime chip、Drawer の Workspace エントリに state badge (ready/starting/stopped/error) が表示され、Runtime.Status() の変化に追従する",
               "test": "tests/e2e/s8478ca_runtime_ui.py [AC-S8478ca-5-2]",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S8478ca-5-3",
               "description": "runtime.kind=host と S0c6a1b の Host ターミナル scope (repoId=host--0000) が UI ラベル上で区別され、混同しない",
               "test": "tests/e2e/s8478ca_runtime_ui.py [AC-S8478ca-5-3]",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S8478ca-5-1": {
               "id": "S8478ca-5-1",
               "title": "runtime selector UI (Repo Open modal + Workspace 設定) + Incus 未導入グレーアウト",
-              "status": "pending"
+              "status": "done"
             },
             "S8478ca-5-2": {
               "id": "S8478ca-5-2",
               "title": "Header runtime chip + Drawer state badge (WS event 駆動)",
-              "status": "pending"
+              "status": "done"
             }
           }
         }
