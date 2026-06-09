@@ -194,6 +194,14 @@
       "decision": "ScanPortsOnce は addr == \"\" のとき containerIP() を遅延呼び出しして Status.Address を更新する。Incus コンテナ起動直後は DHCP 割り当てが完了しておらず addr が空のまま Start() が戻るケースがある。スキャン時点で addr が解決できれば以降のスキャンサイクルでも有効な IP を使える。",
       "rationale": "コンテナを start して即 Status() すると Address=\"\" の場合があり、ScanPortsOnce がアドレスなしでスキップしてポートが検出されない。Start() 内でポーリング待機を増やすより、スキャン時の遅延解決の方が副作用が少なく実態に合っている (DHCP 時間は可変)。",
       "reference": "internal/runtime/incus/incus.go ScanPortsOnce 冒頭の addr=='' 分岐; D005 (DHCP 考慮の先行判断)"
+    },
+    {
+      "id": "D-review-5",
+      "phase": "review",
+      "category": "implementation",
+      "decision": "AC-4-3 の localhost 救済は bind=instance proxy device ではなく in-container Python relay を採用 (エージェント判断を実機で確認・承認)。design §5.3 を訂正。",
+      "rationale": "VM 実機で `incus config device add … proxy … bind=instance` が unprivileged Incus 6.0 で起動失敗 (Failed to receive fd from listener process: abstract unix socket)。forkproxy の fd 受け渡しが userns 環境で不可。relay はコンテナ自身の netns 内で動き同等の到達性を得つつホストポートを消費しない。relay は双方向 TCP forwarder (SO_REUSEADDR, 接続毎スレッドペア, PID 追跡)。python3 は palmux-ws イメージに同梱。",
+      "reference": "独立 E2E s8478ca_ports.py 5/5 pass。bind=instance 失敗を私が直接再現確認。"
     }
   ]
 }

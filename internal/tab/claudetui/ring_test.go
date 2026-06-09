@@ -179,8 +179,8 @@ func BenchmarkRingFanout(b *testing.B) {
 	const chunkSize = 4096
 
 	cases := []struct {
-		name       string
-		rawSubs    int
+		name         string
+		rawSubs      int
 		withEmulator bool
 	}{
 		{"no_subs_baseline", 0, false},

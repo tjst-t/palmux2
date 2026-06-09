@@ -32,24 +32,24 @@ func ansiFixture() []byte {
 	b64Hello := base64.StdEncoding.EncodeToString([]byte("hello"))
 
 	seq := []string{
-		"\x1b[?1049h",          // Enter alt screen
-		"\x1b[2J",              // Clear screen
-		"\x1b[H",               // Cursor home → (1,1)
-		"\x1b[3;2H",            // Cursor → row 3, col 2
-		"\x1b[31;1m",           // SGR: red foreground + bold
-		"HELLO",                // Cells at (col2-6, row3)
-		"\x1b[0m",              // SGR reset
-		"\x1b[5;1H",            // Row 5, col 1
-		"\x1b[38;5;196m",       // SGR 256-colour (index 196)
-		"COLOR256",             // Text at row 5
-		"\x1b[0m",              // SGR reset
-		"\x1b[7;1H",            // Row 7, col 1
+		"\x1b[?1049h",    // Enter alt screen
+		"\x1b[2J",        // Clear screen
+		"\x1b[H",         // Cursor home → (1,1)
+		"\x1b[3;2H",      // Cursor → row 3, col 2
+		"\x1b[31;1m",     // SGR: red foreground + bold
+		"HELLO",          // Cells at (col2-6, row3)
+		"\x1b[0m",        // SGR reset
+		"\x1b[5;1H",      // Row 5, col 1
+		"\x1b[38;5;196m", // SGR 256-colour (index 196)
+		"COLOR256",       // Text at row 5
+		"\x1b[0m",        // SGR reset
+		"\x1b[7;1H",      // Row 7, col 1
 		"────────────────────", // 20× U+2500 box-drawing
-		"\x1b[9;1H",            // Row 9, col 1
-		"\x1b[32m",             // Green foreground
-		"> ",                   // Prompt
-		"\x1b[0m",              // Reset
-		"input text here",      // Normal text
+		"\x1b[9;1H",       // Row 9, col 1
+		"\x1b[32m",        // Green foreground
+		"> ",              // Prompt
+		"\x1b[0m",         // Reset
+		"input text here", // Normal text
 		// OSC 52 clipboard write: ESC ] 52 ; c ; <b64> BEL
 		"\x1b]52;c;" + b64Hello + "\x07",
 		"\x1b[?2004h", // Bracketed paste ON
@@ -57,7 +57,7 @@ func ansiFixture() []byte {
 		"\x1b[10;1H",  // Row 10, col 1
 		"\x1b[33m",    // Yellow
 		"END",
-		"\x1b[0m",  // Reset
+		"\x1b[0m",   // Reset
 		"\x1b[9;3H", // Final cursor: row 9, col 3 (0-based: x=2, y=8)
 	}
 

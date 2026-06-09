@@ -343,4 +343,3 @@ func TestRoleEventSchema(t *testing.T) {
 	t.Logf("role event schema OK: %s", fmt.Sprintf(`{"type":%q,"role":%q,"since":%d}`,
 		ev.Type, ev.Role, ev.Since))
 }
-

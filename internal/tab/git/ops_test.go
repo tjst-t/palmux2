@@ -142,4 +142,3 @@ func TestBranchCRUD(t *testing.T) {
 		t.Fatalf("DeleteBranch: %v", err)
 	}
 }
-

@@ -386,8 +386,9 @@ func (h *handler) dependencies(w http.ResponseWriter, r *http.Request) {
 // mermaidEmitterVersion is folded into the dependencies endpoint ETag
 // so existing client HTTP caches are invalidated whenever buildMermaid's
 // emitted format changes. Bump on every breaking emit change.
-//   v1 — initial unquoted `[label]` form
-//   v2 — quoted `["label"]` form, rune-aware truncation, #quot; escape
+//
+//	v1 — initial unquoted `[label]` form
+//	v2 — quoted `["label"]` form, rune-aware truncation, #quot; escape
 const mermaidEmitterVersion = "v2"
 
 // buildMermaid produces a Mermaid `graph LR` flowchart connecting each

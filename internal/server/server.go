@@ -93,7 +93,7 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 
 	mux.HandleFunc("GET /api/health", h.health)
 
-	mux.HandleFunc("GET /api/runtimes", h.getRuntimes)          // S8478ca-5: capability probe
+	mux.HandleFunc("GET /api/runtimes", h.getRuntimes) // S8478ca-5: capability probe
 	mux.HandleFunc("GET /api/repos", h.listRepos)
 	mux.HandleFunc("GET /api/host", h.host) // S0c6a1b: reserved host scope descriptor
 	mux.HandleFunc("GET /api/repos/available", h.availableRepos)

@@ -76,9 +76,9 @@ type streamMsg struct {
 	// `system/compact_boundary` is the marker between pre-compaction and
 	// post-compaction history. Carries metadata about the compaction:
 	//   compact_metadata = { trigger: "manual"|"auto", pre_tokens, post_tokens, duration_ms }
-	Status         string          `json:"status,omitempty"`
-	CompactResult  string          `json:"compact_result,omitempty"`
-	CompactMeta    json.RawMessage `json:"compact_metadata,omitempty"`
+	Status        string          `json:"status,omitempty"`
+	CompactResult string          `json:"compact_result,omitempty"`
+	CompactMeta   json.RawMessage `json:"compact_metadata,omitempty"`
 }
 
 // compactMetadata is the body of system/compact_boundary's compact_metadata.

@@ -34,11 +34,11 @@ type RuntimeView struct {
 //
 // Category (S015) classifies the branch for the Drawer:
 //   - "user"      — recorded in repos.json#userOpenedBranches (the user
-//                   opened it through Palmux or promoted it explicitly).
+//     opened it through Palmux or promoted it explicitly).
 //   - "subagent"  — worktree path matches `autoWorktreePathPatterns`
-//                   (claude-skills sub-agent / autopilot output).
+//     (claude-skills sub-agent / autopilot output).
 //   - "unmanaged" — exists on disk (e.g. via `git worktree add` directly)
-//                   but neither user-opened nor pattern-matched.
+//     but neither user-opened nor pattern-matched.
 //
 // The Drawer reads this to render three sections; the FE re-labels "user"
 // as "my".

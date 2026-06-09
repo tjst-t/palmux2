@@ -60,11 +60,11 @@ const (
 
 // SessionRewoundPayload (S019) is broadcast after a successful POST
 // /sessions/rewind. Clients use it to:
-//   1. Append the archived version (Content + SubsequentTurnIDs) onto
-//      the matching turn's `versions[]` slice.
-//   2. Replace the active version's text with NewContent.
-//   3. Filter out the archived turns from the visible conversation.
-//   4. Show the `< N/M >` arrows on the rewritten turn.
+//  1. Append the archived version (Content + SubsequentTurnIDs) onto
+//     the matching turn's `versions[]` slice.
+//  2. Replace the active version's text with NewContent.
+//  3. Filter out the archived turns from the visible conversation.
+//  4. Show the `< N/M >` arrows on the rewritten turn.
 type SessionRewoundPayload struct {
 	TurnID               string      `json:"turnId"`
 	ArchivedVersionIndex int         `json:"archivedVersionIndex"`

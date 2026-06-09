@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/tjst-t/palmux2/internal/domain"
+	"github.com/tjst-t/palmux2/internal/runtime"
 	"github.com/tjst-t/palmux2/internal/worktree"
 )
 
@@ -143,4 +144,83 @@ func (s *Store) runSyncWorktree(ctx context.Context) {
 func (s *Store) Run(ctx context.Context) {
 	go s.runSyncTmux(ctx)
 	go s.runSyncWorktree(ctx)
+	go s.runPortScan(ctx)
+}
+
+// runPortScan is the background loop that drives port detection for every
+// incus-container Workspace.  It polls the RuntimeRegistry every
+// portScanLoopInterval for currently-ready incus containers and, for each one,
+// calls ScanPortsOnce.  The result is broadcast as a branch.portsDetected WS
+// event so connected browsers can surface per-workspace service URLs in real
+// time without polling.
+//
+// [AC-S8478ca-4-1]
+const portScanLoopInterval = 10 * time.Second
+
+func (s *Store) runPortScan(ctx context.Context) {
+	ticker := time.NewTicker(portScanLoopInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.scanPorts(ctx)
+		}
+	}
+}
+
+// portScanner is the subset of the incus Runtime we need — injectable for tests.
+type portScanner interface {
+	ScanPortsOnce(ctx context.Context) ([]runtime.ListeningPort, error)
+}
+
+func (s *Store) scanPorts(ctx context.Context) {
+	if s.deps.RuntimeRegistry == nil {
+		return
+	}
+
+	// Snapshot all open (repoID, branchID) pairs under the read lock.
+	type wsKey struct{ repoID, branchID string }
+	var workspaces []wsKey
+	s.mu.RLock()
+	for _, repo := range s.repos {
+		if IsHostRepoID(repo.ID) {
+			continue
+		}
+		for _, b := range repo.OpenBranches {
+			workspaces = append(workspaces, wsKey{repo.ID, b.ID})
+		}
+	}
+	s.mu.RUnlock()
+
+	for _, ws := range workspaces {
+		rt := s.deps.RuntimeRegistry.Get(ws.repoID, ws.branchID)
+		if rt == nil || rt.Kind() != runtime.KindIncusContainer {
+			continue
+		}
+		if rt.Status().State != runtime.StateReady {
+			continue
+		}
+		scanner, ok := rt.(portScanner)
+		if !ok {
+			continue
+		}
+		ports, err := scanner.ScanPortsOnce(ctx)
+		if err != nil {
+			s.logger.Warn("store.scanPorts: ScanPortsOnce failed",
+				"repoID", ws.repoID, "branchID", ws.branchID, "err", err)
+			continue
+		}
+		// Broadcast WS event — frontend can use this to show service URLs.
+		s.hub.Publish(Event{
+			Type:     EventBranchPortsDetected,
+			RepoID:   ws.repoID,
+			BranchID: ws.branchID,
+			Payload: map[string]any{
+				"ports": ports,
+				"inst":  rt.Status().Address, // containerIP as hint
+			},
+		})
+	}
 }

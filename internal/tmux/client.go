@@ -26,12 +26,12 @@ type Window struct {
 // NewSessionOpts describes a session to create. Command may be empty for a
 // plain shell.
 type NewSessionOpts struct {
-	Name        string // session name (must include the _palmux_ prefix for managed sessions)
-	WindowName  string // initial window name
-	Cwd         string // working directory
-	Command     string // optional command to run in the initial window
-	Env         []string
-	WindowWidth int // optional initial pty size; 0 = tmux default
+	Name         string // session name (must include the _palmux_ prefix for managed sessions)
+	WindowName   string // initial window name
+	Cwd          string // working directory
+	Command      string // optional command to run in the initial window
+	Env          []string
+	WindowWidth  int // optional initial pty size; 0 = tmux default
 	WindowHeight int
 }
 

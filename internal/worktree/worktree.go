@@ -133,7 +133,7 @@ type WorktreeStatus struct {
 	Branch          string   `json:"branch"`
 	AheadCommits    []string `json:"aheadCommits"` // short log lines from git log @{u}..HEAD; never nil → []
 	UpstreamMissing bool     `json:"upstreamMissing"`
-	DirtyFiles      []string `json:"dirtyFiles"`    // M/D/etc entries from git status --porcelain; never nil → []
+	DirtyFiles      []string `json:"dirtyFiles"`     // M/D/etc entries from git status --porcelain; never nil → []
 	UntrackedFiles  []string `json:"untrackedFiles"` // ?? entries; never nil → []
 	IsPrimary       bool     `json:"isPrimary"`
 }

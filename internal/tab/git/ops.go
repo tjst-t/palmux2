@@ -139,11 +139,11 @@ func Push(ctx context.Context, repoDir string, opts PushOptions) (string, error)
 
 // PullOptions controls `git pull`.
 type PullOptions struct {
-	Remote  string `json:"remote,omitempty"`
-	Branch  string `json:"branch,omitempty"`
-	Rebase  bool   `json:"rebase,omitempty"`
-	FFOnly  bool   `json:"ffOnly,omitempty"`
-	NoCommit bool  `json:"noCommit,omitempty"`
+	Remote   string `json:"remote,omitempty"`
+	Branch   string `json:"branch,omitempty"`
+	Rebase   bool   `json:"rebase,omitempty"`
+	FFOnly   bool   `json:"ffOnly,omitempty"`
+	NoCommit bool   `json:"noCommit,omitempty"`
 }
 
 // Pull runs `git pull`.
@@ -470,4 +470,3 @@ func buildLineRangePatch(f DiffFile, ranges []LineRange) string {
 	}
 	return sb.String()
 }
-

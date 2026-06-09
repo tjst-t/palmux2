@@ -191,4 +191,3 @@ func (p *Provider) resolveWorktree(repoID, branchID string) string {
 	}
 	return p.resolver.BranchWorktreePath(repoID, branchID)
 }
-

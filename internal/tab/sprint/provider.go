@@ -276,9 +276,9 @@ func roadmapExists(root string) bool {
 //
 //   - docs/ROADMAP.json
 //   - docs/                       (parent dir create — fsnotify cannot
-//                                   watch a path that doesn't exist yet)
+//     watch a path that doesn't exist yet)
 //   - docs/sprint-logs/**/*.json (decisions / refine / acceptance / e2e
-//                                   / failures / gui-spec-*)
+//     / failures / gui-spec-*)
 //   - .claude/autopilot-*.lock    (active autopilot run)
 //
 // Anything else returns false. *.md / *.md.bak / *.txt are deliberately

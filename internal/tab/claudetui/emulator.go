@@ -344,4 +344,3 @@ func colorToRGB(c uvColor) uint32 {
 type uvColor interface {
 	RGBA() (r, g, b, a uint32)
 }
-

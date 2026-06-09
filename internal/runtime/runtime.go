@@ -76,10 +76,11 @@ type ExecResult struct {
 
 // ListeningPort is a port observed to be listening inside the runtime.
 type ListeningPort struct {
-	Port    int
-	Proto   string // "tcp" or "udp"
-	PID     int
-	Process string
+	Port     int
+	Proto    string // "tcp" or "udp"
+	BindAddr string // e.g. "0.0.0.0", "127.0.0.1", "*", "[::1]"
+	PID      int
+	Process  string
 }
 
 // PortSpec describes a port to expose from the runtime to the outside world.

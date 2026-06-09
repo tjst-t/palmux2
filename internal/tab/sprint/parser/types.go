@@ -214,12 +214,12 @@ type FailureAttempt struct {
 
 // GUISpec mirrors gui-spec-{StoryID}.json.
 type GUISpec struct {
-	SprintID           string                  `json:"sprintId"`
-	Story              string                  `json:"story,omitempty"`
-	StateDiagram       string                  `json:"stateDiagram,omitempty"`
-	Scenarios          map[string]any          `json:"scenarios,omitempty"`
-	EndpointContracts  []GUIEndpointContract   `json:"endpointContracts,omitempty"`
-	TestFiles          map[string]string       `json:"testFiles,omitempty"`
+	SprintID          string                `json:"sprintId"`
+	Story             string                `json:"story,omitempty"`
+	StateDiagram      string                `json:"stateDiagram,omitempty"`
+	Scenarios         map[string]any        `json:"scenarios,omitempty"`
+	EndpointContracts []GUIEndpointContract `json:"endpointContracts,omitempty"`
+	TestFiles         map[string]string     `json:"testFiles,omitempty"`
 }
 
 // GUIEndpointContract is one endpoint_contracts[] entry.
@@ -245,13 +245,13 @@ type DecisionsLog struct {
 
 // roadmapDoc mirrors docs/ROADMAP.json.
 type roadmapDoc struct {
-	Project        string                       `json:"project"`
-	Description    string                       `json:"description"`
-	Progress       roadmapProgressDoc           `json:"progress"`
-	ExecutionOrder []string                     `json:"execution_order"`
-	Sprints        map[string]roadmapSprintDoc  `json:"sprints"`
-	Dependencies   map[string]roadmapDepDoc     `json:"dependencies"`
-	Backlog        []roadmapBacklogDoc          `json:"backlog"`
+	Project        string                      `json:"project"`
+	Description    string                      `json:"description"`
+	Progress       roadmapProgressDoc          `json:"progress"`
+	ExecutionOrder []string                    `json:"execution_order"`
+	Sprints        map[string]roadmapSprintDoc `json:"sprints"`
+	Dependencies   map[string]roadmapDepDoc    `json:"dependencies"`
+	Backlog        []roadmapBacklogDoc         `json:"backlog"`
 }
 
 type roadmapProgressDoc struct {
@@ -273,19 +273,19 @@ type roadmapProgressDoc struct {
 }
 
 type roadmapSprintDoc struct {
-	Title       string                      `json:"title"`
-	Status      string                      `json:"status"`
-	Description string                      `json:"description"`
-	Milestone   bool                        `json:"milestone"`
-	Stories     map[string]roadmapStoryDoc  `json:"stories"`
+	Title       string                     `json:"title"`
+	Status      string                     `json:"status"`
+	Description string                     `json:"description"`
+	Milestone   bool                       `json:"milestone"`
+	Stories     map[string]roadmapStoryDoc `json:"stories"`
 }
 
 type roadmapStoryDoc struct {
-	Title              string                  `json:"title"`
-	Status             string                  `json:"status"`
-	UserStory          string                  `json:"user_story"`
-	BlockedReason      string                  `json:"blocked_reason"`
-	AcceptanceCriteria []roadmapACDoc          `json:"acceptance_criteria"`
+	Title              string                    `json:"title"`
+	Status             string                    `json:"status"`
+	UserStory          string                    `json:"user_story"`
+	BlockedReason      string                    `json:"blocked_reason"`
+	AcceptanceCriteria []roadmapACDoc            `json:"acceptance_criteria"`
 	Tasks              map[string]roadmapTaskDoc `json:"tasks"`
 }
 
@@ -330,7 +330,7 @@ type decisionEntryDoc struct {
 
 // acceptanceMatrixDoc mirrors docs/sprint-logs/{S}/acceptance-matrix.json.
 type acceptanceMatrixDoc struct {
-	Sprint string                  `json:"sprint"`
+	Sprint string                    `json:"sprint"`
 	Matrix map[string][]matrixRowDoc `json:"matrix"`
 }
 
@@ -345,11 +345,11 @@ type matrixRowDoc struct {
 
 // e2eResultsDoc mirrors docs/sprint-logs/{S}/e2e-results.json.
 type e2eResultsDoc struct {
-	Sprint        string         `json:"sprint"`
-	RunAt         string         `json:"run_at"`
-	ServerCommand string         `json:"server_command"`
-	Summary       e2eSummaryDoc  `json:"summary"`
-	Tests         []e2eTestDoc   `json:"tests"`
+	Sprint        string        `json:"sprint"`
+	RunAt         string        `json:"run_at"`
+	ServerCommand string        `json:"server_command"`
+	Summary       e2eSummaryDoc `json:"summary"`
+	Tests         []e2eTestDoc  `json:"tests"`
 }
 
 type e2eSummaryDoc struct {
@@ -369,8 +369,8 @@ type e2eTestDoc struct {
 
 // refineDoc mirrors docs/sprint-logs/{S}/refine.json.
 type refineDoc struct {
-	Sprint      string             `json:"sprint"`
-	Refinements []refineEntryDoc   `json:"refinements"`
+	Sprint      string           `json:"sprint"`
+	Refinements []refineEntryDoc `json:"refinements"`
 }
 
 type refineEntryDoc struct {
@@ -384,8 +384,8 @@ type refineEntryDoc struct {
 
 // failuresDoc mirrors docs/sprint-logs/{S}/failures.json.
 type failuresDoc struct {
-	Sprint   string             `json:"sprint"`
-	Failures []failureEntryDoc  `json:"failures"`
+	Sprint   string            `json:"sprint"`
+	Failures []failureEntryDoc `json:"failures"`
 }
 
 type failureEntryDoc struct {
@@ -403,12 +403,12 @@ type failureAttemptDoc struct {
 
 // guiSpecDoc mirrors docs/sprint-logs/{S}/gui-spec-{Story}.json.
 type guiSpecDoc struct {
-	Sprint            string                  `json:"sprint"`
-	Story             string                  `json:"story"`
-	StateDiagram      string                  `json:"state_diagram"`
-	Scenarios         map[string]any          `json:"scenarios"`
+	Sprint            string                   `json:"sprint"`
+	Story             string                   `json:"story"`
+	StateDiagram      string                   `json:"state_diagram"`
+	Scenarios         map[string]any           `json:"scenarios"`
 	EndpointContracts []guiEndpointContractDoc `json:"endpoint_contracts"`
-	TestFiles         map[string]string       `json:"test_files"`
+	TestFiles         map[string]string        `json:"test_files"`
 }
 
 type guiEndpointContractDoc struct {

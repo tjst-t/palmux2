@@ -241,15 +241,30 @@ Makefile（`portman exec`）。`incus-container` 下では各コンテナが**�
 `containerIP:port` は閉じている。Vite/Next 等のデフォルトがこれ。救済（**案A を崩さず、ホスト
 ポート確保なし**）:
 
+**当初案は `bind=instance` proxy device だったが、S8478ca-4 の実機検証で不採用**:
+
 ```
-# コンテナ"内側"にリスナを置く proxy device（bind=instance）
+# ❌ unprivileged Incus 6.0 では起動失敗:
+#   "Failed to start device: Failed to receive fd from listener process:
+#    Failed to receive file descriptor via abstract unix socket"
 incus config device add <inst> p3000 proxy \
     listen=tcp:0.0.0.0:3000 connect=tcp:127.0.0.1:3000 bind=instance
 ```
 
+forkproxy の fd 受け渡しが unprivileged userns 環境で失敗する（userns/apparmor 制約）。代わりに
+**コンテナ内に軽量 TCP relay を起動**する（`ExposePort` 実装）:
+
+```
+# ✅ 採用: コンテナ内の netns で動く Python relay を incus exec で起動
+incus exec <inst> -- sh -c \
+  'nohup python3 -c "<relay>" <containerIP> 3000 >/dev/null 2>&1 & echo $!'
+# relay: <containerIP>:3000 で listen → 127.0.0.1:3000 へ双方向転送。PID を kill 用に追跡。
+```
+
 これで「コンテナの bridgeIP:3000 → 自分の 127.0.0.1:3000」が転送され、localhost-only サーバも
-到達可能になる。**ホスト側ポートは消費しない**。補助的に `HOST=0.0.0.0` 等の runtime hint 注入も
-併用してよいが、第三者製サーバを常に制御はできないため proxy device を堅い保険とする。
+到達可能になる。relay はコンテナ自身の netns 内で動くので **ホスト側ポートは消費しない**。python3 は
+`palmux-ws` イメージに含まれる。補助的に `HOST=0.0.0.0` 等の runtime hint 注入も併用してよい。
+（将来 Neko/WebRTC の UDP は §7 で別途 proxy device / mux を扱うが、TCP localhost 救済はこの relay 方式。）
 
 ### 5.4 portman の最終的な居場所
 

@@ -69,8 +69,8 @@ type SessionMeta struct {
 // first lazy spawn auto-creates it.
 type PersistedShape struct {
 	Sessions    map[string]SessionMeta `json:"sessions"`
-	Active      map[string]string      `json:"active"`           // tab-key → session_id
-	BranchTabs  map[string][]string    `json:"branchTabs"`       // "{repoId}/{branchId}" → ordered tabIds
+	Active      map[string]string      `json:"active"`     // tab-key → session_id
+	BranchTabs  map[string][]string    `json:"branchTabs"` // "{repoId}/{branchId}" → ordered tabIds
 	LastInit    *InitInfo              `json:"lastInit,omitempty"`
 	BranchPrefs map[string]BranchPrefs `json:"branchPrefs,omitempty"` // tab-key → prefs
 }

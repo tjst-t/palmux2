@@ -82,6 +82,12 @@ const (
 	// uses this to update the header chip and drawer badge in real time
 	// without a full /api/repos reload.
 	EventBranchRuntimeChanged EventType = "branch.runtimeChanged"
+
+	// S8478ca-4: emitted when the port-scan loop detects the current set of
+	// listening ports inside an incus-container workspace. Payload is
+	// incus.PortsDetectedEvent {inst, ports:[{port,proto}]}. The FE uses
+	// this to surface per-workspace service URLs without polling.
+	EventBranchPortsDetected EventType = "branch.portsDetected"
 )
 
 // Event is one broadcastable change.
