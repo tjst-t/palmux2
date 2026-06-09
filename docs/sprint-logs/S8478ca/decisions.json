@@ -170,6 +170,30 @@
       "decision": "reloadRepo が store に存在しない repoId を追加する場合、Branch.tabSet が欠落した partial オブジェクトで React がクラッシュするため、stub branch に tabSet: { tmuxSession: '', tabs: [] } をデフォルトとして補完するようにした。MainLayout の 'branch not found → navigate(\"/\")' ガードも、repo が store にまだ存在しない場合はリダイレクトしないよう修正した (repos.some(r => r.id === repoId) チェックを追加)。",
       "rationale": "mock テストは real server にない fake repo/branch ID を使う。FE が partial オブジェクトでクラッシュするとテストが timeout になり原因が分からない。defensive defaults でクラッシュを防ぎつつ、redirect ガードの条件を絞ることで fake repo への遷移後に正しくバッジを表示できる。",
       "reference": "frontend/src/stores/palmux-store.ts reloadRepo stub creation; frontend/src/components/main-layout.tsx redirect guard"
+    },
+    {
+      "id": "D-S4-001",
+      "phase": "implementation",
+      "category": "architecture",
+      "decision": "Incus proxy device の bind=instance オプション (コンテナ内でリッスン) は localhost-only サーバ到達に使えない。forkproxy プロセスは常に HOST ネットワーク名前空間で実行され、connect=tcp:127.0.0.1:PORT の接続先がホストの loopback を参照する。AC-3 (localhost-only → containerIP 到達) には代替手法として Python 3 リレーをコンテナ内で起動する方式を採用した。",
+      "rationale": "strace で forkproxy PID の net namespace を確認: /proc/<pid>/ns/net = net:[4026531840] (HOST) ≠ コンテナの net:[4026532415]。connect(127.0.0.1:PORT) が ECONNREFUSED — コンテナ内の bind:127.0.0.1 には届かない根本的な制限。bind=instance はリッスン側 (proxy がコンテナ内でバインドする) を意味するが、connect 側は変更されない。Incus upstream は 'forkproxy always runs in the instance's namespace for bind=instance' としているが network=none 等の条件で実際には HOST NS のままになるケースがある。Python リレーは incus exec 経由でコンテナ内プロセスとして起動するため、net ns が正しくコンテナのものになる。",
+      "reference": "tests/acceptance/s8478ca_ports.py docstring; internal/runtime/incus/incus.go localhostRelayScript"
+    },
+    {
+      "id": "D-S4-002",
+      "phase": "implementation",
+      "category": "implementation",
+      "decision": "Python リレースクリプトは base64 エンコードして `echo '<b64>' | base64 -d | nohup python3 - <IP> <PORT> >/dev/null 2>&1 & echo $!` のワンライナーでコンテナ内に配信する。スクリプト本体は localhostRelayScript 定数として incus.go に保持し、ExposePort 呼び出し時に encoding/base64 でエンコードして sh -c 引数に埋め込む。PID は stdout の先頭非空行から取得し activeMappings に relay:<pid> として記録。UnexposePort は relay: プレフィクスを検出して incus exec -- kill <pid> を発行する。",
+      "rationale": "スクリプト内に Python 文字列リテラル (') が含まれるため sh -c '...' に直接埋め込むと引用符エスケープが壊れる。base64 配信でシェルのクォーティング問題を完全に回避。incus exec はブロッキングなので & + echo $! でバックグラウンド化 + PID 取得を 1 コマンドで完結させる。nohup でコンテナ内 incus exec セッションが切れても Python プロセスが生存し続ける。",
+      "reference": "internal/runtime/incus/incus.go ExposePort (HostPort==0 分岐); UnexposePort (relay: ケース)"
+    },
+    {
+      "id": "D-S4-003",
+      "phase": "implementation",
+      "category": "implementation",
+      "decision": "ScanPortsOnce は addr == \"\" のとき containerIP() を遅延呼び出しして Status.Address を更新する。Incus コンテナ起動直後は DHCP 割り当てが完了しておらず addr が空のまま Start() が戻るケースがある。スキャン時点で addr が解決できれば以降のスキャンサイクルでも有効な IP を使える。",
+      "rationale": "コンテナを start して即 Status() すると Address=\"\" の場合があり、ScanPortsOnce がアドレスなしでスキップしてポートが検出されない。Start() 内でポーリング待機を増やすより、スキャン時の遅延解決の方が副作用が少なく実態に合っている (DHCP 時間は可変)。",
+      "reference": "internal/runtime/incus/incus.go ScanPortsOnce 冒頭の addr=='' 分岐; D005 (DHCP 考慮の先行判断)"
     }
   ]
 }
