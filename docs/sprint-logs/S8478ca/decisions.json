@@ -82,6 +82,14 @@
       "decision": "host.DefaultRegistry を internal/runtime/host に置いた。Runtime interface の consumer (store) は internal/runtime だけを import し host パッケージを直接依存しない — host.NewDefaultRegistry は cmd/palmux/main.go の wiring 層だけが使う。",
       "rationale": "依存方向: cmd → store → runtime (interface)、cmd → runtime/host (実装)。store が host を import すると循環リスクが生じる。DESIGN_PRINCIPLES: dependency inversion。",
       "reference": "CLAUDE.md (Go: internal/ 以下にパッケージ、外部依存はゼロ in domain)"
+    },
+    {
+      "id": "D011",
+      "phase": "implementation",
+      "category": "architecture",
+      "decision": "runtime.Config は *runtime.Config (pointer) として BranchSettings.Runtime と RepoEntry.DefaultRuntime に格納し omitempty で省略する。nil = 未設定、非 nil = 明示指定。Settings.DefaultRuntime も同様のポインタ型とし、PATCH で非 nil かつ kind='' を受け取った場合は明示クリアとする。",
+      "rationale": "nil と空 struct の区別が『未設定 (スキップ)』と『空指定 (ホストフォールバック)』の曖昧さを除去する。JSON omitempty と合わせて既存 repos.json/settings.json に余分フィールドを書かない (後方互換 §2.3)。ResolveWorkspaceRuntime は各ティアで Kind.IsValid() を確認し、無効時は次ティアへ透過する。",
+      "reference": "docs/workspace-runtime-design.md §2.2/§2.3; AC-S8478ca-3-1/-2/-3"
     }
   ]
 }

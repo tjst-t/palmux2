@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/tjst-t/palmux2/internal/runtime"
 )
 
 // UserCommandTarget specifies where a user-defined palette command is
@@ -144,6 +146,12 @@ type Settings struct {
 	// claude_mode entry) always default to "agent" regardless of this
 	// setting, to preserve backwards compatibility.
 	Claude *ClaudeGlobalSettings `json:"claude,omitempty"`
+
+	// DefaultRuntime (S8478ca-3) is the global runtime default applied when
+	// neither a per-Workspace nor a per-repo override is set. When Kind is
+	// empty or invalid the field is treated as "unset" (resolver falls
+	// through to host fallback). An explicit PATCH with kind="" clears it.
+	DefaultRuntime *runtime.Config `json:"defaultRuntime,omitempty"`
 }
 
 // ClaudeGlobalSettings (S1f75ec-2) is the sub-object under settings.json
@@ -375,6 +383,21 @@ func (s *SettingsStore) Patch(update Settings) (Settings, error) {
 		}
 		s.settings.Claude.DefaultMode = m
 	}
+	// S8478ca-3: defaultRuntime — a non-nil pointer triggers validation.
+	// An explicit {kind:""} clears the field (nil-vs-empty: nil = leave
+	// alone, non-nil = replace, empty kind = clear).
+	if update.DefaultRuntime != nil {
+		if update.DefaultRuntime.Kind != "" && !update.DefaultRuntime.Kind.IsValid() {
+			return Settings{}, fmt.Errorf("config: patch: invalid defaultRuntime.kind %q", update.DefaultRuntime.Kind)
+		}
+		if update.DefaultRuntime.Kind == "" {
+			// Explicit clear.
+			s.settings.DefaultRuntime = nil
+		} else {
+			cfg := *update.DefaultRuntime
+			s.settings.DefaultRuntime = &cfg
+		}
+	}
 	if err := s.save(); err != nil {
 		return Settings{}, err
 	}
@@ -443,6 +466,18 @@ func (s *SettingsStore) ClaudeDefaultMode() string {
 		}
 	}
 	return "tui"
+}
+
+// DefaultRuntime (S8478ca-3) returns the global default runtime, or the zero
+// value (runtime.Config{}) when unset. Callers should treat a zero-value
+// Config (Kind == "") as "unset" and fall through to the host fallback.
+func (s *SettingsStore) DefaultRuntime() runtime.Config {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.settings.DefaultRuntime != nil && s.settings.DefaultRuntime.Kind.IsValid() {
+		return *s.settings.DefaultRuntime
+	}
+	return runtime.Config{}
 }
 
 // AutoWorktreePathPatterns implements the SettingsView slice accessor

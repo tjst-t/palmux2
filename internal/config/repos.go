@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+
+	"github.com/tjst-t/palmux2/internal/runtime"
 )
 
 // ClaudeMode is the per-branch claude tab implementation selector.
@@ -39,6 +41,11 @@ type BranchSettings struct {
 	// InitTabClaudeMode, mutated by SetTabClaudeMode, cleared by
 	// DeleteTabClaudeMode when the tab is removed.
 	TabClaudeModes map[string]ClaudeMode `json:"tab_claude_modes,omitempty"`
+
+	// Runtime (S8478ca-3) is the per-Workspace runtime override. When Kind
+	// is empty or invalid the field is treated as "unset" and the resolver
+	// falls through to the per-repo default.
+	Runtime *runtime.Config `json:"runtime,omitempty"`
 }
 
 // RepoEntry is one row in repos.json.
@@ -80,6 +87,12 @@ type RepoEntry struct {
 	TabOverrides       map[string]BranchTabOverrides `json:"tabOverrides,omitempty"`
 	LastActiveBranch   string                        `json:"last_active_branch,omitempty"`
 	BranchSettingsMap  map[string]BranchSettings     `json:"branchSettings,omitempty"`
+
+	// DefaultRuntime (S8478ca-3) is the per-repo runtime default. Applied
+	// when a Workspace inside this repo has no per-Workspace override.
+	// When Kind is empty or invalid the field is treated as "unset" and the
+	// resolver falls through to the global default.
+	DefaultRuntime *runtime.Config `json:"defaultRuntime,omitempty"`
 }
 
 // BranchTabOverrides is the per-branch payload of TabOverrides.
@@ -596,6 +609,87 @@ func (s *RepoStore) InitTabClaudeMode(repoID, branchID, tabID string, defaultMod
 		return s.save()
 	}
 	return fmt.Errorf("config: InitTabClaudeMode: repo %q not found", repoID)
+}
+
+// SetRepoDefaultRuntime (S8478ca-3) persists a per-repo runtime default.
+// Pass nil cfg to clear the field. cfg.Kind must be valid when non-nil.
+func (s *RepoStore) SetRepoDefaultRuntime(repoID string, cfg *runtime.Config) error {
+	if cfg != nil && !cfg.Kind.IsValid() {
+		return fmt.Errorf("config: SetRepoDefaultRuntime: invalid runtime kind %q", cfg.Kind)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.entries {
+		if s.entries[i].ID != repoID {
+			continue
+		}
+		s.entries[i].DefaultRuntime = cfg
+		return s.save()
+	}
+	return fmt.Errorf("config: SetRepoDefaultRuntime: repo %q not found", repoID)
+}
+
+// SetWorkspaceRuntime (S8478ca-3) persists a per-Workspace runtime override.
+// Pass nil cfg to clear the override. cfg.Kind must be valid when non-nil.
+func (s *RepoStore) SetWorkspaceRuntime(repoID, branchID string, cfg *runtime.Config) error {
+	if cfg != nil && !cfg.Kind.IsValid() {
+		return fmt.Errorf("config: SetWorkspaceRuntime: invalid runtime kind %q", cfg.Kind)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.entries {
+		if s.entries[i].ID != repoID {
+			continue
+		}
+		if s.entries[i].BranchSettingsMap == nil {
+			s.entries[i].BranchSettingsMap = map[string]BranchSettings{}
+		}
+		bs := s.entries[i].BranchSettingsMap[branchID]
+		bs.Runtime = cfg
+		s.entries[i].BranchSettingsMap[branchID] = bs
+		return s.save()
+	}
+	return fmt.Errorf("config: SetWorkspaceRuntime: repo %q not found", repoID)
+}
+
+// ResolveWorkspaceRuntime (S8478ca-3) returns the effective runtime for a
+// Workspace by walking the priority chain:
+//
+//	per-Workspace override → per-repo default → globalDefault → host fallback
+//
+// A Config with an empty/invalid Kind is treated as "unset" (skip to next
+// tier). globalDefault should be the value returned by
+// SettingsStore.DefaultRuntime(); pass runtime.Config{} if the global setting
+// is absent.
+func (s *RepoStore) ResolveWorkspaceRuntime(repoID, branchID string, globalDefault runtime.Config) runtime.Config {
+	hostFallback := runtime.Config{Kind: runtime.KindHost}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, e := range s.entries {
+		if e.ID != repoID {
+			continue
+		}
+		// Tier 1: per-Workspace override.
+		if e.BranchSettingsMap != nil {
+			if bs, ok := e.BranchSettingsMap[branchID]; ok && bs.Runtime != nil && bs.Runtime.Kind.IsValid() {
+				return *bs.Runtime
+			}
+		}
+		// Tier 2: per-repo default.
+		if e.DefaultRuntime != nil && e.DefaultRuntime.Kind.IsValid() {
+			return *e.DefaultRuntime
+		}
+		// Tier 3: global default.
+		if globalDefault.Kind.IsValid() {
+			return globalDefault
+		}
+		// Tier 4: host fallback.
+		return hostFallback
+	}
+	// Repo not found — fall back to host.
+	return hostFallback
 }
 
 // DeleteTabClaudeMode (Sadf90e) removes the tab's settings entry. Called from
