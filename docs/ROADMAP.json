@@ -8435,7 +8435,7 @@
         },
         "S8478ca-2": {
           "id": "S8478ca-2",
-          "status": "pending",
+          "status": "done",
           "title": "incus-container ランタイム (launch/delete + bind-mount + idmap + tmux via incus exec)",
           "user_story": "複数 Claude を並行運用する個人開発者として、Workspace を Incus コンテナの中で動かしたい。なぜなら、npm/pip/apt やビルド成果物で host を汚さず、プロセスもポートも隔離したいから。",
           "acceptance_criteria": [
@@ -8443,47 +8443,47 @@
               "id": "AC-S8478ca-2-1",
               "description": "incus-container ランタイムが Start で incus launch、Stop/close で incus delete --force するライフサイクルを持ち、Status() が starting/ready/stopped/error を正しく反映する",
               "test": "tests/acceptance/s8478ca_incus_container.py [AC-S8478ca-2-1]",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S8478ca-2-2",
               "description": "~/ghq 全体・~/.claude・~/.claude.json が同一絶対パスで rw bind-mount され、raw.idmap both 1000 1000 で UID 一致する。コンテナ内 claude が再認証なしで起動し (OAuth トークン共有)、他リポジトリも参照でき、~/.claude のファイル owner が一致する",
               "test": "tests/acceptance/s8478ca_incus_container.py [AC-S8478ca-2-2]",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S8478ca-2-3",
               "description": "incus exec 経由で tmux セッション/claude が起動し、コンテナ内で claude --resume が成立する。WS attach でコンテナ内 PTY の I/O が透過する",
               "test": "tests/acceptance/s8478ca_incus_container.py [AC-S8478ca-2-3]",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S8478ca-2-4",
               "description": "同一 ~/.claude/projects/<path> への二重起動を .palmux-lock で防止する。close 後はコンテナ (内部 state 含む) が破棄され host にパッケージ/ビルド成果物が残らない",
               "test": "tests/acceptance/s8478ca_incus_container.py [AC-S8478ca-2-4]",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S8478ca-2-1": {
               "id": "S8478ca-2-1",
               "title": "images/workspace-default/Dockerfile (薄い版: tmux/git/gh/claude native binary/systemd PID1/ubuntu UID1000) を作成し make ターゲットでローカル build → incus image import。internal/runtime/incus に launch/delete + Status",
-              "status": "pending"
+              "status": "done"
             },
             "S8478ca-2-2": {
               "id": "S8478ca-2-2",
               "title": "bind-mount (~/ghq + ~/.claude + ~/.claude.json) + raw.idmap 設定 + 再認証なし claude 起動の UID/トークン検証",
-              "status": "pending"
+              "status": "done"
             },
             "S8478ca-2-3": {
               "id": "S8478ca-2-3",
               "title": "NewTmuxSession/AttachTmuxSession/Exec を incus exec 経由で実装。.palmux-lock 二重起動防止",
-              "status": "pending"
+              "status": "done"
             },
             "S8478ca-2-4": {
               "id": "S8478ca-2-4",
               "title": "test VM 実機 E2E (本番モード): launch→claude --resume→close→破棄確認",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
