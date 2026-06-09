@@ -19,6 +19,16 @@ type Repository struct {
 	LastActiveBranch string    `json:"lastActiveBranch,omitempty"`
 }
 
+// RuntimeView is the serialisable snapshot of a workspace's runtime state
+// included in branch JSON responses. It mirrors runtime.Status but is
+// JSON-tagged for the public API (S8478ca-5).
+type RuntimeView struct {
+	Kind    string `json:"kind"`              // "host" | "incus-container"
+	State   string `json:"state"`             // "ready" | "starting" | "stopped" | "error"
+	Address string `json:"address,omitempty"` // e.g. "localhost" or container IP
+	Error   string `json:"error,omitempty"`   // non-empty when state == "error"
+}
+
 // Branch represents an open branch — by definition a branch with a worktree
 // inside a Repository that has been Open'd.
 //
@@ -33,14 +43,15 @@ type Repository struct {
 // The Drawer reads this to render three sections; the FE re-labels "user"
 // as "my".
 type Branch struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`         // git branch name
-	WorktreePath string    `json:"worktreePath"` // absolute
-	RepoID       string    `json:"repoId"`
-	IsPrimary    bool      `json:"isPrimary"` // holds the .git/ directory
-	TabSet       TabSet    `json:"tabSet"`
-	LastActivity time.Time `json:"lastActivity"`
-	Category     string    `json:"category,omitempty"` // S015
+	ID           string       `json:"id"`
+	Name         string       `json:"name"`         // git branch name
+	WorktreePath string       `json:"worktreePath"` // absolute
+	RepoID       string       `json:"repoId"`
+	IsPrimary    bool         `json:"isPrimary"` // holds the .git/ directory
+	TabSet       TabSet       `json:"tabSet"`
+	LastActivity time.Time    `json:"lastActivity"`
+	Category     string       `json:"category,omitempty"` // S015
+	Runtime      *RuntimeView `json:"runtime,omitempty"`  // S8478ca-5: live runtime view
 }
 
 // TabSet is the collection of tabs for one branch.

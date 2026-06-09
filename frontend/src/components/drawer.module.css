@@ -436,6 +436,40 @@
   flex-shrink: 0;
 }
 
+/* S8478ca-5: runtime state badge shown on each workspace row. */
+.runtimeBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9px;
+  font-family: var(--font-mono);
+  padding: 1px 5px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  color: var(--color-fg-muted);
+  background: transparent;
+  flex-shrink: 0;
+}
+.runtimeBadge[data-runtime-state='ready'] {
+  border-color: rgba(100, 210, 160, 0.30);
+  color: var(--color-success, #64d2a0);
+}
+.runtimeBadge[data-runtime-state='starting'] {
+  border-color: rgba(245, 158, 11, 0.35);
+  color: var(--color-warning, #f59e0b);
+}
+.runtimeBadge[data-runtime-state='error'] {
+  border-color: rgba(239, 68, 68, 0.30);
+  color: var(--color-error, #ef4444);
+}
+.rtDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
 /* Chip row. v7 chips are 9px font, 1px/6px padding. */
 .chipRow {
   margin-top: 4px;

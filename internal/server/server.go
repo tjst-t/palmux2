@@ -93,6 +93,7 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 
 	mux.HandleFunc("GET /api/health", h.health)
 
+	mux.HandleFunc("GET /api/runtimes", h.getRuntimes)          // S8478ca-5: capability probe
 	mux.HandleFunc("GET /api/repos", h.listRepos)
 	mux.HandleFunc("GET /api/host", h.host) // S0c6a1b: reserved host scope descriptor
 	mux.HandleFunc("GET /api/repos/available", h.availableRepos)
@@ -102,6 +103,10 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("POST /api/repos/{repoId}/close", h.closeRepo)
 	mux.HandleFunc("POST /api/repos/{repoId}/star", h.star)
 	mux.HandleFunc("POST /api/repos/{repoId}/unstar", h.unstar)
+	// S8478ca-5: single-repo fetch (with runtime views on branches).
+	// Must be registered AFTER /api/repos/available and /api/repos/clone to
+	// avoid the {repoId} wildcard capturing those literal paths.
+	mux.HandleFunc("GET /api/repos/{repoId}", h.getRepo)
 	// S030: delete-preview and permanent delete.
 	mux.HandleFunc("GET /api/repos/{repoId}/delete-preview", h.deletePreview)
 	mux.HandleFunc("DELETE /api/repos/{repoId}", h.deleteRepo)
@@ -124,6 +129,8 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 	// (since it spans every branch); promote-subagent is per-branch.
 	mux.HandleFunc("POST /api/repos/{repoId}/worktrees/cleanup-subagent", h.cleanupSubagentWorktrees)
 	mux.HandleFunc("POST /api/repos/{repoId}/branches/{branchId}/promote-subagent", h.promoteSubagentBranch)
+	// S8478ca-5: per-Workspace runtime override.
+	mux.HandleFunc("PATCH /api/repos/{repoId}/branches/{branchId}/runtime", h.patchWorkspaceRuntime)
 
 	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/commands", h.listCommands)
 	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/portman", h.listRepoPortman)

@@ -76,6 +76,12 @@ const (
 	// Other clients use this to refresh their Drawer's collapsed-repo
 	// header click target without forcing a full /api/repos refetch.
 	EventBranchLastActiveChanged EventType = "branch.lastActiveChanged"
+
+	// S8478ca-5: emitted when a workspace's runtime view changes (kind,
+	// state, address, error). Payload is the RuntimeView object. The FE
+	// uses this to update the header chip and drawer badge in real time
+	// without a full /api/repos reload.
+	EventBranchRuntimeChanged EventType = "branch.runtimeChanged"
 )
 
 // Event is one broadcastable change.

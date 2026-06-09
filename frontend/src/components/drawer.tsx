@@ -119,7 +119,7 @@ export function Drawer() {
   const reloadRepos = usePalmuxStore((s) => s.reloadRepos)
   // S024: single-expand — one repo open at a time. Init lazily to the
   // repo containing the active branch (URL-driven).
-  const { repoId: activeRepo } = useParams()
+  const { repoId: activeRepo, branchId: activeBranch } = useParams()
   const [expandedRepoId, setExpandedRepoId] = useState<string | null>(
     () => activeRepo ?? null,
   )
@@ -250,7 +250,7 @@ export function Drawer() {
         <button
           className={styles.addRepoBtn}
           onClick={() => setPickerType('repo')}
-          data-testid="drawer-open-repo-btn"
+          data-testid="repo-picker-open"
         >
           <span style={{ color: 'var(--color-fg-muted)' }}>📂</span>
           <span>Open Repository…</span>
@@ -269,6 +269,8 @@ export function Drawer() {
           // the available list automatically (same store).
           setDeleteTarget({ repoId, ghqPath })
         }}
+        activeRepoId={activeRepo}
+        activeBranchId={activeBranch}
       />
       <BranchPicker
         open={typeof pickerType === 'object' && pickerType !== null}
@@ -839,6 +841,18 @@ function BranchItem({
           )}
           {unread > 0 && <span className={styles.notifyDot} aria-label={`${unread} unread`} />}
           {branch.isPrimary && <span className={styles.primaryTag}>main</span>}
+          {/* S8478ca-5: runtime state badge (only for real workspaces, not host scope) */}
+          {branch.runtime && (
+            <span
+              className={styles.runtimeBadge}
+              data-testid="workspace-runtime-badge"
+              data-runtime-state={branch.runtime.state}
+              title={`${branch.runtime.kind} · ${branch.runtime.state}${branch.runtime.address ? ` (${branch.runtime.address})` : ''}${branch.runtime.error ? ` — ${branch.runtime.error}` : ''}`}
+            >
+              <span className={styles.rtDot} />
+              {branch.runtime.state === 'error' ? 'error' : branch.runtime.state}
+            </span>
+          )}
         </span>
       </button>
     </li>

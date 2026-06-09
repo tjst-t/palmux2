@@ -8,6 +8,8 @@ import {
   type HostScope,
   type OrphanSession,
   type Repository,
+  type RuntimeCaps,
+  type RuntimeView,
   type TabSet,
   type SubagentCleanupCandidate,
   type SubagentCleanupResult,
@@ -222,6 +224,9 @@ interface PalmuxStoreState {
    *  back to it so /host--0000/host/<tab> routes resolve. */
   hostRepo: Repository | null
 
+  /** S8478ca-5: runtime capability probe (GET /api/runtimes). Null until loaded. */
+  runtimeCaps: RuntimeCaps | null
+
   globalSettings: GlobalSettings
   deviceSettings: DeviceSettings
 
@@ -298,6 +303,15 @@ interface PalmuxStoreState {
     repoId: string,
     branchId: string,
   ) => Promise<{ branch: Branch; destination: string }>
+
+  /** S8478ca-5: fetch (or refresh) GET /api/runtimes capability probe. */
+  loadRuntimeCaps: () => Promise<RuntimeCaps>
+
+  /** S8478ca-5: refresh a single repo's data (incl. runtime views) from GET /api/repos/{repoId}. */
+  reloadRepo: (repoId: string) => Promise<void>
+
+  /** S8478ca-5: PATCH per-workspace runtime kind. */
+  patchWorkspaceRuntime: (repoId: string, branchId: string, kind: string) => Promise<void>
 }
 
 export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
@@ -318,6 +332,7 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
   mobileDrawerOpen: false,
   notifications: {},
   agents: {},
+  runtimeCaps: null,
 
   bootstrap: async () => {
     if (get().bootstrapped || get().loading) return
@@ -522,6 +537,24 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
         }))
       }
     }
+    // S8478ca-5: runtime view changed — update the branch in-place so the
+    // header chip and drawer badge refresh without a full repo reload.
+    if (ev.type === 'branch.runtimeChanged' && ev.repoId && ev.branchId && ev.payload) {
+      const rtView = ev.payload as RuntimeView
+      set((state) => ({
+        repos: state.repos.map((r) =>
+          r.id !== ev.repoId
+            ? r
+            : {
+                ...r,
+                openBranches: r.openBranches.map((b) =>
+                  b.id === ev.branchId ? { ...b, runtime: rtView } : b,
+                ),
+              },
+        ),
+      }))
+    }
+
     if (
       (ev.type === 'notification' || ev.type === 'notification.cleared') &&
       ev.repoId &&
@@ -873,6 +906,91 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
       ),
     }))
     return res
+  },
+
+  // S8478ca-5: runtime capabilities.
+  loadRuntimeCaps: async () => {
+    const caps = await api.get<RuntimeCaps>('/api/runtimes')
+    set({ runtimeCaps: caps })
+    return caps
+  },
+
+  // S8478ca-5: refresh a single repo's data (incl. runtime views on branches).
+  reloadRepo: async (repoId) => {
+    const updated = await api.get<Repository>(`/api/repos/${encodeURIComponent(repoId)}`)
+    set((state) => {
+      const existing = state.repos.find((r) => r.id === repoId)
+      if (existing) {
+        // Merge: keep all existing fields, update runtime views on branches.
+        return {
+          repos: state.repos.map((r) =>
+            r.id !== repoId
+              ? r
+              : {
+                  ...r,
+                  openBranches: r.openBranches.map((b) => {
+                    const fresh = updated.openBranches.find((fb) => fb.id === b.id)
+                    if (!fresh) return b
+                    return { ...b, runtime: fresh.runtime }
+                  }),
+                },
+          ),
+        }
+      }
+      // Repo not yet in store: add it with safe defaults for missing fields.
+      // Ensure every branch has a valid tabSet so downstream code never
+      // crashes on `branch.tabSet.tabs`.
+      const safeBranches = (updated.openBranches ?? []).map((b): Branch => {
+        return {
+          id: b.id ?? '',
+          name: b.name ?? '',
+          worktreePath: b.worktreePath ?? '',
+          repoId: b.repoId ?? repoId,
+          isPrimary: b.isPrimary ?? false,
+          lastActivity: b.lastActivity ?? new Date().toISOString(),
+          category: b.category,
+          runtime: b.runtime,
+          tabSet: b.tabSet ?? { tmuxSession: '', tabs: [] },
+        }
+      })
+      const stub: Repository = {
+        id: updated.id ?? repoId,
+        ghqPath: updated.ghqPath ?? repoId,
+        fullPath: updated.fullPath ?? '',
+        starred: updated.starred ?? false,
+        openBranches: safeBranches,
+        lastActiveBranch: updated.lastActiveBranch,
+      }
+      return { repos: [...state.repos, stub] }
+    })
+  },
+
+  patchWorkspaceRuntime: async (repoId, branchId, kind) => {
+    await api.patch(
+      `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/runtime`,
+      { kind },
+    )
+    // Optimistically update the local runtime view kind so the badge
+    // flips without waiting for the WS event.
+    set((state) => ({
+      repos: state.repos.map((r) =>
+        r.id !== repoId
+          ? r
+          : {
+              ...r,
+              openBranches: r.openBranches.map((b) =>
+                b.id === branchId
+                  ? {
+                      ...b,
+                      runtime: b.runtime
+                        ? { ...b.runtime, kind: kind as RuntimeView['kind'] }
+                        : { kind: kind as RuntimeView['kind'], state: 'stopped' },
+                    }
+                  : b,
+              ),
+            },
+      ),
+    }))
   },
 }))
 

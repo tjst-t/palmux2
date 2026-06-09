@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 
 import { useViewport } from '../hooks/use-viewport'
-import { selectBranchById, selectRepoById, usePalmuxStore } from '../stores/palmux-store'
+import { HOST_REPO_ID, selectBranchById, selectRepoById, usePalmuxStore } from '../stores/palmux-store'
 
 import { useCommandPaletteStore } from './command-palette/store'
 import { ActivityInbox } from './inbox/activity-inbox'
@@ -50,12 +50,37 @@ export function Header() {
           ☰
         </button>
         <span className={styles.brand}>Palmux v2</span>
-        {branch && repo && (
-          <span className={styles.branch}>
-            <span className={styles.repoName}>{repoLabel(repo.ghqPath)}</span>
-            <span className={styles.sep}>/</span>
-            <span className={styles.branchName}>{branch.name}</span>
+        {/* S8478ca-5: Host login scope (host--0000) shows a distinct label
+            and NO runtime chip. Regular repos show branch name + runtime chip. */}
+        {repoId === HOST_REPO_ID ? (
+          <span
+            className={styles.hostScopeLabel}
+            data-testid="host-scope-label"
+            title="Repo-independent login terminal (gh auth / claude login)"
+          >
+            ⌂ Host · login terminal
           </span>
+        ) : (
+          <>
+            {branch && repo && (
+              <span className={styles.branch}>
+                <span className={styles.repoName}>{repoLabel(repo.ghqPath)}</span>
+                <span className={styles.sep}>/</span>
+                <span className={styles.branchName}>{branch.name}</span>
+              </span>
+            )}
+            {branch?.runtime && (
+              <span
+                className={styles.runtimeChip}
+                data-testid="runtime-chip"
+                data-runtime-state={branch.runtime.state}
+                title={`Runtime: ${branch.runtime.kind} · ${branch.runtime.state}${branch.runtime.address ? ` (${branch.runtime.address})` : ''}${branch.runtime.error ? ` — ${branch.runtime.error}` : ''}`}
+              >
+                <span className={styles.rtDot} />
+                {branch.runtime.kind} · {branch.runtime.state}
+              </span>
+            )}
+          </>
         )}
       </div>
       <div className={styles.right}>

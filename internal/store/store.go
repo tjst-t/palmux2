@@ -261,6 +261,38 @@ func (s *Store) Registry() *tab.Registry { return s.registry }
 // Exposed for the clone handler which needs to run `ghq get`.
 func (s *Store) GHQClient() *ghq.Client { return s.deps.GHQ }
 
+// RuntimeRegistry returns the runtime.Registry used by the store.
+// May be nil if the store was constructed without one.
+func (s *Store) RuntimeRegistry() runtime.Registry { return s.deps.RuntimeRegistry }
+
+// WorkspaceRuntime returns the live Runtime for the given workspace,
+// or nil when no RuntimeRegistry is configured.
+func (s *Store) WorkspaceRuntime(repoID, branchID string) runtime.Runtime {
+	if s.deps.RuntimeRegistry == nil {
+		return nil
+	}
+	return s.deps.RuntimeRegistry.Get(repoID, branchID)
+}
+
+// RuntimeViewFor returns the domain.RuntimeView for the given workspace.
+// Falls back to a "host / ready / localhost" view when no registry is wired.
+func (s *Store) RuntimeViewFor(repoID, branchID string) *domain.RuntimeView {
+	if s.deps.RuntimeRegistry == nil {
+		return &domain.RuntimeView{Kind: "host", State: "ready", Address: "localhost"}
+	}
+	rt := s.deps.RuntimeRegistry.Get(repoID, branchID)
+	if rt == nil {
+		return &domain.RuntimeView{Kind: "host", State: "ready", Address: "localhost"}
+	}
+	st := rt.Status()
+	return &domain.RuntimeView{
+		Kind:    string(rt.Kind()),
+		State:   string(st.State),
+		Address: st.Address,
+		Error:   st.Error,
+	}
+}
+
 // OpenBranchInternal exposes the internal open-branch path to server handlers.
 // markUserOpened controls whether the branch is recorded in repos.json#userOpenedBranches.
 func (s *Store) OpenBranchInternal(ctx context.Context, repoID, branchName string, markUserOpened bool) (*domain.Branch, error) {
@@ -287,6 +319,11 @@ func (s *Store) Repos() []*domain.Repository {
 		out = append(out, cloneRepo(r))
 	}
 	s.mu.Unlock()
+	// S8478ca-5: enrich each branch with a live RuntimeView (done outside
+	// the lock because RuntimeRegistry.Get may call incus CLI in future).
+	for _, r := range out {
+		s.enrichRepoRuntimeViews(r)
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].GHQPath < out[j].GHQPath })
 	return out
 }
@@ -302,7 +339,25 @@ func (s *Store) Repo(id string) (*domain.Repository, error) {
 	s.applyCategoriesUnlocked(r)
 	cp := cloneRepo(r)
 	s.mu.Unlock()
+	// S8478ca-5: enrich branches with live RuntimeView.
+	s.enrichRepoRuntimeViews(cp)
 	return cp, nil
+}
+
+// enrichRepoRuntimeViews populates the Runtime field on every OpenBranch of r.
+// For the host scope (repoId=host--0000) or when no RuntimeRegistry is wired,
+// every branch gets a host/ready view. The Host scope branch (branchId=host)
+// is intentionally given a nil Runtime so the FE renders the host-scope-label
+// instead of a runtime chip.
+func (s *Store) enrichRepoRuntimeViews(r *domain.Repository) {
+	// S0c6a1b: Host login scope has no runtime concept — leave Runtime nil so
+	// the FE renders host-scope-label (AC-5-3).
+	if IsHostRepoID(r.ID) {
+		return
+	}
+	for _, b := range r.OpenBranches {
+		b.Runtime = s.RuntimeViewFor(r.ID, b.ID)
+	}
 }
 
 // Branch returns a snapshot of one branch.

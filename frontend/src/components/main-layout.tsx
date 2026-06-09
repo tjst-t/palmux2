@@ -23,17 +23,22 @@ export function MainLayout() {
   )
   const repos = usePalmuxStore((s) => s.repos)
   const bootstrapped = usePalmuxStore((s) => s.bootstrapped)
+  const reloadRepo = usePalmuxStore((s) => s.reloadRepo)
   const viewport = useViewport()
   const mobile = viewport === 'mobile'
 
   // If the URL points at something that doesn't exist (e.g. branch was
   // closed externally), bounce back to /.
+  // Only redirect when the REPO is also present in the store — if the repo
+  // isn't there yet (e.g. being loaded asynchronously by reloadRepo), we
+  // wait rather than bouncing.
   useEffect(() => {
     if (!bootstrapped || !repoId || !branchId) return
-    if (!branch) {
+    const repoKnown = repos.some((r) => r.id === repoId)
+    if (repoKnown && !branch) {
       navigate('/', { replace: true })
     }
-  }, [bootstrapped, repoId, branchId, branch, navigate])
+  }, [bootstrapped, repos, repoId, branchId, branch, navigate])
 
   // Persist last-active so /redirect can pick it back up next visit.
   // Also store the per-branch last-active tab so the ⌘K @workspace switcher
@@ -47,6 +52,14 @@ export function MainLayout() {
       // ignore
     }
   }, [repoId, branchId, tabId])
+
+  // S8478ca-5: Refresh runtime views when navigating to a new repo.
+  // Runs after bootstrap so it doesn't get overwritten by the bulk repos load.
+  // Skips the synthetic host scope (no runtime endpoint there).
+  useEffect(() => {
+    if (!bootstrapped || !repoId || repoId === HOST_REPO_ID) return
+    void reloadRepo(repoId).catch(() => {/* ignore — background refresh */})
+  }, [bootstrapped, repoId, reloadRepo])
 
   // Auto-close the mobile drawer when the viewport widens past mobile.
   useEffect(() => {

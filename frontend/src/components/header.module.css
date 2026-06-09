@@ -104,3 +104,54 @@
     opacity: 0.4;
   }
 }
+
+/* S8478ca-5: runtime chip in the header — mirrors Workspace runtime state */
+.runtimeChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  padding: 2px 8px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  color: var(--color-fg-muted);
+  background: var(--color-elevated, #1a1c25);
+  flex-shrink: 0;
+  cursor: default;
+}
+.runtimeChip[data-runtime-state='ready'] {
+  border-color: rgba(100, 210, 160, 0.30);
+  color: var(--color-success, #64d2a0);
+}
+.runtimeChip[data-runtime-state='starting'] {
+  border-color: rgba(245, 158, 11, 0.35);
+  color: var(--color-warning, #f59e0b);
+}
+.runtimeChip[data-runtime-state='error'] {
+  border-color: rgba(239, 68, 68, 0.30);
+  color: var(--color-error, #ef4444);
+}
+.rtDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* S8478ca-5: Host login scope (host--0000) label — distinct from runtime chip */
+.hostScopeLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-family: var(--font-ui);
+  padding: 2px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  color: var(--color-warning, #f59e0b);
+  background: rgba(245, 158, 11, 0.06);
+  flex-shrink: 0;
+  cursor: default;
+}

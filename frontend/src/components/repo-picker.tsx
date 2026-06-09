@@ -17,6 +17,8 @@ import { api } from '../lib/api'
 import type { Repository } from '../lib/api'
 import { usePalmuxStore } from '../stores/palmux-store'
 
+import { RuntimeChangeConfirm } from './runtime-change-confirm'
+import { RuntimeSelector } from './runtime-selector'
 import styles from './repo-picker.module.css'
 
 // hotfix: after a successful open / clone we navigate to the opened
@@ -39,6 +41,10 @@ interface Props {
    *  invokes this callback (typically opens RepoDeleteModal at the
    *  Drawer level so we don't need to mount it twice). */
   onRequestDelete?: (repoId: string, ghqPath: string) => void
+  /** S8478ca-5: when set, the runtime selector operates in "change"
+   *  mode for the identified open workspace (PATCH on change). */
+  activeRepoId?: string
+  activeBranchId?: string
 }
 
 type CloneState = 'idle' | 'cloning' | 'error'
@@ -76,11 +82,14 @@ function shortRepoLabel(url: string): string {
   return s
 }
 
-export function RepoPicker({ open, onClose, onRequestDelete }: Props) {
+export function RepoPicker({ open, onClose, onRequestDelete, activeRepoId, activeBranchId }: Props) {
   const reload = usePalmuxStore((s) => s.reloadAvailableRepos)
   const repos = usePalmuxStore((s) => s.availableRepos)
   const openRepo = usePalmuxStore((s) => s.openRepo)
   const reloadRepos = usePalmuxStore((s) => s.reloadRepos)
+  const runtimeCaps = usePalmuxStore((s) => s.runtimeCaps)
+  const loadRuntimeCaps = usePalmuxStore((s) => s.loadRuntimeCaps)
+  const patchWorkspaceRuntime = usePalmuxStore((s) => s.patchWorkspaceRuntime)
   const navigate = useNavigate()
 
   const [filter, setFilter] = useState('')
@@ -88,6 +97,12 @@ export function RepoPicker({ open, onClose, onRequestDelete }: Props) {
   const [pending, setPending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [cloneState, setCloneState] = useState<CloneState>('idle')
+  // S8478ca-5: selected runtime kind (undefined = not yet chosen; defaults in RuntimeSelector)
+  const [runtimeKind, setRuntimeKind] = useState<'host' | 'incus-container' | undefined>(undefined)
+  const [runtimeError, setRuntimeError] = useState<string | null>(null)
+  const [runtimePending, setRuntimePending] = useState(false)
+  // Runtime change confirm: pending kind to confirm (non-null = modal open)
+  const [confirmRuntimeKind, setConfirmRuntimeKind] = useState<'host' | 'incus-container' | null>(null)
   const listRef = useRef<HTMLUListElement | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -111,10 +126,12 @@ export function RepoPicker({ open, onClose, onRequestDelete }: Props) {
   useEffect(() => {
     if (!open) return
     void reload()
+    // S8478ca-5: load runtime caps when picker opens (idempotent if already loaded)
+    void loadRuntimeCaps().catch(() => {})
     return () => {
       abortRef.current?.abort()
     }
-  }, [open, reload])
+  }, [open, reload, loadRuntimeCaps])
 
   const filtered = useMemo(() => {
     if (isURL) return []
@@ -216,6 +233,49 @@ export function RepoPicker({ open, onClose, onRequestDelete }: Props) {
     }
   }
 
+  // S8478ca-5: fire PATCH to update the workspace runtime when user changes the selector
+  // in the context of an already-open workspace.
+  const applyRuntimeChange = async (kind: 'host' | 'incus-container') => {
+    if (!activeRepoId || !activeBranchId) {
+      // New-open flow: just update local state, no PATCH yet.
+      setRuntimeKind(kind)
+      return
+    }
+    setRuntimePending(true)
+    setRuntimeError(null)
+    setRuntimeKind(kind)
+    try {
+      await patchWorkspaceRuntime(activeRepoId, activeBranchId, kind)
+    } catch (err) {
+      setRuntimeError(err instanceof Error ? err.message : String(err))
+      // Revert to previous kind on failure.
+      setRuntimeKind(undefined)
+    } finally {
+      setRuntimePending(false)
+    }
+  }
+
+  const handleRuntimeChange = (kind: 'host' | 'incus-container') => {
+    if (activeRepoId && activeBranchId) {
+      // Workspace is already open — show confirm modal first.
+      setConfirmRuntimeKind(kind)
+    } else {
+      setRuntimeKind(kind)
+      setRuntimeError(null)
+    }
+  }
+
+  const handleConfirmRuntime = async () => {
+    const kind = confirmRuntimeKind
+    setConfirmRuntimeKind(null)
+    if (!kind) return
+    await applyRuntimeChange(kind)
+  }
+
+  const handleCancelRuntime = () => {
+    setConfirmRuntimeKind(null)
+  }
+
   const handleClose = () => {
     if (cloneState === 'cloning') {
       cancelClone()
@@ -269,6 +329,19 @@ export function RepoPicker({ open, onClose, onRequestDelete }: Props) {
             onKeyDown={handleKeyDown}
           />
         </div>
+
+        {/* S8478ca-5: Runtime selector — shown when not cloning */}
+        {cloneState !== 'cloning' && (
+          <div style={{ padding: '0 18px 12px' }}>
+            <RuntimeSelector
+              value={runtimeKind}
+              caps={runtimeCaps}
+              onChange={handleRuntimeChange}
+              error={runtimeError}
+              disabled={pending !== null || runtimePending}
+            />
+          </div>
+        )}
 
         {/* Body */}
         {cloneState === 'cloning' ? (
@@ -398,6 +471,14 @@ export function RepoPicker({ open, onClose, onRequestDelete }: Props) {
           )}
         </div>
       </div>
+      {/* S8478ca-5: Runtime change confirm modal (shown on top of picker when open workspace) */}
+      {confirmRuntimeKind !== null && (
+        <RuntimeChangeConfirm
+          newKind={confirmRuntimeKind}
+          onConfirm={() => void handleConfirmRuntime()}
+          onCancel={handleCancelRuntime}
+        />
+      )}
     </div>
   )
 }

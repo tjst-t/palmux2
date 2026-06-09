@@ -1,0 +1,154 @@
+/* runtime-selector.module.css — S8478ca-5: Workspace runtime radiogroup */
+
+.fieldset {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 6px);
+  padding: 10px 12px 10px;
+  margin-top: 4px;
+}
+
+.legend {
+  font-size: 11px;
+  font-family: var(--font-ui);
+  color: var(--color-fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.1s, border-color 0.1s;
+  margin-bottom: 4px;
+  user-select: none;
+}
+
+.option:last-child {
+  margin-bottom: 0;
+}
+
+.option:hover:not(.disabled) {
+  background: rgba(124, 138, 255, 0.06);
+}
+
+.optionSelected {
+  border-color: var(--color-accent, #7c8aff);
+  background: rgba(124, 138, 255, 0.08);
+}
+
+.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.radio {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--color-fg-dim, #6b6f7b);
+  flex-shrink: 0;
+  margin-top: 2px;
+  position: relative;
+  transition: border-color 0.1s;
+}
+
+.optionSelected .radio {
+  border-color: var(--color-accent, #7c8aff);
+}
+
+.optionSelected .radio::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: var(--color-accent, #7c8aff);
+}
+
+.nameRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  color: var(--color-fg);
+  font-weight: 500;
+  flex-wrap: wrap;
+}
+
+.pill {
+  font-size: 10px;
+  font-family: var(--font-ui);
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 20px;
+  border: 1px solid var(--color-border);
+  background: rgba(124, 138, 255, 0.08);
+  color: var(--color-fg-muted);
+  text-transform: lowercase;
+}
+
+.pillDefault {
+  background: rgba(100, 210, 160, 0.10);
+  border-color: rgba(100, 210, 160, 0.30);
+  color: var(--color-success, #64d2a0);
+}
+
+.meta {
+  font-size: 11px;
+  font-family: var(--font-ui);
+  color: var(--color-fg-muted);
+  margin-top: 1px;
+}
+
+.desc {
+  font-size: 11px;
+  font-family: var(--font-ui);
+  color: var(--color-fg-dim);
+  margin-top: 3px;
+  line-height: 1.5;
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+}
+
+/* tooltip wrapper */
+.tooltipAnchor {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+}
+
+.tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  background: var(--color-elevated, #1a1c25);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: var(--font-ui);
+  color: var(--color-fg-muted);
+  white-space: nowrap;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.error {
+  font-size: 12px;
+  font-family: var(--font-ui);
+  color: var(--color-error, #ef4444);
+  margin-top: 6px;
+  padding: 4px 8px;
+  background: rgba(239, 68, 68, 0.08);
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}

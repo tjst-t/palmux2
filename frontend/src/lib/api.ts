@@ -68,6 +68,26 @@ export interface Repository {
 
 export type BranchCategory = 'user' | 'unmanaged' | 'subagent'
 
+/** S8478ca-5: point-in-time snapshot of a workspace's runtime state. */
+export interface RuntimeView {
+  kind: 'host' | 'incus-container'
+  state: 'ready' | 'starting' | 'stopped' | 'error'
+  address?: string
+  error?: string
+}
+
+/** S8478ca-5: one entry in GET /api/runtimes response. */
+export interface RuntimeKindEntry {
+  kind: 'host' | 'incus-container'
+  available: boolean
+  reason?: string
+}
+
+/** S8478ca-5: response shape for GET /api/runtimes. */
+export interface RuntimeCaps {
+  kinds: RuntimeKindEntry[]
+}
+
 export interface Branch {
   id: string
   name: string
@@ -81,6 +101,8 @@ export interface Branch {
    *  `autoWorktreePathPatterns`. `unmanaged` = otherwise. The FE
    *  remaps `user → my` for section titles. */
   category?: BranchCategory
+  /** S8478ca-5: live runtime view. Absent for the Host login scope. */
+  runtime?: RuntimeView
 }
 
 // TabSettings is the per-tab settings shape returned by

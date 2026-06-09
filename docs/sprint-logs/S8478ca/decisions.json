@@ -146,6 +146,30 @@
       "decision": "incus tmux client の状態変更系 (incus() helper 経由の new-session/new-window/list/kill 等 + HasSession) を detached context (context.WithoutCancel + 30s timeout) で実行するよう修正。Attach は対象外 (long-lived stream)。",
       "rationale": "`incus exec -- tmux new-session -d` は in-container tmux サーバを exec の子として生成するため、呼び出し側 ctx (HTTP request / sync_tmux ループ) が daemonize 前にキャンセルされると生成直後の session が死ぬ。host runtime はローカル即時 tmux なので無問題だったが incus exec の往復で顕在化。これにより container 内に workspace の tmux session が永続せず、WS attach がコンテナ端末に繋がらないバグ (AC-2-3) を生んでいた。私が追加した E2E assertion `incus exec -- tmux ls` が捕捉。",
       "reference": "修正後 VM E2E 7/7 pass (test_ac3_workspace_tmux_runs_inside_container 含む)。"
+    },
+    {
+      "id": "D-S5-001",
+      "phase": "implementation",
+      "category": "architecture",
+      "decision": "Story 5 (GUI) の RuntimeView は domain.Branch に追加し、store.enrichRepoRuntimeViews() で Repos()/Repo() 呼び出し後にインジェクションする。Host scope (repoId=host--0000) は Runtime=nil のまま。FE は branch.runtime の有無で runtime-chip/workspace-runtime-badge を出し分ける。",
+      "rationale": "domain モデルに RuntimeView を持たせることで WS events (branch.runtimeChanged) と REST (GET /api/repos) が一貫したスキーマを返す。Host scope に Runtime を与えないことで FE が host-scope-label vs runtime-chip を明確に区別できる (AC-5-3)。",
+      "reference": "internal/domain/entities.go; internal/store/store.go enrichRepoRuntimeViews; frontend/src/components/header.tsx"
+    },
+    {
+      "id": "D-S5-002",
+      "phase": "implementation",
+      "category": "implementation",
+      "decision": "GET /api/repos/{repoId} (single-repo) エンドポイントを新規追加した。FE は workspace URL に遷移するたびに MainLayout の useEffect からこのエンドポイントを叩き RuntimeView を最新化する。bootstrap の GET /api/repos (plural) では十分でないケース (WS event が届く前の初回ロード、mock テストでの fake repoId) の補完に使用する。",
+      "rationale": "AC-5-2 mock テストは fake repoId (demo--repo--ab12) に直接 goto して badge を確認する。GET /api/repos では fake repoId は返らないため single-repo endpoint が必要。bootstrap が repos を上書きする前に reloadRepo が完了するレースを避けるため、useEffect の deps に bootstrapped を入れて bootstrap 完了後に実行する。",
+      "reference": "internal/server/handler_runtime.go getRepo; frontend/src/stores/palmux-store.ts reloadRepo; frontend/src/components/main-layout.tsx"
+    },
+    {
+      "id": "D-S5-003",
+      "phase": "implementation",
+      "category": "testing",
+      "decision": "reloadRepo が store に存在しない repoId を追加する場合、Branch.tabSet が欠落した partial オブジェクトで React がクラッシュするため、stub branch に tabSet: { tmuxSession: '', tabs: [] } をデフォルトとして補完するようにした。MainLayout の 'branch not found → navigate(\"/\")' ガードも、repo が store にまだ存在しない場合はリダイレクトしないよう修正した (repos.some(r => r.id === repoId) チェックを追加)。",
+      "rationale": "mock テストは real server にない fake repo/branch ID を使う。FE が partial オブジェクトでクラッシュするとテストが timeout になり原因が分からない。defensive defaults でクラッシュを防ぎつつ、redirect ガードの条件を絞ることで fake repo への遷移後に正しくバッジを表示できる。",
+      "reference": "frontend/src/stores/palmux-store.ts reloadRepo stub creation; frontend/src/components/main-layout.tsx redirect guard"
     }
   ]
 }
