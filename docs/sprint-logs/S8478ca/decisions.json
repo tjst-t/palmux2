@@ -122,6 +122,30 @@
       "decision": "E2E test fixture (palmux_server) は scp でスクリプトをアップロードして nohup + disown で palmux を起動する。SSH セッション内で直接 & で起動すると SSH が子プロセスの終了を待ってタイムアウトする。",
       "rationale": "Python subprocess + SSH の組み合わせで background process を spawn するには SSH セッションを切り離す必要がある。nohup + disown がポータブルかつ追加依存なし。",
       "reference": "tests/acceptance/s8478ca_incus_container.py palmux_server fixture"
+    },
+    {
+      "id": "D-review-2",
+      "phase": "review",
+      "category": "security",
+      "decision": "Story-2 レビューで privileged フォールバックを除去。incus は UNPRIVILEGED のまま raw.idmap both 1000 1000 を使う。idmap/start 失敗時は security.privileged に落とさず、/etc/subuid+/etc/subgid に root:1000:1 を要求するエラーを返す。waitStopped ヘルパも privileged 専用だったため削除。",
+      "rationale": "privileged コンテナは bind-mount 越しに in-container root = host root となり、本ランタイムの存在意義 (host 隔離) を毀損する。根本原因は VM の subuid/subgid が root に host uid 1000 の map 権限を与えていなかったこと (root:1000000:… のみ)。root:1000:1 を追加して incus 再起動で unprivileged のまま idmap 成功を実機確認。D-impl の privileged 記述 (start-fallback) を supersede する。E2E に security.privileged 非設定の assertion を追加。",
+      "reference": "VM /etc/subuid+subgid に root:1000:1 追加 → unprivileged start OK / security.privileged 空 / id ubuntu=1000 を確認。design §4 更新。"
+    },
+    {
+      "id": "D-review-3",
+      "phase": "review",
+      "category": "environment",
+      "decision": "Story-2 レビューで 2 つの実バグを検出・修正: (1) baked image に tmux/git が欠落 (build 時 apt が `;echo` で失敗を握り潰し、claude のみ直 push で存在) → container workspace の端末が動かない。検証付き (apt fail-loud + 公開後 launch 確認) で再ビルド。(2) コンテナの外向きネットワーク不通 (apt も claude も api に出られない) → ホストの Docker が iptables FORWARD policy=DROP を入れ incusbr0 の転送を遮断していた。test VM では docker 停止+iptables flush+incus 再起動で解消。",
+      "rationale": "私が追加した E2E assertion `incus exec <inst> -- tmux ls` がコンテナ内に workspace の tmux セッションが無いことを捕捉し、root cause 追跡で image 欠落→さらに container 外向き不通 (Docker FORWARD 干渉) に到達。隔離環境から外に出られないと claude が死ぬため必須修正。design §4 にホスト前提 (Docker FORWARD / subuid root:1000:1) を明記。",
+      "reference": "VM: docker stop + iptables -P FORWARD ACCEPT + incus restart → container ping/dns/apt OK を実機確認。image 再ビルドで tmux/git/claude 全て present を launch 確認。"
+    },
+    {
+      "id": "D-review-4",
+      "phase": "review",
+      "category": "implementation",
+      "decision": "incus tmux client の状態変更系 (incus() helper 経由の new-session/new-window/list/kill 等 + HasSession) を detached context (context.WithoutCancel + 30s timeout) で実行するよう修正。Attach は対象外 (long-lived stream)。",
+      "rationale": "`incus exec -- tmux new-session -d` は in-container tmux サーバを exec の子として生成するため、呼び出し側 ctx (HTTP request / sync_tmux ループ) が daemonize 前にキャンセルされると生成直後の session が死ぬ。host runtime はローカル即時 tmux なので無問題だったが incus exec の往復で顕在化。これにより container 内に workspace の tmux session が永続せず、WS attach がコンテナ端末に繋がらないバグ (AC-2-3) を生んでいた。私が追加した E2E assertion `incus exec -- tmux ls` が捕捉。",
+      "reference": "修正後 VM E2E 7/7 pass (test_ac3_workspace_tmux_runs_inside_container 含む)。"
     }
   ]
 }

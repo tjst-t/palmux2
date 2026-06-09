@@ -182,23 +182,24 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 		r.log.Info("incus: instance already exists, proceeding", "inst", r.inst)
 	}
 
-	// 2. raw.idmap: map host UID/GID 1000 → container UID/GID 1000.
-	// This requires the host user to have UID 1000 in its /etc/subuid range
-	// (i.e. `ubuntu:1000:1` must appear in /etc/subuid).  On systems where
-	// newuidmap rejects the mapping we fall back to `security.privileged true`
-	// which achieves the same observable goal (bind-mounted files are owned by
-	// the same UID in the container) at the cost of reduced namespace isolation.
+	// 2. raw.idmap: map host UID/GID 1000 → container UID/GID 1000 so the
+	// bind-mounted ~/ghq and ~/.claude are owned by the in-container `ubuntu`
+	// user. The container stays UNPRIVILEGED — we never fall back to
+	// security.privileged (that would defeat the isolation that is the whole
+	// point of this runtime).
+	//
+	// HOST PREREQUISITE: the incus daemon runs as root, so root must be
+	// allowed to map host uid/gid 1000. /etc/subuid and /etc/subgid must each
+	// contain a `root:1000:1` line (in addition to the default
+	// `root:1000000:...` range). Without it `incus start` fails at newuidmap
+	// time. See docs/workspace-runtime-design.md §4.
 	// [AC-S8478ca-2-2]
 	if _, idmapStderr, idmapCode, idmapErr := r.run(ctx, "config", "set", r.inst, "raw.idmap", "both 1000 1000"); idmapErr != nil || idmapCode != 0 {
-		r.log.Warn("incus: raw.idmap failed, falling back to security.privileged",
-			"inst", r.inst, "code", idmapCode, "stderr", idmapStderr)
-		// Fall back to privileged container — bind-mounts still expose the
-		// correct UID on the host side (UID passthrough in privileged mode).
-		if _, privStderr, privCode, privErr := r.run(ctx, "config", "set", r.inst, "security.privileged", "true"); privErr != nil || privCode != 0 {
-			msg := fmt.Sprintf("incus config set security.privileged: code=%d stderr=%s", privCode, privStderr)
-			r.setStatus(runtime.Status{State: runtime.StateError, Error: msg})
-			return fmt.Errorf("%s: %w", msg, privErr)
-		}
+		msg := fmt.Sprintf("incus config set raw.idmap: code=%d stderr=%s "+
+			"(ensure /etc/subuid and /etc/subgid contain `root:1000:1`, then restart incus)",
+			idmapCode, idmapStderr)
+		r.setStatus(runtime.Status{State: runtime.StateError, Error: msg})
+		return fmt.Errorf("%s: %w", msg, idmapErr)
 	}
 
 	// 3. Bind-mount ~/ghq, ~/.claude, ~/.claude.json at same absolute path.
@@ -236,35 +237,19 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 		}
 	}
 
-	// 4. Start the instance.
+	// 4. Start the instance (unprivileged).
 	// [AC-S8478ca-2-1]
-	// If start fails (e.g., newuidmap rejects the idmap range — the real error
-	// only appears in `incus info --show-log`, not in stderr), fall back to
-	// security.privileged=true which achieves the same observable result (UID
-	// passthrough) without requiring /etc/subuid entries for the mapped range.
+	// If start fails, the real cause (e.g. newuidmap rejecting the idmap range)
+	// is usually only in `incus info --show-log`, not in start's stderr — so we
+	// surface that log and point at the subuid/subgid prerequisite. We do NOT
+	// fall back to a privileged container.
 	if _, startStderr, startCode, startErr := r.run(ctx, "start", r.inst); startErr != nil || startCode != 0 {
-		r.log.Warn("incus: start failed, attempting security.privileged fallback",
-			"inst", r.inst, "code", startCode, "stderr", startStderr)
-		// After a failed start, incus may still be running a background "stop"
-		// operation.  Poll until the instance is STOPPED before reconfiguring.
-		if waitErr := r.waitStopped(ctx); waitErr != nil {
-			r.setStatus(runtime.Status{State: runtime.StateError, Error: waitErr.Error()})
-			return waitErr
-		}
-		// Clear raw.idmap and set security.privileged instead.
-		_, _, _, _ = r.run(ctx, "config", "unset", r.inst, "raw.idmap")
-		if _, privStderr, privCode, privErr := r.run(ctx, "config", "set", r.inst, "security.privileged", "true"); privErr != nil || privCode != 0 {
-			msg := fmt.Sprintf("incus config set security.privileged: code=%d stderr=%s", privCode, privStderr)
-			r.setStatus(runtime.Status{State: runtime.StateError, Error: msg})
-			return fmt.Errorf("%s: %w", msg, privErr)
-		}
-		// Retry start with privileged container.
-		if _, stderr2, code2, err2 := r.run(ctx, "start", r.inst); err2 != nil || code2 != 0 {
-			msg := fmt.Sprintf("incus start (privileged retry) %s: code=%d stderr=%s", r.inst, code2, stderr2)
-			r.setStatus(runtime.Status{State: runtime.StateError, Error: msg})
-			return fmt.Errorf("%s: %w", msg, err2)
-		}
-		r.log.Info("incus: container started in privileged mode", "inst", r.inst)
+		showLog, _, _, _ := r.run(ctx, "info", r.inst, "--show-log")
+		msg := fmt.Sprintf("incus start %s: code=%d stderr=%s log=%s "+
+			"(if newuidmap failed, ensure /etc/subuid+/etc/subgid contain `root:1000:1` and restart incus)",
+			r.inst, startCode, startStderr, lastLines(showLog, 6))
+		r.setStatus(runtime.Status{State: runtime.StateError, Error: msg})
+		return fmt.Errorf("%s: %w", msg, startErr)
 	}
 
 	// 5. Wait until the container agent is ready (incus exec succeeds).
@@ -305,34 +290,6 @@ func (r *incusRuntime) waitReady(ctx context.Context) error {
 		}
 	}
 	return fmt.Errorf("incus waitReady: timed out waiting for container agent on %s", r.inst)
-}
-
-// waitStopped waits for the instance to reach STOPPED state and for all pending
-// incus operations to complete.  After a failed start, incus keeps an internal
-// "stop" operation running for a brief period even though the container already
-// reports STOPPED in `incus list`.  We poll `incus config set ... security.privileged`
-// as a proxy — it succeeds only when no conflicting operation is active.
-// Times out after 30 s.
-func (r *incusRuntime) waitStopped(ctx context.Context) error {
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
-		// Probe: try a benign no-op config set to see if the instance is free.
-		// security.privileged false is the default so setting it doesn't change state.
-		_, stderr, code, err := r.run(ctx, "config", "set", r.inst, "security.privileged", "false")
-		if err == nil && code == 0 {
-			return nil
-		}
-		// If the error is not about a busy instance, give up.
-		if !strings.Contains(stderr, "busy") && !strings.Contains(stderr, "operation") {
-			return nil // proceed anyway — maybe the error was transient
-		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("incus waitStopped: context cancelled: %w", ctx.Err())
-		case <-time.After(500 * time.Millisecond):
-		}
-	}
-	return fmt.Errorf("incus waitStopped: timed out waiting for instance to be reconfigurable: %s", r.inst)
 }
 
 // containerIP returns the first IPv4 address on eth0 in the container.
@@ -559,9 +516,23 @@ func NewTmuxClient(inst string, r runner) tmux.Client {
 	return &incusTmuxClient{inst: inst, run: r}
 }
 
+// detachedTmuxCtx returns a context that is NOT cancelled when the caller's
+// ctx is (e.g. an HTTP request finishing, or the sync_tmux loop iterating),
+// but still has an upper time bound. This matters because `incus exec -- tmux
+// new-session -d` spawns the in-container tmux SERVER as a child of the exec
+// process: if the caller's ctx cancels and kills `incus exec` before tmux has
+// finished daemonising, the freshly-created session dies with it (the host
+// runtime never hit this because its tmux ops are local + instant). State-
+// mutating tmux ops therefore run under a detached, bounded context.
+func detachedTmuxCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+}
+
 func (c *incusTmuxClient) incus(ctx context.Context, args ...string) (string, error) {
+	dctx, cancel := detachedTmuxCtx(ctx)
+	defer cancel()
 	argv := append([]string{"exec", c.inst, "--", "tmux"}, args...)
-	stdout, stderr, code, err := c.run(ctx, argv...)
+	stdout, stderr, code, err := c.run(dctx, argv...)
 	if err != nil {
 		return "", fmt.Errorf("incus exec tmux %s: %w", strings.Join(args, " "), err)
 	}
@@ -626,7 +597,9 @@ func (c *incusTmuxClient) KillSession(ctx context.Context, name string) error {
 }
 
 func (c *incusTmuxClient) HasSession(ctx context.Context, name string) (bool, error) {
-	_, _, code, err := c.run(ctx, "exec", c.inst, "--", "tmux", "has-session", "-t", name)
+	dctx, cancel := detachedTmuxCtx(ctx)
+	defer cancel()
+	_, _, code, err := c.run(dctx, "exec", c.inst, "--", "tmux", "has-session", "-t", name)
 	if err != nil {
 		return false, err
 	}
@@ -784,4 +757,17 @@ func AcquireLock(worktreePath string) (release func(), err error) {
 	return func() {
 		_ = os.Remove(lockPath)
 	}, nil
+}
+
+// lastLines returns the last n non-empty lines of s, joined by " | ", for
+// compact inclusion of `incus info --show-log` tails in error messages.
+func lastLines(s string, n int) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	out := make([]string, 0, n)
+	for i := len(lines) - 1; i >= 0 && len(out) < n; i-- {
+		if strings.TrimSpace(lines[i]) != "" {
+			out = append([]string{strings.TrimSpace(lines[i])}, out...)
+		}
+	}
+	return strings.Join(out, " | ")
 }

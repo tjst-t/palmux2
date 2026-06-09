@@ -175,7 +175,24 @@ agent 化は将来の最適化（`incus exec` の往復が重い/PTY 制御が�
 - **同一絶対パス + `raw.idmap "both 1000 1000"`** を前提にする。host の UID 1000 を
   コンテナに 1:1 で写すことで、bind-mount したファイルの owner が一致し、`claude` が
   「同じ絶対パスで自分の `~/.claude`」を見られる。Claude に「コンテナで実行して」と毎回
-  指示する必要はない。
+  指示する必要はない。**コンテナは UNPRIVILEGED のまま**（特権コンテナにはしない — 特権化は
+  bind-mount 越しに in-container root = host root となり隔離の意味を失う）。
+- **ホスト前提条件 (S8478ca-2 で確定)**: `raw.idmap "both 1000 1000"` は Incus デーモン (root 実行) が
+  **host uid/gid 1000 を map する許可**を要求する。デフォルトの `/etc/subuid`・`/etc/subgid` は
+  root に `root:1000000:…` の範囲しか与えないため uid 1000 を含まず、`incus start` が newuidmap で
+  失敗する (エラーは `incus start` stderr ではなく `incus info --show-log` にのみ出る)。**両ファイルに
+  `root:1000:1` の行を追加し `incus` を再起動**すると unprivileged のまま idmap が通る。これは
+  install 手順 / INSTALL doc に明記する。実装は idmap/start 失敗時に privileged へ落とさず、この前提を
+  示してエラーにする。
+- **ホスト前提条件 (ネットワーク, S8478ca-2 で確定)**: コンテナは **外向きインターネットが必須**
+  (in-container `claude` が api.anthropic.com に、`npm`/`apt` が各リポジトリに出る)。Incus の
+  managed bridge (`incusbr0`) は NAT を張るが、**ホストに Docker が入っていると Docker の
+  iptables `FORWARD` policy=DROP が incusbr0 の外向き転送を遮断**し、コンテナが gateway 以遠に
+  到達できなくなる (apt も claude も死ぬ)。対策: Docker 不要なら停止/削除、必要なら
+  `iptables -I DOCKER-USER -i incusbr0 -j ACCEPT` 等で incusbr0 forwarding を許可する。
+  install 手順に明記する。これは netns 版の outbound-HTTPS 問題と同じ「隔離環境から外に出られないと
+  即死」クラスの落とし穴で、Incus では host firewall を正すことで解消できる (slirp4netns のような
+  ユーザ空間スタックの脆さとは別)。
 - **汚染が止まる理由**: `~/ghq` と `~/.claude` だけが共有され、`/usr`・`/opt`・コンテナの
   `~/.npm` global・`apt` データベース等は**コンテナ固有**。`npm -g` も `apt install` も
   host に届かず、close で消える。

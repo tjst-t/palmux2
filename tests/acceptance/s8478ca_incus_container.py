@@ -172,6 +172,23 @@ class TestIncusContainerRuntime:
             f"bind-mount idmap / privileged passthrough not working"
         )
 
+    def test_ac2_container_is_unprivileged(self):
+        """[AC-S8478ca-2-2] container stays UNPRIVILEGED — isolation is the whole point.
+
+        security.privileged must be unset/false. A privileged container would
+        make in-container root == host root through the bind-mounts, defeating
+        the host-isolation goal. The correct way to get UID-1000 ownership is
+        the unprivileged `raw.idmap "both 1000 1000"`, which requires
+        `root:1000:1` in /etc/subuid+/etc/subgid on the host (not privileged).
+        """
+        r = ssh(f"incus config get {INSTANCE_NAME} security.privileged </dev/null")
+        assert r.returncode == 0, f"incus config get failed: {r.stderr}"
+        val = r.stdout.strip().lower()
+        assert val in ("", "false", "0"), (
+            f"security.privileged={val!r} — container must stay unprivileged; "
+            f"fix the host's /etc/subuid+/etc/subgid (root:1000:1) instead of going privileged"
+        )
+
     def test_ac3_claude_binary_runs_in_container(self):
         """[AC-S8478ca-2-3] /usr/local/bin/claude --version runs inside container."""
         r = ssh(
@@ -181,6 +198,23 @@ class TestIncusContainerRuntime:
         assert r.returncode == 0, f"claude --version in container failed: {r.stderr}"
         assert "Claude Code" in r.stdout, (
             f"claude --version output does not contain 'Claude Code': {r.stdout!r}"
+        )
+
+    def test_ac3_workspace_tmux_runs_inside_container(self):
+        """[AC-S8478ca-2-3] the Workspace's tmux session lives INSIDE the container.
+
+        Opening an incus-container Workspace routes ensureSession through the
+        incus tmux.Client (`incus exec <inst> -- tmux new-session`). If the
+        session shows up in `incus exec <inst> -- tmux ls`, the workspace's
+        terminal really runs in the container — which is exactly what the WS
+        attach path (handler_ws → store.TmuxFor → incus tmux client → `incus
+        exec -t -- tmux attach`) then transports. This proves the in-container
+        PTY routing rather than the host tmux server.
+        """
+        r = ssh(f"incus exec {INSTANCE_NAME} -- tmux ls </dev/null 2>&1")
+        assert r.returncode == 0 and r.stdout.strip(), (
+            f"no tmux session inside the container — the workspace's session was "
+            f"not created in the container (rc={r.returncode}, out={r.stdout!r}, err={r.stderr!r})"
         )
 
     def test_ac3_credentials_readable_in_container(self):
