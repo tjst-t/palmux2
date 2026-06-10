@@ -70,9 +70,10 @@ func runRuntimeInstall(args []string) int {
 	// Parse flags manually (no pflag dependency inside this subcommand, keeping
 	// it consistent with hook.go style).
 	var (
-		imageURL  string
-		imageFile string
-		dryRun    bool
+		imageURL   string
+		imageFile  string
+		dryRun     bool
+		includePre bool
 	)
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -88,6 +89,8 @@ func runRuntimeInstall(args []string) int {
 			}
 		case "--dry-run":
 			dryRun = true
+		case "--pre":
+			includePre = true
 		}
 	}
 
@@ -138,10 +141,10 @@ func runRuntimeInstall(args []string) int {
 
 	default:
 		// Default: latest GitHub Release asset.
-		assetURL, assetName, err := latestReleaseAssetURL()
+		assetURL, assetName, err := latestReleaseAssetURL(includePre)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ERROR: could not resolve latest release asset: %v\n"+
-				"Tip: set GITHUB_TOKEN to avoid rate limits, or use --image-url / --image-file\n", err)
+				"Tip: pass --pre to include pre-releases (RCs), set GITHUB_TOKEN to avoid rate limits, or use --image-url / --image-file\n", err)
 			return 1
 		}
 		fmt.Printf("Latest release asset: %s\n", assetName)
@@ -395,11 +398,27 @@ func incusRun(args ...string) (string, error) {
 	return string(out), nil
 }
 
-// latestReleaseAssetURL queries the GitHub Releases API and returns the
-// download URL + name of the first asset whose name contains "palmux-ws".
-func latestReleaseAssetURL() (url, name string, err error) {
-	client := &http.Client{Timeout: 15 * time.Second}
-	req, err := http.NewRequest(http.MethodGet, ghReleasesAPI, nil)
+type ghAsset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+}
+type ghRelease struct {
+	TagName    string    `json:"tag_name"`
+	Prerelease bool      `json:"prerelease"`
+	Assets     []ghAsset `json:"assets"`
+}
+
+// latestReleaseAssetURL queries the GitHub Releases API and returns the download
+// URL + name of a "palmux-ws*.tar.gz" asset. When includePre is false it uses
+// /releases/latest (stable only). When true it lists releases and picks the
+// newest one (including pre-releases / RCs) that carries the asset.
+func latestReleaseAssetURL(includePre bool) (url, name string, err error) {
+	client := &http.Client{Timeout: 20 * time.Second}
+	endpoint := ghReleasesAPI
+	if includePre {
+		endpoint = "https://api.github.com/repos/tjst-t/palmux2/releases?per_page=30"
+	}
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		return "", "", fmt.Errorf("build request: %w", err)
 	}
@@ -410,7 +429,7 @@ func latestReleaseAssetURL() (url, name string, err error) {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", "", fmt.Errorf("GET %s: %w", ghReleasesAPI, err)
+		return "", "", fmt.Errorf("GET %s: %w", endpoint, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -418,32 +437,41 @@ func latestReleaseAssetURL() (url, name string, err error) {
 		return "", "", fmt.Errorf("GitHub API returned %d: %s", resp.StatusCode, string(body))
 	}
 
-	var release struct {
-		Assets []struct {
-			Name               string `json:"name"`
-			BrowserDownloadURL string `json:"browser_download_url"`
-		} `json:"assets"`
+	// Normalise to a list of releases (newest first) regardless of endpoint.
+	var releases []ghRelease
+	if includePre {
+		if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+			return "", "", fmt.Errorf("decode releases JSON: %w", err)
+		}
+	} else {
+		var one ghRelease
+		if err := json.NewDecoder(resp.Body).Decode(&one); err != nil {
+			return "", "", fmt.Errorf("decode release JSON: %w", err)
+		}
+		releases = []ghRelease{one}
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return "", "", fmt.Errorf("decode release JSON: %w", err)
-	}
-	// Prefer the stable "palmux-ws.tar.gz"; fall back to any asset matching pattern.
-	var fallbackURL, fallbackName string
-	for _, a := range release.Assets {
-		if strings.Contains(a.Name, assetPattern) && strings.HasSuffix(a.Name, ".tar.gz") {
-			if a.Name == "palmux-ws.tar.gz" {
-				return a.BrowserDownloadURL, a.Name, nil
-			}
-			if fallbackURL == "" {
-				fallbackURL = a.BrowserDownloadURL
-				fallbackName = a.Name
+
+	for _, rel := range releases {
+		var fallbackURL, fallbackName string
+		for _, a := range rel.Assets {
+			if strings.Contains(a.Name, assetPattern) && strings.HasSuffix(a.Name, ".tar.gz") {
+				if a.Name == "palmux-ws.tar.gz" {
+					return a.BrowserDownloadURL, a.Name, nil
+				}
+				if fallbackURL == "" {
+					fallbackURL, fallbackName = a.BrowserDownloadURL, a.Name
+				}
 			}
 		}
+		if fallbackURL != "" {
+			return fallbackURL, fallbackName, nil
+		}
 	}
-	if fallbackURL != "" {
-		return fallbackURL, fallbackName, nil
+	scope := "latest release"
+	if includePre {
+		scope = "any of the recent releases (incl. pre-releases)"
 	}
-	return "", "", fmt.Errorf("no %q asset found in latest release (checked %d assets)", assetPattern, len(release.Assets))
+	return "", "", fmt.Errorf("no %q asset found in %s", assetPattern, scope)
 }
 
 // downloadToTemp downloads url to a temp file and returns the file path.
