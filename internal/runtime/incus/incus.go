@@ -18,6 +18,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -198,18 +199,28 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 
 	// 1. Init the instance (do not start yet).
 	// [AC-S8478ca-2-1]
-	if _, _, code, err := r.run(ctx, "init", image, r.inst); err != nil {
-		r.setStatus(runtime.Status{State: runtime.StateError, Error: err.Error()})
-		return fmt.Errorf("incus init %s %s: %w", image, r.inst, err)
+	if _, initStderr, code, initErr := r.run(ctx, "init", image, r.inst); initErr != nil {
+		r.setStatus(runtime.Status{State: runtime.StateError, Error: initErr.Error()})
+		return fmt.Errorf("incus init %s %s: %w", image, r.inst, initErr)
 	} else if code != 0 {
-		// Already exists is code 1 with "already exists" in stderr — treat as
-		// idempotent only if it's running; otherwise re-create below.
-		if _, _, qcode, _ := r.run(ctx, "list", r.inst, "-f", "json"); qcode != 0 {
-			msg := fmt.Sprintf("incus init exited %d", code)
+		// `incus init` exited non-zero. The only case we tolerate is "instance
+		// already exists" (idempotent re-open). Anything else — most commonly a
+		// missing image — is a hard, user-actionable error. Note: `incus list
+		// <inst>` exits 0 even when the instance is absent (it just returns an
+		// empty set), so we MUST decide on stderr, not on a follow-up list.
+		stderr := strings.TrimSpace(initStderr)
+		if !strings.Contains(stderr, "already exists") {
+			detail := stderr
+			if detail == "" {
+				detail = fmt.Sprintf("exited %d", code)
+			}
+			msg := fmt.Sprintf("incus init %s: %s", image, detail)
+			if strings.Contains(stderr, "not found") || strings.Contains(stderr, "No such") {
+				msg += fmt.Sprintf(" (is the %q image imported on this host? build it with the workspace-default image, or set runtime.image)", image)
+			}
 			r.setStatus(runtime.Status{State: runtime.StateError, Error: msg})
 			return fmt.Errorf("%s", msg)
 		}
-		// Instance already exists — proceed to start.
 		r.log.Info("incus: instance already exists, proceeding", "inst", r.inst)
 	}
 
@@ -226,11 +237,14 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 	// time. See docs/workspace-runtime-design.md §4.
 	// [AC-S8478ca-2-2]
 	if _, idmapStderr, idmapCode, idmapErr := r.run(ctx, "config", "set", r.inst, "raw.idmap", "both 1000 1000"); idmapErr != nil || idmapCode != 0 {
-		msg := fmt.Sprintf("incus config set raw.idmap: code=%d stderr=%s "+
-			"(ensure /etc/subuid and /etc/subgid contain `root:1000:1`, then restart incus)",
-			idmapCode, idmapStderr)
+		detail := strings.TrimSpace(idmapStderr)
+		if detail == "" && idmapErr != nil {
+			detail = idmapErr.Error()
+		}
+		msg := fmt.Sprintf("incus config set raw.idmap: %s "+
+			"(ensure /etc/subuid and /etc/subgid contain `root:1000:1`, then restart incus)", detail)
 		r.setStatus(runtime.Status{State: runtime.StateError, Error: msg})
-		return fmt.Errorf("%s: %w", msg, idmapErr)
+		return errors.New(msg)
 	}
 
 	// 3. Bind-mount ~/ghq, ~/.claude, ~/.claude.json at same absolute path.

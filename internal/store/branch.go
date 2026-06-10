@@ -521,6 +521,10 @@ func (s *Store) RestartBranchRuntime(ctx context.Context, repoID, branchID strin
 		return false, nil
 	}
 
+	type evicterRegistry interface {
+		EvictRuntime(repoID, branchID string)
+	}
+
 	sessionName := branch.TabSet.TmuxSession
 	s.logger.Info("store.RestartBranchRuntime: migrating workspace runtime",
 		"repoID", repoID, "branchID", branchID,
@@ -528,7 +532,28 @@ func (s *Store) RestartBranchRuntime(ctx context.Context, repoID, branchID strin
 		"session", sessionName,
 	)
 
-	// ── 3. Kill old tmux session using the OLD runtime's TmuxClient ──────────
+	// ── 3. TRANSACTIONAL pre-flight: bring up the NEW runtime BEFORE tearing
+	// down the old one. If the new runtime can't start (e.g. the incus image is
+	// missing or subuid isn't configured on this host), ROLL BACK: revert the
+	// persisted kind, drop the half-created runtime, and leave the old session
+	// running untouched. A failed switch must be a clean no-op, never a broken
+	// workspace.
+	newRT := s.deps.RuntimeRegistry.Get(repoID, branchID) // resolves the new (post-persist) config
+	if newRT != nil && newRT.Kind() == runtime.KindIncusContainer {
+		if startErr := newRT.Start(ctx); startErr != nil {
+			_ = s.deps.RepoStore.SetWorkspaceRuntime(repoID, branchID, &runtime.Config{Kind: oldKind})
+			if er, ok2 := s.deps.RuntimeRegistry.(evicterRegistry); ok2 {
+				er.EvictRuntime(repoID, branchID)
+			}
+			s.logger.Error("RestartBranchRuntime: new runtime failed to start — rolled back, old session kept",
+				"repoID", repoID, "branchID", branchID,
+				"oldKind", oldKind, "newKind", newKind, "err", startErr)
+			return false, fmt.Errorf("start %s runtime: %w", newKind, startErr)
+		}
+	}
+
+	// ── 4. New runtime is up (or host). Now kill the OLD tmux session using the
+	// OLD runtime's TmuxClient.
 	oldTC := oldRT.TmuxClient()
 	if killErr := oldTC.KillSession(ctx, sessionName); killErr != nil {
 		s.logger.Warn("RestartBranchRuntime: KillSession (old runtime) failed",
@@ -536,29 +561,27 @@ func (s *Store) RestartBranchRuntime(ctx context.Context, repoID, branchID strin
 		// Non-fatal: the session may already be gone. Continue.
 	}
 
-	// ── 4. Stop the old runtime and evict it ─────────────────────────────────
+	// ── 5. Stop + evict the OLD runtime. Only evict when the OLD kind was incus:
+	// after a host→incus switch the registry cache already holds the NEW incus
+	// runtime (which we just started) and must NOT be evicted.
 	if oldKind == runtime.KindIncusContainer {
 		if stopErr := oldRT.Stop(ctx); stopErr != nil {
 			s.logger.Warn("RestartBranchRuntime: Stop (old incus) failed",
 				"repoID", repoID, "branchID", branchID, "err", stopErr)
 		}
-	}
-	type evicterRegistry interface {
-		EvictRuntime(repoID, branchID string)
-	}
-	if er, ok2 := s.deps.RuntimeRegistry.(evicterRegistry); ok2 {
-		er.EvictRuntime(repoID, branchID)
+		if er, ok2 := s.deps.RuntimeRegistry.(evicterRegistry); ok2 {
+			er.EvictRuntime(repoID, branchID)
+		}
 	}
 
-	// ── 5. Collect window specs (same as the normal open path) ───────────────
+	// ── 6. Collect window specs (same as the normal open path) ───────────────
 	specs, specErr := s.collectOpenSpecs(ctx, branch, true) // resume=true: claude --resume
 	if specErr != nil {
 		return false, fmt.Errorf("RestartBranchRuntime collectOpenSpecs: %w", specErr)
 	}
 
-	// ── 6. Bring up the session in the NEW runtime ───────────────────────────
-	// tmuxFor now resolves the freshly-persisted config (cache was evicted above),
-	// creates the container if needed, and returns the new TmuxClient.
+	// ── 7. Bring up the session in the NEW runtime (already started above; for
+	// host this is the normal tmux path).
 	if sessErr := s.ensureSession(ctx, branch, specs); sessErr != nil {
 		return false, fmt.Errorf("RestartBranchRuntime ensureSession: %w", sessErr)
 	}

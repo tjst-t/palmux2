@@ -10,6 +10,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"io"
 	"sync"
 	"testing"
@@ -21,18 +22,21 @@ import (
 	"github.com/tjst-t/palmux2/internal/tmux"
 )
 
+var errFakeStart = errors.New("fake: incus image not found")
+
 // ── fake runtime ──────────────────────────────────────────────────────────────
 
 type fakeRuntime struct {
 	kind      runtime.Kind
 	tc        tmux.Client
 	stopCalls int
+	startErr  error // when non-nil, Start fails (models e.g. a missing incus image)
 	mu        sync.Mutex
 }
 
 func (f *fakeRuntime) Kind() runtime.Kind  { return f.kind }
 func (f *fakeRuntime) Config() runtime.Config { return runtime.Config{Kind: f.kind} }
-func (f *fakeRuntime) Start(_ context.Context) error { return nil }
+func (f *fakeRuntime) Start(_ context.Context) error { return f.startErr }
 func (f *fakeRuntime) Stop(_ context.Context) error {
 	f.mu.Lock()
 	f.stopCalls++
@@ -213,7 +217,7 @@ func TestRestartBranchRuntime_NilRegistry(t *testing.T) {
 // runs without error.
 func TestRestartBranchRuntime_KindChange(t *testing.T) {
 	reg := newFakeRegistry()
-	s, mockTmux := newStoreWithRegistry(t, reg)
+	s, _ := newStoreWithRegistry(t, reg)
 
 	repoID := "test-repo--c3d4"
 	repoDir := t.TempDir()
@@ -237,9 +241,13 @@ func TestRestartBranchRuntime_KindChange(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SetWorkspaceRuntime: %v", err)
 	}
-	// After eviction the registry has no entry → tmuxFor falls back to s.deps.Tmux.
-	// Seed the session on the main mock so ensureSession can verify HasSession.
-	mockTmux.SeedSession(sessionName)
+	// Model the post-persist registry: Get now returns a NEW incus runtime with
+	// its OWN (container) tmux client — distinct from the old host client. This
+	// is what the real incus.Registry does (it creates+caches a new incus
+	// runtime once the persisted kind is incus-container).
+	newMock := tmux.NewMockClient()
+	newIncusRT := &fakeRuntime{kind: runtime.KindIncusContainer, tc: newMock}
+	reg.set(repoID, branchID, newIncusRT)
 
 	restarted, err := s.RestartBranchRuntime(context.Background(), repoID, branchID, hostRT)
 	if err != nil {
@@ -248,18 +256,77 @@ func TestRestartBranchRuntime_KindChange(t *testing.T) {
 	if !restarted {
 		t.Error("expected restarted=true for kind change, got false")
 	}
-	// Old session must have been killed on the OLD tmux client.
+	// Old session must have been killed on the OLD (host) tmux client and NOT
+	// resurrected (the new session lives in the new incus client).
 	if has, _ := oldMock.HasSession(context.Background(), sessionName); has {
-		t.Error("old session should have been killed on the old runtime's TmuxClient")
+		t.Error("old host session should have been killed on the old runtime's TmuxClient")
 	}
-	// EvictRuntime must have been called once.
-	if reg.evictCalls[repoID+"/"+branchID] != 1 {
-		t.Errorf("expected 1 EvictRuntime call, got %d", reg.evictCalls[repoID+"/"+branchID])
+	// New session must have been created on the NEW runtime's tmux client.
+	if has, _ := newMock.HasSession(context.Background(), sessionName); !has {
+		t.Error("new session should have been created on the new runtime's TmuxClient")
 	}
-	// Stop must have been called on the old runtime (it was host kind, so stopCalls=0
-	// is correct — Stop is only called for incus-container). Verify accordingly.
+	// EvictRuntime must NOT be called for host→incus: the registry cache holds
+	// the freshly-started NEW incus runtime, which must be preserved.
+	if reg.evictCalls[repoID+"/"+branchID] != 0 {
+		t.Errorf("expected 0 EvictRuntime calls for host→incus, got %d", reg.evictCalls[repoID+"/"+branchID])
+	}
+	// Stop is only called for an incus OLD runtime; here old=host.
 	if hostRT.stopCalls != 0 {
 		t.Errorf("Stop should NOT be called for host→incus transition (old=host); got %d calls", hostRT.stopCalls)
+	}
+}
+
+// TestRestartBranchRuntime_RollbackOnStartFailure verifies the transactional
+// guarantee: if the NEW runtime fails to start (e.g. the incus image is missing
+// on this host), the switch is rolled back — the persisted kind reverts to the
+// old kind, the OLD session is NOT killed, and an error is returned. A failed
+// switch must never leave the workspace broken.
+func TestRestartBranchRuntime_RollbackOnStartFailure(t *testing.T) {
+	reg := newFakeRegistry()
+	s, _ := newStoreWithRegistry(t, reg)
+
+	repoID := "test-repo--f0f0"
+	repoDir := t.TempDir()
+	if _, err := s.deps.RepoStore.Add(config.RepoEntry{ID: repoID, GHQPath: "test/repo-f0f0"}); err != nil {
+		t.Fatalf("RepoStore.Add: %v", err)
+	}
+	branchID := injectBranch(t, s, repoID, repoDir, "main", true)
+	sessionName := s.repos[repoID].OpenBranches[0].TabSet.TmuxSession
+
+	// Old runtime is host with a live session.
+	oldMock := tmux.NewMockClient()
+	oldMock.SeedSession(sessionName)
+	hostRT := &fakeRuntime{kind: runtime.KindHost, tc: oldMock}
+
+	// Persist incus-container, then model the registry returning a NEW incus
+	// runtime whose Start FAILS (missing image).
+	if err := s.deps.RepoStore.SetWorkspaceRuntime(repoID, branchID, &runtime.Config{
+		Kind: runtime.KindIncusContainer,
+	}); err != nil {
+		t.Fatalf("SetWorkspaceRuntime: %v", err)
+	}
+	badIncus := &fakeRuntime{kind: runtime.KindIncusContainer, tc: tmux.NewMockClient(), startErr: errFakeStart}
+	reg.set(repoID, branchID, badIncus)
+
+	restarted, err := s.RestartBranchRuntime(context.Background(), repoID, branchID, hostRT)
+	if err == nil {
+		t.Fatal("expected an error when the new runtime fails to start")
+	}
+	if restarted {
+		t.Error("restarted must be false on rollback")
+	}
+	// Old session must STILL be alive (never killed).
+	if has, _ := oldMock.HasSession(context.Background(), sessionName); !has {
+		t.Error("old session must be preserved on rollback (it was killed)")
+	}
+	// Persisted kind must be reverted to host.
+	got := s.deps.RepoStore.ResolveWorkspaceRuntime(repoID, branchID, runtime.Config{})
+	if got.Kind != runtime.KindHost {
+		t.Errorf("persisted kind should be rolled back to host, got %q", got.Kind)
+	}
+	// The half-baked new runtime must be evicted.
+	if reg.evictCalls[repoID+"/"+branchID] != 1 {
+		t.Errorf("expected 1 EvictRuntime call (drop failed new runtime), got %d", reg.evictCalls[repoID+"/"+branchID])
 	}
 }
 

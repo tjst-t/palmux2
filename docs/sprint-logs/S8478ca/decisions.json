@@ -242,6 +242,14 @@
       "decision": "in-place runtime switch のレビューで実バグ4件を VM E2E で検出・修正: (1) RestartBranchRuntime が persist 後に registry.Get して old runtime を取得していた→Get は config を再解決するため old が新側になり kill 先誤り/no-op。handler が persist 前に CurrentRuntime で old を捕捉して渡す形に。(2) host→incus で sync_tmux recovery が並行で tmuxFor を叩きコンテナ作成中に二重 Start→\"Instance is busy\"→host fallback で kill 済み host session を再生成。incus Start を startMu で直列化+冪等化 (ready なら即 return)。(3) tmuxFor の incus Start 失敗時 host fallback を除去 (isolation を黙って壊し host session を蘇らせるため)。(4) 直列化後も restart と sync_tmux が両方コンテナに session 作成→後発が \"duplicate session\"。incus NewSession を冪等化 (duplicate は成功扱い)。",
       "rationale": "エージェントの unit テスト(fake registry は re-resolve しない)は通ったが実 VM で破綻。テストの repos.json fixture も {\"repos\":[...]}/settings.workspaces と誤っており top-level array + branchSettings に修正。全て host↔incus 双方向 4/4 VM E2E + 7/7 FE mock で確認。",
       "reference": "tests/acceptance/s8478ca_runtime_switch.py 4/4, tests/e2e/s8478ca_runtime_switch_mock.py 7/7, go suite 21 pkgs ok."
+    },
+    {
+      "id": "D-refine-rollback",
+      "phase": "review",
+      "category": "reliability",
+      "decision": "in-place runtime switch をトランザクショナル化。新 runtime を先に Start し、失敗したら (a) 永続 kind を旧へロールバック (b) 半端な新 runtime を evict (c) 旧セッションは kill せず温存 (d) 明確なエラーを返す。incus init の失敗判定も修正 (incus list は不在でも exit 0 のため stderr で判定。image not found を user-actionable メッセージに)。idmap エラーの %w-nil 整形バグも除去。",
+      "rationale": "ユーザのホスト機 (palmux-ws イメージ未導入) で host→incus 切替が失敗し、旧 host セッションを kill 済みで workspace が壊れる/error バッジが残る事象を報告。従来は kill→start 順で、start 失敗時に復旧不能だった。新 runtime の起動成功を確認してから旧を破棄する順序に変更。VM で image を隠して実証: restarted=false / runtime=host 復帰 / host session PRESERVED / 明確なエラー。unit に TestRestartBranchRuntime_RollbackOnStartFailure を追加。",
+      "reference": "VM rollback 実証 + happy-path switch E2E 4/4 + go suite 21 pkgs。ホスト機で incus を使うには palmux-ws イメージ build + /etc/subuid,subgid root:1000:1 + (Docker あれば) FORWARD 許可が必要 (design §4/§5)。"
     }
   ]
 }
