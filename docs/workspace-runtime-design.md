@@ -201,6 +201,10 @@ weekly schedule で自動ビルド＆アップロードする。ローカルビ�
   「同じ絶対パスで自分の `~/.claude`」を見られる。Claude に「コンテナで実行して」と毎回
   指示する必要はない。**コンテナは UNPRIVILEGED のまま**（特権コンテナにはしない — 特権化は
   bind-mount 越しに in-container root = host root となり隔離の意味を失う）。
+- **ホスト前提条件 (incus-admin グループ, S8478ca-refine で確定)**: palmux を動かすユーザが
+  **`incus-admin` グループに所属**していること (`sudo usermod -aG incus-admin $USER` → 再ログイン)。
+  さもないと `/var/lib/incus/unix.socket` が permission denied になり、palmux が incus を一切叩けない
+  (`incus version` だけは client-only で通るので気づきにくい)。`palmux runtime doctor` が検出する。
 - **ホスト前提条件 (S8478ca-2 で確定)**: `raw.idmap "both 1000 1000"` は Incus デーモン (root 実行) が
   **host uid/gid 1000 を map する許可**を要求する。デフォルトの `/etc/subuid`・`/etc/subgid` は
   root に `root:1000000:…` の範囲しか与えないため uid 1000 を含まず、`incus start` が newuidmap で

@@ -250,8 +250,19 @@ func runRuntimeDoctor(args []string) int {
 		}
 	}
 
-	// ── palmux-ws image imported? ─────────────────────────────────────────────
+	// ── incus daemon socket reachable (group membership)? ─────────────────────
+	// `incus version` works client-only, but any real call hits
+	// /var/lib/incus/unix.socket which is owned by the `incus-admin` group.
 	out, err := incusRun("image", "alias", "list", "-f", "json")
+	if err != nil && strings.Contains(err.Error(), "permission denied") {
+		fmt.Println("  ✗ incus socket: permission denied — your user is not in the incus-admin group")
+		fmt.Println("    Fix: sudo usermod -aG incus-admin $USER   (then log out/in, or `newgrp incus-admin`)")
+		fmt.Println("    palmux itself needs this to launch incus-container workspaces.")
+		fmt.Println("\nSocket access is required for the remaining checks — fix the above first.")
+		return 1
+	}
+
+	// ── palmux-ws image imported? ─────────────────────────────────────────────
 	if err != nil {
 		fmt.Printf("  ✗ palmux-ws image: could not list aliases (%v)\n", err)
 		ok = false
@@ -334,9 +345,16 @@ func requireBin(name string) error {
 func incusRun(args ...string) (string, error) {
 	c := exec.Command("incus", args...) //nolint:gosec
 	c.Stdin = nil
+	var stderr strings.Builder
+	c.Stderr = &stderr
 	out, err := c.Output()
 	if err != nil {
-		return "", fmt.Errorf("incus %s: %w", strings.Join(args, " "), err)
+		// Include stderr so callers can detect "permission denied" / "not found".
+		detail := strings.TrimSpace(stderr.String())
+		if detail == "" {
+			detail = err.Error()
+		}
+		return "", fmt.Errorf("incus %s: %s", strings.Join(args, " "), detail)
 	}
 	return string(out), nil
 }
