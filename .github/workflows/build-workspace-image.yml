@@ -32,13 +32,15 @@ name: Build workspace image (palmux-ws)
 #   on GH runners as of sprint S8478ca.
 
 on:
+  # NOTE: the `push: tags v*` trigger was REMOVED — GitHub-hosted runners
+  # cannot reliably build an Incus image (the `incus admin init` step fails on
+  # the runner's restricted kernel), so coupling it to release tags made every
+  # release show a red ❌. Until a self-hosted runner with working Incus is
+  # available, the palmux-ws image is built with images/workspace-default/build.sh
+  # (locally or on a provisioned VM) and uploaded to the release manually:
+  #   gh release upload <tag> dist/palmux-ws.tar.gz
+  # workflow_dispatch is kept so the build can still be attempted/iterated on.
   workflow_dispatch:
-  push:
-    tags:
-      - 'v*'
-  schedule:
-    # Weekly rebuild: Monday 02:00 UTC
-    - cron: '0 2 * * 1'
 
 permissions:
   contents: write   # needed to upload Release assets
