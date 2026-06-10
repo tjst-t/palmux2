@@ -196,6 +196,25 @@ CI ワークフロー (`.github/workflows/build-workspace-image.yml`) がタグ 
 weekly schedule で自動ビルド＆アップロードする。ローカルビルドは
 `images/workspace-default/build.sh` を使う。
 
+**`scripts/install.sh` による自動セットアップ (S8478ca-refine)**:
+`scripts/install.sh` がホスト前提条件を一括でセットアップする (SKIP_INCUS=1 で無効化)。
+以下を自動的に行う:
+
+| ステップ | 内容 | 冪等性 |
+|---|---|---|
+| 1 | `apt install incus` | incus 未インストール時のみ |
+| 2 | `incus admin init --minimal` | `incus network list` で inited か判定 |
+| 3 | `usermod -aG incus-admin $USER` | 既メンバーならスキップ |
+| 4 | `/etc/subuid` + `/etc/subgid` に `root:1000:1` 追加 + incus 再起動 | `grep -qxF` で既存行チェック |
+| 5 | Docker FORWARD iptables 共存ルール (best-effort) | `-C` で既存ルール確認 |
+| 6 | `palmux runtime install` でイメージ import | 重複 fingerprint 時は alias 付け替え |
+| 7 | `palmux runtime doctor` で診断出力 | — |
+
+RC 期間などで stable release asset が未発行の場合は `PALMUX_WS_PRE=1` または
+`PALMUX_WS_IMAGE_URL` / `PALMUX_WS_IMAGE_FILE` を指定する。未指定で asset が
+見つからない場合は warning を出すが install 全体はエラー終了しない (incus デーモン +
+グループ + subuid は確立済みなので `palmux runtime install` で後から追加できる)。
+
 - **同一絶対パス + `raw.idmap "both 1000 1000"`** を前提にする。host の UID 1000 を
   コンテナに 1:1 で写すことで、bind-mount したファイルの owner が一致し、`claude` が
   「同じ絶対パスで自分の `~/.claude`」を見られる。Claude に「コンテナで実行して」と毎回

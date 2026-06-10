@@ -1,0 +1,25 @@
+[1;34m==>[0m Using palmux binary: /tmp/palmux
+[1;34m==>[0m === Incus container runtime setup ===
+[1;34m==>[0m incus already installed: 6.0.0
+[1;34m==>[0m incus daemon already initialized
+[1;34m==>[0m user ubuntu already in incus-admin group
+[1;34m==>[0m /etc/subuid: root:1000:1 already present
+[1;34m==>[0m /etc/subgid: root:1000:1 already present
+[1;34m==>[0m docker0 not present — no FORWARD conflict
+[1;34m==>[0m importing palmux-ws image via: /tmp/palmux runtime install 
+2026/06/10 14:18:57 INFO palmux runtime install starting
+ERROR: could not resolve latest release asset: no "palmux-ws" asset found in latest release (checked 2 assets)
+Tip: set GITHUB_TOKEN to avoid rate limits, or use --image-url / --image-file
+[1;33m==>[0m palmux runtime install exited with code 1.
+[1;33m==>[0m Incus itself is set up; the image can be added later.
+[1;34m==>[0m running palmux runtime doctor (host prerequisites check)
+palmux runtime doctor
+
+  ✓ incus: Client version: 6.0.0
+  ✓ palmux-ws image: imported
+  ✓ /etc/subuid: root:1000:1 present
+  ✓ /etc/subgid: root:1000:1 present
+  ✓ Docker: not running (no FORWARD conflict)
+
+All checks passed.
+[1;34m==>[0m === Test completed ===

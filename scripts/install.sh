@@ -52,6 +52,18 @@
 #                          routing (model B). Requires DOMAIN + CLOUDFLARE_API_TOKEN.
 #                          Default (unset/0): unchanged single-reverse_proxy Caddyfile.
 #
+# Incus container runtime (S8478ca — default ON, requires Ubuntu 24.04+):
+#   SKIP_INCUS=1           skip the entire Incus runtime setup step.
+#   PALMUX_WS_IMAGE_FILE   path to a local palmux-ws.tar.gz to import (skips GitHub download).
+#   PALMUX_WS_IMAGE_URL    URL to download palmux-ws.tar.gz from (skips GitHub API lookup).
+#   PALMUX_WS_PRE=1        pass --pre to `palmux runtime install` (include pre-releases/RCs).
+#                          Useful during the RC period before the first stable release.
+#
+#   During the RC period there may be no stable release with a palmux-ws asset.
+#   In that case set PALMUX_WS_PRE=1 or PALMUX_WS_IMAGE_URL/FILE.  If none of these
+#   are set and no asset is found, the incus setup still completes (daemon + group +
+#   subuid) and the image can be imported later with `palmux runtime install`.
+#
 set -euo pipefail
 
 # --- env / defaults --------------------------------------------------------
@@ -74,6 +86,11 @@ BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-}"
 BASIC_AUTH_BCRYPT_COST="${BASIC_AUTH_BCRYPT_COST:-8}"
 
 PORTMAN_ROUTING="${PORTMAN_ROUTING:-0}"
+
+SKIP_INCUS="${SKIP_INCUS:-0}"
+PALMUX_WS_IMAGE_FILE="${PALMUX_WS_IMAGE_FILE:-}"
+PALMUX_WS_IMAGE_URL="${PALMUX_WS_IMAGE_URL:-}"
+PALMUX_WS_PRE="${PALMUX_WS_PRE:-0}"
 
 GHQ_REPO="x-motemen/ghq"
 GWQ_REPO="d-kuro/gwq"
@@ -1027,6 +1044,165 @@ EOF
     || warn "initial portman sync failed (caddy may not be ready yet); portman-sync.service will retry on next caddy start"
 fi
 
+# --- Incus container runtime (S8478ca — default ON, SKIP_INCUS=1 to opt out) ------
+#
+# Sets up the host prerequisites for `incus-container` workspaces:
+#   1. incus package (apt)
+#   2. incus admin init --minimal (idempotent)
+#   3. install user added to incus-admin group
+#   4. /etc/subuid + /etc/subgid get root:1000:1 (required for raw.idmap unprivileged)
+#   5. Docker FORWARD coexistence rule (best-effort, if Docker is present)
+#   6. palmux-ws image imported via `palmux runtime install`
+#   7. `palmux runtime doctor` run so the user sees green / what's still needed
+#
+# All steps are idempotent (safe to re-run on update).
+#
+if [ "${SKIP_INCUS}" != "1" ]; then
+  log "=== Incus container runtime setup ==="
+
+  # ── 1. install incus if absent ──────────────────────────────────────────────
+  if command -v incus >/dev/null 2>&1; then
+    log "incus already installed: $(incus --version 2>/dev/null || echo '?')"
+  else
+    log "installing incus via apt (Ubuntu 24.04 universe / Debian)"
+    if sudo apt-get install -y incus 2>/dev/null; then
+      log "incus installed: $(incus --version 2>/dev/null || echo '?')"
+    else
+      warn "incus not available via apt on this system."
+      warn "Install manually: https://linuxcontainers.org/incus/docs/main/installing/"
+      warn "Or: sudo apt-get install -y incus  (requires Ubuntu 24.04+ universe or Debian 13+)"
+      warn "Skipping remaining Incus setup — run the installer again after installing incus."
+      # Skip the rest of the incus block without aborting the whole install.
+      SKIP_INCUS=1
+    fi
+  fi
+
+  if [ "${SKIP_INCUS}" != "1" ]; then
+
+    # ── 2. init the daemon if not already inited ──────────────────────────────
+    # Guard: `incus network list` returns non-zero if the daemon has not been
+    # initialized (no storage pool / network created yet).
+    if incus network list </dev/null >/dev/null 2>&1; then
+      log "incus daemon already initialized"
+    else
+      log "initializing incus daemon (incus admin init --minimal)"
+      sudo incus admin init --minimal </dev/null
+      log "incus daemon initialized"
+    fi
+
+    # ── 3. add install user to incus-admin group ──────────────────────────────
+    if id -nG "$USERNAME" 2>/dev/null | tr ' ' '\n' | grep -qx "incus-admin"; then
+      log "user ${USERNAME} already in incus-admin group"
+    else
+      log "adding ${USERNAME} to incus-admin group"
+      sudo usermod -aG incus-admin "$USERNAME"
+      warn "----------------------------------------------------------------------"
+      warn "IMPORTANT: ${USERNAME} was added to the incus-admin group."
+      warn "You MUST log out and back in (or run: newgrp incus-admin) for non-sudo"
+      warn "incus access to take effect.  The palmux service also needs this group"
+      warn "to launch incus-container workspaces — restart it after re-login:"
+      warn "  systemctl --user restart palmux2"
+      warn "----------------------------------------------------------------------"
+    fi
+
+    # ── 4. subuid / subgid: ensure root:1000:1 ────────────────────────────────
+    # Required so Incus can map UID 1000 (the workspace user) into an
+    # unprivileged container via raw.idmap 'both 1000 1000'.
+    _subuid_changed=0
+    for _sub_file in /etc/subuid /etc/subgid; do
+      if grep -qxF "root:1000:1" "$_sub_file" 2>/dev/null; then
+        log "${_sub_file}: root:1000:1 already present"
+      else
+        log "${_sub_file}: adding root:1000:1"
+        echo "root:1000:1" | sudo tee -a "$_sub_file" >/dev/null
+        _subuid_changed=1
+      fi
+    done
+    if [ "$_subuid_changed" = "1" ]; then
+      log "restarting incus to pick up new subuid/subgid mapping"
+      sudo systemctl restart incus
+      log "incus restarted"
+    fi
+
+    # ── 5. Docker coexistence: allow incusbr0 forwarding ─────────────────────
+    # If Docker is active its iptables rules set FORWARD policy=DROP, which
+    # blocks incusbr0 outbound traffic (apt/claude cannot reach the internet).
+    if ip link show docker0 >/dev/null 2>&1; then
+      warn "Docker detected — checking FORWARD coexistence with incusbr0"
+      if sudo iptables -C DOCKER-USER -i incusbr0 -j ACCEPT >/dev/null 2>&1; then
+        log "iptables DOCKER-USER incusbr0 ACCEPT rule already present"
+      else
+        log "adding iptables rule: -I DOCKER-USER -i incusbr0 -j ACCEPT"
+        sudo iptables -I DOCKER-USER -i incusbr0 -j ACCEPT || \
+          warn "iptables rule failed (DOCKER-USER chain may not exist yet; Docker may not be running)"
+        warn "NOTE: this iptables rule is NOT persistent across reboots."
+        warn "To make it permanent, install iptables-persistent or add to /etc/rc.local:"
+        warn "  iptables -I DOCKER-USER -i incusbr0 -j ACCEPT"
+      fi
+    fi
+
+    # ── 6. import the palmux-ws image ─────────────────────────────────────────
+    # Run as the install user (not root) because the incus image store is
+    # per-user-socket (accessed via incus-admin group).
+    # The incus-admin group may not be active in the current shell session yet
+    # (it was just added above).  We use `sg incus-admin` to activate it for
+    # this one command, which works even without re-login.
+    #
+    # Build the palmux runtime install arguments.
+    _runtime_install_args=""
+    if [ -n "$PALMUX_WS_IMAGE_FILE" ]; then
+      _runtime_install_args="--image-file $(printf '%q' "$PALMUX_WS_IMAGE_FILE")"
+    elif [ -n "$PALMUX_WS_IMAGE_URL" ]; then
+      _runtime_install_args="--image-url $(printf '%q' "$PALMUX_WS_IMAGE_URL")"
+    elif [ "$PALMUX_WS_PRE" = "1" ]; then
+      _runtime_install_args="--pre"
+    fi
+
+    # Locate the palmux binary (home-manager puts it in the Nix profile).
+    _palmux_bin=""
+    for _candidate in \
+      "${USER_HOME}/.nix-profile/bin/palmux" \
+      "/etc/profiles/per-user/${USERNAME}/bin/palmux" \
+      "${BIN_DIR}/palmux" \
+      "$(command -v palmux 2>/dev/null || true)"; do
+      if [ -n "$_candidate" ] && [ -x "$_candidate" ]; then
+        _palmux_bin="$_candidate"
+        break
+      fi
+    done
+
+    if [ -z "$_palmux_bin" ]; then
+      warn "palmux binary not found on PATH — skipping image import."
+      warn "Run manually after install:  palmux runtime install"
+    else
+      log "importing palmux-ws image via: ${_palmux_bin} runtime install ${_runtime_install_args}"
+      # sg activates the incus-admin group for this subshell so the group
+      # membership added in step 3 is effective without a re-login.
+      # shellcheck disable=SC2086
+      if sg incus-admin -c "${_palmux_bin} runtime install ${_runtime_install_args}"; then
+        log "palmux-ws image import completed"
+      else
+        _exit=$?
+        warn "palmux runtime install exited with code ${_exit}."
+        warn "This may mean no stable release asset exists yet (RC period)."
+        warn "Try:  PALMUX_WS_PRE=1 bash ~/update-palmux2.sh"
+        warn "Or:   palmux runtime install --pre"
+        warn "Or build locally:  bash images/workspace-default/build.sh"
+        warn "Incus itself is set up; the image can be added later."
+      fi
+    fi
+
+    # ── 7. run palmux runtime doctor ──────────────────────────────────────────
+    log "running palmux runtime doctor (host prerequisites check)"
+    if [ -n "$_palmux_bin" ]; then
+      sg incus-admin -c "${_palmux_bin} runtime doctor" || true
+    else
+      warn "palmux not found — skipping doctor; run manually: palmux runtime doctor"
+    fi
+
+  fi  # end inner SKIP_INCUS guard (apt failure path)
+fi    # end outer SKIP_INCUS guard
+
 # --- linger + service ------------------------------------------------------
 
 if [ "${SKIP_SERVICE:-0}" != "1" ]; then
@@ -1089,6 +1265,13 @@ log "writing update helper ${UPDATE_SCRIPT}"
   [ -n "$ACME_EMAIL" ] && echo "export ACME_EMAIL=$(printf '%q' "$ACME_EMAIL")"
   [ -n "$BASIC_AUTH_USER" ] && echo "export BASIC_AUTH_USER=$(printf '%q' "$BASIC_AUTH_USER")"
   echo "export BASIC_AUTH_BCRYPT_COST=$(printf '%q' "$BASIC_AUTH_BCRYPT_COST")"
+  # Incus options (S8478ca)
+  [ "$SKIP_INCUS" = "1" ] && echo 'export SKIP_INCUS=1'
+  [ "$PALMUX_WS_PRE" = "1" ] && echo 'export PALMUX_WS_PRE=1'
+  [ -n "$PALMUX_WS_IMAGE_URL" ] && echo "export PALMUX_WS_IMAGE_URL=$(printf '%q' "$PALMUX_WS_IMAGE_URL")"
+  # PALMUX_WS_IMAGE_FILE is a local path; only persist if it still exists at update time.
+  [ -n "$PALMUX_WS_IMAGE_FILE" ] && [ -f "$PALMUX_WS_IMAGE_FILE" ] && \
+    echo "export PALMUX_WS_IMAGE_FILE=$(printf '%q' "$PALMUX_WS_IMAGE_FILE")"
   echo "$INSTALLER_LINE"
 } > "$UPDATE_SCRIPT"
 chmod 0755 "$UPDATE_SCRIPT"

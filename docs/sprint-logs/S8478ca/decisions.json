@@ -274,6 +274,14 @@
       "decision": "クリーン VM (palmux-deploy-test2 / palmux-deploy-test.tjstkm.net) で新規ユーザ bootstrap を通し、install 機構の gap を検出・修正。(1) palmux runtime install の image import を冪等化: 既存 fingerprint 衝突時は sha256(tarball)==fingerprint で palmux-ws alias を張り直す (build.sh が image をローカル store に残すため)。(2) doctor が incus-admin グループ未所属を検出 (既出)。残 gap (未修正・要検討): 無印 install は release 未発行だと使えない / subuid 設定は root でないと適用されず手動 sudo / palmux 必須ツール ghq・gwq は apt に無く別途導入要 / 切替後 in-container tmux セッションが RestartBranchRuntime 同期でなく sync_tmux recovery 経由で数秒遅れて上がる。",
       "rationale": "整備済み VM は install 体験の抜けを隠す。クリーン VM で初めて『新規ユーザが詰まる所』が出た: ghq/gwq 必須・subuid 手動・release 依存・import 冪等性。機能自体 (incus-container で claude が bind-mount 経由動作・unprivileged・auth/repo 共有) はクリーン環境で完走を実証。",
       "reference": "clean VM: doctor 全 green 後、host→incus 切替 restarted=true / container RUNNING unprivileged / claude 2.1.170 in-container / creds readable / cleantest 可視 / in-container session 確認。"
+    },
+    {
+      "id": "D-install-incus",
+      "phase": "implementation",
+      "category": "implementation",
+      "decision": "scripts/install.sh に Incus ランタイムセットアップステップを追加。デフォルト ON、SKIP_INCUS=1 でオプトアウト。7 ステップで構成: (1) apt install incus (apt に無ければ graceful skip), (2) incus admin init --minimal (incus network list の exit code でガード), (3) usermod -aG incus-admin + 再ログイン警告, (4) /etc/subuid /etc/subgid に root:1000:1 追加 + incus 再起動 (変更時のみ), (5) Docker FORWARD iptables 共存ルール (best-effort), (6) sg incus-admin -c 'palmux runtime install [--image-file|--image-url|--pre]' でイメージ import (PALMUX_WS_IMAGE_FILE / PALMUX_WS_IMAGE_URL / PALMUX_WS_PRE=1 で制御。stable release 未発行時は warning のみで abort しない), (7) palmux runtime doctor で最終診断。SKIP_INCUS / PALMUX_WS_PRE / PALMUX_WS_IMAGE_URL / PALMUX_WS_IMAGE_FILE は ~/update-palmux2.sh に永続化。",
+      "rationale": "D-cleanroom で検出した gap: subuid 手動・release 依存・グループ非活性を install.sh が解決する唯一のタイミング。sudo が使える install.sh は palmux runtime install (root なし) より多くをできる。sg incus-admin を使い再ログインなしでも group 権限でイメージ import が走る。stable release 未発行時は incus デーモン+グループ+subuid まで確立しておき、イメージは後から追加できる設計にすることで RC 期間も installer が動く。idempotency は test VM (palmux-deploy-test.tjstkm.net) で全ステップ 'already done' → doctor all-green を確認 (docs/sprint-logs/S8478ca/run-installsh-incus.log)。",
+      "reference": "scripts/install.sh (Incus container runtime セクション); docs/sprint-logs/S8478ca/run-installsh-incus.log; docs/workspace-runtime-design.md §4"
     }
   ]
 }
