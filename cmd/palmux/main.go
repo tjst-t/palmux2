@@ -96,6 +96,12 @@ func main() {
 		os.Exit(runHook(os.Args[2:]))
 	}
 
+	// `palmux runtime <install|doctor>` manages the palmux-ws Incus image and
+	// host prerequisites.  Dispatch before server bootstrap.
+	if len(os.Args) > 1 && os.Args[1] == "runtime" {
+		os.Exit(runRuntime(os.Args[2:]))
+	}
+
 	// Some Linux distros ship a slim mime DB that doesn't know about
 	// .webmanifest. Register the canonical type so PWAs install cleanly.
 	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")

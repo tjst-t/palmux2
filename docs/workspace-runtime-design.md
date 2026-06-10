@@ -170,7 +170,31 @@ agent 化は将来の最適化（`incus exec` の往復が重い/PTY 制御が�
 |---|---|---|---|
 | `~/ghq` | 同一絶対パス | rw | **全リポジトリの共有**（クロスレポ参照の利便を維持） |
 | `~/.claude` | 同一絶対パス | rw | 認証・skill・memory の透過共有（`claude --resume` が成立） |
+| `~/.claude.json` | 同一絶対パス | rw | onboarding 状態共有（再ログイン防止） |
+| `~/.local/share/claude` | 同一絶対パス | rw | **claude バイナリ本体**（バージョン付き ELF: `versions/<v>/`） |
+| `~/.local/bin` | 同一絶対パス | rw | `claude` symlink → `versions/<v>`（コンテナから `~/.local/bin/claude` で起動可） |
 | `~/.gitconfig`, SSH agent socket 等 | 同一パス | ro/rw | git 操作の継続 |
+
+**claude はイメージに焼かない（S8478ca-refine）**: `palmux-ws` イメージは
+**claude-free な軽量ベース**として配布する。claude はホストの `~/.local/share/claude`
+と `~/.local/bin` を bind-mount することで、コンテナ内の `~/.local/bin/claude` が
+ホスト現在バージョンの native ELF に解決される（再ダウンロード・再認証不要）。
+`/usr/local/bin/claude` はホスト固有の bash cgroup wrapper であり mount しない。
+bind-mount 対象が不在（新規インストール直後等）の場合は silently skip（`os.Stat` で
+不在ならデバイス追加をスキップ — `internal/runtime/incus/incus.go` の Start() 参照）。
+
+**`palmux-ws` イメージの配布**: GitHub Release asset (`palmux-ws.tar.gz`) として
+配布する。インストールは以下の 1 コマンド:
+```
+palmux runtime install
+```
+手動インポートも可能:
+```
+incus image import /path/to/palmux-ws.tar.gz --alias palmux-ws </dev/null
+```
+CI ワークフロー (`.github/workflows/build-workspace-image.yml`) がタグ push・
+weekly schedule で自動ビルド＆アップロードする。ローカルビルドは
+`images/workspace-default/build.sh` を使う。
 
 - **同一絶対パス + `raw.idmap "both 1000 1000"`** を前提にする。host の UID 1000 を
   コンテナに 1:1 で写すことで、bind-mount したファイルの owner が一致し、`claude` が

@@ -1,0 +1,118 @@
+VM: ubuntu@192.168.1.41 (Ubuntu 24.04, Incus 6.0.0)
+Date: 2026-06-10
+Sprint: S8478ca-refine (image distribution + palmux runtime install + claude bind-mount)
+
+=== Deliverable 1: bind-mount ~./local/share/claude + ~/.local/bin ===
+
+VM state: ~/.local/share/claude and ~/.local/bin do NOT exist on VM (claude is
+at /usr/local/bin/claude, a node ELF, not the bash cgroup wrapper pattern).
+
+Created test stand-in:
+  ~/.local/share/claude/versions/test-v1/claude-bin  (shell script printing version)
+  ~/.local/bin/claude -> ~/.local/share/claude/versions/test-v1/claude-bin
+
+Launched palmux-ws-verify2 from new claude-free image (d9aa7a79d36e):
+  incus config device add palmux-ws-verify2 dot-local-share-claude disk \
+    source=/home/ubuntu/.local/share/claude path=/home/ubuntu/.local/share/claude
+  incus config device add palmux-ws-verify2 dot-local-bin disk \
+    source=/home/ubuntu/.local/bin path=/home/ubuntu/.local/bin
+
+Inside container:
+  $ ls -la /home/ubuntu/.local/bin/claude
+  lrwxrwxrwx 1 nobody nogroup 60 Jun 10 04:58 /home/ubuntu/.local/bin/claude ->
+    /home/ubuntu/.local/share/claude/versions/test-v1/claude-bin
+  $ /home/ubuntu/.local/bin/claude
+  claude version test-v1 (bind-mount verification)
+  $ ls /usr/local/bin/claude
+  ls: cannot access '/usr/local/bin/claude': No such file or directory
+
+NOTE: UID shows "nobody nogroup" because raw.idmap was set after container start
+(palmux.Start() sets it before start in normal flow). Execution works regardless.
+
+=== Deliverable 2: build.sh producing claude-free palmux-ws.tar.gz ===
+
+Run:
+  OUT_DIR=~/palmux2-build/dist bash ~/palmux2-build/build.sh
+
+Output summary:
+  1. Launched palmux-ws-build-2099498 from images:ubuntu/24.04
+  2. incus agent ready; cloud-init not present (minimal image) — skipped
+  3. apt-get installed: tmux 3.4, git 2.43.0, curl, ca-certificates, python3
+     Verified: /usr/bin/tmux, /usr/bin/git, /usr/bin/python3
+  4. ubuntu UID=1000 verified
+     claude NOT present in image (correct — will be bind-mounted)
+  5. Published: fingerprint d9aa7a79d36e8402c8e43495490921f37508f48db5f7a42618d10cced80fa41b
+     Exported: /home/ubuntu/palmux2-build/dist/palmux-ws.tar.gz (264M)
+     Cleanup: build instance and temp alias removed
+
+=== Deliverable 2 (verification of new image contents) ===
+
+Imported as palmux-ws-test (d9aa7a79d36e), launched palmux-ws-verify2:
+  tmux:     /usr/bin/tmux   (tmux 3.4)              PRESENT ✓
+  git:      /usr/bin/git    (git version 2.43.0)    PRESENT ✓
+  python3:  /usr/bin/python3                         PRESENT ✓
+  claude:   NOT PRESENT (correct)                    ABSENT ✓
+  ubuntu:   uid=1000(ubuntu) gid=1000(ubuntu)        CORRECT ✓
+
+=== Cleanup ===
+
+  incus delete --force palmux-ws-verify    ✓ removed
+  incus delete --force palmux-ws-verify2   ✓ removed
+  incus image alias delete palmux-ws-test  ✓ removed
+  rm -rf ~/.local/share/claude/versions/test-v1  ✓ removed
+  rm -f ~/.local/bin/claude               ✓ removed
+
+  palmux-ws (9261dabdb6d2) — INTACT, untouched
+
+New claude-free image d9aa7a79d36e (263.30 MiB) remains in incus store
+(no alias, can be imported elsewhere with:
+  incus image import ~/palmux2-build/dist/palmux-ws.tar.gz --alias palmux-ws)
+
+=== Unit tests (Go) ===
+
+go test -count=1 ./internal/runtime/incus/:
+  TestStart_ArgSequence                        PASS
+  TestStart_ClaudeBindMounts                   PASS (new)
+  TestStart_ClaudeBindMounts_SkipsAbsentPaths  PASS (new)
+  TestStop_ArgSequence                         PASS
+  TestIncusTmuxClient_NewSession               PASS
+  TestIncusTmuxClient_HasSession               PASS
+  TestIncusTmuxClient_NewWindow                PASS
+  TestIncusTmuxClient_KillSession              PASS
+  TestAcquireLock                              PASS
+  TestInstanceName                             PASS
+  TestStart_IdempotentWhenExists               PASS
+  TestTmuxClient_ThroughRuntime                PASS
+  TestRegistry_ReturnsIncusForIncusKind        PASS
+  TestRegistry_ReturnsHostForHostKind          PASS
+  TestRegistry_Cache                           PASS
+  TestRegistry_EvictRuntime                    PASS
+  TestListListeningPorts_Parse                 PASS
+  TestExposePort_BindInstance                  PASS
+  TestExposePort_HostPort                      PASS
+  TestUnexposePort                             PASS
+  TestCaddySnippet_Content                     PASS
+  TestCaddySnippet_ReloadArgs                  PASS
+  TestScanPortsOnce_AutoExposes                PASS
+  TestScanPortsOnce_IdempotentWhenAlreadyMapped PASS
+  Total: 24/24 PASS
+
+=== CI workflow ===
+
+.github/workflows/build-workspace-image.yml — correct by inspection.
+Triggers: workflow_dispatch, push tags v*, weekly cron (Mon 02:00 UTC).
+Has NOT been run on GH runners (requires real incus + kernel userns).
+Fail-loud design: if incus admin init or incus launch fails, the workflow
+exits non-zero — no silent empty artifact.
+
+=== palmux runtime install/doctor ===
+
+cmd/palmux/runtime.go — not directly executed on VM (no palmux binary).
+Logic verified by code inspection:
+  - latestReleaseAssetURL: queries GitHub API, respects GITHUB_TOKEN
+  - downloadToTemp: streams to temp file, cleans up on defer
+  - setupSubuidSubgid: reads /etc/subuid,/etc/subgid, adds root:1000:1 if missing
+  - checkDockerForward: checks docker0, iptables FORWARD DROP
+  - --dry-run: shows actions without executing
+  - --image-file: offline path
+  - runtime doctor: checks incus, image alias, subuid, Docker FORWARD

@@ -1,8 +1,12 @@
 // Package incus implements the "incus-container" runtime: each Workspace gets
 // its own Incus container.  Processes (tmux, claude, bash) run inside the
-// container via `incus exec`.  Bind-mounts bring ~/ghq, ~/.claude and
-// ~/.claude.json from the host into the container at the same absolute path so
-// the claude binary finds its OAuth credentials without re-authentication.
+// container via `incus exec`.  Bind-mounts bring ~/ghq, ~/.claude,
+// ~/.claude.json, ~/.local/share/claude and ~/.local/bin from the host into the
+// container at the same absolute paths so the claude binary finds its OAuth
+// credentials without re-authentication and always uses the host's native
+// version (via ~/.local/bin/claude → ~/.local/share/claude/versions/<v>).
+// /usr/local/bin/claude is intentionally NOT mounted — it is a host-specific
+// bash cgroup wrapper that is not portable into the container.
 //
 // Implementation follows docs/workspace-runtime-design.md §3/§4/§0 and
 // decisions D001-D011 in docs/sprint-logs/S8478ca/decisions.json.
@@ -247,11 +251,23 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 		return errors.New(msg)
 	}
 
-	// 3. Bind-mount ~/ghq, ~/.claude, ~/.claude.json at same absolute path.
+	// 3. Bind-mount ~/ghq, ~/.claude, ~/.claude.json, ~/.local/share/claude,
+	// ~/.local/bin at same absolute paths.
 	// [AC-S8478ca-2-2]
+	//
+	// ~/.local/share/claude holds the versioned native claude ELF binaries
+	// (e.g. ~/.local/share/claude/versions/2.1.170).
+	// ~/.local/bin contains the `claude` symlink → versions/<v>.
+	//
+	// Together these two mounts make `~/.local/bin/claude` inside the container
+	// resolve to the host's native binary, always matching the host version.
+	// We do NOT mount /usr/local/bin/claude because that is a host-specific bash
+	// cgroup wrapper that is not portable into the container.
 	ghqPath := filepath.Join(home, "ghq")
 	claudeDir := filepath.Join(home, ".claude")
 	claudeJSON := filepath.Join(home, ".claude.json")
+	claudeShareDir := filepath.Join(home, ".local", "share", "claude")
+	claudeBinDir := filepath.Join(home, ".local", "bin")
 
 	mounts := []struct {
 		name   string
@@ -261,6 +277,10 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 		{"ghq", ghqPath, ghqPath},
 		{"dot-claude", claudeDir, claudeDir},
 		{"dot-claude-json", claudeJSON, claudeJSON},
+		// claude native binary — bind-mount so in-container `~/.local/bin/claude`
+		// is always the same version as the host (no re-download, no re-auth).
+		{"dot-local-share-claude", claudeShareDir, claudeShareDir},
+		{"dot-local-bin", claudeBinDir, claudeBinDir},
 	}
 	for _, m := range mounts {
 		// Skip if source does not exist on host — silently omit to avoid

@@ -250,6 +250,22 @@
       "decision": "in-place runtime switch をトランザクショナル化。新 runtime を先に Start し、失敗したら (a) 永続 kind を旧へロールバック (b) 半端な新 runtime を evict (c) 旧セッションは kill せず温存 (d) 明確なエラーを返す。incus init の失敗判定も修正 (incus list は不在でも exit 0 のため stderr で判定。image not found を user-actionable メッセージに)。idmap エラーの %w-nil 整形バグも除去。",
       "rationale": "ユーザのホスト機 (palmux-ws イメージ未導入) で host→incus 切替が失敗し、旧 host セッションを kill 済みで workspace が壊れる/error バッジが残る事象を報告。従来は kill→start 順で、start 失敗時に復旧不能だった。新 runtime の起動成功を確認してから旧を破棄する順序に変更。VM で image を隠して実証: restarted=false / runtime=host 復帰 / host session PRESERVED / 明確なエラー。unit に TestRestartBranchRuntime_RollbackOnStartFailure を追加。",
       "reference": "VM rollback 実証 + happy-path switch E2E 4/4 + go suite 21 pkgs。ホスト機で incus を使うには palmux-ws イメージ build + /etc/subuid,subgid root:1000:1 + (Docker あれば) FORWARD 許可が必要 (design §4/§5)。"
+    },
+    {
+      "id": "D-refine-image-distribution",
+      "phase": "implementation",
+      "category": "architecture",
+      "decision": "palmux-ws イメージを claude-free な軽量ベースとして GitHub Release asset として配布することに決定。(1) イメージに claude を焼かない — claude は bind-mount で提供。(2) `images/workspace-default/build.sh` でローカルビルド可能な再現性スクリプトを提供 (OUT_DIR/IMAGE_BASE パラメータ化)。(3) `palmux runtime install` サブコマンドで 1 コマンドインストール (GitHub API → ダウンロード → incus image import)。(4) `palmux runtime doctor` で前提条件チェック。(5) `.github/workflows/build-workspace-image.yml` で tag push / weekly schedule での自動ビルド＆アセットアップロード。",
+      "rationale": "claude バイナリは 236MB+ かつバージョン管理が必要。イメージに焼くと更新のたびにイメージ再ビルドが必要になり、認証の問題も残る。bind-mount なら host バージョンと常に一致し再認証不要。イメージは tmux/git/python3 だけの~135MB になり配布コストも下がる。`palmux runtime install` により 'install してすぐ使える' ユーザ体験を提供。doctor コマンドで subuid/subgid・Docker FORWARD の前提確認を自動化。CI ワークフローは GH-runner での Incus コンテナビルドを試みるが、kernel/permission 制限で失敗する場合は LOUD fail (サイレント空アーティファクトなし) を保証。",
+      "reference": "images/workspace-default/build.sh; cmd/palmux/runtime.go; .github/workflows/build-workspace-image.yml; internal/runtime/incus/incus.go Start() bind-mount 追加 (dot-local-share-claude, dot-local-bin); docs/workspace-runtime-design.md §4 更新"
+    },
+    {
+      "id": "D-refine-claude-bind-mount",
+      "phase": "implementation",
+      "category": "implementation",
+      "decision": "Start() の bind-mount リストに ~/.local/share/claude と ~/.local/bin を追加。既存の ~/ghq, ~/.claude, ~/.claude.json と同パターン (同一絶対パス, rw, ソース不在時 skip)。/usr/local/bin/claude は意図的にマウントしない (bash cgroup wrapper — コンテナ非互換)。unit テスト 2 件追加: TestStart_ClaudeBindMounts (パス在り → device-add あり), TestStart_ClaudeBindMounts_SkipsAbsentPaths (パスなし → device-add なし)。t.Setenv で $HOME を一時差し替えて self-contained テストを実現。",
+      "rationale": "ホストの ~/.local/share/claude/versions/<v> が native ELF、~/.local/bin/claude が symlink。この 2 パスを bind すればコンテナ内で同じパスで claude が解決できる。ただし ~/.local/bin は他コマンド (ghq/gwq 等) も含むため readonly ではなく rw で対称性を保つ (他 mount と同一ポリシー)。パス不在 skip は fresh install や VM のように ~/.local/bin/claude が存在しない環境 (claude が /usr/local/bin にある node wrapper 形式) でも安全に動作させるため。",
+      "reference": "internal/runtime/incus/incus.go Start() mounts slice; incus_test.go TestStart_ClaudeBindMounts / TestStart_ClaudeBindMounts_SkipsAbsentPaths; 2 new tests PASS。VM: ~/.local/share/claude および ~/.local/bin は不在 → skip される正常動作を確認。"
     }
   ]
 }

@@ -139,12 +139,17 @@ func TestStart_ArgSequence(t *testing.T) {
 		t.Errorf("[AC-S8478ca-2-2] expected 'incus config set %s raw.idmap \"both 1000 1000\"', not found in %v", inst, calls)
 	}
 
-	// 3. Three device-add calls for ~/ghq, ~/.claude, ~/.claude.json  [AC-S8478ca-2-2]
+	// 3. Five device-add calls for ~/ghq, ~/.claude, ~/.claude.json,
+	// ~/.local/share/claude, ~/.local/bin  [AC-S8478ca-2-2]
+	// [AC-S8478ca-refine-claude-bind-mount]
 	home, _ := os.UserHomeDir()
 	for _, m := range []struct{ name, src string }{
 		{"ghq", filepath.Join(home, "ghq")},
 		{"dot-claude", filepath.Join(home, ".claude")},
 		{"dot-claude-json", filepath.Join(home, ".claude.json")},
+		// claude native binary mounts (refine sprint, deliver#1)
+		{"dot-local-share-claude", filepath.Join(home, ".local", "share", "claude")},
+		{"dot-local-bin", filepath.Join(home, ".local", "bin")},
 	} {
 		if _, err := os.Stat(m.src); os.IsNotExist(err) {
 			t.Logf("skipping bind-mount assert for %q (not on this machine)", m.src)
@@ -168,6 +173,122 @@ func TestStart_ArgSequence(t *testing.T) {
 	// State should be Ready.
 	if s := rt.Status(); s.State != runtime.StateReady {
 		t.Errorf("Status.State = %q, want %q", s.State, runtime.StateReady)
+	}
+}
+
+// -------------------------------------------------------------------------
+// TestStart_ClaudeBindMounts verifies that Start emits device-add for
+// ~/.local/share/claude and ~/.local/bin when those paths exist on the host.
+// The test creates temporary stand-ins so it is self-contained and does not
+// depend on the real host paths being present.
+// [AC-S8478ca-refine-claude-bind-mount]
+// -------------------------------------------------------------------------
+
+func TestStart_ClaudeBindMounts(t *testing.T) {
+	inst := "ws-claude-mounts-ff001122"
+	fr := newFakeRunner()
+	fr.setResult("exec "+inst, fakeResult{code: 0})               // waitReady
+	fr.setResult("list "+inst, fakeResult{stdout: "[]", code: 0}) // containerIP
+
+	// Create temporary directories to stand in for ~/.local/share/claude and
+	// ~/.local/bin so this test works on machines that do not have those paths.
+	tmpBase := t.TempDir()
+	shareClaudeDir := filepath.Join(tmpBase, ".local", "share", "claude")
+	localBinDir := filepath.Join(tmpBase, ".local", "bin")
+	if err := os.MkdirAll(shareClaudeDir, 0o755); err != nil {
+		t.Fatalf("mkdir shareClaudeDir: %v", err)
+	}
+	if err := os.MkdirAll(localBinDir, 0o755); err != nil {
+		t.Fatalf("mkdir localBinDir: %v", err)
+	}
+
+	// Temporarily override $HOME so incus.go's filepath.Join(home, ...) picks
+	// up our fake directories.  Restore original home on cleanup.
+	origHome := os.Getenv("HOME")
+	t.Setenv("HOME", tmpBase)
+	// Also create the minimal paths the other mounts look for, to avoid warnings
+	// (not fatal but keeps test output clean).
+	_ = os.MkdirAll(filepath.Join(tmpBase, "ghq"), 0o755)
+	_ = os.MkdirAll(filepath.Join(tmpBase, ".claude"), 0o755)
+	_ = os.WriteFile(filepath.Join(tmpBase, ".claude.json"), []byte("{}"), 0o600)
+	defer os.Setenv("HOME", origHome)
+
+	rt := New(runtime.Config{Kind: runtime.KindIncusContainer, Image: "palmux-ws"}, inst, fr.asRunner(), nil)
+	ctx := context.Background()
+	if err := rt.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	calls := fr.recorded()
+
+	// Assert device-add for dot-local-share-claude
+	if _, ok := findCall(calls,
+		"config", "device", "add", inst,
+		"dot-local-share-claude", "disk",
+		"source="+shareClaudeDir,
+		"path="+shareClaudeDir,
+	); !ok {
+		t.Errorf("[AC-S8478ca-refine-claude-bind-mount] expected device-add dot-local-share-claude %s, not found in %v", shareClaudeDir, calls)
+	}
+
+	// Assert device-add for dot-local-bin
+	if _, ok := findCall(calls,
+		"config", "device", "add", inst,
+		"dot-local-bin", "disk",
+		"source="+localBinDir,
+		"path="+localBinDir,
+	); !ok {
+		t.Errorf("[AC-S8478ca-refine-claude-bind-mount] expected device-add dot-local-bin %s, not found in %v", localBinDir, calls)
+	}
+}
+
+// -------------------------------------------------------------------------
+// TestStart_ClaudeBindMounts_SkipsAbsentPaths verifies that Start does NOT
+// emit device-add for ~/.local/share/claude or ~/.local/bin when those paths
+// are absent on the host — they are optional (new installs may not have them).
+// [AC-S8478ca-refine-claude-bind-mount]
+// -------------------------------------------------------------------------
+
+func TestStart_ClaudeBindMounts_SkipsAbsentPaths(t *testing.T) {
+	inst := "ws-claude-absent-ab009988"
+	fr := newFakeRunner()
+	fr.setResult("exec "+inst, fakeResult{code: 0})
+	fr.setResult("list "+inst, fakeResult{stdout: "[]", code: 0})
+
+	// tmpBase has no .local subdirectory at all — simulates a fresh install.
+	tmpBase := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(tmpBase, "ghq"), 0o755)
+	_ = os.MkdirAll(filepath.Join(tmpBase, ".claude"), 0o755)
+	_ = os.WriteFile(filepath.Join(tmpBase, ".claude.json"), []byte("{}"), 0o600)
+	t.Setenv("HOME", tmpBase)
+
+	rt := New(runtime.Config{Kind: runtime.KindIncusContainer, Image: "palmux-ws"}, inst, fr.asRunner(), nil)
+	if err := rt.Start(context.Background()); err != nil {
+		t.Fatalf("Start (no .local paths): %v", err)
+	}
+
+	calls := fr.recorded()
+
+	localShareClaude := filepath.Join(tmpBase, ".local", "share", "claude")
+	localBin := filepath.Join(tmpBase, ".local", "bin")
+
+	for _, absent := range []struct{ name, src string }{
+		{"dot-local-share-claude", localShareClaude},
+		{"dot-local-bin", localBin},
+	} {
+		if _, ok := findCall(calls,
+			"config", "device", "add", inst,
+			absent.name, "disk",
+			"source="+absent.src,
+			"path="+absent.src,
+		); ok {
+			t.Errorf("[AC-S8478ca-refine-claude-bind-mount] device-add for absent %q should be skipped, but was found in %v", absent.name, calls)
+		}
+	}
+
+	// Start should still succeed.
+	if s := rt.Status(); s.State != runtime.StateReady {
+		t.Errorf("Status.State = %q, want Ready", s.State)
 	}
 }
 

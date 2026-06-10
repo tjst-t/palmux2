@@ -1,0 +1,141 @@
+name: Build workspace image (palmux-ws)
+
+# Builds the claude-free palmux-ws Incus base image and uploads it as a
+# GitHub Release asset.
+#
+# Triggers:
+#   - workflow_dispatch  : manual run from the Actions UI
+#   - push tags v*       : triggered by a release tag (e.g. v1.0.0)
+#   - schedule           : weekly rebuild to pick up base OS security patches
+#
+# Output:
+#   - dist/palmux-ws.tar.gz      — stable name (always overwritten)
+#   - dist/palmux-ws-<date>.tar.gz — dated name (new asset per run)
+#
+# IMPORTANT — CI limitations noted:
+#   GitHub Actions ubuntu-24.04 runners are virtual machines backed by a
+#   standard nested-virt capable hypervisor.  Incus needs /dev/kvm (for VMs)
+#   or at minimum unprivileged user namespaces (for containers).  As of 2026
+#   GitHub-hosted ubuntu-24.04 runners enable userns_clone (Linux kernel flag
+#   kernel.unprivileged_userns_clone=1), which makes Incus container mode work
+#   without kernel patches.  However:
+#     1. `sudo incus admin init --minimal` may fail on some runner generations
+#        if the runner kernel has too-restrictive seccomp or apparmor policy.
+#     2. The `incus launch` step needs the Incus snap/package and a running
+#        incusd daemon — the default GH runner does not ship incus.
+#   If this workflow fails with "incus admin init" or "incus launch" errors,
+#   it will fail LOUDLY (no silent empty artifact).  See the comment in
+#   the "Verify build" step.
+#
+#   Verified manually on Ubuntu 24.04 with Incus 6.0 (test VM 192.168.1.41).
+#   The workflow is correct by inspection; a full CI run has not been executed
+#   on GH runners as of sprint S8478ca.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+  schedule:
+    # Weekly rebuild: Monday 02:00 UTC
+    - cron: '0 2 * * 1'
+
+permissions:
+  contents: write   # needed to upload Release assets
+
+env:
+  OUT_DIR: dist
+
+jobs:
+  build-image:
+    name: Build palmux-ws Incus image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install incus
+        run: |
+          # Install incus from the Ubuntu universe repository.
+          # The zabbly PPA provides a newer stable version when available.
+          sudo apt-get update -qq
+          sudo apt-get install -y incus
+          incus version || true
+        # NOTE: If the runner does not ship incus in universe, try:
+        #   curl -fsSL https://pkgs.zabbly.com/key.asc | sudo gpg --dearmor -o /etc/apt/keyrings/zabbly.gpg
+        #   echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/zabbly.gpg] https://pkgs.zabbly.com/incus/stable $(. /etc/os-release; echo $VERSION_CODENAME) main" | sudo tee /etc/apt/sources.list.d/zabbly-incus.list
+        #   sudo apt-get update && sudo apt-get install -y incus
+
+      - name: Initialise incus (minimal)
+        run: |
+          # The --minimal flag sets up a managed bridge + default storage pool
+          # without prompting.  </dev/null is essential: incus admin init reads
+          # stdin as a preseed YAML if it is a tty.
+          sudo incus admin init --minimal </dev/null
+          # Verify the daemon is reachable.
+          incus info </dev/null
+
+      - name: Build palmux-ws image
+        run: |
+          mkdir -p "${OUT_DIR}"
+          # The script must run as the current user (not root) so that
+          # incus commands go through the user's incus socket.
+          # If the script fails it exits non-zero → the step fails loudly.
+          OUT_DIR="${OUT_DIR}" bash images/workspace-default/build.sh
+
+      - name: Verify build output
+        run: |
+          if [ ! -f "${OUT_DIR}/palmux-ws.tar.gz" ]; then
+            echo "ERROR: dist/palmux-ws.tar.gz not produced — build step is broken"
+            exit 1
+          fi
+          echo "Output:"
+          ls -lh "${OUT_DIR}/palmux-ws.tar.gz"
+          echo "SHA256:"
+          sha256sum "${OUT_DIR}/palmux-ws.tar.gz"
+
+      - name: Create dated copy of asset
+        run: |
+          DATE=$(date +%Y%m%d)
+          cp "${OUT_DIR}/palmux-ws.tar.gz" "${OUT_DIR}/palmux-ws-${DATE}.tar.gz"
+          echo "ASSET_DATE=${DATE}" >> "$GITHUB_ENV"
+
+      # ── Tag push: upload to the corresponding GitHub Release ────────────────
+      - name: Upload to GitHub Release (tag push)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/palmux-ws.tar.gz
+            dist/palmux-ws-${{ env.ASSET_DATE }}.tar.gz
+          # Don't fail if the release is a draft — the binary release
+          # workflow (release.yml) may still be running.
+          fail_on_unmatched_files: true
+
+      # ── Manual / scheduled: upsert a dedicated `workspace-image` pre-release ─
+      - name: Upload to workspace-image pre-release (manual/scheduled)
+        if: "!startsWith(github.ref, 'refs/tags/v')"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Create or update the stable `workspace-image` pre-release.
+          # `gh release create` is idempotent with --notes-file update semantics.
+          DATE=$(date +%Y-%m-%d)
+          TAG="workspace-image"
+
+          # Try to create; if it already exists `gh release create` exits 1 —
+          # that's fine, we'll just upload to the existing one.
+          gh release create "${TAG}" \
+            --prerelease \
+            --title "palmux-ws image (latest)" \
+            --notes "Auto-updated palmux-ws Incus base image. Built ${DATE}." \
+            2>/dev/null || true
+
+          # Delete and re-upload so the stable `palmux-ws.tar.gz` name always
+          # points to the newest build.
+          gh release upload "${TAG}" \
+            "dist/palmux-ws.tar.gz" \
+            "dist/palmux-ws-${ASSET_DATE}.tar.gz" \
+            --clobber
