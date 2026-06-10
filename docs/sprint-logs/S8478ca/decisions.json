@@ -266,6 +266,14 @@
       "decision": "Start() の bind-mount リストに ~/.local/share/claude と ~/.local/bin を追加。既存の ~/ghq, ~/.claude, ~/.claude.json と同パターン (同一絶対パス, rw, ソース不在時 skip)。/usr/local/bin/claude は意図的にマウントしない (bash cgroup wrapper — コンテナ非互換)。unit テスト 2 件追加: TestStart_ClaudeBindMounts (パス在り → device-add あり), TestStart_ClaudeBindMounts_SkipsAbsentPaths (パスなし → device-add なし)。t.Setenv で $HOME を一時差し替えて self-contained テストを実現。",
       "rationale": "ホストの ~/.local/share/claude/versions/<v> が native ELF、~/.local/bin/claude が symlink。この 2 パスを bind すればコンテナ内で同じパスで claude が解決できる。ただし ~/.local/bin は他コマンド (ghq/gwq 等) も含むため readonly ではなく rw で対称性を保つ (他 mount と同一ポリシー)。パス不在 skip は fresh install や VM のように ~/.local/bin/claude が存在しない環境 (claude が /usr/local/bin にある node wrapper 形式) でも安全に動作させるため。",
       "reference": "internal/runtime/incus/incus.go Start() mounts slice; incus_test.go TestStart_ClaudeBindMounts / TestStart_ClaudeBindMounts_SkipsAbsentPaths; 2 new tests PASS。VM: ~/.local/share/claude および ~/.local/bin は不在 → skip される正常動作を確認。"
+    },
+    {
+      "id": "D-cleanroom",
+      "phase": "review",
+      "category": "reliability",
+      "decision": "クリーン VM (palmux-deploy-test2 / palmux-deploy-test.tjstkm.net) で新規ユーザ bootstrap を通し、install 機構の gap を検出・修正。(1) palmux runtime install の image import を冪等化: 既存 fingerprint 衝突時は sha256(tarball)==fingerprint で palmux-ws alias を張り直す (build.sh が image をローカル store に残すため)。(2) doctor が incus-admin グループ未所属を検出 (既出)。残 gap (未修正・要検討): 無印 install は release 未発行だと使えない / subuid 設定は root でないと適用されず手動 sudo / palmux 必須ツール ghq・gwq は apt に無く別途導入要 / 切替後 in-container tmux セッションが RestartBranchRuntime 同期でなく sync_tmux recovery 経由で数秒遅れて上がる。",
+      "rationale": "整備済み VM は install 体験の抜けを隠す。クリーン VM で初めて『新規ユーザが詰まる所』が出た: ghq/gwq 必須・subuid 手動・release 依存・import 冪等性。機能自体 (incus-container で claude が bind-mount 経由動作・unprivileged・auth/repo 共有) はクリーン環境で完走を実証。",
+      "reference": "clean VM: doctor 全 green 後、host→incus 切替 restarted=true / container RUNNING unprivileged / claude 2.1.170 in-container / creds readable / cleantest 可視 / in-container session 確認。"
     }
   ]
 }

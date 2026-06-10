@@ -26,6 +26,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -190,15 +191,50 @@ func runRuntimeInstall(args []string) int {
 
 	c := exec.Command(importCmd[0], importCmd[1:]...) //nolint:gosec
 	c.Stdin = nil
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
+	var importOut strings.Builder
+	c.Stdout = io.MultiWriter(os.Stdout, &importOut)
+	c.Stderr = io.MultiWriter(os.Stderr, &importOut)
 	if err := c.Run(); err != nil {
+		// Idempotency: the image content may already be in the incus store
+		// (e.g. left by build.sh, which publishes then exports). `incus image
+		// import` refuses a duplicate fingerprint, but the fix is just to point
+		// the `palmux-ws` alias at the existing image. For a unified tarball the
+		// fingerprint is the SHA-256 of the file.
+		if strings.Contains(importOut.String(), "already exists") {
+			if fp, ferr := sha256File(tarballPath); ferr == nil {
+				_ = exec.Command("incus", "image", "alias", "delete", "palmux-ws").Run() //nolint:gosec,errcheck
+				al := exec.Command("incus", "image", "alias", "create", "palmux-ws", fp) //nolint:gosec
+				al.Stdin = nil
+				if al.Run() == nil {
+					fmt.Println("  (image already in store — aliased existing fingerprint to palmux-ws)")
+					printSuccessSummary(false)
+					return 0
+				}
+				fmt.Fprintf(os.Stderr, "ERROR: image exists but could not alias it; run: incus image alias create palmux-ws %s\n", fp)
+				return 1
+			}
+		}
 		fmt.Fprintf(os.Stderr, "ERROR: incus image import failed: %v\n", err)
 		return 1
 	}
 
 	printSuccessSummary(false)
 	return 0
+}
+
+// sha256File returns the hex SHA-256 of a file (= the incus fingerprint of a
+// unified image tarball).
+func sha256File(path string) (string, error) {
+	f, err := os.Open(path) //nolint:gosec
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
 // printSuccessSummary prints the post-install guidance.
