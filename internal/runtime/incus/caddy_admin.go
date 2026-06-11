@@ -211,8 +211,12 @@ func (c *caddyAdminClient) upsertRoute(ctx context.Context, id, host, upstream, 
 	}
 
 	srv := c.serverName(ctx)
-	url := fmt.Sprintf("%s/config/apps/http/servers/%s/routes", c.base, srv)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	// Insert at index 0 (PUT to .../routes/0) so our specific per-port host
+	// routes are matched BEFORE any static wildcard catch-all (e.g. the
+	// `*.<base>` "no upstream" 502 route) which lives later in the array.
+	// Appending would put us after the catch-all and every port would 502.
+	url := fmt.Sprintf("%s/config/apps/http/servers/%s/routes/0", c.base, srv)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("caddy admin: new request: %w", err)
 	}

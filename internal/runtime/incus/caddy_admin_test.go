@@ -55,7 +55,8 @@ func (f *fakeCaddyAdmin) handler() http.Handler {
 			"srvX": map[string]any{"listen": []string{":80"}},
 		})
 	})
-	mux.HandleFunc("POST /config/apps/http/servers/{srv}/routes", func(w http.ResponseWriter, r *http.Request) {
+	// palmux inserts at the front: PUT .../routes/0
+	mux.HandleFunc("PUT /config/apps/http/servers/{srv}/routes/{idx}", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		f.lastPostURL = r.URL.Path
@@ -83,9 +84,9 @@ func TestUpsertRoute_WithAuthTargetsSrv443(t *testing.T) {
 		t.Fatalf("upsertRoute: %v", err)
 	}
 
-	// It must POST to the :443 server (srv0), not srvX.
-	if !strings.Contains(fake.lastPostURL, "/servers/srv0/routes") {
-		t.Fatalf("POST went to %q, want srv0", fake.lastPostURL)
+	// It must insert into the :443 server (srv0) at the front, not srvX.
+	if !strings.Contains(fake.lastPostURL, "/servers/srv0/routes/0") {
+		t.Fatalf("route insert went to %q, want srv0 index 0", fake.lastPostURL)
 	}
 	// It must first DELETE the existing @id (idempotent upsert).
 	if len(fake.deletedIDs) != 1 || fake.deletedIDs[0] != "palmux-inst-5173" {
