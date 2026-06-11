@@ -1,0 +1,114 @@
+{
+  "sprint": "See8bd4",
+  "title": "incus コンテナポートの公開サブドメイン化 (TLS + Caddy admin API)",
+  "touched_adrs": [],
+  "touched_adrs_note": "docs/DESIGN/adr/ は存在しないため Guard 7 は fallback set (ADR-0014/0033/0034) に委ねる (該当 ADR なし)。",
+  "story_classification": {
+    "See8bd4-1": {
+      "entry_point": "api",
+      "scenario_file": "scenario-See8bd4-1.json",
+      "reason": "install.sh (CLI) で Caddy を構成し、結果は HTTPS + admin API という API 面で観測する。GUI なし。"
+    },
+    "See8bd4-2": {
+      "entry_point": "api",
+      "scenario_file": "scenario-See8bd4-2.json",
+      "reason": "ポート公開は route 注入であり、観測点は curl https://<sub>.<base> (実 HTTP)。GUI なし。"
+    },
+    "See8bd4-3": {
+      "entry_point": "gui",
+      "gui_spec_file": "gui-spec-See8bd4-3.json",
+      "reason": "Workspace 配下の Ports パネルという閲覧+操作 UI。React FE で観測。"
+    }
+  },
+  "decisions": [
+    {
+      "id": "D1",
+      "decision": "route 注入は palmux → Caddy admin API (localhost:2019) 直叩き。portman 非依存。conf.d ファイル + 手動 reload は廃止",
+      "rationale": "system-manager 管理の /etc/caddy/Caddyfile を palmux が書き換えると競合する。admin API は portman model B (S85caca) で実績があり、route の idempotent upsert/delete が安全。",
+      "source": "user confirmed 2026-06-11"
+    },
+    {
+      "id": "D2",
+      "decision": "公開サブドメイン命名 = <port>--<workspace>--<repo>.<base>",
+      "rationale": "host model B の {name}--{wt}--{repo} と対称。複数 workspace が同一 :5173 を出しても衝突しない。",
+      "source": "user confirmed 2026-06-11"
+    },
+    {
+      "id": "D3",
+      "decision": "公開サブドメインは既定でエッジ basic_auth の内側。Public=true の port のみ無認証で除外",
+      "rationale": "シングルユーザ自前ホスティング前提。誤って作業中 dev サーバを無認証公開する事故を防ぐ。PortSpec.Public が既に interface にあり再利用できる。",
+      "source": "user confirmed 2026-06-11"
+    },
+    {
+      "id": "D4",
+      "decision": "既存 S8478ca-4 の writeSnippet/.palmux.local 経路は Story -2 で admin API 版に置換 (削除ではなく付け替え)。port scan ループ (store.runPortScan/ScanPortsOnce) と ExposePort の Python relay は再利用",
+      "rationale": "検出ロジックは無回帰で残し、出力先 (Caddy 経路) だけ差し替える。blast radius を最小化。",
+      "source": "auto (clear best practice)"
+    },
+    {
+      "id": "D5",
+      "decision": "Ports UI は Workspace 配下のパネル。host runtime の Workspace では incus 専用機能である旨を案内 (AC-3-4)",
+      "rationale": "host port は portman 管轄 (S85caca) であり UI で混同させない。S8478ca-5 の runtime chip と整合。",
+      "source": "auto"
+    },
+    {
+      "id": "D6",
+      "decision": "Ports UI は runtime=incus-container のときだけ出る Conditional タブ (/{repo}/{branch}/ports)。tab module system (Sprint タブと同じ Conditional 機構) で実装",
+      "rationale": "既存タブ機構の再利用で core 変更不要。host runtime では出ない=AC-3-4 と整合。プロトタイプ レビューで popover 希望なら差し替え可。",
+      "source": "auto (clear best practice; user may redirect at prototype review)"
+    },
+    {
+      "id": "D7",
+      "decision": "Caddy 連携の具体形: 静的 system-manager Caddyfile に *.<base> wildcard site (DNS-01 cert) + admin API (localhost:2019) を持たせ、palmux は admin API で per-port route を @id 付きで idempotent に upsert/delete する。basic_auth は palmux が各 route の handler 列に注入 (Public=true の port は省略)。palmux は公開ドメインを --public-domain、basic auth を env BASIC_AUTH_USER/BASIC_AUTH_HASH、admin を --caddy-admin (既定 http://localhost:2019) で受け取る",
+      "rationale": "admin-API route は Caddy reload で消えるが palmux の port scan ループ (10s, idempotent) が再注入するため実用上維持される (portman model B と同じ再 sync 思想)。wildcard cert と apex auth は静的 config に置き reload 耐性を持たせる。route 単位 basic_auth は Public opt-out を route ごとに表現できる。",
+      "source": "auto (clear best practice, derived from S85caca admin-API precedent)"
+    },
+    {
+      "id": "D8",
+      "decision": "sprint run の worktree 並列は Story-1 (nix/ + scripts/ のみ) を background sub-agent、Story-2/-3 BE+FE は main agent が直列実装。Story 間は密結合 (config plumbing → caddy client → handlers → FE 契約) で worktree 並列は競合・契約ズレのリスクが高いため",
+      "rationale": "sprint-run は『dependencies allow なら並列』。本 Sprint は依存が強いので独立な Story-1 のみ並列化。auto mode の自律プロセス判断として記録。",
+      "source": "auto"
+    }
+  ],
+  "story_See8bd4_1": {
+    "implemented": "2026-06-11",
+    "files_changed": [
+      "nix/modules/system-manager-caddy.nix",
+      "nix/modules/home-manager-palmux.nix",
+      "nix/lib/mkPalmuxHost.nix",
+      "scripts/install.sh",
+      "tests/acceptance/see8bd4_caddy_wildcard.py"
+    ],
+    "env_and_flag_wiring": {
+      "palmux_flag": "--public-domain <domain>",
+      "env_vars_read_by_palmux": [
+        "BASIC_AUTH_USER",
+        "BASIC_AUTH_HASH"
+      ],
+      "env_file_for_palmux_unit": "/etc/palmux/runtime.env",
+      "env_file_ownership": "root:<username> 0640",
+      "contents": [
+        "PALMUX_PUBLIC_DOMAIN=<domain>",
+        "BASIC_AUTH_USER=<user>   (when basicAuth.enable)",
+        "BASIC_AUTH_HASH=<bcrypt> (when basicAuth.enable)"
+      ],
+      "rationale": "/etc/caddy/palmux.env is root:caddy 0640 and the palmux2 user service cannot read it; a separate file owned by root:<username> avoids granting the user caddy-group membership or widening /etc/caddy/palmux.env permissions."
+    },
+    "caddy_admin_api": {
+      "listen": "localhost:2019",
+      "note": "never bound to 0.0.0.0; palmux patches per-port routes into srv0 via PATCH /id/<route-id>"
+    },
+    "wildcard_site": {
+      "hostname": "*.${domain}",
+      "listener": ":443 (same as apex — Caddyfile adapter merges into srv0)",
+      "tls": "dns cloudflare {env.CLOUDFLARE_API_TOKEN}",
+      "default_handler": "respond 502 no upstream (no data leakage when no route injected)",
+      "basic_auth": "absent from static config; injected per-route by palmux"
+    },
+    "apex_site": "unchanged: basic_auth + reverse_proxy 127.0.0.1:8080 + dns cloudflare tls",
+    "out_of_scope_findings": [
+      "PORTMAN_ROUTING=1 path already writes caddy.json with admin localhost:2019; that path is unchanged — the new wildcard site is added only to the Caddyfile (non-portman) path. portman model B pre-dates this story and has its own wildcard cert flow.",
+      "nix/modules/system-manager-caddy.nix is declared but install.sh bypasses system-manager due to upstream nixpkgs compat issue (see install.sh comment near Caddy section). The .nix module is kept in sync for future system-manager adoption."
+    ]
+  }
+}

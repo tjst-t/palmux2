@@ -4,6 +4,14 @@
 #   - Caddy 無効 → 0.0.0.0:8080  (LAN から直接アクセス)
 #   - Caddy 有効 → 127.0.0.1:8080 (Caddy のみが proxy)
 #
+# publicDomain (See8bd4-1): Caddy ワイルドカード + admin API が有効なとき、
+#   mkPalmuxHost が domain を渡す。セットされると:
+#   - ExecStart に --public-domain <domain> が追加される (port publishing 有効化)
+#   - EnvironmentFile = /etc/palmux/runtime.env が追加される
+#     (BASIC_AUTH_USER / BASIC_AUTH_HASH を palmux2 プロセスに渡す)
+#   /etc/palmux/runtime.env は install.sh が root:<username> 0640 で書く
+#   (/etc/caddy/palmux.env は root:caddy 0640 で palmux2 ユーザが読めないため)。
+#
 # profileName=="full" の時、 programs.* で shell-UX cluster (starship, fzf,
 # zoxide, eza, bat, git-delta) を enable して bash 統合を自動セットアップ。
 { palmux2-pkg
@@ -13,9 +21,26 @@
 , homeDirectory
 , bindAddr ? "0.0.0.0:8080"
 , stateVersion ? "24.11"
-,
+  # See8bd4-1: public base domain for wildcard subdomain port publishing.
+  # null = port publishing disabled (no --public-domain flag).
+, publicDomain ? null
 }:
 { config, lib, pkgs, ... }:
+let
+  caddyEnabled = publicDomain != null;
+
+  # Extra ExecStart flags when Caddy wildcard is active.
+  publicDomainFlag = lib.optionalString caddyEnabled " --public-domain ${publicDomain}";
+
+  # /etc/palmux/runtime.env is written by install.sh with:
+  #   PALMUX_PUBLIC_DOMAIN=<domain>
+  #   BASIC_AUTH_USER=<user>      (when basicAuth.enable)
+  #   BASIC_AUTH_HASH=<bcrypt>    (when basicAuth.enable)
+  # The file is root:<username> 0640 so the palmux2 user service can read it
+  # without giving caddy-group access to the bcrypt hash and without leaking
+  # secrets into the Nix store.
+  runtimeEnvFile = "/etc/palmux/runtime.env";
+in
 {
   config = lib.mkMerge [
     {
@@ -46,12 +71,18 @@
 
         Service = {
           Type = "simple";
-          ExecStart = "${palmux2-pkg}/bin/palmux2 --addr=${bindAddr}";
+          ExecStart = "${palmux2-pkg}/bin/palmux2 --addr=${bindAddr}${publicDomainFlag}";
           Restart = "on-failure";
           RestartSec = 5;
           Environment = [
             "PATH=/usr/local/bin:%h/.local/bin:/run/current-system/sw/bin:%h/.nix-profile/bin:/usr/bin:/bin"
           ];
+        } // lib.optionalAttrs caddyEnabled {
+          # When Caddy is enabled, read BASIC_AUTH_USER / BASIC_AUTH_HASH from
+          # /etc/palmux/runtime.env (written by install.sh, root:<user> 0640).
+          # This avoids reading /etc/caddy/palmux.env which is root:caddy 0640
+          # and not readable by the palmux2 user service.
+          EnvironmentFile = runtimeEnvFile;
         };
 
         Install = {
