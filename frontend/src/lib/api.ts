@@ -201,3 +201,50 @@ export interface SubagentCleanupResult {
   removed?: SubagentCleanupRemoval[]
   failed?: SubagentCleanupRemoval[]
 }
+
+// See8bd4-3: Ports tab types ─────────────────────────────────────────────────
+
+/** One listening port in a container workspace, with its exposure state. */
+export interface PortView {
+  port: number
+  proto: string
+  bindAddr: string
+  process: string
+  /** True when bound to 127.0.0.1 only — reachable via in-container relay. */
+  localhostOnly: boolean
+  /** True when the port is exposed without edge basic_auth. */
+  public: boolean
+  /** True when a public Caddy route exists for this port. */
+  exposed: boolean
+  /** https://<port>--<ws>--<repo>.<base> when exposed, else "". */
+  publicUrl: string
+}
+
+/** Response shape for GET .../ports */
+export interface WorkspacePorts {
+  runtimeKind: 'host' | 'incus-container'
+  ports: PortView[]
+}
+
+/** Response from POST .../ports/{port}/expose */
+export interface ExposePortResponse {
+  port: number
+  public: boolean
+  publicUrl: string
+}
+
+export const portsApi = {
+  list: (repoId: string, branchId: string) =>
+    api.get<WorkspacePorts>(
+      `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/ports`,
+    ),
+  expose: (repoId: string, branchId: string, port: number, pub: boolean) =>
+    api.post<ExposePortResponse>(
+      `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/ports/${port}/expose`,
+      { public: pub },
+    ),
+  unexpose: (repoId: string, branchId: string, port: number) =>
+    api.delete<void>(
+      `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/ports/${port}/expose`,
+    ),
+}
