@@ -245,6 +245,17 @@ interface PalmuxStoreState {
    *  refreshes without a full REST round-trip. */
   branchPorts: Record<string, WorkspacePorts>
 
+  /** See8bd4-3: optimistically patch a single port in branchPorts after a
+   *  successful expose/unexpose so the UI updates immediately even if the
+   *  branch.portsChanged WS event is briefly delayed (no snap-back). No-op if
+   *  no WS snapshot exists yet (the component's local REST state covers that). */
+  applyBranchPortPatch: (
+    repoId: string,
+    branchId: string,
+    port: number,
+    patch: Partial<import('../lib/api').PortView>,
+  ) => void
+
   // Actions ────────────────────────────────────────────────────────────────
   bootstrap: () => Promise<void>
   reloadRepos: () => Promise<void>
@@ -340,6 +351,22 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
   agents: {},
   runtimeCaps: null,
   branchPorts: {},
+
+  applyBranchPortPatch: (repoId, branchId, port, patch) =>
+    set((s) => {
+      const key = `${repoId}/${branchId}`
+      const cur = s.branchPorts[key]
+      if (!cur) return {}
+      return {
+        branchPorts: {
+          ...s.branchPorts,
+          [key]: {
+            ...cur,
+            ports: cur.ports.map((p) => (p.port === port ? { ...p, ...patch } : p)),
+          },
+        },
+      }
+    }),
 
   bootstrap: async () => {
     if (get().bootstrapped || get().loading) return

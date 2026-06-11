@@ -15,8 +15,8 @@ func TestLabelDerivation(t *testing.T) {
 		repoID, branchID         string
 		wantRepoLbl, wantWsLabel string
 	}{
-		{"tjst-t--demo-repo--ab12", "feature--cd34", "demo-repo", "feature"},
-		{"owner--my.repo--ffff", "feat/x--0001", "my-repo", "feat-x"},
+		{"tjst-t--demo-repo--ab12", "feature--cd34", "demo-repo-ab12", "feature-cd34"},
+		{"owner--my.repo--ffff", "feat/x--0001", "my-repo-ffff", "feat-x-0001"},
 		{"noformat", "single", "noformat", "single"},
 	}
 	for _, c := range cases {

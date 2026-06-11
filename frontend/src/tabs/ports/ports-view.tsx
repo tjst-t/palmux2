@@ -148,6 +148,7 @@ export function PortsView({ repoId, branchId }: TabViewProps) {
   const branch = usePalmuxStore(selectBranchById(repoId, branchId))
   // Live-updated ports from the WS event; null means "not yet received via WS".
   const wsPorts = usePalmuxStore((s) => s.branchPorts[`${repoId}/${branchId}`] ?? null)
+  const applyBranchPortPatch = usePalmuxStore((s) => s.applyBranchPortPatch)
 
   const [loading, setLoading] = useState(true)
   const [restPorts, setRestPorts] = useState<import('../../lib/api').WorkspacePorts | null>(null)
@@ -195,6 +196,11 @@ export function PortsView({ repoId, branchId }: TabViewProps) {
             ),
           }
         })
+        // Also patch the WS-pushed snapshot so the UI reflects it instantly even
+        // if the branch.portsChanged event is briefly delayed.
+        applyBranchPortPatch(repoId, branchId, port, {
+          exposed: true, public: resp.public, publicUrl: resp.publicUrl,
+        })
       } else {
         await portsApi.unexpose(repoId, branchId, port)
         setRestPorts((prev) => {
@@ -208,16 +214,19 @@ export function PortsView({ repoId, branchId }: TabViewProps) {
             ),
           }
         })
+        applyBranchPortPatch(repoId, branchId, port, {
+          exposed: false, public: false, publicUrl: '',
+        })
       }
       setRow(port, { pending: false, error: null })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       setRow(port, { pending: false, error: msg })
-      // toggle already reverted because we never updated exposed in the optimistic path —
+      // NOTE: toggle already reverted because we never updated exposed in the optimistic path —
       // the server response drives the state mutation above. The UI will show
       // aria-checked=false again because exposed stayed at its prior value.
     }
-  }, [repoId, branchId, setRow])
+  }, [repoId, branchId, setRow, applyBranchPortPatch])
 
   const handleFlipPublic = useCallback(async (port: number, wantPublic: boolean) => {
     setRow(port, { pending: true, error: null })
@@ -234,12 +243,15 @@ export function PortsView({ repoId, branchId }: TabViewProps) {
           ),
         }
       })
+      applyBranchPortPatch(repoId, branchId, port, {
+        public: resp.public, publicUrl: resp.publicUrl,
+      })
       setRow(port, { pending: false, error: null })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       setRow(port, { pending: false, error: msg })
     }
-  }, [repoId, branchId, setRow])
+  }, [repoId, branchId, setRow, applyBranchPortPatch])
 
   const handleCopy = useCallback((port: number, url: string) => {
     navigator.clipboard.writeText(url).catch(() => {

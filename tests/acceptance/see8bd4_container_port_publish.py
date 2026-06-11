@@ -109,11 +109,19 @@ def stop_server() -> None:
     ssh(f"incus exec {CONTAINER} -- pkill -f 'http.server {TEST_PORT}' </dev/null 2>/dev/null || true")
 
 
+def _label(s: str) -> str:
+    """Mirror Go dnsLabel: lowercase, non-alnum runs → '-', trimmed."""
+    import re
+    return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-") or "x"
+
+
 def sub_for(port: int) -> str:
     # mirror the Go derivation: <port>--<wsLabel>--<repoLabel>.<base>
-    ws = BRANCH_ID.rsplit("--", 1)[0]
+    # wsLabel keeps the path hash (dnsLabel of the whole branchID); repoLabel
+    # drops only the owner (keeps repo+hash).
+    ws = _label(BRANCH_ID)
     parts = REPO_ID.split("--")
-    repo = "-".join(parts[1:-1]) if len(parts) >= 3 else REPO_ID
+    repo = _label("-".join(parts[1:])) if len(parts) >= 3 else _label(REPO_ID)
     return f"{port}--{ws}--{repo}.{BASE_DOMAIN}"
 
 

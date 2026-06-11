@@ -49,7 +49,7 @@ func (h *handler) expose(w http.ResponseWriter, r *http.Request) {
 	repoID := r.PathValue("repoId")
 	branchID := r.PathValue("branchId")
 	port, err := strconv.Atoi(r.PathValue("port"))
-	if err != nil || port <= 0 {
+	if err != nil || port <= 0 || port > 65535 {
 		writeErr(w, http.StatusBadRequest, "invalid port")
 		return
 	}
@@ -77,7 +77,7 @@ func (h *handler) unexpose(w http.ResponseWriter, r *http.Request) {
 	repoID := r.PathValue("repoId")
 	branchID := r.PathValue("branchId")
 	port, err := strconv.Atoi(r.PathValue("port"))
-	if err != nil || port <= 0 {
+	if err != nil || port <= 0 || port > 65535 {
 		writeErr(w, http.StatusBadRequest, "invalid port")
 		return
 	}

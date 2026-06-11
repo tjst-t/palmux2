@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -89,22 +90,24 @@ func dnsLabel(s string) string {
 }
 
 // repoLabelFromID derives a DNS-safe repo label from a repoID of the form
-// "owner--repo--hash4" → "repo". Falls back to the sanitised whole ID.
+// "owner--repo--hash4". It drops only the owner and KEEPS the path-derived
+// hash ("repo-hash4") so two different repos that share a repo name (e.g.
+// alice/myapp vs bob/myapp) get distinct subdomains — the hash is derived from
+// the repo path, which differs. Falls back to the sanitised whole ID.
 func repoLabelFromID(repoID string) string {
 	parts := strings.Split(repoID, "--")
 	if len(parts) >= 3 {
-		return dnsLabel(strings.Join(parts[1:len(parts)-1], "-"))
+		return dnsLabel(strings.Join(parts[1:], "-"))
 	}
 	return dnsLabel(repoID)
 }
 
 // wsLabelFromID derives a DNS-safe workspace label from a branchID of the form
-// "slug--hash4" → "slug". Falls back to the sanitised whole ID.
+// "slug--hash4". It KEEPS the path-derived hash ("slug-hash4") so two
+// workspaces with the same slug in different worktrees never collide — the
+// hash is derived from the worktree path. dnsLabel collapses the "--" run to a
+// single "-".
 func wsLabelFromID(branchID string) string {
-	parts := strings.Split(branchID, "--")
-	if len(parts) >= 2 {
-		return dnsLabel(strings.Join(parts[:len(parts)-1], "-"))
-	}
 	return dnsLabel(branchID)
 }
 
@@ -146,16 +149,22 @@ func (c *caddyAdminClient) serverName(ctx context.Context) string {
 	if err := json.NewDecoder(resp.Body).Decode(&servers); err != nil {
 		return fallback
 	}
-	for name, s := range servers {
-		for _, l := range s.Listen {
+	// Iterate names in deterministic (sorted) order so the choice is stable
+	// across calls even in a degraded (no :443) config.
+	names := make([]string, 0, len(servers))
+	for name := range servers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		for _, l := range servers[name].Listen {
 			if strings.Contains(l, ":443") {
 				return name
 			}
 		}
 	}
-	// No :443 server — return any server, else fallback.
-	for name := range servers {
-		return name
+	if len(names) > 0 {
+		return names[0]
 	}
 	return fallback
 }
@@ -221,11 +230,48 @@ func (c *caddyAdminClient) upsertRoute(ctx context.Context, id, host, upstream, 
 }
 
 // caddyClient lazily constructs the admin client from the publish config.
+// sync.Once makes the lazy init data-race-free (ExposePortPublic /
+// UnexposePortPublic / unpublishAll can be called from concurrent goroutines).
 func (r *incusRuntime) caddyClient() *caddyAdminClient {
-	if r.caddy == nil && r.pub != nil && r.pub.caddyAdmin != "" {
-		r.caddy = newCaddyAdminClient(r.pub.caddyAdmin)
+	if r.pub == nil || r.pub.caddyAdmin == "" {
+		return nil
 	}
+	r.caddyOnce.Do(func() {
+		r.caddy = newCaddyAdminClient(r.pub.caddyAdmin)
+	})
 	return r.caddy
+}
+
+// resyncExposedRoutes re-injects every currently-exposed port's route. Called
+// from the scan loop in publish mode so routes self-heal after a Caddy reload
+// (admin-API routes are not persisted to the Caddyfile and are dropped on a
+// Caddy restart). Idempotent: upsertRoute deletes-then-adds by @id.
+func (r *incusRuntime) resyncExposedRoutes(ctx context.Context) {
+	c := r.caddyClient()
+	if c == nil {
+		return
+	}
+	addr := r.Status().Address
+	if addr == "" || addr == "pending" {
+		return
+	}
+	type ent struct {
+		port   int
+		public bool
+	}
+	r.portsMu.RLock()
+	ents := make([]ent, 0, len(r.exposed))
+	for p, st := range r.exposed {
+		ents = append(ents, ent{p, st.public})
+	}
+	r.portsMu.RUnlock()
+	for _, e := range ents {
+		host := r.pub.subdomain(e.port)
+		upstream := fmt.Sprintf("%s:%d", addr, e.port)
+		if err := c.upsertRoute(ctx, r.routeID(e.port), host, upstream, r.pub.basicUser, r.pub.basicHash, !e.public); err != nil {
+			r.log.Warn("incus: resync route failed (non-fatal)", "inst", r.inst, "port", e.port, "err", err)
+		}
+	}
 }
 
 // recordPorts stores the latest scan result for the Ports tab view.

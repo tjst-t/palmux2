@@ -94,8 +94,9 @@ type incusRuntime struct {
 	// pub is the public-subdomain publishing config for THIS workspace. nil or
 	// disabled → legacy conf.d snippet behaviour (local dev). Set by the
 	// Registry after construction. (See8bd4-2)
-	pub   *publishConfig
-	caddy *caddyAdminClient // lazily created from pub.caddyAdmin
+	pub       *publishConfig
+	caddy     *caddyAdminClient // lazily created from pub.caddyAdmin
+	caddyOnce sync.Once          // guards lazy caddy client init (data-race fix)
 
 	// portsMu guards the last-scan port list and the user-controlled exposure
 	// state used by the Ports tab. (See8bd4-3)
@@ -502,8 +503,11 @@ func (r *incusRuntime) ScanPortsOnce(ctx context.Context) ([]runtime.ListeningPo
 
 	// Publish mode (--public-domain set): exposure is user-controlled via the
 	// Ports tab (ExposePortPublic), so the scan does NOT auto-create Caddy
-	// routes or relays here — it only records what is listening. (See8bd4-2)
+	// routes or relays here — it only records what is listening. It DOES
+	// re-inject the already-exposed routes so they self-heal after a Caddy
+	// reload (admin-API routes aren't persisted to the Caddyfile). (See8bd4-2)
 	if r.pub.enabled() {
+		r.resyncExposedRoutes(ctx)
 		return ports, nil
 	}
 
