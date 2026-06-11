@@ -22,11 +22,14 @@ function usePortRowState() {
   const getRow = (port: number): PortRowState =>
     rows[port] ?? { pending: false, error: null, copied: false }
 
-  const setRow = (port: number, patch: Partial<PortRowState>) =>
+  // Stable across renders so handler useCallbacks can depend on it without
+  // re-creating every render. Uses the functional updater (prev) rather than
+  // capturing `rows`, so [] deps are correct.
+  const setRow = useCallback((port: number, patch: Partial<PortRowState>) =>
     setRows((prev) => ({
       ...prev,
-      [port]: { ...getRow(port), ...patch },
-    }))
+      [port]: { ...(prev[port] ?? { pending: false, error: null, copied: false }), ...patch },
+    })), [])
 
   return { getRow, setRow }
 }
@@ -34,8 +37,6 @@ function usePortRowState() {
 // ─── Individual port row ──────────────────────────────────────────────────────
 
 interface PortRowProps {
-  repoId: string
-  branchId: string
   port: PortView
   state: PortRowState
   onToggle: (port: number, wantExposed: boolean) => void
@@ -43,7 +44,7 @@ interface PortRowProps {
   onCopy: (port: number, url: string) => void
 }
 
-function PortRow({ repoId: _repoId, branchId: _branchId, port: p, state, onToggle, onFlipPublic, onCopy }: PortRowProps) {
+function PortRow({ port: p, state, onToggle, onFlipPublic, onCopy }: PortRowProps) {
   const isExposed = p.exposed
   const hasError = !!state.error
 
@@ -156,10 +157,10 @@ export function PortsView({ repoId, branchId }: TabViewProps) {
 
   const { getRow, setRow } = usePortRowState()
 
-  // Initial fetch.
+  // Initial fetch. `loading` starts true and is cleared in the async
+  // resolve/catch below (never set synchronously in the effect body).
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
     portsApi.list(repoId, branchId)
       .then((data) => {
         if (!cancelled) {
@@ -172,11 +173,6 @@ export function PortsView({ repoId, branchId }: TabViewProps) {
       })
     return () => { cancelled = true }
   }, [repoId, branchId])
-
-  // When WS event arrives, stop showing loading spinner (if it was still showing).
-  useEffect(() => {
-    if (wsPorts) setLoading(false)
-  }, [wsPorts])
 
   // Copy timeout refs — one per port.
   const copyTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({})
@@ -221,7 +217,7 @@ export function PortsView({ repoId, branchId }: TabViewProps) {
       // the server response drives the state mutation above. The UI will show
       // aria-checked=false again because exposed stayed at its prior value.
     }
-  }, [repoId, branchId])
+  }, [repoId, branchId, setRow])
 
   const handleFlipPublic = useCallback(async (port: number, wantPublic: boolean) => {
     setRow(port, { pending: true, error: null })
@@ -243,7 +239,7 @@ export function PortsView({ repoId, branchId }: TabViewProps) {
       const msg = err instanceof Error ? err.message : String(err)
       setRow(port, { pending: false, error: msg })
     }
-  }, [repoId, branchId])
+  }, [repoId, branchId, setRow])
 
   const handleCopy = useCallback((port: number, url: string) => {
     navigator.clipboard.writeText(url).catch(() => {
@@ -254,7 +250,7 @@ export function PortsView({ repoId, branchId }: TabViewProps) {
     copyTimers.current[port] = setTimeout(() => {
       setRow(port, { copied: false })
     }, 1500)
-  }, [])
+  }, [setRow])
 
   // ── Derived state ──────────────────────────────────────────────────────────
   const runtimeKind = portsData?.runtimeKind ?? branch?.runtime?.kind ?? 'host'
@@ -279,7 +275,7 @@ export function PortsView({ repoId, branchId }: TabViewProps) {
         </p>
       </div>
 
-      {loading ? (
+      {loading && !portsData ? (
         <div className={styles.centeredState}>
           <div className={styles.loadingSpinner} data-testid="ports-loading">
             <div className={styles.spinnerDots}>
@@ -318,8 +314,6 @@ export function PortsView({ repoId, branchId }: TabViewProps) {
             {ports.map((p) => (
               <PortRow
                 key={p.port}
-                repoId={repoId}
-                branchId={branchId}
                 port={p}
                 state={getRow(p.port)}
                 onToggle={handleToggle}
