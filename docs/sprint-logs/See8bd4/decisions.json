@@ -69,5 +69,46 @@
       "rationale": "sprint-run は『dependencies allow なら並列』。本 Sprint は依存が強いので独立な Story-1 のみ並列化。auto mode の自律プロセス判断として記録。",
       "source": "auto"
     }
-  ]
+  ],
+  "story_See8bd4_1": {
+    "implemented": "2026-06-11",
+    "files_changed": [
+      "nix/modules/system-manager-caddy.nix",
+      "nix/modules/home-manager-palmux.nix",
+      "nix/lib/mkPalmuxHost.nix",
+      "scripts/install.sh",
+      "tests/acceptance/see8bd4_caddy_wildcard.py"
+    ],
+    "env_and_flag_wiring": {
+      "palmux_flag": "--public-domain <domain>",
+      "env_vars_read_by_palmux": [
+        "BASIC_AUTH_USER",
+        "BASIC_AUTH_HASH"
+      ],
+      "env_file_for_palmux_unit": "/etc/palmux/runtime.env",
+      "env_file_ownership": "root:<username> 0640",
+      "contents": [
+        "PALMUX_PUBLIC_DOMAIN=<domain>",
+        "BASIC_AUTH_USER=<user>   (when basicAuth.enable)",
+        "BASIC_AUTH_HASH=<bcrypt> (when basicAuth.enable)"
+      ],
+      "rationale": "/etc/caddy/palmux.env is root:caddy 0640 and the palmux2 user service cannot read it; a separate file owned by root:<username> avoids granting the user caddy-group membership or widening /etc/caddy/palmux.env permissions."
+    },
+    "caddy_admin_api": {
+      "listen": "localhost:2019",
+      "note": "never bound to 0.0.0.0; palmux patches per-port routes into srv0 via PATCH /id/<route-id>"
+    },
+    "wildcard_site": {
+      "hostname": "*.${domain}",
+      "listener": ":443 (same as apex — Caddyfile adapter merges into srv0)",
+      "tls": "dns cloudflare {env.CLOUDFLARE_API_TOKEN}",
+      "default_handler": "respond 502 no upstream (no data leakage when no route injected)",
+      "basic_auth": "absent from static config; injected per-route by palmux"
+    },
+    "apex_site": "unchanged: basic_auth + reverse_proxy 127.0.0.1:8080 + dns cloudflare tls",
+    "out_of_scope_findings": [
+      "PORTMAN_ROUTING=1 path already writes caddy.json with admin localhost:2019; that path is unchanged — the new wildcard site is added only to the Caddyfile (non-portman) path. portman model B pre-dates this story and has its own wildcard cert flow.",
+      "nix/modules/system-manager-caddy.nix is declared but install.sh bypasses system-manager due to upstream nixpkgs compat issue (see install.sh comment near Caddy section). The .nix module is kept in sync for future system-manager adoption."
+    ]
+  }
 }

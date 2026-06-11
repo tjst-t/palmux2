@@ -166,6 +166,15 @@ if [ "$PORTMAN_ROUTING" = "1" ]; then
   [ -n "$CLOUDFLARE_API_TOKEN" ] || die "PORTMAN_ROUTING=1 requires CLOUDFLARE_API_TOKEN to be set"
 fi
 
+# See8bd4-1 preflight note: wildcard DNS must resolve to this host.
+# HTTP-01 cannot validate wildcards; DNS-01 (Cloudflare) is used instead.
+# Before running, ensure:
+#   *.${DOMAIN}  A/AAAA → <this host IP>  (or a Cloudflare DNS wildcard record)
+# The wildcard cert will be obtained automatically via DNS-01 on first Caddy start.
+if [ -n "$DOMAIN" ]; then
+  log "preflight note: ensure *.${DOMAIN} DNS resolves to this host (required for wildcard TLS via DNS-01)"
+fi
+
 # Caddy + basic_auth env validation (片肺禁止)
 if { [ -n "$DOMAIN" ] && [ -z "$CLOUDFLARE_API_TOKEN" ]; } || \
    { [ -z "$DOMAIN" ] && [ -n "$CLOUDFLARE_API_TOKEN" ]; }; then
@@ -551,6 +560,24 @@ if [ "$CADDY_ENABLED" = "1" ]; then
   sudo chown root:caddy /etc/caddy/palmux.env
   sudo chmod 0640 /etc/caddy/palmux.env
 
+  # --- See8bd4-1: /etc/palmux/runtime.env (read by palmux2 user service) ------
+  # /etc/caddy/palmux.env is root:caddy 0640 — the palmux2 user service cannot
+  # read it.  Write a separate env file owned by root:<username> 0640 so the
+  # palmux2 systemd unit (EnvironmentFile=/etc/palmux/runtime.env) can receive
+  # BASIC_AUTH_USER / BASIC_AUTH_HASH for per-route injection via the Caddy
+  # admin API, and PALMUX_PUBLIC_DOMAIN as an alternative to --public-domain.
+  log "writing /etc/palmux/runtime.env (root:${USERNAME} 0640)"
+  sudo install -d -m 0755 /etc/palmux
+  {
+    printf 'PALMUX_PUBLIC_DOMAIN=%s\n' "$DOMAIN"
+    if [ -n "$BASIC_AUTH_USER" ]; then
+      printf 'BASIC_AUTH_USER=%s\n' "$BASIC_AUTH_USER"
+      printf 'BASIC_AUTH_HASH=%s\n' "$BASIC_AUTH_HASH"
+    fi
+  } | sudo tee /etc/palmux/runtime.env >/dev/null
+  sudo chown "root:${USERNAME}" /etc/palmux/runtime.env
+  sudo chmod 0640 /etc/palmux/runtime.env
+
   # --- Caddy config: PORTMAN_ROUTING=1 → caddy.json, else → Caddyfile -------
 
   if [ "$PORTMAN_ROUTING" = "1" ]; then
@@ -814,13 +841,18 @@ WantedBy=multi-user.target
 EOF
 
   else
-    # Default: single-site Caddyfile (Sfccb3f behavior)
-    log "writing /etc/caddy/Caddyfile (domain=${DOMAIN}, basic_auth=$( [ -n "$BASIC_AUTH_USER" ] && echo yes || echo no ))"
+    # Default: Caddyfile with apex + wildcard vhosts (See8bd4-1 behavior).
+    # The admin API is enabled on localhost:2019 for palmux per-port route injection.
+    # The wildcard *.${DOMAIN} site shares :443 so Caddy merges both into srv0.
+    log "writing /etc/caddy/Caddyfile (domain=${DOMAIN}, wildcard=yes, admin=localhost:2019, basic_auth=$( [ -n "$BASIC_AUTH_USER" ] && echo yes || echo no ))"
     {
       echo "{"
+      # Admin API: localhost-only, never public (See8bd4-1 AC-1).
+      echo "    admin localhost:2019"
       [ -n "$ACME_EMAIL" ] && echo "    email ${ACME_EMAIL}"
       echo "}"
       echo ""
+      echo "# Apex vhost"
       echo "${DOMAIN} {"
       if [ -n "$BASIC_AUTH_USER" ]; then
         echo "    basic_auth {"
@@ -832,6 +864,16 @@ EOF
       echo "        dns cloudflare {env.CLOUDFLARE_API_TOKEN}"
       echo "    }"
       echo "    encode zstd gzip"
+      echo "}"
+      echo ""
+      echo "# Wildcard subdomain vhost (See8bd4-1): palmux injects per-port routes"
+      echo "# via the Caddy admin API.  Default: 502 when no route matched."
+      echo "# DNS prerequisite: *.${DOMAIN} must resolve to this host."
+      echo "*.${DOMAIN} {"
+      echo "    tls {"
+      echo "        dns cloudflare {env.CLOUDFLARE_API_TOKEN}"
+      echo "    }"
+      echo "    respond \"no upstream\" 502"
       echo "}"
     } | sudo tee /etc/caddy/Caddyfile >/dev/null
 
