@@ -5,12 +5,36 @@
     "method": "sub-agent code review (recall-biased) over 14296fc..HEAD",
     "findings": 8,
     "fixed": [
-      {"sev": "high", "issue": "data race on lazy r.caddy init", "fix": "sync.Once in caddyClient()"},
-      {"sev": "med", "issue": "admin routes lost on Caddy reload, no re-sync", "fix": "resyncExposedRoutes() in scan loop (publish mode)"},
-      {"sev": "med", "issue": "subdomain collision (same repo name / same slug)", "fix": "labels keep path-derived hash"},
-      {"sev": "low", "issue": "port > 65535 accepted", "fix": "handler bound check"},
-      {"sev": "low", "issue": "non-deterministic Caddy server pick", "fix": "sorted key iteration"},
-      {"sev": "low", "issue": "FE toggle snap-back if WS lags", "fix": "optimistic branchPorts patch on REST success"}
+      {
+        "sev": "high",
+        "issue": "data race on lazy r.caddy init",
+        "fix": "sync.Once in caddyClient()"
+      },
+      {
+        "sev": "med",
+        "issue": "admin routes lost on Caddy reload, no re-sync",
+        "fix": "resyncExposedRoutes() in scan loop (publish mode)"
+      },
+      {
+        "sev": "med",
+        "issue": "subdomain collision (same repo name / same slug)",
+        "fix": "labels keep path-derived hash"
+      },
+      {
+        "sev": "low",
+        "issue": "port > 65535 accepted",
+        "fix": "handler bound check"
+      },
+      {
+        "sev": "low",
+        "issue": "non-deterministic Caddy server pick",
+        "fix": "sorted key iteration"
+      },
+      {
+        "sev": "low",
+        "issue": "FE toggle snap-back if WS lags",
+        "fix": "optimistic branchPorts patch on REST success"
+      }
     ],
     "accepted_as_designed": []
   },
@@ -22,10 +46,27 @@
     "see8bd4_ports_ui_mock.py": "ALL PASS (AC-3-4/-3-5/-3-6)",
     "s8478ca_runtime_switch_mock.py": "ALL PASS (regression)"
   },
-  "lint": {"go_vet": "clean", "eslint": "clean", "tsc": "clean"},
-  "e2e_real_mode": {"status": "pending_deploy", "tests": [
-    "tests/acceptance/see8bd4_caddy_wildcard.py",
-    "tests/acceptance/see8bd4_container_port_publish.py",
-    "tests/e2e/see8bd4_ports_ui.py"
-  ]}
+  "lint": {
+    "go_vet": "clean",
+    "eslint": "clean",
+    "tsc": "clean"
+  },
+  "e2e_real_mode": {
+    "status": "PASS",
+    "ran_on": "palmux-deploy-test.tjstkm.net (deployed binary, real Incus container, real Caddy wildcard)",
+    "results": {
+      "see8bd4_caddy_wildcard.py": "ALL PASS (AC-1-1/-1-2/-1-3)",
+      "see8bd4_container_port_publish.py": "ALL PASS (AC-2-1/-2-2/-2-3/-2-4)",
+      "see8bd4_ports_ui.py": "PASS (AC-3-1/-3-2/-3-3; -3-4 covered by mock)"
+    }
+  },
+  "done_judgment": {
+    "guard1_user_review": "pass (none required)",
+    "guard2_nil_mock": "n/a",
+    "guard3_realmode_smoke": "pass (production-mode E2E on deployed VM, no MOCK/fake)",
+    "guard4_pr9_exception": "n/a",
+    "guard5_callpath": "pass (handlers/tab/flags exercised by real E2E)",
+    "guard6_deferred_comments": "pass",
+    "verdict": "all stories -> done"
+  }
 }

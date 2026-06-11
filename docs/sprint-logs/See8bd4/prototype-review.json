@@ -1,10 +1,36 @@
 {
-  "sprint_range": ["See8bd4"],
+  "sprint_range": [
+    "See8bd4"
+  ],
   "screens": [
-    {"file": "prototype/see8bd4-ports.html", "story": "See8bd4-3", "state": "populated", "feedback_rounds": 0, "approved": false},
-    {"file": "prototype/see8bd4-ports-empty.html", "story": "See8bd4-3", "state": "empty", "feedback_rounds": 0, "approved": false},
-    {"file": "prototype/see8bd4-ports-host.html", "story": "See8bd4-3", "state": "host-notice", "feedback_rounds": 0, "approved": false},
-    {"file": "prototype/see8bd4-ports-error.html", "story": "See8bd4-3", "state": "expose-error", "feedback_rounds": 0, "approved": false}
+    {
+      "file": "prototype/see8bd4-ports.html",
+      "story": "See8bd4-3",
+      "state": "populated",
+      "feedback_rounds": 0,
+      "approved": true
+    },
+    {
+      "file": "prototype/see8bd4-ports-empty.html",
+      "story": "See8bd4-3",
+      "state": "empty",
+      "feedback_rounds": 0,
+      "approved": true
+    },
+    {
+      "file": "prototype/see8bd4-ports-host.html",
+      "story": "See8bd4-3",
+      "state": "host-notice",
+      "feedback_rounds": 0,
+      "approved": true
+    },
+    {
+      "file": "prototype/see8bd4-ports-error.html",
+      "story": "See8bd4-3",
+      "state": "expose-error",
+      "feedback_rounds": 0,
+      "approved": true
+    }
   ],
   "design_decisions": [
     "Ports は runtime=incus-container のときだけ出る Conditional タブ (Claude / Files / Git / 🔌Ports / Bash)",
@@ -14,6 +40,6 @@
     "host runtime では ports-host-notice で portman 管轄を案内し混同回避",
     "Fog パレット + 既存 prototype design system を踏襲"
   ],
-  "approved": false,
-  "status": "pending_user_review"
+  "approved": true,
+  "status": "approved"
 }
