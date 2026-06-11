@@ -332,7 +332,10 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 	// is usually only in `incus info --show-log`, not in start's stderr — so we
 	// surface that log and point at the subuid/subgid prerequisite. We do NOT
 	// fall back to a privileged container.
-	if _, startStderr, startCode, startErr := r.run(ctx, "start", r.inst); startErr != nil || startCode != 0 {
+	// "already running" means a prior Start (or an external `incus start`)
+	// already brought the instance up — idempotent re-open, not a failure.
+	if _, startStderr, startCode, startErr := r.run(ctx, "start", r.inst); startErr != nil ||
+		(startCode != 0 && !strings.Contains(startStderr, "already running")) {
 		showLog, _, _, _ := r.run(ctx, "info", r.inst, "--show-log")
 		msg := fmt.Sprintf("incus start %s: code=%d stderr=%s log=%s "+
 			"(if newuidmap failed, ensure /etc/subuid+/etc/subgid contain `root:1000:1` and restart incus)",
