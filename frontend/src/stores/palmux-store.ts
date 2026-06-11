@@ -997,6 +997,20 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
             },
       ),
     }))
+    // S8478ca-fix: the server returns HTTP 200 even when the in-place restart
+    // FAILED and rolled the workspace back to its previous runtime (config
+    // persisted, but the live switch could not be applied — e.g. the palmux
+    // process lacks incus-admin group permission to talk to the incus daemon).
+    // `resp.runtime` above already reflects the rolled-back (true) state, so the
+    // badge is correct; but we must NOT let this look like success. Throw so the
+    // caller (header runtime chip) surfaces it as a prominent error instead of
+    // silently appearing to switch. Note: a plain `!restarted` is the legitimate
+    // no-op case (branch not open / same kind) — only restartError means failure.
+    if (resp.restartError) {
+      throw new Error(
+        `Runtime switch failed — the workspace was kept on its previous runtime. ${resp.restartError}`,
+      )
+    }
     // S8478ca-refine: when the server performed an in-place restart, the
     // tmux session was recreated in a new runtime. All active terminal tabs
     // for this workspace need to reconnect.

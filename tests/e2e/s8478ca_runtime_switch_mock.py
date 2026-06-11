@@ -287,6 +287,51 @@ def test_ac_refine_5_patch_failure_inline_error(page) -> None:
     ok(name, f"inline error shown after PATCH failure: {err_text!r}")
 
 
+# ─── AC-refine-5b: HTTP 200 + restartError (silent rollback) shows inline error ─
+
+def test_ac_refine_5b_restart_error_inline_error(page) -> None:
+    """[AC-refine-5] A switch that PERSISTED but failed to restart in-place
+    returns HTTP 200 with {restarted:false, restartError:"..."} and rolls the
+    workspace back to its previous runtime. This must NOT look like success:
+    the FE must surface the restartError as an inline error, exactly like the
+    500 path. Regression guard for the silent-rollback bug (incus-admin perm
+    failure → switch quietly fell back to host with no user-visible error)."""
+    name = "AC-refine-5b"
+
+    def handle(route):
+        if route.request.method == "PATCH" and "runtime" in route.request.url:
+            # 200, but the in-place restart failed and rolled back to host.
+            _fulfill(route, {
+                "ok": True,
+                "restarted": False,
+                "restartError": "incus init palmux-ws: permission denied talking to incus daemon",
+                "runtime": {"kind": "host", "state": "ready", "address": "localhost"},
+            }, status=200)
+        else:
+            route.continue_()
+
+    page.route("**", handle)
+    _mock_apis(page, kind="host", incus_available=True)
+    _navigate_to_workspace(page)
+
+    page.locator("[data-testid='runtime-chip']").first.click()
+    page.wait_for_selector("[data-testid='runtime-chip-menu']", timeout=PLAYWRIGHT_TIMEOUT)
+    page.locator("[data-testid='runtime-option-incus-container']").first.click()
+    page.wait_for_selector("[data-testid='runtime-change-confirm']", timeout=PLAYWRIGHT_TIMEOUT)
+    page.locator("[data-testid='runtime-change-confirm-ok']").first.click()
+
+    err = page.wait_for_selector("[data-testid='runtime-selector-error']",
+                                 timeout=PLAYWRIGHT_TIMEOUT)
+    err_text = (err.text_content() or "").strip()
+    if not err_text:
+        fail(name, "inline error not shown after 200+restartError (silent rollback)")
+        return
+    if "permission denied" not in err_text and "kept on its previous runtime" not in err_text:
+        fail(name, f"error text does not convey the failure: {err_text!r}")
+        return
+    ok(name, f"inline error shown after silent-rollback 200: {err_text!r}")
+
+
 # ─── AC-refine-6: incus unavailable → option disabled ────────────────────────
 
 def test_ac_refine_6_incus_unavailable(page) -> None:
@@ -343,6 +388,7 @@ def main() -> int:
         test_ac_refine_3_confirm_fires_patch,
         test_ac_refine_4_cancel_no_patch,
         test_ac_refine_5_patch_failure_inline_error,
+        test_ac_refine_5b_restart_error_inline_error,
         test_ac_refine_6_incus_unavailable,
         test_ac_refine_7_host_scope_no_chip,
     ]

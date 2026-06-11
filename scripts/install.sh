@@ -1106,18 +1106,18 @@ if [ "${SKIP_INCUS}" != "1" ]; then
     fi
 
     # ── 3. add install user to incus-admin group ──────────────────────────────
+    # _incus_group_added is checked in the service section below: a newly-added
+    # supplementary group is NOT picked up by an already-running `systemd --user`
+    # manager (it caches the group set at manager-start time), so a plain
+    # `systemctl --user restart palmux2` is INSUFFICIENT — the user manager
+    # itself must be restarted (reboot / re-login / `loginctl terminate-user`).
+    _incus_group_added=0
     if id -nG "$USERNAME" 2>/dev/null | tr ' ' '\n' | grep -qx "incus-admin"; then
       log "user ${USERNAME} already in incus-admin group"
     else
       log "adding ${USERNAME} to incus-admin group"
       sudo usermod -aG incus-admin "$USERNAME"
-      warn "----------------------------------------------------------------------"
-      warn "IMPORTANT: ${USERNAME} was added to the incus-admin group."
-      warn "You MUST log out and back in (or run: newgrp incus-admin) for non-sudo"
-      warn "incus access to take effect.  The palmux service also needs this group"
-      warn "to launch incus-container workspaces — restart it after re-login:"
-      warn "  systemctl --user restart palmux2"
-      warn "----------------------------------------------------------------------"
+      _incus_group_added=1
     fi
 
     # ── 4. subuid / subgid: ensure root:1000:1 ────────────────────────────────
@@ -1139,20 +1139,69 @@ if [ "${SKIP_INCUS}" != "1" ]; then
       log "incus restarted"
     fi
 
-    # ── 5. Docker coexistence: allow incusbr0 forwarding ─────────────────────
+    # ── 5. Docker coexistence: allow incusbr0 forwarding (persistent) ─────────
     # If Docker is active its iptables rules set FORWARD policy=DROP, which
     # blocks incusbr0 outbound traffic (apt/claude cannot reach the internet).
+    # Docker also FLUSHES the DOCKER-USER chain every time dockerd starts, so a
+    # one-shot `iptables -I` does NOT survive a reboot or a docker restart. We
+    # therefore install a tiny system service ordered After=docker.service that
+    # (idempotently) re-inserts the rule on every boot/docker start.
     if ip link show docker0 >/dev/null 2>&1; then
-      warn "Docker detected — checking FORWARD coexistence with incusbr0"
+      warn "Docker detected — installing persistent incusbr0 FORWARD allow rule"
+
+      # Apply immediately so the current session works without waiting for a boot.
       if sudo iptables -C DOCKER-USER -i incusbr0 -j ACCEPT >/dev/null 2>&1; then
         log "iptables DOCKER-USER incusbr0 ACCEPT rule already present"
       else
         log "adding iptables rule: -I DOCKER-USER -i incusbr0 -j ACCEPT"
         sudo iptables -I DOCKER-USER -i incusbr0 -j ACCEPT || \
-          warn "iptables rule failed (DOCKER-USER chain may not exist yet; Docker may not be running)"
-        warn "NOTE: this iptables rule is NOT persistent across reboots."
-        warn "To make it permanent, install iptables-persistent or add to /etc/rc.local:"
-        warn "  iptables -I DOCKER-USER -i incusbr0 -j ACCEPT"
+          warn "iptables rule failed now (DOCKER-USER may not exist until dockerd is up); the service below will retry on boot"
+      fi
+
+      # Install the persistence helper + unit.
+      _fwd_helper=/usr/local/lib/palmux/incus-docker-forward.sh
+      sudo install -d -m 0755 /usr/local/lib/palmux
+      sudo tee "$_fwd_helper" >/dev/null <<'FWDEOF'
+#!/bin/sh
+# palmux: re-insert the incusbr0 ACCEPT rule into Docker's DOCKER-USER chain.
+# Docker flushes DOCKER-USER on dockerd start, so this runs After=docker.service.
+# Retry briefly because the chain may appear a moment after the unit is "active".
+n=0
+while [ "$n" -lt 30 ]; do
+  if iptables -C DOCKER-USER -i incusbr0 -j ACCEPT 2>/dev/null; then
+    exit 0
+  fi
+  if iptables -I DOCKER-USER -i incusbr0 -j ACCEPT 2>/dev/null; then
+    exit 0
+  fi
+  n=$((n + 1))
+  sleep 1
+done
+echo "palmux: could not insert DOCKER-USER incusbr0 rule (DOCKER-USER chain missing?)" >&2
+exit 1
+FWDEOF
+      sudo chmod 0755 "$_fwd_helper"
+
+      sudo tee /etc/systemd/system/palmux-incus-docker-forward.service >/dev/null <<FWDUNIT
+[Unit]
+Description=palmux: allow incusbr0 outbound through Docker's DOCKER-USER chain
+After=docker.service incus.service
+Wants=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=${_fwd_helper}
+
+[Install]
+WantedBy=multi-user.target
+FWDUNIT
+      sudo systemctl daemon-reload || true
+      if sudo systemctl enable --now palmux-incus-docker-forward.service >/dev/null 2>&1; then
+        log "installed + enabled palmux-incus-docker-forward.service (persists across reboot/docker restart)"
+      else
+        warn "could not enable palmux-incus-docker-forward.service; rule applied for this session only"
       fi
     fi
 
@@ -1232,8 +1281,59 @@ if [ "${SKIP_SERVICE:-0}" != "1" ]; then
   fi
 
   log "enabling palmux2 user systemd service"
+  # Capture whether the service was ALREADY running before this install — used
+  # below to decide between a cold start and a restart (binary upgrade), and to
+  # detect the stale-group case for incus-container.
+  _palmux_was_active=0
+  if systemctl --user is-active --quiet palmux2 2>/dev/null; then
+    _palmux_was_active=1
+  fi
+
   systemctl --user daemon-reload || true
   systemctl --user enable --now palmux2 || warn "systemctl --user enable failed (may need to reopen shell)"
+
+  # On an upgrade the unit was already running, so `enable --now` is a no-op and
+  # the OLD binary keeps serving. Restart so the freshly-installed palmux2 binary
+  # takes over. (Safe: this only bounces the palmux2 service, not the user
+  # manager, so host-runtime tmux sessions are untouched.)
+  if [ "$_palmux_was_active" = "1" ]; then
+    log "restarting palmux2 to pick up the upgraded binary"
+    systemctl --user restart palmux2 || warn "systemctl --user restart palmux2 failed"
+  fi
+
+  # incus-admin group freshly added: the `systemd --user` manager that just
+  # started palmux2 was itself started at login time (e.g. when this SSH session
+  # opened), which is BEFORE usermod ran — so it cached the OLD group set and
+  # palmux2 cannot reach the incus daemon socket yet. This affects even a clean
+  # first install. A plain `systemctl --user restart palmux2` does NOT help (the
+  # USER MANAGER, not the service, holds the stale groups). The only fixes that
+  # pick up the new group are a reboot or a full re-login / `loginctl
+  # terminate-user` — both of which restart the user manager. We do NOT do this
+  # automatically because terminating the user manager also kills every
+  # host-runtime tmux/Claude session this user owns; we tell the user instead.
+  if [ "${_incus_group_added:-0}" = "1" ]; then
+    # Does the CURRENT login session already have the group active? (id with a
+    # username re-reads the group DB; if our own effective groups already include
+    # it, a child user-manager would too and no action is needed.)
+    if id -G 2>/dev/null | tr ' ' '\n' | grep -qx "$(getent group incus-admin | cut -d: -f3)"; then
+      log "incus-admin already active in this session — no restart needed"
+    else
+      warn "----------------------------------------------------------------------"
+      warn "ONE-TIME ACTION REQUIRED to finish incus-container setup:"
+      warn "${USERNAME} was just added to the incus-admin group, but the running"
+      warn "user systemd manager (started before that) still has the old groups,"
+      warn "so palmux2 cannot talk to the incus daemon yet. Until you apply this,"
+      warn "switching a Workspace to incus-container fails and falls back to host."
+      warn ""
+      warn "A plain 'systemctl --user restart palmux2' is NOT enough."
+      warn "Apply it with EITHER:"
+      warn "  • a reboot (simplest), or"
+      warn "  • log out of ALL sessions and back in, or"
+      warn "  • sudo loginctl terminate-user ${USERNAME}   (also ends running"
+      warn "    tmux/Claude sessions)"
+      warn "----------------------------------------------------------------------"
+    fi
+  fi
 fi
 
 # --- generate update helper -------------------------------------------------
