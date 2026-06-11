@@ -88,6 +88,12 @@ const (
 	// incus.PortsDetectedEvent {inst, ports:[{port,proto}]}. The FE uses
 	// this to surface per-workspace service URLs without polling.
 	EventBranchPortsDetected EventType = "branch.portsDetected"
+
+	// See8bd4-3: emitted by the port-scan loop with the full user-facing
+	// Ports view (listening ports + exposure state). Payload is
+	// `{runtimeKind, ports: []runtime.PortView}`. The Ports tab subscribes to
+	// this to refresh its list and published-URL state without polling.
+	EventBranchPortsChanged EventType = "branch.portsChanged"
 )
 
 // Event is one broadcastable change.

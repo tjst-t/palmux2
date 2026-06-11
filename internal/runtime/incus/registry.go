@@ -33,6 +33,40 @@ type Registry struct {
 
 	mu    sync.RWMutex
 	cache map[cacheKey]runtime.Runtime // (repoID, branchID) → live Runtime
+
+	publish PublishDefaults // host-wide port-publishing config (See8bd4-2)
+}
+
+// PublishDefaults is the host-wide configuration for publishing container ports
+// as HTTPS subdomains via the Caddy admin API. BaseDomain == "" disables it.
+type PublishDefaults struct {
+	BaseDomain string // public base domain, e.g. palmux-deploy-test.tjstkm.net
+	CaddyAdmin string // Caddy admin API endpoint, e.g. http://localhost:2019
+	BasicUser  string // edge basic_auth username
+	BasicHash  string // edge basic_auth bcrypt hash
+}
+
+// SetPublishDefaults configures host-wide port-publishing. Call once at startup.
+func (r *Registry) SetPublishDefaults(pd PublishDefaults) {
+	r.mu.Lock()
+	r.publish = pd
+	r.mu.Unlock()
+}
+
+// buildPublish resolves the per-workspace publish config (DNS labels + host
+// defaults). Returns nil when publishing is disabled.
+func (r *Registry) buildPublish(repoID, branchID string) *publishConfig {
+	if r.publish.BaseDomain == "" {
+		return nil
+	}
+	return &publishConfig{
+		baseDomain: r.publish.BaseDomain,
+		caddyAdmin: r.publish.CaddyAdmin,
+		basicUser:  r.publish.BasicUser,
+		basicHash:  r.publish.BasicHash,
+		repoLabel:  repoLabelFromID(repoID),
+		wsLabel:    wsLabelFromID(branchID),
+	}
 }
 
 type cacheKey struct{ repoID, branchID string }
@@ -97,6 +131,9 @@ func (r *Registry) Get(repoID, branchID string) runtime.Runtime {
 	}
 	inst := InstanceName(repoID, branchID)
 	rt = New(cfg, inst, nil /* defaultRunner */, r.log.With("inst", inst))
+	if ir, ok := rt.(*incusRuntime); ok {
+		ir.pub = r.buildPublish(repoID, branchID)
+	}
 	r.cache[k] = rt
 	r.log.Info("incus.Registry: created runtime", "repoID", repoID, "branchID", branchID, "inst", inst)
 	return rt

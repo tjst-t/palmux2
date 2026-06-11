@@ -128,6 +128,16 @@ func (h *handlers) patchWorkspaceRuntime(w http.ResponseWriter, r *http.Request)
 	//   - the old and new kinds are the same
 	//   - no RuntimeRegistry is wired
 	restarted, restartErr := h.store.RestartBranchRuntime(r.Context(), repoID, branchID, oldRT)
+
+	// See8bd4-3: the runtime kind change flips the Ports tab's visibility
+	// (incus-only). Recompute the workspace's tabs so tab.added / tab.removed
+	// propagate to all clients. Safe regardless of restart outcome — it reads
+	// the (possibly rolled-back) persisted kind via the runtime registry.
+	if rcErr := h.store.RecomputeBranchTabs(repoID, branchID); rcErr != nil {
+		// non-fatal: the tab will reconcile on the next branch reload
+		_ = rcErr
+	}
+
 	if restartErr != nil {
 		// Restart failure is surfaced as a non-fatal warning: the config was
 		// persisted successfully; the user can close+reopen to apply it.

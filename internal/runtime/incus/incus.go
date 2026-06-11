@@ -90,6 +90,24 @@ type incusRuntime struct {
 	// Key: PortMapping.ID, Value: device name used in `incus config device add`.
 	activeMappingsMu sync.RWMutex
 	activeMappings   map[string]string // mappingID → device name
+
+	// pub is the public-subdomain publishing config for THIS workspace. nil or
+	// disabled → legacy conf.d snippet behaviour (local dev). Set by the
+	// Registry after construction. (See8bd4-2)
+	pub   *publishConfig
+	caddy *caddyAdminClient // lazily created from pub.caddyAdmin
+
+	// portsMu guards the last-scan port list and the user-controlled exposure
+	// state used by the Ports tab. (See8bd4-3)
+	portsMu   sync.RWMutex
+	lastPorts []runtime.ListeningPort
+	exposed   map[int]exposeState // port → exposure state
+}
+
+// exposeState records whether a port has a published Caddy route.
+type exposeState struct {
+	public bool   // exposed without basic_auth
+	url    string // public https URL
 }
 
 // New returns a runtime.Runtime that manages an Incus container.
@@ -122,6 +140,7 @@ func NewWithCaddy(cfg runtime.Config, instName string, r runner, cr caddyRunner,
 		log:            log,
 		status:         runtime.Status{State: runtime.StateStopped},
 		activeMappings: map[string]string{},
+		exposed:        map[int]exposeState{},
 	}
 }
 
@@ -413,6 +432,8 @@ func (r *incusRuntime) Stop(ctx context.Context) error {
 	}
 	// Remove all Caddy snippets for this workspace (AC-S8478ca-4-2).
 	clearSnippets(ctx, r.inst, r.caddyRun, r.log)
+	// Remove all published admin-API routes for this workspace (See8bd4-2).
+	r.unpublishAll(ctx)
 	return nil
 }
 
@@ -475,6 +496,15 @@ func (r *incusRuntime) ScanPortsOnce(ctx context.Context) ([]runtime.ListeningPo
 	ports, err := r.ListListeningPorts(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("incus ScanPortsOnce: %w", err)
+	}
+	// Always record the latest list for the Ports tab view (See8bd4-3).
+	r.recordPorts(ports)
+
+	// Publish mode (--public-domain set): exposure is user-controlled via the
+	// Ports tab (ExposePortPublic), so the scan does NOT auto-create Caddy
+	// routes or relays here — it only records what is listening. (See8bd4-2)
+	if r.pub.enabled() {
+		return ports, nil
 	}
 
 	addr := r.Status().Address
@@ -794,6 +824,16 @@ func (r *incusRuntime) ExposePort(ctx context.Context, spec runtime.PortSpec) (r
 
 	// HostPort == 0 → localhost-rescue relay path (AC-S8478ca-4-3).
 	//
+	// Idempotency: if a relay/mapping for this id already exists (e.g. the scan
+	// loop started it, or ExposePortPublic is toggled twice), do not spawn a
+	// second relay — return the existing mapping. (See8bd4-2)
+	r.activeMappingsMu.RLock()
+	_, alreadyMapped := r.activeMappings[id]
+	r.activeMappingsMu.RUnlock()
+	if alreadyMapped {
+		return runtime.PortMapping{ID: id, Internal: spec.Internal, Proto: proto, Address: addr, Public: spec.Public}, nil
+	}
+	//
 	// Start a Python 3 relay INSIDE the container that listens on
 	// <containerIP>:<port> and forwards to 127.0.0.1:<port>.
 	// The relay runs in the container's network namespace, so 127.0.0.1 is
@@ -844,7 +884,9 @@ func (r *incusRuntime) ExposePort(ctx context.Context, spec runtime.PortSpec) (r
 
 	// Write a Caddy snippet for TCP ports (HTTP routing).  UDP/Neko goes
 	// through the HostPort path and does not use Caddy.
-	if proto == "tcp" {
+	// In publish mode (--public-domain) the public route is created explicitly
+	// by ExposePortPublic via the admin API, so skip the legacy snippet here.
+	if proto == "tcp" && !r.pub.enabled() {
 		if _, caddyErr := writeSnippet(ctx, r.inst, addr, spec.Internal, r.caddyRun, r.log); caddyErr != nil {
 			// Caddy failure is non-fatal: the relay is already running.
 			r.log.Warn("incus ExposePort: caddy snippet failed (non-fatal)",

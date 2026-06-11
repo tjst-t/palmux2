@@ -38,6 +38,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/tab/claudetui"
 	"github.com/tjst-t/palmux2/internal/tab/files"
 	gittab "github.com/tjst-t/palmux2/internal/tab/git"
+	"github.com/tjst-t/palmux2/internal/tab/ports"
 	"github.com/tjst-t/palmux2/internal/tab/sprint"
 	"github.com/tjst-t/palmux2/internal/tmux"
 	"github.com/tjst-t/palmux2/internal/worktree"
@@ -118,6 +119,8 @@ func main() {
 	// the same tmux server without the two `sync_tmux` loops fighting
 	// over each other's sessions.
 	tmuxPrefix := pflag.String("tmux-prefix", domain.DefaultPalmuxSessionPrefix, "tmux session prefix for sessions managed by this palmux process")
+	publicDomain := pflag.String("public-domain", "", "public base domain for publishing incus container ports as <port>--<ws>--<repo>.<domain> (empty disables; env PALMUX_PUBLIC_DOMAIN)")
+	caddyAdmin := pflag.String("caddy-admin", "http://localhost:2019", "Caddy admin API endpoint used to inject per-port routes")
 	claudeBin := pflag.String("claude-bin", "claude", "path to claude binary used by the claude-tui tab")
 	claudeArgs := pflag.StringArray("claude-arg", nil, "extra arguments passed to claude-tui on every spawn (repeatable)")
 	versionFlag := pflag.BoolP("version", "v", false, "print version and exit")
@@ -140,13 +143,13 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
-	if err := run(*addr, *configDir, *token, *basePath, *maxConns, *portmanURL, *claudeBin, *claudeArgs); err != nil {
+	if err := run(*addr, *configDir, *token, *basePath, *maxConns, *portmanURL, *claudeBin, *claudeArgs, *publicDomain, *caddyAdmin); err != nil {
 		slog.Error("fatal", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(addr, configDir, token, basePath string, maxConns int, portmanURL string, claudeBin string, claudeArgs []string) error {
+func run(addr, configDir, token, basePath string, maxConns int, portmanURL string, claudeBin string, claudeArgs []string, publicDomain, caddyAdmin string) error {
 	// Log the version up front so when a user sees "phase-X" or "dev"
 	// in the Drawer they can confirm which build is actually running
 	// without having to call /api/health.
@@ -207,6 +210,22 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 	// workspaces configured as "incus-container" it constructs and caches an
 	// incusRuntime that routes all tmux calls through `incus exec`.
 	runtimeRegistry := incus.NewRegistry(repoStore, settingsStore, tmuxClient, slog.Default())
+
+	// See8bd4-2: configure publishing of incus container ports as HTTPS
+	// subdomains via the Caddy admin API. The public domain + edge basic-auth
+	// creds come from flags / env (install.sh writes /etc/palmux/runtime.env
+	// with PALMUX_PUBLIC_DOMAIN / BASIC_AUTH_USER / BASIC_AUTH_HASH). Empty
+	// public domain leaves publishing disabled (local-dev / legacy snippet).
+	resolvedPublicDomain := publicDomain
+	if resolvedPublicDomain == "" {
+		resolvedPublicDomain = os.Getenv("PALMUX_PUBLIC_DOMAIN")
+	}
+	runtimeRegistry.SetPublishDefaults(incus.PublishDefaults{
+		BaseDomain: resolvedPublicDomain,
+		CaddyAdmin: caddyAdmin,
+		BasicUser:  os.Getenv("BASIC_AUTH_USER"),
+		BasicHash:  os.Getenv("BASIC_AUTH_HASH"),
+	})
 
 	registry := tab.NewRegistry()
 	st, err := store.New(store.Deps{
@@ -282,6 +301,7 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 	registry.Register(gitProvider)
 	sprintProvider := sprint.New(st)
 	registry.Register(sprintProvider)
+	registry.Register(ports.New(st))
 	registry.Register(bash.New())
 
 	// claude-tui tab: interactive claude TUI via PTY (Sprint A Story 2).
