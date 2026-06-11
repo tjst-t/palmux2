@@ -1,0 +1,38 @@
+{
+  "story": "See8bd4-1",
+  "entry_point": "api",
+  "title": "Host Caddy: wildcard 証明書 + admin API + wildcard basic_auth",
+  "scenarios": [
+    {
+      "name": "wildcard cert + admin API reachable",
+      "linked_ac": ["AC-See8bd4-1-1"],
+      "steps": [
+        "DOMAIN=<base> CLOUDFLARE_API_TOKEN=<cf> で install.sh (再)実行",
+        "curl -sS --resolve dummy.<base>:443:<host> https://dummy.<base> の TLS handshake が成功し、提示証明書の SAN に *.<base> が含まれる",
+        "curl -sS http://localhost:2019/config/ が 200 を返す (admin API 到達)"
+      ],
+      "observation": "wildcard 証明書が取得済みで admin API が localhost:2019 で応答する"
+    },
+    {
+      "name": "apex no-regression",
+      "linked_ac": ["AC-See8bd4-1-2"],
+      "steps": [
+        "curl -sS -u <user>:<pass> https://<base>/ が palmux2 (127.0.0.1:8080) に到達し 200",
+        "認証なしの curl https://<base>/ は 401"
+      ],
+      "observation": "既存 apex vhost と basic_auth が無回帰"
+    },
+    {
+      "name": "wildcard subdomain inherits basic_auth",
+      "linked_ac": ["AC-See8bd4-1-3"],
+      "steps": [
+        "Caddy に test サブドメイン route を admin API で注入 (例 9999--x--y.<base> → 127.0.0.1:8080)",
+        "認証なしの curl https://9999--x--y.<base>/ が 401",
+        "正しい資格情報付きは 200"
+      ],
+      "observation": "wildcard 配下も既定でエッジ basic_auth が効く"
+    }
+  ],
+  "real_mode_smoke": "VM (incus + Caddy + *.<base> wildcard DNS 済み) 上で curl 実機検証。MOCK/fake 不可 (test-discipline Rule 7)。",
+  "test_file": "tests/acceptance/see8bd4_caddy_wildcard.py"
+}

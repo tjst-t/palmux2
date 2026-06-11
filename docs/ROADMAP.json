@@ -3,14 +3,14 @@
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
     "sprints_done": 49,
-    "sprints_total": 49,
-    "percent": 100,
+    "sprints_total": 50,
+    "percent": 98,
     "current_sprint": null,
     "done": 49,
     "in_progress": 0,
-    "total": 49,
-    "remaining": 0,
-    "percentage": 100
+    "total": 50,
+    "remaining": 1,
+    "percentage": 98
   },
   "execution_order": [
     "S001",
@@ -61,7 +61,8 @@
     "S85caca",
     "S0c6a1b",
     "Sc7818e",
-    "S8478ca"
+    "S8478ca",
+    "See8bd4"
   ],
   "sprints": {
     "S001": {
@@ -8613,6 +8614,164 @@
           }
         }
       }
+    },
+    "See8bd4": {
+      "title": "incus コンテナポートの公開サブドメイン化 (TLS + Caddy admin API)",
+      "status": "pending",
+      "milestone": false,
+      "phase": "Phase 5",
+      "description": "incus-container ランタイムでコンテナ内に立てた dev サーバを、ホスト VM の Caddy 経由で <port>--<workspace>--<repo>.<base> の HTTPS サブドメインとして公開できるようにする。portman が host runtime のポートに対してやっていること (S85caca: wildcard 証明書 + 動的サブドメイン + エッジ basic_auth) の incus-container 版。\n\n現状 (調査済み): S8478ca-4 で port scan ループ + ExposePort + caddy.go (writeSnippet) は実装済みだが、(1) 生成されるのが http://<inst>-<port>.palmux.local の平文ローカルドメイン (TLS なし)、(2) デプロイ Caddy は system-manager 管理の単一 apex vhost で conf.d を import しない (= snippet がロードされない)、(3) wildcard 証明書も Ports UI もない、ため本番では機能しない。\n\n設計判断 (ユーザ確定 2026-06-11):\n  - route 注入方式: palmux → Caddy admin API (localhost:2019) 直叩き。portman 非依存。conf.d ファイル + 手動 reload はやめる (system-manager Caddyfile と競合しないため)\n  - サブドメイン命名: <port>--<workspace>--<repo>.<base> (host model B の {name}--{wt}--{repo} と対称、衝突安全)\n  - 認証: 全サブドメインに既定でエッジ basic_auth、Public=true の port のみ無認証で除外\n\n依存: S8478ca (incus runtime + ExposePort/ListListeningPorts) と S85caca (wildcard DNS-01 + admin API 知見)。両方 done。",
+      "stories": {
+        "See8bd4-1": {
+          "id": "See8bd4-1",
+          "status": "pending",
+          "title": "Host Caddy: *.<base> wildcard 証明書 + admin API + wildcard エッジ basic_auth",
+          "user_story": "自前ホスティングで複数の dev サーバを公開したい自分として、ホストの Caddy が *.<base> の wildcard 証明書を持ち palmux からの route 注入 (admin API) を受け付ける状態にしたい。なぜなら、コンテナ上のアプリを実サブドメイン + TLS で出す土台がないと公開そのものが始められないから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-See8bd4-1-1",
+              "description": "DOMAIN + CLOUDFLARE_API_TOKEN 付き install で *.<base> の wildcard 証明書が DNS-01 で取得され、Caddy admin API (localhost:2019) に到達できる",
+              "test": "tests/acceptance/see8bd4_caddy_wildcard.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-See8bd4-1-2",
+              "description": "既存の apex (<base> → palmux2 127.0.0.1:8080) vhost と basic_auth が無回帰で動作する",
+              "test": "tests/acceptance/see8bd4_caddy_wildcard.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-See8bd4-1-3",
+              "description": "wildcard 配下のサブドメインにもエッジ basic_auth が既定で適用される (認証なしで素通りしない)",
+              "test": "tests/acceptance/see8bd4_caddy_wildcard.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "See8bd4-1-1": {
+              "id": "See8bd4-1-1",
+              "status": "pending",
+              "title": "system-manager-caddy.nix を wildcard automate (*.<base>) + admin API enable + wildcard basic_auth に拡張"
+            },
+            "See8bd4-1-2": {
+              "id": "See8bd4-1-2",
+              "status": "pending",
+              "title": "install.sh: 既存 DOMAIN/CF token/ACME 経路を流用、wildcard 用 preflight 検証、再実行冪等"
+            }
+          }
+        },
+        "See8bd4-2": {
+          "id": "See8bd4-2",
+          "status": "pending",
+          "title": "コンテナポート → 公開ルート (palmux → Caddy admin API、.palmux.local 廃止)",
+          "user_story": "コンテナで dev サーバを動かす自分として、検出された各ポートが <port>--<workspace>--<repo>.<base> の HTTPS で外部からアクセスできるようにしたい。なぜなら、.palmux.local 平文では証明書付きで外部から開けないから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-See8bd4-2-1",
+              "description": "incus-container の :N で listen するアプリが、palmux が admin API に注入した route 経由で https://<port>--<workspace>--<repo>.<base> から 200 で到達でき、証明書が valid",
+              "test": "tests/acceptance/see8bd4_container_port_publish.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-See8bd4-2-2",
+              "description": "公開サブドメインは既定でエッジ basic_auth を要求し、Public=true にした port のみ無認証になる",
+              "test": "tests/acceptance/see8bd4_container_port_publish.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-See8bd4-2-3",
+              "description": "workspace を close / runtime を stop すると当該 route が撤去され、サブドメインが到達不能 (404/502) になる",
+              "test": "tests/acceptance/see8bd4_container_port_publish.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-See8bd4-2-4",
+              "description": "複数 workspace が同一 :5173 を出しても別サブドメインで衝突せず両方到達できる",
+              "test": "tests/acceptance/see8bd4_container_port_publish.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "See8bd4-2-1": {
+              "id": "See8bd4-2-1",
+              "status": "pending",
+              "title": "caddy.go を admin API ベースに作り替え (snippet/.palmux.local 廃止、route の idempotent upsert/delete)"
+            },
+            "See8bd4-2-2": {
+              "id": "See8bd4-2-2",
+              "status": "pending",
+              "title": "subdomain ラベル生成 (<port>--<workspace>--<repo>) + Public フラグで basic_auth 除外 route 分岐"
+            },
+            "See8bd4-2-3": {
+              "id": "See8bd4-2-3",
+              "status": "pending",
+              "title": "workspace close / runtime stop で route 撤去 (既存 clearSnippets 経路を admin API 版に置換)"
+            }
+          }
+        },
+        "See8bd4-3": {
+          "id": "See8bd4-3",
+          "status": "pending",
+          "title": "Ports UI (Workspace 配下: listening ports 一覧 + 公開トグル + URL コピー)",
+          "user_story": "PC・スマホから同じ環境を使う自分として、コンテナの listening ポートと公開 URL を一覧し公開/非公開をトグルしたい。なぜなら、今は背後で route が勝手に作られるだけで何が公開されているか見えず操作もできないから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-See8bd4-3-1",
+              "description": "Workspace 配下の Ports パネルにコンテナの listening ports が一覧表示され、WS event で増減に追従する",
+              "test": "tests/e2e/see8bd4_ports_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-See8bd4-3-2",
+              "description": "port の公開トグルで ExposePort/UnexposePort がハンドラ経由で呼ばれ、公開 URL が表示/消去される",
+              "test": "tests/e2e/see8bd4_ports_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-See8bd4-3-3",
+              "description": "公開 URL をコピーでき、Public/非公開状態が badge で区別される",
+              "test": "tests/e2e/see8bd4_ports_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-See8bd4-3-4",
+              "description": "host runtime の Workspace では Ports パネルが incus 専用機能である旨を案内し、混同しない",
+              "test": "tests/e2e/see8bd4_ports_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-See8bd4-3-5",
+              "description": "Ports パネルの全インタラクティブ要素に data-testid が付与され、状態遷移図 (Loading/Empty/Populated/Exposing/Exposed/Error/HostNotice) が確定している",
+              "test": "tests/e2e/see8bd4_ports_ui_mock.py [AC-See8bd4-3-5]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-See8bd4-3-6",
+              "description": "expose API 失敗時にインライン error を表示しトグルを元に戻す (silent success にしない)",
+              "test": "tests/e2e/see8bd4_ports_ui_mock.py [AC-See8bd4-3-6]",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "See8bd4-3-1": {
+              "id": "See8bd4-3-1",
+              "status": "pending",
+              "title": "GET /api/repos/.../ports + POST/DELETE .../ports/{port}/expose ハンドラ + store 配線"
+            },
+            "See8bd4-3-2": {
+              "id": "See8bd4-3-2",
+              "status": "pending",
+              "title": "Ports パネル UI (一覧 + 公開トグル + URL コピー + state badge) + WS 追従"
+            },
+            "See8bd4-3-3": {
+              "id": "See8bd4-3-3",
+              "status": "pending",
+              "title": "data-testid + gui-spec + E2E (dev インスタンス本番モードで実機検証)"
+            }
+          }
+        }
+      },
+      "id": "See8bd4"
     }
   },
   "dependencies": {
@@ -8810,6 +8969,13 @@
     "Sc7818e": {
       "depends_on": [],
       "reason": "Files タブは既存機能。本 Sprint は download エンドポイント追加のみで他 Sprint と独立。append 末尾。"
+    },
+    "See8bd4": {
+      "depends_on": [
+        "S8478ca",
+        "S85caca"
+      ],
+      "reason": "S8478ca の incus runtime + ExposePort/ListListeningPorts と S85caca の wildcard DNS-01 + Caddy admin API 知見の上に、コンテナポートの公開サブドメイン化を載せる"
     }
   },
   "backlog": [

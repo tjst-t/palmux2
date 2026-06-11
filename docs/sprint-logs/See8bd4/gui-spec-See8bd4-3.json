@@ -1,0 +1,25 @@
+{
+  "story": "See8bd4-3",
+  "title": "Ports UI (Workspace 配下: listening ports 一覧 + 公開トグル + URL コピー)",
+  "entry_point": "gui",
+  "state_diagram": "stateDiagram-v2\n    [*] --> Loading: open Ports panel\n    Loading --> HostNotice: runtimeKind == host\n    Loading --> Empty: incus, 0 listening ports\n    Loading --> Populated: incus, >=1 port\n    Empty --> Populated: WS branch.portsChanged (port appeared)\n    Populated --> Empty: WS branch.portsChanged (all ports gone)\n    Populated --> Exposing: toggle expose ON\n    Exposing --> Exposed: POST expose 200 (publicUrl shown)\n    Exposing --> Error: POST expose failed (inline error)\n    Exposed --> Unexposing: toggle expose OFF\n    Unexposing --> Populated: DELETE expose 200 (url removed)\n    Exposed --> Exposed: copy publicUrl",
+  "scenarios": [
+    {"name": "list ports", "linked_ac": ["AC-See8bd4-3-1"], "steps": ["incus Workspace で Ports パネルを開く", "コンテナの listening ports が行で並ぶ (port/proto/process)", "コンテナで新ポートが listen し WS branch.portsChanged が来ると行が増える"], "observation": "ports-panel に ports-row-<port> が表示され WS で増減"},
+    {"name": "expose toggle", "linked_ac": ["AC-See8bd4-3-2"], "steps": ["ports-expose-toggle-5173 を ON", "POST /ports/5173/expose が飛ぶ", "ports-public-url-5173 に https://5173--<ws>--<repo>.<base> が出る", "toggle OFF で DELETE が飛び URL が消える"], "observation": "トグルで公開 URL の出現/消去"},
+    {"name": "copy + badge", "linked_ac": ["AC-See8bd4-3-3"], "steps": ["ports-copy-5173 をクリック → clipboard に URL", "公開中は ports-public-badge-5173 = public、非公開は private"], "observation": "URL コピー可能 + public/private badge 区別"},
+    {"name": "host runtime notice", "linked_ac": ["AC-See8bd4-3-4"], "steps": ["host runtime の Workspace で Ports パネルを開く", "ports-host-notice が出て『incus-container 専用、host port は portman 管轄』と案内"], "observation": "host では機能案内、混同しない"}
+  ],
+  "edge_cases": [
+    {"case": "expose API 500", "expected": "ports-row-error (inline) を出し toggle を元に戻す"},
+    {"case": "publicUrl コピー時 clipboard 不可", "expected": "コピー失敗を握りつぶさず軽量通知"},
+    {"case": "localhost-only バインド (127.0.0.1)", "expected": "行に『localhost (relay)』マークを出す (ExposePort の Python relay 救済対象)"}
+  ],
+  "endpoint_contracts": [
+    {"method": "GET", "path": "/api/repos/{repoId}/branches/{branchId}/ports", "response": "{runtimeKind: 'host'|'incus-container', ports: [{port:int, proto:'tcp'|'udp', bindAddr:string, process:string, localhostOnly:bool, public:bool, publicUrl:string}]}", "notes": "host のとき ports=[] + runtimeKind=host で UI は host-notice を出す。publicUrl は公開中のみ非空。"},
+    {"method": "POST", "path": "/api/repos/{repoId}/branches/{branchId}/ports/{port}/expose", "request": "{public: bool}", "response": "{port:int, public:bool, publicUrl:string}", "notes": "public=true で basic_auth 除外 route。Caddy admin API に注入。"},
+    {"method": "DELETE", "path": "/api/repos/{repoId}/branches/{branchId}/ports/{port}/expose", "response": "204", "notes": "route 撤去。idempotent。"},
+    {"event": "branch.portsChanged", "channel": "WS /api/events", "payload": "{repoId, branchId, ports: [...same shape as GET...]}", "notes": "port scan ループが変化を検出したとき broadcast。"}
+  ],
+  "data_testids": ["ports-panel", "ports-loading", "ports-empty", "ports-host-notice", "ports-row-{port}", "ports-expose-toggle-{port}", "ports-public-url-{port}", "ports-copy-{port}", "ports-public-badge-{port}", "ports-row-error-{port}"],
+  "test_files": {"e2e": "tests/e2e/see8bd4_ports_ui.py", "mock": "tests/e2e/see8bd4_ports_ui_mock.py"}
+}

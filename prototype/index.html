@@ -19,6 +19,32 @@
     </header>
 
     <section class="indexSection">
+      <h2>See8bd4 · コンテナポートの公開サブドメイン化 (Ports tab)</h2>
+      <div class="cardGrid">
+        <a class="card" href="see8bd4-ports.html">
+          <span class="cardLabel">See8bd4-3 · AC-1/2/3</span>
+          <div class="cardTitle">Ports tab · populated</div>
+          <p class="cardDesc">incus container の listening ports 一覧。expose トグル → <code>&lt;port&gt;--&lt;ws&gt;--&lt;repo&gt;.&lt;base&gt;</code> の公開 URL + copy。🔒 auth / 🌐 public badge。localhost-only は relay マーク。</p>
+        </a>
+        <a class="card" href="see8bd4-ports-empty.html">
+          <span class="cardLabel">See8bd4-3 · empty</span>
+          <div class="cardTitle">Ports tab · 空</div>
+          <p class="cardDesc">listen 中のポートなし。dev サーバ起動で自動出現する旨を案内。<code>data-testid=ports-empty</code>。</p>
+        </a>
+        <a class="card" href="see8bd4-ports-host.html">
+          <span class="cardLabel">See8bd4-3 · AC-4</span>
+          <div class="cardTitle">Ports tab · host runtime notice</div>
+          <p class="cardDesc">host runtime では incus 専用機能と案内し portman 管轄を明示。<code>data-testid=ports-host-notice</code>。</p>
+        </a>
+        <a class="card" href="see8bd4-ports-error.html">
+          <span class="cardLabel">See8bd4-3 · AC-6</span>
+          <div class="cardTitle">Ports tab · expose 失敗</div>
+          <p class="cardDesc">公開 API 失敗 → 行内 error + トグル復帰 (silent success にしない)。<code>data-testid=ports-row-error-{port}</code>。</p>
+        </a>
+      </div>
+    </section>
+
+    <section class="indexSection">
       <h2>S8478ca · Workspace Runtime (host / incus-container)</h2>
       <div class="cardGrid">
         <a class="card" href="s8478ca-open-repo-runtime.html">

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>See8bd4-3 · Ports tab (expose error)</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .portsShell { display:flex; flex-direction:column; height:100%; font-family:var(--font-ui); }
+    .portsHeader { padding:16px 20px 10px; border-bottom:1px solid var(--color-border); }
+    .portsTitle { display:flex; align-items:center; gap:10px; font-size:15px; font-weight:600; color:var(--color-fg); }
+    .portsTitle .chip { font-family:var(--font-mono); font-size:11px; padding:2px 8px; border-radius:999px;
+      background:rgba(124,138,255,.10); border:1px solid rgba(124,138,255,.30); color:var(--color-accent); }
+    .portsSub { margin-top:6px; font-size:12px; color:var(--color-fg-muted); line-height:1.6; }
+    .portsSub code { font-family:var(--font-mono); color:var(--color-fg); }
+    .portsBody { flex:1; display:flex; align-items:center; justify-content:center; padding:40px; }
+    .emptyCard { text-align:center; max-width:440px; }
+    .emptyIcon { font-size:34px; opacity:.5; }
+    .emptyTitle { margin-top:12px; font-size:14px; font-weight:600; color:var(--color-fg); }
+    .emptyDesc { margin-top:8px; font-size:13px; color:var(--color-fg-muted); line-height:1.7; }
+    .emptyDesc code { font-family:var(--font-mono); color:var(--color-fg); }
+    .noticeBox { padding:14px 16px; border-radius:var(--radius-sm,6px); background:rgba(245,158,11,.06);
+      border:1px solid rgba(245,158,11,.28); text-align:left; }
+    .portsList { padding:8px 12px; }
+    .portRow { display:grid; grid-template-columns:44px 1fr auto; gap:12px; align-items:center;
+      padding:12px; border:1px solid var(--color-border); border-radius:var(--radius-sm,6px);
+      background:var(--color-surface); }
+    .toggle { width:38px; height:22px; border-radius:999px; border:1px solid var(--color-border);
+      background:var(--color-elevated); position:relative; cursor:pointer; }
+    .toggle::after { content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:var(--color-fg-muted); }
+    .portNum { font-family:var(--font-mono); font-size:14px; font-weight:600; color:var(--color-fg); }
+    .portProc { font-size:12px; color:var(--color-fg-muted); margin-left:10px; }
+    .rowError { grid-column:1 / -1; margin-top:8px; font-size:12px; color:var(--color-error,#ef4444);
+      background:rgba(239,68,68,.07); border:1px solid rgba(239,68,68,.3); border-radius:4px; padding:6px 10px; }
+    .badgePrivate { font-size:10px; padding:2px 8px; border-radius:999px; background:var(--color-elevated);
+      border:1px solid var(--color-border); color:var(--color-fg-dim); }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <span class="headerBrand">PALMUX</span>
+      <span class="headerCrumb">tjst-t/<b>demo-repo</b> / <b>feature</b></span>
+      <span class="headerSpacer"></span>
+      <span class="chip" style="font-family:var(--font-mono);font-size:11px;padding:3px 9px;border-radius:999px;background:rgba(100,210,160,.10);border:1px solid rgba(100,210,160,.30);color:var(--color-success);">◇ incus-container · ready</span>
+    </header>
+    <aside class="drawer">
+      <div class="statusStrip"><span class="brand">PALMUX</span></div>
+      <div class="section"><span class="sectionTitle">Repositories</span></div>
+      <ul class="repos"><li class="repo"><div class="repoRow"><span class="repoNum">1</span><button class="repoName"><span class="scope">tjst-t/</span>demo-repo</button></div></li></ul>
+    </aside>
+    <main class="main">
+      <div class="tabBar">
+        <button class="tab">◆ Claude</button>
+        <button class="tab">🗂 Files</button>
+        <button class="tab">⎇ Git</button>
+        <button class="tab tabActive">🔌 Ports</button>
+        <button class="tab">⌨ Bash</button>
+      </div>
+      
+      <div class="portsShell" data-testid="ports-panel">
+        <div class="portsHeader"><div class="portsTitle">Ports <span class="chip">incus-container</span></div>
+          <div class="portsSub">公開に失敗したときは行内にエラーを表示し、トグルを元に戻します（成功に見せかけません）。</div></div>
+        <div class="portsList">
+          <div class="portRow" data-testid="ports-row-5173">
+            <div class="toggle" role="switch" aria-checked="false" data-testid="ports-expose-toggle-5173"></div>
+            <div><span class="portNum">:5173</span><span class="portProc">tcp · node</span></div>
+            <div><span class="badgePrivate" data-testid="ports-public-badge-5173">private</span></div>
+            <div class="rowError" data-testid="ports-row-error-5173">公開に失敗しました — Caddy admin API への route 追加が失敗 (caddy admin API route add failed)。トグルを元に戻しました。</div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

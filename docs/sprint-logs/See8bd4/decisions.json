@@ -1,0 +1,61 @@
+{
+  "sprint": "See8bd4",
+  "title": "incus コンテナポートの公開サブドメイン化 (TLS + Caddy admin API)",
+  "touched_adrs": [],
+  "touched_adrs_note": "docs/DESIGN/adr/ は存在しないため Guard 7 は fallback set (ADR-0014/0033/0034) に委ねる (該当 ADR なし)。",
+  "story_classification": {
+    "See8bd4-1": {
+      "entry_point": "api",
+      "scenario_file": "scenario-See8bd4-1.json",
+      "reason": "install.sh (CLI) で Caddy を構成し、結果は HTTPS + admin API という API 面で観測する。GUI なし。"
+    },
+    "See8bd4-2": {
+      "entry_point": "api",
+      "scenario_file": "scenario-See8bd4-2.json",
+      "reason": "ポート公開は route 注入であり、観測点は curl https://<sub>.<base> (実 HTTP)。GUI なし。"
+    },
+    "See8bd4-3": {
+      "entry_point": "gui",
+      "gui_spec_file": "gui-spec-See8bd4-3.json",
+      "reason": "Workspace 配下の Ports パネルという閲覧+操作 UI。React FE で観測。"
+    }
+  },
+  "decisions": [
+    {
+      "id": "D1",
+      "decision": "route 注入は palmux → Caddy admin API (localhost:2019) 直叩き。portman 非依存。conf.d ファイル + 手動 reload は廃止",
+      "rationale": "system-manager 管理の /etc/caddy/Caddyfile を palmux が書き換えると競合する。admin API は portman model B (S85caca) で実績があり、route の idempotent upsert/delete が安全。",
+      "source": "user confirmed 2026-06-11"
+    },
+    {
+      "id": "D2",
+      "decision": "公開サブドメイン命名 = <port>--<workspace>--<repo>.<base>",
+      "rationale": "host model B の {name}--{wt}--{repo} と対称。複数 workspace が同一 :5173 を出しても衝突しない。",
+      "source": "user confirmed 2026-06-11"
+    },
+    {
+      "id": "D3",
+      "decision": "公開サブドメインは既定でエッジ basic_auth の内側。Public=true の port のみ無認証で除外",
+      "rationale": "シングルユーザ自前ホスティング前提。誤って作業中 dev サーバを無認証公開する事故を防ぐ。PortSpec.Public が既に interface にあり再利用できる。",
+      "source": "user confirmed 2026-06-11"
+    },
+    {
+      "id": "D4",
+      "decision": "既存 S8478ca-4 の writeSnippet/.palmux.local 経路は Story -2 で admin API 版に置換 (削除ではなく付け替え)。port scan ループ (store.runPortScan/ScanPortsOnce) と ExposePort の Python relay は再利用",
+      "rationale": "検出ロジックは無回帰で残し、出力先 (Caddy 経路) だけ差し替える。blast radius を最小化。",
+      "source": "auto (clear best practice)"
+    },
+    {
+      "id": "D5",
+      "decision": "Ports UI は Workspace 配下のパネル。host runtime の Workspace では incus 専用機能である旨を案内 (AC-3-4)",
+      "rationale": "host port は portman 管轄 (S85caca) であり UI で混同させない。S8478ca-5 の runtime chip と整合。",
+      "source": "auto"
+    },
+    {
+      "id": "D6",
+      "decision": "Ports UI は runtime=incus-container のときだけ出る Conditional タブ (/{repo}/{branch}/ports)。tab module system (Sprint タブと同じ Conditional 機構) で実装",
+      "rationale": "既存タブ機構の再利用で core 変更不要。host runtime では出ない=AC-3-4 と整合。プロトタイプ レビューで popover 希望なら差し替え可。",
+      "source": "auto (clear best practice; user may redirect at prototype review)"
+    }
+  ]
+}
