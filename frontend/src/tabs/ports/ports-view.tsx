@@ -82,13 +82,16 @@ function PortRow({ port: p, state, onToggle, onFlipPublic, onCopy }: PortRowProp
       <div className={styles.portUrlArea}>
         {isExposed && p.publicUrl ? (
           <>
-            <span
+            <a
               className={styles.portUrl}
               data-testid={`ports-public-url-${p.port}`}
-              title={p.publicUrl}
+              href={p.publicUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`${p.publicUrl} — open in new tab`}
             >
               {p.publicUrl}
-            </span>
+            </a>
             <button
               className={`${styles.copyBtn} ${state.copied ? styles.copied : ''}`}
               data-testid={`ports-copy-${p.port}`}

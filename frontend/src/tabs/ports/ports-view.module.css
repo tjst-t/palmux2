@@ -326,6 +326,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.portUrl:hover {
+  text-decoration: underline;
 }
 
 .portUrlNone {
