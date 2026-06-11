@@ -3,22 +3,35 @@
 #
 # Rationale: nixpkgs `caddy` is the upstream binary without plugins; plugin
 # composition normally needs xcaddy + buildGoModule. The caddyserver.com API
-# returns a custom build with deterministic hash for a given (Caddy version,
-# plugin set), which fits Nix's hash-pinned fetchurl model cleanly.
+# returns the latest custom build with the requested plugins. Because the
+# endpoint always returns the latest Caddy, the hash drifts on every upstream
+# Caddy release.
 #
-# Hash must be re-pinned when Caddy version bumps. To refresh:
-#   curl -fsSL "https://caddyserver.com/api/download?os=linux&arch=amd64&p=github.com%2Fcaddy-dns%2Fcloudflare" | sha256sum
-{ stdenv, fetchurl, lib }:
+# Hash handling: scripts/install.sh computes the hash at install time and
+# passes it as `hash`. The committed `hashes` values below are a FALLBACK used
+# when building directly from the flake (e.g. `nix build .#caddy-cloudflare`)
+# without going through install.sh.  The amd64 fallback is kept current; the
+# arm64 fallback is best-effort.  Pass `hash` to override both (install.sh
+# always passes it for the target arch).
+{ stdenv, fetchurl, lib
+  # Runtime override: install.sh computes and passes this at install time so
+  # the hash always matches the current upstream Caddy binary.  When null the
+  # committed fallback hashes below are used.
+, hash ? null
+}:
 
 let
   arch =
     if stdenv.hostPlatform.isx86_64 then "amd64"
     else if stdenv.hostPlatform.isAarch64 then "arm64"
     else throw "caddy-cloudflare: unsupported arch ${stdenv.hostPlatform.system}";
+  # Fallback hashes — update amd64 when a direct `nix build` starts failing.
+  # install.sh always overrides these at install time via the `hash` parameter.
   hashes = {
-    amd64 = "sha256-oMcBm34amkyZG9Rgx2cYsINGDaoQEL05SSQyZIOW6OA=";
+    amd64 = "sha256-DXKMXgCd2y7AHmnsKmlW8kyDUNoArul61v/EhX0gyvE=";
     arm64 = "sha256-qcpbJPIk7NxbULl1TP9AtPP7UfPBkzXEuRFFoIkQqSQ=";
   };
+  effectiveHash = if hash != null then hash else hashes.${arch};
 in
 stdenv.mkDerivation {
   pname = "caddy-cloudflare";
@@ -26,7 +39,7 @@ stdenv.mkDerivation {
 
   src = fetchurl {
     url = "https://caddyserver.com/api/download?os=linux&arch=${arch}&p=github.com%2Fcaddy-dns%2Fcloudflare";
-    hash = hashes.${arch};
+    hash = effectiveHash;
   };
 
   dontUnpack = true;

@@ -52,3 +52,118 @@ jobs:
           files: |
             bin/palmux-linux-amd64
             bin/palmux-linux-arm64
+
+  # Bump the baked-in defaultVersion + defaultHashes in nix/packages/palmux2.nix
+  # so that `install.sh` / `palmux runtime install` default to the just-released
+  # stable version when no PALMUX_VERSION override is given.
+  #
+  # Flow:
+  #   1. This job runs only for STABLE releases (no -rc/-beta/-alpha in the tag,
+  #      and github.event.release.prerelease is false).  Pre-releases must NOT
+  #      update the committed default — users who don't opt-in via PALMUX_WS_PRE=1
+  #      should always get the last stable.
+  #   2. We check out the tag (done by the `release` job's checkout), then fetch
+  #      origin/main and check it out so we can commit back.  The `release` job
+  #      already uploaded the assets, so by the time this job runs the assets are
+  #      on GitHub and we can compute their sha256.
+  #   3. sed-update defaultVersion + amd64/arm64 hashes → commit if changed →
+  #      push to main.  Idempotent: if already current, `git diff --quiet` skips.
+  bump-nix-default:
+    needs: release
+    runs-on: ubuntu-latest
+    # Only run for stable releases: tag must not contain -rc, -beta, or -alpha.
+    # github.event is not available on push triggers so we check the tag name.
+    if: >-
+      !contains(github.ref_name, '-rc') &&
+      !contains(github.ref_name, '-beta') &&
+      !contains(github.ref_name, '-alpha')
+    steps:
+      - name: Check out main branch
+        # We need to push to main, not the tag.  Check out the tag first (via
+        # the default behaviour of checkout@v6 with the push.tags trigger), then
+        # fetch + switch to main so our commit lands on the right branch.
+        uses: actions/checkout@v6
+        with:
+          # Use a token with write permission (the default GITHUB_TOKEN in this
+          # workflow has `contents: write` from the top-level permissions block).
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Fetch all branches so we can switch to main.
+          fetch-depth: 0
+
+      - name: Switch to main and pull latest
+        run: |
+          git fetch origin main
+          git checkout main
+          git pull --ff-only origin main
+
+      - name: Compute release asset hashes (SRI)
+        id: hashes
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          VERSION="${TAG#v}"
+          BASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
+
+          echo "Computing sha256 for palmux-linux-amd64..."
+          HEX_AMD64="$(curl -fsSL "${BASE_URL}/palmux-linux-amd64" | sha256sum | awk '{print $1}')"
+          SRI_AMD64="sha256-$(printf '%s' "$HEX_AMD64" | xxd -r -p | base64 -w0)"
+
+          echo "Computing sha256 for palmux-linux-arm64..."
+          HEX_ARM64="$(curl -fsSL "${BASE_URL}/palmux-linux-arm64" | sha256sum | awk '{print $1}')"
+          SRI_ARM64="sha256-$(printf '%s' "$HEX_ARM64" | xxd -r -p | base64 -w0)"
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "sri_amd64=${SRI_AMD64}" >> "$GITHUB_OUTPUT"
+          echo "sri_arm64=${SRI_ARM64}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+          echo "amd64: ${SRI_AMD64}"
+          echo "arm64: ${SRI_ARM64}"
+
+      - name: Update nix/packages/palmux2.nix
+        env:
+          VERSION: ${{ steps.hashes.outputs.version }}
+          SRI_AMD64: ${{ steps.hashes.outputs.sri_amd64 }}
+          SRI_ARM64: ${{ steps.hashes.outputs.sri_arm64 }}
+        run: |
+          NIX_FILE="nix/packages/palmux2.nix"
+
+          # Update defaultVersion
+          sed -i "s|defaultVersion = \"[^\"]*\";|defaultVersion = \"${VERSION}\";|" "$NIX_FILE"
+
+          # Update amd64 hash — the line looks like:
+          #   amd64 = "sha256-...";
+          sed -i "s|amd64 = \"sha256-[^\"]*\";|amd64 = \"${SRI_AMD64}\";|" "$NIX_FILE"
+
+          # Update arm64 hash
+          sed -i "s|arm64 = \"sha256-[^\"]*\";|arm64 = \"${SRI_ARM64}\";|" "$NIX_FILE"
+
+          echo "--- Updated content ---"
+          grep -E 'defaultVersion|amd64|arm64' "$NIX_FILE"
+
+      - name: Commit and push if changed
+        env:
+          VERSION: ${{ steps.hashes.outputs.version }}
+          TAG: ${{ steps.hashes.outputs.tag }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git diff --quiet nix/packages/palmux2.nix && {
+            echo "nix/packages/palmux2.nix already up to date; nothing to commit."
+            exit 0
+          }
+
+          git add nix/packages/palmux2.nix
+          git commit -m "chore(nix): bump palmux2 default to ${TAG}
+
+          Auto-updated by release.yml after stable release ${TAG}.
+          Updates defaultVersion + defaultHashes (amd64/arm64) so that
+          install.sh and \`palmux runtime install\` default to ${VERSION}
+          without requiring PALMUX_VERSION to be set.
+
+          Co-Authored-By: github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
+
+          git push origin main

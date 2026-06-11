@@ -1,0 +1,155 @@
+==> reusing CLOUDFLARE_API_TOKEN from /etc/caddy/palmux.env
+==> reusing basic-auth hash from /etc/caddy/palmux.env (set BASIC_AUTH_PASSWORD to rotate)
+==> User: ubuntu, Home: /home/ubuntu, Host: palmux-deploy-test2
+==> Profile: minimal, Flake ref: path:/tmp/palmux2-src
+==> computing sha256 of palmux2 v0.10.0-rc1 (amd64)
+==> palmux2 v0.10.0-rc1: sha256-TfJ5s3jrv6ItfjZH9F4TCA9J+MA62bO0nmDYQBx65P0=
+==> computing sha256 of caddy-cloudflare (amd64)
+==> caddy-cloudflare: sha256-DXKMXgCd2y7AHmnsKmlW8kyDUNoArul61v/EhX0gyvE=
+==> installing base apt packages (curl, git, ca-certificates, jq, unzip, xz-utils)
+==> Nix already installed: nix (Determinate Nix 3.21.1) 2.34.7
+==> enabling Nix experimental-features = nix-command flakes
+==> Node.js 20.x already present
+==> installing/upgrading @anthropic-ai/claude-code
+==> gwq v0.1.1 already installed
+==> port-manager v0.3.1 already installed
+==> preparing /etc/palmux/ (user-owned so home-manager can write flake.lock)
+==> generating /etc/palmux/flake.nix (palmux2=v0.10.0-rc1)
+==> running home-manager switch (this may take a few minutes on first run)
+unpacking 'github:nix-community/home-manager/7dbd305f8b81050f223f00bcfbc8a6b74e048806' into the Git cache...
+this derivation will be built:
+  /nix/store/l49aj1n3s7vikghf2qzjxyz359sc3s5q-home-manager.drv
+building '/nix/store/l49aj1n3s7vikghf2qzjxyz359sc3s5q-home-manager.drv'...
+warning: creating lock file "/etc/palmux/flake.lock": 
+• Added input 'palmux2':
+    'path:/tmp/palmux2-src'
+• Added input 'palmux2/home-manager':
+    'github:nix-community/home-manager/f384af1' (2026-06-02)
+• Added input 'palmux2/home-manager/nixpkgs':
+    follows 'palmux2/nixpkgs'
+• Added input 'palmux2/nixpkgs':
+    'github:NixOS/nixpkgs/331800d' (2026-05-31)
+• Added input 'palmux2/system-manager':
+    'github:numtide/system-manager/dc1baae' (2026-05-11)
+• Added input 'palmux2/system-manager/flake-compat':
+    'github:edolstra/flake-compat/5edf11c' (2025-12-29)
+• Added input 'palmux2/system-manager/nixpkgs':
+    follows 'palmux2/nixpkgs'
+• Added input 'palmux2/system-manager/userborn':
+    'github:jfroche/userborn/55c2cd7' (2026-02-06)
+• Added input 'palmux2/system-manager/userborn/flake-compat':
+    follows 'palmux2/system-manager/flake-compat'
+• Added input 'palmux2/system-manager/userborn/flake-parts':
+    'github:hercules-ci/flake-parts/80daad0' (2026-01-11)
+• Added input 'palmux2/system-manager/userborn/flake-parts/nixpkgs-lib':
+    follows 'palmux2/system-manager/userborn/nixpkgs'
+• Added input 'palmux2/system-manager/userborn/nixpkgs':
+    follows 'palmux2/system-manager/nixpkgs'
+• Added input 'palmux2/system-manager/userborn/pre-commit-hooks-nix':
+    'github:cachix/pre-commit-hooks.nix/a1ef738' (2026-01-22)
+• Added input 'palmux2/system-manager/userborn/pre-commit-hooks-nix/flake-compat':
+    follows 'palmux2/system-manager/userborn/flake-compat'
+• Added input 'palmux2/system-manager/userborn/pre-commit-hooks-nix/gitignore':
+    'github:hercules-ci/gitignore.nix/637db32' (2024-02-28)
+• Added input 'palmux2/system-manager/userborn/pre-commit-hooks-nix/gitignore/nixpkgs':
+    follows 'palmux2/system-manager/userborn/pre-commit-hooks-nix/nixpkgs'
+• Added input 'palmux2/system-manager/userborn/pre-commit-hooks-nix/nixpkgs':
+    follows 'palmux2/system-manager/userborn/nixpkgs'
+• Added input 'palmux2/system-manager/userborn/systems':
+    'github:nix-systems/default/da67096' (2023-04-09)
+warning: Using 'builtins.derivation' to create a derivation named 'options.json' that references the store path '/nix/store/3a2vdn5i7vd2wl654xs8nb52jf1v6cbh-source' without a proper context. The resulting derivation will not have a correct store reference, so this is unreliable and may stop working in the future.
+Starting Home Manager activation
+Activating checkFilesChanged
+Activating checkLinkTargets
+Activating writeBoundary
+Activating installPackages
+replacing old 'home-manager-path'
+installing 'home-manager-path'
+Activating linkGeneration
+Cleaning up orphan links from /home/ubuntu
+Creating home file links in /home/ubuntu
+Activating onFilesChange
+Activating reloadSystemd
+
+There are 370 unread and relevant news items.
+Read them by running the command "home-manager news".
+
+==> configuring unattended-upgrades
+==> writing /etc/sysctl.d/99-palmux.conf
+==> preparing Caddy (system user + /var/lib/caddy)
+==> building caddy-cloudflare via Nix (will use binary from /nix/store)
+==> caddy binary: /nix/store/dasqbwi1gb3q70xm1rylzlizhywvbghz-caddy-cloudflare-custom/bin/caddy
+==> keeping existing basic-auth hash (no BASIC_AUTH_PASSWORD provided)
+==> writing /etc/caddy/palmux.env (root:caddy 0640)
+==> writing /etc/caddy/Caddyfile (domain=palmux-deploy-test.tjstkm.net, basic_auth=yes)
+==> installing /etc/systemd/system/caddy.service (ExecStart=/nix/store/dasqbwi1gb3q70xm1rylzlizhywvbghz-caddy-cloudflare-custom/bin/caddy)
+==> (re)starting Caddy
+==> === Incus container runtime setup ===
+==> incus already installed: 6.0.0
+==> incus daemon already initialized
+==> user ubuntu already in incus-admin group
+==> /etc/subuid: root:1000:1 already present
+==> /etc/subgid: root:1000:1 already present
+==> importing palmux-ws image via: /home/ubuntu/.nix-profile/bin/palmux2 runtime install --pre
+2026/06/11 02:56:10 INFO palmux runtime install starting
+Latest release asset: palmux-ws.tar.gz
+Downloading https://github.com/tjst-t/palmux2/releases/download/v0.10.0-rc1/palmux-ws.tar.gz ...
+Downloaded 275734650 bytes to /tmp/palmux-ws-882283468.tar.gz
+
+Checking host prerequisites ...
+  ✓ /etc/subuid: root:1000:1 already present
+  ✓ /etc/subgid: root:1000:1 already present
+
+  If subuid/subgid changes were needed but skipped (not root), run:
+    sudo systemctl restart incus   (after editing both files)
+
+Importing palmux-ws image into incus ...
+Error: Image with same fingerprint already exists
+  (image already in store — aliased existing fingerprint to palmux-ws)
+
+✓ palmux-ws image ready in incus
+
+Next steps:
+  1. Verify host prerequisites (run once):
+       palmux runtime doctor
+  2. In palmux, open a repository and switch a Workspace to
+     runtime: incus-container (Header › runtime chip)
+
+Host prerequisites (if not already done):
+  • /etc/subuid and /etc/subgid must each have:  root:1000:1
+    sudo sh -c 'echo root:1000:1 >> /etc/subuid && echo root:1000:1 >> /etc/subgid'
+    sudo systemctl restart incus
+  • If Docker is installed, allow incusbr0 forwarding:
+    sudo iptables -I DOCKER-USER -i incusbr0 -j ACCEPT
+==> palmux-ws image import completed
+==> running palmux2 runtime doctor (host prerequisites check)
+palmux runtime doctor
+
+  ✓ incus: Client version: 6.0.0
+  ✓ palmux-ws image: imported
+  ✓ /etc/subuid: root:1000:1 present
+  ✓ /etc/subgid: root:1000:1 present
+  ✓ Docker: not running (no FORWARD conflict)
+
+All checks passed.
+==> enabling palmux2 user systemd service
+==> writing update helper /home/ubuntu/update-palmux2.sh
+
+==> palmux2 installed via Nix (profile=minimal).
+
+    palmux2  v0.10.0-rc1
+    tmux     tmux 3.6a
+    ghq      1.9.4
+    gwq      v0.1.1
+    portman  0.3.1
+    node     v20.20.2
+    claude   2.1.172 (Claude Code)
+    go       go1.26.3
+
+==> Next:
+    1. Open  https://palmux-deploy-test.tjstkm.net/  (Let's Encrypt cert via Cloudflare DNS-01)
+       (basic auth: user=ubuntu)
+    2. To update later, just run:  /home/ubuntu/update-palmux2.sh
+       (generated with this host's options; reuses secrets from /etc/caddy/palmux.env).
+       Nix produces a new generation; failures roll back automatically. Rotate
+       secrets by exporting CLOUDFLARE_API_TOKEN / BASIC_AUTH_PASSWORD first.

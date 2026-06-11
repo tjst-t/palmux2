@@ -225,6 +225,20 @@ PALMUX_HASH_HEX="$(curl -fsSL "$PALMUX_BIN_URL" | sha256sum | awk '{print $1}')"
 PALMUX_HASH_SRI="sha256-$(printf '%s' "$PALMUX_HASH_HEX" | xxd -r -p | base64 -w0)"
 log "palmux2 ${PALMUX_TAG}: ${PALMUX_HASH_SRI}"
 
+# --- compute caddy-cloudflare hash (for install.sh-based Nix builds) --------
+# caddyserver.com/api/download always returns the LATEST Caddy build so the
+# hash drifts on every upstream release.  We fetch at install time so the
+# caddy-cloudflare.nix derivation always sees the correct hash, preventing
+# "hash mismatch in fixed-output derivation" build failures.
+# Only meaningful when Caddy is going to be built (CADDY_ENABLED=1), but
+# computing it unconditionally is harmless and keeps the logic simple.
+CADDY_DL_URL="https://caddyserver.com/api/download?os=linux&arch=${PALMUX_BIN_ARCH}&p=github.com%2Fcaddy-dns%2Fcloudflare"
+log "computing sha256 of caddy-cloudflare (${PALMUX_BIN_ARCH})"
+CADDY_HASH_HEX="$(curl -fsSL "$CADDY_DL_URL" | sha256sum | awk '{print $1}')"
+[ -n "$CADDY_HASH_HEX" ] || die "failed to compute caddy-cloudflare sha256"
+CADDY_HASH_SRI="sha256-$(printf '%s' "$CADDY_HASH_HEX" | xxd -r -p | base64 -w0)"
+log "caddy-cloudflare: ${CADDY_HASH_SRI}"
+
 # --- apt: base packages (curl/git/jq are bootstrap deps) ----------------------
 
 log "installing base apt packages (curl, git, ca-certificates, jq, unzip, xz-utils)"
@@ -392,7 +406,8 @@ cat > /etc/palmux/flake.nix <<EOF
     hostname = "${HOSTNAME_VALUE}";
     profile = "${PROFILE}";
     palmux2Version = "${PALMUX_TAG_BARE}";
-    palmux2Hash = "${PALMUX_HASH_SRI}";${OPTIONAL_ATTRS}
+    palmux2Hash = "${PALMUX_HASH_SRI}";
+    caddyHash = "${CADDY_HASH_SRI}";${OPTIONAL_ATTRS}
   };
 }
 EOF
@@ -1158,13 +1173,18 @@ if [ "${SKIP_INCUS}" != "1" ]; then
       _runtime_install_args="--pre"
     fi
 
-    # Locate the palmux binary (home-manager puts it in the Nix profile).
+    # Locate the palmux2 binary (home-manager puts it in the Nix profile).
+    # The binary installed by home-manager is named palmux2.  The home-manager
+    # profile bin dir is typically ~/.nix-profile/bin or
+    # /etc/profiles/per-user/<user>/bin — mirror how ghq/tmux are found post-
+    # switch.  We search the known profile paths first (PATH may not yet include
+    # the hm profile for the current shell invocation) then fall back to PATH.
     _palmux_bin=""
     for _candidate in \
-      "${USER_HOME}/.nix-profile/bin/palmux" \
-      "/etc/profiles/per-user/${USERNAME}/bin/palmux" \
-      "${BIN_DIR}/palmux" \
-      "$(command -v palmux 2>/dev/null || true)"; do
+      "${USER_HOME}/.nix-profile/bin/palmux2" \
+      "/etc/profiles/per-user/${USERNAME}/bin/palmux2" \
+      "${BIN_DIR}/palmux2" \
+      "$(command -v palmux2 2>/dev/null || true)"; do
       if [ -n "$_candidate" ] && [ -x "$_candidate" ]; then
         _palmux_bin="$_candidate"
         break
@@ -1172,8 +1192,8 @@ if [ "${SKIP_INCUS}" != "1" ]; then
     done
 
     if [ -z "$_palmux_bin" ]; then
-      warn "palmux binary not found on PATH — skipping image import."
-      warn "Run manually after install:  palmux runtime install"
+      warn "palmux2 binary not found on PATH — skipping image import."
+      warn "Run manually after install:  palmux2 runtime install"
     else
       log "importing palmux-ws image via: ${_palmux_bin} runtime install ${_runtime_install_args}"
       # sg activates the incus-admin group for this subshell so the group
@@ -1183,21 +1203,21 @@ if [ "${SKIP_INCUS}" != "1" ]; then
         log "palmux-ws image import completed"
       else
         _exit=$?
-        warn "palmux runtime install exited with code ${_exit}."
+        warn "palmux2 runtime install exited with code ${_exit}."
         warn "This may mean no stable release asset exists yet (RC period)."
         warn "Try:  PALMUX_WS_PRE=1 bash ~/update-palmux2.sh"
-        warn "Or:   palmux runtime install --pre"
+        warn "Or:   palmux2 runtime install --pre"
         warn "Or build locally:  bash images/workspace-default/build.sh"
         warn "Incus itself is set up; the image can be added later."
       fi
     fi
 
-    # ── 7. run palmux runtime doctor ──────────────────────────────────────────
-    log "running palmux runtime doctor (host prerequisites check)"
+    # ── 7. run palmux2 runtime doctor ─────────────────────────────────────────
+    log "running palmux2 runtime doctor (host prerequisites check)"
     if [ -n "$_palmux_bin" ]; then
       sg incus-admin -c "${_palmux_bin} runtime doctor" || true
     else
-      warn "palmux not found — skipping doctor; run manually: palmux runtime doctor"
+      warn "palmux2 not found — skipping doctor; run manually: palmux2 runtime doctor"
     fi
 
   fi  # end inner SKIP_INCUS guard (apt failure path)

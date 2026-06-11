@@ -276,6 +276,30 @@
       "reference": "clean VM: doctor 全 green 後、host→incus 切替 restarted=true / container RUNNING unprivileged / claude 2.1.170 in-container / creds readable / cleantest 可視 / in-container session 確認。"
     },
     {
+      "id": "D-fix-caddy-hash",
+      "phase": "post-sprint-fix",
+      "category": "implementation",
+      "decision": "caddy-cloudflare.nix に `hash ? null` パラメータを追加し、install.sh が install 時に caddy hash を compute して注入する仕組みに変更。caddyserver.com/api/download は常に最新 Caddy を返すため hash がリリース毎に drift し、固定 hash では 'hash mismatch in fixed-output derivation' で全 install が失敗していた。palmux2.nix と同じパターン (curl | sha256sum | SRI 変換) で CADDY_HASH_SRI を compute し、生成する /etc/palmux/flake.nix の mkPalmuxHost 呼び出しに `caddyHash = \"...\";` として注入。mkPalmuxHost.nix も `caddyHash ? null` を受けて callPackage に伝播するよう修正。コミット済み amd64 fallback hash を現行の正しい値 sha256-DXKMXgCd2y7AHmnsKmlW8kyDUNoArul61v/EhX0gyvE= に更新。コメントを 'hash is auto-computed by install.sh; the committed value is a fallback' に更新。",
+      "rationale": "install.sh は既に palmux2 バイナリの hash を同様に動的 compute している実績があり、同じ手法を Caddy に適用することで追加の依存・仕組みを増やさず問題を解決できる。flake.nix を直接ビルドする場合 (nix build .#caddy-cloudflare) は committed fallback が使われ、install.sh 経由では常に正しい hash を渡す。",
+      "reference": "nix/packages/caddy-cloudflare.nix; nix/lib/mkPalmuxHost.nix; scripts/install.sh (caddy hash compute block ~line 228-238)"
+    },
+    {
+      "id": "D-fix-palmux2-binary",
+      "phase": "post-sprint-fix",
+      "category": "implementation",
+      "decision": "install.sh の Incus セクション (~line 1160-1200) で palmux バイナリのパスを解決する候補リストを palmux → palmux2 に修正。Nix が home-manager でインストールするバイナリ名は palmux2 (palmux2.nix の installPhase で `install -Dm755 $src $out/bin/palmux2`)。旧コードは ~/.nix-profile/bin/palmux / /etc/profiles/per-user/.../bin/palmux を探しており、常に not found → 'palmux not found — skipping' → incus image import と doctor がスキップされていた。修正後: ~/.nix-profile/bin/palmux2 / /etc/profiles/per-user/${USERNAME}/bin/palmux2 / ${BIN_DIR}/palmux2 / $(command -v palmux2) の順で探す。home-manager switch は Incus セクション (~line 1047) より前の ~line 402 で完了しているため、~/.nix-profile/bin/palmux2 は探索時点で存在する。warning/log メッセージも palmux → palmux2 に統一。",
+      "rationale": "Nix バイナリ名の不一致は install.sh 作成時の見落とし。binary name は palmux2.nix の mainProgram/installPhase から決まる。PATH が hm profile を含まなくても絶対パスで見つかるよう候補リストに hm profile の既知パスを先頭に置くのは ghq/tmux 等 hm-installed binary の解決と同じパターン。",
+      "reference": "scripts/install.sh (Incus locate binary block); nix/packages/palmux2.nix installPhase"
+    },
+    {
+      "id": "D-fix-release-nix-bump",
+      "phase": "post-sprint-fix",
+      "category": "architecture",
+      "decision": ".github/workflows/release.yml に bump-nix-default ジョブを追加。安定リリース (tag に -rc/-beta/-alpha を含まない場合のみ) の push 後に main を checkout し、nix/packages/palmux2.nix の defaultVersion + defaultHashes (amd64/arm64 SRI) を当該リリースの実アセット sha256 に sed-update してコミット+push する。palmux.nix 以外のファイルは変更しない。冪等: git diff --quiet で変更なし時はコミットをスキップ。RC タグ (v0.10.0-rc1 等) はジョブが if 条件でスキップするため main の default version が汚れない。",
+      "rationale": "旧状態では defaultVersion = '0.9.2' が stale のまま commit されており、install.sh / palmux runtime install がデフォルトで古い binary を使っていた。release.yml が release ジョブ完了後にアセットの hash を compute して palmux2.nix を更新することで、次の install は新バージョンを自動的に使う。hash は GitHub Releases から直接 curl して compute するため、アセット upload のタイミング問題もない (bump-nix-default は release ジョブの完了を needs: で待つ)。",
+      "reference": ".github/workflows/release.yml bump-nix-default job; nix/packages/palmux2.nix"
+    },
+    {
       "id": "D-install-incus",
       "phase": "implementation",
       "category": "implementation",

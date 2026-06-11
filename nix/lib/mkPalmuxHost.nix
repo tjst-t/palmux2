@@ -23,6 +23,10 @@
   # null の時は palmux2.nix の baked-in default を使う。
 , palmux2Version ? null
 , palmux2Hash ? null
+
+  # caddy-cloudflare hash override (install.sh が install 時に compute した結果を渡す)。
+  # null の時は caddy-cloudflare.nix の baked-in fallback hash を使う。
+, caddyHash ? null
 }:
 
 let
@@ -33,7 +37,7 @@ let
     version = palmux2Version;
     hash = palmux2Hash;
   };
-  caddy-cloudflare = pkgs.callPackage ../packages/caddy-cloudflare.nix { };
+  caddy-cloudflare = pkgs.callPackage ../packages/caddy-cloudflare.nix { hash = caddyHash; };
 
   caddyEnabled = domain != null;
   bindAddr = if caddyEnabled then "127.0.0.1:8080" else "0.0.0.0:8080";
