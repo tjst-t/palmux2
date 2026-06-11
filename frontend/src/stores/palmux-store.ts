@@ -14,6 +14,7 @@ import {
   type SubagentCleanupCandidate,
   type SubagentCleanupResult,
   type Tab,
+  type WorkspacePorts,
 } from '../lib/api'
 import type { ToolbarConfig } from '../types/toolbar'
 
@@ -239,6 +240,11 @@ interface PalmuxStoreState {
   /** Per-branch ("{repoId}/{branchId}") Claude-tab state. */
   agents: Record<string, AgentBranchState>
 
+  /** See8bd4-3: Per-branch ports payload, keyed by "{repoId}/{branchId}".
+   *  Updated by the `branch.portsChanged` WS event so the Ports tab
+   *  refreshes without a full REST round-trip. */
+  branchPorts: Record<string, WorkspacePorts>
+
   // Actions ────────────────────────────────────────────────────────────────
   bootstrap: () => Promise<void>
   reloadRepos: () => Promise<void>
@@ -333,6 +339,7 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
   notifications: {},
   agents: {},
   runtimeCaps: null,
+  branchPorts: {},
 
   bootstrap: async () => {
     if (get().bootstrapped || get().loading) return
@@ -558,6 +565,14 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
     // terminal tabs to reconnect — the old tmux session is gone.
     if (ev.type === 'branch.restarted' && ev.repoId && ev.branchId) {
       _triggerBranchTerminalReconnect(ev.repoId, ev.branchId, get().repos)
+    }
+
+    // See8bd4-3: ports scan detected a change — update the Ports tab cache
+    // so active Ports views refresh without issuing a fresh GET .../ports.
+    if (ev.type === 'branch.portsChanged' && ev.repoId && ev.branchId && ev.payload) {
+      const key = `${ev.repoId}/${ev.branchId}`
+      const payload = ev.payload as WorkspacePorts
+      set((s) => ({ branchPorts: { ...s.branchPorts, [key]: payload } }))
     }
 
     if (
