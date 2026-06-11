@@ -315,7 +315,11 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 			"source="+m.source,
 			"path="+m.path,
 		)
-		if err != nil || code != 0 {
+		// "already exists" means a prior Start already added this device — the
+		// re-add is a no-op (idempotent re-open of a pre-existing container),
+		// not a failure. Without this, restarting palmux against a still-running
+		// container leaves the runtime stuck in StateError.
+		if err != nil || (code != 0 && !strings.Contains(stderr, "already exists")) {
 			msg := fmt.Sprintf("incus device add %s: code=%d stderr=%s", m.name, code, stderr)
 			r.setStatus(runtime.Status{State: runtime.StateError, Error: msg})
 			return fmt.Errorf("%s: %w", msg, err)
