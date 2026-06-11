@@ -233,8 +233,10 @@ def test_ac3_wildcard_route_basic_auth(domain: str, auth_user: str) -> None:
     # container port.  We use @id=see8bd4-test so it can be cleaned up.
     test_host = f"9999--x--y.{domain}"
 
+    # Insert at index 0 (PUT .../routes/0) so the specific-host route is matched
+    # BEFORE the static `*.<base>` 502 catch-all — exactly how palmux injects.
     inject_cmd = (
-        "curl -s -X POST http://localhost:2019/config/apps/http/servers/srv0/routes "
+        "curl -s -X PUT http://localhost:2019/config/apps/http/servers/srv0/routes/0 "
         "-H 'Content-Type: application/json' "
         "-d '{"
         '"@id":"see8bd4-test",'
