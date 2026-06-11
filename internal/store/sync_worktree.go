@@ -175,6 +175,12 @@ type portScanner interface {
 	ScanPortsOnce(ctx context.Context) ([]runtime.ListeningPort, error)
 }
 
+// portViewer is the subset of the incus Runtime that exposes the user-facing
+// Ports view (listening ports + exposure state). See8bd4-3.
+type portViewer interface {
+	PortsView() []runtime.PortView
+}
+
 func (s *Store) scanPorts(ctx context.Context) {
 	if s.deps.RuntimeRegistry == nil {
 		return
@@ -222,5 +228,18 @@ func (s *Store) scanPorts(ctx context.Context) {
 				"inst":  rt.Status().Address, // containerIP as hint
 			},
 		})
+		// See8bd4-3: also broadcast the enriched Ports view (with exposure
+		// state) for the Ports tab.
+		if pv, ok := rt.(portViewer); ok {
+			s.hub.Publish(Event{
+				Type:     EventBranchPortsChanged,
+				RepoID:   ws.repoID,
+				BranchID: ws.branchID,
+				Payload: map[string]any{
+					"runtimeKind": string(rt.Kind()),
+					"ports":       pv.PortsView(),
+				},
+			})
+		}
 	}
 }

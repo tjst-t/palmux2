@@ -83,6 +83,21 @@ type ListeningPort struct {
 	Process  string
 }
 
+// PortView is the user-facing view of one container port: the observed
+// listening port plus whether palmux has published it as an HTTPS subdomain.
+// It is what GET .../ports returns and what the branch.portsChanged WS event
+// carries. (See8bd4-3)
+type PortView struct {
+	Port          int    `json:"port"`
+	Proto         string `json:"proto"`
+	BindAddr      string `json:"bindAddr"`
+	Process       string `json:"process"`
+	LocalhostOnly bool   `json:"localhostOnly"` // bound to 127.0.0.1 — reachable via in-container relay
+	Public        bool   `json:"public"`        // exposed without edge basic_auth
+	Exposed       bool   `json:"exposed"`       // a public route exists for this port
+	PublicURL     string `json:"publicUrl"`     // https://<port>--<ws>--<repo>.<base> when exposed, else ""
+}
+
 // PortSpec describes a port to expose from the runtime to the outside world.
 // The shape is intentionally general so that future UDP / WebRTC (Neko, §7 of
 // the workspace-runtime design) fits without retrofit:

@@ -14,6 +14,7 @@ import {
   type SubagentCleanupCandidate,
   type SubagentCleanupResult,
   type Tab,
+  type WorkspacePorts,
 } from '../lib/api'
 import type { ToolbarConfig } from '../types/toolbar'
 
@@ -239,6 +240,22 @@ interface PalmuxStoreState {
   /** Per-branch ("{repoId}/{branchId}") Claude-tab state. */
   agents: Record<string, AgentBranchState>
 
+  /** See8bd4-3: Per-branch ports payload, keyed by "{repoId}/{branchId}".
+   *  Updated by the `branch.portsChanged` WS event so the Ports tab
+   *  refreshes without a full REST round-trip. */
+  branchPorts: Record<string, WorkspacePorts>
+
+  /** See8bd4-3: optimistically patch a single port in branchPorts after a
+   *  successful expose/unexpose so the UI updates immediately even if the
+   *  branch.portsChanged WS event is briefly delayed (no snap-back). No-op if
+   *  no WS snapshot exists yet (the component's local REST state covers that). */
+  applyBranchPortPatch: (
+    repoId: string,
+    branchId: string,
+    port: number,
+    patch: Partial<import('../lib/api').PortView>,
+  ) => void
+
   // Actions ────────────────────────────────────────────────────────────────
   bootstrap: () => Promise<void>
   reloadRepos: () => Promise<void>
@@ -333,6 +350,23 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
   notifications: {},
   agents: {},
   runtimeCaps: null,
+  branchPorts: {},
+
+  applyBranchPortPatch: (repoId, branchId, port, patch) =>
+    set((s) => {
+      const key = `${repoId}/${branchId}`
+      const cur = s.branchPorts[key]
+      if (!cur) return {}
+      return {
+        branchPorts: {
+          ...s.branchPorts,
+          [key]: {
+            ...cur,
+            ports: cur.ports.map((p) => (p.port === port ? { ...p, ...patch } : p)),
+          },
+        },
+      }
+    }),
 
   bootstrap: async () => {
     if (get().bootstrapped || get().loading) return
@@ -558,6 +592,14 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
     // terminal tabs to reconnect — the old tmux session is gone.
     if (ev.type === 'branch.restarted' && ev.repoId && ev.branchId) {
       _triggerBranchTerminalReconnect(ev.repoId, ev.branchId, get().repos)
+    }
+
+    // See8bd4-3: ports scan detected a change — update the Ports tab cache
+    // so active Ports views refresh without issuing a fresh GET .../ports.
+    if (ev.type === 'branch.portsChanged' && ev.repoId && ev.branchId && ev.payload) {
+      const key = `${ev.repoId}/${ev.branchId}`
+      const payload = ev.payload as WorkspacePorts
+      set((s) => ({ branchPorts: { ...s.branchPorts, [key]: payload } }))
     }
 
     if (
@@ -997,6 +1039,20 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
             },
       ),
     }))
+    // S8478ca-fix: the server returns HTTP 200 even when the in-place restart
+    // FAILED and rolled the workspace back to its previous runtime (config
+    // persisted, but the live switch could not be applied — e.g. the palmux
+    // process lacks incus-admin group permission to talk to the incus daemon).
+    // `resp.runtime` above already reflects the rolled-back (true) state, so the
+    // badge is correct; but we must NOT let this look like success. Throw so the
+    // caller (header runtime chip) surfaces it as a prominent error instead of
+    // silently appearing to switch. Note: a plain `!restarted` is the legitimate
+    // no-op case (branch not open / same kind) — only restartError means failure.
+    if (resp.restartError) {
+      throw new Error(
+        `Runtime switch failed — the workspace was kept on its previous runtime. ${resp.restartError}`,
+      )
+    }
     // S8478ca-refine: when the server performed an in-place restart, the
     // tmux session was recreated in a new runtime. All active terminal tabs
     // for this workspace need to reconnect.

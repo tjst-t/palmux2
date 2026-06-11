@@ -1,0 +1,45 @@
+{
+  "sprint_range": [
+    "See8bd4"
+  ],
+  "screens": [
+    {
+      "file": "prototype/see8bd4-ports.html",
+      "story": "See8bd4-3",
+      "state": "populated",
+      "feedback_rounds": 0,
+      "approved": true
+    },
+    {
+      "file": "prototype/see8bd4-ports-empty.html",
+      "story": "See8bd4-3",
+      "state": "empty",
+      "feedback_rounds": 0,
+      "approved": true
+    },
+    {
+      "file": "prototype/see8bd4-ports-host.html",
+      "story": "See8bd4-3",
+      "state": "host-notice",
+      "feedback_rounds": 0,
+      "approved": true
+    },
+    {
+      "file": "prototype/see8bd4-ports-error.html",
+      "story": "See8bd4-3",
+      "state": "expose-error",
+      "feedback_rounds": 0,
+      "approved": true
+    }
+  ],
+  "design_decisions": [
+    "Ports は runtime=incus-container のときだけ出る Conditional タブ (Claude / Files / Git / 🔌Ports / Bash)",
+    "公開トグル ON で <port>--<workspace>--<repo>.<base> の HTTPS URL を表示、copy ボタン付き",
+    "公開は既定でエッジ basic_auth の内側 (🔒 auth badge)、🌐 public に切替で無認証",
+    "localhost-only バインドは relay マーク (ExposePort の in-container Python relay 救済)",
+    "host runtime では ports-host-notice で portman 管轄を案内し混同回避",
+    "Fog パレット + 既存 prototype design system を踏襲"
+  ],
+  "approved": true,
+  "status": "approved"
+}

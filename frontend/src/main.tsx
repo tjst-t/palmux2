@@ -10,6 +10,7 @@ import './tabs/git'
 import './tabs/claude-agent'
 import './tabs/claude-tui'
 import './tabs/sprint'
+import './tabs/ports'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -58,6 +58,9 @@ let
     inherit palmux2-pkg username homeDirectory bindAddr;
     profilePackages = selectedProfile.packages;
     profileName = profile;
+    # See8bd4-1: pass domain so home-manager unit gains --public-domain flag
+    # and EnvironmentFile=/etc/palmux/runtime.env when Caddy is enabled.
+    publicDomain = if caddyEnabled then domain else null;
   };
 
   caddyModule = import ../modules/system-manager-caddy.nix {

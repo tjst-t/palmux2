@@ -1,0 +1,47 @@
+{
+  "story": "See8bd4-2",
+  "entry_point": "api",
+  "title": "コンテナポート → 公開ルート (admin API)",
+  "scenarios": [
+    {
+      "name": "container port reachable via HTTPS subdomain",
+      "linked_ac": ["AC-See8bd4-2-1"],
+      "steps": [
+        "incus-container Workspace を開き、コンテナ内で python3 -m http.server 5173 --bind 0.0.0.0 を起動",
+        "palmux の port scan → admin API に route 注入 (<5173>--<ws>--<repo>.<base> → <containerIP>:5173)",
+        "curl -sS -u <user>:<pass> https://5173--<ws>--<repo>.<base>/ が 200、証明書 valid"
+      ],
+      "observation": "コンテナ内 dev サーバに実サブドメイン+TLS で到達"
+    },
+    {
+      "name": "auth default + Public opt-out",
+      "linked_ac": ["AC-See8bd4-2-2"],
+      "steps": [
+        "認証なし curl https://5173--<ws>--<repo>.<base>/ → 401",
+        "POST .../ports/5173/expose {public:true} 後、認証なし curl → 200"
+      ],
+      "observation": "既定 basic_auth、Public=true で除外"
+    },
+    {
+      "name": "route torn down on close",
+      "linked_ac": ["AC-See8bd4-2-3"],
+      "steps": [
+        "Workspace を close (DELETE)",
+        "curl https://5173--<ws>--<repo>.<base>/ が到達不能 (404/502)",
+        "admin API /config/ に当該 route が存在しない"
+      ],
+      "observation": "close で route 撤去"
+    },
+    {
+      "name": "two workspaces same :5173 no collision",
+      "linked_ac": ["AC-See8bd4-2-4"],
+      "steps": [
+        "Workspace A と B が両方 :5173 を出す",
+        "5173--<wsA>--<repo>.<base> と 5173--<wsB>--<repo>.<base> が別々に 200"
+      ],
+      "observation": "別サブドメインで衝突せず両方到達"
+    }
+  ],
+  "real_mode_smoke": "VM 上で 2 つの実コンテナ + 実 Caddy admin API で curl 実機検証。",
+  "test_file": "tests/acceptance/see8bd4_container_port_publish.py"
+}
