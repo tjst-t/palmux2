@@ -1,0 +1,31 @@
+{
+  "sprint": "See8bd4",
+  "date": "2026-06-11",
+  "review": {
+    "method": "sub-agent code review (recall-biased) over 14296fc..HEAD",
+    "findings": 8,
+    "fixed": [
+      {"sev": "high", "issue": "data race on lazy r.caddy init", "fix": "sync.Once in caddyClient()"},
+      {"sev": "med", "issue": "admin routes lost on Caddy reload, no re-sync", "fix": "resyncExposedRoutes() in scan loop (publish mode)"},
+      {"sev": "med", "issue": "subdomain collision (same repo name / same slug)", "fix": "labels keep path-derived hash"},
+      {"sev": "low", "issue": "port > 65535 accepted", "fix": "handler bound check"},
+      {"sev": "low", "issue": "non-deterministic Caddy server pick", "fix": "sorted key iteration"},
+      {"sev": "low", "issue": "FE toggle snap-back if WS lags", "fix": "optimistic branchPorts patch on REST success"}
+    ],
+    "accepted_as_designed": []
+  },
+  "unit_tests": {
+    "go_race": "pass (internal/runtime/..., internal/store/...)",
+    "caddy_admin": "pass (route JSON/@id/srv0/auth-vs-public/label derivation)"
+  },
+  "mock_tests": {
+    "see8bd4_ports_ui_mock.py": "ALL PASS (AC-3-4/-3-5/-3-6)",
+    "s8478ca_runtime_switch_mock.py": "ALL PASS (regression)"
+  },
+  "lint": {"go_vet": "clean", "eslint": "clean", "tsc": "clean"},
+  "e2e_real_mode": {"status": "pending_deploy", "tests": [
+    "tests/acceptance/see8bd4_caddy_wildcard.py",
+    "tests/acceptance/see8bd4_container_port_publish.py",
+    "tests/e2e/see8bd4_ports_ui.py"
+  ]}
+}
