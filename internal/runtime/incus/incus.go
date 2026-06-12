@@ -289,6 +289,14 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 	claudeShareDir := filepath.Join(home, ".local", "share", "claude")
 	claudeBinDir := filepath.Join(home, ".local", "bin")
 
+	// S5818e8: also share the host's dev environment so the container's
+	// interactive shell matches the host (shell dotfiles), and the Claude agent
+	// can do GitHub operations (gh token, git identity, SSH keys). Same
+	// philosophy as the ~/.claude mount: full capability, no re-auth. Each is
+	// skipped if absent (loop below os.Stat-guards every entry), so hosts
+	// without e.g. ~/.ssh still start cleanly.
+	mj := func(p ...string) string { return filepath.Join(append([]string{home}, p...)...) }
+
 	mounts := []struct {
 		name   string
 		source string
@@ -301,6 +309,19 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 		// is always the same version as the host (no re-download, no re-auth).
 		{"dot-local-share-claude", claudeShareDir, claudeShareDir},
 		{"dot-local-bin", claudeBinDir, claudeBinDir},
+		// Shell dotfiles → the container shell matches the host (starship prompt,
+		// aliases, ~/.bashrc.d functions). The shell-UX tools they invoke are
+		// baked into the palmux-ws image (S5818e8-2).
+		{"dot-bashrc", mj(".bashrc"), mj(".bashrc")},
+		{"dot-profile", mj(".profile"), mj(".profile")},
+		{"dot-bash-profile", mj(".bash_profile"), mj(".bash_profile")},
+		{"dot-bashrc-d", mj(".bashrc.d"), mj(".bashrc.d")},
+		// GitHub: identity + gh token + SSH keys so the agent can git/gh push.
+		// Only ~/.config/gh is shared, NOT all of ~/.config (avoids chrome /
+		// pulse / systemd / incus host-specific dirs and their state).
+		{"dot-gitconfig", mj(".gitconfig"), mj(".gitconfig")},
+		{"dot-config-gh", mj(".config", "gh"), mj(".config", "gh")},
+		{"dot-ssh", mj(".ssh"), mj(".ssh")},
 	}
 	for _, m := range mounts {
 		// Skip if source does not exist on host — silently omit to avoid

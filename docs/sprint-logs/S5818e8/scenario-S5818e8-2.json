@@ -1,0 +1,4 @@
+{"story":"S5818e8-2","entry_point":"cli","title":"palmux-ws image shell-UX tools","scenarios":[
+ {"name":"tools baked","linked_ac":["AC-S5818e8-2-1"],"steps":["新 image のコンテナで which starship eza rg zoxide fzf delta yazi"],"observation":"全ツール存在"},
+ {"name":"starship prompt","linked_ac":["AC-S5818e8-2-2"],"steps":["bind-mount 済みコンテナで bash -lic","host の ~/.bashrc が読まれ starship init が走る"],"observation":"プロンプトが starship"}
+],"real_mode_smoke":"deploy VM 実コンテナ","test_file":"tests/acceptance/s5818e8_container_devenv.py"}

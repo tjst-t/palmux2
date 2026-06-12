@@ -99,21 +99,47 @@ else
 fi
 
 # ─── 3. install packages ──────────────────────────────────────────────────────
-log "3. Installing packages: tmux git curl ca-certificates python3 ..."
-# Run as a single apt-get call. set -e in the remote shell ensures apt failure
-# propagates back through incus exec.
+# Base tools + the shell-UX cluster (S5818e8) so the container's interactive
+# shell matches the host once palmux bind-mounts ~/.bashrc / ~/.bashrc.d. We bake
+# exactly the tools the host shell invokes (eza/ripgrep/zoxide/fzf/git-delta from
+# apt; starship + yazi from upstream releases). bat/fd are intentionally omitted
+# (the reference host does not ship them).
+log "3. Installing base packages + shell-UX cluster ..."
 incus exec "${BUILD_INST}" </dev/null -- sh -c '
   set -e
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
-  apt-get install -y --no-install-recommends tmux git curl ca-certificates python3
+  apt-get install -y --no-install-recommends \
+    tmux git curl ca-certificates python3 \
+    eza ripgrep zoxide fzf git-delta unzip openssh-client
 '
 
+# starship (prompt) — official installer → /usr/local/bin/starship.
+log "   Installing starship (prompt) ..."
+incus exec "${BUILD_INST}" </dev/null -- sh -c '
+  set -e
+  curl -fsSL https://starship.rs/install.sh | sh -s -- -y -b /usr/local/bin
+'
+
+# yazi (TUI file manager) — pinned upstream release binary → /usr/local/bin.
+YAZI_VER="${YAZI_VER:-0.4.2}"
+log "   Installing yazi ${YAZI_VER} ..."
+incus exec "${BUILD_INST}" </dev/null -- sh -c "
+  set -e
+  cd /tmp
+  curl -fsSL -o yazi.zip https://github.com/sxyazi/yazi/releases/download/v${YAZI_VER}/yazi-x86_64-unknown-linux-gnu.zip
+  unzip -oq yazi.zip
+  install -m755 yazi-x86_64-unknown-linux-gnu/yazi /usr/local/bin/yazi
+  install -m755 yazi-x86_64-unknown-linux-gnu/ya /usr/local/bin/ya 2>/dev/null || true
+  rm -rf yazi.zip yazi-x86_64-unknown-linux-gnu
+"
+
 log "   Verifying installed binaries ..."
-incus exec "${BUILD_INST}" </dev/null -- which tmux || die "tmux not found after install"
-incus exec "${BUILD_INST}" </dev/null -- which git  || die "git not found after install"
-incus exec "${BUILD_INST}" </dev/null -- which python3 || die "python3 not found after install"
-log "   tmux / git / python3 present"
+for b in tmux git python3 starship eza rg zoxide fzf delta yazi; do
+  incus exec "${BUILD_INST}" </dev/null -- sh -c "command -v $b >/dev/null 2>&1" \
+    || die "$b not found after install"
+done
+log "   base + shell-UX tools present (starship/eza/rg/zoxide/fzf/delta/yazi)"
 
 # ─── 4. verify ubuntu user UID 1000 ──────────────────────────────────────────
 log "4. Verifying ubuntu user (UID 1000) ..."

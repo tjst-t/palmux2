@@ -1,0 +1,15 @@
+{
+  "sprint": "S5818e8",
+  "title": "incus コンテナの dev 環境共有",
+  "touched_adrs": [],
+  "story_classification": {
+    "S5818e8-1": {"entry_point": "api", "scenario_file": "scenario-S5818e8-1.json", "reason": "incus bind-mount。観測点は incus exec でコンテナ内の内容/権限/gh/git。"},
+    "S5818e8-2": {"entry_point": "cli", "scenario_file": "scenario-S5818e8-2.json", "reason": "イメージ build。観測点はコンテナ内 which/PS1。"}
+  },
+  "decisions": [
+    {"id":"D1","decision":"~/.config 丸ごとではなく shell dotfiles + gh + gitconfig + ssh をピンポイント bind-mount","rationale":"chrome/pulse/systemd/incus 等の host 固有・無関係 dir を持ち込まない。gh は GitHub 操作に必須。starship はカスタム設定なし(デフォルト)なので config 不要。","source":"user confirmed 2026-06-12"},
+    {"id":"D2","decision":"SSH 秘密鍵 + gh トークンのコンテナ露出を許容","rationale":"フル機能・再認証なし。既存 ~/.claude 共有と同じ前提。コンテナは host 汚染防止が目的でセキュリティ境界ではない。ユーザ明示承認。","source":"user confirmed"},
+    {"id":"D3","decision":"shell-UX ツールは palmux-ws image に同梱 (bind-mount せず)","rationale":"host のツールは /usr/local・/usr/bin にあり host lib 依存。bind-mount は壊れやすい。image に焼けば self-contained。version は host と厳密一致しないが機能等価。","source":"auto"},
+    {"id":"D4","decision":"既存の『source 無ければ skip』ロジックを流用 (incus.go の os.Stat ガード)","rationale":"~/.ssh や gh が無いホストでも Start を壊さない。","source":"auto"}
+  ]
+}
