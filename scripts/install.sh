@@ -568,8 +568,20 @@ if [ "$CADDY_ENABLED" = "1" ]; then
   # admin API, and PALMUX_PUBLIC_DOMAIN as an alternative to --public-domain.
   log "writing /etc/palmux/runtime.env (root:${USERNAME} 0640)"
   sudo install -d -m 0755 /etc/palmux
+  # Sbe4eee: PALMUX_SSO_SECRET signs the SSO cookie. Generate a random 32-byte
+  # secret ONCE and reuse it on re-runs so existing sessions survive upgrades
+  # (a changing key would log everyone out). A dedicated random secret is
+  # stronger than deriving the key from the password hash.
+  PALMUX_SSO_SECRET="$(sudo sed -n 's/^PALMUX_SSO_SECRET=//p' /etc/palmux/runtime.env 2>/dev/null || true)"
+  if [ -z "$PALMUX_SSO_SECRET" ]; then
+    PALMUX_SSO_SECRET="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+    log "generated a new PALMUX_SSO_SECRET"
+  else
+    log "reusing existing PALMUX_SSO_SECRET (sessions preserved)"
+  fi
   {
     printf 'PALMUX_PUBLIC_DOMAIN=%s\n' "$DOMAIN"
+    printf 'PALMUX_SSO_SECRET=%s\n' "$PALMUX_SSO_SECRET"
     if [ -n "$BASIC_AUTH_USER" ]; then
       printf 'BASIC_AUTH_USER=%s\n' "$BASIC_AUTH_USER"
       printf 'BASIC_AUTH_HASH=%s\n' "$BASIC_AUTH_HASH"

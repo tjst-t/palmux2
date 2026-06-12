@@ -5,7 +5,7 @@
     "sprints_done": 50,
     "sprints_total": 51,
     "percent": 98,
-    "current_sprint": null,
+    "current_sprint": "Sbe4eee",
     "done": 50,
     "in_progress": 0,
     "total": 51,
@@ -8776,7 +8776,7 @@
     },
     "Sbe4eee": {
       "title": "palmux forward_auth SSO (apex + 公開サブドメイン単一ログイン)",
-      "status": "pending",
+      "status": "in_progress",
       "milestone": false,
       "phase": "Phase 5",
       "description": "Caddy basic_auth をやめ、palmux 自身を SSO プロバイダにする。apex(palmux本体) と See8bd4 の公開サブドメインを、Domain=.<base> の署名付き Cookie による単一ログインで認証。サブドメインごとの basic 認証再入力を解消する。\n\n設計判断 (ユーザ確定 2026-06-11, option A):\n  - palmux が /auth/login (フォーム) + /auth/verify (forward_auth用) + /auth/logout を提供。/auth/* は認証バイパス\n  - 正しいパスワードで Domain=.<base> の HMAC 署名 Cookie 発行 (HttpOnly/Secure/SameSite=Lax)\n  - Caddy: per-port route と apex を basic_auth → forward_auth(→palmux /auth/verify) に切替。Public=true は素通し。未認証は /auth/login?rd=<元URL> へリダイレクト\n  - パスワード源 = 既存 BASIC_AUTH_USER/HASH(bcrypt) を流用 (新シークレット無し)\n  - 署名鍵は stable env secret (PALMUX_SSO_SECRET、無ければ BASIC_AUTH_HASH 派生) → 再起動/再デプロイでログアウトされない (caddy-security の restart-logout footgun 回避)\n  - remember me: チェック → 永続 Cookie (長期 Max-Age 365日) + sliding renewal (アクセスごとに期限延長)。未チェック → セッション Cookie\n  - local dev (--public-domain 未設定) は今の --token/open 認証のまま、Caddy 非介在で無変更\n\n依存: See8bd4 (Caddy admin API route 注入 + --public-domain/runtime.env 配線)。VISION 適合 (OIDC/OAuth ではなく単一共有パスワードの Cookie 化、シングルユーザ前提のまま)。",
@@ -8801,7 +8801,7 @@
             },
             {
               "id": "AC-Sbe4eee-1-3",
-              "description": "remember me チェック時は永続 Cookie (長期 Max-Age) + アクセスごとに期限延長 (sliding)。未チェック時はセッション Cookie (ブラウザ終了で失効)",
+              "description": "remember me チェック時は永続 Cookie (Max-Age 365日、ブラウザ再起動でも保持) で同一端末は実質ずっと再認証不要。未チェック時はセッション Cookie (ブラウザ終了で失効)",
               "test": "tests/e2e/sbe4eee_sso.py",
               "status": "pending"
             },

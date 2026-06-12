@@ -135,3 +135,49 @@ func TestSSOLoginPageRenders(t *testing.T) {
 		}
 	}
 }
+
+func TestSSORateLimit(t *testing.T) {
+	p := NewSSOProvider("base.example", testHash(t, "pw"), "secret", "x")
+	now := int64(1000)
+	for i := 0; i < loginRateMax; i++ {
+		if !p.rateLimitOK("1.2.3.4", now) {
+			t.Fatalf("attempt %d should be allowed", i)
+		}
+	}
+	if p.rateLimitOK("1.2.3.4", now) {
+		t.Error("attempt over the cap should be blocked")
+	}
+	// A later window resets.
+	if !p.rateLimitOK("1.2.3.4", now+loginRateWindow+1) {
+		t.Error("attempt after the window should be allowed again")
+	}
+}
+
+func TestSSOLogoutSameSite(t *testing.T) {
+	p := NewSSOProvider("base.example", testHash(t, "pw"), "secret", "x")
+	mk := func(origin, referer string) *http.Request {
+		r := httptest.NewRequest("GET", "/auth/logout", nil)
+		if origin != "" {
+			r.Header.Set("Origin", origin)
+		}
+		if referer != "" {
+			r.Header.Set("Referer", referer)
+		}
+		return r
+	}
+	if !p.sameSiteRequest(mk("", "")) {
+		t.Error("no Origin/Referer (direct nav) must be allowed")
+	}
+	if !p.sameSiteRequest(mk("https://base.example", "")) {
+		t.Error("same-origin must be allowed")
+	}
+	if !p.sameSiteRequest(mk("https://x.base.example", "")) {
+		t.Error("subdomain origin must be allowed")
+	}
+	if p.sameSiteRequest(mk("https://evil.com", "")) {
+		t.Error("cross-site Origin must be blocked")
+	}
+	if p.sameSiteRequest(mk("", "https://evil.com/page")) {
+		t.Error("cross-site Referer must be blocked")
+	}
+}
