@@ -1215,35 +1215,46 @@ if [ "${SKIP_INCUS}" != "1" ]; then
     if ip link show docker0 >/dev/null 2>&1; then
       warn "Docker detected — installing persistent incusbr0 FORWARD allow rule"
 
-      # Apply immediately so the current session works without waiting for a boot.
-      if sudo iptables -C DOCKER-USER -i incusbr0 -j ACCEPT >/dev/null 2>&1; then
-        log "iptables DOCKER-USER incusbr0 ACCEPT rule already present"
-      else
-        log "adding iptables rule: -I DOCKER-USER -i incusbr0 -j ACCEPT"
-        sudo iptables -I DOCKER-USER -i incusbr0 -j ACCEPT || \
-          warn "iptables rule failed now (DOCKER-USER may not exist until dockerd is up); the service below will retry on boot"
-      fi
+      # Apply immediately so the current session works without waiting for a
+      # boot. BOTH directions are required when FORWARD policy is DROP: -i lets
+      # the container reach out, -o lets the replies back in. (Only -i leaves
+      # outbound looking broken — connections hang / time out.)
+      for _dir in "-i incusbr0" "-o incusbr0"; do
+        if sudo iptables -C DOCKER-USER $_dir -j ACCEPT >/dev/null 2>&1; then
+          log "iptables DOCKER-USER $_dir ACCEPT rule already present"
+        else
+          log "adding iptables rule: -I DOCKER-USER $_dir -j ACCEPT"
+          sudo iptables -I DOCKER-USER $_dir -j ACCEPT || \
+            warn "iptables rule failed now (DOCKER-USER may not exist until dockerd is up); the service below will retry on boot"
+        fi
+      done
 
       # Install the persistence helper + unit.
       _fwd_helper=/usr/local/lib/palmux/incus-docker-forward.sh
       sudo install -d -m 0755 /usr/local/lib/palmux
       sudo tee "$_fwd_helper" >/dev/null <<'FWDEOF'
 #!/bin/sh
-# palmux: re-insert the incusbr0 ACCEPT rule into Docker's DOCKER-USER chain.
+# palmux: re-insert the incusbr0 ACCEPT rules into Docker's DOCKER-USER chain.
 # Docker flushes DOCKER-USER on dockerd start, so this runs After=docker.service.
-# Retry briefly because the chain may appear a moment after the unit is "active".
+# BOTH directions are required when FORWARD policy is DROP (-i = container out,
+# -o = replies back in). Retry briefly because the chain may appear a moment
+# after the unit is "active".
 n=0
 while [ "$n" -lt 30 ]; do
-  if iptables -C DOCKER-USER -i incusbr0 -j ACCEPT 2>/dev/null; then
+  if iptables -C DOCKER-USER -i incusbr0 -j ACCEPT 2>/dev/null \
+     && iptables -C DOCKER-USER -o incusbr0 -j ACCEPT 2>/dev/null; then
     exit 0
   fi
-  if iptables -I DOCKER-USER -i incusbr0 -j ACCEPT 2>/dev/null; then
+  iptables -C DOCKER-USER -i incusbr0 -j ACCEPT 2>/dev/null || iptables -I DOCKER-USER -i incusbr0 -j ACCEPT 2>/dev/null || true
+  iptables -C DOCKER-USER -o incusbr0 -j ACCEPT 2>/dev/null || iptables -I DOCKER-USER -o incusbr0 -j ACCEPT 2>/dev/null || true
+  if iptables -C DOCKER-USER -i incusbr0 -j ACCEPT 2>/dev/null \
+     && iptables -C DOCKER-USER -o incusbr0 -j ACCEPT 2>/dev/null; then
     exit 0
   fi
   n=$((n + 1))
   sleep 1
 done
-echo "palmux: could not insert DOCKER-USER incusbr0 rule (DOCKER-USER chain missing?)" >&2
+echo "palmux: could not insert DOCKER-USER incusbr0 rules (DOCKER-USER chain missing?)" >&2
 exit 1
 FWDEOF
       sudo chmod 0755 "$_fwd_helper"
