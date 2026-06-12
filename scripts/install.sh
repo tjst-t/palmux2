@@ -855,11 +855,23 @@ EOF
       echo "# Apex vhost"
       echo "${DOMAIN} {"
       if [ -n "$BASIC_AUTH_USER" ]; then
-        echo "    basic_auth {"
-        echo "        {env.BASIC_AUTH_USER} {env.BASIC_AUTH_HASH}"
+        # Sbe4eee SSO: palmux is the auth authority (forward_auth → /auth/verify),
+        # NOT Caddy basic_auth. One login covers the apex + all subdomains via a
+        # Domain=.${DOMAIN} cookie. /auth/* (login/verify/logout) must bypass the
+        # gate so the login page is reachable un-authenticated.
+        echo "    @palmux_auth path /auth/*"
+        echo "    handle @palmux_auth {"
+        echo "        reverse_proxy 127.0.0.1:8080"
         echo "    }"
+        echo "    handle {"
+        echo "        forward_auth 127.0.0.1:8080 {"
+        echo "            uri /auth/verify"
+        echo "        }"
+        echo "        reverse_proxy 127.0.0.1:8080"
+        echo "    }"
+      else
+        echo "    reverse_proxy 127.0.0.1:8080"
       fi
-      echo "    reverse_proxy 127.0.0.1:8080"
       echo "    tls {"
       echo "        dns cloudflare {env.CLOUDFLARE_API_TOKEN}"
       echo "    }"

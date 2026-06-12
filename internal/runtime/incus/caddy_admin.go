@@ -36,12 +36,13 @@ import (
 // publishConfig holds everything needed to build and inject a public route for
 // one workspace. It is set by the Registry after constructing the runtime.
 type publishConfig struct {
-	baseDomain string // e.g. "palmux-deploy-test.tjstkm.net"; "" disables publishing
-	caddyAdmin string // e.g. "http://localhost:2019"
-	basicUser  string // edge basic_auth username (from env BASIC_AUTH_USER)
-	basicHash  string // edge basic_auth bcrypt hash (from env BASIC_AUTH_HASH)
-	repoLabel  string // DNS-safe repo label for the subdomain
-	wsLabel    string // DNS-safe workspace label for the subdomain
+	baseDomain     string // e.g. "palmux-deploy-test.tjstkm.net"; "" disables publishing
+	caddyAdmin     string // e.g. "http://localhost:2019"
+	basicUser      string // legacy edge basic_auth username (unused with forward_auth)
+	basicHash      string // legacy edge basic_auth bcrypt hash (unused with forward_auth)
+	palmuxUpstream string // host:port Caddy dials for forward_auth /auth/verify (Sbe4eee)
+	repoLabel      string // DNS-safe repo label for the subdomain
+	wsLabel        string // DNS-safe workspace label for the subdomain
 }
 
 // enabled reports whether public-subdomain publishing is configured.
@@ -181,23 +182,34 @@ type caddyMatch struct {
 	Host []string `json:"host"`
 }
 
-// upsertRoute idempotently installs a route for host → upstream. If auth is
-// true, a basic_auth handler is prepended (edge auth). It first deletes any
-// existing route with the same @id, then appends the fresh route.
-func (c *caddyAdminClient) upsertRoute(ctx context.Context, id, host, upstream, basicUser, basicHash string, auth bool) error {
+// upsertRoute idempotently installs a route for host → upstream. When
+// requireAuth is true a Caddy forward_auth gate (→ palmuxUpstream /auth/verify)
+// is prepended: on a 2xx it proceeds to the backend, otherwise palmux's 302 to
+// the login page is copied back to the browser (Sbe4eee SSO). When false the
+// route is a plain reverse_proxy (Public=true ports). It first deletes any
+// existing route with the same @id, then front-inserts the fresh route.
+func (c *caddyAdminClient) upsertRoute(ctx context.Context, id, host, upstream, palmuxUpstream string, requireAuth bool) error {
 	// Delete any prior route with this @id (ignore not-found).
 	_ = c.deleteRoute(ctx, id)
 
-	handlers := make([]json.RawMessage, 0, 2)
-	if auth && basicUser != "" && basicHash != "" {
-		authH := fmt.Sprintf(
-			`{"handler":"authentication","providers":{"http_basic":{"hash":{"algorithm":"bcrypt"},"accounts":[{"username":%q,"password":%q}]}}}`,
-			basicUser, basicHash,
-		)
-		handlers = append(handlers, json.RawMessage(authH))
+	backend := fmt.Sprintf(`{"handler":"reverse_proxy","upstreams":[{"dial":%q}]}`, upstream)
+
+	var handlers []json.RawMessage
+	if requireAuth && palmuxUpstream != "" {
+		// forward_auth subroute (shape from `caddy adapt` of a forward_auth
+		// Caddyfile): a reverse_proxy to /auth/verify whose 2xx response falls
+		// through (vars no-op) to the backend; non-2xx (302 login) is returned.
+		fa := fmt.Sprintf(`{"handler":"subroute","routes":[`+
+			`{"handle":[{"handle_response":[{"match":{"status_code":[2]},"routes":[{"handle":[{"handler":"vars"}]}]}],`+
+			`"handler":"reverse_proxy",`+
+			`"headers":{"request":{"set":{"X-Forwarded-Method":["{http.request.method}"],"X-Forwarded-Uri":["{http.request.uri}"]}}},`+
+			`"rewrite":{"method":"GET","uri":"/auth/verify"},`+
+			`"upstreams":[{"dial":%q}]}]},`+
+			`{"handle":[%s]}]}`, palmuxUpstream, backend)
+		handlers = []json.RawMessage{json.RawMessage(fa)}
+	} else {
+		handlers = []json.RawMessage{json.RawMessage(backend)}
 	}
-	proxyH := fmt.Sprintf(`{"handler":"reverse_proxy","upstreams":[{"dial":%q}]}`, upstream)
-	handlers = append(handlers, json.RawMessage(proxyH))
 
 	route := caddyRoute{
 		ID:       id,
@@ -272,7 +284,7 @@ func (r *incusRuntime) resyncExposedRoutes(ctx context.Context) {
 	for _, e := range ents {
 		host := r.pub.subdomain(e.port)
 		upstream := fmt.Sprintf("%s:%d", addr, e.port)
-		if err := c.upsertRoute(ctx, r.routeID(e.port), host, upstream, r.pub.basicUser, r.pub.basicHash, !e.public); err != nil {
+		if err := c.upsertRoute(ctx, r.routeID(e.port), host, upstream, r.pub.palmuxUpstream, !e.public); err != nil {
 			r.log.Warn("incus: resync route failed (non-fatal)", "inst", r.inst, "port", e.port, "err", err)
 		}
 	}
@@ -342,7 +354,7 @@ func (r *incusRuntime) ExposePortPublic(ctx context.Context, port int, public bo
 
 	host := r.pub.subdomain(port)
 	upstream := fmt.Sprintf("%s:%d", addr, port)
-	if err := c.upsertRoute(ctx, r.routeID(port), host, upstream, r.pub.basicUser, r.pub.basicHash, !public); err != nil {
+	if err := c.upsertRoute(ctx, r.routeID(port), host, upstream, r.pub.palmuxUpstream, !public); err != nil {
 		return "", fmt.Errorf("expose port %d: %w", port, err)
 	}
 

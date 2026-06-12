@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"mime"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -220,12 +221,27 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 	if resolvedPublicDomain == "" {
 		resolvedPublicDomain = os.Getenv("PALMUX_PUBLIC_DOMAIN")
 	}
+	// Sbe4eee: address Caddy uses to reach palmux for forward_auth (/auth/verify)
+	// and per-port auth. Listening on 0.0.0.0 → dial 127.0.0.1.
+	palmuxUpstream := loopbackUpstream(addr)
 	runtimeRegistry.SetPublishDefaults(incus.PublishDefaults{
-		BaseDomain: resolvedPublicDomain,
-		CaddyAdmin: caddyAdmin,
-		BasicUser:  os.Getenv("BASIC_AUTH_USER"),
-		BasicHash:  os.Getenv("BASIC_AUTH_HASH"),
+		BaseDomain:     resolvedPublicDomain,
+		CaddyAdmin:     caddyAdmin,
+		BasicUser:      os.Getenv("BASIC_AUTH_USER"),
+		BasicHash:      os.Getenv("BASIC_AUTH_HASH"),
+		PalmuxUpstream: palmuxUpstream,
 	})
+
+	// Sbe4eee: SSO provider. Disabled (no-op) when --public-domain is unset
+	// (local dev keeps the existing --token/open auth). Signing key is stable
+	// (PALMUX_SSO_SECRET, else derived from the password hash) so restarts don't
+	// log the user out.
+	ssoProvider := auth.NewSSOProvider(
+		resolvedPublicDomain,
+		os.Getenv("BASIC_AUTH_HASH"),
+		os.Getenv("PALMUX_SSO_SECRET"),
+		palmuxUpstream,
+	)
 
 	registry := tab.NewRegistry()
 	st, err := store.New(store.Deps{
@@ -403,6 +419,7 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 	mux := server.NewMux(server.Deps{
 		Store:      st,
 		Auth:       authn,
+		SSO:        ssoProvider,
 		Tmux:       tmuxClient,
 		Commands:   commands.New(),
 		Notify:     notifyHub,
@@ -464,6 +481,21 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		slog.Error("shutdown", "err", err)
 	}
 	return nil
+}
+
+// loopbackUpstream returns the host:port Caddy should dial to reach this palmux
+// process for forward_auth / per-port auth. A wildcard listen host (0.0.0.0/::)
+// is rewritten to loopback. (Sbe4eee)
+func loopbackUpstream(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil || port == "" {
+		return "127.0.0.1:8080"
+	}
+	switch host {
+	case "", "0.0.0.0", "::", "[::]":
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, port)
 }
 
 func defaultConfigDir() string {

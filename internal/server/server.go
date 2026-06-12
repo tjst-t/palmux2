@@ -25,6 +25,7 @@ import (
 type Deps struct {
 	Store        *store.Store
 	Auth         *auth.Authenticator
+	SSO          *auth.SSOProvider // Sbe4eee: forward_auth SSO provider (nil/disabled in local dev)
 	Tmux         tmux.Client
 	Commands     *commands.Detector
 	Notify       *notify.Hub
@@ -61,6 +62,15 @@ func NewMux(deps Deps) *http.ServeMux {
 
 	root := http.NewServeMux()
 	root.HandleFunc("/auth", deps.Auth.AuthHandler)
+	// Sbe4eee: SSO login flow. Registered OUTSIDE the auth middleware (the login
+	// page must be reachable un-authenticated) and only when SSO is configured
+	// (--public-domain set). Caddy's forward_auth calls GET /auth/verify.
+	if deps.SSO != nil && deps.SSO.Enabled() {
+		root.HandleFunc("GET /auth/login", deps.SSO.LoginPage)
+		root.HandleFunc("POST /auth/login", deps.SSO.LoginSubmit)
+		root.HandleFunc("GET /auth/verify", deps.SSO.Verify)
+		root.HandleFunc("GET /auth/logout", deps.SSO.Logout)
+	}
 	// S1e8d02: legacyBranchIDRedirect intercepts requests with a stale
 	// branch-name-derived ID and 302/307s to the new path-based
 	// canonical URL. Sits OUTSIDE auth so a bookmark for an old

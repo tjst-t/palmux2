@@ -40,10 +40,11 @@ type Registry struct {
 // PublishDefaults is the host-wide configuration for publishing container ports
 // as HTTPS subdomains via the Caddy admin API. BaseDomain == "" disables it.
 type PublishDefaults struct {
-	BaseDomain string // public base domain, e.g. palmux-deploy-test.tjstkm.net
-	CaddyAdmin string // Caddy admin API endpoint, e.g. http://localhost:2019
-	BasicUser  string // edge basic_auth username
-	BasicHash  string // edge basic_auth bcrypt hash
+	BaseDomain     string // public base domain, e.g. palmux-deploy-test.tjstkm.net
+	CaddyAdmin     string // Caddy admin API endpoint, e.g. http://localhost:2019
+	BasicUser      string // edge basic_auth username (legacy; unused with forward_auth)
+	BasicHash      string // edge basic_auth bcrypt hash (legacy; unused with forward_auth)
+	PalmuxUpstream string // host:port Caddy dials for forward_auth /auth/verify (Sbe4eee)
 }
 
 // SetPublishDefaults configures host-wide port-publishing. Call once at startup.
@@ -60,12 +61,13 @@ func (r *Registry) buildPublish(repoID, branchID string) *publishConfig {
 		return nil
 	}
 	return &publishConfig{
-		baseDomain: r.publish.BaseDomain,
-		caddyAdmin: r.publish.CaddyAdmin,
-		basicUser:  r.publish.BasicUser,
-		basicHash:  r.publish.BasicHash,
-		repoLabel:  repoLabelFromID(repoID),
-		wsLabel:    wsLabelFromID(branchID),
+		baseDomain:     r.publish.BaseDomain,
+		caddyAdmin:     r.publish.CaddyAdmin,
+		basicUser:      r.publish.BasicUser,
+		basicHash:      r.publish.BasicHash,
+		palmuxUpstream: r.publish.PalmuxUpstream,
+		repoLabel:      repoLabelFromID(repoID),
+		wsLabel:        wsLabelFromID(branchID),
 	}
 }
 

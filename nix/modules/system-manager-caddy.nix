@@ -37,10 +37,24 @@ let
     email ${acmeEmail}
   '';
 
-  basicAuthBlock = lib.optionalString basicAuth.enable ''
-    basic_auth {
-        {env.BASIC_AUTH_USER} {env.BASIC_AUTH_HASH}
+  # Sbe4eee: palmux is the SSO authority (forward_auth → /auth/verify), not Caddy
+  # basic_auth. One login covers the apex + every published subdomain via a
+  # Domain=.${domain} cookie. /auth/* (login/verify/logout) bypasses the gate so
+  # the login page is reachable un-authenticated.
+  apexAuthBlock = lib.optionalString basicAuth.enable ''
+    @palmux_auth path /auth/*
+    handle @palmux_auth {
+        reverse_proxy 127.0.0.1:8080
     }
+    handle {
+        forward_auth 127.0.0.1:8080 {
+            uri /auth/verify
+        }
+        reverse_proxy 127.0.0.1:8080
+    }
+  '';
+  apexProxyBlock = lib.optionalString (!basicAuth.enable) ''
+    reverse_proxy 127.0.0.1:8080
   '';
 
   caddyfile = pkgs.writeText "Caddyfile" ''
@@ -56,8 +70,7 @@ let
     # Serves the palmux2 SPA.  basic_auth protects the entire site when enabled.
     # TLS certificate is obtained via Cloudflare DNS-01 (required for wildcards).
     ${domain} {
-        ${basicAuthBlock}
-        reverse_proxy 127.0.0.1:8080
+        ${apexAuthBlock}${apexProxyBlock}
         tls {
             dns cloudflare {env.CLOUDFLARE_API_TOKEN}
         }
