@@ -1,0 +1,18 @@
+{
+  "sprint": "S5818e8", "date": "2026-06-12",
+  "real_mode_e2e": {
+    "ran_on": "palmux-deploy-test.tjstkm.net (deployed binary + freshly-rebuilt palmux-ws image + recreated incus container)",
+    "result": "tests/acceptance/s5818e8_container_devenv.py ALL PASS",
+    "verified_links": [
+      "AC-1-1: palmux bind-mounts the host's real (non-/nix) dotfiles + gh/git/ssh, owned by ubuntu",
+      "AC-1-2: gh 2.94.0 present + runs; credential-mount path works",
+      "AC-1-3: container starts; login shell clean on a Nix host (symlinked dotfiles skipped)",
+      "AC-2-1: gh + starship/eza/rg/zoxide/fzf/delta/yazi baked into image",
+      "AC-2-2: starship-init rc → starship prompt active in the container (image starship 1.25.1)"
+    ]
+  },
+  "known_limitation": "Nix/home-manager hosts: shell dotfiles symlink into /nix/store and are skipped (container falls back to image-default shell). Full host shell parity on Nix hosts would require mounting /nix + the nix profile — out of scope. Real-dotfile hosts (the user's dev box) get the full rich shell.",
+  "infra_note": "No available host has BOTH rich real dotfiles AND a working incus (deploy VM is Nix; the dev box has incus uninitialized), so the end-to-end rich shell is verified by composition of its individually-real-mode-verified links, not a single screenshot.",
+  "unit": "go test -race ./internal/runtime/incus ok",
+  "done_judgment": {"guard3_realmode_smoke": "pass (production-mode acceptance on deploy VM, no mock)", "verdict": "all stories -> done"}
+}
