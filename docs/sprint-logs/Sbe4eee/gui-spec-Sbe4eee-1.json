@@ -1,0 +1,24 @@
+{
+  "story": "Sbe4eee-1",
+  "title": "palmux 認証プロバイダ + ログイン/ログアウト画面 (remember me + sticky)",
+  "entry_point": "gui",
+  "note": "login 画面は palmux がサーバレンダする独立 HTML (/auth/login)。React SPA ではない。テストは実 palmux backend に対する Playwright で行う (mock 層も実ページ + 実 POST に対して error/edge を確認)。",
+  "state_diagram": "stateDiagram-v2\n    [*] --> Form: GET /auth/login?rd=<url>\n    Form --> Submitting: submit password\n    Submitting --> Error: wrong password (re-render form + auth-error)\n    Error --> Submitting: retry\n    Submitting --> Redirected: correct password (Set-Cookie + 302 rd)\n    Redirected --> [*]: lands on rd (authed)\n    [*] --> LoggedOut: GET /auth/logout (clear cookie)\n    LoggedOut --> Form: redirect to /auth/login",
+  "scenarios": [
+    {"name": "login form renders", "linked_ac": ["AC-Sbe4eee-1-1"], "steps": ["GET /auth/login?rd=https://x.<base>/", "Fog パレットのパスワード1枚画面が出る: auth-password-input / auth-remember-checkbox / auth-submit"], "observation": "auth-login-form が表示"},
+    {"name": "correct password → cookie + redirect", "linked_ac": ["AC-Sbe4eee-1-1"], "steps": ["正しいパスワード入力 + submit", "Set-Cookie: palmux_sso=...; Domain=.<base>; HttpOnly; Secure; SameSite=Lax", "302 → rd"], "observation": "cookie 発行 + rd へ遷移"},
+    {"name": "wrong password → inline error", "linked_ac": ["AC-Sbe4eee-1-2"], "steps": ["誤パスワード + submit", "同じ画面に auth-error 表示、cookie 無し"], "observation": "auth-error 表示・未認証のまま"},
+    {"name": "remember me toggles persistence", "linked_ac": ["AC-Sbe4eee-1-3"], "steps": ["remember me ✓ で login → Set-Cookie に Max-Age (永続)", "remember me ✗ で login → Max-Age 無し (セッション cookie)"], "observation": "Max-Age の有無で永続/セッションを切替"},
+    {"name": "verify endpoint", "linked_ac": ["AC-Sbe4eee-1-2"], "steps": ["有効 cookie で GET /auth/verify → 200", "cookie 無しで GET /auth/verify → 401 (+ login への誘導)"], "observation": "forward_auth が 200/401 を返す"},
+    {"name": "logout invalidates", "linked_ac": ["AC-Sbe4eee-1-5"], "steps": ["GET /auth/logout", "cookie 失効 (Max-Age=0)", "以後 /auth/verify が 401"], "observation": "ログアウトで全サブドメイン無効"},
+    {"name": "stable key survives restart", "linked_ac": ["AC-Sbe4eee-1-4"], "steps": ["login して cookie 取得", "palmux 再起動", "同じ cookie で /auth/verify がまだ 200"], "observation": "再起動でログアウトされない"}
+  ],
+  "endpoint_contracts": [
+    {"method": "GET", "path": "/auth/login", "query": "rd=<返り先URL>", "response": "200 text/html (login form)", "notes": "forward_auth バイパス対象。rd は同一 base ドメイン配下のみ許可 (open redirect 防止)。"},
+    {"method": "POST", "path": "/auth/login", "request": "form: password, remember (on/off), rd", "response": "302 → rd (+ Set-Cookie palmux_sso) on success; 200 html + auth-error on failure", "notes": "bcrypt.CompareHashAndPassword(BASIC_AUTH_HASH, password)。失敗はレート制限対象。"},
+    {"method": "GET", "path": "/auth/verify", "response": "200 (valid cookie) | 401 (なし/無効)", "notes": "forward_auth のサブリクエスト先。401 時は Location: /auth/login?rd=<X-Forwarded から再構成> を返し Caddy がクライアントへ伝播。"},
+    {"method": "GET", "path": "/auth/logout", "response": "302 → /auth/login (+ Set-Cookie palmux_sso Max-Age=0)", "notes": "cookie 失効。"}
+  ],
+  "data_testids": ["auth-login-form", "auth-password-input", "auth-remember-checkbox", "auth-submit", "auth-error", "auth-brand"],
+  "test_files": {"e2e": "tests/e2e/sbe4eee_sso.py", "mock": "tests/e2e/sbe4eee_login_mock.py"}
+}

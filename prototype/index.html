@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>palmux2 prototype — S030 / S031 / S032</title>
+  <title>palmux2 prototype</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -11,238 +11,41 @@
     <header class="indexHeader">
       <h1>palmux2 prototype</h1>
       <p>
-        Static HTML mockups for <b>S030</b> (ghq Repository CRUD),
-        <b>S031</b> (Command palette redesign), and <b>S032</b> (User-defined palette commands).
-        These are the visual reference for sprint run — implementation matches markup, classes, and
-        <code>data-testid</code>s. Open any card to see its screen.
+        Static HTML mockups — the visual reference for sprint run (implementation matches markup,
+        classes, and <code>data-testid</code>s). The <b>active</b> sprint's screens are at the top;
+        completed sprints are archived under <code>prototype/old/&lt;SprintID&gt;/</code>.
       </p>
     </header>
 
     <section class="indexSection">
-      <h2>See8bd4 · コンテナポートの公開サブドメイン化 (Ports tab)</h2>
+      <h2>Active · Sbe4eee — palmux forward_auth SSO</h2>
       <div class="cardGrid">
-        <a class="card" href="see8bd4-ports.html">
-          <span class="cardLabel">See8bd4-3 · AC-1/2/3</span>
-          <div class="cardTitle">Ports tab · populated</div>
-          <p class="cardDesc">incus container の listening ports 一覧。expose トグル → <code>&lt;port&gt;--&lt;ws&gt;--&lt;repo&gt;.&lt;base&gt;</code> の公開 URL + copy。🔒 auth / 🌐 public badge。localhost-only は relay マーク。</p>
+        <a class="card" href="sbe4eee-login.html">
+          <span class="cardLabel">Sbe4eee-1</span>
+          <div class="cardTitle">SSO login · default</div>
+          <p class="cardDesc">サーバレンダの単一パスワード画面 + remember me。1回ログインで apex + 全公開サブドメイン。<code>data-testid=auth-login-form</code>。</p>
         </a>
-        <a class="card" href="see8bd4-ports-empty.html">
-          <span class="cardLabel">See8bd4-3 · empty</span>
-          <div class="cardTitle">Ports tab · 空</div>
-          <p class="cardDesc">listen 中のポートなし。dev サーバ起動で自動出現する旨を案内。<code>data-testid=ports-empty</code>。</p>
-        </a>
-        <a class="card" href="see8bd4-ports-host.html">
-          <span class="cardLabel">See8bd4-3 · AC-4</span>
-          <div class="cardTitle">Ports tab · host runtime notice</div>
-          <p class="cardDesc">host runtime では incus 専用機能と案内し portman 管轄を明示。<code>data-testid=ports-host-notice</code>。</p>
-        </a>
-        <a class="card" href="see8bd4-ports-error.html">
-          <span class="cardLabel">See8bd4-3 · AC-6</span>
-          <div class="cardTitle">Ports tab · expose 失敗</div>
-          <p class="cardDesc">公開 API 失敗 → 行内 error + トグル復帰 (silent success にしない)。<code>data-testid=ports-row-error-{port}</code>。</p>
+        <a class="card" href="sbe4eee-login-error.html">
+          <span class="cardLabel">Sbe4eee-1 · error</span>
+          <div class="cardTitle">SSO login · 誤パスワード</div>
+          <p class="cardDesc">誤入力時のインラインエラー (<code>auth-error</code>)。cookie は発行しない。</p>
         </a>
       </div>
     </section>
 
     <section class="indexSection">
-      <h2>S8478ca · Workspace Runtime (host / incus-container)</h2>
-      <div class="cardGrid">
-        <a class="card" href="s8478ca-open-repo-runtime.html">
-          <span class="cardLabel">S8478ca-5</span>
-          <div class="cardTitle">Open Repository · runtime selector (Incus available)</div>
-          <p class="cardDesc">host / incus-container radio group. host default; incus-container shows the "isolated" pill. <code>data-testid=runtime-selector</code>.</p>
-        </a>
-        <a class="card" href="s8478ca-open-repo-runtime-no-incus.html">
-          <span class="cardLabel">S8478ca-5 · AC-1</span>
-          <div class="cardTitle">Open Repository · Incus absent</div>
-          <p class="cardDesc">incus-container greyed + install tooltip (<code>apt install incus</code>). Falls back to host.</p>
-        </a>
-        <a class="card" href="s8478ca-drawer-runtime-states.html">
-          <span class="cardLabel">S8478ca-5 · AC-2</span>
-          <div class="cardTitle">Drawer state badges + header chip</div>
-          <p class="cardDesc">ready / starting / stopped / error badges per Workspace, header runtime chip mirrors focus. WS-event driven.</p>
-        </a>
-        <a class="card" href="s8478ca-runtime-change-confirm.html">
-          <span class="cardLabel">S8478ca-5</span>
-          <div class="cardTitle">Change runtime · confirm (open Workspace)</div>
-          <p class="cardDesc">Restart-tabs warning when switching an open Workspace's runtime. Claude --resume keeps auth/history.</p>
-        </a>
-        <a class="card" href="s8478ca-open-repo-runtime-error.html">
-          <span class="cardLabel">S8478ca-5 · AC-2</span>
-          <div class="cardTitle">Runtime change · PATCH failed</div>
-          <p class="cardDesc">PATCH .../runtime 500 → inline error, selection reverts to host.</p>
-        </a>
-        <a class="card" href="s8478ca-host-scope.html">
-          <span class="cardLabel">S8478ca-5 · AC-3</span>
-          <div class="cardTitle">Host login scope · distinct label</div>
-          <p class="cardDesc">host--0000 login terminal labelled "⌂ Host" with NO runtime selector/chip — distinct from runtime.kind=host.</p>
-        </a>
-      </div>
+      <h2>Archived (implemented) · <code>prototype/old/</code></h2>
+      <p style="color:var(--color-fg-muted);font-size:13px;line-height:1.7;">
+        These prototypes have shipped. Open the folder for each sprint's screens.
+      </p>
+      <ul style="color:var(--color-fg-muted);font-size:13px;line-height:1.9;font-family:var(--font-ui);">
+        <li><code>old/See8bd4/</code> — incus コンテナポートの公開サブドメイン化 (Ports タブ)</li>
+        <li><code>old/S8478ca/</code> — Workspace Runtime (host / incus-container) 選択 UI</li>
+        <li><code>old/Sc7818e/</code> — Files tab download UX</li>
+        <li><code>old/S67cb0e/</code> — Sprint タブ UX polish</li>
+        <li><code>old/S030-S033/</code> — ghq Repository CRUD / ⌘K palette redesign / user commands / Files tab CRUD</li>
+      </ul>
     </section>
-
-    <section class="indexSection">
-      <h2>S030 · ghq Repository CRUD</h2>
-      <div class="cardGrid">
-        <a class="card" href="drawer-with-open.html">
-          <span class="cardLabel">S030-1</span>
-          <div class="cardTitle">Drawer · single Open Repository button</div>
-          <p class="cardDesc">One CTA in the drawer footer that handles browse <em>and</em> clone — no separate "+ Clone" button.</p>
-        </a>
-        <a class="card" href="drawer-with-overflow.html">
-          <span class="cardLabel">S030-2</span>
-          <div class="cardTitle">Drawer · repo overflow menu</div>
-          <p class="cardDesc">Per-repo "…" menu with Delete (and Star / Copy / GitHub). Dropdown anchored to the row.</p>
-        </a>
-        <a class="card" href="open-repo-modal-browse.html">
-          <span class="cardLabel">S030-1</span>
-          <div class="cardTitle">Open Repository · browse</div>
-          <p class="cardDesc">Default state: filter the ghq-known repos that aren't open yet. Arrow keys + Enter.</p>
-        </a>
-        <a class="card" href="open-repo-modal-clone-detected.html">
-          <span class="cardLabel">S030-1</span>
-          <div class="cardTitle">Open Repository · URL detected</div>
-          <p class="cardDesc">Smart-detect: pasted URL pins a "Clone &lt;url&gt;" affordance at the top. Same Enter, fires <code>ghq get</code>.</p>
-        </a>
-        <a class="card" href="open-repo-modal-cloning.html">
-          <span class="cardLabel">S030-1</span>
-          <div class="cardTitle">Open Repository · cloning</div>
-          <p class="cardDesc">Spinner + live progress line. Cancel keeps the modal mounted; retry stays in place.</p>
-        </a>
-        <a class="card" href="open-repo-modal-clone-error.html">
-          <span class="cardLabel">S030-1</span>
-          <div class="cardTitle">Open Repository · clone error</div>
-          <p class="cardDesc">stderr inline (auth / not-found / exists). URL retained, Retry primary action.</p>
-        </a>
-        <a class="card" href="delete-modal-clean.html">
-          <span class="cardLabel">S030-2</span>
-          <div class="cardTitle">Delete · clean repo</div>
-          <p class="cardDesc">No unpushed work — single confirmation, danger button.</p>
-        </a>
-        <a class="card" href="delete-modal-warning.html">
-          <span class="cardLabel">S030-2</span>
-          <div class="cardTitle">Delete · unpushed warning</div>
-          <p class="cardDesc">Per-worktree breakdown: ahead commits, dirty files, untracked, missing upstream. Type-the-name confirm.</p>
-        </a>
-      </div>
-    </section>
-
-    <section class="indexSection">
-      <h2>S031 · Command palette redesign</h2>
-      <div class="cardGrid">
-        <a class="card" href="palette-empty.html">
-          <span class="cardLabel">S031-4</span>
-          <div class="cardTitle">Palette · empty query</div>
-          <p class="cardDesc">VS Code-style recents on first open + builtin tab actions. No more <code>/</code> slash mode.</p>
-        </a>
-        <a class="card" href="palette-commands.html">
-          <span class="cardLabel">S031-2 · 4</span>
-          <div class="cardTitle">Palette · &gt; commands</div>
-          <p class="cardDesc">Make / npm / builtin / user mixed list. Each row shows target Bash tab. Active row highlighted.</p>
-        </a>
-        <a class="card" href="palette-grep.html">
-          <span class="cardLabel">S031-5</span>
-          <div class="cardTitle">Palette · ? content grep</div>
-          <p class="cardDesc">New <code>?</code> prefix runs grep across the worktree. Path : line snippets, highlight match.</p>
-        </a>
-        <a class="card" href="palette-bash-picker.html">
-          <span class="cardLabel">S031-2</span>
-          <div class="cardTitle">Palette · Bash picker (Cmd+Enter)</div>
-          <p class="cardDesc">Second-stage explicit Bash target picker. Auto-create option pinned at bottom.</p>
-        </a>
-        <a class="card" href="claude-tab-with-run.html">
-          <span class="cardLabel">S031-3</span>
-          <div class="cardTitle">Claude tab · ▶ Run dropdown</div>
-          <p class="cardDesc">Always-visible Run button in the Claude toolbar — discoverable on mobile too.</p>
-        </a>
-      </div>
-    </section>
-
-    <section class="indexSection">
-      <h2>Files tab · CRUD enhancements (PROPOSED — not yet implemented)</h2>
-      <div class="cardGrid">
-        <a class="card" href="files-list-with-actions.html">
-          <span class="cardLabel">FILES</span>
-          <div class="cardTitle">List · compact icon CTAs + right-click menu</div>
-          <p class="cardDesc">📄＋ / 📁＋ icon buttons sit at the bottom-right of the file list (VS Code explorer header style). Right-click any row → Open / Rename / Move / Copy path / Open on GitHub / Delete.</p>
-        </a>
-        <a class="card" href="files-multi-select.html">
-          <span class="cardLabel">FILES</span>
-          <div class="cardTitle">Multi-select · tinted bg + action bar</div>
-          <p class="cardDesc">Cmd/Ctrl-click toggles, Shift-click range. <b>No checkboxes</b> — selected rows get the accent-tinted bg + 2px accent left border (Finder/VSCode style). Touch: long-press to enter select mode. Action bar: <b>Move…</b> / <b>Delete</b> / Cancel.</p>
-        </a>
-        <a class="card" href="files-new-file-inline.html">
-          <span class="cardLabel">FILES</span>
-          <div class="cardTitle">Inline new-file row</div>
-          <p class="cardDesc">Click 📄＋ → placeholder row with file icon at the bottom of the list, focused input ready for the name. Enter to create, Esc to cancel.</p>
-        </a>
-        <a class="card" href="files-new-folder-inline.html">
-          <span class="cardLabel">FILES</span>
-          <div class="cardTitle">Inline new-folder row</div>
-          <p class="cardDesc">Same pattern, folder icon, trailing slash hint. Subpaths allowed (<code>foo/bar</code> creates the chain).</p>
-        </a>
-        <a class="card" href="files-rename-inline.html">
-          <span class="cardLabel">FILES</span>
-          <div class="cardTitle">Inline rename</div>
-          <p class="cardDesc">F2 / Rename… replaces the row in place with an editable input pre-selected on the basename. Same row, same position. Single-item only.</p>
-        </a>
-        <a class="card" href="files-delete-confirm.html">
-          <span class="cardLabel">FILES</span>
-          <div class="cardTitle">Delete confirm · batch</div>
-          <p class="cardDesc">Modal lists each item being deleted (path · size · last modified). Recursive directory deletes are flagged. Single-item case shrinks to one block.</p>
-        </a>
-        <a class="card" href="files-move-modal.html">
-          <span class="cardLabel">FILES</span>
-          <div class="cardTitle">Move modal · batch + completion</div>
-          <p class="cardDesc">Target = a directory (basenames preserved for batch). Repo-root-relative input with ⌘K-<code>@</code>-style directory completion. Per-item FROM→TO preview.</p>
-        </a>
-      </div>
-    </section>
-
-    <section class="indexSection">
-      <h2>Sc7818e · Files tab download (SHIPPED — Sc7818e)</h2>
-      <div class="cardGrid">
-        <a class="card" href="old/Sc7818e/files-download-single.html">
-          <span class="cardLabel">Sc7818e-3</span>
-          <div class="cardTitle">Context menu · single file Download</div>
-          <p class="cardDesc">New <b>Download</b> item (accent) above Copy path. Streams the file full-size as an attachment via <code>GET …/files/download?path=…</code>. Native <code>&lt;a download&gt;</code> — browser's own download manager.</p>
-        </a>
-        <a class="card" href="old/Sc7818e/files-download-folder.html">
-          <span class="cardLabel">Sc7818e-3</span>
-          <div class="cardTitle">Context menu · folder Download (zip)</div>
-          <p class="cardDesc">Right-click a folder → <b>Download</b> streams the directory as a <code>.zip</code> (hierarchy preserved, empty dirs kept). Generated on the fly straight to the response — never buffered.</p>
-        </a>
-        <a class="card" href="old/Sc7818e/files-download-batch.html">
-          <span class="cardLabel">Sc7818e-3</span>
-          <div class="cardTitle">Batch · Download N items… (zip)</div>
-          <p class="cardDesc">With ≥2 selected, the menu shows <b>Download 3 items…</b> (label tracks count) and the action bar gains <b>⬇ Download</b>. One GET with repeated <code>?path=</code> per selection → single zip.</p>
-        </a>
-        <a class="card" href="old/Sc7818e/files-download-preview.html">
-          <span class="cardLabel">Sc7818e-3</span>
-          <div class="cardTitle">Preview header · Download button</div>
-          <p class="cardDesc"><b>⬇ Download</b> sits left of the Edit toggle in the file-preview header, downloading the currently-open file.</p>
-        </a>
-        <a class="card" href="old/Sc7818e/files-download-mobile.html">
-          <span class="cardLabel">Sc7818e-3</span>
-          <div class="cardTitle">Mobile (&lt;600px) · bottom-sheet Download</div>
-          <p class="cardDesc">Long-press → bottom-sheet actions with 44px tap targets. Download is reachable without horizontal overflow at phone width.</p>
-        </a>
-      </div>
-    </section>
-
-    <section class="indexSection">
-      <h2>S032 · User-defined palette commands</h2>
-      <div class="cardGrid">
-        <a class="card" href="user-commands-modal.html">
-          <span class="cardLabel">S032-1</span>
-          <div class="cardTitle">Manage user commands · Modal popup</div>
-          <p class="cardDesc">Single-purpose Modal opened from ⌘K → <code>&gt; manage user commands</code>. Reuses palmux2's existing popup pattern — no new settings page.</p>
-        </a>
-      </div>
-    </section>
-
-    <footer class="indexSection" style="opacity:0.5;font-size:11px;margin-top:48px;">
-      Generated 2026-05-04 · palmux2 v0.3.1 · Fog palette v2.1
-    </footer>
   </div>
 </body>
 </html>

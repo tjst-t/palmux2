@@ -1,0 +1,15 @@
+{
+  "sprint_range": ["Sbe4eee"],
+  "screens": [
+    {"file": "prototype/sbe4eee-login.html", "story": "Sbe4eee-1", "state": "default", "feedback_rounds": 0, "approved": false},
+    {"file": "prototype/sbe4eee-login-error.html", "story": "Sbe4eee-1", "state": "wrong-password", "feedback_rounds": 0, "approved": false}
+  ],
+  "design_decisions": [
+    "サーバレンダの独立 HTML ログイン画面 (/auth/login) — React SPA ではない (SPA 自体が gate されるため)",
+    "Fog パレット + PALMUX ブランド + 単一パスワード欄 + remember me チェック (既定 ON) + ログインボタン",
+    "誤パスワードは auth-error インライン表示、cookie 発行せず",
+    "remember me: ✓ 永続 cookie (sliding renewal) / ✗ セッション cookie"
+  ],
+  "approved": false,
+  "status": "pending_user_review"
+}

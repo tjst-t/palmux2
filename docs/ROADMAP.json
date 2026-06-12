@@ -3,14 +3,14 @@
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
     "sprints_done": 50,
-    "sprints_total": 50,
-    "percent": 100,
+    "sprints_total": 51,
+    "percent": 98,
     "current_sprint": null,
     "done": 50,
     "in_progress": 0,
-    "total": 50,
-    "remaining": 0,
-    "percentage": 100
+    "total": 51,
+    "remaining": 1,
+    "percentage": 98
   },
   "execution_order": [
     "S001",
@@ -62,7 +62,8 @@
     "S0c6a1b",
     "Sc7818e",
     "S8478ca",
-    "See8bd4"
+    "See8bd4",
+    "Sbe4eee"
   ],
   "sprints": {
     "S001": {
@@ -8618,7 +8619,7 @@
     "See8bd4": {
       "title": "incus コンテナポートの公開サブドメイン化 (TLS + Caddy admin API)",
       "status": "done",
-      "milestone": false,
+      "milestone": true,
       "phase": "Phase 5",
       "description": "incus-container ランタイムでコンテナ内に立てた dev サーバを、ホスト VM の Caddy 経由で <port>--<workspace>--<repo>.<base> の HTTPS サブドメインとして公開できるようにする。portman が host runtime のポートに対してやっていること (S85caca: wildcard 証明書 + 動的サブドメイン + エッジ basic_auth) の incus-container 版。\n\n現状 (調査済み): S8478ca-4 で port scan ループ + ExposePort + caddy.go (writeSnippet) は実装済みだが、(1) 生成されるのが http://<inst>-<port>.palmux.local の平文ローカルドメイン (TLS なし)、(2) デプロイ Caddy は system-manager 管理の単一 apex vhost で conf.d を import しない (= snippet がロードされない)、(3) wildcard 証明書も Ports UI もない、ため本番では機能しない。\n\n設計判断 (ユーザ確定 2026-06-11):\n  - route 注入方式: palmux → Caddy admin API (localhost:2019) 直叩き。portman 非依存。conf.d ファイル + 手動 reload はやめる (system-manager Caddyfile と競合しないため)\n  - サブドメイン命名: <port>--<workspace>--<repo>.<base> (host model B の {name}--{wt}--{repo} と対称、衝突安全)\n  - 認証: 全サブドメインに既定でエッジ basic_auth、Public=true の port のみ無認証で除外\n\n依存: S8478ca (incus runtime + ExposePort/ListListeningPorts) と S85caca (wildcard DNS-01 + admin API 知見)。両方 done。",
       "stories": {
@@ -8772,6 +8773,142 @@
         }
       },
       "id": "See8bd4"
+    },
+    "Sbe4eee": {
+      "title": "palmux forward_auth SSO (apex + 公開サブドメイン単一ログイン)",
+      "status": "pending",
+      "milestone": false,
+      "phase": "Phase 5",
+      "description": "Caddy basic_auth をやめ、palmux 自身を SSO プロバイダにする。apex(palmux本体) と See8bd4 の公開サブドメインを、Domain=.<base> の署名付き Cookie による単一ログインで認証。サブドメインごとの basic 認証再入力を解消する。\n\n設計判断 (ユーザ確定 2026-06-11, option A):\n  - palmux が /auth/login (フォーム) + /auth/verify (forward_auth用) + /auth/logout を提供。/auth/* は認証バイパス\n  - 正しいパスワードで Domain=.<base> の HMAC 署名 Cookie 発行 (HttpOnly/Secure/SameSite=Lax)\n  - Caddy: per-port route と apex を basic_auth → forward_auth(→palmux /auth/verify) に切替。Public=true は素通し。未認証は /auth/login?rd=<元URL> へリダイレクト\n  - パスワード源 = 既存 BASIC_AUTH_USER/HASH(bcrypt) を流用 (新シークレット無し)\n  - 署名鍵は stable env secret (PALMUX_SSO_SECRET、無ければ BASIC_AUTH_HASH 派生) → 再起動/再デプロイでログアウトされない (caddy-security の restart-logout footgun 回避)\n  - remember me: チェック → 永続 Cookie (長期 Max-Age 365日) + sliding renewal (アクセスごとに期限延長)。未チェック → セッション Cookie\n  - local dev (--public-domain 未設定) は今の --token/open 認証のまま、Caddy 非介在で無変更\n\n依存: See8bd4 (Caddy admin API route 注入 + --public-domain/runtime.env 配線)。VISION 適合 (OIDC/OAuth ではなく単一共有パスワードの Cookie 化、シングルユーザ前提のまま)。",
+      "stories": {
+        "Sbe4eee-1": {
+          "id": "Sbe4eee-1",
+          "status": "pending",
+          "title": "palmux 認証プロバイダ + ログイン/ログアウト画面 (remember me + sticky)",
+          "user_story": "自前ホスティングで apex と公開サブドメインを使う自分として、1回のログインでどのサブドメインにも入れ、同じ端末なら基本ずっと再認証不要にしたい。なぜなら、サブドメインごとに basic 認証を再入力するのが面倒で、毎回ログインも煩わしいから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sbe4eee-1-1",
+              "description": "/auth/login のフォームで正しいパスワードを送ると Domain=.<base> の署名付き Cookie (HttpOnly/Secure/SameSite=Lax) が発行され、rd で指定した元URLへ 302 で戻る",
+              "test": "tests/e2e/sbe4eee_sso.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sbe4eee-1-2",
+              "description": "間違ったパスワードはインラインエラーを出し Cookie を発行しない。/auth/verify は有効 Cookie で 200、無効/無 Cookie で 401(+login へのリダイレクト)",
+              "test": "tests/e2e/sbe4eee_sso.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sbe4eee-1-3",
+              "description": "remember me チェック時は永続 Cookie (長期 Max-Age) + アクセスごとに期限延長 (sliding)。未チェック時はセッション Cookie (ブラウザ終了で失効)",
+              "test": "tests/e2e/sbe4eee_sso.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sbe4eee-1-4",
+              "description": "署名鍵は stable な env secret から導出され、palmux 再起動後も既存 Cookie が有効 (再起動でログアウトされない)",
+              "test": "tests/e2e/sbe4eee_sso.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sbe4eee-1-5",
+              "description": "/auth/logout で Cookie を無効化し、以後 /auth/verify が 401 になる",
+              "test": "tests/e2e/sbe4eee_sso.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "Sbe4eee-1-1": {
+              "id": "Sbe4eee-1-1",
+              "status": "pending",
+              "title": "internal/auth 拡張: SSO Cookie 発行/検証 (HMAC, Domain=.<base>, sliding), stable 署名鍵 (PALMUX_SSO_SECRET/env)"
+            },
+            "Sbe4eee-1-2": {
+              "id": "Sbe4eee-1-2",
+              "status": "pending",
+              "title": "/auth/login (GET form + POST verify) + /auth/verify (forward_auth) + /auth/logout ハンドラ + ルーティング (/auth/* バイパス)"
+            },
+            "Sbe4eee-1-3": {
+              "id": "Sbe4eee-1-3",
+              "status": "pending",
+              "title": "ログイン画面 (Fog パレット, パスワード + remember me + エラー表示, data-testid)"
+            }
+          }
+        },
+        "Sbe4eee-2": {
+          "id": "Sbe4eee-2",
+          "status": "pending",
+          "title": "Caddy 認証を basic_auth → forward_auth(palmux) に切替",
+          "user_story": "公開サブドメインと apex を運用する自分として、Caddy の認証を palmux の forward_auth に一本化したい。なぜなら、単一 Cookie で全サブドメインを SSO にするには認証点を palmux に集約する必要があるから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sbe4eee-2-1",
+              "description": "palmux が admin API で注入する per-port route が basic_auth ではなく forward_auth(→palmux /auth/verify) を持ち、Public=true の port は認証ハンドラ無しで素通しになる",
+              "test": "tests/acceptance/sbe4eee_caddy_forward_auth.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sbe4eee-2-2",
+              "description": "apex (palmux 本体) の Caddy 設定が basic_auth → forward_auth に切替わり、/auth/* はバイパスされてログイン画面に到達できる",
+              "test": "tests/acceptance/sbe4eee_caddy_forward_auth.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sbe4eee-2-3",
+              "description": "--public-domain 未設定 (local dev) では forward_auth は注入されず、既存挙動が無回帰",
+              "test": "tests/acceptance/sbe4eee_caddy_forward_auth.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "Sbe4eee-2-1": {
+              "id": "Sbe4eee-2-1",
+              "status": "pending",
+              "title": "caddy_admin.go: per-port route の basic_auth → forward_auth ハンドラJSON に置換 (Public は素通し)"
+            },
+            "Sbe4eee-2-2": {
+              "id": "Sbe4eee-2-2",
+              "status": "pending",
+              "title": "apex Caddyfile/nix module/install.sh: basic_auth → forward_auth + /auth/* バイパス + PALMUX_SSO_SECRET 配線"
+            }
+          }
+        },
+        "Sbe4eee-3": {
+          "id": "Sbe4eee-3",
+          "status": "pending",
+          "title": "単一ログイン SSO の実機 E2E (apex→サブドメイン素通り + logout 無効化)",
+          "user_story": "PC・スマホから同じ環境を使う自分として、apex で1回ログインしたら公開サブドメインを再認証なしで開け、ログアウトすれば全部無効になることを保証したい。なぜなら、SSO が本当に効いていること・抜けがないことを実機で確認したいから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sbe4eee-3-1",
+              "description": "apex で1回ログイン後、同一ブラウザで公開サブドメイン (auth付き) が再認証なし 200 で開く",
+              "test": "tests/e2e/sbe4eee_sso.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sbe4eee-3-2",
+              "description": "ログイン前 / Cookie 無しのクライアントは公開サブドメイン (auth付き) で login へリダイレクトされる。Public=true サブドメインは Cookie 無しでも 200",
+              "test": "tests/e2e/sbe4eee_sso.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sbe4eee-3-3",
+              "description": "ログアウト後は apex も auth付きサブドメインも再び 401/login リダイレクトになる",
+              "test": "tests/e2e/sbe4eee_sso.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "Sbe4eee-3-1": {
+              "id": "Sbe4eee-3-1",
+              "status": "pending",
+              "title": "実機 E2E: deploy VM で apex ログイン → サブドメイン素通り → logout 無効化を Playwright+curl で検証 (本番モード)"
+            }
+          }
+        }
+      },
+      "id": "Sbe4eee"
     }
   },
   "dependencies": {
@@ -8976,6 +9113,12 @@
         "S85caca"
       ],
       "reason": "S8478ca の incus runtime + ExposePort/ListListeningPorts と S85caca の wildcard DNS-01 + Caddy admin API 知見の上に、コンテナポートの公開サブドメイン化を載せる"
+    },
+    "Sbe4eee": {
+      "depends_on": [
+        "See8bd4"
+      ],
+      "reason": "See8bd4 の Caddy admin API route 注入 + --public-domain/runtime.env 配線の上に、認証点を palmux forward_auth に集約する"
     }
   },
   "backlog": [

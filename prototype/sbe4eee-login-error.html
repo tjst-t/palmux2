@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ja" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sbe4eee · palmux SSO ログイン (error)</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Server-rendered login page (NOT the React SPA). Standalone, self-contained. */
+    body { margin: 0; }
+    .loginWrap {
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      background:
+        radial-gradient(1200px 600px at 50% -10%, rgba(124,138,255,0.10), transparent 60%),
+        var(--color-bg);
+      font-family: var(--font-ui);
+      padding: 24px;
+    }
+    .loginCard {
+      width: 100%; max-width: 360px;
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 14px;
+      padding: 32px 28px 26px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+    }
+    .loginBrand {
+      display: flex; align-items: center; gap: 10px; justify-content: center;
+      font-family: var(--font-mono); font-weight: 700; letter-spacing: 0.14em;
+      font-size: 15px; color: var(--color-fg);
+    }
+    .loginBrand .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--color-accent); box-shadow: 0 0 12px var(--color-accent); }
+    .loginSub { margin: 10px 0 22px; text-align: center; font-size: 12.5px; color: var(--color-fg-muted); line-height: 1.6; }
+    .loginSub code { font-family: var(--font-mono); color: var(--color-fg); font-size: 11.5px; }
+    .field { margin-bottom: 14px; }
+    .label { display: block; font-size: 11px; color: var(--color-fg-muted); margin-bottom: 6px; letter-spacing: 0.02em; }
+    .input {
+      width: 100%; box-sizing: border-box;
+      background: var(--color-bg); border: 1px solid var(--color-border);
+      border-radius: 8px; padding: 11px 12px; color: var(--color-fg);
+      font-size: 14px; font-family: var(--font-ui); outline: none;
+    }
+    .input:focus { border-color: var(--color-accent); box-shadow: 0 0 0 3px rgba(124,138,255,0.18); }
+    .remember { display: flex; align-items: center; gap: 8px; margin: 4px 0 20px; cursor: pointer; user-select: none; }
+    .remember input { width: 15px; height: 15px; accent-color: var(--color-accent); }
+    .remember span { font-size: 12.5px; color: var(--color-fg-muted); }
+    .submit {
+      width: 100%; padding: 11px; border: none; border-radius: 8px;
+      background: var(--color-accent); color: #0c0e14; font-weight: 600;
+      font-size: 14px; font-family: var(--font-ui); cursor: pointer;
+    }
+    .submit:hover { background: var(--color-accent-light, #9ba6ff); }
+    .errorBox {
+      margin-bottom: 16px; padding: 9px 12px; border-radius: 8px;
+      background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.32);
+      color: var(--color-error, #ef4444); font-size: 12.5px; line-height: 1.5;
+    }
+    .foot { margin-top: 18px; text-align: center; font-size: 10.5px; color: var(--color-fg-faint, #4a4e5c); }
+  </style>
+</head>
+<body>
+  <div class="loginWrap">
+    <form class="loginCard" method="POST" action="/auth/login" data-testid="auth-login-form">
+      <input type="hidden" name="rd" value="https://8888--incus-5523--incus-c18d.palmux-deploy-test.tjstkm.net/">
+      <div class="loginBrand" data-testid="auth-brand"><span class="dot"></span> PALMUX</div>
+      <div class="loginSub">
+        <code>palmux-deploy-test.tjstkm.net</code> とその全サブドメインに<br>1回のログインでアクセスできます。
+      </div>
+
+      <div class="errorBox" data-testid="auth-error">パスワードが違います。もう一度お試しください。</div>
+
+      <div class="field">
+        <label class="label" for="pw">パスワード</label>
+        <input class="input" id="pw" name="password" type="password" autocomplete="current-password"
+               autofocus placeholder="••••••••" data-testid="auth-password-input">
+      </div>
+
+      <label class="remember" data-testid="auth-remember-label">
+        <input type="checkbox" name="remember" checked data-testid="auth-remember-checkbox">
+        <span>このブラウザを記憶する（次回から再入力なし）</span>
+      </label>
+
+      <button class="submit" type="submit" data-testid="auth-submit">ログイン</button>
+
+      <div class="foot">🔒 単一ユーザ・自前ホスティング — Cookie はこのドメインのみ</div>
+    </form>
+  </div>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "story": "Sbe4eee-2",
+  "entry_point": "api",
+  "title": "Caddy basic_auth → forward_auth(palmux) 切替",
+  "scenarios": [
+    {"name": "per-port route uses forward_auth", "linked_ac": ["AC-Sbe4eee-2-1"], "steps": ["incus port を expose (auth)", "Caddy admin /config の当該 route が basic_auth ではなく forward_auth(→palmux /auth/verify) を持つ", "cookie 無し curl → 302/401 → login 誘導", "Public=true で expose した port は認証ハンドラ無し → cookie 無しで 200"], "observation": "auth route は forward_auth、public は素通し"},
+    {"name": "apex forward_auth + /auth bypass", "linked_ac": ["AC-Sbe4eee-2-2"], "steps": ["cookie 無しで apex GET → /auth/login へ", "GET /auth/login は素通しで 200 (バイパス)"], "observation": "apex も forward_auth、login 画面は到達可"},
+    {"name": "local dev no-regression", "linked_ac": ["AC-Sbe4eee-2-3"], "steps": ["--public-domain 未設定で起動", "forward_auth は注入されない・既存挙動のまま"], "observation": "local dev 無回帰"}
+  ],
+  "real_mode_smoke": "deploy VM で実 Caddy + palmux に対して curl 検証。",
+  "test_file": "tests/acceptance/sbe4eee_caddy_forward_auth.py"
+}

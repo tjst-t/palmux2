@@ -1,0 +1,13 @@
+{
+  "story": "Sbe4eee-3",
+  "entry_point": "gui",
+  "title": "単一ログイン SSO 実機 E2E",
+  "shared_gui_spec": "gui-spec-Sbe4eee-1.json",
+  "scenarios": [
+    {"name": "single login → subdomain passthrough", "linked_ac": ["AC-Sbe4eee-3-1"], "steps": ["apex /auth/login で1回ログイン (同一ブラウザ context)", "auth付き公開サブドメインへ遷移 → 再認証なし 200"], "observation": "1回ログインで全サブドメイン"},
+    {"name": "unauth redirected; public open", "linked_ac": ["AC-Sbe4eee-3-2"], "steps": ["cookie 無し context で auth付きサブドメイン → login へリダイレクト", "Public=true サブドメイン → cookie 無しでも 200"], "observation": "未認証は弾く・public は開く"},
+    {"name": "logout invalidates everywhere", "linked_ac": ["AC-Sbe4eee-3-3"], "steps": ["logout", "apex も auth付きサブドメインも 401/login"], "observation": "ログアウトで全無効"}
+  ],
+  "real_mode_smoke": "deploy VM で実ブラウザ (Playwright) + 実 Caddy + 実コンテナに対して。",
+  "test_file": "tests/e2e/sbe4eee_sso.py"
+}
