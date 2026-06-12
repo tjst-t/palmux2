@@ -111,7 +111,23 @@ incus exec "${BUILD_INST}" </dev/null -- sh -c '
   apt-get update -qq
   apt-get install -y --no-install-recommends \
     tmux git curl ca-certificates python3 \
-    eza ripgrep zoxide fzf git-delta unzip openssh-client
+    eza ripgrep zoxide fzf git-delta unzip openssh-client gpg
+'
+
+# gh (GitHub CLI) — the agent uses it for GitHub ops; bake it via the official
+# apt repo (not in Ubuntu main). The token/identity is bind-mounted by palmux
+# (~/.config/gh, ~/.gitconfig, ~/.ssh) at Workspace start (S5818e8-1).
+log "   Installing gh (GitHub CLI) ..."
+incus exec "${BUILD_INST}" </dev/null -- sh -c '
+  set -e
+  export DEBIAN_FRONTEND=noninteractive
+  curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+    | tee /usr/share/keyrings/githubcli-archive-keyring.gpg >/dev/null
+  chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+    > /etc/apt/sources.list.d/github-cli.list
+  apt-get update -qq
+  apt-get install -y --no-install-recommends gh
 '
 
 # starship (prompt) — official installer → /usr/local/bin/starship.
@@ -135,11 +151,11 @@ incus exec "${BUILD_INST}" </dev/null -- sh -c "
 "
 
 log "   Verifying installed binaries ..."
-for b in tmux git python3 starship eza rg zoxide fzf delta yazi; do
+for b in tmux git python3 gh starship eza rg zoxide fzf delta yazi; do
   incus exec "${BUILD_INST}" </dev/null -- sh -c "command -v $b >/dev/null 2>&1" \
     || die "$b not found after install"
 done
-log "   base + shell-UX tools present (starship/eza/rg/zoxide/fzf/delta/yazi)"
+log "   base + gh + shell-UX tools present (starship/eza/rg/zoxide/fzf/delta/yazi)"
 
 # ─── 4. verify ubuntu user UID 1000 ──────────────────────────────────────────
 log "4. Verifying ubuntu user (UID 1000) ..."

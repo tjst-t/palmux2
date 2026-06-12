@@ -330,6 +330,21 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 			r.log.Warn("incus: bind-mount source not found, skipping", "source", m.source)
 			continue
 		}
+		// Skip dotfiles that symlink OUTSIDE the home dir (e.g. Nix/home-manager
+		// dotfiles → /nix/store). Bind-mounting such a symlink yields a broken
+		// link in the container (the target isn't mounted) and breaks the shell
+		// on login. On those hosts the container falls back to its image-default
+		// shell instead. Hosts with real dotfiles (the common case) are unaffected.
+		// ghq/.claude are intentionally exempt — they are real dirs we always want.
+		if m.name != "ghq" && !strings.HasPrefix(m.name, "dot-claude") && !strings.HasPrefix(m.name, "dot-local") {
+			if tgt, lerr := filepath.EvalSymlinks(m.source); lerr == nil {
+				if rel, rerr := filepath.Rel(home, tgt); rerr != nil || strings.HasPrefix(rel, "..") {
+					r.log.Info("incus: skipping dotfile that symlinks outside home (e.g. Nix store)",
+						"source", m.source, "target", tgt)
+					continue
+				}
+			}
+		}
 		_, stderr, code, err := r.run(ctx,
 			"config", "device", "add", r.inst,
 			m.name, "disk",
