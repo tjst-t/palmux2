@@ -96,7 +96,7 @@ type incusRuntime struct {
 	// Registry after construction. (See8bd4-2)
 	pub       *publishConfig
 	caddy     *caddyAdminClient // lazily created from pub.caddyAdmin
-	caddyOnce sync.Once          // guards lazy caddy client init (data-race fix)
+	caddyOnce sync.Once         // guards lazy caddy client init (data-race fix)
 
 	// portsMu guards the last-scan port list and the user-controlled exposure
 	// state used by the Ports tab. (See8bd4-3)
@@ -653,14 +653,45 @@ func (r *incusRuntime) RunPortScanLoop(ctx context.Context, cb PortScanCallback)
 	}
 }
 
+// Workspace user identity inside the container. `incus exec` defaults to
+// root/uid 0, but every workspace process must run as the bind-mounted host
+// user (ubuntu, uid 1000) so it sees the shared HOME at /home/ubuntu: the rich
+// ~/.bashrc (starship et al.), ~/.claude auth, ~/.config/gh and ~/.gitconfig
+// all live there. Running as root yields /root — none of those — i.e. a plain
+// shell with no starship prompt, an unauthenticated claude, and missing gh/git
+// credentials. The idmap maps host 1000 → container 1000, so uid 1000 also
+// owns every bind-mounted file.
+const (
+	wsUID  = "1000"
+	wsGID  = "1000"
+	wsHome = "/home/ubuntu"
+	wsUser = "ubuntu"
+)
+
+// userExecFlags are the `incus exec` flags that switch the executed command to
+// the workspace user. They go immediately after the instance name and before
+// the `--` separator, matching incus's `exec <inst> [flags] -- <cmd>` grammar.
+// All in-container exec paths (Exec, the tmux client, attach, the port relay)
+// must carry these so the single in-container tmux SERVER is owned by uid 1000
+// and every later op reaches the same /tmp/tmux-1000 socket.
+func userExecFlags() []string {
+	return []string{
+		"--user", wsUID,
+		"--group", wsGID,
+		"--env", "HOME=" + wsHome,
+		"--env", "USER=" + wsUser,
+	}
+}
+
 // Exec runs a command inside the container and captures output.
 // [AC-S8478ca-2-3]
 func (r *incusRuntime) Exec(ctx context.Context, cmd []string, opts runtime.ExecOpts) (runtime.ExecResult, error) {
 	if len(cmd) == 0 {
 		return runtime.ExecResult{}, fmt.Errorf("incus Exec: cmd must not be empty")
 	}
-	// Build: incus exec <inst> [--cwd <dir>] [-- env K=V ...] -- <cmd>
+	// Build: incus exec <inst> --user 1000 ... [--cwd <dir>] [--env K=V ...] -- <cmd>
 	args := []string{"exec", r.inst}
+	args = append(args, userExecFlags()...)
 	if opts.Dir != "" {
 		args = append(args, "--cwd", opts.Dir)
 	}
@@ -904,7 +935,9 @@ func (r *incusRuntime) ExposePort(ctx context.Context, spec runtime.PortSpec) (r
 		"echo '%s' | base64 -d | nohup python3 - %s %d >/dev/null 2>&1 & echo $!",
 		b64Script, listenIP, spec.Internal,
 	)
-	stdout, stderr, code, err := r.run(ctx, "exec", r.inst, "--", "sh", "-c", shCmd)
+	relayArgs := append([]string{"exec", r.inst}, userExecFlags()...)
+	relayArgs = append(relayArgs, "--", "sh", "-c", shCmd)
+	stdout, stderr, code, err := r.run(ctx, relayArgs...)
 	if err != nil {
 		return runtime.PortMapping{}, fmt.Errorf("incus ExposePort relay start: %w", err)
 	}
@@ -1049,8 +1082,9 @@ func (r *incusRuntime) NewTmuxSession(ctx context.Context, session string) error
 // callback, wrapped in a ResizeWriter.
 // [AC-S8478ca-2-3]
 func (r *incusRuntime) AttachTmuxSession(ctx context.Context, session string) (io.ReadWriteCloser, error) {
-	cmd := exec.CommandContext(ctx, "incus", "exec", "-t", r.inst, "--",
-		"tmux", "attach-session", "-t", session)
+	attachArgs := append([]string{"exec", "-t", r.inst}, userExecFlags()...)
+	attachArgs = append(attachArgs, "--", "tmux", "attach-session", "-t", session)
+	cmd := exec.CommandContext(ctx, "incus", attachArgs...)
 	cmd.Stdin = nil
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
 	f, err := pty.Start(cmd)
@@ -1116,7 +1150,9 @@ func detachedTmuxCtx(ctx context.Context) (context.Context, context.CancelFunc) 
 func (c *incusTmuxClient) incus(ctx context.Context, args ...string) (string, error) {
 	dctx, cancel := detachedTmuxCtx(ctx)
 	defer cancel()
-	argv := append([]string{"exec", c.inst, "--", "tmux"}, args...)
+	argv := append([]string{"exec", c.inst}, userExecFlags()...)
+	argv = append(argv, "--", "tmux")
+	argv = append(argv, args...)
 	stdout, stderr, code, err := c.run(dctx, argv...)
 	if err != nil {
 		return "", fmt.Errorf("incus exec tmux %s: %w", strings.Join(args, " "), err)
@@ -1190,7 +1226,9 @@ func (c *incusTmuxClient) KillSession(ctx context.Context, name string) error {
 func (c *incusTmuxClient) HasSession(ctx context.Context, name string) (bool, error) {
 	dctx, cancel := detachedTmuxCtx(ctx)
 	defer cancel()
-	_, _, code, err := c.run(dctx, "exec", c.inst, "--", "tmux", "has-session", "-t", name)
+	hsArgs := append([]string{"exec", c.inst}, userExecFlags()...)
+	hsArgs = append(hsArgs, "--", "tmux", "has-session", "-t", name)
+	_, _, code, err := c.run(dctx, hsArgs...)
 	if err != nil {
 		return false, err
 	}
@@ -1278,8 +1316,9 @@ func (c *incusTmuxClient) Attach(ctx context.Context, session, windowName string
 // AttachByIndex opens a PTY to a tmux window by index inside the container.
 func (c *incusTmuxClient) AttachByIndex(ctx context.Context, session string, idx int, opts tmux.AttachOpts) (io.ReadWriteCloser, tmux.ResizeFunc, error) {
 	target := fmt.Sprintf("%s:%d", session, idx)
-	cmd := exec.CommandContext(ctx, "incus", "exec", "-t", c.inst, "--",
-		"tmux", "attach-session", "-t", target)
+	attachArgs := append([]string{"exec", "-t", c.inst}, userExecFlags()...)
+	attachArgs = append(attachArgs, "--", "tmux", "attach-session", "-t", target)
+	cmd := exec.CommandContext(ctx, "incus", attachArgs...)
 	cmd.Stdin = nil
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
 

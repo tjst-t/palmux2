@@ -89,6 +89,67 @@ func (f *fakeRunner) recorded() [][]string {
 // Helper: search recorded calls for an exact prefix match.
 // -------------------------------------------------------------------------
 
+// findExecCall finds a recorded `incus exec [-t] <inst> <userflags...> -- <after...>`
+// call. It asserts the call targets inst AND carries the workspace-user flags
+// (--user 1000 + HOME=/home/ubuntu) injected by userExecFlags(), then matches
+// the post-`--` command against `after`. Use this for in-container tmux ops,
+// whose argv now interleaves the user/env flags between the instance and `--`.
+// execCmdAfterSep returns the command argv that follows the `--` separator in a
+// recorded `incus exec ... -- <cmd...>` call (nil if there is no separator).
+// The user/env flags injected by userExecFlags() sit before `--`, so tests that
+// inspect the executed command must locate it relative to `--`, not by a fixed
+// index.
+func execCmdAfterSep(c []string) []string {
+	for i, a := range c {
+		if a == "--" {
+			return c[i+1:]
+		}
+	}
+	return nil
+}
+
+func findExecCall(calls [][]string, inst string, after ...string) ([]string, bool) {
+	for _, c := range calls {
+		if len(c) < 2 || c[0] != "exec" {
+			continue
+		}
+		var hasInst, hasUser, hasHome bool
+		sep := -1
+		for i, a := range c {
+			switch a {
+			case inst:
+				hasInst = true
+			case "--user":
+				hasUser = true
+			case "HOME=/home/ubuntu":
+				hasHome = true
+			case "--":
+				if sep < 0 {
+					sep = i
+				}
+			}
+		}
+		if !hasInst || !hasUser || !hasHome || sep < 0 {
+			continue
+		}
+		rest := c[sep+1:]
+		if len(rest) < len(after) {
+			continue
+		}
+		match := true
+		for i, w := range after {
+			if rest[i] != w {
+				match = false
+				break
+			}
+		}
+		if match {
+			return c, true
+		}
+	}
+	return nil, false
+}
+
 func findCall(calls [][]string, prefix ...string) ([]string, bool) {
 	for _, c := range calls {
 		if len(c) < len(prefix) {
@@ -314,6 +375,39 @@ func TestStop_ArgSequence(t *testing.T) {
 }
 
 // -------------------------------------------------------------------------
+// TestExec_RunsAsWorkspaceUser — every in-container exec must run as the
+// workspace user (ubuntu/uid 1000) with HOME=/home/ubuntu, NOT incus's default
+// root/uid 0. Running as root yields /root, which has none of the bind-mounted
+// dotfiles/claude-auth/gh creds, so the workspace shell is plain (no starship)
+// and claude is unauthenticated. Regression guard for the root-shell bug.
+// [AC-S8478ca-2-3]
+// -------------------------------------------------------------------------
+
+func TestExec_RunsAsWorkspaceUser(t *testing.T) {
+	inst := "ws-exec-user-feedface"
+	fr := newFakeRunner()
+	rt := New(runtime.Config{Kind: runtime.KindIncusContainer}, inst, fr.asRunner(), nil)
+
+	// Generic Exec path (also used by NewTmuxSession → r.Exec).
+	if _, err := rt.Exec(context.Background(), []string{"whoami"}, runtime.ExecOpts{}); err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	if _, ok := findExecCall(fr.recorded(), inst, "whoami"); !ok {
+		t.Errorf("Exec did not run as workspace user (missing --user/HOME flags): %v", fr.recorded())
+	}
+
+	// NewTmuxSession (creates the in-container tmux SERVER) must also be uid 1000,
+	// otherwise the server lands on /tmp/tmux-0 and later uid-1000 ops can't reach
+	// it. [AC-S8478ca-2-3]
+	if err := rt.(*incusRuntime).NewTmuxSession(context.Background(), "sess1"); err != nil {
+		t.Fatalf("NewTmuxSession: %v", err)
+	}
+	if _, ok := findExecCall(fr.recorded(), inst, "tmux", "new-session", "-d", "-s", "sess1"); !ok {
+		t.Errorf("NewTmuxSession did not run as workspace user: %v", fr.recorded())
+	}
+}
+
+// -------------------------------------------------------------------------
 // TestIncusTmuxClient_NewSession routes through incus exec.
 // [AC-S8478ca-2-3]
 // -------------------------------------------------------------------------
@@ -329,8 +423,8 @@ func TestIncusTmuxClient_NewSession(t *testing.T) {
 		t.Fatalf("NewSession: %v", err)
 	}
 	calls := fr.recorded()
-	if _, ok := findCall(calls, "exec", inst, "--", "tmux", "new-session", "-d", "-s", "mysession"); !ok {
-		t.Errorf("[AC-S8478ca-2-3] NewSession: expected exec <inst> -- tmux new-session ..., got %v", calls)
+	if _, ok := findExecCall(calls, inst, "tmux", "new-session", "-d", "-s", "mysession"); !ok {
+		t.Errorf("[AC-S8478ca-2-3] NewSession: expected exec <inst> --user 1000 -- tmux new-session ..., got %v", calls)
 	}
 }
 
@@ -352,7 +446,7 @@ func TestIncusTmuxClient_HasSession(t *testing.T) {
 		t.Errorf("HasSession = false, want true")
 	}
 	calls := fr.recorded()
-	if _, ok := findCall(calls, "exec", inst, "--", "tmux", "has-session", "-t", "s1"); !ok {
+	if _, ok := findExecCall(calls, inst, "tmux", "has-session", "-t", "s1"); !ok {
 		t.Errorf("[AC-S8478ca-2-3] HasSession: expected exec tmux has-session, got %v", calls)
 	}
 }
@@ -370,7 +464,7 @@ func TestIncusTmuxClient_NewWindow(t *testing.T) {
 		t.Fatalf("NewWindow: %v", err)
 	}
 	calls := fr.recorded()
-	if _, ok := findCall(calls, "exec", inst, "--", "tmux", "new-window", "-t", "ses1", "-n", "mywindow"); !ok {
+	if _, ok := findExecCall(calls, inst, "tmux", "new-window", "-t", "ses1", "-n", "mywindow"); !ok {
 		t.Errorf("[AC-S8478ca-2-3] NewWindow: expected exec tmux new-window, got %v", calls)
 	}
 }
@@ -386,7 +480,7 @@ func TestIncusTmuxClient_KillSession(t *testing.T) {
 	tc := NewTmuxClient(inst, fr.asRunner())
 	_ = tc.KillSession(context.Background(), "ses2")
 	calls := fr.recorded()
-	if _, ok := findCall(calls, "exec", inst, "--", "tmux", "kill-session", "-t", "ses2"); !ok {
+	if _, ok := findExecCall(calls, inst, "tmux", "kill-session", "-t", "ses2"); !ok {
 		t.Errorf("[AC-S8478ca-2-3] KillSession: expected exec tmux kill-session, got %v", calls)
 	}
 }
@@ -491,7 +585,7 @@ func TestTmuxClient_ThroughRuntime(t *testing.T) {
 	}
 	_, _ = tc.HasSession(context.Background(), "test-session")
 	calls := fr.recorded()
-	if _, ok := findCall(calls, "exec", inst, "--", "tmux", "has-session", "-t", "test-session"); !ok {
+	if _, ok := findExecCall(calls, inst, "tmux", "has-session", "-t", "test-session"); !ok {
 		t.Errorf("[AC-S8478ca-2-3] TmuxClient().HasSession: expected exec incus ... tmux has-session, got %v", calls)
 	}
 }
@@ -742,9 +836,10 @@ func TestExposePort_BindInstance(t *testing.T) {
 	// Must contain: exec <inst> -- sh -c '<python relay script>'
 	relayCallFound := false
 	for _, c := range calls {
-		if len(c) >= 5 && c[0] == "exec" && c[1] == inst && c[2] == "--" && c[3] == "sh" && c[4] == "-c" {
+		cmd := execCmdAfterSep(c)
+		if len(c) >= 2 && c[0] == "exec" && c[1] == inst && len(cmd) >= 3 && cmd[0] == "sh" && cmd[1] == "-c" {
 			// Verify the script contains the relay listen IP and port.
-			if len(c) >= 6 && strings.Contains(c[5], "python3") && strings.Contains(c[5], "5173") {
+			if strings.Contains(cmd[2], "python3") && strings.Contains(cmd[2], "5173") {
 				relayCallFound = true
 			}
 		}
@@ -989,8 +1084,9 @@ func TestScanPortsOnce_AutoExposes(t *testing.T) {
 	// [AC-S8478ca-4-3]
 	relayFor3000 := false
 	for _, c := range calls {
-		if len(c) >= 6 && c[0] == "exec" && c[1] == inst && c[2] == "--" && c[3] == "sh" && c[4] == "-c" &&
-			strings.Contains(c[5], "python3") && strings.Contains(c[5], "3000") {
+		cmd := execCmdAfterSep(c)
+		if len(c) >= 2 && c[0] == "exec" && c[1] == inst && len(cmd) >= 3 && cmd[0] == "sh" && cmd[1] == "-c" &&
+			strings.Contains(cmd[2], "python3") && strings.Contains(cmd[2], "3000") {
 			relayFor3000 = true
 			break
 		}
@@ -1002,8 +1098,9 @@ func TestScanPortsOnce_AutoExposes(t *testing.T) {
 	// Port 5173 (global bind) — must NOT have a relay or proxy device (already reachable).
 	// [AC-S8478ca-4-1]
 	for _, c := range calls {
-		if len(c) >= 6 && c[0] == "exec" && c[1] == inst && c[2] == "--" && c[3] == "sh" && c[4] == "-c" &&
-			strings.Contains(c[5], "python3") && strings.Contains(c[5], "5173") {
+		cmd := execCmdAfterSep(c)
+		if len(c) >= 2 && c[0] == "exec" && c[1] == inst && len(cmd) >= 3 && cmd[0] == "sh" && cmd[1] == "-c" &&
+			strings.Contains(cmd[2], "python3") && strings.Contains(cmd[2], "5173") {
 			t.Errorf("[AC-S8478ca-4-1] relay should NOT be started for 0.0.0.0:5173 (global bind): %v", c)
 		}
 		if len(c) >= 6 && c[0] == "config" && c[1] == "device" && c[2] == "add" && c[4] == "pt5173" {
@@ -1041,13 +1138,15 @@ func TestScanPortsOnce_IdempotentWhenAlreadyMapped(t *testing.T) {
 	// returns different results based on the full args.
 	callCount := 0
 	customRunner := func(ctx context.Context, args ...string) (string, string, int, error) {
-		// Check if this is an ss call (ListListeningPorts)
-		// args: exec <inst> -- ss -tlnH
-		if len(args) >= 5 && args[0] == "exec" && args[3] == "ss" {
+		// The command runs after the `--` separator; the user/env flags injected
+		// by userExecFlags() sit before it, so we can't index a fixed position.
+		cmd := execCmdAfterSep(args)
+		// Check if this is an ss call (ListListeningPorts): exec <inst> ... -- ss -tlnH
+		if len(args) >= 2 && args[0] == "exec" && len(cmd) >= 1 && cmd[0] == "ss" {
 			return ssOutput, "", 0, nil
 		}
-		// For relay start (exec <inst> -- sh -c ...) return a PID
-		if len(args) >= 5 && args[0] == "exec" && args[3] == "sh" {
+		// For relay start (exec <inst> ... -- sh -c ...) return a PID
+		if len(args) >= 2 && args[0] == "exec" && len(cmd) >= 1 && cmd[0] == "sh" {
 			callCount++
 			return fmt.Sprintf("7000%d\n", callCount), "", 0, nil
 		}
