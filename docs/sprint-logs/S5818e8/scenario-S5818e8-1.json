@@ -1,0 +1,5 @@
+{"story":"S5818e8-1","entry_point":"api","title":"host dev env bind-mount","scenarios":[
+ {"name":"shell+creds mounted","linked_ac":["AC-S5818e8-1-1"],"steps":["incus container を新 image で起動","incus exec で ~/.bashrc ~/.bashrc.d ~/.gitconfig ~/.config/gh ~/.ssh が host と同内容・所有者ubuntu で見える"],"observation":"dotfiles+creds が同パスで共有"},
+ {"name":"gh+ssh work","linked_ac":["AC-S5818e8-1-2"],"steps":["incus exec gh auth status → 成功","~/.ssh/id_* が 600/ubuntu で読める"],"observation":"GitHub 操作の認証がコンテナ内で有効"},
+ {"name":"skip missing","linked_ac":["AC-S5818e8-1-3"],"steps":["source 不在のホストで Start","該当 mount を skip し Start 成功"],"observation":"無回帰"}
+],"real_mode_smoke":"deploy VM で実コンテナ incus exec","test_file":"tests/acceptance/s5818e8_container_devenv.py"}

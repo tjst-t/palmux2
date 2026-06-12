@@ -1,0 +1,67 @@
+{
+  "sprint": "S5818e8",
+  "title": "incus コンテナの dev 環境共有",
+  "touched_adrs": [],
+  "story_classification": {
+    "S5818e8-1": {
+      "entry_point": "api",
+      "scenario_file": "scenario-S5818e8-1.json",
+      "reason": "incus bind-mount。観測点は incus exec でコンテナ内の内容/権限/gh/git。"
+    },
+    "S5818e8-2": {
+      "entry_point": "cli",
+      "scenario_file": "scenario-S5818e8-2.json",
+      "reason": "イメージ build。観測点はコンテナ内 which/PS1。"
+    }
+  },
+  "decisions": [
+    {
+      "id": "D1",
+      "decision": "~/.config 丸ごとではなく shell dotfiles + gh + gitconfig + ssh をピンポイント bind-mount",
+      "rationale": "chrome/pulse/systemd/incus 等の host 固有・無関係 dir を持ち込まない。gh は GitHub 操作に必須。starship はカスタム設定なし(デフォルト)なので config 不要。",
+      "source": "user confirmed 2026-06-12"
+    },
+    {
+      "id": "D2",
+      "decision": "SSH 秘密鍵 + gh トークンのコンテナ露出を許容",
+      "rationale": "フル機能・再認証なし。既存 ~/.claude 共有と同じ前提。コンテナは host 汚染防止が目的でセキュリティ境界ではない。ユーザ明示承認。",
+      "source": "user confirmed"
+    },
+    {
+      "id": "D3",
+      "decision": "shell-UX ツールは palmux-ws image に同梱 (bind-mount せず)",
+      "rationale": "host のツールは /usr/local・/usr/bin にあり host lib 依存。bind-mount は壊れやすい。image に焼けば self-contained。version は host と厳密一致しないが機能等価。",
+      "source": "auto"
+    },
+    {
+      "id": "D4",
+      "decision": "既存の『source 無ければ skip』ロジックを流用 (incus.go の os.Stat ガード)",
+      "rationale": "~/.ssh や gh が無いホストでも Start を壊さない。",
+      "source": "auto"
+    },
+    {
+      "id": "D5",
+      "decision": "gh (GitHub CLI) も palmux-ws image に同梱",
+      "rationale": "Story-1 で gh トークン/設定を bind-mount しても gh バイナリがコンテナに無いと使えない。host の gh は /usr/bin(system) で bind-mount は壊れやすいため image に焼く。",
+      "source": "auto (review during E2E)"
+    },
+    {
+      "id": "D6",
+      "decision": "$HOME 外 (例 /nix/store) を指す symlink dotfile は bind-mount しない",
+      "rationale": "Nix/home-manager の dotfiles は /nix/store への symlink で、コンテナに mount すると broken link になりログインシェルが壊れる (deploy VM で hm-session-vars.sh エラーを実機確認)。skip して image 既定シェルに fallback。real-dotfile ホスト(ユーザの dev box)は無影響=リッチシェルになる。",
+      "source": "auto (E2E で発覚)"
+    },
+    {
+      "id": "D7",
+      "decision": "検証は各 link を実機で個別検証 (mount 機構 / image tools+gh / starship capability / Nix-host clean)。リッチシェル全体像は real-dotfile + 稼働 incus のホストが手元の検証環境に無いため合成で担保",
+      "rationale": "deploy VM は Nix ホスト(リッチ env 無し)、dev box は incus 未init。各 link は実機 PASS なので、real-dotfile ホストでのリッチシェルは論理的に保証される。",
+      "source": "honest (infra constraint)"
+    },
+    {
+      "id": "D8",
+      "decision": "palmux-ws image の GitHub Release asset 更新 + runtime install での再配布は本 Sprint では deploy VM ローカル build で代替。正式リリース時に release asset を更新",
+      "rationale": "GH runner は incus image を build 不可 (build-workspace-image.yml は workflow_dispatch のみ)。実機 build は VM/ローカルで行う既存方針。",
+      "source": "auto"
+    }
+  ]
+}
