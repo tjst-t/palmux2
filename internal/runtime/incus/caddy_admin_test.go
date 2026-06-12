@@ -79,7 +79,7 @@ func TestUpsertRoute_WithAuthTargetsSrv443(t *testing.T) {
 
 	c := newCaddyAdminClient(srv.URL)
 	err := c.upsertRoute(context.Background(), "palmux-inst-5173",
-		"5173--feature--demo-repo.example.com", "10.0.0.5:5173", "ubuntu", "$2a$bcrypthash", true)
+		"5173--feature--demo-repo.example.com", "10.0.0.5:5173", "127.0.0.1:8080", true)
 	if err != nil {
 		t.Fatalf("upsertRoute: %v", err)
 	}
@@ -93,7 +93,8 @@ func TestUpsertRoute_WithAuthTargetsSrv443(t *testing.T) {
 		t.Fatalf("expected delete of @id palmux-inst-5173, got %v", fake.deletedIDs)
 	}
 
-	// Body assertions: @id, host match, reverse_proxy upstream, basic_auth handler.
+	// Body assertions: @id, host match, forward_auth subroute (→ /auth/verify on
+	// palmux), and the backend reverse_proxy to the container.
 	body := fake.lastBody
 	if body["@id"] != "palmux-inst-5173" {
 		t.Errorf("@id = %v", body["@id"])
@@ -102,16 +103,19 @@ func TestUpsertRoute_WithAuthTargetsSrv443(t *testing.T) {
 	s := string(raw)
 	for _, want := range []string{
 		`"host":["5173--feature--demo-repo.example.com"]`,
-		`"handler":"reverse_proxy"`,
-		`"dial":"10.0.0.5:5173"`,
-		`"handler":"authentication"`,
-		`"username":"ubuntu"`,
-		`"algorithm":"bcrypt"`,
+		`"handler":"subroute"`,
+		`"uri":"/auth/verify"`,
+		`"X-Forwarded-Uri"`,
+		`"dial":"127.0.0.1:8080"`, // forward_auth → palmux
+		`"dial":"10.0.0.5:5173"`,  // backend → container
 		`"terminal":true`,
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("route body missing %s\nbody=%s", want, s)
 		}
+	}
+	if strings.Contains(s, "http_basic") {
+		t.Errorf("forward_auth route must NOT contain basic_auth\nbody=%s", s)
 	}
 }
 
@@ -122,15 +126,15 @@ func TestUpsertRoute_PublicOmitsAuth(t *testing.T) {
 
 	c := newCaddyAdminClient(srv.URL)
 	if err := c.upsertRoute(context.Background(), "palmux-inst-8080",
-		"8080--x--y.example.com", "10.0.0.5:8080", "ubuntu", "$2a$h", false); err != nil {
+		"8080--x--y.example.com", "10.0.0.5:8080", "127.0.0.1:8080", false); err != nil {
 		t.Fatalf("upsertRoute: %v", err)
 	}
 	raw, _ := json.Marshal(fake.lastBody)
-	if strings.Contains(string(raw), "authentication") {
-		t.Errorf("public route must NOT contain basic_auth handler\nbody=%s", raw)
+	if strings.Contains(string(raw), "subroute") || strings.Contains(string(raw), "/auth/verify") {
+		t.Errorf("public route must NOT contain forward_auth\nbody=%s", raw)
 	}
-	if !strings.Contains(string(raw), `"handler":"reverse_proxy"`) {
-		t.Errorf("public route must still reverse_proxy\nbody=%s", raw)
+	if !strings.Contains(string(raw), `"handler":"reverse_proxy"`) || !strings.Contains(string(raw), `"dial":"10.0.0.5:8080"`) {
+		t.Errorf("public route must reverse_proxy straight to the container\nbody=%s", raw)
 	}
 }
 

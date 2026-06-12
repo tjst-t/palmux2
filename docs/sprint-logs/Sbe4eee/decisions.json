@@ -4,17 +4,70 @@
   "touched_adrs": [],
   "touched_adrs_note": "docs/DESIGN/adr/ なし → Guard 7 は fallback set。",
   "story_classification": {
-    "Sbe4eee-1": {"entry_point": "gui", "gui_spec_file": "gui-spec-Sbe4eee-1.json", "reason": "サーバレンダの login/logout 画面 + cookie 発行。ブラウザで観測。"},
-    "Sbe4eee-2": {"entry_point": "api", "scenario_file": "scenario-Sbe4eee-2.json", "reason": "Caddy route の認証ハンドラ差替。観測点は curl (forward_auth 経由の 401/302/200)。"},
-    "Sbe4eee-3": {"entry_point": "gui", "gui_spec_file": "gui-spec-Sbe4eee-1.json", "reason": "SSO フロー全体の実機 E2E (login 画面 + サブドメイン素通り)。-1 の gui-spec を共有。"}
+    "Sbe4eee-1": {
+      "entry_point": "gui",
+      "gui_spec_file": "gui-spec-Sbe4eee-1.json",
+      "reason": "サーバレンダの login/logout 画面 + cookie 発行。ブラウザで観測。"
+    },
+    "Sbe4eee-2": {
+      "entry_point": "api",
+      "scenario_file": "scenario-Sbe4eee-2.json",
+      "reason": "Caddy route の認証ハンドラ差替。観測点は curl (forward_auth 経由の 401/302/200)。"
+    },
+    "Sbe4eee-3": {
+      "entry_point": "gui",
+      "gui_spec_file": "gui-spec-Sbe4eee-1.json",
+      "reason": "SSO フロー全体の実機 E2E (login 画面 + サブドメイン素通り)。-1 の gui-spec を共有。"
+    }
   },
   "decisions": [
-    {"id": "D1", "decision": "login 画面は palmux がサーバレンダする独立 HTML ページ (/auth/login)。React SPA ではない", "rationale": "SPA 自体が forward_auth で gate されるため、ログイン画面は認証前に到達できる素の HTML である必要がある。/auth/* は forward_auth バイパス。", "source": "auto (clear best practice)"},
-    {"id": "D2", "decision": "SSO Cookie は既存 internal/auth の HMAC 署名基盤を流用しつつ別 cookie (palmux_sso) を新設。Domain=.<base>, HttpOnly, Secure, SameSite=Lax", "rationale": "既存 palmux_session は palmux 自身の --token 認証用 (host-scoped, SameSite=Strict)。SSO は Domain=.<base> + SameSite=Lax (サブドメイン遷移で送出) が必要なので別 cookie。署名コードは再利用。", "source": "user confirmed (option A) + auto"},
-    {"id": "D3", "decision": "パスワード検証は既存 BASIC_AUTH_HASH(bcrypt) に対して bcrypt.CompareHashAndPassword。新シークレット無し", "rationale": "basic_auth と同じ資格情報を流用しユーザの体験を変えない。", "source": "user confirmed"},
-    {"id": "D4", "decision": "Cookie 署名鍵は stable env secret (PALMUX_SSO_SECRET、無ければ BASIC_AUTH_HASH 派生) から導出。再起動で鍵が変わらない", "rationale": "caddy-security の restart-logout footgun を回避。再デプロイ/再起動で既存セッションを無効化しない。", "source": "auto (learned from B comparison)"},
-    {"id": "D5", "decision": "remember me ✓ → 永続 Cookie (Max-Age 365日) + sliding renewal (verify 成功ごとに Set-Cookie で期限延長)。未チェック → セッション Cookie (Max-Age 無し)", "rationale": "『同一端末は基本再認証不要』というユーザ要望。sliding で能動利用端末は実質無期限、長期未使用のみ失効。", "source": "user requested"},
-    {"id": "D6", "decision": "Caddy per-port route の認証は basic_auth → forward_auth(→palmux /auth/verify) に置換。Public=true は認証ハンドラ無しで素通し。apex も同様。未認証は palmux が 302 /auth/login?rd=<元URL>", "rationale": "認証点を palmux に集約し単一 Cookie SSO を実現。既存 caddy_admin.go の front-insert/Public 分岐をそのまま使い、ハンドラだけ差替。", "source": "user confirmed (option A)"},
-    {"id": "D7", "decision": "local dev (--public-domain 未設定) は forward_auth を注入せず、palmux の既存 --token/open 認証のまま無変更", "rationale": "ローカル開発体験を壊さない。SSO は公開デプロイ時のみ。", "source": "auto"}
+    {
+      "id": "D1",
+      "decision": "login 画面は palmux がサーバレンダする独立 HTML ページ (/auth/login)。React SPA ではない",
+      "rationale": "SPA 自体が forward_auth で gate されるため、ログイン画面は認証前に到達できる素の HTML である必要がある。/auth/* は forward_auth バイパス。",
+      "source": "auto (clear best practice)"
+    },
+    {
+      "id": "D2",
+      "decision": "SSO Cookie は既存 internal/auth の HMAC 署名基盤を流用しつつ別 cookie (palmux_sso) を新設。Domain=.<base>, HttpOnly, Secure, SameSite=Lax",
+      "rationale": "既存 palmux_session は palmux 自身の --token 認証用 (host-scoped, SameSite=Strict)。SSO は Domain=.<base> + SameSite=Lax (サブドメイン遷移で送出) が必要なので別 cookie。署名コードは再利用。",
+      "source": "user confirmed (option A) + auto"
+    },
+    {
+      "id": "D3",
+      "decision": "パスワード検証は既存 BASIC_AUTH_HASH(bcrypt) に対して bcrypt.CompareHashAndPassword。新シークレット無し",
+      "rationale": "basic_auth と同じ資格情報を流用しユーザの体験を変えない。",
+      "source": "user confirmed"
+    },
+    {
+      "id": "D4",
+      "decision": "Cookie 署名鍵は stable env secret (PALMUX_SSO_SECRET、無ければ BASIC_AUTH_HASH 派生) から導出。再起動で鍵が変わらない",
+      "rationale": "caddy-security の restart-logout footgun を回避。再デプロイ/再起動で既存セッションを無効化しない。",
+      "source": "auto (learned from B comparison)"
+    },
+    {
+      "id": "D5",
+      "decision": "remember me ✓ → 永続 Cookie (Max-Age 365日)。未チェック → セッション Cookie。sliding renewal は Caddy forward_auth が auth 応答の Set-Cookie をブラウザに伝播しないため不採用 — 365日の永続 Cookie で『同一端末は基本ずっと再認証不要』を満たす",
+      "rationale": "『同一端末は基本再認証不要』というユーザ要望。sliding で能動利用端末は実質無期限、長期未使用のみ失効。",
+      "source": "user requested"
+    },
+    {
+      "id": "D6",
+      "decision": "Caddy per-port route の認証は basic_auth → forward_auth(→palmux /auth/verify) に置換。Public=true は認証ハンドラ無しで素通し。apex も同様。未認証は palmux が 302 /auth/login?rd=<元URL>",
+      "rationale": "認証点を palmux に集約し単一 Cookie SSO を実現。既存 caddy_admin.go の front-insert/Public 分岐をそのまま使い、ハンドラだけ差替。",
+      "source": "user confirmed (option A)"
+    },
+    {
+      "id": "D7",
+      "decision": "local dev (--public-domain 未設定) は forward_auth を注入せず、palmux の既存 --token/open 認証のまま無変更",
+      "rationale": "ローカル開発体験を壊さない。SSO は公開デプロイ時のみ。",
+      "source": "auto"
+    },
+    {
+      "id": "D8",
+      "decision": "セキュリティレビュー対応: (1) install.sh が stable な random PALMUX_SSO_SECRET を生成・永続化し署名鍵をパスワードhash派生から分離 (2) login に in-memory レート制限 (10/min, loopback=global bucket で spoof 不可) (3) logout に same-site Origin/Referer チェック (4) HMAC 比較を raw byte 化。sliding renewal は forward_auth 制約で no-op だったため削除。remember-me 既定ONはユーザ要望のため維持 (revocation = logout or password/secret 変更)",
+      "rationale": "認証コードの多層防御。脅威モデルはシングルユーザ自前ホスティング。",
+      "source": "security review 2026-06-12"
+    }
   ]
 }
