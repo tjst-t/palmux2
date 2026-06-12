@@ -157,6 +157,42 @@ for b in tmux git python3 gh starship eza rg zoxide fzf delta yazi; do
 done
 log "   base + gh + shell-UX tools present (starship/eza/rg/zoxide/fzf/delta/yazi)"
 
+# ─── 3b. rich default shell (S5818e8) ─────────────────────────────────────────
+# Bake a sensible rich shell into the image so EVERY container has a good shell
+# regardless of host (starship prompt + eza/zoxide/fzf wiring). When palmux
+# bind-mounts the host's real ~/.bashrc / ~/.bashrc.d (real-dotfile hosts), those
+# take precedence; on hosts whose dotfiles are skipped (Nix → /nix symlinks) the
+# container falls back to THIS rich default. ~/.bashrc still sources ~/.bashrc.d,
+# so a host that mounts only ~/.bashrc.d (real) still gets its functions loaded.
+log "3b. Baking rich default shell (starship + tool wiring) ..."
+incus exec "${BUILD_INST}" </dev/null -- sh -c '
+  set -e
+  install -d -o ubuntu -g ubuntu -m 0755 /home/ubuntu/.bashrc.d
+  cat > /home/ubuntu/.bashrc.d/00-palmux-shell.bash <<RC
+# palmux-ws default interactive shell wiring (S5818e8)
+[[ \$- == *i* ]] || return
+alias ll="eza -la --git --group-directories-first"
+alias la="eza -a --group-directories-first"
+alias ls="eza --group-directories-first"
+alias lt="eza --tree --level=2"
+command -v fzf >/dev/null && [ -r /usr/share/doc/fzf/examples/key-bindings.bash ] && . /usr/share/doc/fzf/examples/key-bindings.bash
+RC
+  # Append the loader + prompt inits to the default ~/.bashrc (idempotent guard).
+  if ! grep -q "palmux: rich shell" /home/ubuntu/.bashrc 2>/dev/null; then
+    cat >> /home/ubuntu/.bashrc <<RC
+
+# palmux: rich shell defaults (S5818e8)
+if [[ \$- == *i* ]]; then
+  for _f in ~/.bashrc.d/*.bash; do [ -r "\$_f" ] && . "\$_f"; done 2>/dev/null; unset _f
+  command -v starship >/dev/null && eval "\$(starship init bash)"
+  command -v zoxide   >/dev/null && eval "\$(zoxide init bash)"
+fi
+RC
+  fi
+  chown -R ubuntu:ubuntu /home/ubuntu/.bashrc /home/ubuntu/.bashrc.d
+'
+log "   rich default shell baked (interactive container bash → starship prompt)"
+
 # ─── 4. verify ubuntu user UID 1000 ──────────────────────────────────────────
 log "4. Verifying ubuntu user (UID 1000) ..."
 UID_CHECK=$(incus exec "${BUILD_INST}" </dev/null -- id -u ubuntu 2>/dev/null || echo "")

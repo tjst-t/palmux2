@@ -62,6 +62,12 @@
       "decision": "palmux-ws image の GitHub Release asset 更新 + runtime install での再配布は本 Sprint では deploy VM ローカル build で代替。正式リリース時に release asset を更新",
       "rationale": "GH runner は incus image を build 不可 (build-workspace-image.yml は workflow_dispatch のみ)。実機 build は VM/ローカルで行う既存方針。",
       "source": "auto"
+    },
+    {
+      "id": "D9",
+      "decision": "palmux-ws image にリッチ既定シェル (~/.bashrc が starship/zoxide init + eza alias、~/.bashrc.d/00-palmux-shell.bash) を焼く",
+      "rationale": "ホストの dotfiles に依存せず『どのホストでもコンテナは即リッチ』。Nix ホスト(dotfiles skip)でもイメージ既定が適用されリッチに。real-dotfile ホストは host の ~/.bashrc が mount で上書き=自分の設定が勝つ。ユーザ提案『リッチシェルを入れてしまえ』をイメージ側で実現。これで deploy VM 実機でも starship プロンプトを実演可能になった。",
+      "source": "user idea 2026-06-12"
     }
   ]
 }

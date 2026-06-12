@@ -130,15 +130,16 @@ def main() -> int:
     else:
         ok("AC-S5818e8-2-1", "gh + starship/eza/rg/zoxide/fzf/delta/yazi all baked into image")
 
-    # AC-2-2: capability — a starship-init rc activates starship in the container.
-    cap = cexec("printf '%s\\n' '[[ $- == *i* ]] || return' 'eval \"$(starship init bash)\"' > /tmp/srrc && "
-                "PROMPT_COMMAND= bash --rcfile /tmp/srrc -ic 'echo HOOK=$(type -t starship_precmd); "
-                "echo HASSTAR=$(echo $PROMPT_COMMAND | grep -c starship)'")
+    # AC-2-2: the image's DEFAULT ~/.bashrc activates starship in an interactive
+    # shell — so every container is rich out of the box, regardless of host
+    # (the host's real ~/.bashrc, when present, overrides this).
+    cap = cexec("bash -ic 'echo HOOK=$(type -t starship_precmd); "
+                "echo HASSTAR=$(echo \"$PROMPT_COMMAND\" | grep -c starship)'")
     capout = cap.stdout
     if "HOOK=function" in capout and "HASSTAR=1" in capout:
-        ok("AC-S5818e8-2-2", "starship-init rc → starship prompt active in container (image starship works)")
+        ok("AC-S5818e8-2-2", "image default ~/.bashrc → starship prompt active in interactive container shell")
     else:
-        fail("AC-S5818e8-2-2", f"starship not active: {capout.strip()[:120]!r}")
+        fail("AC-S5818e8-2-2", f"starship not active via image default bashrc: {capout.strip()[:160]!r}")
 
     if _FAILED:
         print(f"\nFAILED: {sorted(set(_FAILED))}", file=sys.stderr)
