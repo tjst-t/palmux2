@@ -1,0 +1,40 @@
+{
+  "sprint": "S62374c",
+  "verified_at_status": "partial — implementation complete + reviewed + offline tests green; real-mode E2E pending image rebuild on a working-incus host",
+  "passed": {
+    "go_build": "go build ./... clean",
+    "go_vet": "go vet ./internal/tab/browser/... ./internal/tab/claudetui/... clean",
+    "unit_tests": "internal/tab/browser (15 tests, incl -race clean), internal/tab/claudetui (--add-dir injection TestDaemonInjectsAddDir) pass",
+    "frontend_build": "npm run build (tsc + vite) clean",
+    "mock_e2e": "tests/e2e/s62374c_browser_ui_mock.py 8/8 PASS (frontend-only, route-mocked states: stopped/starting/host/running/popout/fullscreen testids)",
+    "story_review": [
+      "S62374c-1 reviewed by orchestrator: correct lifecycle, AC1-1..1-6 backend, conventions OK",
+      "S62374c-2 reviewed: caught + fixed TWO real concurrency bugs in cdp.go (concurrent CDP Write from both pump goroutines; concurrent Read in navigateHistory) — serialised via writeMu + routed nav-history response through the single reader; -race now clean",
+      "S62374c-3 reviewed: notify payload matches notify.IngestRequest contract (AC-3-3); --add-dir injection correct; CLI reuses existing hook env (no new plumbing); node syntax OK"
+    ],
+    "contract_checks": [
+      "CDP shared-session + screencast + input verified on REAL chromium (spike B): connectOverCDP (CLI) + raw screencast/input (backend) coexist on one browser",
+      "skill delivery via --add-dir verified against official docs (spike A): no ~/.claude pollution"
+    ]
+  },
+  "pending_real_mode_e2e": {
+    "reason": "Real-mode E2E (test-discipline Rule 7 / priority_rule 9 smoke) requires the palmux-ws image rebuilt with chromium (Story1) + node + playwright-core + palmux-browser CLI + skill (Story3), imported into incus, the new palmux binary deployed, an incus-container Workspace opened, and the 3 Python suites run against it.",
+    "blocker": "dev-box incus server unreachable (incus-admin group / user-manager restart gotcha, see project_incus_group_gotcha); deploy VM (palmux-deploy-test) has working incus and is the intended host.",
+    "tests_awaiting_real_run": [
+      "tests/acceptance/s62374c_browser_lifecycle.py [AC-S62374c-1-*]",
+      "tests/e2e/s62374c_browser_ui.py [AC-S62374c-2-* incl time-sampled screencast]",
+      "tests/acceptance/s62374c_browser_claude.py [AC-S62374c-3-* incl CLI navigate → tab reflection, --add-dir, skill present]"
+    ],
+    "next_steps": [
+      "On a working-incus host: bash images/workspace-default/build.sh → incus image import dist/palmux-ws.tar.gz --alias palmux-ws (replace)",
+      "Recreate the incus-container Workspace so it picks up the new image",
+      "make build-linux + deploy palmux binary (browser tab provider) to the host",
+      "Run the 3 suites with PALMUX2_E2E_* env pointed at the dev instance + container"
+    ]
+  },
+  "done_judgment": {
+    "S62374c-1": { "verdict": "needs_user_review", "reason": "Guard (real-mode smoke) not yet run — backend complete + unit-tested, awaiting image rebuild E2E" },
+    "S62374c-2": { "verdict": "needs_user_review", "reason": "Guard (real-mode smoke) not yet run — UI + WS proxy complete, mock green + concurrency fixed, awaiting live screencast E2E" },
+    "S62374c-3": { "verdict": "needs_user_review", "reason": "Guard (real-mode smoke) not yet run — CLI + skill + injection complete + unit-tested, awaiting live CLI→tab E2E" }
+  }
+}

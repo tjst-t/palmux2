@@ -8995,14 +8995,14 @@
     "S62374c": {
       "id": "S62374c",
       "title": "Workspace 共有ブラウザ (CDP-screencast + CLI/Skill)",
-      "status": "planned",
+      "status": "partial",
       "milestone": true,
       "phase": "Phase 5",
       "description": "incus-container Workspace ごとに、Claude(Playwright/CDP) とユーザが同一の chromium を共有して操作・観察できる「Browser」タブを追加する。WebRTC/Neko 不要、既存の Workspace コンテナ・Caddy・SSO・タブ機構を流用。設計は docs/workspace-runtime-design.md §7 (本 Sprint で CDP-screencast 主・Neko 後 に更新)。\n\n確定した設計判断 (ユーザ確認済み 2026-06-13):\n  - コンテナは per-worktree (per-Workspace)。chromium も worktree ごとに1個 → 各ブラウザは自分の worktree の dev server(localhost) に到達し、profile/cookie も worktree ごとに独立。\n  - 自動起動しない: Browser タブは常設 (incus-container conditional) だが chromium プロセスは既定 stopped。明示 Start/Stop。ブラウザ不要 dev では起動させない。\n  - 起動権限: ユーザ (UI [Start]) + Claude (CLI `palmux-browser start`、Activity Inbox に出る明示アクション) の両方。\n  - Claude の操作機構は MCP ではなく CLI + Skill。理由: MCP は常時コンテキストを消費する (多ツール定義 + 大きな snapshot を毎ターン) ため、複数 Claude 並列 + 使用枠制約に不利。CLI 中身は Playwright connectOverCDP の薄ラッパにして auto-wait/a11y snapshot の品質を保ちつつ、出力をトリム (compact snapshot / screenshot パス) してトークンを浪費させない。skill は start を含むライフサイクル全体を教える (progressive disclosure なので browser 不要 dev では skill も展開されない)。\n  - CDP は Caddy で公開しない: localhost/bridge のみ bind、palmux host が incusbr0 経由で containerIP:9222 に直結して仲介。ユーザは既存 SSO 経由でしか触れない。\n  - profile 永続: --user-data-dir を host bind-mount の永続パスに置きログイン状態を保持 (§7.5 揮発の例外)。\n\n依存: S8478ca (incus-container runtime + 管理ブリッジ + Caddy 直結 + palmux-ws イメージ build)。VISION 適合 (PC/モバイルから同じ環境を観察・操作、シングルユーザ自前ホスティング。共有相手は『ユーザ自身 + 自分の Claude』でありマルチテナントではない)。",
       "stories": {
         "S62374c-1": {
           "id": "S62374c-1",
-          "status": "planned",
+          "status": "needs_user_review",
           "title": "コンテナ内ブラウザのライフサイクル (明示 Start/Stop・永続 profile・CDP 非公開)",
           "user_story": "incus-container Workspace で作業する自分として、Workspace ごとに CDP を出した chromium を明示的に起動・停止したい。なぜなら、ブラウザ不要の開発では起動させず、必要なときだけ Claude が操作でき自分も覗ける共有ブラウザを立てたいから。",
           "acceptance_criteria": [
@@ -9073,7 +9073,7 @@
         },
         "S62374c-2": {
           "id": "S62374c-2",
-          "status": "planned",
+          "status": "needs_user_review",
           "title": "Browser タブ UI: ライブ screencast + 操作 + Start/Stop",
           "user_story": "PC・スマホから作業する自分として、共有ブラウザをリアルタイムで見て、Start/Stop と操作を自分でも行いたい。なぜなら、Claude の操作を観察しつつ必要なときに引き継ぎ、不要なら止めてリソースを解放したいから。",
           "acceptance_criteria": [
@@ -9158,7 +9158,7 @@
         },
         "S62374c-3": {
           "id": "S62374c-3",
-          "status": "planned",
+          "status": "needs_user_review",
           "title": "Claude 連携: CLI + Skill で同一ブラウザを起動・操作 (セッション共有)",
           "user_story": "複数 Claude を並行運用する自分として、Claude がコンテキストを浪費せずに共有ブラウザを起動・操作できてほしい。なぜなら、限られた使用枠の中で、Claude が触ったブラウザをそのまま自分が引き継ぎたいから。",
           "acceptance_criteria": [
