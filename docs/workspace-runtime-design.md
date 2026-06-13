@@ -475,10 +475,13 @@ Docker を動かすと incus コンテナの *outbound* が死ぬ」別問題**�
 > modern runc が全コンテナで `net.ipv4.ip_unprivileged_port_start` sysctl を書こうとし、
 > unprivileged incus コンテナの apparmor プロファイルがこれを拒否して
 > `open sysctl ... permission denied` で落ちる。`raw.lxc lxc.apparmor.profile=unconfined`
-> を足すと `docker run hello-world` まで緑（実機 PoC で確認）。**ただし apparmor=unconfined は
-> incus コンテナの confinement を外す = セキュリティトレードオフ**なので、これは既定にせず
-> ユーザ判断に委ねる（nesting だけは安全側の既定として常時 ON）。necessary だが kernel/runc
-> 次第で sufficient ではない、というのが正確な結論（初版の「1 行で足りる」は楽観的すぎた）。
+> を足すと `docker run hello-world` まで緑（実機 PoC で確認）。**apparmor=unconfined は
+> incus コンテナの apparmor confinement を外す = セキュリティトレードオフ**だが、
+> **ユーザがフル in-container Docker をオプトインしたので既定で投入する**ことにした（2026-06-13）。
+> コンテナは依然 UNPRIVILEGED で raw.idmap の userns 境界は残る。nesting と apparmor 緩和は
+> どちらも `Start` で非致命的に set（失敗は warn）。necessary（nesting）だが kernel/runc 次第で
+> sufficient ではなく apparmor 緩和も要る、が正確な結論（初版の「1 行で足りる」は楽観的すぎた）。
+> なお `raw.lxc` は LXC ドライバ（container）専用で、将来の VM runtime では無関係。
 
 ### 9.2 そのまま流用できる部分（＝大半）
 

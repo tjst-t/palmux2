@@ -206,6 +206,12 @@ func TestStart_ArgSequence(t *testing.T) {
 		t.Errorf("expected 'incus config set %s security.nesting true' (in-container Docker), not found in %v", inst, calls)
 	}
 
+	// 2c. config set <inst> raw.lxc lxc.apparmor.profile=unconfined — lets
+	// `docker run` past the runc ip_unprivileged_port_start sysctl EPERM. §9.1.
+	if _, ok := findCall(calls, "config", "set", inst, "raw.lxc", "lxc.apparmor.profile=unconfined"); !ok {
+		t.Errorf("expected 'incus config set %s raw.lxc lxc.apparmor.profile=unconfined' (nested docker run), not found in %v", inst, calls)
+	}
+
 	// 3. Five device-add calls for ~/ghq, ~/.claude, ~/.claude.json,
 	// ~/.local/share/claude, ~/.local/bin  [AC-S8478ca-2-2]
 	// [AC-S8478ca-refine-claude-bind-mount]

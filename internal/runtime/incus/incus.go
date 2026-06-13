@@ -292,6 +292,29 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 			"inst", r.inst, "detail", detail)
 	}
 
+	// 2c. apparmor relaxation for nested Docker. nesting (2b) lets dockerd start,
+	// but modern runc (1.2+) writes net.ipv4.ip_unprivileged_port_start for every
+	// container it launches, and the unprivileged container's apparmor profile
+	// blocks that proc-sysctl write → `docker run` dies with
+	// "open sysctl net.ipv4.ip_unprivileged_port_start: permission denied".
+	// Unconfining the container's apparmor profile makes `docker run` work
+	// (verified on the deploy VM). This is a SECURITY TRADEOFF — it removes the
+	// apparmor confinement layer — but the container stays UNPRIVILEGED with the
+	// raw.idmap userns boundary intact, and the user opted in to full in-container
+	// Docker. See docs/workspace-runtime-design.md §9.1.
+	//
+	// raw.lxc applies to the LXC driver (containers) only; it is a no-op concept
+	// for the future VM runtime, which doesn't have this apparmor cage at all.
+	// Non-fatal for the same reason as nesting.
+	if _, aaStderr, aaCode, aaErr := r.run(ctx, "config", "set", r.inst, "raw.lxc", "lxc.apparmor.profile=unconfined"); aaErr != nil || aaCode != 0 {
+		detail := strings.TrimSpace(aaStderr)
+		if detail == "" && aaErr != nil {
+			detail = aaErr.Error()
+		}
+		r.log.Warn("incus: could not relax apparmor (in-container `docker run` may fail on sysctl EPERM)",
+			"inst", r.inst, "detail", detail)
+	}
+
 	// 3. Bind-mount ~/ghq, ~/.claude, ~/.claude.json, ~/.local/share/claude,
 	// ~/.local/bin at same absolute paths.
 	// [AC-S8478ca-2-2]
