@@ -336,7 +336,17 @@ func (d *Daemon) spawnWithArgs(args []string) error {
 			d.logger.Warn("claudetui: failed to build hook settings; "+
 				"notifications disabled for this spawn", "err", err)
 		} else {
-			args = append([]string{"--settings", settings}, args...)
+			// Prepend --settings and --add-dir so the palmux skill bundle is
+			// always loaded for this claude-tui subprocess without polluting
+			// ~/.claude or the project's .claude directory.
+			// The palmux-browser skill lives at:
+			//   /usr/local/share/palmux/.claude/skills/palmux-browser/SKILL.md
+			// and is auto-discovered because --add-dir makes claude search
+			// <dir>/.claude/skills/ at startup.
+			args = append([]string{
+				"--settings", settings,
+				"--add-dir", palmuxSkillDir,
+			}, args...)
 			for _, kv := range hookEnv(d.notifyURL, d.notifyToken, d.repoID, d.branchID, d.tabID) {
 				env = appendOrReplace(env, kv)
 			}

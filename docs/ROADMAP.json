@@ -9196,27 +9196,27 @@
           "tasks": {
             "S62374c-3-1": {
               "id": "S62374c-3-1",
-              "status": "pending",
+              "status": "done",
               "title": "spike: skill 配布方式 (a: ~/.claude/skills 設置 / b: イメージ同梱 + settings 注入) を実機確認して確定"
             },
             "S62374c-3-2": {
               "id": "S62374c-3-2",
-              "status": "pending",
+              "status": "done",
               "title": "palmux-browser CLI 実装 (Playwright connectOverCDP ラッパ、出力トリム、start/stop/status/navigate/click/type/snapshot/screenshot)"
             },
             "S62374c-3-3": {
               "id": "S62374c-3-3",
-              "status": "pending",
+              "status": "done",
               "title": "palmux-browser skill 作成 (ライフサイクル + 操作手順) + 配布"
             },
             "S62374c-3-4": {
               "id": "S62374c-3-4",
-              "status": "pending",
+              "status": "done",
               "title": "コンテナへの CDP URL env 注入 (例 PALMUX_CDP_URL=http://localhost:9222)"
             },
             "S62374c-3-5": {
               "id": "S62374c-3-5",
-              "status": "pending",
+              "status": "done",
               "title": "共有セッション real-mode 検証 (Claude 側 CLI navigate → Browser タブ反映 + profile 共有) + docs"
             }
           }

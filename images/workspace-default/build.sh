@@ -178,6 +178,48 @@ for b in tmux git python3 gh starship eza rg zoxide fzf delta yazi chromium; do
 done
 log "   base + gh + shell-UX tools + chromium present"
 
+# ─── 3c. Node.js + playwright-core (S62374c-3) ────────────────────────────────
+# playwright-core is used by `palmux-browser` CLI to connectOverCDP to the
+# running chromium instance. We use connectOverCDP which attaches to an already-
+# running browser — NO browser download is needed (PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1).
+# Node.js is installed from nodesource (LTS) since Ubuntu 24.04's nodejs package
+# may be older than what playwright-core requires.
+log "3c. Installing Node.js LTS + playwright-core (for palmux-browser CLI) ..."
+incus exec "${BUILD_INST}" </dev/null -- sh -c '
+  set -e
+  export DEBIAN_FRONTEND=noninteractive
+  # Install Node.js 20 LTS from NodeSource.
+  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  apt-get install -y --no-install-recommends nodejs
+  # Install playwright-core globally; skip browser download (we use connectOverCDP).
+  PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g --no-fund --no-audit playwright-core
+'
+
+# Copy the palmux-browser CLI and the palmux-browser skill.
+log "   Copying palmux-browser CLI → /usr/local/bin/ ..."
+incus file push images/workspace-default/palmux-browser "${BUILD_INST}"/usr/local/bin/palmux-browser </dev/null
+incus exec "${BUILD_INST}" </dev/null -- chmod +x /usr/local/bin/palmux-browser
+
+log "   Copying palmux-browser skill → /usr/local/share/palmux/.claude/skills/ ..."
+incus exec "${BUILD_INST}" </dev/null -- mkdir -p /usr/local/share/palmux/.claude/skills/palmux-browser
+incus file push images/workspace-default/skills/palmux-browser/SKILL.md \
+  "${BUILD_INST}"/usr/local/share/palmux/.claude/skills/palmux-browser/SKILL.md </dev/null
+
+log "   Verifying palmux-browser toolchain ..."
+incus exec "${BUILD_INST}" </dev/null -- sh -c "command -v node >/dev/null 2>&1" \
+  || die "node not found after install"
+incus exec "${BUILD_INST}" </dev/null -- sh -c "command -v palmux-browser >/dev/null 2>&1" \
+  || die "palmux-browser not found in /usr/local/bin"
+incus exec "${BUILD_INST}" </dev/null -- sh -c "test -x /usr/local/bin/palmux-browser" \
+  || die "palmux-browser not executable"
+incus exec "${BUILD_INST}" </dev/null -- sh -c \
+  "test -f /usr/local/share/palmux/.claude/skills/palmux-browser/SKILL.md" \
+  || die "palmux-browser skill file not found"
+incus exec "${BUILD_INST}" </dev/null -- sh -c \
+  "node -e 'require(\"playwright-core\")' >/dev/null 2>&1" \
+  || die "playwright-core not importable from node"
+log "   node + palmux-browser + playwright-core + skill all present"
+
 # ─── 3b. rich default shell (S5818e8) ─────────────────────────────────────────
 # Bake a sensible rich shell into the image so EVERY container has a good shell
 # regardless of host (starship prompt + eza/zoxide/fzf wiring). When palmux

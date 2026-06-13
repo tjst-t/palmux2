@@ -18,6 +18,14 @@ import (
 // PALMUX_* env vars (see hookEnv) which the hook command inherits; the command
 // itself is `palmux hook`, handled by cmd/palmux/hook.go.
 
+// palmuxSkillDir is the base directory passed to `claude --add-dir` when
+// spawning claude-tui subprocesses. Claude auto-loads any skills found under
+// <dir>/.claude/skills/, so placing the palmux-browser skill at
+// /usr/local/share/palmux/.claude/skills/palmux-browser/SKILL.md makes it
+// available in every claude-tui session without touching ~/.claude or the
+// project's .claude directory.
+const palmuxSkillDir = "/usr/local/share/palmux"
+
 // buildHookSettings returns the JSON string for `claude --settings` that wires
 // the Notification / Stop / UserPromptSubmit lifecycle hooks to the palmux hook
 // handler. hookBinPath is the absolute path to the palmux binary.
