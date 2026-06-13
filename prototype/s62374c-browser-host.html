@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ja" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S62374c · Browser タブ — host runtime notice</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="appShell" data-testid="browser-tab-panel">
+    <header class="appHeader">
+      <span class="brand">◐ palmux2</span>
+      <span class="crumb">tjst-t/palmux2 · <b>main</b></span>
+      <span class="spacer"></span>
+      <span class="runtimeChip" style="background:rgba(139,143,160,.12);color:var(--color-fg-muted);border-color:var(--color-border-hover)" title="runtime: host"><span class="dot" style="background:var(--color-fg-dim)"></span> host</span>
+      <button class="iconBtn" title="Activity Inbox">🔔</button>
+    </header>
+
+    <nav class="tabBar">
+      <button class="tab"><span>✦</span> Claude</button>
+      <button class="tab"><span>🗂</span> Files</button>
+      <button class="tab"><span>⎇</span> Git</button>
+      <button class="tab" aria-selected="true"><span class="tdot"></span> Browser</button>
+    </nav>
+
+    <section class="browserPanel">
+      <div class="browserCenter">
+        <div class="stateCard" data-testid="browser-host-notice">
+          <div class="glyph">🖥️</div>
+          <h2>Browser タブは incus-container 専用です</h2>
+          <p>共有ブラウザは Workspace を隔離する <b style="color:var(--color-fg)">incus-container runtime</b> 上でのみ動きます。host runtime ではブラウザの隔離・CDP 共有を行いません。</p>
+          <p class="subnote">ヘッダーの runtime chip から <code>incus-container</code> に切り替えると、この Workspace でブラウザを起動できます。</p>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

@@ -3,14 +3,14 @@
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
     "sprints_done": 52,
-    "sprints_total": 52,
-    "percent": 100,
-    "current_sprint": null,
+    "sprints_total": 53,
+    "percent": 98,
+    "current_sprint": "S62374c",
     "done": 52,
     "in_progress": 0,
-    "total": 52,
-    "remaining": 0,
-    "percentage": 100
+    "total": 53,
+    "remaining": 1,
+    "percentage": 98
   },
   "execution_order": [
     "S001",
@@ -64,7 +64,8 @@
     "S8478ca",
     "See8bd4",
     "Sbe4eee",
-    "S5818e8"
+    "S5818e8",
+    "S62374c"
   ],
   "sprints": {
     "S001": {
@@ -8990,6 +8991,237 @@
         }
       },
       "id": "S5818e8"
+    },
+    "S62374c": {
+      "id": "S62374c",
+      "title": "Workspace 共有ブラウザ (CDP-screencast + CLI/Skill)",
+      "status": "planned",
+      "milestone": true,
+      "phase": "Phase 5",
+      "description": "incus-container Workspace ごとに、Claude(Playwright/CDP) とユーザが同一の chromium を共有して操作・観察できる「Browser」タブを追加する。WebRTC/Neko 不要、既存の Workspace コンテナ・Caddy・SSO・タブ機構を流用。設計は docs/workspace-runtime-design.md §7 (本 Sprint で CDP-screencast 主・Neko 後 に更新)。\n\n確定した設計判断 (ユーザ確認済み 2026-06-13):\n  - コンテナは per-worktree (per-Workspace)。chromium も worktree ごとに1個 → 各ブラウザは自分の worktree の dev server(localhost) に到達し、profile/cookie も worktree ごとに独立。\n  - 自動起動しない: Browser タブは常設 (incus-container conditional) だが chromium プロセスは既定 stopped。明示 Start/Stop。ブラウザ不要 dev では起動させない。\n  - 起動権限: ユーザ (UI [Start]) + Claude (CLI `palmux-browser start`、Activity Inbox に出る明示アクション) の両方。\n  - Claude の操作機構は MCP ではなく CLI + Skill。理由: MCP は常時コンテキストを消費する (多ツール定義 + 大きな snapshot を毎ターン) ため、複数 Claude 並列 + 使用枠制約に不利。CLI 中身は Playwright connectOverCDP の薄ラッパにして auto-wait/a11y snapshot の品質を保ちつつ、出力をトリム (compact snapshot / screenshot パス) してトークンを浪費させない。skill は start を含むライフサイクル全体を教える (progressive disclosure なので browser 不要 dev では skill も展開されない)。\n  - CDP は Caddy で公開しない: localhost/bridge のみ bind、palmux host が incusbr0 経由で containerIP:9222 に直結して仲介。ユーザは既存 SSO 経由でしか触れない。\n  - profile 永続: --user-data-dir を host bind-mount の永続パスに置きログイン状態を保持 (§7.5 揮発の例外)。\n\n依存: S8478ca (incus-container runtime + 管理ブリッジ + Caddy 直結 + palmux-ws イメージ build)。VISION 適合 (PC/モバイルから同じ環境を観察・操作、シングルユーザ自前ホスティング。共有相手は『ユーザ自身 + 自分の Claude』でありマルチテナントではない)。",
+      "stories": {
+        "S62374c-1": {
+          "id": "S62374c-1",
+          "status": "planned",
+          "title": "コンテナ内ブラウザのライフサイクル (明示 Start/Stop・永続 profile・CDP 非公開)",
+          "user_story": "incus-container Workspace で作業する自分として、Workspace ごとに CDP を出した chromium を明示的に起動・停止したい。なぜなら、ブラウザ不要の開発では起動させず、必要なときだけ Claude が操作でき自分も覗ける共有ブラウザを立てたいから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S62374c-1-1",
+              "description": "incus-container Workspace で、明示的な Start アクション (UI ボタン or CLI) でのみコンテナ内に chromium が --remote-debugging-port + 永続 --user-data-dir で ubuntu(uid1000) 起動する。Workspace open やタブ表示だけでは起動しない。起動済みなら冪等に再利用し、Stop でプロセスを終了する。",
+              "test": "tests/acceptance/s62374c_browser_lifecycle.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S62374c-1-2",
+              "description": "chromium の profile は host bind-mount の永続パスに置かれ、コンテナ再生成・再起動後もログイン状態 (cookie/セッション) が残る。",
+              "test": "tests/acceptance/s62374c_browser_lifecycle.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S62374c-1-3",
+              "description": "CDP エンドポイントは localhost/bridge のみに bind され Caddy 経由で公開されない。palmux host は incusbr0 経由で containerIP に到達できるが、外部 (公開サブドメイン) からは到達不可。",
+              "test": "tests/acceptance/s62374c_browser_lifecycle.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S62374c-1-4",
+              "description": "host runtime では Browser タブが非表示 (Ports タブ同様 conditional)。chromium 未導入のイメージ/環境では明確なガイダンスを返す。",
+              "test": "tests/acceptance/s62374c_browser_lifecycle.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S62374c-1-5",
+              "description": "palmux-ws イメージに chromium + Playwright 実行に必要な依存が同梱される。",
+              "test": "tests/acceptance/s62374c_browser_lifecycle.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S62374c-1-6",
+              "description": "ブラウザの状態 (stopped/starting/running) が取得でき、Browser タブと CLI status の双方に反映される。",
+              "test": "tests/acceptance/s62374c_browser_lifecycle.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S62374c-1-1": {
+              "id": "S62374c-1-1",
+              "status": "pending",
+              "title": "Browser タブ Provider (incus-container conditional, NeedsTmuxWindow=false, 明示ライフサイクル)"
+            },
+            "S62374c-1-2": {
+              "id": "S62374c-1-2",
+              "status": "pending",
+              "title": "コンテナ内 chromium の Start/Stop/Status backend (冪等・bridge bind・CDP・永続 user-data-dir)"
+            },
+            "S62374c-1-3": {
+              "id": "S62374c-1-3",
+              "status": "pending",
+              "title": "永続 profile の host bind-mount 配線"
+            },
+            "S62374c-1-4": {
+              "id": "S62374c-1-4",
+              "status": "pending",
+              "title": "images/workspace-default/build.sh に chromium + playwright 依存を追加"
+            },
+            "S62374c-1-5": {
+              "id": "S62374c-1-5",
+              "status": "pending",
+              "title": "設計メモ docs/workspace-runtime-design.md §7 を CDP-screencast 主・Neko 後 に更新"
+            }
+          }
+        },
+        "S62374c-2": {
+          "id": "S62374c-2",
+          "status": "planned",
+          "title": "Browser タブ UI: ライブ screencast + 操作 + Start/Stop",
+          "user_story": "PC・スマホから作業する自分として、共有ブラウザをリアルタイムで見て、Start/Stop と操作を自分でも行いたい。なぜなら、Claude の操作を観察しつつ必要なときに引き継ぎ、不要なら止めてリソースを解放したいから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S62374c-2-1",
+              "description": "Browser タブで running 時に chromium の画面がライブ表示される (CDP Page.startScreencast → palmux WS → タブ。フレーム ack ループで継続描画)。",
+              "test": "tests/e2e/s62374c_browser_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S62374c-2-2",
+              "description": "タブ上のマウス/キー/スクロール/タッチが CDP Input.dispatch* で注入され、ブラウザに反映される。",
+              "test": "tests/e2e/s62374c_browser_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S62374c-2-3",
+              "description": "URL バー + 戻る/進む/リロードで Page.navigate 等を発行してページ遷移できる。",
+              "test": "tests/e2e/s62374c_browser_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S62374c-2-4",
+              "description": "[Start]/[Stop] ボタンと状態バッジ (stopped/starting/running) が AC-S62374c-1-6 の状態に追従する。",
+              "test": "tests/e2e/s62374c_browser_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S62374c-2-5",
+              "description": "認証は既存 SSO 経由のみ。CDP は非公開のまま palmux backend が screencast/input を仲介する (CDP ポートはブラウザに露出しない)。",
+              "test": "tests/e2e/s62374c_browser_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S62374c-2-6",
+              "description": "モバイル幅でも画面表示 + タップ操作が成立する。",
+              "test": "tests/e2e/s62374c_browser_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S62374c-2-7",
+              "description": "状態遷移図 (stopped/starting/running/host-notice/error) が確認済みで、実装はこれに従う。",
+              "test": "tests/e2e/s62374c_browser_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S62374c-2-8",
+              "description": "全インタラクティブ要素 (start/stop/url/go/back/forward/reload/viewport) に gui-spec の testid と一致する data-testid が付く。",
+              "test": "tests/e2e/s62374c_browser_ui_mock.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S62374c-2-9",
+              "description": "各 AC に [AC-S62374c-2-N] タグ付きの e2e テストが対応し、screencast の AC は時系列サンプリングで検証する。",
+              "test": "tests/e2e/s62374c_browser_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S62374c-2-10",
+              "description": "running 状態で ↗ Open (browser-popout, target=_blank) を押すと、別ブラウザタブに standalone のフル画面ビュー (browser-fullscreen) が開き、palmux タブ chrome 無しで viewport を大きく表示する。別タブは同一の共有ブラウザ (同一 CDP/profile) を映し、双方の操作が反映される。Files タブの ↗ Open と同流儀。",
+              "test": "tests/e2e/s62374c_browser_ui.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S62374c-2-1": {
+              "id": "S62374c-2-1",
+              "status": "pending",
+              "title": "backend CDP クライアント (screencast frame ack ループ + Input.dispatch* + Page.navigate)"
+            },
+            "S62374c-2-2": {
+              "id": "S62374c-2-2",
+              "status": "pending",
+              "title": "WS 配線 (frames out / input in) を既存タブ WS 機構に載せる"
+            },
+            "S62374c-2-3": {
+              "id": "S62374c-2-3",
+              "status": "pending",
+              "title": "frontend/src/tabs/browser/ ビュー (フレーム描画 + 入力ハンドラ + URL バー + Start/Stop + 状態バッジ + data-testid)"
+            }
+          }
+        },
+        "S62374c-3": {
+          "id": "S62374c-3",
+          "status": "planned",
+          "title": "Claude 連携: CLI + Skill で同一ブラウザを起動・操作 (セッション共有)",
+          "user_story": "複数 Claude を並行運用する自分として、Claude がコンテキストを浪費せずに共有ブラウザを起動・操作できてほしい。なぜなら、限られた使用枠の中で、Claude が触ったブラウザをそのまま自分が引き継ぎたいから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S62374c-3-1",
+              "description": "palmux-browser CLI (start/stop/status/navigate/click/type/snapshot/screenshot) が CDP 経由で同一 chromium を操作する。CLI 中身は Playwright connectOverCDP の薄ラッパで、出力はトリムされる (compact なアクセシビリティスナップショット or screenshot のパスのみ)。",
+              "test": "tests/acceptance/s62374c_browser_claude.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S62374c-3-2",
+              "description": "Claude が palmux-browser navigate/click すると、その変化が Browser タブにリアルタイム反映され、cookie/profile が共有される (同一インスタンス)。",
+              "test": "tests/acceptance/s62374c_browser_claude.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S62374c-3-3",
+              "description": "Claude が palmux-browser start で明示的にブラウザを起動でき、その起動が Activity Inbox に表示される (user + Claude の両方が起動できる)。",
+              "test": "tests/acceptance/s62374c_browser_claude.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S62374c-3-4",
+              "description": "skill が start を含むライフサイクル全体 (status → start → 操作 → stop) を教え、MCP のような常時コンテキスト消費がない (progressive disclosure。browser 不要 dev では skill 非展開・起動なし)。skill 配布方式 (~/.claude/skills 設置 / イメージ同梱 + settings 注入) は plan 冒頭 spike で確定する。",
+              "test": "tests/acceptance/s62374c_browser_claude.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S62374c-3-5",
+              "description": "使い方 (palmux-browser サブコマンド一覧・CDP 共有の前提・ユーザと同一ブラウザである旨) が docs に記載される。",
+              "test": "tests/acceptance/s62374c_browser_claude.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S62374c-3-1": {
+              "id": "S62374c-3-1",
+              "status": "pending",
+              "title": "spike: skill 配布方式 (a: ~/.claude/skills 設置 / b: イメージ同梱 + settings 注入) を実機確認して確定"
+            },
+            "S62374c-3-2": {
+              "id": "S62374c-3-2",
+              "status": "pending",
+              "title": "palmux-browser CLI 実装 (Playwright connectOverCDP ラッパ、出力トリム、start/stop/status/navigate/click/type/snapshot/screenshot)"
+            },
+            "S62374c-3-3": {
+              "id": "S62374c-3-3",
+              "status": "pending",
+              "title": "palmux-browser skill 作成 (ライフサイクル + 操作手順) + 配布"
+            },
+            "S62374c-3-4": {
+              "id": "S62374c-3-4",
+              "status": "pending",
+              "title": "コンテナへの CDP URL env 注入 (例 PALMUX_CDP_URL=http://localhost:9222)"
+            },
+            "S62374c-3-5": {
+              "id": "S62374c-3-5",
+              "status": "pending",
+              "title": "共有セッション real-mode 検証 (Claude 側 CLI navigate → Browser タブ反映 + profile 共有) + docs"
+            }
+          }
+        }
+      }
     }
   },
   "dependencies": {
@@ -9206,6 +9438,12 @@
         "S8478ca"
       ],
       "reason": "S8478ca の incus bind-mount 機構 + palmux-ws image build の上に dev 環境共有を載せる"
+    },
+    "S62374c": {
+      "depends_on": [
+        "S8478ca"
+      ],
+      "reason": "S8478ca の incus-container runtime (管理ブリッジ + Caddy 直結 + palmux-ws イメージ build) の上に、コンテナ内 chromium を CDP-screencast で共有する Browser タブを載せる"
     }
   },
   "backlog": [

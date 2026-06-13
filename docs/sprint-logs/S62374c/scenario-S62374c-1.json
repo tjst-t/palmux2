@@ -1,0 +1,59 @@
+{
+  "story": "S62374c-1",
+  "entry_point": "api",
+  "summary": "コンテナ内ブラウザのライフサイクルを REST + 状態購読で駆動する。明示 Start/Stop、永続 profile、CDP 非公開を、ユーザの実体エントリ (HTTP + コンテナ実機) から観察する。",
+  "endpoints": [
+    { "method": "GET",  "path": "/api/repos/{repoId}/branches/{branchId}/tabs/browser/state", "response": "{state:'stopped'|'starting'|'running', cdpReachable:bool, url?:string, available:bool}" },
+    { "method": "POST", "path": "/api/repos/{repoId}/branches/{branchId}/tabs/browser/start", "response": "{state:'starting'|'running'}" },
+    { "method": "POST", "path": "/api/repos/{repoId}/branches/{branchId}/tabs/browser/stop",  "response": "{state:'stopped'}" }
+  ],
+  "scenarios": [
+    {
+      "name": "明示起動で初めて chromium が立つ (自動起動しない)",
+      "linked_ac": ["AC-S62374c-1-1"],
+      "steps": [
+        "incus-container Workspace を open しただけの状態で、コンテナ内に chromium プロセスが存在しないことを incus exec ps で確認",
+        "GET browser/state → state=stopped, available=true",
+        "POST browser/start → state in {starting,running}",
+        "incus exec ps で chromium が --remote-debugging-port + --user-data-dir 付き・uid 1000 で1個だけ起動していることを確認",
+        "再度 POST browser/start → 既存を再利用 (冪等)、chromium は1個のまま",
+        "POST browser/stop → state=stopped、chromium プロセスが消える"
+      ]
+    },
+    {
+      "name": "profile が再起動をまたいで永続",
+      "linked_ac": ["AC-S62374c-1-2"],
+      "steps": [
+        "start 後、--user-data-dir のパスがコンテナ内永続 (host bind-mount) であることを確認",
+        "user-data-dir 配下にマーカーファイルを書く → stop → start (またはコンテナ再起動) → マーカーが残っていることを確認"
+      ]
+    },
+    {
+      "name": "CDP は公開されない",
+      "linked_ac": ["AC-S62374c-1-3"],
+      "steps": [
+        "start 後、palmux host から containerIP:9222/json/version に到達できることを確認 (仲介経路は生きている)",
+        "公開サブドメイン (<port>--<ws>--<repo>.<base>) 経由では 9222 CDP に到達できない (Caddy route が無い) ことを確認"
+      ]
+    },
+    {
+      "name": "host runtime では出ない / 未導入時ガイダンス",
+      "linked_ac": ["AC-S62374c-1-4", "AC-S62374c-1-5"],
+      "steps": [
+        "host runtime Workspace で GET browser/state → available=false (タブ非表示の根拠)",
+        "incus-container だが chromium 未導入のイメージで start → 明確なエラー/ガイダンスを返す",
+        "palmux-ws イメージに chromium + playwright 依存が含まれる (incus exec which chromium / node)"
+      ]
+    },
+    {
+      "name": "状態が取得でき UI/CLI に反映",
+      "linked_ac": ["AC-S62374c-1-6"],
+      "steps": [
+        "stopped→start 中に GET state が starting を返しうること、running 到達後 running を返すことを確認",
+        "events WS で browser 状態変化が broadcast され、Browser タブ/CLI status が追従できる"
+      ]
+    }
+  ],
+  "test_file": "tests/acceptance/s62374c_browser_lifecycle.py",
+  "test_mode": "real (dev palmux on VM + live incus-container; no MOCK/fake — test-discipline Rule 7)"
+}

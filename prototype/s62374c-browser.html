@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ja" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S62374c · Browser タブ — running</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="appShell" data-testid="browser-tab-panel">
+
+    <!-- palmux shell header -->
+    <header class="appHeader">
+      <span class="brand">◐ palmux2</span>
+      <span class="crumb">tjst-t/palmux2 · <b>feature-browser</b></span>
+      <span class="spacer"></span>
+      <span class="runtimeChip" title="runtime: incus-container（クリックで切替）"><span class="dot"></span> incus-container</span>
+      <button class="iconBtn" title="Activity Inbox">🔔</button>
+    </header>
+
+    <!-- tab bar -->
+    <nav class="tabBar">
+      <button class="tab"><span>✦</span> Claude</button>
+      <button class="tab"><span>🗂</span> Files</button>
+      <button class="tab"><span>⎇</span> Git</button>
+      <button class="tab"><span>🔌</span> Ports</button>
+      <button class="tab" aria-selected="true"><span class="tdot"></span> Browser</button>
+    </nav>
+
+    <!-- browser panel: running -->
+    <section class="browserPanel">
+      <div class="browserBar">
+        <div class="navBtns">
+          <button class="navBtn" data-testid="browser-back" title="戻る">◀</button>
+          <button class="navBtn" data-testid="browser-forward" title="進む">▶</button>
+          <button class="navBtn" data-testid="browser-reload" title="リロード">⟳</button>
+        </div>
+        <input class="urlInput" data-testid="browser-url-input" value="http://localhost:3000/dashboard" spellcheck="false">
+        <button class="goBtn" data-testid="browser-go">Go</button>
+        <a class="openBtn" data-testid="browser-popout" href="s62374c-browser-fullscreen.html" target="_blank" rel="noopener noreferrer" title="別タブで大きく開く（同じ共有ブラウザ）">↗ Open</a>
+        <span class="stateBadge running" data-testid="browser-state-badge"><span class="bdot"></span> running</span>
+        <button class="stopBtn" data-testid="browser-stop">■ Stop</button>
+      </div>
+
+      <div class="viewportWrap">
+        <!-- live screencast surface (prototype shows a fake rendered page) -->
+        <div class="viewport" data-testid="browser-viewport">
+          <div class="fakePage">
+            <div class="fakeTop">
+              <div class="fakeLogo"></div>
+              <div class="fakeNav"><span class="on">Dashboard</span><span>Projects</span><span>Settings</span></div>
+            </div>
+            <div class="fakeBody">
+              <h1 class="fakeH">Build dashboard</h1>
+              <p class="fakeSub">localhost:3000 — Claude が作っている dev サーバ</p>
+              <div class="fakeCards">
+                <div class="fakeCard"><div class="k">Passing</div><div class="v up">128</div></div>
+                <div class="fakeCard"><div class="k">Coverage</div><div class="v">94%</div></div>
+                <div class="fakeCard"><div class="k">Latency</div><div class="v">42ms</div></div>
+              </div>
+              <span class="fakeBtn">Run all tests</span>
+            </div>
+            <div class="fakeCursor"></div>
+          </div>
+        </div>
+
+        <div class="claudeHint" data-testid="browser-claude-hint">
+          <span class="liveDot"></span>
+          <span><b style="color:var(--color-fg)">LIVE</b> · Claude と同じブラウザを共有中。ここをクリック/入力すると自分でも操作できます（セッション・ログインは共有）。</span>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

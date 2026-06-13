@@ -1,0 +1,59 @@
+{
+  "sprint": "S62374c",
+  "touched_adrs": [],
+  "plan_decisions": [
+    {
+      "id": "D-S62374c-1",
+      "topic": "Claude のブラウザ操作機構",
+      "decision": "MCP ではなく CLI (`palmux-browser`) + Skill。CLI 中身は Playwright connectOverCDP の薄ラッパ。",
+      "rationale": "MCP は多ツール定義 + 大きな a11y snapshot を毎ターン context に載せ続けるため、複数 Claude 並列 + 使用枠制約 (user_claude_plan) に不利。CLI は Bash 既存・skill は progressive disclosure で baseline コストほぼゼロ、出力も palmux 側でトリムできる。Playwright を包むので auto-wait/snapshot 品質は維持。ユーザ確認済み 2026-06-13。",
+      "alternatives": ["@playwright/mcp --cdp-endpoint (context 高)", "palmux 自前 MCP ツール (実装コスト大 + 常時 context)"]
+    },
+    {
+      "id": "D-S62374c-2",
+      "topic": "ブラウザ起動ポリシー",
+      "decision": "自動起動なし。Browser タブは incus-container conditional で常設だが chromium は既定 stopped。明示 Start/Stop。起動権限は user (UI) + Claude (CLI、Activity Inbox に出る)。",
+      "rationale": "ブラウザ不要 dev で chromium を常駐させない (リソース/密度)。ユーザ確認済み。",
+      "alternatives": ["タブ open で lazy 自動起動 (却下: 無駄起動)"]
+    },
+    {
+      "id": "D-S62374c-3",
+      "topic": "CDP の露出範囲",
+      "decision": "CDP は localhost/bridge のみ bind。Caddy で公開しない。palmux host が incusbr0 経由で containerIP:9222 に直結して screencast/input を仲介。ユーザは既存 SSO 経由でのみ到達。",
+      "rationale": "CDP はブラウザ全権 = 公開すると致命的。palmux 仲介 + SSO で防御。既存の incusbr0 直結パターン (See8bd4 ports) を再利用。",
+      "alternatives": ["CDP を Caddy subdomain で公開 (却下: 無認証フルブラウザ制御の露出)"]
+    },
+    {
+      "id": "D-S62374c-4",
+      "topic": "ユーザ表示の映像方式",
+      "decision": "CDP Page.startScreencast (JPEG フレーム + ack ループ)。WebRTC/Neko は使わない。",
+      "rationale": "Claude が要る CDP と同じ口で完結し、TCP/WS のみ (UDP 不要) で既存 Caddy/SSO/WS 機構に乗る。per-worktree コンテナに chromium 同居で第2コンテナ不要。忠実度/音声が要れば将来 Neko にアップグレード (設計メモ §9 で無駄にならない構造)。",
+      "alternatives": ["Neko (WebRTC, UDP ポート + 第2コンテナ, 重い)"]
+    },
+    {
+      "id": "D-S62374c-5",
+      "topic": "profile 永続",
+      "decision": "--user-data-dir を host bind-mount の永続パスに置く (揮発コンテナの例外、設計メモ §7.5)。",
+      "rationale": "ログイン状態を worktree ごとに保持し、Claude が踏んだ認証をユーザが継続できる。"
+    }
+  ],
+  "open_spikes": [
+    {
+      "id": "SPIKE-S62374c-A",
+      "task": "S62374c-3-1",
+      "question": "skill 配布方式: (a) palmux runtime install 時に ~/.claude/skills/ へ設置 / (b) palmux-ws イメージ同梱 + 既存 settings 注入経路で一行案内。~/.claude を汚さない形を実機確認して確定。",
+      "resolve_by": "sprint run 冒頭"
+    },
+    {
+      "id": "SPIKE-S62374c-B",
+      "task": "S62374c-3-2",
+      "question": "Playwright `connectOverCDP` がコンテナ内 chromium の --remote-debugging-port に attach し、screencast を回す palmux backend と同一ブラウザを競合なく共有できることを実機確認 (CLI と backend が両方 CDP に接続)。",
+      "resolve_by": "sprint run 冒頭"
+    }
+  ],
+  "story_classification": {
+    "S62374c-1": "api (コンテナ内ブラウザのライフサイクル REST + 状態。小さな GUI 表面=タブ存在は Story 2 で扱う)",
+    "S62374c-2": "gui (Browser タブ: screencast + 操作 + Start/Stop)",
+    "S62374c-3": "cli (palmux-browser CLI + skill)"
+  }
+}

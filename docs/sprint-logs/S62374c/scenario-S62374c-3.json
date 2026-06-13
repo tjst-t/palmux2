@@ -1,0 +1,43 @@
+{
+  "story": "S62374c-3",
+  "entry_point": "cli",
+  "summary": "Claude のエントリ = コンテナ内シェルから `palmux-browser` CLI を叩く。CLI は CDP 経由で同一 chromium を起動・操作し、その変化が Browser タブ・profile に共有されることを実体から観察する。",
+  "cli": {
+    "binary": "palmux-browser",
+    "subcommands": ["status", "start", "stop", "navigate <url>", "click <ref>", "type <ref> <text>", "snapshot", "screenshot [path]"],
+    "discovery": "skill (status→start→操作→stop のライフサイクル全体を教える) + `palmux-browser --help`。MCP 不使用ゆえ常時 context 消費なし。",
+    "cdp_endpoint": "コンテナ env PALMUX_CDP_URL=http://localhost:9222 (CLI が connectOverCDP)"
+  },
+  "scenarios": [
+    {
+      "name": "Claude が明示起動して操作 (user+Claude 起動)",
+      "linked_ac": ["AC-S62374c-3-1", "AC-S62374c-3-3"],
+      "steps": [
+        "コンテナ内で `palmux-browser status` → stopped",
+        "`palmux-browser start` → running。これが Activity Inbox に明示アクションとして出ることを確認 (notify 経路)",
+        "`palmux-browser navigate http://localhost:3000` → 終了コード 0、出力はトリム (compact snapshot or screenshot パスのみ、巨大 a11y ダンプを吐かない)"
+      ]
+    },
+    {
+      "name": "セッション共有: CLI 操作が Browser タブと profile に反映",
+      "linked_ac": ["AC-S62374c-3-2"],
+      "steps": [
+        "Browser タブを開いた実ブラウザを用意 (Story 2 の screencast)",
+        "コンテナ内で `palmux-browser navigate <url>` 実行",
+        "Browser タブの URL/画面がその <url> にリアルタイム追従する (同一 chromium)",
+        "CLI でログインフォームを操作 → 同じ cookie/セッションが Browser タブ側でも有効 (profile 共有)"
+      ]
+    },
+    {
+      "name": "skill がライフサイクルを教え、context を浪費しない",
+      "linked_ac": ["AC-S62374c-3-4", "AC-S62374c-3-5"],
+      "steps": [
+        "skill 本文に status→start→操作→stop の手順と『ユーザと共有する1個のブラウザ』注意が含まれる",
+        "browser を使わない通常 dev のセッションでは skill が展開されず baseline context が増えない (progressive disclosure)",
+        "docs に palmux-browser サブコマンド一覧 + CDP 共有前提が記載される"
+      ]
+    }
+  ],
+  "test_file": "tests/acceptance/s62374c_browser_claude.py",
+  "test_mode": "real (dev palmux on VM + live incus-container; CLI を subprocess で実行 — test-discipline Rule 1/7)"
+}

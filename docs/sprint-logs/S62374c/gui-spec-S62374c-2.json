@@ -1,0 +1,81 @@
+{
+  "story": "S62374c-2",
+  "title": "Browser タブ: ライブ screencast + 操作 + Start/Stop",
+  "entry_point": "gui",
+  "state_diagram": "stateDiagram-v2\n    [*] --> HostNotice: load (host runtime)\n    [*] --> Stopped: load (incus, browser stopped)\n    [*] --> Running: load (incus, browser already running)\n    Stopped --> Starting: click [Start] / Claude start\n    Starting --> Running: chromium up + CDP reachable (state WS)\n    Starting --> Error: start failed\n    Running --> Stopped: click [Stop] / Claude stop\n    Running --> Running: navigate / input / screencast frame\n    Error --> Starting: click [Start] (retry)",
+  "scenarios": [
+    {
+      "name": "stopped → Start → running ライブ表示",
+      "linked_ac": ["AC-S62374c-2-1", "AC-S62374c-2-4"],
+      "steps": [
+        "incus-container Workspace で Browser タブを開く → browser-stopped 状態 + [Start] + badge=stopped",
+        "[Start] クリック → badge=starting → running",
+        "browser-viewport にライブフレームが描画される (screencast。フレーム更新を時系列でサンプリング)"
+      ]
+    },
+    {
+      "name": "操作: 入力注入 + URL ナビ",
+      "linked_ac": ["AC-S62374c-2-2", "AC-S62374c-2-3"],
+      "steps": [
+        "running 状態で URL バーに http://localhost:3000 を入れて [Go] → backend が Page.navigate を発行し、viewport が遷移",
+        "viewport 上のクリック/キー入力が CDP Input で注入され、ページが反応 (real backend で観察)",
+        "戻る/進む/リロードが効く"
+      ]
+    },
+    {
+      "name": "Stop でリソース解放",
+      "linked_ac": ["AC-S62374c-2-4"],
+      "steps": ["running で [Stop] → badge=stopped、viewport 非表示、browser-stopped に戻る"]
+    },
+    {
+      "name": "host runtime は notice",
+      "linked_ac": ["AC-S62374c-2-5"],
+      "steps": ["host runtime Workspace では Browser タブ非表示、もしくは browser-host-notice を表示 (CDP 露出なし)"]
+    },
+    {
+      "name": "モバイル幅でも成立",
+      "linked_ac": ["AC-S62374c-2-6"],
+      "steps": ["幅 <600px で viewport 表示 + タップ (touch) 操作が成立、コントロールが収まる"]
+    },
+    {
+      "name": "↗ Open で別タブにフル表示 (Files タブの Open と同流儀)",
+      "linked_ac": ["AC-S62374c-2-10"],
+      "steps": [
+        "running 状態で browser-popout (↗ Open, target=_blank) をクリック → 別ブラウザタブに standalone full 画面 (browser-fullscreen) が開く",
+        "別タブは palmux のタブ chrome 無しで viewport を大きく表示し、同じ共有ブラウザ(同一 CDP/profile)を映す",
+        "別タブでの操作も palmux タブ側の screencast に反映される (同一インスタンス)"
+      ]
+    }
+  ],
+  "endpoint_contracts": [
+    { "method": "GET",  "path": "/api/repos/{repoId}/branches/{branchId}/tabs/browser/state", "fields": "state, cdpReachable, url, available" },
+    { "method": "POST", "path": "/api/repos/{repoId}/branches/{branchId}/tabs/browser/start", "fields": "state" },
+    { "method": "POST", "path": "/api/repos/{repoId}/branches/{branchId}/tabs/browser/stop",  "fields": "state" },
+    { "method": "POST", "path": "/api/repos/{repoId}/branches/{branchId}/tabs/browser/navigate", "body": "{url}", "fields": "ok" },
+    { "method": "WS",   "path": "/api/repos/{repoId}/branches/{branchId}/tabs/browser/attach", "frames_out": "{type:'frame', data:<b64 jpeg>, meta:{deviceWidth,deviceHeight}}", "input_in": "{type:'input', kind:'mouse|key|scroll|touch', ...} | {type:'navigate', url} | {type:'reload'|'back'|'forward'}" }
+  ],
+  "testids": [
+    "browser-tab-panel",
+    "browser-state-badge",
+    "browser-stopped",
+    "browser-start",
+    "browser-starting",
+    "browser-stop",
+    "browser-viewport",
+    "browser-url-input",
+    "browser-go",
+    "browser-back",
+    "browser-forward",
+    "browser-reload",
+    "browser-claude-hint",
+    "browser-host-notice",
+    "browser-popout",
+    "browser-fullscreen"
+  ],
+  "time_domain_ac": ["AC-S62374c-2-1 (screencast はフレーム更新の進行をサンプリングして検証 — final-state-only 不可)"],
+  "test_files": {
+    "e2e": "tests/e2e/s62374c_browser_ui.py",
+    "mock": "tests/e2e/s62374c_browser_ui_mock.py"
+  },
+  "prototype": ["prototype/s62374c-browser-stopped.html", "prototype/s62374c-browser.html", "prototype/s62374c-browser-host.html", "prototype/s62374c-browser-fullscreen.html"]
+}

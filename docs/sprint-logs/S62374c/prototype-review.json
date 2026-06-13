@@ -1,0 +1,20 @@
+{
+  "sprint_range": ["S62374c"],
+  "screens": [
+    { "file": "prototype/s62374c-browser-stopped.html", "story": "S62374c-2", "feedback_rounds": 1, "approved": true },
+    { "file": "prototype/s62374c-browser.html", "story": "S62374c-2", "feedback_rounds": 1, "approved": true },
+    { "file": "prototype/s62374c-browser-host.html", "story": "S62374c-2", "feedback_rounds": 1, "approved": true },
+    { "file": "prototype/s62374c-browser-fullscreen.html", "story": "S62374c-2", "feedback_rounds": 1, "approved": true }
+  ],
+  "design_decisions": [
+    "Fog テーマ (theme.css のトークン) に準拠。palmux shell (header + runtime chip + tab bar) の中に Browser タブを置く",
+    "自動起動なし: 既定 stopped 状態は中央 CTA [▶ ブラウザを起動]、Claude 起動も注記",
+    "running は Files/Ports と同じ操作バー流儀: 戻る/進む/リロード + URL バー + Go + 状態バッジ + Stop",
+    "セッション共有を下部の LIVE ヒントで明示 (Claude と同じブラウザ・クリックで操作可)",
+    "ユーザ要望で ↗ Open (browser-popout, target=_blank) を追加 — Files タブの ↗ Open と同流儀。別タブに palmux chrome 無しの standalone フル画面 (browser-fullscreen) を開き、同一の共有ブラウザを大きく表示"
+  ],
+  "user_feedback": [
+    "round1: 『いい感じ』。追加要望 = Files タブの Open のように別タブで大きく表示できるように → ↗ Open + フル画面ビューを追加して反映。『後はOK』で承認。"
+  ],
+  "approved": true
+}
