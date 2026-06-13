@@ -1,9 +1,15 @@
-// Package browser — HTTP handlers for the Browser tab (S62374c-1).
+// Package browser — HTTP handlers for the Browser tab (S62374c-1/2).
+//
+// S62374c-2 adds:
+//   GET  WS .../tabs/browser/attach   → CDP screencast + input proxy
+//   POST    .../tabs/browser/navigate → {url} → {ok:true}
 package browser
 
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/coder/websocket"
 )
 
 type handler struct {
@@ -99,4 +105,68 @@ func (h *handler) stop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// attach handles WS .../tabs/browser/attach — CDP screencast + input proxy.
+// [AC-S62374c-2-1] [AC-S62374c-2-2] [AC-S62374c-2-3] [AC-S62374c-2-5]
+func (h *handler) attach(w http.ResponseWriter, r *http.Request) {
+	repoID := r.PathValue("repoId")
+	branchID := r.PathValue("branchId")
+
+	if !h.p.isIncus(repoID, branchID) {
+		http.Error(w, "Browser tab is only available for incus-container workspaces", http.StatusBadRequest)
+		return
+	}
+
+	mgr := h.p.managerFor(repoID, branchID)
+	if mgr == nil {
+		mgr = h.p.getOrCreateManager(repoID, branchID)
+	}
+
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		OriginPatterns: []string{"*"},
+	})
+	if err != nil {
+		h.p.log.Warn("browser: ws accept", "err", err)
+		return
+	}
+	conn.SetReadLimit(256 * 1024) // client input frames are small
+	defer conn.CloseNow()
+
+	ctx := r.Context()
+	mgr.AttachScreencast(ctx, conn)
+}
+
+// navigate handles POST .../tabs/browser/navigate.
+// Body: {"url":"..."}, Response: {"ok":true}
+// [AC-S62374c-2-3]
+func (h *handler) navigate(w http.ResponseWriter, r *http.Request) {
+	repoID := r.PathValue("repoId")
+	branchID := r.PathValue("branchId")
+
+	if !h.p.isIncus(repoID, branchID) {
+		writeErr(w, http.StatusBadRequest,
+			"Browser tab is only available for incus-container workspaces")
+		return
+	}
+
+	var body struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.URL == "" {
+		writeErr(w, http.StatusBadRequest, "navigate: body must be {\"url\":\"...\"}")
+		return
+	}
+
+	mgr := h.p.managerFor(repoID, branchID)
+	if mgr == nil {
+		writeErr(w, http.StatusConflict, "browser not running")
+		return
+	}
+
+	if err := mgr.NavigatePage(r.Context(), body.URL); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }

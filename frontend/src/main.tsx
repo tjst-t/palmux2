@@ -11,6 +11,7 @@ import './tabs/claude-agent'
 import './tabs/claude-tui'
 import './tabs/sprint'
 import './tabs/ports'
+import './tabs/browser'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

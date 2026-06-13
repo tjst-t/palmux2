@@ -9141,17 +9141,17 @@
           "tasks": {
             "S62374c-2-1": {
               "id": "S62374c-2-1",
-              "status": "pending",
+              "status": "done",
               "title": "backend CDP クライアント (screencast frame ack ループ + Input.dispatch* + Page.navigate)"
             },
             "S62374c-2-2": {
               "id": "S62374c-2-2",
-              "status": "pending",
+              "status": "done",
               "title": "WS 配線 (frames out / input in) を既存タブ WS 機構に載せる"
             },
             "S62374c-2-3": {
               "id": "S62374c-2-3",
-              "status": "pending",
+              "status": "done",
               "title": "frontend/src/tabs/browser/ ビュー (フレーム描画 + 入力ハンドラ + URL バー + Start/Stop + 状態バッジ + data-testid)"
             }
           }

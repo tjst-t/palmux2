@@ -109,12 +109,16 @@ func (p *Provider) OnBranchClose(ctx context.Context, params tab.CloseParams) er
 	return nil
 }
 
-// RegisterRoutes wires the state / start / stop endpoints.
+// RegisterRoutes wires the state / start / stop / attach / navigate endpoints.
+// [AC-S62374c-2-1] [AC-S62374c-2-3] [AC-S62374c-2-5]
 func (p *Provider) RegisterRoutes(mux *http.ServeMux, prefix string) {
 	h := &handler{p: p}
 	mux.HandleFunc("GET "+prefix+"/state", h.state)
 	mux.HandleFunc("POST "+prefix+"/start", h.start)
 	mux.HandleFunc("POST "+prefix+"/stop", h.stop)
+	// S62374c-2: WS proxy for screencast+input, REST for navigate.
+	mux.HandleFunc("GET "+prefix+"/attach", h.attach)
+	mux.HandleFunc("POST "+prefix+"/navigate", h.navigate)
 }
 
 // ---------------------------------------------------------------------------

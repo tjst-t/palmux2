@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Navigate, Route, Routes, useParams } from 'react-router-dom'
+import { Navigate, Route, Routes, useParams, useSearchParams } from 'react-router-dom'
 
 import { CommandPalette } from './components/command-palette/command-palette'
 import { ConfirmDialogRenderer } from './components/context-menu/confirm-dialog'
@@ -12,6 +12,7 @@ import { useEventStream } from './hooks/use-event-stream'
 import { useVisualViewport } from './hooks/use-visual-viewport'
 import { usePalmuxStore } from './stores/palmux-store'
 import { TestHarness } from './tabs/claude-agent/test-harness'
+import { BrowserFullscreen } from './tabs/browser/browser-view'
 
 // S1f75ec-2: Redirect /claude-tui → /claude (canonical URL).
 // The WS endpoint paths (/api/.../tabs/claude-tui/attach) are NOT changed;
@@ -24,6 +25,18 @@ function ClaudeTuiRedirect() {
       replace
     />
   )
+}
+
+// S62374c-2: standalone full-window browser view.
+// Renders BrowserFullscreen when the tabId is 'browser' AND ?view=fullscreen.
+// Otherwise falls through to the normal MainLayout.
+function MainLayoutOrBrowserFullscreen() {
+  const { repoId, branchId, tabId } = useParams()
+  const [searchParams] = useSearchParams()
+  if (tabId === 'browser' && searchParams.get('view') === 'fullscreen' && repoId && branchId) {
+    return <BrowserFullscreen repoId={repoId} branchId={branchId} />
+  }
+  return <MainLayout />
 }
 
 function App() {
@@ -67,7 +80,7 @@ function App() {
             /tabs/claude-tui/attach but the page URL is /claude. */}
         <Route path="/:repoId/:branchId/claude-tui" element={<ClaudeTuiRedirect />} />
         <Route path="/:repoId/:branchId/claude-tui/*" element={<ClaudeTuiRedirect />} />
-        <Route path="/:repoId/:branchId/:tabId/*" element={<MainLayout />} />
+        <Route path="/:repoId/:branchId/:tabId/*" element={<MainLayoutOrBrowserFullscreen />} />
       </Routes>
       <ContextMenuRenderer />
       <ConfirmDialogRenderer />
