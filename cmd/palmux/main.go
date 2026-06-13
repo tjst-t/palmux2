@@ -35,6 +35,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/store"
 	"github.com/tjst-t/palmux2/internal/tab"
 	"github.com/tjst-t/palmux2/internal/tab/bash"
+	"github.com/tjst-t/palmux2/internal/tab/browser"
 	"github.com/tjst-t/palmux2/internal/tab/claudeagent"
 	"github.com/tjst-t/palmux2/internal/tab/claudetui"
 	"github.com/tjst-t/palmux2/internal/tab/files"
@@ -318,6 +319,7 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 	sprintProvider := sprint.New(st)
 	registry.Register(sprintProvider)
 	registry.Register(ports.New(st))
+	registry.Register(browser.New(st))
 	registry.Register(bash.New())
 
 	// claude-tui tab: interactive claude TUI via PTY (Sprint A Story 2).

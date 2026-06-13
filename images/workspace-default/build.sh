@@ -150,12 +150,33 @@ incus exec "${BUILD_INST}" </dev/null -- sh -c "
   rm -rf yazi.zip yazi-x86_64-unknown-linux-gnu
 "
 
+# chromium (S62374c-1): headless browser for the Browser tab.
+# Needed for CDP-based browser automation (--remote-debugging-port=9222).
+# Runs as ubuntu/uid 1000 inside the container; --no-sandbox is required for
+# unprivileged incus containers.  CDP is never Caddy-exposed (bridge-only).
+# The palmux browser manager calls `chromium` (binary name); ensure that name
+# exists regardless of whether the package installs chromium or chromium-browser.
+log "   Installing chromium ..."
+incus exec "${BUILD_INST}" </dev/null -- sh -c '
+  set -e
+  export DEBIAN_FRONTEND=noninteractive
+  # Try the Debian package name first; fall back to Ubuntu-specific name.
+  apt-get install -y --no-install-recommends chromium 2>/dev/null || \
+    apt-get install -y --no-install-recommends chromium-browser
+  # Ensure `chromium` binary is on PATH (Ubuntu may only install chromium-browser).
+  if ! command -v chromium >/dev/null 2>&1; then
+    if command -v chromium-browser >/dev/null 2>&1; then
+      ln -sf "$(command -v chromium-browser)" /usr/local/bin/chromium
+    fi
+  fi
+'
+
 log "   Verifying installed binaries ..."
-for b in tmux git python3 gh starship eza rg zoxide fzf delta yazi; do
+for b in tmux git python3 gh starship eza rg zoxide fzf delta yazi chromium; do
   incus exec "${BUILD_INST}" </dev/null -- sh -c "command -v $b >/dev/null 2>&1" \
     || die "$b not found after install"
 done
-log "   base + gh + shell-UX tools present (starship/eza/rg/zoxide/fzf/delta/yazi)"
+log "   base + gh + shell-UX tools + chromium present"
 
 # ─── 3b. rich default shell (S5818e8) ─────────────────────────────────────────
 # Bake a sensible rich shell into the image so EVERY container has a good shell
