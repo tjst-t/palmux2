@@ -51,6 +51,27 @@
       "resolve_by": "sprint run 冒頭"
     }
   ],
+  "spike_results": {
+    "SPIKE-S62374c-B": {
+      "status": "GREEN",
+      "verified_on": "dev box real google-chrome 147 + playwright",
+      "findings": [
+        "Playwright connect_over_cdp (CLI path) と raw CDP Page.startScreencast+Input.dispatch* (backend path) は同一 chromium に同時接続でき、セッション共有 (CLI の navigate が screencast/title に反映)。frame は base64 JPEG (~4KB)。",
+        "重要: raw CDP websocket は Chrome の origin チェックで 403 になるため、chromium 起動に --remote-allow-origins=* (または該当 origin) が必須。CDP はネットワーク隔離 (localhost/bridge、非公開) なので * は安全。",
+        "chromium 起動フラグ確定: --headless=new --remote-debugging-port=<p> --remote-debugging-address=<bridge|127.0.0.1> --remote-allow-origins=* --user-data-dir=<persist> --no-sandbox (unprivileged container)。",
+        "backend は /json で page target を引き、その webSocketDebuggerUrl に Origin ヘッダ付きで接続して Page.enable→startScreencast→screencastFrameAck ループ。入力は Input.dispatchMouseEvent/dispatchKeyEvent。"
+      ]
+    },
+    "SPIKE-S62374c-A": {
+      "status": "GREEN",
+      "source": "claude-code-guide (公式 docs)",
+      "findings": [
+        "Claude Code の skill ロード元: ~/.claude/skills (personal) / <project>/.claude/skills / plugin / enterprise。--settings に skillDirs 相当のキーは無い。",
+        "解決策: `claude --add-dir <dir>` は <dir>/.claude/skills/ を自動ロードする (add-dir の例外的挙動)。~/.claude も project .claude も汚さない。live 反映あり。",
+        "確定方式: palmux-ws イメージに CLI を /usr/local/bin/palmux-browser、skill を /usr/local/share/palmux/.claude/skills/palmux-browser/SKILL.md で同梱し、claude spawn に既存の --settings(hooks) と並べて --add-dir /usr/local/share/palmux を注入。per-process・無汚染・progressive disclosure 維持。"
+      ]
+    }
+  },
   "story_classification": {
     "S62374c-1": "api (コンテナ内ブラウザのライフサイクル REST + 状態。小さな GUI 表面=タブ存在は Story 2 で扱う)",
     "S62374c-2": "gui (Browser タブ: screencast + 操作 + Start/Stop)",
