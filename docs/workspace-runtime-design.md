@@ -34,7 +34,7 @@
 
 | 項目 | 初版 | trim 版の扱い |
 |---|---|---|
-| ランタイム種別 | host/incus-container/incus-vm/incus-remote/ssh-remote | **host / incus-container のみ** |
+| ランタイム種別 | host/incus-container/incus-vm/incus-remote/ssh-remote | **host / incus-container のみ**（`incus-vm` の設計検討は §9。同一 Incus 機構で retrofit 可能なことを確認済み） |
 | container agent | `palmux-agent` を起動時 push し RPC | **当面 `incus exec` で代替**。interface は agent 化できる粒度に保つ |
 | ポート確保 | `internal/port` allocator で portman を内製置換 | **作らない**。隔離下は確保不要、非隔離は既存 portman |
 | イメージ運用 | GHCR + 週次 CI + 1GB 予算の `palmux-workspace:default` | **ストックイメージ（`ubuntu:24.04`）or 薄い自作で開始**。GHCR/CI は後で |
@@ -439,7 +439,86 @@ Workspace を閉じて開き直しても認証が残る。「**コンテナは�
 
 ---
 
-## 9. 段階的な取り込み計画
+## 9. 将来: `incus-vm` ランタイム（コンテナと同一機構の VM 版）
+
+> incus-container 実機運用（S8478ca〜S5818e8、`--public-domain` SSO まで）で機構が固まった
+> ので、その上に **同じ Runtime interface で VM 版を retrofit できるか**を検討した記録。結論:
+> **可能、かつ局所的な差分で入る**。実装はまだしない（需要が固まってから）。
+
+### 9.1 なぜ VM を足すのか（動機 = 自前カーネル）
+
+incus-container の唯一の構造的限界は **host とカーネルを共有する**こと。ここから来る痛みが実在:
+
+- **Docker-in-workspace**: unprivileged コンテナ内で Docker を回すと、host の iptables
+  `FORWARD` policy（Docker が `DROP` にする）と衝突し、`DOCKER-USER` に `-i`/`-o incusbr0`
+  双方向 ACCEPT を入れる小細工が要った（実機で踏んだ。`project_incus_docker_forward` 参照）。
+- **systemd / nested container / カーネルモジュール / nested virt** が素直に動かない。
+
+**VM は自前カーネルを持つ**ので上記が**丸ごと不要**になる（Docker/systemd/kmod が「ただ動く」）。
+さらに信頼できないコードを走らせるときの**分離が強い**（HW 仮想化）。これが VM runtime の主動機で、
+「より良い隔離が欲しい一部 Workspace」向けのオプトイン。**既定は引き続き container**（軽さ優先）。
+
+### 9.2 そのまま流用できる部分（＝大半）
+
+Incus は container と VM を **同一の CLI・API・`incus exec`（VM 内 incus-agent 経由）・
+`incusbr0`** で扱う。よって現行 incus-container 実装の以下は**無改造で VM に効く**:
+
+| 仕組み | VM での扱い |
+|---|---|
+| `incus exec`（tmux/claude/bash 起動、`--user 1000 --env HOME=/home/ubuntu` 注入） | ✅ VM 内 agent 経由で同一。root 化バグ修正もそのまま必要・有効 |
+| ポート公開（Caddy admin API → `<instanceIP>:<port>` 直結、§5.2） | ✅ VM も `incusbr0` で DHCP IP を持つ。完全同一 |
+| localhost-bind 救済の in-instance Python relay（§5.3） | ✅ `incus exec` で VM 内に起動、変わらず |
+| forward_auth SSO / 公開サブドメイン（Sbe4eee） | ✅ host 側 Caddy の話なので runtime 種別に非依存 |
+| dotfiles / `~/.claude` / gh・ssh の共有（S5818e8） | ✅ ただし**共有方式が bind-mount → virtiofs に変わる**（§9.3-3） |
+| 揮発ライフサイクル・`.palmux-lock`・port scan ループ | ✅ 同一 |
+
+### 9.3 VM 特有で変える部分（差分は局所的）
+
+現行 `internal/runtime/incus/incus.go` のコンテナ依存は **4 箇所だけ**。`cfg.Kind` から
+`vm bool` を導いて分岐すれば、ファイルの**大半は container/VM 共有**にできる:
+
+1. **`raw.idmap "both 1000 1000"` を出さない** — これは unprivileged container の
+   user-namespace shift 専用。VM は自前カーネルで uid 空間を持つので不要（§4 の idmap 節は
+   container 限定の注記に変える）。分離は idmap ではなく HW 仮想化が担う。
+2. **`incus init <image> <inst>` に `--vm` を付ける** — 起動はカーネル boot の分だけ遅い
+   （container 即時 vs VM 数秒〜十数秒）。`Start` の wait-for-agent タイムアウトを VM 向けに延ばす。
+   メモリ下限（256–512MB/instance）も VM 既定に。
+3. **bind-mount disk → virtiofs** — `incus config device add <inst> <name> disk
+   source=<host> path=<guest>` の**構文は container と同じ**で、incus が VM では自動的に
+   **virtiofs** を使う（agent + virtiofsd）。uid は idmap shift 無しで**素通し**になるため、
+   host `ubuntu=1000` ↔ guest `ubuntu=1000` が数値一致していれば所有も合う。
+   **ここだけ実機検証が要る**（virtiofs の uid 見え方・automount・perf）。`$HOME` 外を指す
+   symlink dotfile を skip する現行ガード（Nix → /nix/store）はそのまま流用。
+4. **VM 用イメージ `palmux-ws-vm`** — VM は bootable disk + kernel + **incus-agent** +
+   cloud-init が要る。現 `images/workspace-default/build.sh` は container rootfs を作るので、
+   **VM ビルド経路を別途用意**（焼くツール群 starship/gh/eza… とリッチ既定シェルは流用可）。
+
+### 9.4 トレードオフ（いつ VM を選ぶか）
+
+- **重い**: instance ごとにカーネル + 最低 256–512MB RAM + boot 時間。**「複数 Claude 並列」の
+  密度目標とは逆行**するので、既定は container のまま。VM は「Docker/systemd/強い分離が要る
+  Workspace」だけのオプトイン。
+- **virtiofs は bind-mount より遅い**: `node_modules` 等の大量小ファイルで体感差。
+- **得るもの**: 自前カーネル（§9.1 の Docker/systemd/kmod/nested/強分離）。
+
+### 9.5 未検証リスク（PoC で先に潰す）
+
+最大の不確実性は **virtiofs 共有**:（a）guest 内で host uid がどう見えるか（1000↔1000 一致か、
+nobody 化しないか）、（b）`incus-agent` の automount 挙動、（c）`~/ghq`（大量ファイル）の perf。
+**先行 PoC**: deploy VM で incus VM を 1 つ launch → `~/ghq` と `~/.claude` を virtiofs 共有 →
+`incus exec --user 1000 -- tmux` でリッチシェル + claude 認証 + `cd ~/ghq/...` の I/O を確認。
+ここが緑なら、残りは §9.3 の機械的差分 + VM イメージビルドに帰着する。
+
+### 9.6 UI / interface への影響
+
+- Header の runtime chip は host↔incus-container の 2 択 →**3 択**（+ incus-vm）に広げるだけ。
+  in-place 切替のトランザクショナル実装（新起動成功を確認してから旧破棄）は種別非依存で流用。
+- `runtime.Kind` に `KindIncusVM = "incus-vm"` を追加（現 `IsValid` の 2 値判定を 3 値に）。
+- repos.json の per-workspace `runtime.kind` に新値が増えるだけ。後方互換は既存どおり。
+
+---
+
+## 10. 段階的な取り込み計画
 
 1. **本書（trim 設計）を main に取り込む**（docs-first）。`feat/workspace-runtime` の初版実装は
    そのままマージしない（足場のみ・未配線・スコープ過大のため）。
