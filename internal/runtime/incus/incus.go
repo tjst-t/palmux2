@@ -271,6 +271,27 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 		return errors.New(msg)
 	}
 
+	// 2b. security.nesting: allow nested cgroups/containers so the workspace can
+	// run Docker (and other nested containers) INSIDE this unprivileged incus
+	// container. With nesting + a modern kernel's overlay2-on-overlayfs (or
+	// fuse-overlayfs fallback), `docker build` / compose / app+DB containers work
+	// at near-native speed — no VM needed for ordinary dev use. See
+	// docs/workspace-runtime-design.md §9.1. The container stays unprivileged;
+	// nesting does NOT grant host kernel-module / privileged-Docker / nested-KVM
+	// (those remain VM-only).
+	//
+	// Non-fatal: this is an additive capability. If it can't be set (old incus,
+	// odd policy), the workspace still starts — only in-container Docker is
+	// unavailable — so we warn instead of failing Start.
+	if _, nestStderr, nestCode, nestErr := r.run(ctx, "config", "set", r.inst, "security.nesting", "true"); nestErr != nil || nestCode != 0 {
+		detail := strings.TrimSpace(nestStderr)
+		if detail == "" && nestErr != nil {
+			detail = nestErr.Error()
+		}
+		r.log.Warn("incus: could not enable security.nesting (in-container Docker disabled)",
+			"inst", r.inst, "detail", detail)
+	}
+
 	// 3. Bind-mount ~/ghq, ~/.claude, ~/.claude.json, ~/.local/share/claude,
 	// ~/.local/bin at same absolute paths.
 	// [AC-S8478ca-2-2]

@@ -468,10 +468,17 @@ Docker を動かすと incus コンテナの *outbound* が死ぬ」別問題**�
   脆弱性での host 脱出が相対的に容易。VM はカーネル境界 + ハイパーバイザ境界がある（ここは本当に遜色あり）
 - **systemd を PID1 でフル機能**（nesting でもエッジケースが残る）
 
-> 関連の将来検討（container 側）: 現状 `palmux-ws` インスタンスは `security.nesting` を
-> **入れていない**ので、いまのままだとコンテナ内 Docker は動かない。incus-container でも
-> Docker を一般用途で使えるようにするなら、`Start` で `security.nesting=true` を 1 行
-> 入れる（VM を足すより遥かに安く、上記「Docker は VM の動機にならない」に整合）。
+> 実装メモ（container 側、実機検証済み 2026-06-13）: `Start` で
+> `incus config set <inst> security.nesting=true` を**既定で入れた**（非致命: 失敗時は warn）。
+> これで in-container の **dockerd は起動する**（overlayfs / cgroup v2 を確認）。
+> ただし**この環境（kernel + runc 1.2 / docker 29）では `docker run` がもう一段ハマる**:
+> modern runc が全コンテナで `net.ipv4.ip_unprivileged_port_start` sysctl を書こうとし、
+> unprivileged incus コンテナの apparmor プロファイルがこれを拒否して
+> `open sysctl ... permission denied` で落ちる。`raw.lxc lxc.apparmor.profile=unconfined`
+> を足すと `docker run hello-world` まで緑（実機 PoC で確認）。**ただし apparmor=unconfined は
+> incus コンテナの confinement を外す = セキュリティトレードオフ**なので、これは既定にせず
+> ユーザ判断に委ねる（nesting だけは安全側の既定として常時 ON）。necessary だが kernel/runc
+> 次第で sufficient ではない、というのが正確な結論（初版の「1 行で足りる」は楽観的すぎた）。
 
 ### 9.2 そのまま流用できる部分（＝大半）
 

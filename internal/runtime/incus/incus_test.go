@@ -200,6 +200,12 @@ func TestStart_ArgSequence(t *testing.T) {
 		t.Errorf("[AC-S8478ca-2-2] expected 'incus config set %s raw.idmap \"both 1000 1000\"', not found in %v", inst, calls)
 	}
 
+	// 2b. config set <inst> security.nesting true — enables in-container Docker
+	// (nested cgroups/containers). See docs/workspace-runtime-design.md §9.1.
+	if _, ok := findCall(calls, "config", "set", inst, "security.nesting", "true"); !ok {
+		t.Errorf("expected 'incus config set %s security.nesting true' (in-container Docker), not found in %v", inst, calls)
+	}
+
 	// 3. Five device-add calls for ~/ghq, ~/.claude, ~/.claude.json,
 	// ~/.local/share/claude, ~/.local/bin  [AC-S8478ca-2-2]
 	// [AC-S8478ca-refine-claude-bind-mount]
