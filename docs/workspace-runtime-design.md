@@ -447,16 +447,31 @@ Workspace を閉じて開き直しても認証が残る。「**コンテナは�
 
 ### 9.1 なぜ VM を足すのか（動機 = 自前カーネル）
 
-incus-container の唯一の構造的限界は **host とカーネルを共有する**こと。ここから来る痛みが実在:
+incus-container の唯一の構造的限界は **host とカーネルを共有する**こと。VM は自前カーネルを
+持つので、ここを必要とする Workspace 向けのオプトイン。**既定は引き続き container**（軽さ優先）。
 
-- **Docker-in-workspace**: unprivileged コンテナ内で Docker を回すと、host の iptables
-  `FORWARD` policy（Docker が `DROP` にする）と衝突し、`DOCKER-USER` に `-i`/`-o incusbr0`
-  双方向 ACCEPT を入れる小細工が要った（実機で踏んだ。`project_incus_docker_forward` 参照）。
-- **systemd / nested container / カーネルモジュール / nested virt** が素直に動かない。
+**Docker は VM の動機にならない（重要な訂正）**: 「Docker を動かしたいから VM」は**誤り**。
+incus コンテナ内 Docker は `incus config set <inst> security.nesting=true`（+ overlay2-on-
+overlayfs / fuse-overlayfs）で**普通に動く**。日常用途（image build / `compose` / app・DB
+コンテナ / volume / port）は **VM と遜色なく、むしろ仮想化オーバーヘッドが無い分速い**。
+※ 実機で踏んだ `DOCKER-USER FORWARD` 小細工（`project_incus_docker_forward`）は **「host 側が
+Docker を動かすと incus コンテナの *outbound* が死ぬ」別問題**であって、「コンテナ内で Docker を
+動かす」話とは無関係。初版でこの 2 つを混同していたので訂正する。
 
-**VM は自前カーネルを持つ**ので上記が**丸ごと不要**になる（Docker/systemd/kmod が「ただ動く」）。
-さらに信頼できないコードを走らせるときの**分離が強い**（HW 仮想化）。これが VM runtime の主動機で、
-「より良い隔離が欲しい一部 Workspace」向けのオプトイン。**既定は引き続き container**（軽さ優先）。
+**VM が本当に効く（＝container では遜色が出る）のは、カーネルそのものが要る狭い領域だけ**:
+
+- **別カーネル / カーネルモジュールのロード / 別カーネルバージョン**（コンテナは host カーネル固定）
+- **nested KVM / ハードウェア仮想化**（`/dev/kvm`）
+- **`--privileged` 寄りの重い Docker / 特殊 capability・device**（外側の unprivileged コンテナの
+  AppArmor/seccomp/idmap の檻に当たる。VM には外側の檻が無い）
+- **信頼できないコードの強い分離** — コンテナ内 Docker は host とカーネル共有なのでカーネル
+  脆弱性での host 脱出が相対的に容易。VM はカーネル境界 + ハイパーバイザ境界がある（ここは本当に遜色あり）
+- **systemd を PID1 でフル機能**（nesting でもエッジケースが残る）
+
+> 関連の将来検討（container 側）: 現状 `palmux-ws` インスタンスは `security.nesting` を
+> **入れていない**ので、いまのままだとコンテナ内 Docker は動かない。incus-container でも
+> Docker を一般用途で使えるようにするなら、`Start` で `security.nesting=true` を 1 行
+> 入れる（VM を足すより遥かに安く、上記「Docker は VM の動機にならない」に整合）。
 
 ### 9.2 そのまま流用できる部分（＝大半）
 
@@ -496,10 +511,11 @@ Incus は container と VM を **同一の CLI・API・`incus exec`（VM 内 inc
 ### 9.4 トレードオフ（いつ VM を選ぶか）
 
 - **重い**: instance ごとにカーネル + 最低 256–512MB RAM + boot 時間。**「複数 Claude 並列」の
-  密度目標とは逆行**するので、既定は container のまま。VM は「Docker/systemd/強い分離が要る
+  密度目標とは逆行**するので、既定は container のまま。VM は「別カーネル/nested-virt/強分離が要る
   Workspace」だけのオプトイン。
 - **virtiofs は bind-mount より遅い**: `node_modules` 等の大量小ファイルで体感差。
-- **得るもの**: 自前カーネル（§9.1 の Docker/systemd/kmod/nested/強分離）。
+- **得るもの**: 自前カーネル（§9.1 の別カーネル/kmod/nested-virt/privileged-Docker/強分離）。
+  Docker 一般用途は含まない（container + `security.nesting` で足りる）。
 
 ### 9.5 未検証リスク（PoC で先に潰す）
 
