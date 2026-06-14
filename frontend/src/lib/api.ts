@@ -74,6 +74,9 @@ export interface RuntimeView {
   state: 'ready' | 'starting' | 'stopped' | 'error'
   address?: string
   error?: string
+  /** S7364e3: incus container is older than the current palmux-ws image
+   * (an update is available). Always false/absent for host. */
+  stale?: boolean
 }
 
 /** S8478ca-5: one entry in GET /api/runtimes response. */

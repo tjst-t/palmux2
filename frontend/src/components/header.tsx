@@ -7,6 +7,7 @@ import { HOST_REPO_ID, selectBranchById, selectRepoById, usePalmuxStore } from '
 import { useCommandPaletteStore } from './command-palette/store'
 import { ActivityInbox } from './inbox/activity-inbox'
 import { RuntimeChangeConfirm } from './runtime-change-confirm'
+import { UpdateContainerConfirm } from './update-container-confirm'
 import { UploadsIndicator } from './uploads/uploads-indicator'
 import styles from './header.module.css'
 
@@ -29,6 +30,7 @@ export function Header() {
   const runtimeCaps = usePalmuxStore((s) => s.runtimeCaps)
   const loadRuntimeCaps = usePalmuxStore((s) => s.loadRuntimeCaps)
   const patchWorkspaceRuntime = usePalmuxStore((s) => s.patchWorkspaceRuntime)
+  const regenerateContainer = usePalmuxStore((s) => s.regenerateContainer)
   const showPalette = useCommandPaletteStore((s) => s.show)
   const wide = useWideViewport(SPLIT_MIN_WIDTH)
   const viewport = useViewport()
@@ -39,7 +41,15 @@ export function Header() {
   const [confirmKind, setConfirmKind] = useState<'host' | 'incus-container' | null>(null)
   const [runtimeError, setRuntimeError] = useState<string | null>(null)
   const [runtimePending, setRuntimePending] = useState(false)
+  // S7364e3: container image-update (regenerate) confirm + progress state.
+  const [updateConfirmOpen, setUpdateConfirmOpen] = useState(false)
+  const [updatePending, setUpdatePending] = useState(false)
+  const [updateError, setUpdateError] = useState<string | null>(null)
   const chipRef = useRef<HTMLButtonElement>(null)
+
+  // S7364e3: an incus container older than the current palmux-ws image.
+  const updateAvailable =
+    branch?.runtime?.kind === 'incus-container' && !!branch?.runtime?.stale
 
   // Close the menu when clicking outside
   useEffect(() => {
@@ -92,6 +102,27 @@ export function Header() {
     }
   }
 
+  const handleUpdateClick = () => {
+    setChipMenuOpen(false)
+    setUpdateError(null)
+    setUpdateConfirmOpen(true)
+  }
+
+  const handleUpdateConfirm = async () => {
+    setUpdateConfirmOpen(false)
+    if (!repoId || !branchId) return
+    setUpdatePending(true)
+    setUpdateError(null)
+    try {
+      await regenerateContainer(repoId, branchId)
+    } catch (err) {
+      setUpdateError(err instanceof Error ? err.message : String(err))
+      setChipMenuOpen(true) // re-open the menu so the inline error is visible
+    } finally {
+      setUpdatePending(false)
+    }
+  }
+
   const incusEntry = runtimeCaps?.kinds.find((k) => k.kind === 'incus-container')
   const incusAvailable = incusEntry?.available ?? false
   const incusReason = incusEntry?.reason ?? 'Incus is not installed on this host'
@@ -104,6 +135,13 @@ export function Header() {
           newKind={confirmKind}
           onConfirm={() => void handleConfirm()}
           onCancel={() => setConfirmKind(null)}
+        />
+      )}
+      {/* S7364e3: confirm modal for container image update (regenerate) */}
+      {updateConfirmOpen && (
+        <UpdateContainerConfirm
+          onConfirm={() => void handleUpdateConfirm()}
+          onCancel={() => setUpdateConfirmOpen(false)}
         />
       )}
     <header className={styles.header}>
@@ -145,17 +183,30 @@ export function Header() {
                   ref={chipRef}
                   className={`${styles.runtimeChip} ${styles.runtimeChipClickable}`}
                   data-testid="runtime-chip"
-                  data-runtime-state={runtimePending ? 'starting' : branch.runtime.state}
-                  title={runtimePending
-                    ? 'Restarting workspace in new runtime…'
-                    : `Runtime: ${branch.runtime.kind} · ${branch.runtime.state}${branch.runtime.address ? ` (${branch.runtime.address})` : ''}${branch.runtime.error ? ` — ${branch.runtime.error}` : ''} — click to change`}
+                  data-runtime-state={runtimePending || updatePending ? 'starting' : branch.runtime.state}
+                  data-update-available={updateAvailable ? 'true' : undefined}
+                  title={updatePending
+                    ? 'Updating container to the new image…'
+                    : runtimePending
+                      ? 'Restarting workspace in new runtime…'
+                      : `Runtime: ${branch.runtime.kind} · ${branch.runtime.state}${branch.runtime.address ? ` (${branch.runtime.address})` : ''}${branch.runtime.error ? ` — ${branch.runtime.error}` : ''}${updateAvailable ? ' — update available' : ''} — click to change`}
                   onClick={handleChipClick}
-                  disabled={runtimePending}
+                  disabled={runtimePending || updatePending}
                   aria-haspopup="true"
                   aria-expanded={chipMenuOpen}
                 >
                   <span className={styles.rtDot} />
-                  {branch.runtime.kind} · {runtimePending ? 'restarting…' : branch.runtime.state}
+                  {branch.runtime.kind} ·{' '}
+                  {updatePending ? 'updating…' : runtimePending ? 'restarting…' : branch.runtime.state}
+                  {updateAvailable && !updatePending && (
+                    <span
+                      className={styles.runtimeUpdateBadge}
+                      data-testid="workspace-update-badge"
+                      title="A newer palmux-ws image is available — click to update"
+                    >
+                      ⬆ update
+                    </span>
+                  )}
                 </button>
                 {chipMenuOpen && (
                   <div
@@ -163,7 +214,23 @@ export function Header() {
                     data-testid="runtime-chip-menu"
                     role="menu"
                   >
-                    <div className={styles.runtimeChipMenuTitle}>Change runtime</div>
+                    {/* S7364e3: image-update action, shown only when stale */}
+                    {updateAvailable && (
+                      <>
+                        <button
+                          className={`${styles.runtimeChipMenuOption} ${styles.runtimeUpdateOption}`}
+                          data-testid="runtime-update-action"
+                          role="menuitem"
+                          onClick={handleUpdateClick}
+                          disabled={updatePending}
+                        >
+                          <span className={styles.runtimeChipMenuDot} /> ⬆ Update container
+                          <span className={styles.runtimeChipMenuUnavailable}>new image</span>
+                        </button>
+                        <div className={styles.runtimeChipMenuTitle}>Change runtime</div>
+                      </>
+                    )}
+                    {!updateAvailable && <div className={styles.runtimeChipMenuTitle}>Change runtime</div>}
                     <button
                       className={`${styles.runtimeChipMenuOption} ${branch.runtime.kind === 'host' ? styles.runtimeChipMenuOptionActive : ''}`}
                       data-testid="runtime-option-host"
@@ -198,6 +265,11 @@ export function Header() {
                     {runtimeError && (
                       <div className={styles.runtimeChipMenuError} data-testid="runtime-selector-error">
                         {runtimeError}
+                      </div>
+                    )}
+                    {updateError && (
+                      <div className={styles.runtimeChipMenuError} data-testid="update-container-error">
+                        {updateError}
                       </div>
                     )}
                   </div>

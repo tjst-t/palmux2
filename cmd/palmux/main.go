@@ -583,6 +583,16 @@ func incusBridgeListenAddr(addr string) string {
 	if port == "" {
 		return ""
 	}
+	// If the main listener already binds a wildcard address (0.0.0.0 / :: /
+	// no host), it ALREADY covers the incus bridge IP — a second bridge listener
+	// on <gateway>:<port> would collide with the wildcard bind ("address already
+	// in use") and is redundant. Only add the bridge listener when the main addr
+	// is a specific non-wildcard host (e.g. 127.0.0.1, the production default).
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		if host == "" || host == "0.0.0.0" || host == "::" {
+			return ""
+		}
+	}
 	iface, err := net.InterfaceByName("incusbr0")
 	if err != nil {
 		return ""

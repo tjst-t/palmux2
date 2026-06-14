@@ -853,6 +853,16 @@ function BranchItem({
               {branch.runtime.state === 'error' ? 'error' : branch.runtime.state}
             </span>
           )}
+          {/* S7364e3: "update available" pill when the incus container is stale */}
+          {branch.runtime?.kind === 'incus-container' && branch.runtime?.stale && (
+            <span
+              className={styles.workspaceUpdateBadge}
+              data-testid="workspace-update-badge"
+              title="A newer palmux-ws image is available — update from the runtime chip"
+            >
+              ⬆ update
+            </span>
+          )}
         </span>
       </button>
     </li>

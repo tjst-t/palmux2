@@ -31,8 +31,31 @@
       "rationale": "AC-S7364e3-2-1..2-4 / priority_rule 10 mobile parity"
     }
   ],
-  "gui_spec": {},
-  "implementation_decisions": [],
+  "gui_spec": {
+    "story": "S7364e3-2",
+    "state_diagram": "stopped/fresh → (scan detects drift) → stale[badge] → (click chip→update action) → confirm-modal → (confirm) → updating[chip=starting] → ready[badge cleared] | error[badge kept, inline error]",
+    "testids": [
+      "workspace-update-badge",
+      "runtime-update-action",
+      "update-container-confirm",
+      "update-container-confirm-ok",
+      "update-container-confirm-cancel",
+      "update-container-error",
+      "runtime-chip[data-update-available]"
+    ],
+    "mock_test": "tests/e2e/s7364e3_image_update_ui_mock.py",
+    "e2e_test": "tests/e2e/s7364e3_image_update_ui.py"
+  },
+  "implementation_decisions": [
+    {
+      "decision": "fix(main): incusBridgeListenAddr returns \"\" when --addr host is wildcard (0.0.0.0/::)",
+      "rationale": "the bridge listener on <gateway>:port collides with a wildcard main bind (0.0.0.0 already covers the bridge IP) → \"address already in use\". Surfaced when starting the dev instance for S7364e3-2 UI tests. Production (--addr 127.0.0.1) unaffected."
+    },
+    {
+      "decision": "UI: update badge on header chip (data-update-available + workspace-update-badge) + drawer entry, update-container-confirm modal, regenerateContainer store action, branch.runtimeDrift event handler",
+      "rationale": "AC-S7364e3-2-1..2-4; reused runtime-change-confirm.tsx pattern + existing chip menu"
+    }
+  ],
   "review_decisions": [
     {
       "finding": "RuntimeViewFor surfaced Stale from a leaked cache entry even for host runtimes",
@@ -82,5 +105,11 @@
       "item": "Regenerate drops the user-published-port (exposed subdomain) state with the old container; the 10s scan loop re-emits EventBranchPortsChanged so the Ports tab refreshes within a cycle. User re-exposes ports on the fresh container if desired.",
       "why": "fresh container = fresh port state; self-heals within one scan cycle"
     }
-  ]
+  ],
+  "real_mode_ui_validation": {
+    "host": "palmux-deploy-test.tjstkm.net (incus-container, SSO)",
+    "method": "local real-browser Playwright → SSO login → open workspace → stale fixture via re-alias palmux-ws to older fingerprint",
+    "result": "PASS — header chip + drawer show ⬆update badge; chip→Update container→confirm(mentions --resume)→regenerate→badge CLEARED, chip ready. Screenshot evidence /tmp/s7364e3_badge.png",
+    "note": "playwright-python cannot run on the Nix deploy VM; the e2e file runs on an incus+playwright host. Real-mode validated manually via remote browser (same pattern as noVNC AC-2-11). Backend acceptance test (urllib+incus) ran ON the VM and ALL PASS."
+  }
 }

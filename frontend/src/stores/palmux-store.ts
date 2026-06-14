@@ -329,6 +329,9 @@ interface PalmuxStoreState {
 
   /** S8478ca-5: PATCH per-workspace runtime kind. */
   patchWorkspaceRuntime: (repoId: string, branchId: string, kind: string) => Promise<void>
+
+  /** S7364e3: POST regenerate an incus container from the current image. */
+  regenerateContainer: (repoId: string, branchId: string) => Promise<void>
 }
 
 export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
@@ -583,6 +586,26 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
                 ...r,
                 openBranches: r.openBranches.map((b) =>
                   b.id === ev.branchId ? { ...b, runtime: rtView } : b,
+                ),
+              },
+        ),
+      }))
+    }
+    // S7364e3: image-drift status changed for an incus workspace. Update the
+    // branch's runtime.stale in-place so the "update available" badge on the
+    // header chip + drawer entry appears/clears live.
+    if (ev.type === 'branch.runtimeDrift' && ev.repoId && ev.branchId && ev.payload) {
+      const stale = !!(ev.payload as { stale?: boolean }).stale
+      set((state) => ({
+        repos: state.repos.map((r) =>
+          r.id !== ev.repoId
+            ? r
+            : {
+                ...r,
+                openBranches: r.openBranches.map((b) =>
+                  b.id === ev.branchId && b.runtime
+                    ? { ...b, runtime: { ...b.runtime, stale } }
+                    : b,
                 ),
               },
         ),
@@ -1057,6 +1080,44 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
     // tmux session was recreated in a new runtime. All active terminal tabs
     // for this workspace need to reconnect.
     if (resp.restarted) {
+      _triggerBranchTerminalReconnect(repoId, branchId, get().repos)
+    }
+  },
+
+  // S7364e3: recreate an incus container from the current palmux-ws image
+  // (image update). Transactional server-side — a failed update keeps the
+  // existing container and returns updateError (thrown here so the UI shows it).
+  regenerateContainer: async (repoId, branchId) => {
+    const resp = await api.post<{
+      ok: boolean
+      regenerated: boolean
+      updateError?: string
+      runtime?: RuntimeView
+    }>(
+      `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/runtime/regenerate`,
+    )
+    if (resp.runtime) {
+      const fresh = resp.runtime
+      set((state) => ({
+        repos: state.repos.map((r) =>
+          r.id !== repoId
+            ? r
+            : {
+                ...r,
+                openBranches: r.openBranches.map((b) =>
+                  b.id === branchId ? { ...b, runtime: fresh } : b,
+                ),
+              },
+        ),
+      }))
+    }
+    if (resp.updateError) {
+      throw new Error(
+        `Container update failed — the existing container was kept. ${resp.updateError}`,
+      )
+    }
+    if (resp.regenerated) {
+      // The tmux session was recreated in the fresh container; reconnect terminals.
       _triggerBranchTerminalReconnect(repoId, branchId, get().repos)
     }
   },
