@@ -9002,7 +9002,7 @@
       "stories": {
         "S62374c-1": {
           "id": "S62374c-1",
-          "status": "needs_user_review",
+          "status": "done",
           "title": "コンテナ内ブラウザのライフサイクル (明示 Start/Stop・永続 profile・CDP 非公開)",
           "user_story": "incus-container Workspace で作業する自分として、Workspace ごとに CDP を出した chromium を明示的に起動・停止したい。なぜなら、ブラウザ不要の開発では起動させず、必要なときだけ Claude が操作でき自分も覗ける共有ブラウザを立てたいから。",
           "acceptance_criteria": [

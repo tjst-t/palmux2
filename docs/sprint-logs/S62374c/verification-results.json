@@ -1,40 +1,38 @@
 {
   "sprint": "S62374c",
-  "verified_at_status": "partial — implementation complete + reviewed + offline tests green; real-mode E2E pending image rebuild on a working-incus host",
-  "passed": {
-    "go_build": "go build ./... clean",
-    "go_vet": "go vet ./internal/tab/browser/... ./internal/tab/claudetui/... clean",
-    "unit_tests": "internal/tab/browser (15 tests, incl -race clean), internal/tab/claudetui (--add-dir injection TestDaemonInjectsAddDir) pass",
-    "frontend_build": "npm run build (tsc + vite) clean",
-    "mock_e2e": "tests/e2e/s62374c_browser_ui_mock.py 8/8 PASS (frontend-only, route-mocked states: stopped/starting/host/running/popout/fullscreen testids)",
-    "story_review": [
-      "S62374c-1 reviewed by orchestrator: correct lifecycle, AC1-1..1-6 backend, conventions OK",
-      "S62374c-2 reviewed: caught + fixed TWO real concurrency bugs in cdp.go (concurrent CDP Write from both pump goroutines; concurrent Read in navigateHistory) — serialised via writeMu + routed nav-history response through the single reader; -race now clean",
-      "S62374c-3 reviewed: notify payload matches notify.IngestRequest contract (AC-3-3); --add-dir injection correct; CLI reuses existing hook env (no new plumbing); node syntax OK"
-    ],
-    "contract_checks": [
-      "CDP shared-session + screencast + input verified on REAL chromium (spike B): connectOverCDP (CLI) + raw screencast/input (backend) coexist on one browser",
-      "skill delivery via --add-dir verified against official docs (spike A): no ~/.claude pollution"
-    ]
-  },
-  "pending_real_mode_e2e": {
-    "reason": "Real-mode E2E (test-discipline Rule 7 / priority_rule 9 smoke) requires the palmux-ws image rebuilt with chromium (Story1) + node + playwright-core + palmux-browser CLI + skill (Story3), imported into incus, the new palmux binary deployed, an incus-container Workspace opened, and the 3 Python suites run against it.",
-    "blocker": "dev-box incus server unreachable (incus-admin group / user-manager restart gotcha, see project_incus_group_gotcha); deploy VM (palmux-deploy-test) has working incus and is the intended host.",
-    "tests_awaiting_real_run": [
-      "tests/acceptance/s62374c_browser_lifecycle.py [AC-S62374c-1-*]",
-      "tests/e2e/s62374c_browser_ui.py [AC-S62374c-2-* incl time-sampled screencast]",
-      "tests/acceptance/s62374c_browser_claude.py [AC-S62374c-3-* incl CLI navigate → tab reflection, --add-dir, skill present]"
-    ],
-    "next_steps": [
-      "On a working-incus host: bash images/workspace-default/build.sh → incus image import dist/palmux-ws.tar.gz --alias palmux-ws (replace)",
-      "Recreate the incus-container Workspace so it picks up the new image",
-      "make build-linux + deploy palmux binary (browser tab provider) to the host",
-      "Run the 3 suites with PALMUX2_E2E_* env pointed at the dev instance + container"
-    ]
+  "verified_at_status": "partial — Story 1 real-mode E2E ALL PASS; Story 2 screencast core validated; Story 3 implemented + open infra question",
+  "real_mode_environment": "deploy VM palmux-deploy-test.tjstkm.net, live incus-container Workspace (isc-projects/dhcp), palmux-ws image rebuilt with chromium(google-chrome)+node+playwright-core+CLI+skill",
+  "bugs_found_and_fixed_by_real_mode_verify": [
+    "image build: chromium apt pkg is a snap → fails in unprivileged container; switched to google-chrome-stable .deb + chromium symlink",
+    "image build: build.sh pushed CLI/skill via repo-root paths → SCRIPT_DIR-relative",
+    "image build: npm -g playwright-core not on require() path → CLI resolves via npm root -g + NODE_PATH",
+    "route path: provider routes are at .../{branch}/browser/* not .../tabs/browser (server {type} convention); fixed frontend + CLI + tests",
+    "stale runtime: browser Manager cached the runtime; a runtime switch made Status() stale → resolve runtime via getter on every op",
+    "Chrome 149 ignores --remote-debugging-address (binds 127.0.0.1) → added in-container relay bridgeIP:9222→127.0.0.1:9222 + rewrite webSocketDebuggerUrl host (§5.3 pattern)",
+    "Stop: kill <pid> didn't reap chromium child tree → pkill -f the debug-port flag + kill relay PID",
+    "test bugs: pgrep -x chromium fails (binary is google-chrome); ss scope matched peer 0.0.0.0:* column; idempotent count must exclude --type= helpers"
+  ],
+  "story_status": {
+    "S62374c-1": {
+      "status": "done",
+      "evidence": "tests/acceptance/s62374c_browser_lifecycle.py ALL PASS on real hardware: explicit start/stop (no auto-launch), correct chromium flags, CDP reachable via relay (cdpReachable:true, url=http://<bridgeIP>:9222), profile persisted + device mounted, idempotent (1 main process), stop reaps chromium, bridge-only binding (not 0.0.0.0). 6-guard real-mode smoke satisfied.",
+      "skip": "AC-1-4 host-runtime available=false skipped (needs a host-runtime workspace env; non-blocking)"
+    },
+    "S62374c-2": {
+      "status": "needs_user_review",
+      "validated": "screencast core PROVEN on real hardware via WS client: POST start→running, browser/attach WS delivered a live JPEG frame (3124 b64 chars, 780x437) through palmux's WS via the relay + URL-rewrite, and navigate reflected (url event). AC-2-1 (screencast) + AC-2-3 (navigate) validated. Concurrency bugs fixed earlier; mock e2e 8/8.",
+      "remaining": "full real-browser Playwright UI E2E (tests/e2e/s62374c_browser_ui.py — input injection, Start/Stop buttons, popout fullscreen, mobile) not yet run against the deployed UI."
+    },
+    "S62374c-3": {
+      "status": "needs_user_review",
+      "implemented": "palmux-browser CLI + skill + --add-dir injection; unit-tested; CLI present in the rebuilt image. CDP ops (navigate/click/snapshot/screenshot) use the same proven in-container CDP path.",
+      "open_question": "CLI start/stop/status hit palmux REST derived from PALMUX_NOTIFY_URL. On the deploy VM palmux binds 127.0.0.1:8080 (host loopback) — NOT reachable from inside the container. This is the SAME reachability question as the existing claude-tui notify hooks for incus workspaces; needs verification of how palmux's API is exposed to containers (bridge gateway?). CLI CDP ops are unaffected (in-container). Also: the running container has the pre-fix CLI; a final image rebuild bakes the /browser path fix.",
+      "remaining": "verify/define palmux REST reachability from the container; run tests/acceptance/s62374c_browser_claude.py; rebuild image to bake the path-fixed CLI."
+    }
   },
   "done_judgment": {
-    "S62374c-1": { "verdict": "needs_user_review", "reason": "Guard (real-mode smoke) not yet run — backend complete + unit-tested, awaiting image rebuild E2E" },
-    "S62374c-2": { "verdict": "needs_user_review", "reason": "Guard (real-mode smoke) not yet run — UI + WS proxy complete, mock green + concurrency fixed, awaiting live screencast E2E" },
-    "S62374c-3": { "verdict": "needs_user_review", "reason": "Guard (real-mode smoke) not yet run — CLI + skill + injection complete + unit-tested, awaiting live CLI→tab E2E" }
+    "S62374c-1": { "verdict": "done", "guards": "real-mode smoke PASS (lifecycle E2E ALL PASS); status truthful; AC traceable" },
+    "S62374c-2": { "verdict": "needs_user_review", "reason": "screencast core validated real-mode; full UI Playwright E2E not run" },
+    "S62374c-3": { "verdict": "needs_user_review", "reason": "implemented + unit-tested; REST-from-container reachability open; image rebuild for path-fixed CLI pending" }
   }
 }
