@@ -1,0 +1,44 @@
+{
+  "sprint": "S7364e3",
+  "verified_at": "2026-06-14",
+  "go": {"build": "pass", "vet": "pass", "test": "pass (all packages)", "lint": "pass (0 errors)"},
+  "frontend": {"build": "pass", "lint": "pass (0 errors)"},
+  "tests": {
+    "incus_unit": "pass (TestIsImageStale 6 cases, TestRegenerate_ProbeFailureKeepsContainer, TestRegenerate_Success)",
+    "backend_acceptance_real_incus": "ALL PASS on deploy VM (s7364e3_image_update.py) — AC-1-1 stale detect, AC-1-2 regenerate to new image + session recreate + stale clear, AC-1-3 no auto-regen, AC-1-4 no host stale. Run twice (pre+post review fixes).",
+    "ui_mock": "ALL PASS (s7364e3_image_update_ui_mock.py) — badge, no-badge(fresh/host), update flow progress, failure-keeps-container",
+    "ui_e2e_real": "validated via remote browser through SSO on deploy VM — badge ⬆update on chip+drawer → Update container → confirm(--resume) → regenerate → badge cleared → ready. Screenshot evidence. (playwright-python can't run on Nix VM; e2e file runs on incus+playwright host.)"
+  },
+  "story_judgments": [
+    {
+      "story_id": "S7364e3-1",
+      "done_judgment": {
+        "guard1_user_review_required_not_done": "pass",
+        "guard2_nil_injection_mock": "pass",
+        "guard3_mock_mode_not_real_smoke": "pass",
+        "guard4_priority_rule_9_exception_valid": "n/a",
+        "guard5_call_path_grep": "pass",
+        "guard6_deferred_comment_clean": "pass",
+        "guard7_adr_conformance": "n/a",
+        "guard8_destructive_multi_version_test": "n/a",
+        "overall": "ok"
+      },
+      "notes": "guard4 n/a: real-mode smoke performed on deploy VM (no exception claimed). guard5: POST /runtime/regenerate → store.RegenerateBranchContainer → incus Regenerate call path exists + real-mode tested (Hydra-specific grep table n/a). guard7 n/a: no docs/DESIGN ADRs in palmux2. guard8 n/a: palmux2 has no storage-core data path (Hydra-specific guard)."
+    },
+    {
+      "story_id": "S7364e3-2",
+      "done_judgment": {
+        "guard1_user_review_required_not_done": "pass",
+        "guard2_nil_injection_mock": "pass",
+        "guard3_mock_mode_not_real_smoke": "pass",
+        "guard4_priority_rule_9_exception_valid": "n/a",
+        "guard5_call_path_grep": "pass",
+        "guard6_deferred_comment_clean": "pass",
+        "guard7_adr_conformance": "n/a",
+        "guard8_destructive_multi_version_test": "n/a",
+        "overall": "ok"
+      },
+      "notes": "GUI story. Mock gate ALL PASS; real-mode UI validated via remote browser through SSO. guard8 n/a (frontend + no Hydra data path)."
+    }
+  ]
+}
