@@ -82,6 +82,8 @@ interface ControlBarProps {
   url: string
   popoutHref: string
   onUrlChange: (u: string) => void
+  onUrlFocus?: () => void
+  onUrlBlur?: () => void
   onGo: () => void
   onBack: () => void
   onForward: () => void
@@ -91,7 +93,7 @@ interface ControlBarProps {
 
 function ControlBar({
   state, url, popoutHref,
-  onUrlChange, onGo, onBack, onForward, onReload, onStop,
+  onUrlChange, onUrlFocus, onUrlBlur, onGo, onBack, onForward, onReload, onStop,
 }: ControlBarProps) {
   const disabled = state !== 'running'
 
@@ -133,6 +135,8 @@ function ControlBar({
         spellCheck={false}
         disabled={disabled}
         onChange={(e) => onUrlChange(e.target.value)}
+        onFocus={onUrlFocus}
+        onBlur={onUrlBlur}
         onKeyDown={handleKey}
       />
       <button
@@ -354,7 +358,9 @@ export function BrowserView({ repoId, branchId }: TabViewProps) {
       const sv = await api.get<StateView>(`${browserBase(repoId, branchId)}/state`)
       setAvailable(sv.available)
       setBrowserState(sv.state)
-      if (sv.url) setUrlBar(sv.url)
+      // NOTE: sv.url is NOT used for the URL bar — it is the CDP endpoint, not the
+      // page URL. The bar reflects the page URL from "url" events (and only when
+      // the user is not editing it). See handleUrlFromViewport.
     } catch {
       // ignore transient errors
     }
@@ -431,7 +437,14 @@ export function BrowserView({ repoId, branchId }: TabViewProps) {
 
   // ── Render ────────────────────────────────────────────────────────────
 
-  const handleUrlFromViewport = useCallback((u: string) => setUrlBar(u), [])
+  // Only reflect server page-URL updates when the user is NOT editing the bar,
+  // so typing a new address isn't clobbered every few seconds.
+  const editingUrlRef = useRef(false)
+  const handleUrlFromViewport = useCallback((u: string) => {
+    if (!editingUrlRef.current) setUrlBar(u)
+  }, [])
+  const handleUrlFocus = useCallback(() => { editingUrlRef.current = true }, [])
+  const handleUrlBlur = useCallback(() => { editingUrlRef.current = false }, [])
 
   // Determine display state.
   // If available is null we haven't loaded yet; use isIncus as proxy.
@@ -520,6 +533,8 @@ export function BrowserView({ repoId, branchId }: TabViewProps) {
             url={urlBar}
             popoutHref={popoutHref}
             onUrlChange={setUrlBar}
+            onUrlFocus={handleUrlFocus}
+            onUrlBlur={handleUrlBlur}
             onGo={handleGo}
             onBack={handleBack}
             onForward={handleForward}

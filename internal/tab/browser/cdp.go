@@ -307,9 +307,9 @@ func (p *CDPProxy) startScreencast(ctx context.Context) error {
 	}
 	params := map[string]any{
 		"format":        "jpeg",
-		"quality":       50,
-		"maxWidth":      1280,
-		"maxHeight":     800,
+		"quality":       80,
+		"maxWidth":      1920,
+		"maxHeight":     1200,
 		"everyNthFrame": 1,
 	}
 	if _, err := p.sendCDP(ctx, "Page.startScreencast", params); err != nil {

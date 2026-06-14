@@ -188,17 +188,15 @@ func (m *Manager) State(ctx context.Context) StateView {
 	m.mu.Unlock()
 
 	cdpOK := false
-	url := ""
 	if s == StateRunning && addr != "" {
 		cdpOK = CheckCDP(ctx, addr)
-		if cdpOK {
-			url = fmt.Sprintf("http://%s:%d", addr, CDPPort)
-		}
 	}
+	// URL is intentionally left empty: it is the *page* URL (surfaced live via
+	// the screencast "url" events), not the CDP endpoint. Returning the CDP
+	// endpoint here previously leaked into the UI's address bar.
 	return StateView{
 		State:        s,
 		CDPReachable: cdpOK,
-		URL:          url,
 		Available:    true,
 	}
 }
@@ -235,6 +233,19 @@ func (m *Manager) Start(ctx context.Context) (StartResponse, error) {
 		return StartResponse{}, fmt.Errorf("browser Start: runtime unavailable")
 	}
 	status := rt.Status()
+	if status.Address == "" {
+		// The runtime is resolved but its container IP isn't populated yet — e.g.
+		// no terminal has attached since a palmux restart (the IP is set by
+		// rt.Start). Ensure the runtime is up (idempotent) so the browser doesn't
+		// require a prior terminal attach to work.
+		if err := rt.Start(ctx); err != nil {
+			m.mu.Lock()
+			m.state = StateStopped
+			m.mu.Unlock()
+			return StartResponse{}, fmt.Errorf("browser Start: ensure runtime: %w", err)
+		}
+		status = rt.Status()
+	}
 	addr := status.Address
 	if addr == "" {
 		m.mu.Lock()
@@ -435,11 +446,16 @@ func (m *Manager) launchChromium(ctx context.Context, containerIP, profileDir st
 	// (startRelay) on the bridge IP. containerIP is unused here but kept in the
 	// signature for clarity/logging.
 	_ = containerIP
+	// --window-size sets the headless render (and screencast capture) resolution.
+	// The default headless window is ~800x600, which the UI upscales → blurry; a
+	// larger window gives sharp frames (matches the screencast maxWidth/Height).
 	launchCmd := fmt.Sprintf(
 		"nohup %s"+
 			" --headless=new"+
 			" --no-sandbox"+
 			" --disable-gpu"+
+			" --window-size=1920,1200"+
+			" --force-device-scale-factor=1"+
 			" --remote-debugging-port=%d"+
 			" --remote-allow-origins=*"+
 			" --user-data-dir=%s"+
