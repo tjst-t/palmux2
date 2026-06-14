@@ -180,6 +180,8 @@ interface LiveViewportProps {
 
 function LiveViewport({ repoId, branchId, onUrl }: LiveViewportProps) {
   const imgRef = useRef<HTMLImageElement>(null)
+  const taRef  = useRef<HTMLTextAreaElement>(null) // hidden capture for keyboard + IME
+  const composingRef = useRef(false)
   const wsRef  = useRef<ReconnectingWebSocket | null>(null)
   const metaRef = useRef<{ deviceWidth: number; deviceHeight: number }>({ deviceWidth: 1280, deviceHeight: 800 })
 
@@ -238,6 +240,8 @@ function LiveViewport({ repoId, branchId, onUrl }: LiveViewportProps) {
 
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLImageElement>) => {
     if (!imgRef.current) return
+    // Route the keyboard to the hidden capture textarea so IME composition works.
+    taRef.current?.focus({ preventScroll: true })
     const { x, y } = toViewport(e.clientX, e.clientY, imgRef.current)
     const button = e.button === 2 ? 'right' : e.button === 1 ? 'middle' : 'left'
     send({ type: 'input', kind: 'mouse', eventType: 'mousePressed', x, y, button, clickCount: 1 })
@@ -262,12 +266,40 @@ function LiveViewport({ repoId, branchId, onUrl }: LiveViewportProps) {
     send({ type: 'input', kind: 'mouse', eventType: 'mouseWheel', x, y, deltaX: e.deltaX, deltaY: e.deltaY })
   }, [send, toViewport])
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLImageElement>) => {
-    send({ type: 'input', kind: 'key', eventType: 'keyDown', key: e.key, text: e.key.length === 1 ? e.key : '' })
+  // ── Keyboard + IME (hidden textarea) ──────────────────────────────────────
+  // Text-producing input (incl. IME-composed CJK and paste) is sent as
+  // Input.insertText; control keys (Backspace/Enter/Tab/Arrows/…) are sent as
+  // Input.dispatchKeyEvent. preventDefault on control keys stops the local
+  // browser acting (e.g. Backspace navigating back). [followup #2/#3]
+  const flushText = useCallback(() => {
+    const ta = taRef.current
+    if (!ta) return
+    if (ta.value) {
+      send({ type: 'input', kind: 'text', text: ta.value })
+      ta.value = ''
+    }
   }, [send])
 
-  const handleKeyUp = useCallback((e: React.KeyboardEvent<HTMLImageElement>) => {
+  const handleCompositionStart = useCallback(() => { composingRef.current = true }, [])
+  const handleCompositionEnd = useCallback(() => { composingRef.current = false; flushText() }, [flushText])
+  const handleTextInput = useCallback(() => { if (!composingRef.current) flushText() }, [flushText])
+
+  const isTextKey = (e: React.KeyboardEvent) =>
+    e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing || e.key === 'Process') return // IME — let input handle it
+    if (isTextKey(e)) return // printable — handled by onInput → insertText
+    // Control key: forward to the page and stop the local browser from acting.
+    send({ type: 'input', kind: 'key', eventType: 'keyDown', key: e.key })
+    e.preventDefault()
+  }, [send])
+
+  const handleKeyUp = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing) return
+    if (isTextKey(e)) return
     send({ type: 'input', kind: 'key', eventType: 'keyUp', key: e.key })
+    e.preventDefault()
   }, [send])
 
   const handleTouchStart = useCallback((e: React.TouchEvent<HTMLImageElement>) => {
@@ -294,14 +326,6 @@ function LiveViewport({ repoId, branchId, onUrl }: LiveViewportProps) {
     send({ type: 'input', kind: 'touch', x, y, touchType: 'touchMove' })
   }, [send, toViewport])
 
-  // Expose navigate/reload/back/forward on window for ControlBar to call.
-  useEffect(() => {
-    const el = imgRef.current
-    if (!el) return
-    // Give the img keyboard focus when clicked.
-    el.tabIndex = 0
-  }, [])
-
   return (
     <div className={styles.viewportWrap}>
       {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
@@ -314,15 +338,32 @@ function LiveViewport({ repoId, branchId, onUrl }: LiveViewportProps) {
         onMouseUp={handleMouseUp}
         onMouseMove={handleMouseMove}
         onWheel={handleWheel}
-        onKeyDown={handleKeyDown}
-        onKeyUp={handleKeyUp}
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
         onTouchMove={handleTouchMove}
-        // make focusable for key events
-        tabIndex={0}
         role="img"
         style={{ outline: 'none' }}
+      />
+      {/* Hidden keyboard/IME capture. Focused on viewport click; transparent and
+          pointer-events:none so mouse events reach the img underneath. */}
+      <textarea
+        ref={taRef}
+        data-testid="browser-keycapture"
+        aria-hidden="true"
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        onInput={handleTextInput}
+        onCompositionStart={handleCompositionStart}
+        onCompositionEnd={handleCompositionEnd}
+        onKeyDown={handleKeyDown}
+        onKeyUp={handleKeyUp}
+        style={{
+          position: 'absolute', top: 0, left: 0, width: 1, height: 1,
+          opacity: 0, pointerEvents: 'none', border: 'none', resize: 'none',
+          padding: 0, margin: 0, overflow: 'hidden',
+        }}
       />
       <div className={styles.claudeHint} data-testid="browser-claude-hint">
         <span className={styles.liveDot} />
@@ -345,6 +386,9 @@ export function BrowserView({ repoId, branchId }: TabViewProps) {
   const [urlBar, setUrlBar] = useState('')
 
   const wsNavRef = useRef<ReconnectingWebSocket | null>(null)
+  // True while the user is editing the address bar — server page-URL updates
+  // are suppressed then so typing isn't clobbered. [followup #4]
+  const editingUrlRef = useRef(false)
 
   // ── Derive runtime availability ─────────────────────────────────────────
 
@@ -425,6 +469,8 @@ export function BrowserView({ repoId, branchId }: TabViewProps) {
       url = 'http://' + url
     }
     sendNav({ type: 'navigate', url })
+    // Stop "editing" so the bar follows the page to its final (post-redirect) URL.
+    editingUrlRef.current = false
   }, [urlBar, sendNav])
 
   const handleBack    = useCallback(() => sendNav({ type: 'back'    }), [sendNav])
@@ -437,9 +483,7 @@ export function BrowserView({ repoId, branchId }: TabViewProps) {
 
   // ── Render ────────────────────────────────────────────────────────────
 
-  // Only reflect server page-URL updates when the user is NOT editing the bar,
-  // so typing a new address isn't clobbered every few seconds.
-  const editingUrlRef = useRef(false)
+  // Reflect server page-URL updates only when the user is NOT editing the bar.
   const handleUrlFromViewport = useCallback((u: string) => {
     if (!editingUrlRef.current) setUrlBar(u)
   }, [])

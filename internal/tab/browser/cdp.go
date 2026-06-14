@@ -209,6 +209,14 @@ func (m *Manager) AttachScreencast(ctx context.Context, clientConn *websocket.Co
 		return
 	}
 
+	// Send the current page URL immediately so the address bar reflects the page
+	// on attach (connect() read it from the page target). [followup #4]
+	if proxy.currentURL != "" {
+		if ub, err := json.Marshal(serverFrame{Type: "url", URL: proxy.currentURL}); err == nil {
+			_ = clientConn.Write(ctx, websocket.MessageText, ub)
+		}
+	}
+
 	proxyCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -305,11 +313,15 @@ func (p *CDPProxy) startScreencast(ctx context.Context) error {
 	if _, err := p.sendCDP(ctx, "Page.enable", nil); err != nil {
 		return fmt.Errorf("Page.enable: %w", err)
 	}
+	// Balanced for responsiveness (S62374c-followup #1): the screencast is
+	// change-driven, so each keystroke/scroll sends a full JPEG. 1600x1000 @ q75
+	// keeps text legible while being ~40% smaller than 1920x1200 @ q80 → lower
+	// latency. (A true low-latency upgrade is the WebRTC/Neko-lite transport.)
 	params := map[string]any{
 		"format":        "jpeg",
-		"quality":       80,
-		"maxWidth":      1920,
-		"maxHeight":     1200,
+		"quality":       75,
+		"maxWidth":      1600,
+		"maxHeight":     1000,
 		"everyNthFrame": 1,
 	}
 	if _, err := p.sendCDP(ctx, "Page.startScreencast", params); err != nil {
@@ -391,15 +403,20 @@ func (p *CDPProxy) pumpCDPToClient(ctx context.Context, clientConn *websocket.Co
 			})
 
 		case "Page.navigatedWithinDocument", "Page.frameNavigated":
-			// Try to surface the new URL to the client.
+			// Surface the MAIN-frame URL to the client's address bar. Subframe
+			// navigations (parentId set) must NOT update the bar. [followup #4]
 			var nav struct {
 				Frame struct {
-					URL string `json:"url"`
+					URL      string `json:"url"`
+					ParentID string `json:"parentId"`
 				} `json:"frame"`
 				URL string `json:"url"`
 			}
 			if msg.Params != nil {
 				_ = json.Unmarshal(msg.Params, &nav)
+			}
+			if msg.Method == "Page.frameNavigated" && nav.Frame.ParentID != "" {
+				continue // subframe — ignore
 			}
 			u := nav.Frame.URL
 			if u == "" {
@@ -452,9 +469,25 @@ func (p *CDPProxy) pumpClientToCDP(ctx context.Context, clientConn *websocket.Co
 	}
 }
 
+// keyVirtualCodes maps the special keys we forward to their Windows virtual-key
+// codes, required for Chrome to fire editing/navigation commands via
+// Input.dispatchKeyEvent (the bare {key} is not enough for e.g. Backspace).
+var keyVirtualCodes = map[string]int{
+	"Backspace": 8, "Tab": 9, "Enter": 13, "Escape": 27, "Delete": 46,
+	"ArrowLeft": 37, "ArrowUp": 38, "ArrowRight": 39, "ArrowDown": 40,
+	"Home": 36, "End": 35, "PageUp": 33, "PageDown": 34,
+}
+
 // dispatchInput converts a client input frame to CDP Input.dispatch* calls.
 func (p *CDPProxy) dispatchInput(ctx context.Context, cf clientFrame) {
 	switch cf.Kind {
+	case "text":
+		// IME-composed / pasted text — insert as a string (Input.dispatchKeyEvent
+		// can't represent composed CJK). [S62374c-followup #2]
+		if cf.Text != "" {
+			_, _ = p.sendCDP(ctx, "Input.insertText", map[string]any{"text": cf.Text})
+		}
+
 	case "mouse":
 		params := map[string]any{
 			"type": cf.EventType,
@@ -482,6 +515,13 @@ func (p *CDPProxy) dispatchInput(ctx context.Context, cf clientFrame) {
 		}
 		if cf.Text != "" {
 			params["text"] = cf.Text
+		}
+		// Editing/navigation keys need a code + Windows virtual-key code or Chrome
+		// won't fire the editing command (e.g. Backspace wouldn't delete). [#3]
+		if vk, ok := keyVirtualCodes[cf.Key]; ok {
+			params["code"] = cf.Key
+			params["windowsVirtualKeyCode"] = vk
+			params["nativeVirtualKeyCode"] = vk
 		}
 		_, _ = p.sendCDP(ctx, "Input.dispatchKeyEvent", params)
 
