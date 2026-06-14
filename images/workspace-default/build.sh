@@ -117,7 +117,8 @@ incus exec "${BUILD_INST}" </dev/null -- sh -c '
   apt-get install -y --no-install-recommends \
     tmux git curl ca-certificates python3 \
     eza ripgrep zoxide fzf git-delta unzip openssh-client gpg \
-    fonts-noto-cjk fonts-noto-color-emoji
+    fonts-noto-cjk fonts-noto-color-emoji \
+    xvfb x11vnc fcitx5 fcitx5-mozc dbus-x11 x11-utils
 '
 # CJK + emoji fonts: without these, the in-container chromium (Browser tab)
 # renders Japanese/Chinese/Korean as tofu (□). fonts-noto-cjk covers JP/CN/KR;
@@ -188,11 +189,12 @@ incus exec "${BUILD_INST}" </dev/null -- sh -c '
 '
 
 log "   Verifying installed binaries ..."
-for b in tmux git python3 gh starship eza rg zoxide fzf delta yazi chromium; do
+for b in tmux git python3 gh starship eza rg zoxide fzf delta yazi chromium \
+          Xvfb x11vnc fcitx5; do
   incus exec "${BUILD_INST}" </dev/null -- sh -c "command -v $b >/dev/null 2>&1" \
     || die "$b not found after install"
 done
-log "   base + gh + shell-UX tools + chromium present"
+log "   base + gh + shell-UX tools + chromium + Xvfb/x11vnc/fcitx5 present"
 
 # ─── 3c. Node.js + playwright-core (S62374c-3) ────────────────────────────────
 # playwright-core is used by `palmux-browser` CLI to connectOverCDP to the

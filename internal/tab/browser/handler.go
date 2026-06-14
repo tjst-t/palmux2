@@ -1,8 +1,15 @@
-// Package browser — HTTP handlers for the Browser tab (S62374c-1/2).
+// Package browser — HTTP handlers for the Browser tab.
 //
-// S62374c-2 adds:
-//   GET  WS .../tabs/browser/attach   → CDP screencast + input proxy
-//   POST    .../tabs/browser/navigate → {url} → {ok:true}
+// noVNC rework: the WS /attach route now calls AttachVNC (raw RFB byte-pipe)
+// instead of the old CDP screencast proxy. The POST /navigate route is removed
+// (chromium's own address bar handles navigation in headful mode).
+//
+// Routes:
+//
+//	GET  .../tabs/browser/state   → StateView
+//	POST .../tabs/browser/start   → StartResponse
+//	POST .../tabs/browser/stop    → StopResponse
+//	GET  WS .../browser/attach    → VNC byte-pipe (subprotocol "binary")
 package browser
 
 import (
@@ -107,8 +114,10 @@ func (h *handler) stop(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// attach handles WS .../tabs/browser/attach — CDP screencast + input proxy.
-// [AC-S62374c-2-1] [AC-S62374c-2-2] [AC-S62374c-2-3] [AC-S62374c-2-5]
+// attach handles WS .../tabs/browser/attach — raw VNC byte-pipe for noVNC.
+//
+// noVNC requests the "binary" WebSocket subprotocol; we must accept it. Raw RFB
+// bytes flow in both directions without any additional framing.
 func (h *handler) attach(w http.ResponseWriter, r *http.Request) {
 	repoID := r.PathValue("repoId")
 	branchID := r.PathValue("branchId")
@@ -124,49 +133,19 @@ func (h *handler) attach(w http.ResponseWriter, r *http.Request) {
 	}
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		// noVNC requests the "binary" subprotocol; palmux must accept it or the
+		// browser-side RFB handshake fails.
+		Subprotocols:   []string{"binary"},
 		OriginPatterns: []string{"*"},
 	})
 	if err != nil {
 		h.p.log.Warn("browser: ws accept", "err", err)
 		return
 	}
-	conn.SetReadLimit(256 * 1024) // client input frames are small
+	// noVNC sends large initial framebuffer updates; 16 MB covers worst-case.
+	conn.SetReadLimit(16 * 1024 * 1024)
 	defer conn.CloseNow()
 
 	ctx := r.Context()
-	mgr.AttachScreencast(ctx, conn)
-}
-
-// navigate handles POST .../tabs/browser/navigate.
-// Body: {"url":"..."}, Response: {"ok":true}
-// [AC-S62374c-2-3]
-func (h *handler) navigate(w http.ResponseWriter, r *http.Request) {
-	repoID := r.PathValue("repoId")
-	branchID := r.PathValue("branchId")
-
-	if !h.p.isIncus(repoID, branchID) {
-		writeErr(w, http.StatusBadRequest,
-			"Browser tab is only available for incus-container workspaces")
-		return
-	}
-
-	var body struct {
-		URL string `json:"url"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.URL == "" {
-		writeErr(w, http.StatusBadRequest, "navigate: body must be {\"url\":\"...\"}")
-		return
-	}
-
-	mgr := h.p.managerFor(repoID, branchID)
-	if mgr == nil {
-		writeErr(w, http.StatusConflict, "browser not running")
-		return
-	}
-
-	if err := mgr.NavigatePage(r.Context(), body.URL); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	mgr.AttachVNC(ctx, conn)
 }

@@ -142,30 +142,25 @@ func (a *fakeDeviceAdder) recorded() []fakeDeviceAdderCall {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// newTestManager creates a Manager backed by a seqFakeRuntime prewired for:
-//   1st Exec (sh -c presence check) → "found"
-//   2nd Exec (sh -c launch) → PID "12345"
-//   subsequent Execs (kill -0, kill, etc.) → exit 0
+// newTestManager creates a Manager backed by a seqFakeRuntime. The runtime
+// uses content-aware Exec routing (not index-based) so it handles the new
+// multi-process launch sequence (Xvfb/chromium/fcitx5/x11vnc/relay) correctly.
 func newTestManager(t *testing.T, containerAddr string) (*Manager, *seqFakeRuntime, *fakeDeviceAdder) {
 	t.Helper()
-	sr := newSeqFakeRuntime(containerAddr,
-		runtime.ExecResult{Stdout: "found\n", ExitCode: 0}, // 1: presence check
-		runtime.ExecResult{Stdout: "12345\n", ExitCode: 0}, // 2: launch (PID)
-	)
+	sr := newSeqFakeRuntime(containerAddr)
 	da := &fakeDeviceAdder{}
 	mgr := NewManager(func() runtime.Runtime { return sr }, "ws-test-ab12cd34", da.add, nil)
 	return mgr, sr, da
 }
 
 // ---------------------------------------------------------------------------
-// TestStart_LaunchesChromiumWithCorrectFlags
-// Verifies that Start issues an Exec with all required chromium flags,
-// running as uid 1000 (via Exec which routes through userExecFlags in the
-// incus runtime; here our fake captures the raw cmd slice).
+// TestStart_LaunchesStackWithCorrectCommands
+// Verifies that Start issues Exec calls for Xvfb, chromium (headful with CDP),
+// x11vnc, and the CDP relay. Fcitx5 is optional (non-fatal).
 // [AC-S62374c-1-1] [AC-S62374c-1-3]
 // ---------------------------------------------------------------------------
 
-func TestStart_LaunchesChromiumWithCorrectFlags(t *testing.T) {
+func TestStart_LaunchesStackWithCorrectCommands(t *testing.T) {
 	const containerAddr = "10.100.0.5"
 	mgr, sr, _ := newTestManager(t, containerAddr)
 
@@ -183,43 +178,55 @@ func TestStart_LaunchesChromiumWithCorrectFlags(t *testing.T) {
 	copy(calls, sr.calls)
 	sr.mu.Unlock()
 
-	// 1. A sh -c call must contain: chromium, --headless=new, --no-sandbox,
-	//    --remote-debugging-port=9222, --remote-debugging-address=<containerAddr>,
-	//    --remote-allow-origins=*, --user-data-dir=, about:blank
-	//    [AC-S62374c-1-1] [AC-S62374c-1-3]
-	foundLaunch := false
-	for _, c := range calls {
-		if len(c.cmd) < 2 || c.cmd[0] != "sh" || c.cmd[1] != "-c" {
-			continue
+	// Helper: find a sh -c call whose body contains all fragments.
+	findCall := func(fragments ...string) bool {
+		for _, c := range calls {
+			if len(c.cmd) < 2 || c.cmd[0] != "sh" || c.cmd[1] != "-c" {
+				continue
+			}
+			joined := strings.Join(c.cmd, " ")
+			all := true
+			for _, f := range fragments {
+				if !strings.Contains(joined, f) {
+					all = false
+					break
+				}
+			}
+			if all {
+				return true
+			}
 		}
-		joined := strings.Join(c.cmd, " ")
-		// Modern Chrome ignores --remote-debugging-address (binds 127.0.0.1); we
-		// reach CDP via the relay, so the launch no longer carries that flag.
-		if strings.Contains(joined, chromiumBin) &&
-			strings.Contains(joined, "--headless=new") &&
-			strings.Contains(joined, "--no-sandbox") &&
-			strings.Contains(joined, "--remote-debugging-port=9222") &&
-			strings.Contains(joined, "--remote-allow-origins=*") &&
-			strings.Contains(joined, "--user-data-dir=") &&
-			strings.Contains(joined, "about:blank") {
-			foundLaunch = true
-			break
-		}
-	}
-	if !foundLaunch {
-		t.Errorf("[AC-S62374c-1-1/3] chromium launch command not found or missing required flags.\nRecorded calls: %v", calls)
+		return false
 	}
 
-	// 2. CDP must bind to containerAddr, NOT 0.0.0.0 [AC-S62374c-1-3].
+	// 1. Xvfb must be launched on display :99.
+	if !findCall("Xvfb", xDisplay) {
+		t.Errorf("[AC-S62374c-1-1] Xvfb not launched on display %s. calls: %v", xDisplay, calls)
+	}
+
+	// 2. Chromium must be launched headful with DISPLAY=:99, CDP port, --no-sandbox,
+	//    --remote-allow-origins=*, --user-data-dir=.
+	//    Must NOT use --headless (noVNC rework: full UI).
+	//    [AC-S62374c-1-1] [AC-S62374c-1-3]
+	if !findCall(chromiumBin, "nohup", "--no-sandbox",
+		"--remote-debugging-port=9222", "--remote-allow-origins=*", "--user-data-dir=") {
+		t.Errorf("[AC-S62374c-1-1/3] chromium launch missing required flags. calls: %v", calls)
+	}
+	if findCall(chromiumBin, "--headless") {
+		t.Errorf("[noVNC rework] chromium must NOT be launched headless")
+	}
+
+	// 3. x11vnc must be launched listening on VNC port 5900.
+	if !findCall("x11vnc", "-rfbport") {
+		t.Errorf("[noVNC rework] x11vnc not found in launch calls. calls: %v", calls)
+	}
+
+	// 4. CDP must NOT bind to 0.0.0.0 explicitly [AC-S62374c-1-3].
 	for _, c := range calls {
-		if len(c.cmd) < 2 || c.cmd[0] != "sh" {
-			continue
-		}
 		joined := strings.Join(c.cmd, " ")
-		if strings.Contains(joined, chromiumBin) {
-			if strings.Contains(joined, "--remote-debugging-address=0.0.0.0") {
-				t.Errorf("[AC-S62374c-1-3] chromium must NOT bind CDP to 0.0.0.0 — found in: %s", joined)
-			}
+		if strings.Contains(joined, chromiumBin) &&
+			strings.Contains(joined, "--remote-debugging-address=0.0.0.0") {
+			t.Errorf("[AC-S62374c-1-3] chromium must NOT bind CDP to 0.0.0.0: %s", joined)
 		}
 	}
 }
@@ -232,12 +239,9 @@ func TestStart_LaunchesChromiumWithCorrectFlags(t *testing.T) {
 
 func TestStart_Idempotent(t *testing.T) {
 	const containerAddr = "10.100.0.5"
-	// Prewire: presence check "found", launch PID "12345", then kill -0 → alive.
-	sr := newSeqFakeRuntime(containerAddr,
-		runtime.ExecResult{Stdout: "found\n", ExitCode: 0}, // presence check
-		runtime.ExecResult{Stdout: "12345\n", ExitCode: 0}, // launch
-		runtime.ExecResult{ExitCode: 0},                    // kill -0 (alive)
-	)
+	// Content-aware seqFakeRuntime handles presence check, Xvfb/chromium/x11vnc
+	// launches, waitLocalCDP, startRelay, and kill -0 automatically.
+	sr := newSeqFakeRuntime(containerAddr)
 	da := &fakeDeviceAdder{}
 	mgr := NewManager(func() runtime.Runtime { return sr }, "ws-test-ab12cd34", da.add, nil)
 
@@ -279,12 +283,12 @@ func TestStart_Idempotent(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestStop_KillsChromium
-// Stop must issue `kill <pid>` inside the container and set state=stopped.
-// [AC-S62374c-1-1]
+// TestStop_KillsDaemons
+// Stop must issue pkill for chromium, x11vnc, fcitx5, and Xvfb and set
+// state=stopped. [AC-S62374c-1-1]
 // ---------------------------------------------------------------------------
 
-func TestStop_KillsChromium(t *testing.T) {
+func TestStop_KillsDaemons(t *testing.T) {
 	const containerAddr = "10.100.0.5"
 	mgr, sr, _ := newTestManager(t, containerAddr)
 
@@ -292,6 +296,7 @@ func TestStop_KillsChromium(t *testing.T) {
 	mgr.mu.Lock()
 	mgr.state = StateRunning
 	mgr.pid = "9999"
+	mgr.vncPID = "9998"
 	mgr.cdpAddr = containerAddr
 	mgr.mu.Unlock()
 
@@ -307,23 +312,28 @@ func TestStop_KillsChromium(t *testing.T) {
 		t.Errorf("State after Stop = %q, want stopped", s)
 	}
 
-	// Verify kill <pid> was issued.
+	// Verify pkill for chromium and x11vnc were issued.
 	sr.mu.Lock()
 	calls := make([]fakeExecCall, len(sr.calls))
 	copy(calls, sr.calls)
 	sr.mu.Unlock()
-	// Stop reaps all chromium via `pkill -f 'remote-debugging-port=9222'`
-	// (kill <pid> alone does not reap chromium's child/zygote tree).
-	found := false
+
+	foundChromium := false
+	foundVNC := false
 	for _, c := range calls {
 		j := strings.Join(c.cmd, " ")
 		if strings.Contains(j, "pkill") && strings.Contains(j, "remote-debugging-port=9222") {
-			found = true
-			break
+			foundChromium = true
+		}
+		if strings.Contains(j, "pkill") && strings.Contains(j, "x11vnc") {
+			foundVNC = true
 		}
 	}
-	if !found {
+	if !foundChromium {
 		t.Errorf("[AC-S62374c-1-1] Stop did not pkill chromium, recorded: %v", calls)
+	}
+	if !foundVNC {
+		t.Errorf("[noVNC rework] Stop did not pkill x11vnc, recorded: %v", calls)
 	}
 }
 
@@ -434,6 +444,12 @@ func (s *seqFakeRuntime) Exec(_ context.Context, cmd []string, opts runtime.Exec
 			return runtime.ExecResult{Stdout: "", ExitCode: 1}, nil
 		}
 		return runtime.ExecResult{Stdout: "found\n"}, nil
+	case strings.Contains(joined, "Xvfb"): // launchXvfb
+		return runtime.ExecResult{Stdout: "1001\n"}, nil
+	case strings.Contains(joined, "fcitx5"): // launchFcitx5
+		return runtime.ExecResult{Stdout: "1002\n"}, nil
+	case strings.Contains(joined, "x11vnc"): // launchX11VNC
+		return runtime.ExecResult{Stdout: "1003\n"}, nil
 	case strings.Contains(joined, "/json/version"): // waitLocalCDP probe
 		return runtime.ExecResult{Stdout: "200"}, nil
 	case strings.Contains(joined, "python3") && strings.Contains(joined, "base64"): // startRelay
@@ -474,13 +490,8 @@ func TestPersistenceMount(t *testing.T) {
 	const containerAddr = "10.100.0.5"
 	const inst = "ws-persist-ff001122"
 
-	// Exec call sequence:
-	// 1st: sh -c "command -v chromium ..." → found
-	// 2nd: sh -c "nohup chromium ... & echo $!" → PID 12345
-	sr := newSeqFakeRuntime(containerAddr,
-		runtime.ExecResult{Stdout: "found\n", ExitCode: 0},  // presence check
-		runtime.ExecResult{Stdout: "12345\n", ExitCode: 0},  // launch
-	)
+	// Content-aware seqFakeRuntime handles all launch commands.
+	sr := newSeqFakeRuntime(containerAddr)
 
 	da := &fakeDeviceAdder{}
 	mgr := NewManager(func() runtime.Runtime { return sr }, inst, da.add, nil)
