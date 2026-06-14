@@ -7,7 +7,7 @@
 // the build pipeline; if the JS changes, this string changes, the browser
 // detects sw.js as different, and reinstalls.
 
-const VERSION = 'palmux-shell-v2'
+const VERSION = 'palmux-shell-v3'
 const APP_SHELL = ['/favicon.svg', '/manifest.webmanifest']
 
 self.addEventListener('install', (event) => {

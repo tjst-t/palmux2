@@ -226,50 +226,52 @@ function LiveViewport({ repoId, branchId, onUrl }: LiveViewportProps) {
     wsRef.current?.send(JSON.stringify(msg))
   }, [])
 
-  // Convert DOM coords (relative to the img element) to CDP viewport coords.
-  const toViewport = useCallback((clientX: number, clientY: number, el: HTMLImageElement) => {
+  // Convert client coords to CDP viewport coords. The img uses object-fit:contain,
+  // so the rendered frame is scaled to FIT (letterboxed) inside the element —
+  // map through the same transform or clicks land at the wrong remote position
+  // (and remote text fields never get focus → typing goes nowhere). [#2 fix]
+  const toViewport = useCallback((clientX: number, clientY: number) => {
+    const el = taRef.current
+    if (!el) return { x: 0, y: 0 }
     const rect = el.getBoundingClientRect()
-    const { deviceWidth, deviceHeight } = metaRef.current
-    const scaleX = deviceWidth  / rect.width
-    const scaleY = deviceHeight / rect.height
+    const { deviceWidth: dw, deviceHeight: dh } = metaRef.current
+    const scale = Math.min(rect.width / dw, rect.height / dh)
+    const offX = (rect.width  - dw * scale) / 2
+    const offY = (rect.height - dh * scale) / 2
+    const x = (clientX - rect.left - offX) / scale
+    const y = (clientY - rect.top  - offY) / scale
     return {
-      x: (clientX - rect.left) * scaleX,
-      y: (clientY - rect.top)  * scaleY,
+      x: Math.max(0, Math.min(dw, x)),
+      y: Math.max(0, Math.min(dh, y)),
     }
   }, [])
 
-  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLImageElement>) => {
-    if (!imgRef.current) return
-    // preventDefault stops the browser moving focus to BODY (the img isn't
-    // focusable), so the explicit focus() on the hidden capture textarea sticks —
-    // otherwise keystrokes (incl. IME) go nowhere. [followup #2 regression fix]
-    e.preventDefault()
-    taRef.current?.focus({ preventScroll: true })
-    const { x, y } = toViewport(e.clientX, e.clientY, imgRef.current)
+  // Mouse/keyboard/IME are captured by a transparent <textarea> overlaid on the
+  // viewport (handlers below). Clicking it focuses it NATURALLY (it IS the click
+  // target) — robust across browsers, unlike focusing a hidden element. [#2 fix]
+  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLTextAreaElement>) => {
+    const { x, y } = toViewport(e.clientX, e.clientY)
     const button = e.button === 2 ? 'right' : e.button === 1 ? 'middle' : 'left'
     send({ type: 'input', kind: 'mouse', eventType: 'mousePressed', x, y, button, clickCount: 1 })
   }, [send, toViewport])
 
-  const handleMouseUp = useCallback((e: React.MouseEvent<HTMLImageElement>) => {
-    if (!imgRef.current) return
-    const { x, y } = toViewport(e.clientX, e.clientY, imgRef.current)
+  const handleMouseUp = useCallback((e: React.MouseEvent<HTMLTextAreaElement>) => {
+    const { x, y } = toViewport(e.clientX, e.clientY)
     const button = e.button === 2 ? 'right' : e.button === 1 ? 'middle' : 'left'
     send({ type: 'input', kind: 'mouse', eventType: 'mouseReleased', x, y, button, clickCount: 1 })
   }, [send, toViewport])
 
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLImageElement>) => {
-    if (!imgRef.current) return
-    const { x, y } = toViewport(e.clientX, e.clientY, imgRef.current)
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLTextAreaElement>) => {
+    const { x, y } = toViewport(e.clientX, e.clientY)
     send({ type: 'input', kind: 'mouse', eventType: 'mouseMoved', x, y })
   }, [send, toViewport])
 
-  const handleWheel = useCallback((e: React.WheelEvent<HTMLImageElement>) => {
-    if (!imgRef.current) return
-    const { x, y } = toViewport(e.clientX, e.clientY, imgRef.current)
+  const handleWheel = useCallback((e: React.WheelEvent<HTMLTextAreaElement>) => {
+    const { x, y } = toViewport(e.clientX, e.clientY)
     send({ type: 'input', kind: 'mouse', eventType: 'mouseWheel', x, y, deltaX: e.deltaX, deltaY: e.deltaY })
   }, [send, toViewport])
 
-  // ── Keyboard + IME (hidden textarea) ──────────────────────────────────────
+  // ── Keyboard + IME (transparent overlay textarea) ─────────────────────────
   // Text-producing input (incl. IME-composed CJK and paste) is sent as
   // Input.insertText; control keys (Backspace/Enter/Tab/Arrows/…) are sent as
   // Input.dispatchKeyEvent. preventDefault on control keys stops the local
@@ -305,69 +307,69 @@ function LiveViewport({ repoId, branchId, onUrl }: LiveViewportProps) {
     e.preventDefault()
   }, [send])
 
-  const handleTouchStart = useCallback((e: React.TouchEvent<HTMLImageElement>) => {
+  const handleTouchStart = useCallback((e: React.TouchEvent<HTMLTextAreaElement>) => {
     e.preventDefault()
-    if (!imgRef.current) return
     const t = e.changedTouches[0]
-    const { x, y } = toViewport(t.clientX, t.clientY, imgRef.current)
+    const { x, y } = toViewport(t.clientX, t.clientY)
     send({ type: 'input', kind: 'touch', x, y, touchType: 'touchStart' })
   }, [send, toViewport])
 
-  const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLImageElement>) => {
+  const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLTextAreaElement>) => {
     e.preventDefault()
-    if (!imgRef.current) return
     const t = e.changedTouches[0]
-    const { x, y } = toViewport(t.clientX, t.clientY, imgRef.current)
+    const { x, y } = toViewport(t.clientX, t.clientY)
     send({ type: 'input', kind: 'touch', x, y, touchType: 'touchEnd' })
   }, [send, toViewport])
 
-  const handleTouchMove = useCallback((e: React.TouchEvent<HTMLImageElement>) => {
+  const handleTouchMove = useCallback((e: React.TouchEvent<HTMLTextAreaElement>) => {
     e.preventDefault()
-    if (!imgRef.current) return
     const t = e.changedTouches[0]
-    const { x, y } = toViewport(t.clientX, t.clientY, imgRef.current)
+    const { x, y } = toViewport(t.clientX, t.clientY)
     send({ type: 'input', kind: 'touch', x, y, touchType: 'touchMove' })
   }, [send, toViewport])
 
   return (
     <div className={styles.viewportWrap}>
-      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
-      <img
-        ref={imgRef}
-        className={styles.viewport}
-        data-testid="browser-viewport"
-        alt="Browser screencast"
-        onMouseDown={handleMouseDown}
-        onMouseUp={handleMouseUp}
-        onMouseMove={handleMouseMove}
-        onWheel={handleWheel}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-        onTouchMove={handleTouchMove}
-        role="img"
-        style={{ outline: 'none' }}
-      />
-      {/* Hidden keyboard/IME capture. Focused on viewport click; transparent and
-          pointer-events:none so mouse events reach the img underneath. */}
-      <textarea
-        ref={taRef}
-        data-testid="browser-keycapture"
-        aria-hidden="true"
-        autoComplete="off"
-        autoCorrect="off"
-        autoCapitalize="off"
-        spellCheck={false}
-        onInput={handleTextInput}
-        onCompositionStart={handleCompositionStart}
-        onCompositionEnd={handleCompositionEnd}
-        onKeyDown={handleKeyDown}
-        onKeyUp={handleKeyUp}
-        style={{
-          position: 'absolute', top: 0, left: 0, width: 1, height: 1,
-          opacity: 0, pointerEvents: 'none', border: 'none', resize: 'none',
-          padding: 0, margin: 0, overflow: 'hidden',
-        }}
-      />
+      <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+        <img
+          ref={imgRef}
+          className={styles.viewport}
+          data-testid="browser-viewport"
+          alt="Browser screencast"
+          role="img"
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+        />
+        {/* Transparent overlay = the real interactive surface. It receives clicks
+            (so it focuses NATURALLY — robust) and captures keyboard + IME; mouse
+            events are forwarded to the remote. Text is transparent + cleared. */}
+        <textarea
+          ref={taRef}
+          data-testid="browser-keycapture"
+          aria-label="Browser input"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          onMouseDown={handleMouseDown}
+          onMouseUp={handleMouseUp}
+          onMouseMove={handleMouseMove}
+          onWheel={handleWheel}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+          onTouchMove={handleTouchMove}
+          onInput={handleTextInput}
+          onCompositionStart={handleCompositionStart}
+          onCompositionEnd={handleCompositionEnd}
+          onKeyDown={handleKeyDown}
+          onKeyUp={handleKeyUp}
+          style={{
+            position: 'absolute', inset: 0, width: '100%', height: '100%',
+            background: 'transparent', color: 'transparent', caretColor: 'transparent',
+            border: 'none', outline: 'none', resize: 'none', padding: 0, margin: 0,
+            cursor: 'default', overflow: 'hidden',
+          }}
+        />
+      </div>
       <div className={styles.claudeHint} data-testid="browser-claude-hint">
         <span className={styles.liveDot} />
         <span>
