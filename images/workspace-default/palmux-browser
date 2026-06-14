@@ -28,6 +28,28 @@ const { execSync } = require('child_process');
 
 // ── env derivation ────────────────────────────────────────────────────────────
 
+// palmux runs on the container's HOST. PALMUX_NOTIFY_URL is injected as a
+// loopback URL (http://127.0.0.1:PORT/...) which, from inside the container, is
+// the container itself — not palmux. Rewrite a loopback host to the container's
+// default gateway (= the host on the incus bridge) so the CLI can reach palmux's
+// REST/notify endpoints. (palmux must bind a bridge-reachable address.)
+function gatewayIP() {
+  try {
+    return execSync("ip route 2>/dev/null | awk '/^default/{print $3; exit}'", { encoding: 'utf8' }).trim();
+  } catch { return ''; }
+}
+
+function reachablePalmuxURL(u) {
+  try {
+    const url = new URL(u);
+    if (url.hostname === '127.0.0.1' || url.hostname === 'localhost') {
+      const gw = gatewayIP();
+      if (gw) url.hostname = gw;
+    }
+    return url.toString();
+  } catch { return u; }
+}
+
 function browserRestBase() {
   const notifyURL = process.env.PALMUX_NOTIFY_URL || '';
   const repoID = process.env.PALMUX_REPO_ID || '';
@@ -35,20 +57,18 @@ function browserRestBase() {
   if (!notifyURL || !repoID || !branchID) {
     die('PALMUX_NOTIFY_URL / PALMUX_REPO_ID / PALMUX_BRANCH_ID not set — are you running inside a palmux claude-tui tab?');
   }
-  // Replace /api/notify suffix with the browser REST base path.
-  return notifyURL.replace(/\/api\/notify$/, '') +
+  // Rewrite loopback → gateway, then replace /api/notify suffix with the base.
+  return reachablePalmuxURL(notifyURL).replace(/\/api\/notify$/, '') +
     `/api/repos/${repoID}/branches/${branchID}/browser`;
 }
 
 function cdpURL() {
   if (process.env.PALMUX_CDP_URL) return process.env.PALMUX_CDP_URL;
-  // Auto-detect: use the container's bridge IP (first IP from hostname -i).
-  try {
-    const ip = execSync('hostname -i', { encoding: 'utf8' }).trim().split(/\s+/)[0];
-    return `http://${ip}:9222`;
-  } catch {
-    die('Cannot determine CDP URL: set PALMUX_CDP_URL or ensure hostname -i returns an IP');
-  }
+  // The CLI runs INSIDE the workspace container, where chromium binds its CDP
+  // to 127.0.0.1:9222 — reachable directly (no bridge IP / relay needed; the
+  // relay exists only so palmux on the HOST can reach CDP). chromium runs with
+  // --remote-allow-origins=*, so connectOverCDP from localhost is accepted.
+  return `http://127.0.0.1:9222`;
 }
 
 function authHeaders() {
@@ -92,7 +112,7 @@ async function postInboxNotification(message) {
     tabName: 'Browser',
   };
   try {
-    await fetch(notifyURL, {
+    await fetch(reachablePalmuxURL(notifyURL), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(payload),
