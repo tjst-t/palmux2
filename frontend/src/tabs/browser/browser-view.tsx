@@ -48,7 +48,7 @@ interface StopResponse  { state: BrowserState }
 // ─── API helpers ─────────────────────────────────────────────────────────────
 
 function browserBase(repoId: string, branchId: string): string {
-  return `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/tabs/browser`
+  return `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/browser`
 }
 
 function buildAttachURL(repoId: string, branchId: string): string {

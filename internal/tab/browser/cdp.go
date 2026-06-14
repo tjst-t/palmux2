@@ -32,6 +32,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -264,6 +265,15 @@ func (p *CDPProxy) connect(ctx context.Context) error {
 	}
 	if wsURL == "" {
 		return fmt.Errorf("no page target in CDP /json")
+	}
+
+	// chromium binds CDP to 127.0.0.1 and embeds that host in webSocketDebuggerUrl.
+	// We reach it through the relay on <cdpAddr>:9222, so rewrite the ws host to
+	// the bridge IP (dialing 127.0.0.1 from the palmux host would hit the wrong
+	// machine). [AC-S62374c-2-1 real-mode fix]
+	if u, perr := url.Parse(wsURL); perr == nil {
+		u.Host = fmt.Sprintf("%s:%d", p.cdpAddr, CDPPort)
+		wsURL = u.String()
 	}
 
 	// Must send Origin header — Chrome rejects without it.

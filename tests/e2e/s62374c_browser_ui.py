@@ -11,7 +11,7 @@ Acceptance criteria verified here:
   [AC-S62374c-2-2]  click/key input injected via CDP Input.*
   [AC-S62374c-2-3]  URL bar + Go → Page.navigate; reload works
   [AC-S62374c-2-4]  Start/Stop button + badge follow state
-  [AC-S62374c-2-5]  CDP is not exposed: /api/.../tabs/browser/state has no cdpPort
+  [AC-S62374c-2-5]  CDP is not exposed: /api/.../browser/state has no cdpPort
   [AC-S62374c-2-6]  mobile viewport (375×667) displays viewport + tap
   [AC-S62374c-2-9]  screencast AC sampled over time
   [AC-S62374c-2-10] ↗ Open renders browser-fullscreen standalone
@@ -62,7 +62,7 @@ def get_playwright():
 
 
 def browser_base() -> str:
-    return (f"/api/repos/{REPO_ID}/branches/{BRANCH_ID}/tabs/browser")
+    return (f"/api/repos/{REPO_ID}/branches/{BRANCH_ID}/browser")
 
 
 def api_get(url: str) -> dict:

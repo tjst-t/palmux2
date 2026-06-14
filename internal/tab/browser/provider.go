@@ -149,13 +149,13 @@ func (p *Provider) getOrCreateManager(repoID, branchID string) *Manager {
 		return m
 	}
 
-	// Resolve runtime — we already know it's incus-container here.
+	// Resolve runtime lazily on every op (a runtime switch evicts/recreates the
+	// registry's runtime, so a cached reference would go stale).
 	reg := p.st.RuntimeRegistry()
-	rt := reg.Get(repoID, branchID)
 	// Derive the incus instance name to use for bind-mount device naming.
 	inst := incuspkg.InstanceName(repoID, branchID)
 
-	mgr := NewManager(rt, inst, nil, p.log)
+	mgr := NewManager(func() runtime.Runtime { return reg.Get(repoID, branchID) }, inst, nil, p.log)
 	p.managers[key] = mgr
 	return mgr
 }

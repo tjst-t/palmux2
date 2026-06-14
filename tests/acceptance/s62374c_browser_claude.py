@@ -103,7 +103,7 @@ def main() -> int:
 
     # AC-3-2: CLI derives browser REST base from PALMUX_NOTIFY_URL replacing /api/notify.
     if cli_src:
-        has_rest_derive = "/api/notify" in cli_src and "tabs/browser" in cli_src
+        has_rest_derive = "/api/notify" in cli_src and "/branches/" in cli_src and "/browser" in cli_src
         has_cdp_connect = "connectOverCDP" in cli_src
         if has_rest_derive and has_cdp_connect:
             ok("AC-S62374c-3-2",

@@ -132,12 +132,12 @@ def _common_mocks(page, *, runtime_kind: str, browser_state: str,
             r.abort()
 
     page.route(
-        f"**/api/repos/{FAKE_REPO}/branches/{FAKE_BRANCH}/tabs/browser/**",
+        f"**/api/repos/{FAKE_REPO}/branches/{FAKE_BRANCH}/browser/**",
         _browser_catch_all,
     )
     # Register state AFTER catch-all so it takes priority (last registered wins).
     page.route(
-        f"**/api/repos/{FAKE_REPO}/branches/{FAKE_BRANCH}/tabs/browser/state",
+        f"**/api/repos/{FAKE_REPO}/branches/{FAKE_BRANCH}/browser/state",
         lambda r: _fulfill(r, _browser_state_payload(
             state=browser_state,
             cdp_reachable=(browser_state == "running"),
@@ -214,7 +214,7 @@ def test_ac7_stopped_to_starting_transition(page) -> None:
 
     # Override: after clicking Start, POST start returns "running".
     page.route(
-        f"**/api/repos/{FAKE_REPO}/branches/{FAKE_BRANCH}/tabs/browser/start",
+        f"**/api/repos/{FAKE_REPO}/branches/{FAKE_BRANCH}/browser/start",
         lambda r: _fulfill(r, {"state": "running"}),
     )
     page.locator("[data-testid='browser-start']").first.click()
@@ -239,7 +239,7 @@ def test_ac9_host_runtime_notice(page) -> None:
     _common_mocks(page, runtime_kind="host", browser_state="stopped", available=False)
     # Override state to return available=false explicitly.
     page.route(
-        f"**/api/repos/{FAKE_REPO}/branches/{FAKE_BRANCH}/tabs/browser/state",
+        f"**/api/repos/{FAKE_REPO}/branches/{FAKE_BRANCH}/browser/state",
         lambda r: _fulfill(r, _browser_state_payload(available=False)),
     )
     _goto_browser(page)

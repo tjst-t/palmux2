@@ -153,7 +153,7 @@ func newTestManager(t *testing.T, containerAddr string) (*Manager, *seqFakeRunti
 		runtime.ExecResult{Stdout: "12345\n", ExitCode: 0}, // 2: launch (PID)
 	)
 	da := &fakeDeviceAdder{}
-	mgr := NewManager(sr, "ws-test-ab12cd34", da.add, nil)
+	mgr := NewManager(func() runtime.Runtime { return sr }, "ws-test-ab12cd34", da.add, nil)
 	return mgr, sr, da
 }
 
@@ -193,11 +193,12 @@ func TestStart_LaunchesChromiumWithCorrectFlags(t *testing.T) {
 			continue
 		}
 		joined := strings.Join(c.cmd, " ")
+		// Modern Chrome ignores --remote-debugging-address (binds 127.0.0.1); we
+		// reach CDP via the relay, so the launch no longer carries that flag.
 		if strings.Contains(joined, chromiumBin) &&
 			strings.Contains(joined, "--headless=new") &&
 			strings.Contains(joined, "--no-sandbox") &&
 			strings.Contains(joined, "--remote-debugging-port=9222") &&
-			strings.Contains(joined, "--remote-debugging-address="+containerAddr) &&
 			strings.Contains(joined, "--remote-allow-origins=*") &&
 			strings.Contains(joined, "--user-data-dir=") &&
 			strings.Contains(joined, "about:blank") {
@@ -238,7 +239,7 @@ func TestStart_Idempotent(t *testing.T) {
 		runtime.ExecResult{ExitCode: 0},                    // kill -0 (alive)
 	)
 	da := &fakeDeviceAdder{}
-	mgr := NewManager(sr, "ws-test-ab12cd34", da.add, nil)
+	mgr := NewManager(func() runtime.Runtime { return sr }, "ws-test-ab12cd34", da.add, nil)
 
 	ctx := context.Background()
 	if _, err := mgr.Start(ctx); err != nil {
@@ -311,15 +312,18 @@ func TestStop_KillsChromium(t *testing.T) {
 	calls := make([]fakeExecCall, len(sr.calls))
 	copy(calls, sr.calls)
 	sr.mu.Unlock()
+	// Stop reaps all chromium via `pkill -f 'remote-debugging-port=9222'`
+	// (kill <pid> alone does not reap chromium's child/zygote tree).
 	found := false
 	for _, c := range calls {
-		if len(c.cmd) >= 2 && c.cmd[0] == "kill" && c.cmd[1] == "9999" {
+		j := strings.Join(c.cmd, " ")
+		if strings.Contains(j, "pkill") && strings.Contains(j, "remote-debugging-port=9222") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("[AC-S62374c-1-1] Stop did not issue `kill 9999`, recorded: %v", calls)
+		t.Errorf("[AC-S62374c-1-1] Stop did not pkill chromium, recorded: %v", calls)
 	}
 }
 
@@ -358,12 +362,11 @@ func TestStop_WhenAlreadyStopped(t *testing.T) {
 
 func TestStart_ChromiumMissing(t *testing.T) {
 	// sh -c "command -v chromium ..." returns exit 1 + no "found" in stdout.
-	sr := newSeqFakeRuntime("10.100.0.2",
-		runtime.ExecResult{Stdout: "", ExitCode: 1}, // presence check → not found
-	)
+	sr := newSeqFakeRuntime("10.100.0.2")
+	sr.noChromium = true // presence check → not found
 
 	da := &fakeDeviceAdder{}
-	mgr := NewManager(sr, "ws-nochrome-ab12", da.add, nil)
+	mgr := NewManager(func() runtime.Runtime { return sr }, "ws-nochrome-ab12", da.add, nil)
 
 	_, err := mgr.Start(context.Background())
 	if err == nil {
@@ -385,7 +388,7 @@ func TestStart_ChromiumMissing(t *testing.T) {
 func TestStart_NoContainerIP(t *testing.T) {
 	sr := newSeqFakeRuntime("") // no IP — Status().Address = ""
 	da := &fakeDeviceAdder{}
-	mgr := NewManager(sr, "ws-noip-ab12", da.add, nil)
+	mgr := NewManager(func() runtime.Runtime { return sr }, "ws-noip-ab12", da.add, nil)
 
 	_, err := mgr.Start(context.Background())
 	if err == nil {
@@ -408,10 +411,11 @@ func TestStart_NoContainerIP(t *testing.T) {
 // This lets us give different results to the presence-check sh call and the
 // launch sh call.
 type seqFakeRuntime struct {
-	mu      sync.Mutex
-	calls   []fakeExecCall
-	results []runtime.ExecResult // results[i] returned for the i-th Exec call
-	addr    string
+	mu         sync.Mutex
+	calls      []fakeExecCall
+	results    []runtime.ExecResult // results[i] returned for the i-th Exec call
+	addr       string
+	noChromium bool // when true, the `command -v chromium` probe returns not-found
 }
 
 func newSeqFakeRuntime(addr string, results ...runtime.ExecResult) *seqFakeRuntime {
@@ -422,6 +426,24 @@ func (s *seqFakeRuntime) Exec(_ context.Context, cmd []string, opts runtime.Exec
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls = append(s.calls, fakeExecCall{cmd: append([]string(nil), cmd...), opts: opts})
+	// Content-aware responses (robust to call ordering / added relay+CDP calls):
+	joined := strings.Join(cmd, " ")
+	switch {
+	case strings.Contains(joined, "command -v "+chromiumBin):
+		if s.noChromium {
+			return runtime.ExecResult{Stdout: "", ExitCode: 1}, nil
+		}
+		return runtime.ExecResult{Stdout: "found\n"}, nil
+	case strings.Contains(joined, "/json/version"): // waitLocalCDP probe
+		return runtime.ExecResult{Stdout: "200"}, nil
+	case strings.Contains(joined, "python3") && strings.Contains(joined, "base64"): // startRelay
+		return runtime.ExecResult{Stdout: "9001\n"}, nil
+	case strings.Contains(joined, chromiumBin) && strings.Contains(joined, "nohup"): // launchChromium
+		return runtime.ExecResult{Stdout: "12345\n"}, nil
+	case len(cmd) >= 2 && cmd[0] == "kill" && cmd[1] == "-0": // isPIDAlive → alive
+		return runtime.ExecResult{ExitCode: 0}, nil
+	}
+	// Allow explicit per-call overrides (rarely needed) by index for any leftover.
 	idx := len(s.calls) - 1
 	if idx < len(s.results) {
 		return s.results[idx], nil
@@ -461,7 +483,7 @@ func TestPersistenceMount(t *testing.T) {
 	)
 
 	da := &fakeDeviceAdder{}
-	mgr := NewManager(sr, inst, da.add, nil)
+	mgr := NewManager(func() runtime.Runtime { return sr }, inst, da.add, nil)
 
 	ctx := context.Background()
 	_, _ = mgr.Start(ctx) // may succeed or fail; we care about da calls

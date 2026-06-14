@@ -3,9 +3,9 @@
   "entry_point": "api",
   "summary": "コンテナ内ブラウザのライフサイクルを REST + 状態購読で駆動する。明示 Start/Stop、永続 profile、CDP 非公開を、ユーザの実体エントリ (HTTP + コンテナ実機) から観察する。",
   "endpoints": [
-    { "method": "GET",  "path": "/api/repos/{repoId}/branches/{branchId}/tabs/browser/state", "response": "{state:'stopped'|'starting'|'running', cdpReachable:bool, url?:string, available:bool}" },
-    { "method": "POST", "path": "/api/repos/{repoId}/branches/{branchId}/tabs/browser/start", "response": "{state:'starting'|'running'}" },
-    { "method": "POST", "path": "/api/repos/{repoId}/branches/{branchId}/tabs/browser/stop",  "response": "{state:'stopped'}" }
+    { "method": "GET",  "path": "/api/repos/{repoId}/branches/{branchId}/browser/state", "response": "{state:'stopped'|'starting'|'running', cdpReachable:bool, url?:string, available:bool}" },
+    { "method": "POST", "path": "/api/repos/{repoId}/branches/{branchId}/browser/start", "response": "{state:'starting'|'running'}" },
+    { "method": "POST", "path": "/api/repos/{repoId}/branches/{branchId}/browser/stop",  "response": "{state:'stopped'}" }
   ],
   "scenarios": [
     {

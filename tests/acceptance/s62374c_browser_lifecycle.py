@@ -141,7 +141,7 @@ def main() -> int:
              f"(see images/workspace-default/build.sh). container={CONTAINER!r}")
 
     # ── [AC-S62374c-1-6] initial state = stopped ────────────────────────────
-    state_before = api("GET", "tabs/browser/state")
+    state_before = api("GET", "browser/state")
     if state_before.get("state") == "stopped" and state_before.get("available") is True:
         ok("AC-S62374c-1-6-pre", f"initial state=stopped, available=true: {state_before}")
     else:
@@ -156,7 +156,7 @@ def main() -> int:
              f"chromium found before explicit start: {r_ps_before.stdout.strip()[:200]!r}")
 
     # ── [AC-S62374c-1-1] POST start → chromium launches ─────────────────────
-    start_resp = api("POST", "tabs/browser/start")
+    start_resp = api("POST", "browser/start")
     if start_resp.get("state") in ("starting", "running"):
         ok("AC-S62374c-1-1-start", f"POST start → state={start_resp.get('state')!r}")
     else:
@@ -165,7 +165,7 @@ def main() -> int:
     # Wait up to 15 s for the browser to reach 'running'.
     running = False
     for _ in range(30):
-        sv = api("GET", "tabs/browser/state")
+        sv = api("GET", "browser/state")
         if sv.get("state") == "running":
             running = True
             break
@@ -189,7 +189,11 @@ def main() -> int:
 
     # Verify --user-data-dir appears in the chromium command line.
     if chromium_running:
-        r_cmd = cexec("cat /proc/$(pgrep -x chromium | head -1)/cmdline 2>/dev/null | tr '\\0' ' '")
+        # The binary is google-chrome (symlinked as chromium), so its process
+        # comm is not exactly "chromium"; match the main process by its unique
+        # remote-debugging-port flag. (Empty pgrep → cat /proc//cmdline would
+        # read the KERNEL cmdline, hence the old BOOT_IMAGE false read.)
+        r_cmd = cexec("cat /proc/$(pgrep -f 'remote-debugging-port=9222' | head -1)/cmdline 2>/dev/null | tr '\\0' ' '")
         proc_cmd = r_cmd.stdout
         if "--remote-debugging-port=9222" in proc_cmd:
             ok("AC-S62374c-1-1-flags", "chromium has --remote-debugging-port=9222")
@@ -247,7 +251,7 @@ def main() -> int:
         # Verify chromium is NOT listening on 0.0.0.0:9222 inside the container.
         r_ss = cexec("ss -tlnH 'sport = :9222' 2>/dev/null || ss -tln 2>/dev/null | grep 9222 || echo NOTHING")
         listening = r_ss.stdout.strip()
-        if "0.0.0.0" in listening or "*:9222" in listening:
+        if "0.0.0.0:9222" in listening or "*:9222" in listening:
             fail("AC-S62374c-1-3-scope",
                  f"CDP is bound to 0.0.0.0 or * (should be bridge IP only): {listening}")
         else:
@@ -255,14 +259,18 @@ def main() -> int:
                f"CDP not bound to 0.0.0.0/* (bridge-only binding): {listening[:120]!r}")
 
     # ── [AC-S62374c-1-1] idempotent start ───────────────────────────────────
-    start_resp2 = api("POST", "tabs/browser/start")
+    start_resp2 = api("POST", "browser/start")
     if start_resp2.get("state") in ("starting", "running"):
         ok("AC-S62374c-1-1-idempotent", f"second POST start → {start_resp2.get('state')!r} (no double-launch)")
     else:
         fail("AC-S62374c-1-1-idempotent", f"second POST start unexpected: {start_resp2}")
 
     # Still only one chromium process.
-    r_ps2 = cexec("pgrep -cx chromium 2>/dev/null || echo 0")
+    # Still only one MAIN chromium process. chromium is multi-process: the
+    # zygote/renderer/gpu helpers also carry --remote-debugging-port, so count
+    # only the main browser process (the one WITHOUT --type=).
+    r_ps2 = cexec("ps -eo args 2>/dev/null | grep -- 'remote-debugging-port=9222' "
+                  "| grep -v -- '--type=' | grep -v grep | wc -l")
     proc_count = r_ps2.stdout.strip()
     if proc_count.isdigit() and int(proc_count) == 1:
         ok("AC-S62374c-1-1-idempotent-count", "still exactly 1 chromium process after second start")
@@ -271,7 +279,7 @@ def main() -> int:
              f"chromium process count = {proc_count!r} (expected 1) after idempotent start")
 
     # ── [AC-S62374c-1-1] POST stop → chromium killed ─────────────────────────
-    stop_resp = api("POST", "tabs/browser/stop")
+    stop_resp = api("POST", "browser/stop")
     if stop_resp.get("state") == "stopped":
         ok("AC-S62374c-1-1-stop", "POST stop → state=stopped")
     else:
@@ -287,7 +295,7 @@ def main() -> int:
              f"chromium still running after stop: {r_ps3.stdout.strip()[:200]!r}")
 
     # GET state after stop.
-    sv_stopped = api("GET", "tabs/browser/state")
+    sv_stopped = api("GET", "browser/state")
     if sv_stopped.get("state") == "stopped":
         ok("AC-S62374c-1-6-stopped", f"GET state = stopped after stop: {sv_stopped}")
     else:
@@ -301,7 +309,7 @@ def main() -> int:
     host_branch = os.environ.get("PALMUX2_E2E_HOST_BRANCH", "")
     if host_repo and host_branch:
         r_host = ssh(
-            f"curl -s {shq(PALMUX_URL)}/api/repos/{host_repo}/branches/{host_branch}/tabs/browser/state",
+            f"curl -s {shq(PALMUX_URL)}/api/repos/{host_repo}/branches/{host_branch}/browser/state",
             timeout=15,
         )
         try:

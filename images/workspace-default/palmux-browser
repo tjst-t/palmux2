@@ -37,7 +37,7 @@ function browserRestBase() {
   }
   // Replace /api/notify suffix with the browser REST base path.
   return notifyURL.replace(/\/api\/notify$/, '') +
-    `/api/repos/${repoID}/branches/${branchID}/tabs/browser`;
+    `/api/repos/${repoID}/branches/${branchID}/browser`;
 }
 
 function cdpURL() {
