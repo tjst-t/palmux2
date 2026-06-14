@@ -116,8 +116,12 @@ incus exec "${BUILD_INST}" </dev/null -- sh -c '
   apt-get update -qq
   apt-get install -y --no-install-recommends \
     tmux git curl ca-certificates python3 \
-    eza ripgrep zoxide fzf git-delta unzip openssh-client gpg
+    eza ripgrep zoxide fzf git-delta unzip openssh-client gpg \
+    fonts-noto-cjk fonts-noto-color-emoji
 '
+# CJK + emoji fonts: without these, the in-container chromium (Browser tab)
+# renders Japanese/Chinese/Korean as tofu (□). fonts-noto-cjk covers JP/CN/KR;
+# fonts-noto-color-emoji covers emoji. (S62374c-followup)
 
 # gh (GitHub CLI) — the agent uses it for GitHub ops; bake it via the official
 # apt repo (not in Ubuntu main). The token/identity is bind-mounted by palmux
