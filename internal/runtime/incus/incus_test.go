@@ -1186,3 +1186,123 @@ func TestScanPortsOnce_IdempotentWhenAlreadyMapped(t *testing.T) {
 			relayStartCount, callCount)
 	}
 }
+
+// -------------------------------------------------------------------------
+// S7364e3: image drift detection + container regeneration
+// -------------------------------------------------------------------------
+
+// imageListJSON builds the `incus image list <alias> -f json` stdout for an
+// image with the given fingerprint aliased as palmux-ws.
+func imageListJSON(fp string) string {
+	return `[{"fingerprint":"` + fp + `","aliases":[{"name":"palmux-ws"}]}]`
+}
+
+func newDriftRuntime(t *testing.T, inst string, fr *fakeRunner) *incusRuntime {
+	t.Helper()
+	return New(runtime.Config{Kind: runtime.KindIncusContainer, Image: "palmux-ws"}, inst, fr.asRunner(), nil).(*incusRuntime)
+}
+
+func TestIsImageStale(t *testing.T) {
+	const inst = "ws-drift-aabbccdd"
+	cases := []struct {
+		name      string
+		aliasList string // stdout for "image list palmux-ws"
+		aliasCode int
+		baseImage string // stdout for "config get ... volatile.base_image"
+		baseCode  int
+		want      bool
+	}{
+		{"stale when base != alias fp", imageListJSON("newfp1111"), 0, "oldfp0000\n", 0, true},
+		{"fresh when base == alias fp", imageListJSON("samefp2222"), 0, "samefp2222\n", 0, false},
+		{"not stale when alias absent", "[]", 0, "oldfp0000\n", 0, false},
+		{"not stale when base unknown", imageListJSON("newfp1111"), 0, "", 0, false},
+		{"not stale when base key missing (non-zero)", imageListJSON("newfp1111"), 0, "", 1, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fr := newFakeRunner()
+			fr.setResult("image list", fakeResult{stdout: tc.aliasList, code: tc.aliasCode})
+			fr.setResult("config get", fakeResult{stdout: tc.baseImage, code: tc.baseCode})
+			rt := newDriftRuntime(t, inst, fr)
+			got, err := rt.IsImageStale(context.Background())
+			if err != nil {
+				t.Fatalf("IsImageStale: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("[AC-S7364e3-1-1/1-4] IsImageStale=%v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRegenerate_ProbeFailureKeepsContainer verifies the transactional gate:
+// when the new image fails to launch, the real container is NOT destroyed.
+// [AC-S7364e3-1-2]
+func TestRegenerate_ProbeFailureKeepsContainer(t *testing.T) {
+	const inst = "ws-regen-11223344"
+	fr := newFakeRunner()
+	// Probe launch fails (broken/missing image).
+	fr.setResult("launch palmux-ws", fakeResult{stderr: "Error: image not found", code: 1})
+	rt := newDriftRuntime(t, inst, fr)
+
+	err := rt.Regenerate(context.Background())
+	if err == nil {
+		t.Fatalf("[AC-S7364e3-1-2] expected Regenerate to fail when probe launch fails")
+	}
+
+	calls := fr.recorded()
+	// The real container must NOT be deleted when the probe failed.
+	for _, c := range calls {
+		if len(c) >= 3 && c[0] == "delete" && c[1] == "--force" && c[2] == inst {
+			t.Errorf("[AC-S7364e3-1-2] real container %s was deleted despite probe failure (rollback broken): %v", inst, calls)
+		}
+	}
+	// A probe launch must have been attempted.
+	if _, ok := findCall(calls, "launch", "palmux-ws"); !ok {
+		t.Errorf("[AC-S7364e3-1-2] expected a probe 'incus launch palmux-ws ...', not found in %v", calls)
+	}
+}
+
+// TestRegenerate_Success verifies probe → destroy old → recreate ordering.
+// [AC-S7364e3-1-2]
+func TestRegenerate_Success(t *testing.T) {
+	const inst = "ws-regen-55667788"
+	fr := newFakeRunner()
+	// Probe launch + waitReady + containerIP all succeed by default ("*"=code0).
+	fr.setResult("exec "+inst, fakeResult{code: 0})
+	fr.setResult("list "+inst, fakeResult{stdout: "[]", code: 0})
+	rt := newDriftRuntime(t, inst, fr)
+
+	if err := rt.Regenerate(context.Background()); err != nil {
+		t.Fatalf("Regenerate: %v", err)
+	}
+
+	calls := fr.recorded()
+	probeIdx, oldDelIdx, initIdx := -1, -1, -1
+	for i, c := range calls {
+		switch {
+		case len(c) >= 2 && c[0] == "launch" && c[1] == "palmux-ws":
+			if probeIdx == -1 {
+				probeIdx = i
+			}
+		case len(c) >= 3 && c[0] == "delete" && c[1] == "--force" && c[2] == inst:
+			oldDelIdx = i
+		case len(c) >= 3 && c[0] == "init" && c[2] == inst:
+			initIdx = i
+		}
+	}
+	if probeIdx == -1 {
+		t.Fatalf("[AC-S7364e3-1-2] no probe launch recorded: %v", calls)
+	}
+	if oldDelIdx == -1 {
+		t.Fatalf("[AC-S7364e3-1-2] old container was not deleted: %v", calls)
+	}
+	if initIdx == -1 {
+		t.Fatalf("[AC-S7364e3-1-2] new container was not re-initialised: %v", calls)
+	}
+	// Order: probe verified BEFORE the old container is destroyed; recreate after.
+	if !(probeIdx < oldDelIdx && oldDelIdx < initIdx) {
+		t.Errorf("[AC-S7364e3-1-2] wrong order probe=%d oldDelete=%d init=%d (want probe<delete<init): %v",
+			probeIdx, oldDelIdx, initIdx, calls)
+	}
+}

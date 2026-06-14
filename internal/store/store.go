@@ -77,6 +77,13 @@ type Store struct {
 	hub               *EventHub
 	registry          *tab.Registry
 	multiTabHook      MultiTabHook // S009: non-tmux multi providers (Claude)
+
+	// driftMu guards the per-workspace image-drift cache. The 10s scanPorts loop
+	// runs the (incus-CLI) staleness check and updates this map; RuntimeViewFor
+	// reads it cheaply (no CLI) so hot list endpoints stay fast. Key:
+	// "repoID/branchID". (S7364e3)
+	driftMu sync.RWMutex
+	drift   map[string]bool
 }
 
 // New creates a Store and hydrates it from disk. It does NOT start the sync
@@ -104,6 +111,7 @@ func New(deps Deps) (*Store, error) {
 		ghqRoot:           deps.GHQRoot,
 		hub:               hub,
 		registry:          deps.Registry,
+		drift:             map[string]bool{},
 	}
 	if err := s.hydrate(context.Background()); err != nil {
 		return nil, fmt.Errorf("store: hydrate: %w", err)
@@ -305,7 +313,39 @@ func (s *Store) RuntimeViewFor(repoID, branchID string) *domain.RuntimeView {
 		State:   string(st.State),
 		Address: st.Address,
 		Error:   st.Error,
+		Stale:   s.driftCached(repoID, branchID),
 	}
+}
+
+// driftKey is the map key for the per-workspace image-drift cache.
+func driftKey(repoID, branchID string) string { return repoID + "/" + branchID }
+
+// driftCached returns the last-computed image-drift result for a workspace
+// (false if never computed). Cheap — no incus CLI. (S7364e3)
+func (s *Store) driftCached(repoID, branchID string) bool {
+	s.driftMu.RLock()
+	defer s.driftMu.RUnlock()
+	return s.drift[driftKey(repoID, branchID)]
+}
+
+// setDriftCached records a workspace's image-drift result and reports whether
+// the value changed (so callers publish a drift event only on transitions).
+// (S7364e3)
+func (s *Store) setDriftCached(repoID, branchID string, stale bool) (changed bool) {
+	key := driftKey(repoID, branchID)
+	s.driftMu.Lock()
+	defer s.driftMu.Unlock()
+	prev, known := s.drift[key]
+	s.drift[key] = stale
+	return !known || prev != stale
+}
+
+// clearDriftCached drops a workspace's cached drift result (e.g. after the
+// container is regenerated or closed). (S7364e3)
+func (s *Store) clearDriftCached(repoID, branchID string) {
+	s.driftMu.Lock()
+	defer s.driftMu.Unlock()
+	delete(s.drift, driftKey(repoID, branchID))
 }
 
 // OpenBranchInternal exposes the internal open-branch path to server handlers.

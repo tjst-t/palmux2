@@ -1,0 +1,17 @@
+{
+  "sprint": "S7364e3",
+  "title": "Workspace コンテナのイメージ更新 (drift 検出 + ワンクリック再生成)",
+  "planning_decisions": [
+    {"decision": "drift 判定は incus 専用 capability interface (ImageDriftChecker) で実装", "rationale": "host runtime にイメージ概念は無い。DESIGN_PRINCIPLES p2/p6: 共有 Runtime interface を膨らませず、optional interface を store が type-assert する (tab の HeadChangedHook と同パターン)"},
+    {"decision": "stale = container の volatile.base_image != 現行 palmux-ws alias の fingerprint。alias 不在/host では stale=false", "rationale": "AC-S7364e3-1-1/1-4。fingerprint 取得は incus image info palmux-ws / incus config get <inst> volatile.base_image を r.run 経由で (incus.go の containerIP と同パターン)"},
+    {"decision": "drift 検出は既存 10s scanPorts ループ (sync_worktree.go) に相乗り", "rationale": "DESIGN_PRINCIPLES p6 既存資産活用。EventBranchPortsDetected と同じループで EventBranchRuntimeDrift を変化時のみ publish"},
+    {"decision": "再生成は RestartBranchRuntime のトランザクショナル機構を流用した RegenerateBranchContainer (同 kind incus→incus を強制 Stop→Start、失敗時ロールバック)", "rationale": "AC-S7364e3-1-2。RestartBranchRuntime は oldKind==newKind で no-op early-return するため、再生成専用の sibling method で force する。bind-mount は再 add され claude は --resume 復帰"},
+    {"decision": "自動再生成はしない。更新は明示 POST のみ", "rationale": "AC-S7364e3-1-3 / VISION priority_rule 4 lazy spawn・走行中 claude/tmux を勝手に落とさない"},
+    {"decision": "palmux-ws alias 文字列を共有定数化 (現状 incus.go 内 3 箇所ハードコード)", "rationale": "DESIGN_PRINCIPLES p7 明示的・マジック文字列回避。drift 判定でも参照するため"},
+    {"decision": "UI: header runtime chip + drawer badge に stale バッジ、更新確認モーダルは runtime-change-confirm.tsx を流用、進行 starting→ready 表示、失敗ロールバック表示", "rationale": "AC-S7364e3-2-1..2-4 / priority_rule 10 mobile parity"}
+  ],
+  "gui_spec": {},
+  "implementation_decisions": [],
+  "review_decisions": [],
+  "done_judgment": {}
+}

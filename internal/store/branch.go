@@ -618,3 +618,109 @@ func (s *Store) RestartBranchRuntime(ctx context.Context, repoID, branchID strin
 		"repoID", repoID, "branchID", branchID, "newKind", newKind)
 	return true, nil
 }
+
+// RegenerateBranchContainer recreates an incus-container workspace's container
+// from the current palmux-ws image alias (used after the image is rebuilt +
+// re-aliased so an existing container can pick up new tooling). It reuses the
+// runtime-switch transactional spirit: the runtime first verifies the new image
+// launches in a throwaway probe and only then destroys + recreates the real
+// container, so a broken/missing image leaves the existing container untouched.
+// The container rootfs is disposable (all real state is bind-mounted); the tmux
+// session is recreated with claude --resume.
+//
+// Returns (false, nil) for host runtimes or runtimes that don't support
+// regeneration (nothing to do). (S7364e3) [AC-S7364e3-1-2] [AC-S7364e3-1-3]
+func (s *Store) RegenerateBranchContainer(ctx context.Context, repoID, branchID string) (regenerated bool, err error) {
+	if s.deps.RuntimeRegistry == nil {
+		return false, nil
+	}
+
+	// ── 1. Look up the open branch ───────────────────────────────────────────
+	s.mu.RLock()
+	repo, ok := s.repos[repoID]
+	var branch *domain.Branch
+	if ok {
+		for _, b := range repo.OpenBranches {
+			if b.ID == branchID {
+				branch = b
+				break
+			}
+		}
+	}
+	s.mu.RUnlock()
+	if branch == nil {
+		return false, fmt.Errorf("RegenerateBranchContainer: branch %s/%s not open", repoID, branchID)
+	}
+
+	// ── 2. Resolve runtime + require incus regeneration capability ───────────
+	rt := s.deps.RuntimeRegistry.Get(repoID, branchID)
+	if rt == nil || rt.Kind() != runtime.KindIncusContainer {
+		// Host (or unavailable) — image update is not applicable.
+		return false, nil
+	}
+	regen, ok := rt.(runtime.ContainerRegenerator)
+	if !ok {
+		return false, nil
+	}
+
+	s.logger.Info("store.RegenerateBranchContainer: regenerating container",
+		"repoID", repoID, "branchID", branchID, "session", branch.TabSet.TmuxSession)
+
+	// ── 3. Transactional recreate (probe → destroy old → recreate). On failure
+	// the old container is kept and we return the error WITHOUT touching the
+	// session/tabs — a failed update is a clean no-op.
+	if regenErr := regen.Regenerate(ctx); regenErr != nil {
+		s.logger.Error("RegenerateBranchContainer: regenerate failed — existing container kept",
+			"repoID", repoID, "branchID", branchID, "err", regenErr)
+		return false, fmt.Errorf("regenerate container: %w", regenErr)
+	}
+
+	// ── 4. Recreate the tmux session in the fresh container (claude --resume) ─
+	specs, specErr := s.collectOpenSpecs(ctx, branch, true)
+	if specErr != nil {
+		return false, fmt.Errorf("RegenerateBranchContainer collectOpenSpecs: %w", specErr)
+	}
+	if sessErr := s.ensureSession(ctx, branch, specs); sessErr != nil {
+		return false, fmt.Errorf("RegenerateBranchContainer ensureSession: %w", sessErr)
+	}
+
+	// ── 5. Recompute tabs + clear drift + publish events ─────────────────────
+	s.mu.Lock()
+	if r2, ok3 := s.repos[repoID]; ok3 {
+		for _, b := range r2.OpenBranches {
+			if b.ID == branchID {
+				s.recomputeTabs(ctx, b)
+				break
+			}
+		}
+	}
+	s.mu.Unlock()
+
+	// The fresh container is created from the current alias → no longer stale.
+	if s.setDriftCached(repoID, branchID, false) {
+		s.hub.Publish(Event{
+			Type:     EventBranchRuntimeDrift,
+			RepoID:   repoID,
+			BranchID: branchID,
+			Payload:  map[string]any{"stale": false},
+		})
+	}
+
+	rtView := s.RuntimeViewFor(repoID, branchID)
+	s.hub.Publish(Event{
+		Type:     EventBranchRuntimeChanged,
+		RepoID:   repoID,
+		BranchID: branchID,
+		Payload:  rtView,
+	})
+	// branch.restarted forces terminal-views to reconnect to the new container.
+	s.hub.Publish(Event{
+		Type:     "branch.restarted",
+		RepoID:   repoID,
+		BranchID: branchID,
+		Payload:  map[string]any{"runtime": rtView},
+	})
+
+	s.logger.Info("store.RegenerateBranchContainer: done", "repoID", repoID, "branchID", branchID)
+	return true, nil
+}

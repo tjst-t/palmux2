@@ -141,6 +141,7 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("POST /api/repos/{repoId}/branches/{branchId}/promote-subagent", h.promoteSubagentBranch)
 	// S8478ca-5: per-Workspace runtime override.
 	mux.HandleFunc("PATCH /api/repos/{repoId}/branches/{branchId}/runtime", h.patchWorkspaceRuntime)
+	mux.HandleFunc("POST /api/repos/{repoId}/branches/{branchId}/runtime/regenerate", h.postWorkspaceRuntimeUpdate) // S7364e3: image update
 
 	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/commands", h.listCommands)
 	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/portman", h.listRepoPortman)
