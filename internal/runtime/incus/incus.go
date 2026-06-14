@@ -111,6 +111,20 @@ type exposeState struct {
 	url    string // public https URL
 }
 
+// Compile-time assertions that incusRuntime implements the optional capability
+// interfaces the store type-asserts for image drift detection + regeneration.
+var (
+	_ runtime.Runtime              = (*incusRuntime)(nil)
+	_ runtime.ImageDriftChecker    = (*incusRuntime)(nil)
+	_ runtime.ContainerRegenerator = (*incusRuntime)(nil)
+)
+
+// DefaultImageAlias is the incus image alias palmux containers are created from
+// when runtime.Config.Image is empty. Image drift detection (S7364e3) compares a
+// container's volatile.base_image against the fingerprint this alias currently
+// resolves to.
+const DefaultImageAlias = "palmux-ws"
+
 // New returns a runtime.Runtime that manages an Incus container.
 //
 // instName must be a DNS-safe string (≤63 chars, a-z0-9-).  Callers should use
@@ -131,7 +145,7 @@ func NewWithCaddy(cfg runtime.Config, instName string, r runner, cr caddyRunner,
 	}
 	image := cfg.Image
 	if image == "" {
-		image = "palmux-ws"
+		image = DefaultImageAlias
 	}
 	return &incusRuntime{
 		cfg:            runtime.Config{Kind: runtime.KindIncusContainer, Image: image},
@@ -213,7 +227,7 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 
 	image := r.cfg.Image
 	if image == "" {
-		image = "palmux-ws"
+		image = DefaultImageAlias
 	}
 
 	home, err := os.UserHomeDir()
@@ -508,6 +522,152 @@ func (r *incusRuntime) containerIP(ctx context.Context) (string, error) {
 	return "", nil
 }
 
+// imageAlias returns the image alias this container is created from
+// (cfg.Image, which the constructor defaults to DefaultImageAlias).
+func (r *incusRuntime) imageAlias() string {
+	if r.cfg.Image != "" {
+		return r.cfg.Image
+	}
+	return DefaultImageAlias
+}
+
+// aliasFingerprint returns the full fingerprint the image alias currently
+// resolves to, or "" if the alias is not present on this host. This is the
+// "latest" image a fresh container would be created from. (S7364e3)
+func (r *incusRuntime) aliasFingerprint(ctx context.Context) (string, error) {
+	alias := r.imageAlias()
+	stdout, _, code, err := r.run(ctx, "image", "list", alias, "-f", "json")
+	if err != nil {
+		return "", fmt.Errorf("incus image list %s: %w", alias, err)
+	}
+	if code != 0 {
+		// Non-zero here means the query failed; treat as "alias absent".
+		return "", nil
+	}
+	type aliasEntry struct {
+		Name string `json:"name"`
+	}
+	type imgEntry struct {
+		Fingerprint string       `json:"fingerprint"`
+		Aliases     []aliasEntry `json:"aliases"`
+	}
+	var imgs []imgEntry
+	if err := json.Unmarshal([]byte(stdout), &imgs); err != nil {
+		return "", fmt.Errorf("incus image list parse: %w", err)
+	}
+	// `incus image list <alias>` filters by alias/fingerprint substring, so it
+	// can return unrelated images (e.g. "palmux-ws-staging" or a fingerprint
+	// that prefix-matches). Only trust an EXACT alias-name match — otherwise
+	// return "" (no update target → not stale), never a wrong fingerprint.
+	for _, im := range imgs {
+		for _, a := range im.Aliases {
+			if a.Name == alias {
+				return im.Fingerprint, nil
+			}
+		}
+	}
+	return "", nil
+}
+
+// containerBaseImage returns the fingerprint of the image this container was
+// created from (volatile.base_image), or "" if the container does not exist or
+// the key is unset. (S7364e3)
+func (r *incusRuntime) containerBaseImage(ctx context.Context) (string, error) {
+	stdout, _, code, err := r.run(ctx, "config", "get", r.inst, "volatile.base_image")
+	if err != nil {
+		return "", fmt.Errorf("incus config get %s volatile.base_image: %w", r.inst, err)
+	}
+	if code != 0 {
+		// Container absent or key unset → no base image to compare.
+		return "", nil
+	}
+	return strings.TrimSpace(stdout), nil
+}
+
+// IsImageStale reports whether this container was created from an image older
+// than the one the image alias currently resolves to (i.e. the palmux-ws image
+// was rebuilt + re-aliased after this container was created). Returns false when
+// the alias is absent (no update target) or the container's base image is
+// unknown. (S7364e3) [AC-S7364e3-1-1] [AC-S7364e3-1-4]
+func (r *incusRuntime) IsImageStale(ctx context.Context) (bool, error) {
+	aliasFP, err := r.aliasFingerprint(ctx)
+	if err != nil {
+		return false, err
+	}
+	if aliasFP == "" {
+		return false, nil // alias not present → nothing to update to
+	}
+	baseFP, err := r.containerBaseImage(ctx)
+	if err != nil {
+		return false, err
+	}
+	if baseFP == "" {
+		return false, nil // unknown base → don't claim stale
+	}
+	return baseFP != aliasFP, nil
+}
+
+// probeInstanceName derives a DNS-safe throwaway instance name used to verify
+// the image launches before the real container is destroyed during Regenerate.
+func (r *incusRuntime) probeInstanceName() string {
+	const suffix = "-imgprobe"
+	base := r.inst
+	if len(base)+len(suffix) > 63 {
+		base = base[:63-len(suffix)]
+		base = strings.TrimRight(base, "-")
+	}
+	return base + suffix
+}
+
+// verifyImageLaunchable launches a throwaway ephemeral container from the image
+// alias and tears it down, confirming the (possibly rebuilt) image actually
+// boots before Regenerate destroys the real container. This is the
+// transactional gate: if it fails, the caller keeps the old container. (S7364e3)
+func (r *incusRuntime) verifyImageLaunchable(ctx context.Context) error {
+	alias := r.imageAlias()
+	probe := r.probeInstanceName()
+	// Best-effort pre-clean in case a prior probe leaked.
+	_, _, _, _ = r.run(ctx, "delete", "--force", probe)
+	_, stderr, code, err := r.run(ctx, "launch", alias, probe, "--ephemeral")
+	// Always tear the probe down (ephemeral auto-deletes on stop, but force-delete
+	// guards against a half-started instance lingering).
+	defer func() { _, _, _, _ = r.run(ctx, "delete", "--force", probe) }()
+	if err != nil {
+		return fmt.Errorf("probe launch %s: %w", alias, err)
+	}
+	if code != 0 {
+		return fmt.Errorf("probe launch %s failed: %s", alias, strings.TrimSpace(stderr))
+	}
+	return nil
+}
+
+// Regenerate recreates this workspace's container from the current image alias
+// (used after the palmux-ws image is rebuilt + re-aliased). It is transactional
+// against the realistic failure mode: it first verifies the new image launches
+// in a throwaway probe and only then destroys + recreates the real container.
+// If the probe fails (image missing/broken/host misconfigured), the old
+// container is left untouched and an error is returned. The container rootfs is
+// disposable — all real state (~/ghq, ~/.claude, dotfiles) is bind-mounted, so a
+// fresh container re-acquires it; the caller recreates the tmux session
+// (claude --resume). (S7364e3) [AC-S7364e3-1-2]
+func (r *incusRuntime) Regenerate(ctx context.Context) error {
+	// 1. Transactional gate: prove the new image launches before destroying old.
+	if err := r.verifyImageLaunchable(ctx); err != nil {
+		return fmt.Errorf("regenerate %s: new image not launchable, kept existing container: %w", r.inst, err)
+	}
+	// 2. Destroy the old container (also clears its Caddy routes / port state).
+	if err := r.Stop(ctx); err != nil {
+		return fmt.Errorf("regenerate %s: stop old: %w", r.inst, err)
+	}
+	// Stop sets status=stopped, so Start below re-provisions instead of
+	// short-circuiting on the ready-idempotency guard.
+	// 3. Recreate on the current alias (fresh rootfs from the new image).
+	if err := r.Start(ctx); err != nil {
+		return fmt.Errorf("regenerate %s: recreate: %w", r.inst, err)
+	}
+	return nil
+}
+
 // Stop deletes the container with --force (idempotent), and cleans up all
 // Caddy snippets for this workspace.
 // [AC-S8478ca-2-1] [AC-S8478ca-2-4] [AC-S8478ca-4-2]
@@ -522,6 +682,17 @@ func (r *incusRuntime) Stop(ctx context.Context) error {
 	clearSnippets(ctx, r.inst, r.caddyRun, r.log)
 	// Remove all published admin-API routes for this workspace (See8bd4-2).
 	r.unpublishAll(ctx)
+	// S7364e3: the container is gone, so all port-rescue state is invalid. Reset
+	// it so a re-created container (Regenerate reuses this same runtime object)
+	// re-runs ExposePort for localhost-only ports instead of seeing stale
+	// activeMappings entries and skipping the relay (which would leave dev
+	// servers unreachable). unpublishAll already cleared r.exposed.
+	r.activeMappingsMu.Lock()
+	r.activeMappings = map[string]string{}
+	r.activeMappingsMu.Unlock()
+	r.portsMu.Lock()
+	r.lastPorts = nil
+	r.portsMu.Unlock()
 	return nil
 }
 

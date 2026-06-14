@@ -2,15 +2,15 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 53,
+    "sprints_done": 54,
     "sprints_total": 54,
-    "percent": 98,
-    "current_sprint": "S62374c",
-    "done": 53,
+    "percent": 100,
+    "current_sprint": "S7364e3",
+    "done": 54,
     "in_progress": 0,
     "total": 54,
-    "remaining": 1,
-    "percentage": 98
+    "remaining": 0,
+    "percentage": 100
   },
   "execution_order": [
     "S001",
@@ -9233,14 +9233,14 @@
     "S7364e3": {
       "id": "S7364e3",
       "title": "Workspace コンテナのイメージ更新 (drift 検出 + ワンクリック再生成)",
-      "status": "planned",
+      "status": "done",
       "milestone": false,
       "phase": "Phase 5",
       "description": "palmux / palmux-ws イメージを更新しても、既存の incus-container は作成時の image fingerprint に固定されたままで新イメージに追従しない (chromium 等の新機能が入らない)。手動再生成 (runtime switch) は面倒。これを「drift 検出 + ユーザ起点のワンクリック再生成」の仕組みにする。\n\n設計判断 (ユーザ確認済み 2026-06-14):\n  - コンテナ rootfs は使い捨て (~/ghq・~/.claude・dotfiles・profile は全部 host bind-mount)。失うのは in-container の npm-g/apt パッケージと走行プロセスのみで、tmux は再生成・claude は --resume で復帰 → 再生成は安全。\n  - **自動再生成はしない** (走行中の claude/tmux を勝手に落とすのは破壊的)。drift は能動的に提示するが、再生成はユーザ明示アクション。\n  - 再生成は既存の runtime-switch トランザクショナル機構を再利用 (新コンテナ起動成功を確認してから旧を破棄、失敗時ロールバック)。\n  - 新規 Workspace は自動的に新イメージを使うので自然に世代交代もする。\n\n依存: S8478ca (runtime switch のトランザクショナル機構) + S62374c (chromium 同梱でイメージ更新が現実の運用課題になった)。VISION 適合 (複数 Workspace 並行運用・シングルユーザ自前ホスティング)。",
       "stories": {
         "S7364e3-1": {
           "id": "S7364e3-1",
-          "status": "planned",
+          "status": "done",
           "title": "コンテナの image drift 検出 + 「更新」アクション (backend)",
           "user_story": "複数 Workspace を運用する自分として、palmux/イメージ更新後に各コンテナが古いイメージのままかを検知し、新イメージで作り直せるようにしたい。なぜなら、古いコンテナには新機能 (chromium 等) が無く、手動再生成は面倒だから。",
           "acceptance_criteria": [
@@ -9248,53 +9248,53 @@
               "id": "AC-S7364e3-1-1",
               "description": "incus-container Workspace の running container の volatile.base_image を現在の palmux-ws alias の fingerprint と比較し、古ければ stale=true として API (workspace runtime view) で公開する。",
               "test": "tests/acceptance/s7364e3_image_update.py",
-              "status": "pending"
+              "status": "passing"
             },
             {
               "id": "AC-S7364e3-1-2",
               "description": "「更新」アクション (POST) で、既存の runtime-switch トランザクショナル機構を再利用してコンテナを新イメージで再生成する (新コンテナ起動成功を確認してから旧を破棄、失敗時ロールバックで旧コンテナ維持)。bind-mount 状態は保持され、claude は --resume で復帰する。",
               "test": "tests/acceptance/s7364e3_image_update.py",
-              "status": "pending"
+              "status": "passing"
             },
             {
               "id": "AC-S7364e3-1-3",
               "description": "自動再生成は行わない (走行中の claude/tmux を明示操作なしに落とさない)。更新は明示アクションのみ。",
               "test": "tests/acceptance/s7364e3_image_update.py",
-              "status": "pending"
+              "status": "passing"
             },
             {
               "id": "AC-S7364e3-1-4",
               "description": "host runtime / palmux-ws alias 不在 / 既に最新イメージのコンテナでは stale=false (更新対象外)。",
               "test": "tests/acceptance/s7364e3_image_update.py",
-              "status": "pending"
+              "status": "passing"
             }
           ],
           "tasks": {
             "S7364e3-1-1": {
               "id": "S7364e3-1-1",
-              "status": "pending",
+              "status": "done",
               "title": "incus runtime に BaseImageFingerprint() + 現行 palmux-ws alias fingerprint 取得 + stale 判定"
             },
             "S7364e3-1-2": {
               "id": "S7364e3-1-2",
-              "status": "pending",
+              "status": "done",
               "title": "「更新」= 新イメージで再生成 (runtime switch のトランザクショナル経路を流用、ロールバック付き)"
             },
             "S7364e3-1-3": {
               "id": "S7364e3-1-3",
-              "status": "pending",
+              "status": "done",
               "title": "API: workspace runtime view に stale フラグ + 更新 endpoint (events WS で drift 変化を broadcast)"
             },
             "S7364e3-1-4": {
               "id": "S7364e3-1-4",
-              "status": "pending",
+              "status": "done",
               "title": "acceptance test (実機 incus: 古イメージ→stale検出→更新→新イメージ確認→claude復帰)"
             }
           }
         },
         "S7364e3-2": {
           "id": "S7364e3-2",
-          "status": "planned",
+          "status": "done",
           "title": "Workspace 更新 UI (drift バッジ + ワンクリック更新)",
           "user_story": "PC・スマホから作業する自分として、どの Workspace が古いイメージかを一目で分かり、ワンクリックで更新したい。なぜなら、更新タイミングは自分で選びつつ取りこぼさないようにしたいから。",
           "acceptance_criteria": [
@@ -9302,46 +9302,46 @@
               "id": "AC-S7364e3-2-1",
               "description": "stale な incus-container Workspace に、Drawer エントリ / Header の runtime chip で「更新あり」バッジが表示される。",
               "test": "tests/e2e/s7364e3_image_update_ui.py",
-              "status": "pending"
+              "status": "passing"
             },
             {
               "id": "AC-S7364e3-2-2",
               "description": "バッジ/メニューから「Workspace を更新」を選ぶと、再生成の確認 (中の claude/tmux が再起動する旨の注意) → 実行で状態が starting→ready に進行表示される。",
               "test": "tests/e2e/s7364e3_image_update_ui.py",
-              "status": "pending"
+              "status": "passing"
             },
             {
               "id": "AC-S7364e3-2-3",
               "description": "更新失敗時は旧コンテナが維持され (ロールバック)、UI にエラーが表示される。",
               "test": "tests/e2e/s7364e3_image_update_ui.py",
-              "status": "pending"
+              "status": "passing"
             },
             {
               "id": "AC-S7364e3-2-4",
               "description": "host runtime / 既に最新のコンテナにはバッジを表示しない。",
               "test": "tests/e2e/s7364e3_image_update_ui.py",
-              "status": "pending"
+              "status": "passing"
             }
           ],
           "tasks": {
             "S7364e3-2-1": {
               "id": "S7364e3-2-1",
-              "status": "pending",
+              "status": "done",
               "title": "drift state を events WS で購読し store に反映"
             },
             "S7364e3-2-2": {
               "id": "S7364e3-2-2",
-              "status": "pending",
+              "status": "done",
               "title": "Drawer エントリ + runtime chip に「更新あり」バッジ (data-testid)"
             },
             "S7364e3-2-3": {
               "id": "S7364e3-2-3",
-              "status": "pending",
+              "status": "done",
               "title": "更新確認モーダル + 実行アクション + 進行/失敗表示"
             },
             "S7364e3-2-4": {
               "id": "S7364e3-2-4",
-              "status": "pending",
+              "status": "done",
               "title": "e2e (実機 UI: バッジ表示→更新→ready、host で非表示)"
             }
           }
@@ -9819,6 +9819,20 @@
       "description": "(S8478ca 由来 / 将来 Sprint) Workspace 配下のタブとして Bash の隣に Browser タブ (embed view, NeedsTmuxWindow=false) を追加。Neko (コンテナ化された仮想ブラウザ) を別コンテナ (Docker-in-Incus or 直接 Incus) で起こし、frontend は Caddy 経由の Neko UI を iframe 埋め込みするだけ。ユーザが認証したブラウザセッション (ログイン cookie) を Neko が保持し、Claude Code が playwright-cli の connectOverCDP でその実ブラウザを操作する。\n\n設計済み論点 (docs/workspace-runtime-design.md §7): (1) WebRTC メディアは Caddy(HTTP) を通らない → NEKO_WEBRTC_UDPMUX 固定 + NAT1TO1 + UDP proxy device (or coturn/TURN) で UDP 1-2 ポートだけ出す。S8478ca の ExposePort{Proto:udp,HostPort>0} 経路を使用。(2) CDP の localhost/Origin ガードは --remote-debugging-address=0.0.0.0 + --remote-allow-origins + bind=instance proxy device で吸収、または playwright を Neko 同居。(3) 認証セッションは ~/.config/palmux/neko-profiles/<WorkspaceID> に永続 bind-mount (コンテナは揮発・プロファイルは永続の例外)。WorkspaceID は worktree path 由来で checkout 不変。\n\n前提: S8478ca (Workspace Runtime) 完了。独立 Sprint 化 (UDP/WebRTC/CDP/永続プロファイルを含むため)。",
       "added_in": "S8478ca",
       "reason": "S8478ca propose 時にユーザ確定。設計は workspace-runtime-design.md §7 で済。実装は Runtime 基盤完成後の将来 Sprint。"
+    },
+    {
+      "id": "bl-browser-regen-reset",
+      "title": "Browser tab Manager をコンテナ再生成 (S7364e3) 時にリセット",
+      "detail": "RegenerateBranchContainer 後、in-container Browser (S62374c) Manager が state=running + stale cdpAddr/PID のまま。branch.restarted で browser Manager を Stop/reset する。現状は手動 Stop+Start か Start の self-heal (isPIDAlive) で復帰。",
+      "source": "S7364e3 review",
+      "severity": "minor"
+    },
+    {
+      "id": "bl-drift-scan-efficiency",
+      "title": "image drift スキャンの効率化 (alias fingerprint を per-scan キャッシュ)",
+      "detail": "drift 判定が incus workspace ごとに 10s 毎 2 CLI 呼び。同一 palmux-ws alias の image list を per-workspace で繰り返す。alias fingerprint を per-scan cycle 1 回に hoist するか TTL キャッシュ。single-user/少 workspace 前提では許容範囲。",
+      "source": "S7364e3 review",
+      "severity": "minor"
     }
   ]
 }

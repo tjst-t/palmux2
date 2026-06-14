@@ -176,6 +176,45 @@ func (h *handlers) patchWorkspaceRuntime(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+// ─── POST /api/repos/{repoId}/branches/{branchId}/runtime/regenerate ────────
+//
+// S7364e3: recreate an incus-container workspace's container from the current
+// palmux-ws image alias (image update). Transactional — a failed update keeps
+// the existing container and reports the error. Emits branch.runtimeChanged +
+// branch.runtimeDrift + branch.restarted WS events on success.
+func (h *handlers) postWorkspaceRuntimeUpdate(w http.ResponseWriter, r *http.Request) {
+	repoID := r.PathValue("repoId")
+	branchID := r.PathValue("branchId")
+
+	regenerated, err := h.store.RegenerateBranchContainer(r.Context(), repoID, branchID)
+	if err != nil {
+		// Update failed but the existing container was kept intact (rollback).
+		// Return 200 with a structured error so the FE can show it while the
+		// workspace keeps running on the old container. [AC-S7364e3-2-3]
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":          false,
+			"regenerated": false,
+			"updateError": err.Error(),
+			"runtime":     h.store.RuntimeViewFor(repoID, branchID),
+		})
+		return
+	}
+	if !regenerated {
+		// No-op: host runtime / not open / no regeneration capability. Image
+		// update does not apply. [AC-S7364e3-1-4]
+		writeJSON(w, http.StatusBadRequest, errorResponse{
+			Error: "image update only applies to an open incus-container workspace",
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":          true,
+		"regenerated": true,
+		"runtime":     h.store.RuntimeViewFor(repoID, branchID),
+	})
+}
+
 // runtimeViewFromBranch is a helper used in tests.  It extracts the runtime
 // view from a branch or returns the host-ready default.
 func runtimeViewFromBranch(b *domain.Branch) *domain.RuntimeView {

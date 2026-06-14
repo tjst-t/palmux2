@@ -182,3 +182,27 @@ type Runtime interface {
 	// runtime.  The store calls Start() separately before first use.
 	TmuxClient() tmux.Client
 }
+
+// ImageDriftChecker is an optional capability a Runtime may implement when it is
+// backed by a versioned image (incus-container). The host runtime has no image
+// concept and does not implement it, so callers type-assert and skip when
+// absent — keeping the core Runtime interface free of image-specific methods
+// (mirrors the optional tab.HeadChangedHook pattern). (S7364e3)
+type ImageDriftChecker interface {
+	// IsImageStale reports whether the running container was created from an
+	// image older than the one the image alias currently resolves to. Returns
+	// false (not an error) when there is no update target (alias absent) or the
+	// base image is unknown.
+	IsImageStale(ctx context.Context) (bool, error)
+}
+
+// ContainerRegenerator is an optional capability a Runtime may implement to
+// recreate its backing container from the current image alias (image update).
+// It must be transactional against realistic failures: verify the new image
+// launches before destroying the existing container, and leave the old
+// container intact on failure. host does not implement it. (S7364e3)
+type ContainerRegenerator interface {
+	// Regenerate recreates the container from the current image. On error the
+	// previous container must remain usable.
+	Regenerate(ctx context.Context) error
+}

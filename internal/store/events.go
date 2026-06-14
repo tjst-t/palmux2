@@ -94,6 +94,12 @@ const (
 	// `{runtimeKind, ports: []runtime.PortView}`. The Ports tab subscribes to
 	// this to refresh its list and published-URL state without polling.
 	EventBranchPortsChanged EventType = "branch.portsChanged"
+
+	// S7364e3: emitted when the scan loop detects a change in a workspace
+	// container's image-drift status (stale ⇄ fresh). Payload is
+	// `{stale: bool}`. The FE updates the "update available" badge on the
+	// header runtime chip and drawer entry without a full /api/repos reload.
+	EventBranchRuntimeDrift EventType = "branch.runtimeDrift"
 )
 
 // Event is one broadcastable change.

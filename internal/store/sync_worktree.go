@@ -208,6 +208,25 @@ func (s *Store) scanPorts(ctx context.Context) {
 		if rt.Status().State != runtime.StateReady {
 			continue
 		}
+		// S7364e3: image-drift check on the same cadence. Compares the
+		// container's base image against the current palmux-ws alias fingerprint
+		// and publishes a drift event only on transitions. Independent of the
+		// port scan below (a non-port-scanner runtime could still drift).
+		if dc, ok := rt.(runtime.ImageDriftChecker); ok {
+			stale, derr := dc.IsImageStale(ctx)
+			if derr != nil {
+				s.logger.Warn("store.scanPorts: image drift check failed",
+					"repoID", ws.repoID, "branchID", ws.branchID, "err", derr)
+			} else if s.setDriftCached(ws.repoID, ws.branchID, stale) {
+				s.hub.Publish(Event{
+					Type:     EventBranchRuntimeDrift,
+					RepoID:   ws.repoID,
+					BranchID: ws.branchID,
+					Payload:  map[string]any{"stale": stale},
+				})
+			}
+		}
+
 		scanner, ok := rt.(portScanner)
 		if !ok {
 			continue

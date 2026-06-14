@@ -27,6 +27,11 @@ type RuntimeView struct {
 	State   string `json:"state"`             // "ready" | "starting" | "stopped" | "error"
 	Address string `json:"address,omitempty"` // e.g. "localhost" or container IP
 	Error   string `json:"error,omitempty"`   // non-empty when state == "error"
+	// Stale is true when an incus-container was created from an image older than
+	// the one the image alias now resolves to (the palmux-ws image was rebuilt
+	// after this container). The UI surfaces an "update available" affordance.
+	// Always false for host runtimes / when there is no update target. (S7364e3)
+	Stale bool `json:"stale,omitempty"`
 }
 
 // Branch represents an open branch — by definition a branch with a worktree
