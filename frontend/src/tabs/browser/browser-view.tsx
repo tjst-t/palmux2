@@ -168,22 +168,27 @@ export function BrowserView({ repoId, branchId }: TabViewProps) {
 
   // ── Poll state on mount + after start/stop ─────────────────────────────
 
-  const fetchState = useCallback(async () => {
-    try {
-      const sv = await api.get<StateView>(`${browserBase(repoId, branchId)}/state`)
-      setAvailable(sv.available)
-      setBrowserState(sv.state)
-    } catch {
-      // ignore transient errors
+  useEffect(() => {
+    // Inline poller (cancelled-guard + .then) so the lint rule doesn't see a
+    // synchronous setState in the effect body — same shape as workspace-actions.
+    let cancelled = false
+    const tick = () => {
+      api.get<StateView>(`${browserBase(repoId, branchId)}/state`)
+        .then((sv) => {
+          if (cancelled) return
+          setAvailable(sv.available)
+          setBrowserState(sv.state)
+        })
+        .catch(() => {/* ignore transient errors */})
+    }
+    tick()
+    // Poll every 5 s while starting so we pick up the "running" transition.
+    const id = setInterval(tick, 5000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
     }
   }, [repoId, branchId])
-
-  useEffect(() => {
-    void fetchState()
-    // Poll every 5 s while starting so we pick up the "running" transition.
-    const id = setInterval(() => void fetchState(), 5000)
-    return () => clearInterval(id)
-  }, [fetchState])
 
   // ── Start / Stop ───────────────────────────────────────────────────────
 
@@ -294,14 +299,13 @@ export function BrowserFullscreen({ repoId, branchId }: { repoId: string; branch
   const branch = usePalmuxStore(selectBranchById(repoId, branchId))
   const [browserState, setBrowserState] = useState<BrowserState>('stopped')
 
-  const fetchState = useCallback(async () => {
-    try {
-      const sv = await api.get<StateView>(`${browserBase(repoId, branchId)}/state`)
-      setBrowserState(sv.state)
-    } catch { /* ignore */ }
+  useEffect(() => {
+    let cancelled = false
+    api.get<StateView>(`${browserBase(repoId, branchId)}/state`)
+      .then((sv) => { if (!cancelled) setBrowserState(sv.state) })
+      .catch(() => {/* ignore */})
+    return () => { cancelled = true }
   }, [repoId, branchId])
-
-  useEffect(() => { void fetchState() }, [fetchState])
 
   const runtimeKind = branch?.runtime?.kind ?? 'incus-container'
 

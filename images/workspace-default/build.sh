@@ -118,8 +118,14 @@ incus exec "${BUILD_INST}" </dev/null -- sh -c '
     tmux git curl ca-certificates python3 \
     eza ripgrep zoxide fzf git-delta unzip openssh-client gpg \
     fonts-noto-cjk fonts-noto-color-emoji \
-    xvfb x11vnc fcitx5 fcitx5-mozc dbus-x11 x11-utils
+    xvfb x11vnc fcitx5 fcitx5-mozc dbus-x11 x11-utils \
+    fcitx5-frontend-gtk3 fcitx5-frontend-gtk4 fcitx5-frontend-qt5
 '
+# fcitx5-frontend-gtk3/gtk4/qt5: the GTK/Qt IM modules Chrome loads via
+# GTK_IM_MODULE=fcitx. Without them the in-container chromium cannot reach
+# fcitx5 over the session bus and Japanese (mozc) input silently does nothing,
+# even though fcitx5 + fcitx5-mozc are installed. dbus-x11 supplies dbus-daemon
+# / dbus-launch for the session bus palmux starts before fcitx5+chromium.
 # CJK + emoji fonts: without these, the in-container chromium (Browser tab)
 # renders Japanese/Chinese/Korean as tofu (□). fonts-noto-cjk covers JP/CN/KR;
 # fonts-noto-color-emoji covers emoji. (S62374c-followup)

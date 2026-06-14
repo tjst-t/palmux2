@@ -221,6 +221,27 @@ func TestStart_LaunchesStackWithCorrectCommands(t *testing.T) {
 		t.Errorf("[noVNC rework] x11vnc not found in launch calls. calls: %v", calls)
 	}
 
+	// 3a. A session dbus-daemon must be launched at the fixed bus address so the
+	//     GTK fcitx IM module can reach fcitx5 (Japanese input transport).
+	if !findCall("dbus-daemon", "--session", dbusAddr) {
+		t.Errorf("[noVNC IME] session dbus-daemon not launched at %s. calls: %v", dbusAddr, calls)
+	}
+
+	// 3b. fcitx5 AND chromium must both attach to that bus (shared
+	//     DBUS_SESSION_BUS_ADDRESS) and set GTK_IM_MODULE=fcitx — without this
+	//     pairing Japanese input silently does nothing.
+	if !findCall("fcitx5", "DBUS_SESSION_BUS_ADDRESS="+dbusAddr) {
+		t.Errorf("[noVNC IME] fcitx5 not launched on the shared session bus. calls: %v", calls)
+	}
+	if !findCall(chromiumBin, "DBUS_SESSION_BUS_ADDRESS="+dbusAddr, "GTK_IM_MODULE=fcitx") {
+		t.Errorf("[noVNC IME] chromium missing shared bus / GTK_IM_MODULE. calls: %v", calls)
+	}
+
+	// 3c. The fcitx5 mozc profile must be written before fcitx5 starts.
+	if !findCall(".config/fcitx5/profile") {
+		t.Errorf("[noVNC IME] fcitx5 mozc profile not written. calls: %v", calls)
+	}
+
 	// 4. CDP must NOT bind to 0.0.0.0 explicitly [AC-S62374c-1-3].
 	for _, c := range calls {
 		joined := strings.Join(c.cmd, " ")
@@ -320,6 +341,7 @@ func TestStop_KillsDaemons(t *testing.T) {
 
 	foundChromium := false
 	foundVNC := false
+	foundDBus := false
 	for _, c := range calls {
 		j := strings.Join(c.cmd, " ")
 		if strings.Contains(j, "pkill") && strings.Contains(j, "remote-debugging-port=9222") {
@@ -328,12 +350,18 @@ func TestStop_KillsDaemons(t *testing.T) {
 		if strings.Contains(j, "pkill") && strings.Contains(j, "x11vnc") {
 			foundVNC = true
 		}
+		if strings.Contains(j, "pkill") && strings.Contains(j, "dbus-daemon") {
+			foundDBus = true
+		}
 	}
 	if !foundChromium {
 		t.Errorf("[AC-S62374c-1-1] Stop did not pkill chromium, recorded: %v", calls)
 	}
 	if !foundVNC {
 		t.Errorf("[noVNC rework] Stop did not pkill x11vnc, recorded: %v", calls)
+	}
+	if !foundDBus {
+		t.Errorf("[noVNC IME] Stop did not pkill the session dbus-daemon, recorded: %v", calls)
 	}
 }
 
@@ -446,7 +474,9 @@ func (s *seqFakeRuntime) Exec(_ context.Context, cmd []string, opts runtime.Exec
 		return runtime.ExecResult{Stdout: "found\n"}, nil
 	case strings.Contains(joined, "Xvfb"): // launchXvfb
 		return runtime.ExecResult{Stdout: "1001\n"}, nil
-	case strings.Contains(joined, "fcitx5"): // launchFcitx5
+	case strings.Contains(joined, "dbus-daemon"): // launchDBus
+		return runtime.ExecResult{Stdout: "1004\n"}, nil
+	case strings.Contains(joined, "fcitx5"): // launchFcitx5 + ensureFcitx5Config
 		return runtime.ExecResult{Stdout: "1002\n"}, nil
 	case strings.Contains(joined, "x11vnc"): // launchX11VNC
 		return runtime.ExecResult{Stdout: "1003\n"}, nil

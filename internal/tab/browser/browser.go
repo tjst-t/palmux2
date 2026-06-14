@@ -46,6 +46,44 @@ const xDisplay = ":99"
 // chromiumBin is the binary name inside the container.
 const chromiumBin = "chromium"
 
+// dbusAddr is the fixed session-bus socket path used by fcitx5 and chromium.
+// Modern GTK apps (Chrome) reach fcitx5 over the session DBus; without a shared
+// bus the GTK fcitx IM module cannot connect and Japanese input silently fails.
+// The path lives inside the container's /tmp, which is per-workspace (one
+// container per Workspace), so a fixed name never collides across workspaces.
+const dbusAddr = "unix:path=/tmp/palmux-browser-dbus"
+
+// fcitx5ProfileBody is the fcitx5 input-method profile written before fcitx5
+// starts. It puts mozc (Japanese) in the default group alongside keyboard-us,
+// with Ctrl+Space toggling between them. Without this, fcitx5's first-run
+// default group has only keyboard-us and Japanese is unavailable. The package
+// fcitx5-mozc provides the engine; fcitx5-frontend-gtk3/gtk4 (baked into the
+// image) provide the GTK IM module Chrome loads via GTK_IM_MODULE=fcitx.
+const fcitx5ProfileBody = `[Groups/0]
+Name=Default
+Default Layout=us
+DefaultIM=mozc
+
+[Groups/0/Items/0]
+Name=keyboard-us
+Layout=
+
+[Groups/0/Items/1]
+Name=mozc
+Layout=
+
+[GroupOrder]
+0=Default
+`
+
+// fcitx5ConfigBody binds Ctrl+Space as the input-method trigger key.
+const fcitx5ConfigBody = `[Hotkey]
+EnumerateWithTriggerKeys=True
+
+[Hotkey/TriggerKeys]
+0=Control+space
+`
+
 // persistBaseName is the sub-path under the host home directory that holds
 // per-workspace browser profiles. It is bind-mounted by Start into the
 // container at the same absolute path (same pattern as ~/.claude).
@@ -114,10 +152,16 @@ func DefaultDeviceAdder(ctx context.Context, inst, devName, source, path string)
 //
 // Daemon startup order:
 //  1. Xvfb :99                       — virtual framebuffer
-//  2. chromium (headful, full UI)     — CDP + real browser UI on :99
-//  3. fcitx5                          — server-side Japanese IME
-//  4. x11vnc -display :99             — VNC server on port 5900
-//  5. CDP relay (bridgeIP:9222→127.0.0.1:9222) — for palmux/Claude host CDP reach
+//  2. dbus-daemon (session bus)       — fcitx5↔Chrome GTK IM transport
+//  3. fcitx5                          — server-side Japanese IME (mozc)
+//  4. chromium (headful, full UI)     — CDP + real browser UI on :99
+//  5. x11vnc -display :99             — VNC server on port 5900
+//  6. CDP relay (bridgeIP:9222→127.0.0.1:9222) — for palmux/Claude host CDP reach
+//
+// fcitx5 must start before chromium so Chrome's GTK IM module connects on
+// launch, and both must share DBUS_SESSION_BUS_ADDRESS (the GTK fcitx module
+// speaks to fcitx5 over the session bus). Without the shared bus + the
+// fcitx5-frontend-gtk module (image), Japanese input silently does nothing.
 type Manager struct {
 	// getRT resolves the CURRENT incus runtime for this workspace. It must be
 	// called fresh on every op — a runtime switch (host↔incus) evicts and
@@ -132,6 +176,7 @@ type Manager struct {
 	mu        sync.Mutex
 	state     BrowserState
 	xvfbPID   string // PID of Xvfb inside the container
+	dbusPID   string // PID of the session dbus-daemon inside the container
 	pid       string // PID of chromium inside the container
 	fcitxPID  string // PID of fcitx5 inside the container
 	vncPID    string // PID of x11vnc inside the container
@@ -308,7 +353,41 @@ func (m *Manager) Start(ctx context.Context) (StartResponse, error) {
 	case <-time.After(500 * time.Millisecond):
 	}
 
-	// ── 2. Launch chromium (headful) ─────────────────────────────────────────
+	// ── 2. Launch session dbus-daemon (fcitx5↔Chrome IM transport) ───────────
+	// Non-fatal individually, but fcitx5+chromium below get the bus address so
+	// the GTK fcitx IM module can connect. If dbus fails, Japanese is degraded
+	// but ASCII input still works.
+	dbusPID, err := m.launchDBus(ctx)
+	if err != nil {
+		m.log.Warn("browser: dbus launch failed (Japanese IME degraded)", "inst", m.inst, "err", err)
+	}
+	m.mu.Lock()
+	m.dbusPID = dbusPID
+	m.mu.Unlock()
+
+	// ── 3. Launch fcitx5 (server-side Japanese IME) ──────────────────────────
+	// Write the mozc profile first (idempotent), then start fcitx5 BEFORE
+	// chromium so Chrome's GTK IM module connects on launch.
+	if err := m.ensureFcitx5Config(ctx); err != nil {
+		m.log.Warn("browser: fcitx5 config write failed (Japanese IME degraded)", "inst", m.inst, "err", err)
+	}
+	fcitxPID, err := m.launchFcitx5(ctx)
+	if err != nil {
+		// fcitx5 failure is non-fatal: log and continue (ASCII input still works).
+		m.log.Warn("browser: fcitx5 launch failed (Japanese IME unavailable)", "inst", m.inst, "err", err)
+	}
+	m.mu.Lock()
+	m.fcitxPID = fcitxPID
+	m.mu.Unlock()
+
+	// Give fcitx5 a moment to register on the bus before chromium connects.
+	select {
+	case <-ctx.Done():
+		return StartResponse{}, ctx.Err()
+	case <-time.After(700 * time.Millisecond):
+	}
+
+	// ── 4. Launch chromium (headful) ─────────────────────────────────────────
 	chrPID, err := m.launchChromium(ctx, addr, profileDir)
 	if err != nil {
 		m.mu.Lock()
@@ -321,17 +400,7 @@ func (m *Manager) Start(ctx context.Context) (StartResponse, error) {
 	m.pid = chrPID
 	m.mu.Unlock()
 
-	// ── 3. Launch fcitx5 (server-side Japanese IME) ──────────────────────────
-	fcitxPID, err := m.launchFcitx5(ctx)
-	if err != nil {
-		// fcitx5 failure is non-fatal: log and continue (ASCII input still works).
-		m.log.Warn("browser: fcitx5 launch failed (Japanese IME unavailable)", "inst", m.inst, "err", err)
-	}
-	m.mu.Lock()
-	m.fcitxPID = fcitxPID
-	m.mu.Unlock()
-
-	// ── 4. Launch x11vnc ─────────────────────────────────────────────────────
+	// ── 5. Launch x11vnc ─────────────────────────────────────────────────────
 	vncPID, err := m.launchX11VNC(ctx)
 	if err != nil {
 		m.mu.Lock()
@@ -344,7 +413,7 @@ func (m *Manager) Start(ctx context.Context) (StartResponse, error) {
 	m.vncPID = vncPID
 	m.mu.Unlock()
 
-	// ── 5. CDP relay (bridgeIP:9222 → 127.0.0.1:9222) ───────────────────────
+	// ── 6. CDP relay (bridgeIP:9222 → 127.0.0.1:9222) ───────────────────────
 	// Wait for local CDP first (chromium takes a few seconds to bind in real mode).
 	if err := m.waitLocalCDP(ctx, 8*time.Second); err != nil {
 		m.log.Warn("browser: local CDP not up after chromium launch", "inst", m.inst, "err", err)
@@ -391,12 +460,13 @@ func (m *Manager) Stop(ctx context.Context) (StopResponse, error) {
 		if relayPID != "" {
 			_, _ = rt.Exec(ctx, []string{"kill", relayPID}, runtime.ExecOpts{})
 		}
-		// Kill x11vnc, fcitx5, chromium (whole process tree), Xvfb.
+		// Kill x11vnc, fcitx5, chromium (whole process tree), Xvfb, dbus-daemon.
 		killCmds := []string{
 			"pkill -f x11vnc || true",
 			"pkill fcitx5 || true",
 			fmt.Sprintf("pkill -f 'remote-debugging-port=%d' || true", CDPPort),
 			fmt.Sprintf("pkill -f 'Xvfb %s' || true", xDisplay),
+			fmt.Sprintf("pkill -f 'dbus-daemon --session --address=%s' || true", dbusAddr),
 		}
 		for _, cmd := range killCmds {
 			res, err := rt.Exec(ctx, []string{"sh", "-c", cmd}, runtime.ExecOpts{})
@@ -412,6 +482,7 @@ func (m *Manager) Stop(ctx context.Context) (StopResponse, error) {
 	m.mu.Lock()
 	m.state = StateStopped
 	m.xvfbPID = ""
+	m.dbusPID = ""
 	m.pid = ""
 	m.fcitxPID = ""
 	m.vncPID = ""
@@ -517,6 +588,7 @@ func (m *Manager) launchChromium(ctx context.Context, containerIP, profileDir st
 
 	cmd := fmt.Sprintf(
 		"DISPLAY=%s"+
+			" DBUS_SESSION_BUS_ADDRESS=%s"+
 			" GTK_IM_MODULE=fcitx"+
 			" QT_IM_MODULE=fcitx"+
 			" XMODIFIERS=@im=fcitx"+
@@ -525,8 +597,11 @@ func (m *Manager) launchChromium(ctx context.Context, containerIP, profileDir st
 			" --remote-debugging-port=%d"+
 			" --remote-allow-origins=*"+
 			" --user-data-dir=%s"+
+			" --window-size=1600,1000"+
+			" --window-position=0,0"+
 			" >/tmp/chromium.log 2>&1 & echo $!",
 		xDisplay,
+		dbusAddr,
 		chromiumBin,
 		CDPPort,
 		profileDir,
@@ -554,8 +629,10 @@ func (m *Manager) launchFcitx5(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("launchFcitx5: runtime unavailable")
 	}
 	cmd := fmt.Sprintf(
-		"DISPLAY=%s nohup fcitx5 --disable=notifications >/tmp/fcitx5.log 2>&1 & echo $!",
-		xDisplay,
+		"DISPLAY=%s DBUS_SESSION_BUS_ADDRESS=%s"+
+			" GTK_IM_MODULE=fcitx QT_IM_MODULE=fcitx XMODIFIERS=@im=fcitx"+
+			" nohup fcitx5 --disable=notifications >/tmp/fcitx5.log 2>&1 & echo $!",
+		xDisplay, dbusAddr,
 	)
 	res, err := rt.Exec(ctx, []string{"sh", "-c", cmd}, runtime.ExecOpts{})
 	if err != nil {
@@ -565,6 +642,61 @@ func (m *Manager) launchFcitx5(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("launchFcitx5: exit %d: %s", res.ExitCode, res.Stderr)
 	}
 	return parsePID(res.Stdout, "launchFcitx5")
+}
+
+// launchDBus starts a session dbus-daemon at the fixed dbusAddr socket inside
+// the container and returns its PID. fcitx5 and chromium both attach to this
+// bus so Chrome's GTK fcitx IM module can talk to fcitx5. Idempotent: the old
+// socket is removed first (a stale socket from a prior run would make
+// dbus-daemon refuse to bind).
+func (m *Manager) launchDBus(ctx context.Context) (string, error) {
+	rt := m.rtNow()
+	if rt == nil {
+		return "", fmt.Errorf("launchDBus: runtime unavailable")
+	}
+	// dbusAddr is "unix:path=/tmp/...": strip the scheme to get the socket path.
+	sockPath := strings.TrimPrefix(dbusAddr, "unix:path=")
+	cmd := fmt.Sprintf(
+		"rm -f %s; nohup dbus-daemon --session --address=%s --nofork >/tmp/dbus.log 2>&1 & echo $!",
+		sockPath, dbusAddr,
+	)
+	res, err := rt.Exec(ctx, []string{"sh", "-c", cmd}, runtime.ExecOpts{})
+	if err != nil {
+		return "", fmt.Errorf("launchDBus: exec: %w", err)
+	}
+	if res.ExitCode != 0 {
+		return "", fmt.Errorf("launchDBus: exit %d: %s", res.ExitCode, res.Stderr)
+	}
+	return parsePID(res.Stdout, "launchDBus")
+}
+
+// ensureFcitx5Config writes the fcitx5 mozc profile + hotkey config into the
+// container at ~/.config/fcitx5 (idempotent overwrite). This puts mozc in the
+// default input-method group with Ctrl+Space as the toggle, which fcitx5's
+// first-run default omits. Runs as the workspace user (rt.Exec injects --user
+// 1000 / HOME=/home/ubuntu) so the files land in the right home.
+func (m *Manager) ensureFcitx5Config(ctx context.Context) error {
+	rt := m.rtNow()
+	if rt == nil {
+		return fmt.Errorf("ensureFcitx5Config: runtime unavailable")
+	}
+	// base64 the bodies to avoid any quoting hazards through sh -c.
+	profB64 := base64.StdEncoding.EncodeToString([]byte(fcitx5ProfileBody))
+	confB64 := base64.StdEncoding.EncodeToString([]byte(fcitx5ConfigBody))
+	script := fmt.Sprintf(
+		"set -e; mkdir -p \"$HOME/.config/fcitx5\"; "+
+			"echo '%s' | base64 -d > \"$HOME/.config/fcitx5/profile\"; "+
+			"echo '%s' | base64 -d > \"$HOME/.config/fcitx5/config\"",
+		profB64, confB64,
+	)
+	res, err := rt.Exec(ctx, []string{"sh", "-c", script}, runtime.ExecOpts{})
+	if err != nil {
+		return fmt.Errorf("ensureFcitx5Config: exec: %w", err)
+	}
+	if res.ExitCode != 0 {
+		return fmt.Errorf("ensureFcitx5Config: exit %d: %s", res.ExitCode, res.Stderr)
+	}
+	return nil
 }
 
 // launchX11VNC starts x11vnc on display :99, listening on all interfaces on

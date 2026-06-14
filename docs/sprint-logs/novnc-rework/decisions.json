@@ -13,5 +13,26 @@
     "palmux が x11vnc TCP(bridgeIP:5900) ↔ クライアント WS を raw バイナリで素通しブリッジ (websockify はコンテナに入れない)。auth-gated、VNC は非公開のまま",
     "CDP(--remote-debugging-port + --user-data-dir) は Claude 用に維持 (Story 3 の palmux-browser CLI はそのまま)",
     "Story 1 ライフサイクル (start/stop, profile 永続, bridge listener, ensure-runtime) は流用、起動内容を Xvfb+chromium+x11vnc に差し替え"
-  ]
+  ],
+  "ime_integration_findings": [
+    "Chrome(GTK アプリ)は fcitx5 へ session DBus 経由で接続する → fcitx5+chromium が同一 DBUS_SESSION_BUS_ADDRESS を共有する必要がある。共有しないと『Failed to connect to session dbus』で IM が無言で効かない",
+    "fcitx5 + fcitx5-mozc だけでは不足。GTK IM モジュール (fcitx5-frontend-gtk3/gtk4) と Qt (fcitx5-frontend-qt5) が無いと GTK_IM_MODULE=fcitx が解決されず日本語が一切入らない。これが実機で英字すら壊れた真因",
+    "fcitx5 の初期 profile には mozc が無い → mozc を default group に入れ Ctrl+Space を trigger にする profile を起動前に書く必要がある (palmux の ensureFcitx5Config + image 同梱)",
+    "起動順: Xvfb → dbus-daemon → (profile 書込) → fcitx5 → chromium → x11vnc。fcitx5 は chromium より先 (Chrome 起動時に IM module が接続)",
+    "x11vnc の XTEST 注入 = xdotool と同一経路。WM 無しでも xdotool/クリックでウィンドウフォーカスは取れ、入力は届く"
+  ],
+  "real_mode_validation": {
+    "host": "palmux-deploy-test.tjstkm.net",
+    "container": "isc-projects-dhcp-cc97-dhcp-2dab-055ca4d7 (incus-container)",
+    "date": "2026-06-14",
+    "method": "実ブラウザ Playwright で SSO ログイン → Browser fullscreen popout → noVNC canvas にフォーカス → Ctrl+Space で mozc 起動 → 'nihongo'+Space+Enter → Ctrl+Space で ASCII に戻し 'xyz'",
+    "result": "PASS — リモート textarea の値が『日本語xyz』。noVNC RFB(client) → palmux byte-pipe → x11vnc XTEST → fcitx5/mozc → chromium のフルパスで日本語変換が成立。描画も鮮明(実フレームバッファ)、chromium 自身の URL バー/タブが見える",
+    "evidence": "Playwright スクリーンショットで textarea に『日本語xyz』+ フル chromium UI を確認"
+  },
+  "test_validation": {
+    "go_unit": "go build/vet clean、go test ./internal/tab/browser/... 11/11 PASS。dbus-daemon 起動・共有 DBUS_SESSION_BUS_ADDRESS・fcitx5 profile 書込・dbus kill を assert に追加（劣化 path で silent pass しないよう honest 化）",
+    "mock_e2e": "tests/e2e/s62374c_browser_ui_mock.py を dev インスタンス(本番モード, port 8202)に対し実行 → ALL PASS（stopped/starting/running/host-notice/fullscreen の全状態 + noVNC viewport testid）",
+    "real_e2e": "tests/e2e/s62374c_browser_ui.py を noVNC 用に書き換え（screencast img → canvas、URL バー廃止の negative test、VNC/CDP 非露出、AC-2-11 日本語 IME を追加）。AC-2-11 の Playwright→noVNC canvas 打鍵部は手動実機で実行済（上記 real_mode_validation = 日本語xyz）。新規ヘルパ（heredoc staging / node -e readback / unicode 判定）は実コンテナに対し個別実行し PASS（readback=『日本語xyz』）",
+    "runner_limitation": "正式 runner の deploy VM 上での一括実行は不可（Nix ホストで playwright-python の greenlet が libstdc++.so.6 を解決できない＝環境制約）。製品/テストの欠陥ではない。上記 2 経路（手動 Playwright + ヘルパ個別実行）で AC-2-11 の全工程を等価にカバー済み。incus+非Nix の host では runner 一括実行が可能"
+  }
 }
