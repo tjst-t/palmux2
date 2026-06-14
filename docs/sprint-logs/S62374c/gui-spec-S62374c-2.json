@@ -48,11 +48,11 @@
     }
   ],
   "endpoint_contracts": [
-    { "method": "GET",  "path": "/api/repos/{repoId}/branches/{branchId}/tabs/browser/state", "fields": "state, cdpReachable, url, available" },
-    { "method": "POST", "path": "/api/repos/{repoId}/branches/{branchId}/tabs/browser/start", "fields": "state" },
-    { "method": "POST", "path": "/api/repos/{repoId}/branches/{branchId}/tabs/browser/stop",  "fields": "state" },
-    { "method": "POST", "path": "/api/repos/{repoId}/branches/{branchId}/tabs/browser/navigate", "body": "{url}", "fields": "ok" },
-    { "method": "WS",   "path": "/api/repos/{repoId}/branches/{branchId}/tabs/browser/attach", "frames_out": "{type:'frame', data:<b64 jpeg>, meta:{deviceWidth,deviceHeight}}", "input_in": "{type:'input', kind:'mouse|key|scroll|touch', ...} | {type:'navigate', url} | {type:'reload'|'back'|'forward'}" }
+    { "method": "GET",  "path": "/api/repos/{repoId}/branches/{branchId}/browser/state", "fields": "state, cdpReachable, url, available" },
+    { "method": "POST", "path": "/api/repos/{repoId}/branches/{branchId}/browser/start", "fields": "state" },
+    { "method": "POST", "path": "/api/repos/{repoId}/branches/{branchId}/browser/stop",  "fields": "state" },
+    { "method": "POST", "path": "/api/repos/{repoId}/branches/{branchId}/browser/navigate", "body": "{url}", "fields": "ok" },
+    { "method": "WS",   "path": "/api/repos/{repoId}/branches/{branchId}/browser/attach", "frames_out": "{type:'frame', data:<b64 jpeg>, meta:{deviceWidth,deviceHeight}}", "input_in": "{type:'input', kind:'mouse|key|scroll|touch', ...} | {type:'navigate', url} | {type:'reload'|'back'|'forward'}" }
   ],
   "testids": [
     "browser-tab-panel",

@@ -1,0 +1,36 @@
+{
+  "sprint": "S62374c",
+  "verified_at_status": "done — all 3 stories validated real-mode on the deploy VM (live incus container + real browser via SSO)",
+  "real_mode_environment": "palmux-deploy-test.tjstkm.net, incus-container Workspace isc-projects/dhcp, palmux-ws image rebuilt with chromium(google-chrome)+node+playwright-core+CLI+skill; palmux binary with browser tab provider + incus-bridge listener deployed",
+  "bugs_found_and_fixed_by_real_mode_verify": [
+    "image build: chromium apt pkg is a snap → fails in unprivileged container; use google-chrome-stable .deb + chromium symlink",
+    "image build: CLI/skill pushed via repo-root paths → SCRIPT_DIR-relative",
+    "image build: npm -g playwright-core not on require() path → CLI resolves via npm root -g + image NODE_PATH",
+    "route path: provider routes are at .../{branch}/browser/* (server {type} convention), not /tabs/browser; fixed frontend + CLI + tests",
+    "stale runtime: browser Manager cached the runtime; runtime switch made Status() stale → resolve via getter every op",
+    "Chrome 149 ignores --remote-debugging-address (binds 127.0.0.1) → in-container relay bridgeIP:9222→127.0.0.1:9222 + rewrite webSocketDebuggerUrl host in the CDP proxy",
+    "Stop: kill <pid> didn't reap chromium child tree → pkill -f the debug-port flag + kill relay PID",
+    "CLI REST-from-container: palmux bound host loopback; binding 0.0.0.0 exposed 8080 publicly. Added a second palmux listener on the incusbr0 gateway (private, not public); CLI rewrites loopback notify host → gateway; CLI connects CDP on 127.0.0.1 (in-container, not the bridge relay)",
+    "test bugs: pgrep -x chromium (binary is google-chrome); ss scope matched peer 0.0.0.0:* column; idempotent count must exclude --type= helpers; playwright-core import check must use npm root -g"
+  ],
+  "story_status": {
+    "S62374c-1": {
+      "status": "done",
+      "evidence": "tests/acceptance/s62374c_browser_lifecycle.py ALL PASS real-mode: explicit start/stop (no auto-launch), correct chromium flags, CDP reachable via relay (cdpReachable:true), profile persisted + device mounted, idempotent (1 main proc), stop reaps chromium, bridge-only binding."
+    },
+    "S62374c-2": {
+      "status": "done",
+      "evidence": "Screencast frames flow proven via WS client (live JPEG 780x437). Full real-browser UI validated through SSO: Browser tab renders, badge=running, the viewport shows the LIVE screencast of the navigated page (example.com) as a data:image frame; Start/Stop/URL/Go/Open controls + shared-session hint + Activity-Inbox notification all present. mock e2e 8/8.",
+      "minor_followup": "URL bar initially shows the CDP endpoint (state.url) instead of the page URL until a url event arrives — cosmetic; the page renders correctly."
+    },
+    "S62374c-3": {
+      "status": "done",
+      "evidence": "tests/acceptance/s62374c_browser_claude.py ALL PASS real-mode. CLI (status/start/stop/navigate/snapshot/screenshot) works in-container: status→stopped, start→running, navigate https://example.com → 'Example Domain', snapshot trimmed, screenshot→path. Reaches palmux REST via the new incus-bridge listener (8080 stays non-public). skill + --add-dir injection verified."
+    }
+  },
+  "done_judgment": {
+    "S62374c-1": { "verdict": "done", "guards": "real-mode smoke PASS (lifecycle E2E ALL PASS), status truthful, AC traceable" },
+    "S62374c-2": { "verdict": "done", "guards": "real-mode smoke PASS (live screencast rendered in deployed UI via real browser), mock 8/8, AC traceable" },
+    "S62374c-3": { "verdict": "done", "guards": "real-mode smoke PASS (acceptance ALL PASS, CLI end-to-end), secure bridge listener, AC traceable" }
+  }
+}

@@ -1,0 +1,334 @@
+#!/usr/bin/env node
+// palmux-browser — thin CLI wrapper for the palmux shared browser tab.
+//
+// Connects to the same chromium instance the user sees in the Browser tab via
+// CDP (connectOverCDP). Lifecycle (start/stop/status) goes through the palmux
+// REST API so state stays consistent with the UI.
+//
+// Env vars (injected by palmux when spawning claude):
+//   PALMUX_NOTIFY_URL  e.g. http://172.x.x.x:8080/api/notify
+//   PALMUX_REPO_ID     repository ID
+//   PALMUX_BRANCH_ID   workspace/branch ID
+//   PALMUX_TOKEN       optional bearer token
+//   PALMUX_CDP_URL     override CDP URL (else auto-derived from container bridge IP)
+//
+// Usage: palmux-browser <subcommand> [args]
+//   status                    print running | stopped | starting
+//   start                     start chromium; post Activity Inbox notification
+//   stop                      stop chromium
+//   navigate <url>            go to URL; print resulting URL + title
+//   click <selector>          click element; print result
+//   type <selector> <text>    type text into element; print result
+//   snapshot                  print compact list of interactable elements (≤40)
+//   screenshot [path]         save screenshot; print path only
+
+'use strict';
+
+const { execSync } = require('child_process');
+
+// ── env derivation ────────────────────────────────────────────────────────────
+
+// palmux runs on the container's HOST. PALMUX_NOTIFY_URL is injected as a
+// loopback URL (http://127.0.0.1:PORT/...) which, from inside the container, is
+// the container itself — not palmux. Rewrite a loopback host to the container's
+// default gateway (= the host on the incus bridge) so the CLI can reach palmux's
+// REST/notify endpoints. (palmux must bind a bridge-reachable address.)
+function gatewayIP() {
+  try {
+    return execSync("ip route 2>/dev/null | awk '/^default/{print $3; exit}'", { encoding: 'utf8' }).trim();
+  } catch { return ''; }
+}
+
+function reachablePalmuxURL(u) {
+  try {
+    const url = new URL(u);
+    if (url.hostname === '127.0.0.1' || url.hostname === 'localhost') {
+      const gw = gatewayIP();
+      if (gw) url.hostname = gw;
+    }
+    return url.toString();
+  } catch { return u; }
+}
+
+function browserRestBase() {
+  const notifyURL = process.env.PALMUX_NOTIFY_URL || '';
+  const repoID = process.env.PALMUX_REPO_ID || '';
+  const branchID = process.env.PALMUX_BRANCH_ID || '';
+  if (!notifyURL || !repoID || !branchID) {
+    die('PALMUX_NOTIFY_URL / PALMUX_REPO_ID / PALMUX_BRANCH_ID not set — are you running inside a palmux claude-tui tab?');
+  }
+  // Rewrite loopback → gateway, then replace /api/notify suffix with the base.
+  return reachablePalmuxURL(notifyURL).replace(/\/api\/notify$/, '') +
+    `/api/repos/${repoID}/branches/${branchID}/browser`;
+}
+
+function cdpURL() {
+  if (process.env.PALMUX_CDP_URL) return process.env.PALMUX_CDP_URL;
+  // The CLI runs INSIDE the workspace container, where chromium binds its CDP
+  // to 127.0.0.1:9222 — reachable directly (no bridge IP / relay needed; the
+  // relay exists only so palmux on the HOST can reach CDP). chromium runs with
+  // --remote-allow-origins=*, so connectOverCDP from localhost is accepted.
+  return `http://127.0.0.1:9222`;
+}
+
+function authHeaders() {
+  const token = process.env.PALMUX_TOKEN || '';
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
+
+// ── REST helpers ──────────────────────────────────────────────────────────────
+
+async function restGet(path) {
+  const res = await fetch(path, { headers: authHeaders() });
+  if (!res.ok) die(`GET ${path} → ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+async function restPost(path, body) {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) die(`POST ${path} → ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+// ── Activity Inbox notification ───────────────────────────────────────────────
+
+async function postInboxNotification(message) {
+  const notifyURL = process.env.PALMUX_NOTIFY_URL;
+  if (!notifyURL) return; // fail-open
+  const repoID = process.env.PALMUX_REPO_ID || '';
+  const branchID = process.env.PALMUX_BRANCH_ID || '';
+  if (!repoID || !branchID) return;
+  const payload = {
+    repoId: repoID,
+    branchId: branchID,
+    type: 'browser.started',
+    message,
+    requestId: `browser-cli-${branchID}`,
+    tabId: 'browser',
+    tabName: 'Browser',
+  };
+  try {
+    await fetch(reachablePalmuxURL(notifyURL), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(payload),
+    });
+  } catch { /* fail-open */ }
+}
+
+// ── CDP / Playwright helpers ──────────────────────────────────────────────────
+
+let _playwright = null;
+
+async function getPlaywright() {
+  if (_playwright) return _playwright;
+  // Resolve playwright-core. It is installed GLOBALLY (npm install -g) in the
+  // palmux-ws image, but a `require('playwright-core')` from this script's
+  // location does not see global modules unless NODE_PATH is set. So fall back
+  // to resolving it from `npm root -g` at runtime — robust regardless of shell
+  // env (the CLI may be invoked from a non-login shell).
+  try {
+    _playwright = require('playwright-core');
+    return _playwright;
+  } catch {}
+  try {
+    const path = require('path');
+    const gRoot = execSync('npm root -g', { encoding: 'utf8' }).trim();
+    _playwright = require(path.join(gRoot, 'playwright-core'));
+    return _playwright;
+  } catch {
+    die('playwright-core not found. Install it: npm install -g playwright-core');
+  }
+  return _playwright;
+}
+
+async function connectBrowser() {
+  const pw = await getPlaywright();
+  const url = cdpURL();
+  try {
+    const browser = await pw.chromium.connectOverCDP(url);
+    return browser;
+  } catch (e) {
+    die(`Cannot connect to chromium at ${url}: ${e.message}\nRun: palmux-browser start`);
+  }
+}
+
+function getActivePage(browser) {
+  const contexts = browser.contexts();
+  if (!contexts.length) die('No browser contexts — is chromium running?');
+  const pages = contexts[0].pages();
+  if (!pages.length) die('No pages open in context');
+  return pages[0];
+}
+
+// ── subcommands ───────────────────────────────────────────────────────────────
+
+async function cmdStatus() {
+  const base = browserRestBase();
+  const data = await restGet(`${base}/state`);
+  console.log(data.state || 'unknown');
+}
+
+async function cmdStart() {
+  const base = browserRestBase();
+  const data = await restPost(`${base}/start`);
+  await postInboxNotification('Browser started by Claude');
+  console.log(data.state || 'started');
+}
+
+async function cmdStop() {
+  const base = browserRestBase();
+  const data = await restPost(`${base}/stop`);
+  console.log(data.state || 'stopped');
+}
+
+async function cmdNavigate(url) {
+  if (!url) die('navigate requires a URL argument');
+  const browser = await connectBrowser();
+  try {
+    const page = getActivePage(browser);
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    const title = await page.title();
+    const finalURL = page.url();
+    console.log(`url: ${finalURL}`);
+    console.log(`title: ${title}`);
+  } finally {
+    await browser.close();
+  }
+}
+
+async function cmdClick(selector) {
+  if (!selector) die('click requires a selector argument');
+  const browser = await connectBrowser();
+  try {
+    const page = getActivePage(browser);
+    await page.click(selector, { timeout: 10000 });
+    console.log(`clicked: ${selector}`);
+  } finally {
+    await browser.close();
+  }
+}
+
+async function cmdType(selector, text) {
+  if (!selector || text === undefined) die('type requires selector and text arguments');
+  const browser = await connectBrowser();
+  try {
+    const page = getActivePage(browser);
+    await page.fill(selector, text, { timeout: 10000 });
+    console.log(`typed into: ${selector}`);
+  } finally {
+    await browser.close();
+  }
+}
+
+async function cmdSnapshot() {
+  const browser = await connectBrowser();
+  try {
+    const page = getActivePage(browser);
+    // Get interactable elements — buttons, links, inputs, selects, textareas.
+    const MAX = 40;
+    const elements = await page.evaluate((max) => {
+      const sel = 'button,a,input,select,textarea,[role="button"],[role="link"],[role="checkbox"],[role="radio"],[role="menuitem"],[tabindex]';
+      const nodes = Array.from(document.querySelectorAll(sel)).slice(0, max);
+      return nodes.map(el => {
+        const tag = el.tagName.toLowerCase();
+        const role = el.getAttribute('role') || tag;
+        const name = (el.getAttribute('aria-label') || el.textContent || el.getAttribute('placeholder') || el.getAttribute('name') || el.value || '').trim().slice(0, 60);
+        // Build a short selector for use with click/type.
+        let selector = tag;
+        if (el.id) selector = `#${el.id}`;
+        else if (el.getAttribute('name')) selector = `${tag}[name="${el.getAttribute('name')}"]`;
+        else if (el.getAttribute('data-testid')) selector = `[data-testid="${el.getAttribute('data-testid')}"]`;
+        return `${role} | ${name || '(no name)'} | ${selector}`;
+      });
+    }, MAX);
+    if (!elements.length) {
+      console.log('(no interactable elements found)');
+    } else {
+      console.log(`interactable elements (${elements.length}):`);
+      elements.forEach(e => console.log('  ' + e));
+    }
+  } finally {
+    await browser.close();
+  }
+}
+
+async function cmdScreenshot(savePath) {
+  const os = require('os');
+  const path = require('path');
+  const outPath = savePath || path.join(os.tmpdir(), `palmux-screenshot-${Date.now()}.png`);
+  const browser = await connectBrowser();
+  try {
+    const page = getActivePage(browser);
+    await page.screenshot({ path: outPath, fullPage: false });
+    console.log(outPath);
+  } finally {
+    await browser.close();
+  }
+}
+
+// ── main ──────────────────────────────────────────────────────────────────────
+
+function die(msg) {
+  console.error(`palmux-browser: ${msg}`);
+  process.exit(1);
+}
+
+function usage() {
+  console.log(`palmux-browser — control the palmux shared browser
+
+IMPORTANT: This is ONE browser shared with the user in the Browser tab.
+           The user sees the same screen you interact with.
+           CDP endpoint is shared: no separate chromium is launched.
+
+Usage:
+  palmux-browser status               print state: running | stopped | starting
+  palmux-browser start                start chromium (if not running)
+  palmux-browser stop                 stop chromium
+  palmux-browser navigate <url>       go to URL; print url + title
+  palmux-browser click <selector>     click element matching CSS selector
+  palmux-browser type <sel> <text>    fill element with text
+  palmux-browser snapshot             list ≤40 interactable elements (compact)
+  palmux-browser screenshot [path]    save screenshot; print path only
+
+Env (injected by palmux when spawning claude-tui):
+  PALMUX_NOTIFY_URL, PALMUX_REPO_ID, PALMUX_BRANCH_ID, PALMUX_TOKEN
+  PALMUX_CDP_URL  (optional override; else auto-detected from container bridge IP)
+
+Workflow:
+  palmux-browser status           # check if running
+  palmux-browser start            # start if stopped
+  palmux-browser navigate https://example.com
+  palmux-browser snapshot         # see what's on the page
+  palmux-browser click button#submit
+  palmux-browser screenshot       # save and get path`);
+  process.exit(0);
+}
+
+async function main() {
+  const [,, cmd, ...rest] = process.argv;
+  if (!cmd || cmd === '--help' || cmd === '-h') { usage(); return; }
+  switch (cmd) {
+    case 'status':     await cmdStatus(); break;
+    case 'start':      await cmdStart(); break;
+    case 'stop':       await cmdStop(); break;
+    case 'navigate':   await cmdNavigate(rest[0]); break;
+    case 'click':      await cmdClick(rest[0]); break;
+    case 'type':       await cmdType(rest[0], rest.slice(1).join(' ')); break;
+    case 'snapshot':   await cmdSnapshot(); break;
+    case 'screenshot': await cmdScreenshot(rest[0]); break;
+    default:
+      console.error(`palmux-browser: unknown subcommand '${cmd}'`);
+      console.error('Run: palmux-browser --help');
+      process.exit(1);
+  }
+}
+
+main().catch(e => {
+  console.error(`palmux-browser: ${e.message}`);
+  process.exit(1);
+});

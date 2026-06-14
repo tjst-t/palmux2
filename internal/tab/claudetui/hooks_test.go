@@ -176,6 +176,82 @@ func TestDaemonInjectsHookSettings(t *testing.T) {
 	}
 }
 
+// TestDaemonInjectsAddDir verifies that when NotifyURL and HookBinPath are set,
+// the daemon spawns claude with both `--settings <hooks JSON>` AND
+// `--add-dir /usr/local/share/palmux` (the palmux skill bundle directory).
+// This ensures the palmux-browser skill is auto-loaded in every claude-tui
+// session without polluting ~/.claude or the project's .claude directory.
+// [AC-S62374c-3-1] (--add-dir injection)
+func TestDaemonInjectsAddDir(t *testing.T) {
+	bin := fakeBin(t)
+	dump := filepath.Join(t.TempDir(), "invocation.json")
+
+	d := NewDaemon(DaemonConfig{
+		ClaudeBin:     bin,
+		ClaudeArgs:    []string{"--dump-invocation", dump},
+		RingSize:      1 << 16,
+		ResumeOnDeath: false,
+		RepoID:        "repo1",
+		BranchID:      "branch1",
+		TabID:         "claude",
+		NotifyURL:     "http://127.0.0.1:8080/api/notify",
+		NotifyToken:   "tok",
+		HookBinPath:   "/usr/local/bin/palmux",
+	})
+	t.Cleanup(func() { d.Shutdown() })
+
+	if err := d.EnsureStarted(context.Background()); err != nil {
+		t.Fatalf("EnsureStarted: %v", err)
+	}
+	waitForState(t, d, StateRunning, 5*time.Second)
+
+	var raw []byte
+	deadline := time.After(5 * time.Second)
+	for {
+		if b, err := os.ReadFile(dump); err == nil && len(b) > 0 {
+			raw = b
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for invocation dump")
+		default:
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+
+	var rec struct {
+		Argv []string `json:"argv"`
+	}
+	if err := json.Unmarshal(raw, &rec); err != nil {
+		t.Fatalf("invocation JSON: %v\n%s", err, raw)
+	}
+
+	// --add-dir must be present with the palmux skill bundle path.
+	found := false
+	for i, a := range rec.Argv {
+		if a == "--add-dir" && i+1 < len(rec.Argv) && rec.Argv[i+1] == palmuxSkillDir {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("--add-dir %s not injected into claude argv; got: %v", palmuxSkillDir, rec.Argv)
+	}
+
+	// --settings must still be present (not displaced by --add-dir).
+	hasSettings := false
+	for _, a := range rec.Argv {
+		if a == "--settings" {
+			hasSettings = true
+			break
+		}
+	}
+	if !hasSettings {
+		t.Errorf("--settings not found in argv after --add-dir injection; got: %v", rec.Argv)
+	}
+}
+
 // TestDaemonNoHookInjectionWithoutConfig verifies that omitting NotifyURL /
 // HookBinPath leaves the spawn untouched (no --settings) — the path tests and
 // fake_claude rely on.

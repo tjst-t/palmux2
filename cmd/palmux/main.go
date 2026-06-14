@@ -35,6 +35,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/store"
 	"github.com/tjst-t/palmux2/internal/tab"
 	"github.com/tjst-t/palmux2/internal/tab/bash"
+	"github.com/tjst-t/palmux2/internal/tab/browser"
 	"github.com/tjst-t/palmux2/internal/tab/claudeagent"
 	"github.com/tjst-t/palmux2/internal/tab/claudetui"
 	"github.com/tjst-t/palmux2/internal/tab/files"
@@ -318,6 +319,7 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 	sprintProvider := sprint.New(st)
 	registry.Register(sprintProvider)
 	registry.Register(ports.New(st))
+	registry.Register(browser.New(st))
 	registry.Register(bash.New())
 
 	// claude-tui tab: interactive claude TUI via PTY (Sprint A Story 2).
@@ -446,6 +448,22 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
+	// Additional listener on the incus bridge gateway so in-container processes
+	// (the palmux-browser CLI, claude-tui notify hooks) can reach palmux's API at
+	// their default gateway. The bridge IP is private to the incus network — NOT
+	// publicly reachable — so this does not expose the API like binding 0.0.0.0
+	// would. Skipped when incusbr0 is absent or already covered by addr. (S62374c)
+	var bridgeSrv *http.Server
+	if bAddr := incusBridgeListenAddr(addr); bAddr != "" && bAddr != addr {
+		bridgeSrv = &http.Server{Addr: bAddr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+		go func() {
+			slog.Info("palmux2 also listening on incus bridge (in-container API access)", "addr", bAddr)
+			if err := bridgeSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				slog.Warn("incus bridge listener error (in-container API access disabled)", "err", err)
+			}
+		}()
+	}
+
 	if err := writeEnvFile(configDir, addr, token); err != nil {
 		slog.Warn("env file write", "err", err)
 	}
@@ -477,6 +495,9 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 	// fsnotify file descriptors before the process exits.
 	gitProvider.Close()
 	sprintProvider.Close()
+	if bridgeSrv != nil {
+		_ = bridgeSrv.Shutdown(shutdownCtx)
+	}
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown", "err", err)
 	}
@@ -551,6 +572,37 @@ func portFromAddr(addr string) string {
 // claude-tui subprocess, so 127.0.0.1 + the listen port + base path is always
 // reachable regardless of the server's bind address. Returns "" if the port
 // can't be derived (hook injection is then skipped).
+// incusBridgeListenAddr returns "<incusbr0-ipv4>:<port>" (port from the main
+// listen addr) so palmux can add a second listener reachable from inside
+// workspace containers via their default gateway. Returns "" if the incusbr0
+// bridge is absent (no incus on this host) — then no extra listener is added.
+// The bridge IP is private to the incus network, so this never exposes the API
+// publicly (unlike binding 0.0.0.0).
+func incusBridgeListenAddr(addr string) string {
+	port := portFromAddr(addr)
+	if port == "" {
+		return ""
+	}
+	iface, err := net.InterfaceByName("incusbr0")
+	if err != nil {
+		return ""
+	}
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return ""
+	}
+	for _, a := range addrs {
+		ipnet, ok := a.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		if ip4 := ipnet.IP.To4(); ip4 != nil {
+			return net.JoinHostPort(ip4.String(), port)
+		}
+	}
+	return ""
+}
+
 func localNotifyURL(addr, basePath string) string {
 	port := portFromAddr(addr)
 	if port == "" {
