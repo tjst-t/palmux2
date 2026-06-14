@@ -240,7 +240,10 @@ function LiveViewport({ repoId, branchId, onUrl }: LiveViewportProps) {
 
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLImageElement>) => {
     if (!imgRef.current) return
-    // Route the keyboard to the hidden capture textarea so IME composition works.
+    // preventDefault stops the browser moving focus to BODY (the img isn't
+    // focusable), so the explicit focus() on the hidden capture textarea sticks —
+    // otherwise keystrokes (incl. IME) go nowhere. [followup #2 regression fix]
+    e.preventDefault()
     taRef.current?.focus({ preventScroll: true })
     const { x, y } = toViewport(e.clientX, e.clientY, imgRef.current)
     const button = e.button === 2 ? 'right' : e.button === 1 ? 'middle' : 'left'
