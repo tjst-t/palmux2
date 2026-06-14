@@ -9819,6 +9819,20 @@
       "description": "(S8478ca 由来 / 将来 Sprint) Workspace 配下のタブとして Bash の隣に Browser タブ (embed view, NeedsTmuxWindow=false) を追加。Neko (コンテナ化された仮想ブラウザ) を別コンテナ (Docker-in-Incus or 直接 Incus) で起こし、frontend は Caddy 経由の Neko UI を iframe 埋め込みするだけ。ユーザが認証したブラウザセッション (ログイン cookie) を Neko が保持し、Claude Code が playwright-cli の connectOverCDP でその実ブラウザを操作する。\n\n設計済み論点 (docs/workspace-runtime-design.md §7): (1) WebRTC メディアは Caddy(HTTP) を通らない → NEKO_WEBRTC_UDPMUX 固定 + NAT1TO1 + UDP proxy device (or coturn/TURN) で UDP 1-2 ポートだけ出す。S8478ca の ExposePort{Proto:udp,HostPort>0} 経路を使用。(2) CDP の localhost/Origin ガードは --remote-debugging-address=0.0.0.0 + --remote-allow-origins + bind=instance proxy device で吸収、または playwright を Neko 同居。(3) 認証セッションは ~/.config/palmux/neko-profiles/<WorkspaceID> に永続 bind-mount (コンテナは揮発・プロファイルは永続の例外)。WorkspaceID は worktree path 由来で checkout 不変。\n\n前提: S8478ca (Workspace Runtime) 完了。独立 Sprint 化 (UDP/WebRTC/CDP/永続プロファイルを含むため)。",
       "added_in": "S8478ca",
       "reason": "S8478ca propose 時にユーザ確定。設計は workspace-runtime-design.md §7 で済。実装は Runtime 基盤完成後の将来 Sprint。"
+    },
+    {
+      "id": "bl-browser-regen-reset",
+      "title": "Browser tab Manager をコンテナ再生成 (S7364e3) 時にリセット",
+      "detail": "RegenerateBranchContainer 後、in-container Browser (S62374c) Manager が state=running + stale cdpAddr/PID のまま。branch.restarted で browser Manager を Stop/reset する。現状は手動 Stop+Start か Start の self-heal (isPIDAlive) で復帰。",
+      "source": "S7364e3 review",
+      "severity": "minor"
+    },
+    {
+      "id": "bl-drift-scan-efficiency",
+      "title": "image drift スキャンの効率化 (alias fingerprint を per-scan キャッシュ)",
+      "detail": "drift 判定が incus workspace ごとに 10s 毎 2 CLI 呼び。同一 palmux-ws alias の image list を per-workspace で繰り返す。alias fingerprint を per-scan cycle 1 回に hoist するか TTL キャッシュ。single-user/少 workspace 前提では許容範囲。",
+      "source": "S7364e3 review",
+      "severity": "minor"
     }
   ]
 }

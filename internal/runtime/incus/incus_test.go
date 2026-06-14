@@ -1217,6 +1217,11 @@ func TestIsImageStale(t *testing.T) {
 		{"not stale when alias absent", "[]", 0, "oldfp0000\n", 0, false},
 		{"not stale when base unknown", imageListJSON("newfp1111"), 0, "", 0, false},
 		{"not stale when base key missing (non-zero)", imageListJSON("newfp1111"), 0, "", 1, false},
+		// Safety: `incus image list palmux-ws` substring-matched only an unrelated
+		// image (e.g. palmux-ws-staging). No EXACT alias match → "no update
+		// target" (stale=false), never compare against the wrong image.
+		{"not stale when only a non-exact alias matches",
+			`[{"fingerprint":"otherfp9999","aliases":[{"name":"palmux-ws-staging"}]}]`, 0, "oldfp0000\n", 0, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

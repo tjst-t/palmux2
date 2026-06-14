@@ -84,6 +84,13 @@ type Store struct {
 	// "repoID/branchID". (S7364e3)
 	driftMu sync.RWMutex
 	drift   map[string]bool
+
+	// regenMu guards regenInflight, a set of "repoID/branchID" keys currently
+	// being regenerated. It rejects a second concurrent regenerate for the same
+	// workspace (which would otherwise race on the shared probe instance name
+	// and could destroy the real container under the other call). (S7364e3)
+	regenMu       sync.Mutex
+	regenInflight map[string]struct{}
 }
 
 // New creates a Store and hydrates it from disk. It does NOT start the sync
@@ -112,6 +119,7 @@ func New(deps Deps) (*Store, error) {
 		hub:               hub,
 		registry:          deps.Registry,
 		drift:             map[string]bool{},
+		regenInflight:     map[string]struct{}{},
 	}
 	if err := s.hydrate(context.Background()); err != nil {
 		return nil, fmt.Errorf("store: hydrate: %w", err)
@@ -308,12 +316,18 @@ func (s *Store) RuntimeViewFor(repoID, branchID string) *domain.RuntimeView {
 		return &domain.RuntimeView{Kind: "host", State: "ready", Address: "localhost"}
 	}
 	st := rt.Status()
+	// Only incus-container runtimes have an image to drift; a leaked/stale cache
+	// entry must never surface a bogus "update available" badge on host.
+	stale := false
+	if rt.Kind() == runtime.KindIncusContainer {
+		stale = s.driftCached(repoID, branchID)
+	}
 	return &domain.RuntimeView{
 		Kind:    string(rt.Kind()),
 		State:   string(st.State),
 		Address: st.Address,
 		Error:   st.Error,
-		Stale:   s.driftCached(repoID, branchID),
+		Stale:   stale,
 	}
 }
 

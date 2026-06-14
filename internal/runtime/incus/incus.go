@@ -555,18 +555,16 @@ func (r *incusRuntime) aliasFingerprint(ctx context.Context) (string, error) {
 	if err := json.Unmarshal([]byte(stdout), &imgs); err != nil {
 		return "", fmt.Errorf("incus image list parse: %w", err)
 	}
-	// `incus image list <alias>` filters by alias name; pick the image whose
-	// aliases include exactly our alias (be robust to substring matches).
+	// `incus image list <alias>` filters by alias/fingerprint substring, so it
+	// can return unrelated images (e.g. "palmux-ws-staging" or a fingerprint
+	// that prefix-matches). Only trust an EXACT alias-name match — otherwise
+	// return "" (no update target → not stale), never a wrong fingerprint.
 	for _, im := range imgs {
 		for _, a := range im.Aliases {
 			if a.Name == alias {
 				return im.Fingerprint, nil
 			}
 		}
-	}
-	// Fallback: a single result with no alias metadata still implies a match.
-	if len(imgs) == 1 {
-		return imgs[0].Fingerprint, nil
 	}
 	return "", nil
 }
@@ -684,6 +682,17 @@ func (r *incusRuntime) Stop(ctx context.Context) error {
 	clearSnippets(ctx, r.inst, r.caddyRun, r.log)
 	// Remove all published admin-API routes for this workspace (See8bd4-2).
 	r.unpublishAll(ctx)
+	// S7364e3: the container is gone, so all port-rescue state is invalid. Reset
+	// it so a re-created container (Regenerate reuses this same runtime object)
+	// re-runs ExposePort for localhost-only ports instead of seeing stale
+	// activeMappings entries and skipping the relay (which would leave dev
+	// servers unreachable). unpublishAll already cleared r.exposed.
+	r.activeMappingsMu.Lock()
+	r.activeMappings = map[string]string{}
+	r.activeMappingsMu.Unlock()
+	r.portsMu.Lock()
+	r.lastPorts = nil
+	r.portsMu.Unlock()
 	return nil
 }
 

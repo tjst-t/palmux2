@@ -290,6 +290,9 @@ func (s *Store) CloseBranch(ctx context.Context, repoID, branchID string) error 
 				"repo", repoID, "branch", branch.Name, "err", err)
 		}
 	}
+	// S7364e3: drop any cached image-drift state for the closed workspace so the
+	// map doesn't leak and a later reopen doesn't briefly show a stale badge.
+	s.clearDriftCached(repoID, branchID)
 	s.hub.Publish(Event{Type: EventBranchClosed, RepoID: repoID, BranchID: branchID})
 	return nil
 }
@@ -599,6 +602,11 @@ func (s *Store) RestartBranchRuntime(ctx context.Context, repoID, branchID strin
 	}
 	s.mu.Unlock()
 
+	// S7364e3: the runtime kind changed (host↔incus) — any cached drift result
+	// for the old container is meaningless now. Drop it (host is never stale; a
+	// new incus container's drift is recomputed by the next scan).
+	s.clearDriftCached(repoID, branchID)
+
 	rtView := s.RuntimeViewFor(repoID, branchID)
 	s.hub.Publish(Event{
 		Type:     EventBranchRuntimeChanged,
@@ -634,6 +642,23 @@ func (s *Store) RegenerateBranchContainer(ctx context.Context, repoID, branchID 
 	if s.deps.RuntimeRegistry == nil {
 		return false, nil
 	}
+
+	// ── 0. Reject a concurrent regenerate for the same workspace ─────────────
+	// Two in-flight regenerates would race on the shared probe instance name and
+	// could destroy the real container under each other.
+	key := driftKey(repoID, branchID)
+	s.regenMu.Lock()
+	if _, busy := s.regenInflight[key]; busy {
+		s.regenMu.Unlock()
+		return false, fmt.Errorf("an image update is already in progress for this workspace")
+	}
+	s.regenInflight[key] = struct{}{}
+	s.regenMu.Unlock()
+	defer func() {
+		s.regenMu.Lock()
+		delete(s.regenInflight, key)
+		s.regenMu.Unlock()
+	}()
 
 	// ── 1. Look up the open branch ───────────────────────────────────────────
 	s.mu.RLock()
