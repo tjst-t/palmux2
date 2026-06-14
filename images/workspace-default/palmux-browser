@@ -106,9 +106,20 @@ let _playwright = null;
 
 async function getPlaywright() {
   if (_playwright) return _playwright;
-  // Require playwright-core — must be installed globally or locally.
+  // Resolve playwright-core. It is installed GLOBALLY (npm install -g) in the
+  // palmux-ws image, but a `require('playwright-core')` from this script's
+  // location does not see global modules unless NODE_PATH is set. So fall back
+  // to resolving it from `npm root -g` at runtime — robust regardless of shell
+  // env (the CLI may be invoked from a non-login shell).
   try {
     _playwright = require('playwright-core');
+    return _playwright;
+  } catch {}
+  try {
+    const path = require('path');
+    const gRoot = execSync('npm root -g', { encoding: 'utf8' }).trim();
+    _playwright = require(path.join(gRoot, 'playwright-core'));
+    return _playwright;
   } catch {
     die('playwright-core not found. Install it: npm install -g playwright-core');
   }

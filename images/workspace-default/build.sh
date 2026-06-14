@@ -33,6 +33,11 @@
 
 set -euo pipefail
 
+# Directory holding this script + its sidecar assets (palmux-browser CLI, skills/).
+# Use this for context-file pushes so the build works regardless of CWD (e.g.
+# when the build context is unpacked to a temp dir on a build host).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # ─── configuration ────────────────────────────────────────────────────────────
 OUT_DIR="${OUT_DIR:-./dist}"
 IMAGE_BASE="${IMAGE_BASE:-images:ubuntu/24.04}"
@@ -156,19 +161,26 @@ incus exec "${BUILD_INST}" </dev/null -- sh -c "
 # unprivileged incus containers.  CDP is never Caddy-exposed (bridge-only).
 # The palmux browser manager calls `chromium` (binary name); ensure that name
 # exists regardless of whether the package installs chromium or chromium-browser.
-log "   Installing chromium ..."
+log "   Installing chromium (google-chrome-stable .deb) ..."
+# IMPORTANT: on Ubuntu 24.04 the `chromium`/`chromium-browser` apt package is a
+# SNAP wrapper. snapd cannot set up its devpts mounts inside an unprivileged
+# incus container (`mount devpts ... Permission denied`), so that install fails
+# at build time. We install Google Chrome's real .deb from Google's apt repo
+# (no snap), which is headless-capable with --no-sandbox in the container, and
+# symlink `chromium` → it so the browser manager's `chromium` binary name works.
 incus exec "${BUILD_INST}" </dev/null -- sh -c '
   set -e
   export DEBIAN_FRONTEND=noninteractive
-  # Try the Debian package name first; fall back to Ubuntu-specific name.
-  apt-get install -y --no-install-recommends chromium 2>/dev/null || \
-    apt-get install -y --no-install-recommends chromium-browser
-  # Ensure `chromium` binary is on PATH (Ubuntu may only install chromium-browser).
-  if ! command -v chromium >/dev/null 2>&1; then
-    if command -v chromium-browser >/dev/null 2>&1; then
-      ln -sf "$(command -v chromium-browser)" /usr/local/bin/chromium
-    fi
-  fi
+  apt-get install -y --no-install-recommends ca-certificates curl gnupg
+  install -d -m 0755 /etc/apt/keyrings
+  curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
+    | gpg --dearmor -o /etc/apt/keyrings/google-chrome.gpg
+  echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
+    > /etc/apt/sources.list.d/google-chrome.list
+  apt-get update
+  apt-get install -y --no-install-recommends google-chrome-stable
+  # Expose the binary under the `chromium` name the browser manager invokes.
+  ln -sf "$(command -v google-chrome-stable)" /usr/local/bin/chromium
 '
 
 log "   Verifying installed binaries ..."
@@ -193,16 +205,20 @@ incus exec "${BUILD_INST}" </dev/null -- sh -c '
   apt-get install -y --no-install-recommends nodejs
   # Install playwright-core globally; skip browser download (we use connectOverCDP).
   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g --no-fund --no-audit playwright-core
+  # Global npm modules are not on the default require() path. Export NODE_PATH
+  # system-wide so any login/interactive shell that runs palmux-browser resolves
+  # playwright-core. (The CLI also self-resolves via `npm root -g` as a fallback.)
+  echo "export NODE_PATH=\"$(npm root -g)\"" > /etc/profile.d/10-palmux-node-path.sh
 '
 
 # Copy the palmux-browser CLI and the palmux-browser skill.
 log "   Copying palmux-browser CLI → /usr/local/bin/ ..."
-incus file push images/workspace-default/palmux-browser "${BUILD_INST}"/usr/local/bin/palmux-browser </dev/null
+incus file push "${SCRIPT_DIR}"/palmux-browser "${BUILD_INST}"/usr/local/bin/palmux-browser </dev/null
 incus exec "${BUILD_INST}" </dev/null -- chmod +x /usr/local/bin/palmux-browser
 
 log "   Copying palmux-browser skill → /usr/local/share/palmux/.claude/skills/ ..."
 incus exec "${BUILD_INST}" </dev/null -- mkdir -p /usr/local/share/palmux/.claude/skills/palmux-browser
-incus file push images/workspace-default/skills/palmux-browser/SKILL.md \
+incus file push "${SCRIPT_DIR}"/skills/palmux-browser/SKILL.md \
   "${BUILD_INST}"/usr/local/share/palmux/.claude/skills/palmux-browser/SKILL.md </dev/null
 
 log "   Verifying palmux-browser toolchain ..."
@@ -216,8 +232,12 @@ incus exec "${BUILD_INST}" </dev/null -- sh -c \
   "test -f /usr/local/share/palmux/.claude/skills/palmux-browser/SKILL.md" \
   || die "palmux-browser skill file not found"
 incus exec "${BUILD_INST}" </dev/null -- sh -c \
-  "node -e 'require(\"playwright-core\")' >/dev/null 2>&1" \
-  || die "playwright-core not importable from node"
+  "NODE_PATH=\$(npm root -g) node -e 'require(\"playwright-core\")' >/dev/null 2>&1" \
+  || die "playwright-core not importable from node (NODE_PATH=\$(npm root -g))"
+# Also confirm the CLI's own runtime resolution path works end-to-end.
+incus exec "${BUILD_INST}" </dev/null -- sh -c \
+  "node -e 'const cp=require(\"child_process\");const p=require(\"path\");require(p.join(cp.execSync(\"npm root -g\").toString().trim(),\"playwright-core\"))' >/dev/null 2>&1" \
+  || die "palmux-browser playwright-core fallback resolution failed"
 log "   node + palmux-browser + playwright-core + skill all present"
 
 # ─── 3b. rich default shell (S5818e8) ─────────────────────────────────────────
