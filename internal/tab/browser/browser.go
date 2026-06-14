@@ -1,17 +1,20 @@
-// Package browser implements the lifecycle manager for a per-workspace headless
-// Chromium instance running inside an incus container.
+// Package browser implements the lifecycle manager for a per-workspace Chromium
+// instance running headful inside an incus container, rendered to the user via
+// noVNC over a raw VNC byte-pipe.
 //
-// Design (S62374c-1):
+// Design (noVNC rework):
 //   - Chromium is launched ONLY via an explicit POST .../tabs/browser/start.
 //     Workspace open / tab display do NOT auto-launch.
-//   - The --user-data-dir is placed under a host path that is bind-mounted into
-//     the container (persistence across container re-creation).
-//   - CDP is bound only to the container's bridge IP (never 0.0.0.0).
-//     The palmux host can reach containerIP:9222; Caddy never gets a route for it.
+//   - Launch sequence: Xvfb :99 → headful chromium (full UI) → fcitx5 → x11vnc.
+//     Each daemon is started via `sh -c "nohup CMD >/log 2>&1 & echo $!"` so it
+//     survives after incus exec returns.
+//   - x11vnc listens on ALL interfaces on port 5900 (no -listen flag) so the
+//     palmux host can reach it via the container's bridge IP.
+//   - CDP is kept (--remote-debugging-port=9222) for Claude/Story-3.
+//     A relay forwards <bridgeIP>:9222 → 127.0.0.1:9222 inside the container.
 //   - State machine: stopped → starting → running (or back to stopped on stop).
-//
-// Story 2 (CDP screencast / navigate) — TODO: add WS proxy and navigate endpoint
-// once the screencast Story is scheduled.
+//   - VNC attach: raw binary byte-pipe, WS subprotocol "binary".
+//   - The --user-data-dir is bind-mounted from the host for profile persistence.
 package browser
 
 import (
@@ -20,7 +23,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
-	"net/http"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,8 +37,52 @@ import (
 // CDPPort is the fixed remote-debugging port chromium listens on.
 const CDPPort = 9222
 
+// VNCPort is the fixed VNC port x11vnc listens on.
+const VNCPort = 5900
+
+// xDisplay is the Xvfb display number used by all daemons.
+const xDisplay = ":99"
+
 // chromiumBin is the binary name inside the container.
 const chromiumBin = "chromium"
+
+// dbusAddr is the fixed session-bus socket path used by fcitx5 and chromium.
+// Modern GTK apps (Chrome) reach fcitx5 over the session DBus; without a shared
+// bus the GTK fcitx IM module cannot connect and Japanese input silently fails.
+// The path lives inside the container's /tmp, which is per-workspace (one
+// container per Workspace), so a fixed name never collides across workspaces.
+const dbusAddr = "unix:path=/tmp/palmux-browser-dbus"
+
+// fcitx5ProfileBody is the fcitx5 input-method profile written before fcitx5
+// starts. It puts mozc (Japanese) in the default group alongside keyboard-us,
+// with Ctrl+Space toggling between them. Without this, fcitx5's first-run
+// default group has only keyboard-us and Japanese is unavailable. The package
+// fcitx5-mozc provides the engine; fcitx5-frontend-gtk3/gtk4 (baked into the
+// image) provide the GTK IM module Chrome loads via GTK_IM_MODULE=fcitx.
+const fcitx5ProfileBody = `[Groups/0]
+Name=Default
+Default Layout=us
+DefaultIM=mozc
+
+[Groups/0/Items/0]
+Name=keyboard-us
+Layout=
+
+[Groups/0/Items/1]
+Name=mozc
+Layout=
+
+[GroupOrder]
+0=Default
+`
+
+// fcitx5ConfigBody binds Ctrl+Space as the input-method trigger key.
+const fcitx5ConfigBody = `[Hotkey]
+EnumerateWithTriggerKeys=True
+
+[Hotkey/TriggerKeys]
+0=Control+space
+`
 
 // persistBaseName is the sub-path under the host home directory that holds
 // per-workspace browser profiles. It is bind-mounted by Start into the
@@ -100,8 +147,21 @@ func DefaultDeviceAdder(ctx context.Context, inst, devName, source, path string)
 	return nil
 }
 
-// Manager controls the chromium lifecycle for one workspace.
+// Manager controls the browser daemon lifecycle for one workspace.
 // It is safe for concurrent use.
+//
+// Daemon startup order:
+//  1. Xvfb :99                       — virtual framebuffer
+//  2. dbus-daemon (session bus)       — fcitx5↔Chrome GTK IM transport
+//  3. fcitx5                          — server-side Japanese IME (mozc)
+//  4. chromium (headful, full UI)     — CDP + real browser UI on :99
+//  5. x11vnc -display :99             — VNC server on port 5900
+//  6. CDP relay (bridgeIP:9222→127.0.0.1:9222) — for palmux/Claude host CDP reach
+//
+// fcitx5 must start before chromium so Chrome's GTK IM module connects on
+// launch, and both must share DBUS_SESSION_BUS_ADDRESS (the GTK fcitx module
+// speaks to fcitx5 over the session bus). Without the shared bus + the
+// fcitx5-frontend-gtk module (image), Japanese input silently does nothing.
 type Manager struct {
 	// getRT resolves the CURRENT incus runtime for this workspace. It must be
 	// called fresh on every op — a runtime switch (host↔incus) evicts and
@@ -113,11 +173,15 @@ type Manager struct {
 	log         *slog.Logger
 	deviceAdder DeviceAdder // injectable for tests
 
-	mu       sync.Mutex
-	state    BrowserState
-	pid      string // PID of the chromium process inside the container (as string)
-	relayPID string // PID of the in-container CDP relay (bridgeIP:9222 → 127.0.0.1:9222)
-	cdpAddr  string // containerIP used for CDP; set on start
+	mu        sync.Mutex
+	state     BrowserState
+	xvfbPID   string // PID of Xvfb inside the container
+	dbusPID   string // PID of the session dbus-daemon inside the container
+	pid       string // PID of chromium inside the container
+	fcitxPID  string // PID of fcitx5 inside the container
+	vncPID    string // PID of x11vnc inside the container
+	relayPID  string // PID of the in-container CDP relay
+	cdpAddr   string // containerIP used for CDP and VNC; set on start
 }
 
 // cdpRelayScript is a raw TCP forwarder (same pattern as the incus runtime's
@@ -191,9 +255,6 @@ func (m *Manager) State(ctx context.Context) StateView {
 	if s == StateRunning && addr != "" {
 		cdpOK = CheckCDP(ctx, addr)
 	}
-	// URL is intentionally left empty: it is the *page* URL (surfaced live via
-	// the screencast "url" events), not the CDP endpoint. Returning the CDP
-	// endpoint here previously leaked into the UI's address bar.
 	return StateView{
 		State:        s,
 		CDPReachable: cdpOK,
@@ -201,17 +262,18 @@ func (m *Manager) State(ctx context.Context) StateView {
 	}
 }
 
-// Start launches chromium if not already running. Idempotent.
+// Start launches the browser daemon stack if not already running. Idempotent.
+// Startup order: Xvfb → chromium (headful) → fcitx5 → x11vnc → CDP relay.
 // [AC-S62374c-1-1] [AC-S62374c-1-2] [AC-S62374c-1-3]
 func (m *Manager) Start(ctx context.Context) (StartResponse, error) {
 	m.mu.Lock()
 	if m.state == StateRunning && m.pid != "" {
-		// Check process still alive (may have died without us knowing).
+		// Check chromium process still alive (may have died without us knowing).
 		pid := m.pid
 		m.mu.Unlock()
 		alive, err := m.isPIDAlive(ctx, pid)
 		if err == nil && alive {
-			m.log.Info("browser: chromium already running (idempotent)", "inst", m.inst, "pid", pid)
+			m.log.Info("browser: already running (idempotent)", "inst", m.inst, "pid", pid)
 			return StartResponse{State: StateRunning}, nil
 		}
 		// Process gone — restart.
@@ -271,66 +333,121 @@ func (m *Manager) Start(ctx context.Context) (StartResponse, error) {
 		return StartResponse{}, fmt.Errorf("browser Start: profile mount: %w", err)
 	}
 
-	// Launch chromium in the background, capture PID.
-	pid, err := m.launchChromium(ctx, addr, profileDir)
+	// ── 1. Launch Xvfb ───────────────────────────────────────────────────────
+	xvfbPID, err := m.launchXvfb(ctx)
 	if err != nil {
 		m.mu.Lock()
 		m.state = StateStopped
 		m.mu.Unlock()
-		return StartResponse{}, fmt.Errorf("browser Start: launch: %w", err)
+		return StartResponse{}, fmt.Errorf("browser Start: xvfb: %w", err)
 	}
-
 	m.mu.Lock()
-	m.pid = pid
+	m.xvfbPID = xvfbPID
 	m.cdpAddr = addr
-	m.state = StateStarting
 	m.mu.Unlock()
 
-	// chromium binds CDP to 127.0.0.1 inside the container. Wait for it to come
-	// up locally, then start the relay so the palmux host (on the bridge) can
-	// reach it at <bridgeIP>:9222.
-	if err := m.waitLocalCDP(ctx, 10*time.Second); err != nil {
-		m.log.Warn("browser: local CDP not up after launch", "inst", m.inst, "err", err)
+	// Brief pause for Xvfb to initialise its socket.
+	select {
+	case <-ctx.Done():
+		return StartResponse{}, ctx.Err()
+	case <-time.After(500 * time.Millisecond):
 	}
-	relayPID, relErr := m.startRelay(ctx, addr)
-	if relErr != nil {
+
+	// ── 2. Launch session dbus-daemon (fcitx5↔Chrome IM transport) ───────────
+	// Non-fatal individually, but fcitx5+chromium below get the bus address so
+	// the GTK fcitx IM module can connect. If dbus fails, Japanese is degraded
+	// but ASCII input still works.
+	dbusPID, err := m.launchDBus(ctx)
+	if err != nil {
+		m.log.Warn("browser: dbus launch failed (Japanese IME degraded)", "inst", m.inst, "err", err)
+	}
+	m.mu.Lock()
+	m.dbusPID = dbusPID
+	m.mu.Unlock()
+
+	// ── 3. Launch fcitx5 (server-side Japanese IME) ──────────────────────────
+	// Write the mozc profile first (idempotent), then start fcitx5 BEFORE
+	// chromium so Chrome's GTK IM module connects on launch.
+	if err := m.ensureFcitx5Config(ctx); err != nil {
+		m.log.Warn("browser: fcitx5 config write failed (Japanese IME degraded)", "inst", m.inst, "err", err)
+	}
+	fcitxPID, err := m.launchFcitx5(ctx)
+	if err != nil {
+		// fcitx5 failure is non-fatal: log and continue (ASCII input still works).
+		m.log.Warn("browser: fcitx5 launch failed (Japanese IME unavailable)", "inst", m.inst, "err", err)
+	}
+	m.mu.Lock()
+	m.fcitxPID = fcitxPID
+	m.mu.Unlock()
+
+	// Give fcitx5 a moment to register on the bus before chromium connects.
+	select {
+	case <-ctx.Done():
+		return StartResponse{}, ctx.Err()
+	case <-time.After(700 * time.Millisecond):
+	}
+
+	// ── 4. Launch chromium (headful) ─────────────────────────────────────────
+	chrPID, err := m.launchChromium(ctx, addr, profileDir)
+	if err != nil {
 		m.mu.Lock()
 		m.state = StateStopped
 		m.mu.Unlock()
-		_, _ = m.Stop(ctx) // best-effort: kill the chromium we just launched
-		return StartResponse{}, fmt.Errorf("browser Start: cdp relay: %w", relErr)
+		_, _ = m.Stop(ctx)
+		return StartResponse{}, fmt.Errorf("browser Start: chromium: %w", err)
+	}
+	m.mu.Lock()
+	m.pid = chrPID
+	m.mu.Unlock()
+
+	// ── 5. Launch x11vnc ─────────────────────────────────────────────────────
+	vncPID, err := m.launchX11VNC(ctx)
+	if err != nil {
+		m.mu.Lock()
+		m.state = StateStopped
+		m.mu.Unlock()
+		_, _ = m.Stop(ctx)
+		return StartResponse{}, fmt.Errorf("browser Start: x11vnc: %w", err)
+	}
+	m.mu.Lock()
+	m.vncPID = vncPID
+	m.mu.Unlock()
+
+	// ── 6. CDP relay (bridgeIP:9222 → 127.0.0.1:9222) ───────────────────────
+	// Wait for local CDP first (chromium takes a few seconds to bind in real mode).
+	if err := m.waitLocalCDP(ctx, 8*time.Second); err != nil {
+		m.log.Warn("browser: local CDP not up after chromium launch", "inst", m.inst, "err", err)
+	}
+	relayPID, relErr := m.startRelay(ctx, addr)
+	if relErr != nil {
+		m.log.Warn("browser: CDP relay failed (Claude CDP may be unavailable)", "inst", m.inst, "err", relErr)
 	}
 	m.mu.Lock()
 	m.relayPID = relayPID
 	m.mu.Unlock()
 
-	// Wait briefly for CDP to become reachable before returning the state.
-	// We do a short poll so the response reflects the true state when possible.
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// ── Wait for VNC port to open ─────────────────────────────────────────────
+	// VNC readiness is the gate for running state (user can attach via noVNC).
+	// 5 s is ample for x11vnc inside the container to start; the frontend polls
+	// state every 5 s and will pick up "running" on the next tick if we miss it.
+	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	finalState := StateStarting
-outer:
-	for {
-		if CheckCDP(waitCtx, addr) {
-			finalState = StateRunning
-			break outer
-		}
-		select {
-		case <-waitCtx.Done():
-			break outer
-		case <-time.After(300 * time.Millisecond):
-		}
+	if m.waitVNC(waitCtx, addr) {
+		finalState = StateRunning
 	}
 
 	m.mu.Lock()
 	m.state = finalState
 	m.mu.Unlock()
 
-	m.log.Info("browser: chromium launched", "inst", m.inst, "pid", pid, "addr", addr, "state", finalState)
+	m.log.Info("browser: stack launched", "inst", m.inst,
+		"xvfbPID", xvfbPID, "chromiumPID", chrPID,
+		"vncPID", vncPID, "addr", addr, "state", finalState)
 	return StartResponse{State: finalState}, nil
 }
 
-// Stop kills the chromium process.
+// Stop kills all browser daemons: relay, x11vnc, fcitx5, chromium, Xvfb.
 // [AC-S62374c-1-1]
 func (m *Manager) Stop(ctx context.Context) (StopResponse, error) {
 	m.mu.Lock()
@@ -339,29 +456,41 @@ func (m *Manager) Stop(ctx context.Context) (StopResponse, error) {
 
 	rt := m.rtNow()
 	if rt != nil {
-		// Kill the relay (single PID) and ALL chromium processes. `kill <pid>` on
-		// the launcher PID does not reliably reap chromium's zygote/renderer tree,
-		// so pkill by the unique remote-debugging-port flag catches the whole set.
+		// Kill the CDP relay (single PID).
 		if relayPID != "" {
 			_, _ = rt.Exec(ctx, []string{"kill", relayPID}, runtime.ExecOpts{})
 		}
-		res, err := rt.Exec(ctx, []string{"sh", "-c",
-			fmt.Sprintf("pkill -f 'remote-debugging-port=%d' || true", CDPPort)}, runtime.ExecOpts{})
-		if err != nil {
-			m.log.Warn("browser Stop: pkill chromium exec error", "inst", m.inst, "err", err)
-		} else if res.ExitCode != 0 {
-			m.log.Warn("browser Stop: pkill chromium non-zero", "inst", m.inst, "exit", res.ExitCode, "stderr", res.Stderr)
+		// Kill x11vnc, fcitx5, chromium (whole process tree), Xvfb, dbus-daemon.
+		killCmds := []string{
+			"pkill -f x11vnc || true",
+			"pkill fcitx5 || true",
+			fmt.Sprintf("pkill -f 'remote-debugging-port=%d' || true", CDPPort),
+			fmt.Sprintf("pkill -f 'Xvfb %s' || true", xDisplay),
+			fmt.Sprintf("pkill -f 'dbus-daemon --session --address=%s' || true", dbusAddr),
+		}
+		for _, cmd := range killCmds {
+			res, err := rt.Exec(ctx, []string{"sh", "-c", cmd}, runtime.ExecOpts{})
+			if err != nil {
+				m.log.Warn("browser Stop: exec error", "inst", m.inst, "cmd", cmd, "err", err)
+			} else if res.ExitCode != 0 {
+				m.log.Debug("browser Stop: pkill non-zero (process may not have been running)",
+					"inst", m.inst, "cmd", cmd, "exit", res.ExitCode)
+			}
 		}
 	}
 
 	m.mu.Lock()
 	m.state = StateStopped
+	m.xvfbPID = ""
+	m.dbusPID = ""
 	m.pid = ""
+	m.fcitxPID = ""
+	m.vncPID = ""
 	m.relayPID = ""
 	m.cdpAddr = ""
 	m.mu.Unlock()
 
-	m.log.Info("browser: chromium stopped", "inst", m.inst)
+	m.log.Info("browser: stack stopped", "inst", m.inst)
 	return StopResponse{State: StateStopped}, nil
 }
 
@@ -426,41 +555,53 @@ func (m *Manager) ensureProfileMount(ctx context.Context) (string, error) {
 	return hostDir, nil
 }
 
-// launchChromium starts chromium in the container background and returns its PID.
-//
-// Chromium launch flags (verified):
-//
-//	--headless=new               : new headless mode (Chrome 112+)
-//	--no-sandbox                 : required inside an unprivileged container
-//	--disable-gpu                : headless has no GPU
-//	--remote-debugging-port=9222 : CDP port
-//	--remote-debugging-address=<IP> : bind only to bridge IP, NOT 0.0.0.0
-//	--remote-allow-origins=*     : REQUIRED — Chrome rejects raw CDP WS otherwise
-//	--user-data-dir=<path>       : persistent profile under bind-mounted host path
-//	about:blank                  : no default page load
-//
+// launchXvfb starts Xvfb on display :99 inside the container and returns its PID.
+// Xvfb provides the virtual framebuffer that chromium renders into.
+func (m *Manager) launchXvfb(ctx context.Context) (string, error) {
+	rt := m.rtNow()
+	if rt == nil {
+		return "", fmt.Errorf("launchXvfb: runtime unavailable")
+	}
+	cmd := fmt.Sprintf(
+		"nohup Xvfb %s -screen 0 1600x1000x24 >/tmp/xvfb.log 2>&1 & echo $!",
+		xDisplay,
+	)
+	res, err := rt.Exec(ctx, []string{"sh", "-c", cmd}, runtime.ExecOpts{})
+	if err != nil {
+		return "", fmt.Errorf("launchXvfb: exec: %w", err)
+	}
+	if res.ExitCode != 0 {
+		return "", fmt.Errorf("launchXvfb: exit %d: %s", res.ExitCode, res.Stderr)
+	}
+	return parsePID(res.Stdout, "launchXvfb")
+}
+
+// launchChromium starts headful chromium on display :99 in the container.
+// Flags kept from the headless era: --no-sandbox (unprivileged container),
+// --remote-debugging-port=9222 (CDP for Claude), --remote-allow-origins=*,
+// --user-data-dir (persistent profile). IME env vars enable fcitx5.
 // [AC-S62374c-1-1] [AC-S62374c-1-3]
 func (m *Manager) launchChromium(ctx context.Context, containerIP, profileDir string) (string, error) {
-	// NOTE: --remote-debugging-address is intentionally omitted. Modern Chrome
-	// ignores it and binds CDP to 127.0.0.1 only; we reach it via the relay
-	// (startRelay) on the bridge IP. containerIP is unused here but kept in the
-	// signature for clarity/logging.
+	// containerIP is unused here (CDP is reached via relay on bridge IP); kept in
+	// signature for symmetry with other launchers and logging.
 	_ = containerIP
-	// --window-size sets the headless render (and screencast capture) resolution.
-	// The default headless window is ~800x600, which the UI upscales → blurry; a
-	// larger window gives sharp frames (matches the screencast maxWidth/Height).
-	launchCmd := fmt.Sprintf(
-		"nohup %s"+
-			" --headless=new"+
+
+	cmd := fmt.Sprintf(
+		"DISPLAY=%s"+
+			" DBUS_SESSION_BUS_ADDRESS=%s"+
+			" GTK_IM_MODULE=fcitx"+
+			" QT_IM_MODULE=fcitx"+
+			" XMODIFIERS=@im=fcitx"+
+			" nohup %s"+
 			" --no-sandbox"+
-			" --disable-gpu"+
-			" --window-size=1920,1200"+
-			" --force-device-scale-factor=1"+
 			" --remote-debugging-port=%d"+
 			" --remote-allow-origins=*"+
 			" --user-data-dir=%s"+
-			" about:blank"+
-			" >/dev/null 2>&1 & echo $!",
+			" --window-size=1600,1000"+
+			" --window-position=0,0"+
+			" >/tmp/chromium.log 2>&1 & echo $!",
+		xDisplay,
+		dbusAddr,
 		chromiumBin,
 		CDPPort,
 		profileDir,
@@ -470,21 +611,145 @@ func (m *Manager) launchChromium(ctx context.Context, containerIP, profileDir st
 	if rt == nil {
 		return "", fmt.Errorf("launchChromium: runtime unavailable")
 	}
-	res, err := rt.Exec(ctx, []string{"sh", "-c", launchCmd}, runtime.ExecOpts{})
+	res, err := rt.Exec(ctx, []string{"sh", "-c", cmd}, runtime.ExecOpts{})
 	if err != nil {
 		return "", fmt.Errorf("launchChromium: exec: %w", err)
 	}
 	if res.ExitCode != 0 {
 		return "", fmt.Errorf("launchChromium: exit %d: %s", res.ExitCode, res.Stderr)
 	}
+	return parsePID(res.Stdout, "launchChromium")
+}
 
-	// Parse PID from stdout (first non-empty line from `echo $!`).
-	for _, line := range strings.Split(res.Stdout, "\n") {
+// launchFcitx5 starts the fcitx5 server-side IME on display :99.
+// Non-fatal: if fcitx5 is missing the browser still works for ASCII input.
+func (m *Manager) launchFcitx5(ctx context.Context) (string, error) {
+	rt := m.rtNow()
+	if rt == nil {
+		return "", fmt.Errorf("launchFcitx5: runtime unavailable")
+	}
+	cmd := fmt.Sprintf(
+		"DISPLAY=%s DBUS_SESSION_BUS_ADDRESS=%s"+
+			" GTK_IM_MODULE=fcitx QT_IM_MODULE=fcitx XMODIFIERS=@im=fcitx"+
+			" nohup fcitx5 --disable=notifications >/tmp/fcitx5.log 2>&1 & echo $!",
+		xDisplay, dbusAddr,
+	)
+	res, err := rt.Exec(ctx, []string{"sh", "-c", cmd}, runtime.ExecOpts{})
+	if err != nil {
+		return "", fmt.Errorf("launchFcitx5: exec: %w", err)
+	}
+	if res.ExitCode != 0 {
+		return "", fmt.Errorf("launchFcitx5: exit %d: %s", res.ExitCode, res.Stderr)
+	}
+	return parsePID(res.Stdout, "launchFcitx5")
+}
+
+// launchDBus starts a session dbus-daemon at the fixed dbusAddr socket inside
+// the container and returns its PID. fcitx5 and chromium both attach to this
+// bus so Chrome's GTK fcitx IM module can talk to fcitx5. Idempotent: the old
+// socket is removed first (a stale socket from a prior run would make
+// dbus-daemon refuse to bind).
+func (m *Manager) launchDBus(ctx context.Context) (string, error) {
+	rt := m.rtNow()
+	if rt == nil {
+		return "", fmt.Errorf("launchDBus: runtime unavailable")
+	}
+	// dbusAddr is "unix:path=/tmp/...": strip the scheme to get the socket path.
+	sockPath := strings.TrimPrefix(dbusAddr, "unix:path=")
+	cmd := fmt.Sprintf(
+		"rm -f %s; nohup dbus-daemon --session --address=%s --nofork >/tmp/dbus.log 2>&1 & echo $!",
+		sockPath, dbusAddr,
+	)
+	res, err := rt.Exec(ctx, []string{"sh", "-c", cmd}, runtime.ExecOpts{})
+	if err != nil {
+		return "", fmt.Errorf("launchDBus: exec: %w", err)
+	}
+	if res.ExitCode != 0 {
+		return "", fmt.Errorf("launchDBus: exit %d: %s", res.ExitCode, res.Stderr)
+	}
+	return parsePID(res.Stdout, "launchDBus")
+}
+
+// ensureFcitx5Config writes the fcitx5 mozc profile + hotkey config into the
+// container at ~/.config/fcitx5 (idempotent overwrite). This puts mozc in the
+// default input-method group with Ctrl+Space as the toggle, which fcitx5's
+// first-run default omits. Runs as the workspace user (rt.Exec injects --user
+// 1000 / HOME=/home/ubuntu) so the files land in the right home.
+func (m *Manager) ensureFcitx5Config(ctx context.Context) error {
+	rt := m.rtNow()
+	if rt == nil {
+		return fmt.Errorf("ensureFcitx5Config: runtime unavailable")
+	}
+	// base64 the bodies to avoid any quoting hazards through sh -c.
+	profB64 := base64.StdEncoding.EncodeToString([]byte(fcitx5ProfileBody))
+	confB64 := base64.StdEncoding.EncodeToString([]byte(fcitx5ConfigBody))
+	script := fmt.Sprintf(
+		"set -e; mkdir -p \"$HOME/.config/fcitx5\"; "+
+			"echo '%s' | base64 -d > \"$HOME/.config/fcitx5/profile\"; "+
+			"echo '%s' | base64 -d > \"$HOME/.config/fcitx5/config\"",
+		profB64, confB64,
+	)
+	res, err := rt.Exec(ctx, []string{"sh", "-c", script}, runtime.ExecOpts{})
+	if err != nil {
+		return fmt.Errorf("ensureFcitx5Config: exec: %w", err)
+	}
+	if res.ExitCode != 0 {
+		return fmt.Errorf("ensureFcitx5Config: exit %d: %s", res.ExitCode, res.Stderr)
+	}
+	return nil
+}
+
+// launchX11VNC starts x11vnc on display :99, listening on all interfaces on
+// port 5900. The -forever and -shared flags keep it running across client
+// disconnects and allow multiple simultaneous viewers.
+// No -listen flag: x11vnc must bind 0.0.0.0:5900 so both localhost (inside
+// container) and the bridge IP (from palmux host) can reach it.
+func (m *Manager) launchX11VNC(ctx context.Context) (string, error) {
+	rt := m.rtNow()
+	if rt == nil {
+		return "", fmt.Errorf("launchX11VNC: runtime unavailable")
+	}
+	cmd := fmt.Sprintf(
+		"nohup x11vnc -display %s -forever -shared -nopw -rfbport %d -loop >/tmp/x11vnc.log 2>&1 & echo $!",
+		xDisplay,
+		VNCPort,
+	)
+	res, err := rt.Exec(ctx, []string{"sh", "-c", cmd}, runtime.ExecOpts{})
+	if err != nil {
+		return "", fmt.Errorf("launchX11VNC: exec: %w", err)
+	}
+	if res.ExitCode != 0 {
+		return "", fmt.Errorf("launchX11VNC: exit %d: %s", res.ExitCode, res.Stderr)
+	}
+	return parsePID(res.Stdout, "launchX11VNC")
+}
+
+// parsePID extracts the first non-empty line from stdout as the PID string.
+func parsePID(stdout, caller string) (string, error) {
+	for _, line := range strings.Split(stdout, "\n") {
 		if p := strings.TrimSpace(line); p != "" {
 			return p, nil
 		}
 	}
-	return "", fmt.Errorf("launchChromium: no PID in stdout %q", res.Stdout)
+	return "", fmt.Errorf("%s: no PID in stdout %q", caller, stdout)
+}
+
+// waitVNC polls the VNC port on the container bridge IP until it opens or the
+// context expires. Returns true when the port is reachable.
+func (m *Manager) waitVNC(ctx context.Context, addr string) bool {
+	target := net.JoinHostPort(addr, fmt.Sprintf("%d", VNCPort))
+	for {
+		conn, err := net.DialTimeout("tcp", target, 1*time.Second)
+		if err == nil {
+			_ = conn.Close()
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
 }
 
 // waitLocalCDP polls (inside the container) for chromium's CDP on
@@ -528,12 +793,7 @@ func (m *Manager) startRelay(ctx context.Context, listenIP string) (string, erro
 	if res.ExitCode != 0 {
 		return "", fmt.Errorf("startRelay exit %d: %s", res.ExitCode, res.Stderr)
 	}
-	for _, line := range strings.Split(res.Stdout, "\n") {
-		if p := strings.TrimSpace(line); p != "" {
-			return p, nil
-		}
-	}
-	return "", fmt.Errorf("startRelay: no PID in stdout %q", res.Stdout)
+	return parsePID(res.Stdout, "startRelay")
 }
 
 // isPIDAlive checks whether a process with the given PID is alive in the
@@ -550,20 +810,4 @@ func (m *Manager) isPIDAlive(ctx context.Context, pid string) (bool, error) {
 	return res.ExitCode == 0, nil
 }
 
-// CheckCDP does a quick HTTP GET to /json/version on the CDP endpoint and
-// returns true if the response is HTTP 200. Used for state detection.
-// [AC-S62374c-1-6]
-func CheckCDP(ctx context.Context, addr string) bool {
-	url := fmt.Sprintf("http://%s:%d/json/version", addr, CDPPort)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return false
-	}
-	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return false
-	}
-	_ = resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
-}
+// CheckCDP is defined in cdp.go.

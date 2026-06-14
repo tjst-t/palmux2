@@ -1,31 +1,25 @@
-// Browser tab view — S62374c-2
+// Browser tab view — noVNC rework
 //
-// Renders the shared Chromium browser live via CDP screencast.
-// States: host-notice | stopped | starting | running (viewport + hint)
+// The remote Chromium instance (running headful on Xvfb inside the incus
+// container) is presented to the user via noVNC, which speaks raw RFB binary
+// over a WebSocket. palmux acts as a dumb byte-pipe (WS ↔ x11vnc TCP).
 //
-// WS protocol (palmux attach endpoint):
-//   Server → Client:
-//     {type:"frame", data:<base64 jpeg>, meta:{deviceWidth,deviceHeight}}
-//     {type:"url",   url:<string>}
-//     {type:"error", msg:<string>}
-//   Client → Server (input):
-//     {type:"input", kind:"mouse", eventType, x, y, button, clickCount}
-//     {type:"input", kind:"mouse", eventType:"mouseWheel", x, y, deltaX, deltaY}
-//     {type:"input", kind:"key",   eventType, key, text}
-//     {type:"input", kind:"touch", x, y, touchType}
-//     {type:"navigate", url}
-//     {type:"reload"}
-//     {type:"back"}
-//     {type:"forward"}
+// All navigation, mouse, keyboard, and IME input is handled by:
+//   - noVNC on the client side (maps browser events → RFB protocol)
+//   - Chromium's own UI (address bar, back/forward, etc.)
+//   - fcitx5 inside the container (server-side Japanese IME)
 //
-// [AC-S62374c-2-1] [AC-S62374c-2-2] [AC-S62374c-2-3] [AC-S62374c-2-4]
-// [AC-S62374c-2-5] [AC-S62374c-2-6] [AC-S62374c-2-7] [AC-S62374c-2-8]
-// [AC-S62374c-2-10]
+// The custom CDP screencast image + textarea overlay + navigate/back/forward/
+// reload REST calls are entirely removed.
+//
+// States: host-notice | stopped | starting | running (noVNC viewport + hint)
+//
+// [AC-S62374c-1-1] [AC-S62374c-1-2] [AC-S62374c-1-4]
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import RFB from '@novnc/novnc'
 
 import { api } from '../../lib/api'
-import { ReconnectingWebSocket } from '../../lib/ws'
 import type { TabViewProps } from '../../lib/tab-registry'
 import { usePalmuxStore, selectBranchById } from '../../stores/palmux-store'
 
@@ -38,7 +32,6 @@ type BrowserState = 'stopped' | 'starting' | 'running'
 interface StateView {
   state: BrowserState
   cdpReachable: boolean
-  url?: string
   available: boolean
 }
 
@@ -76,76 +69,18 @@ function StateBadge({ state }: { state: BrowserState }) {
 }
 
 // ─── ControlBar ──────────────────────────────────────────────────────────────
+// Simplified: no URL bar / back / forward / reload / Go (chromium's own UI).
 
 interface ControlBarProps {
   state: BrowserState
-  url: string
   popoutHref: string
-  onUrlChange: (u: string) => void
-  onUrlFocus?: () => void
-  onUrlBlur?: () => void
-  onGo: () => void
-  onBack: () => void
-  onForward: () => void
-  onReload: () => void
   onStop: () => void
 }
 
-function ControlBar({
-  state, url, popoutHref,
-  onUrlChange, onUrlFocus, onUrlBlur, onGo, onBack, onForward, onReload, onStop,
-}: ControlBarProps) {
-  const disabled = state !== 'running'
-
-  const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') onGo()
-  }
-
+function ControlBar({ state, popoutHref, onStop }: ControlBarProps) {
   return (
     <div className={styles.bar}>
-      <div className={styles.navBtns}>
-        <button
-          className={styles.navBtn}
-          data-testid="browser-back"
-          title="戻る"
-          disabled={disabled}
-          onClick={onBack}
-        >◀</button>
-        <button
-          className={styles.navBtn}
-          data-testid="browser-forward"
-          title="進む"
-          disabled={disabled}
-          onClick={onForward}
-        >▶</button>
-        <button
-          className={styles.navBtn}
-          data-testid="browser-reload"
-          title="リロード"
-          disabled={disabled}
-          onClick={onReload}
-        >⟳</button>
-      </div>
-
-      <input
-        className={styles.urlInput}
-        data-testid="browser-url-input"
-        value={url}
-        placeholder={disabled ? 'ブラウザ停止中 — Start すると操作できます' : 'URL を入力して Enter…'}
-        spellCheck={false}
-        disabled={disabled}
-        onChange={(e) => onUrlChange(e.target.value)}
-        onFocus={onUrlFocus}
-        onBlur={onUrlBlur}
-        onKeyDown={handleKey}
-      />
-      <button
-        className={styles.goBtn}
-        data-testid="browser-go"
-        disabled={disabled}
-        onClick={onGo}
-      >Go</button>
-
+      <StateBadge state={state} />
       <div className={styles.barRight}>
         {state === 'running' && (
           <a
@@ -157,7 +92,6 @@ function ControlBar({
             title="別タブで大きく開く（同じ共有ブラウザ）"
           >↗ Open</a>
         )}
-        <StateBadge state={state} />
         {state === 'running' && (
           <button
             className={styles.stopBtn}
@@ -171,210 +105,48 @@ function ControlBar({
 }
 
 // ─── LiveViewport ─────────────────────────────────────────────────────────────
+// Uses noVNC RFB to render the remote Chromium and handle all input.
 
 interface LiveViewportProps {
   repoId: string
   branchId: string
-  onUrl: (url: string) => void
 }
 
-function LiveViewport({ repoId, branchId, onUrl }: LiveViewportProps) {
-  const imgRef = useRef<HTMLImageElement>(null)
-  const taRef  = useRef<HTMLTextAreaElement>(null) // hidden capture for keyboard + IME
-  const composingRef = useRef(false)
-  const wsRef  = useRef<ReconnectingWebSocket | null>(null)
-  const metaRef = useRef<{ deviceWidth: number; deviceHeight: number }>({ deviceWidth: 1280, deviceHeight: 800 })
+function LiveViewport({ repoId, branchId }: LiveViewportProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const rfbRef = useRef<RFB | null>(null)
 
-  // Establish WS and pump frames into the img src.
   useEffect(() => {
-    const ws = new ReconnectingWebSocket({
-      url: buildAttachURL(repoId, branchId),
-      onMessage: (ev) => {
-        if (typeof ev.data !== 'string') return
-        try {
-          const msg = JSON.parse(ev.data as string) as {
-            type: string
-            data?: string
-            meta?: { deviceWidth: number; deviceHeight: number }
-            url?: string
-          }
-          if (msg.type === 'frame' && msg.data) {
-            if (msg.meta) metaRef.current = msg.meta
-            if (imgRef.current) {
-              imgRef.current.src = `data:image/jpeg;base64,${msg.data}`
-            }
-          } else if (msg.type === 'url' && msg.url) {
-            onUrl(msg.url)
-          }
-        } catch {
-          // ignore parse errors
-        }
-      },
-    })
-    ws.connect()
-    wsRef.current = ws
+    const el = containerRef.current
+    if (!el) return
+
+    const wsURL = buildAttachURL(repoId, branchId)
+    const rfb = new RFB(el, wsURL, { wsProtocols: ['binary'] })
+    rfb.scaleViewport = true
+    rfb.clipViewport = false
+    rfb.resizeSession = false
+    rfbRef.current = rfb
 
     return () => {
-      ws.close()
-      wsRef.current = null
+      rfb.disconnect()
+      rfbRef.current = null
     }
-  }, [repoId, branchId, onUrl])
-
-  // ── Input forwarding helpers ──────────────────────────────────────────────
-
-  const send = useCallback((msg: object) => {
-    wsRef.current?.send(JSON.stringify(msg))
-  }, [])
-
-  // Convert client coords to CDP viewport coords. The img uses object-fit:contain,
-  // so the rendered frame is scaled to FIT (letterboxed) inside the element —
-  // map through the same transform or clicks land at the wrong remote position
-  // (and remote text fields never get focus → typing goes nowhere). [#2 fix]
-  const toViewport = useCallback((clientX: number, clientY: number) => {
-    const el = taRef.current
-    if (!el) return { x: 0, y: 0 }
-    const rect = el.getBoundingClientRect()
-    const { deviceWidth: dw, deviceHeight: dh } = metaRef.current
-    const scale = Math.min(rect.width / dw, rect.height / dh)
-    const offX = (rect.width  - dw * scale) / 2
-    const offY = (rect.height - dh * scale) / 2
-    const x = (clientX - rect.left - offX) / scale
-    const y = (clientY - rect.top  - offY) / scale
-    return {
-      x: Math.max(0, Math.min(dw, x)),
-      y: Math.max(0, Math.min(dh, y)),
-    }
-  }, [])
-
-  // Mouse/keyboard/IME are captured by a transparent <textarea> overlaid on the
-  // viewport (handlers below). Clicking it focuses it NATURALLY (it IS the click
-  // target) — robust across browsers, unlike focusing a hidden element. [#2 fix]
-  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLTextAreaElement>) => {
-    const { x, y } = toViewport(e.clientX, e.clientY)
-    const button = e.button === 2 ? 'right' : e.button === 1 ? 'middle' : 'left'
-    send({ type: 'input', kind: 'mouse', eventType: 'mousePressed', x, y, button, clickCount: 1 })
-  }, [send, toViewport])
-
-  const handleMouseUp = useCallback((e: React.MouseEvent<HTMLTextAreaElement>) => {
-    const { x, y } = toViewport(e.clientX, e.clientY)
-    const button = e.button === 2 ? 'right' : e.button === 1 ? 'middle' : 'left'
-    send({ type: 'input', kind: 'mouse', eventType: 'mouseReleased', x, y, button, clickCount: 1 })
-  }, [send, toViewport])
-
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLTextAreaElement>) => {
-    const { x, y } = toViewport(e.clientX, e.clientY)
-    send({ type: 'input', kind: 'mouse', eventType: 'mouseMoved', x, y })
-  }, [send, toViewport])
-
-  const handleWheel = useCallback((e: React.WheelEvent<HTMLTextAreaElement>) => {
-    const { x, y } = toViewport(e.clientX, e.clientY)
-    send({ type: 'input', kind: 'mouse', eventType: 'mouseWheel', x, y, deltaX: e.deltaX, deltaY: e.deltaY })
-  }, [send, toViewport])
-
-  // ── Keyboard + IME (transparent overlay textarea) ─────────────────────────
-  // Text-producing input (incl. IME-composed CJK and paste) is sent as
-  // Input.insertText; control keys (Backspace/Enter/Tab/Arrows/…) are sent as
-  // Input.dispatchKeyEvent. preventDefault on control keys stops the local
-  // browser acting (e.g. Backspace navigating back). [followup #2/#3]
-  const flushText = useCallback(() => {
-    const ta = taRef.current
-    if (!ta) return
-    if (ta.value) {
-      send({ type: 'input', kind: 'text', text: ta.value })
-      ta.value = ''
-    }
-  }, [send])
-
-  const handleCompositionStart = useCallback(() => { composingRef.current = true }, [])
-  const handleCompositionEnd = useCallback(() => { composingRef.current = false; flushText() }, [flushText])
-  const handleTextInput = useCallback(() => { if (!composingRef.current) flushText() }, [flushText])
-
-  const isTextKey = (e: React.KeyboardEvent) =>
-    e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.nativeEvent.isComposing || e.key === 'Process') return // IME — let input handle it
-    if (isTextKey(e)) return // printable — handled by onInput → insertText
-    // Control key: forward to the page and stop the local browser from acting.
-    send({ type: 'input', kind: 'key', eventType: 'keyDown', key: e.key })
-    e.preventDefault()
-  }, [send])
-
-  const handleKeyUp = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.nativeEvent.isComposing) return
-    if (isTextKey(e)) return
-    send({ type: 'input', kind: 'key', eventType: 'keyUp', key: e.key })
-    e.preventDefault()
-  }, [send])
-
-  const handleTouchStart = useCallback((e: React.TouchEvent<HTMLTextAreaElement>) => {
-    e.preventDefault()
-    const t = e.changedTouches[0]
-    const { x, y } = toViewport(t.clientX, t.clientY)
-    send({ type: 'input', kind: 'touch', x, y, touchType: 'touchStart' })
-  }, [send, toViewport])
-
-  const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLTextAreaElement>) => {
-    e.preventDefault()
-    const t = e.changedTouches[0]
-    const { x, y } = toViewport(t.clientX, t.clientY)
-    send({ type: 'input', kind: 'touch', x, y, touchType: 'touchEnd' })
-  }, [send, toViewport])
-
-  const handleTouchMove = useCallback((e: React.TouchEvent<HTMLTextAreaElement>) => {
-    e.preventDefault()
-    const t = e.changedTouches[0]
-    const { x, y } = toViewport(t.clientX, t.clientY)
-    send({ type: 'input', kind: 'touch', x, y, touchType: 'touchMove' })
-  }, [send, toViewport])
+  }, [repoId, branchId])
 
   return (
     <div className={styles.viewportWrap}>
-      <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
-        <img
-          ref={imgRef}
-          className={styles.viewport}
-          data-testid="browser-viewport"
-          alt="Browser screencast"
-          role="img"
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
-        />
-        {/* Transparent overlay = the real interactive surface. It receives clicks
-            (so it focuses NATURALLY — robust) and captures keyboard + IME; mouse
-            events are forwarded to the remote. Text is transparent + cleared. */}
-        <textarea
-          ref={taRef}
-          data-testid="browser-keycapture"
-          aria-label="Browser input"
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-          spellCheck={false}
-          onMouseDown={handleMouseDown}
-          onMouseUp={handleMouseUp}
-          onMouseMove={handleMouseMove}
-          onWheel={handleWheel}
-          onTouchStart={handleTouchStart}
-          onTouchEnd={handleTouchEnd}
-          onTouchMove={handleTouchMove}
-          onInput={handleTextInput}
-          onCompositionStart={handleCompositionStart}
-          onCompositionEnd={handleCompositionEnd}
-          onKeyDown={handleKeyDown}
-          onKeyUp={handleKeyUp}
-          style={{
-            position: 'absolute', inset: 0, width: '100%', height: '100%',
-            background: 'transparent', color: 'transparent', caretColor: 'transparent',
-            border: 'none', outline: 'none', resize: 'none', padding: 0, margin: 0,
-            cursor: 'default', overflow: 'hidden',
-          }}
-        />
-      </div>
+      {/* noVNC renders its own <canvas> inside this div */}
+      <div
+        ref={containerRef}
+        className={styles.viewport}
+        data-testid="browser-viewport"
+        style={{ flex: 1, minHeight: 0 }}
+      />
       <div className={styles.claudeHint} data-testid="browser-claude-hint">
         <span className={styles.liveDot} />
         <span>
           <b style={{ color: 'var(--color-fg)' }}>LIVE</b>
-          {' · '}Claude と同じブラウザを共有中。クリック/入力すると自分でも操作できます（セッション・ログインは共有）。
+          {' · '}Claude と同じブラウザを共有中。マウス/キーボードで直接操作できます（セッション・ログインは共有）。
         </span>
       </div>
     </div>
@@ -388,12 +160,6 @@ export function BrowserView({ repoId, branchId }: TabViewProps) {
 
   const [browserState, setBrowserState] = useState<BrowserState>('stopped')
   const [available, setAvailable] = useState<boolean | null>(null)
-  const [urlBar, setUrlBar] = useState('')
-
-  const wsNavRef = useRef<ReconnectingWebSocket | null>(null)
-  // True while the user is editing the address bar — server page-URL updates
-  // are suppressed then so typing isn't clobbered. [followup #4]
-  const editingUrlRef = useRef(false)
 
   // ── Derive runtime availability ─────────────────────────────────────────
 
@@ -402,25 +168,27 @@ export function BrowserView({ repoId, branchId }: TabViewProps) {
 
   // ── Poll state on mount + after start/stop ─────────────────────────────
 
-  const fetchState = useCallback(async () => {
-    try {
-      const sv = await api.get<StateView>(`${browserBase(repoId, branchId)}/state`)
-      setAvailable(sv.available)
-      setBrowserState(sv.state)
-      // NOTE: sv.url is NOT used for the URL bar — it is the CDP endpoint, not the
-      // page URL. The bar reflects the page URL from "url" events (and only when
-      // the user is not editing it). See handleUrlFromViewport.
-    } catch {
-      // ignore transient errors
+  useEffect(() => {
+    // Inline poller (cancelled-guard + .then) so the lint rule doesn't see a
+    // synchronous setState in the effect body — same shape as workspace-actions.
+    let cancelled = false
+    const tick = () => {
+      api.get<StateView>(`${browserBase(repoId, branchId)}/state`)
+        .then((sv) => {
+          if (cancelled) return
+          setAvailable(sv.available)
+          setBrowserState(sv.state)
+        })
+        .catch(() => {/* ignore transient errors */})
+    }
+    tick()
+    // Poll every 5 s while starting so we pick up the "running" transition.
+    const id = setInterval(tick, 5000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
     }
   }, [repoId, branchId])
-
-  useEffect(() => {
-    void fetchState()
-    // Poll every 5 s while starting so we pick up the "running" transition.
-    const id = setInterval(() => void fetchState(), 5000)
-    return () => clearInterval(id)
-  }, [fetchState])
 
   // ── Start / Stop ───────────────────────────────────────────────────────
 
@@ -443,57 +211,11 @@ export function BrowserView({ repoId, branchId }: TabViewProps) {
     }
   }, [repoId, branchId])
 
-  // ── Navigation commands (sent via the attach WS) ──────────────────────
-
-  // We open a dedicated WS for navigation commands when running so we
-  // can send back/forward/reload/navigate without needing the viewport WS ref.
-  // The LiveViewport manages its own WS for frames.
-  useEffect(() => {
-    if (browserState !== 'running') {
-      wsNavRef.current?.close()
-      wsNavRef.current = null
-      return
-    }
-    const ws = new ReconnectingWebSocket({ url: buildAttachURL(repoId, branchId) })
-    ws.connect()
-    wsNavRef.current = ws
-    return () => {
-      ws.close()
-      wsNavRef.current = null
-    }
-  }, [browserState, repoId, branchId])
-
-  const sendNav = useCallback((msg: object) => {
-    wsNavRef.current?.send(JSON.stringify(msg))
-  }, [])
-
-  const handleGo = useCallback(() => {
-    let url = urlBar.trim()
-    if (!url) return
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      url = 'http://' + url
-    }
-    sendNav({ type: 'navigate', url })
-    // Stop "editing" so the bar follows the page to its final (post-redirect) URL.
-    editingUrlRef.current = false
-  }, [urlBar, sendNav])
-
-  const handleBack    = useCallback(() => sendNav({ type: 'back'    }), [sendNav])
-  const handleForward = useCallback(() => sendNav({ type: 'forward' }), [sendNav])
-  const handleReload  = useCallback(() => sendNav({ type: 'reload'  }), [sendNav])
-
   // ── Popout route ──────────────────────────────────────────────────────
 
   const popoutHref = `/${encodeURIComponent(repoId)}/${encodeURIComponent(branchId)}/browser?view=fullscreen`
 
   // ── Render ────────────────────────────────────────────────────────────
-
-  // Reflect server page-URL updates only when the user is NOT editing the bar.
-  const handleUrlFromViewport = useCallback((u: string) => {
-    if (!editingUrlRef.current) setUrlBar(u)
-  }, [])
-  const handleUrlFocus = useCallback(() => { editingUrlRef.current = true }, [])
-  const handleUrlBlur = useCallback(() => { editingUrlRef.current = false }, [])
 
   // Determine display state.
   // If available is null we haven't loaded yet; use isIncus as proxy.
@@ -510,7 +232,7 @@ export function BrowserView({ repoId, branchId }: TabViewProps) {
             <p>
               共有ブラウザは Workspace を隔離する{' '}
               <b style={{ color: 'var(--color-fg)' }}>incus-container runtime</b>{' '}
-              上でのみ動きます。host runtime ではブラウザの隔離・CDP 共有を行いません。
+              上でのみ動きます。host runtime ではブラウザの隔離・VNC 共有を行いません。
             </p>
             <p className={styles.subnote}>
               ヘッダーの runtime chip から <code>incus-container</code> に切り替えると、
@@ -521,17 +243,7 @@ export function BrowserView({ repoId, branchId }: TabViewProps) {
       ) : browserState === 'stopped' ? (
         <>
           {/* Inert control bar while stopped */}
-          <ControlBar
-            state="stopped"
-            url=""
-            popoutHref={popoutHref}
-            onUrlChange={() => {}}
-            onGo={() => {}}
-            onBack={() => {}}
-            onForward={() => {}}
-            onReload={() => {}}
-            onStop={() => {}}
-          />
+          <ControlBar state="stopped" popoutHref={popoutHref} onStop={() => {}} />
           <div className={styles.center} data-testid="browser-stopped">
             <div className={styles.stateCard}>
               <div className={styles.glyph}>🌐</div>
@@ -539,7 +251,7 @@ export function BrowserView({ repoId, branchId }: TabViewProps) {
               <p>
                 この Workspace 専用の共有ブラウザです。起動すると、
                 <b style={{ color: 'var(--color-fg)' }}>Claude と同じ画面</b>
-                をリアルタイムで観察でき、必要なときに自分でも操作できます。
+                をリアルタイムで観察でき、マウス/キーボードで自分でも操作できます。
               </p>
               <button
                 className={styles.startBtn}
@@ -547,7 +259,7 @@ export function BrowserView({ repoId, branchId }: TabViewProps) {
                 onClick={() => void handleStart()}
               >▶ ブラウザを起動</button>
               <p className={styles.subnote}>
-                Claude も <code>palmux-browser start</code> で起動できます（起動は Activity Inbox に表示）。
+                Claude も <code>palmux-browser start</code> で起動できます。
                 Workspace を開いただけでは起動しません。
               </p>
             </div>
@@ -555,22 +267,12 @@ export function BrowserView({ repoId, branchId }: TabViewProps) {
         </>
       ) : browserState === 'starting' ? (
         <>
-          <ControlBar
-            state="starting"
-            url=""
-            popoutHref={popoutHref}
-            onUrlChange={() => {}}
-            onGo={() => {}}
-            onBack={() => {}}
-            onForward={() => {}}
-            onReload={() => {}}
-            onStop={() => {}}
-          />
+          <ControlBar state="starting" popoutHref={popoutHref} onStop={() => {}} />
           <div className={styles.center} data-testid="browser-starting">
             <div className={styles.stateCard}>
               <div className={styles.spinner} />
               <h2>ブラウザを起動中…</h2>
-              <p>Chromium を起動して CDP が応答するまで待っています。</p>
+              <p>Xvfb・Chromium・x11vnc を起動しています。</p>
             </div>
           </div>
         </>
@@ -579,22 +281,10 @@ export function BrowserView({ repoId, branchId }: TabViewProps) {
         <>
           <ControlBar
             state="running"
-            url={urlBar}
             popoutHref={popoutHref}
-            onUrlChange={setUrlBar}
-            onUrlFocus={handleUrlFocus}
-            onUrlBlur={handleUrlBlur}
-            onGo={handleGo}
-            onBack={handleBack}
-            onForward={handleForward}
-            onReload={handleReload}
             onStop={() => void handleStop()}
           />
-          <LiveViewport
-            repoId={repoId}
-            branchId={branchId}
-            onUrl={handleUrlFromViewport}
-          />
+          <LiveViewport repoId={repoId} branchId={branchId} />
         </>
       )}
     </div>
@@ -602,44 +292,20 @@ export function BrowserView({ repoId, branchId }: TabViewProps) {
 }
 
 // ─── BrowserFullscreen (standalone popout) ────────────────────────────────────
-
 // Rendered at /<repoId>/<branchId>/browser?view=fullscreen.
 // Same shared browser, no palmux tab/drawer chrome.
 // [AC-S62374c-2-10]
 export function BrowserFullscreen({ repoId, branchId }: { repoId: string; branchId: string }) {
   const branch = usePalmuxStore(selectBranchById(repoId, branchId))
   const [browserState, setBrowserState] = useState<BrowserState>('stopped')
-  const [urlBar, setUrlBar] = useState('')
-
-  const wsNavRef = useRef<ReconnectingWebSocket | null>(null)
-
-  const fetchState = useCallback(async () => {
-    try {
-      const sv = await api.get<StateView>(`${browserBase(repoId, branchId)}/state`)
-      setBrowserState(sv.state)
-      if (sv.url) setUrlBar(sv.url)
-    } catch { /* ignore */ }
-  }, [repoId, branchId])
-
-  useEffect(() => { void fetchState() }, [fetchState])
 
   useEffect(() => {
-    if (browserState !== 'running') {
-      wsNavRef.current?.close(); wsNavRef.current = null; return
-    }
-    const ws = new ReconnectingWebSocket({ url: buildAttachURL(repoId, branchId) })
-    ws.connect(); wsNavRef.current = ws
-    return () => { ws.close(); wsNavRef.current = null }
-  }, [browserState, repoId, branchId])
-
-  const sendNav = useCallback((msg: object) => wsNavRef.current?.send(JSON.stringify(msg)), [])
-
-  const handleGo = useCallback(() => {
-    let url = urlBar.trim()
-    if (!url) return
-    if (!url.startsWith('http://') && !url.startsWith('https://')) url = 'http://' + url
-    sendNav({ type: 'navigate', url })
-  }, [urlBar, sendNav])
+    let cancelled = false
+    api.get<StateView>(`${browserBase(repoId, branchId)}/state`)
+      .then((sv) => { if (!cancelled) setBrowserState(sv.state) })
+      .catch(() => {/* ignore */})
+    return () => { cancelled = true }
+  }, [repoId, branchId])
 
   const runtimeKind = branch?.runtime?.kind ?? 'incus-container'
 
@@ -655,39 +321,24 @@ export function BrowserFullscreen({ repoId, branchId }: { repoId: string; branch
       </header>
 
       <div className={styles.bar}>
-        <div className={styles.navBtns}>
-          <button className={styles.navBtn} data-testid="browser-back"
-            disabled={browserState !== 'running'} onClick={() => sendNav({ type: 'back' })}>◀</button>
-          <button className={styles.navBtn} data-testid="browser-forward"
-            disabled={browserState !== 'running'} onClick={() => sendNav({ type: 'forward' })}>▶</button>
-          <button className={styles.navBtn} data-testid="browser-reload"
-            disabled={browserState !== 'running'} onClick={() => sendNav({ type: 'reload' })}>⟳</button>
-        </div>
-        <input
-          className={styles.urlInput}
-          data-testid="browser-url-input"
-          value={urlBar}
-          spellCheck={false}
-          disabled={browserState !== 'running'}
-          placeholder="URL を入力…"
-          onChange={(e) => setUrlBar(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') handleGo() }}
-        />
-        <button className={styles.goBtn} data-testid="browser-go"
-          disabled={browserState !== 'running'} onClick={handleGo}>Go</button>
+        <StateBadge state={browserState} />
         <div className={styles.barRight}>
-          <StateBadge state={browserState} />
           {browserState === 'running' && (
-            <button className={styles.stopBtn} data-testid="browser-stop"
-              onClick={() => api.post(`${browserBase(repoId, branchId)}/stop`).then(() => setBrowserState('stopped')).catch(() => {})}>
-              ■ Stop
-            </button>
+            <button
+              className={styles.stopBtn}
+              data-testid="browser-stop"
+              onClick={() =>
+                api.post(`${browserBase(repoId, branchId)}/stop`)
+                  .then(() => setBrowserState('stopped'))
+                  .catch(() => {})
+              }
+            >■ Stop</button>
           )}
         </div>
       </div>
 
       {browserState === 'running' ? (
-        <LiveViewport repoId={repoId} branchId={branchId} onUrl={setUrlBar} />
+        <LiveViewport repoId={repoId} branchId={branchId} />
       ) : (
         <div className={styles.center}>
           <div className={styles.stateCard}>

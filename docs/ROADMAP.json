@@ -9080,19 +9080,19 @@
           "acceptance_criteria": [
             {
               "id": "AC-S62374c-2-1",
-              "description": "Browser タブで running 時に chromium の画面がライブ表示される (CDP Page.startScreencast → palmux WS → タブ。フレーム ack ループで継続描画)。",
+              "description": "Browser タブで running 時、リモート chromium の画面が noVNC (RFB) で canvas に実フレームバッファ描画される (browser-viewport 内に <canvas> が出る)。",
               "test": "tests/e2e/s62374c_browser_ui.py",
               "status": "pending"
             },
             {
               "id": "AC-S62374c-2-2",
-              "description": "タブ上のマウス/キー/スクロール/タッチが CDP Input.dispatch* で注入され、ブラウザに反映される。",
+              "description": "canvas 上のマウス/キー/IME 入力が noVNC→palmux byte-pipe→x11vnc(XTEST) 経由でリモート chromium に注入される。",
               "test": "tests/e2e/s62374c_browser_ui.py",
               "status": "pending"
             },
             {
               "id": "AC-S62374c-2-3",
-              "description": "URL バー + 戻る/進む/リロードで Page.navigate 等を発行してページ遷移できる。",
+              "description": "ページ遷移は chromium 自身の UI (URL バー/戻る/進む) を noVNC 越しに直接操作して行う。palmux 独自の URL バー/Go/戻る/進む/リロードは持たない (noVNC rework で廃止)。",
               "test": "tests/e2e/s62374c_browser_ui.py",
               "status": "pending"
             },
@@ -9104,7 +9104,7 @@
             },
             {
               "id": "AC-S62374c-2-5",
-              "description": "認証は既存 SSO 経由のみ。CDP は非公開のまま palmux backend が screencast/input を仲介する (CDP ポートはブラウザに露出しない)。",
+              "description": "認証は既存 SSO 経由のみ。VNC/CDP は非公開のまま palmux backend が RFB を byte-pipe で仲介する (VNC/CDP ポートはブラウザ・state レスポンスに露出しない)。",
               "test": "tests/e2e/s62374c_browser_ui.py",
               "status": "pending"
             },
@@ -9122,7 +9122,7 @@
             },
             {
               "id": "AC-S62374c-2-8",
-              "description": "全インタラクティブ要素 (start/stop/url/go/back/forward/reload/viewport) に gui-spec の testid と一致する data-testid が付く。",
+              "description": "全インタラクティブ要素 (start/stop/viewport/popout) に data-testid が付く (url/go/back/forward/reload は noVNC 化で廃止)。",
               "test": "tests/e2e/s62374c_browser_ui_mock.py",
               "status": "pending"
             },
@@ -9135,6 +9135,12 @@
             {
               "id": "AC-S62374c-2-10",
               "description": "running 状態で ↗ Open (browser-popout, target=_blank) を押すと、別ブラウザタブに standalone のフル画面ビュー (browser-fullscreen) が開き、palmux タブ chrome 無しで viewport を大きく表示する。別タブは同一の共有ブラウザ (同一 CDP/profile) を映し、双方の操作が反映される。Files タブの ↗ Open と同流儀。",
+              "test": "tests/e2e/s62374c_browser_ui.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S62374c-2-11",
+              "description": "サーバ側 IME (fcitx5-mozc) により noVNC canvas 経由で日本語入力ができる。実機 incus-container で Ctrl+Space→romaji→変換 を RFB で送ると、リモート textarea に日本語が入る (英字入力も成立)。",
               "test": "tests/e2e/s62374c_browser_ui.py",
               "status": "pending"
             }

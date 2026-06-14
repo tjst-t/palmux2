@@ -1,18 +1,16 @@
-// Package browser — tab.Provider for the Browser tab (S62374c-1).
+// Package browser — tab.Provider for the Browser tab.
 //
 // The Browser tab is conditional: it appears only in incus-container workspaces.
 // Host-runtime workspaces do not show it (portman is the host-side tool; Caddy
 // port publishing is the incus-side tool; a Browser tab would have nowhere
 // useful to point on host).
 //
-// REST routes (under /api/repos/{repoId}/branches/{branchId}/tabs/browser):
+// REST/WS routes (under /api/repos/{repoId}/branches/{branchId}/tabs/browser):
 //
-//	GET  .../browser/state  → StateView
-//	POST .../browser/start  → StartResponse
-//	POST .../browser/stop   → StopResponse
-//
-// Story 2 (CDP screencast / navigate via WS) — TODO: implement in the next
-// story once the screencast sprint is scheduled.
+//	GET    .../browser/state   → StateView
+//	POST   .../browser/start   → StartResponse
+//	POST   .../browser/stop    → StopResponse
+//	GET WS .../browser/attach  → VNC byte-pipe (noVNC, subprotocol "binary")
 package browser
 
 import (
@@ -109,16 +107,16 @@ func (p *Provider) OnBranchClose(ctx context.Context, params tab.CloseParams) er
 	return nil
 }
 
-// RegisterRoutes wires the state / start / stop / attach / navigate endpoints.
-// [AC-S62374c-2-1] [AC-S62374c-2-3] [AC-S62374c-2-5]
+// RegisterRoutes wires the state / start / stop / attach endpoints.
+// The navigate REST route is removed: chromium's own address bar handles navigation
+// in headful + noVNC mode.
 func (p *Provider) RegisterRoutes(mux *http.ServeMux, prefix string) {
 	h := &handler{p: p}
 	mux.HandleFunc("GET "+prefix+"/state", h.state)
 	mux.HandleFunc("POST "+prefix+"/start", h.start)
 	mux.HandleFunc("POST "+prefix+"/stop", h.stop)
-	// S62374c-2: WS proxy for screencast+input, REST for navigate.
+	// noVNC rework: raw VNC byte-pipe (subprotocol "binary").
 	mux.HandleFunc("GET "+prefix+"/attach", h.attach)
-	mux.HandleFunc("POST "+prefix+"/navigate", h.navigate)
 }
 
 // ---------------------------------------------------------------------------

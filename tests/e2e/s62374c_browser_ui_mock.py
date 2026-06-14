@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""Sprint S62374c-2 — Browser tab (MOCK, frontend-only Playwright).
+"""Sprint S62374c — Browser tab (MOCK, frontend-only Playwright). noVNC rework.
 
 All API/WS calls are intercepted so this runs against any dev instance without
-a real Incus container or CDP connection.
+a real Incus container or VNC connection.
+
+noVNC rework: the URL bar / back / forward / reload / Go / keycapture testids
+are removed. Navigation is handled by Chromium's own UI inside the noVNC
+viewport. The WS attach endpoint speaks raw RFB binary (aborted in mock).
 
 Acceptance criteria:
   [AC-S62374c-2-4]  Start/Stop button + state badge follow the server state.
   [AC-S62374c-2-7]  State transitions match the diagram (stopped→starting→running).
   [AC-S62374c-2-8]  All required data-testid values are present.
-  [AC-S62374c-2-9]  Mock verifies stopped/starting/host states (screencast
-                    progression is covered by the real-backend test).
+  [AC-S62374c-2-9]  Mock verifies stopped/starting/host states.
   [AC-S62374c-2-10] ↗ Open (browser-popout) present when running; fullscreen
                     route (browser-fullscreen) renders standalone.
-
-The real-backend AC (-2-1 screencast, -2-2 input, -2-3 navigate) live in
-tests/e2e/s62374c_browser_ui.py and run during sprint verify.
 
 Run:  PALMUX2_DEV_PORT=<port> python3 tests/e2e/s62374c_browser_ui_mock.py
 """
@@ -99,9 +99,8 @@ def _fake_repo(runtime_kind: str = "incus-container") -> dict:
 
 
 def _browser_state_payload(state: str = "stopped", cdp_reachable: bool = False,
-                           available: bool = True, url: str = "") -> dict:
-    return {"state": state, "cdpReachable": cdp_reachable,
-            "available": available, "url": url}
+                           available: bool = True) -> dict:
+    return {"state": state, "cdpReachable": cdp_reachable, "available": available}
 
 
 def _common_mocks(page, *, runtime_kind: str, browser_state: str,
@@ -126,8 +125,6 @@ def _common_mocks(page, *, runtime_kind: str, browser_state: str,
             _fulfill(r, {"state": "running"})
         elif req.method == "POST" and req.url.endswith("/stop"):
             _fulfill(r, {"state": "stopped"})
-        elif req.method == "POST" and req.url.endswith("/navigate"):
-            _fulfill(r, {"ok": True})
         else:
             r.abort()
 
@@ -158,7 +155,9 @@ def _goto_browser(page, *, wait_for: str = "browser-tab-panel") -> None:
 # ─── Test cases ───────────────────────────────────────────────────────────────
 
 def test_ac8_all_testids_present_stopped(page) -> None:
-    """[AC-S62374c-2-8] All required data-testid values are present (stopped state)."""
+    """[AC-S62374c-2-8] All required data-testid values are present (stopped state).
+    noVNC rework: url-input/go/back/forward/reload/keycapture removed.
+    """
     name = "AC-S62374c-2-8/stopped"
     _common_mocks(page, runtime_kind="incus-container", browser_state="stopped")
     _goto_browser(page)
@@ -168,10 +167,6 @@ def test_ac8_all_testids_present_stopped(page) -> None:
         "browser-state-badge",
         "browser-stopped",
         "browser-start",
-        "browser-back",
-        "browser-forward",
-        "browser-reload",
-        "browser-url-input",
     ]
     for tid in required:
         if page.locator(f"[data-testid='{tid}']").count() < 1:
@@ -282,7 +277,9 @@ def test_ac10_popout_link_present_when_running(page) -> None:
 
 
 def test_ac10_fullscreen_route(page) -> None:
-    """[AC-S62374c-2-10] Fullscreen route renders browser-fullscreen testid."""
+    """[AC-S62374c-2-10] Fullscreen route renders browser-fullscreen testid.
+    noVNC rework: url-input/go/back controls are removed from fullscreen too.
+    """
     name = "AC-S62374c-2-10/fullscreen-route"
     _common_mocks(page, runtime_kind="incus-container", browser_state="running")
 
@@ -296,9 +293,8 @@ def test_ac10_fullscreen_route(page) -> None:
     except Exception:  # noqa: BLE001
         fail(name, "browser-fullscreen testid not found at ?view=fullscreen route")
         return
-    # Verify essential controls exist in fullscreen view.
-    for tid in ["browser-url-input", "browser-go", "browser-back",
-                "browser-state-badge"]:
+    # Verify essential controls exist in fullscreen view (noVNC: no url/go/back).
+    for tid in ["browser-state-badge"]:
         if page.locator(f"[data-testid='{tid}']").count() < 1:
             fail(name, f"fullscreen missing data-testid='{tid}'")
             return
@@ -306,7 +302,10 @@ def test_ac10_fullscreen_route(page) -> None:
 
 
 def test_ac8_running_testids(page) -> None:
-    """[AC-S62374c-2-8] All required testids present in running state."""
+    """[AC-S62374c-2-8] All required testids present in running state.
+    noVNC rework: url-input/go/back/forward/reload/keycapture removed.
+    browser-viewport is a div (noVNC renders canvas inside it).
+    """
     name = "AC-S62374c-2-8/running"
     _common_mocks(page, runtime_kind="incus-container", browser_state="running")
     _goto_browser(page)
@@ -316,11 +315,6 @@ def test_ac8_running_testids(page) -> None:
         "browser-tab-panel",
         "browser-state-badge",
         "browser-viewport",
-        "browser-url-input",
-        "browser-go",
-        "browser-back",
-        "browser-forward",
-        "browser-reload",
         "browser-claude-hint",
         "browser-popout",
         "browser-stop",
