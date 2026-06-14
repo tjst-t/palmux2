@@ -163,12 +163,21 @@ def test_ac4_no_badge_for_host(page) -> None:
 
 def test_ac2_update_flow_progress(page) -> None:
     name = "AC-S7364e3-2-2"
-    _wire_common(page, stale=True)
+    # Stateful mock: the container starts stale; after a successful regenerate
+    # the backend would report it fresh, so subsequent repo fetches must too
+    # (otherwise a re-fetch re-staleness the optimistic clear).
+    box = {"stale": True}
+    page.route("**/api/runtimes", lambda r: _fulfill(r, {
+        "kinds": [{"kind": "host", "available": True},
+                  {"kind": "incus-container", "available": True}]}))
+    page.route("**/api/repos", lambda r: _fulfill(r, [_repo(stale=box["stale"])]))
+    page.route(f"**/api/repos/{REPO_ID}", lambda r: _fulfill(r, _repo(stale=box["stale"])))
 
     # Regenerate POST: delay so the chip's "updating…" progress is observable,
-    # then return a FRESH (stale=false) runtime view.
+    # flip the fixture to fresh, then return a FRESH (stale=false) runtime view.
     def regen(route):
         time.sleep(1.2)
+        box["stale"] = False
         _fulfill(route, {"ok": True, "regenerated": True,
                          "runtime": {"kind": "incus-container", "state": "ready",
                                      "address": "10.42.0.9", "stale": False}})
@@ -199,9 +208,19 @@ def test_ac2_update_flow_progress(page) -> None:
         fail(name, "chip never showed 'updating…' (starting) progress during regenerate")
         return
 
-    # After success, the badge clears (stale=false) and chip returns to ready.
-    page.wait_for_selector("[data-testid='workspace-update-badge']", state="detached",
-                           timeout=PLAYWRIGHT_TIMEOUT)
+    # After success, the badge clears (stale=false). There are two badges (chip
+    # + drawer) sharing the testid, so poll the count to zero rather than a
+    # single-element detach.
+    cleared = False
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        if page.locator("[data-testid='workspace-update-badge']").count() == 0:
+            cleared = True
+            break
+        time.sleep(0.2)
+    if not cleared:
+        fail(name, "update badge did not clear after a successful regenerate")
+        return
     ok(name, "update: action → confirm → updating → ready, badge cleared")
 
 

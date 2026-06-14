@@ -267,11 +267,19 @@ export function Header() {
                         {runtimeError}
                       </div>
                     )}
-                    {updateError && (
-                      <div className={styles.runtimeChipMenuError} data-testid="update-container-error">
-                        {updateError}
-                      </div>
-                    )}
+                  </div>
+                )}
+                {/* S7364e3: update error persists OUTSIDE the menu so it stays
+                    visible if the user dismisses the menu (container kept). */}
+                {updateError && (
+                  <div
+                    className={styles.runtimeUpdateError}
+                    data-testid="update-container-error"
+                    role="alert"
+                    title="Click to dismiss"
+                    onClick={() => setUpdateError(null)}
+                  >
+                    ⚠ {updateError}
                   </div>
                 )}
               </span>

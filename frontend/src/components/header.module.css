@@ -285,3 +285,19 @@
   color: var(--color-warning, #f59e0b);
   font-weight: 600;
 }
+
+/* S7364e3: persistent inline update-error pill next to the runtime chip */
+.runtimeUpdateError {
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  max-width: 320px;
+  color: var(--color-error, #ef4444);
+  background: color-mix(in srgb, var(--color-error, #ef4444) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-error, #ef4444) 40%, transparent);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
