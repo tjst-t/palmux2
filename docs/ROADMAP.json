@@ -9158,7 +9158,7 @@
         },
         "S62374c-3": {
           "id": "S62374c-3",
-          "status": "needs_user_review",
+          "status": "done",
           "title": "Claude 連携: CLI + Skill で同一ブラウザを起動・操作 (セッション共有)",
           "user_story": "複数 Claude を並行運用する自分として、Claude がコンテキストを浪費せずに共有ブラウザを起動・操作できてほしい。なぜなら、限られた使用枠の中で、Claude が触ったブラウザをそのまま自分が引き継ぎたいから。",
           "acceptance_criteria": [

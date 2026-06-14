@@ -183,8 +183,13 @@ def main() -> int:
             fail("AC-S62374c-3-1-syntax",
                  f"syntax error: {(r.stdout+r.stderr).strip()[:200]!r}")
 
-        # Node.js + playwright-core importable.
-        r = cexec_root("node -e 'require(\"playwright-core\"); console.log(\"PW_OK\")' 2>&1")
+        # Node.js + playwright-core importable — resolved the way the CLI does
+        # (installed globally; a bare require() from an arbitrary cwd/uid misses
+        # it without NODE_PATH, so the CLI falls back to `npm root -g`).
+        r = cexec_root(
+            "node -e 'const cp=require(\"child_process\"),p=require(\"path\");"
+            "require(p.join(cp.execSync(\"npm root -g\").toString().trim(),\"playwright-core\"));"
+            "console.log(\"PW_OK\")' 2>&1")
         if "PW_OK" in r.stdout:
             ok("AC-S62374c-3-1-pw", "playwright-core importable in container")
         else:
