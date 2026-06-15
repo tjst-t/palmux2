@@ -90,5 +90,21 @@
   ],
   "real_mode_validation_agent": {
     "result": "ALL PASS (tests/acceptance/s4d8b1c_agent_incontainer.py) — AC-2-1 agent claude in container (incus exec, no -t 直接確認 + TestExecCommand_NoTTY), AC-2-2 stream-json formats + MCP permission-prompt-tool wired, AC-2-4 isolation"
-  }
+  },
+  "review_decisions_story2": [
+    {
+      "finding": "Close/respawn が host incus-exec client のみ kill、in-container claude+MCP/node 子が orphan する可能性 (Story1 と同 class、agent は子プロセス多くより影響)",
+      "disposition": "backlog (bl-incontainer-claude-reap に統合)。foreground incus exec は通常 reap されるが SIGKILL/abnormal で leak リスク。確実な in-container reap を別途設計",
+      "severity": "minor"
+    },
+    {
+      "finding": "wildcard --addr で containerEnv が PALMUX_NOTIFY_URL を全く出さず、agent モードの palmux-browser CLI が base URL 無しで失敗",
+      "disposition": "bounded (wildcard-addr + 実 incus の稀な組合せ。deploy は 127.0.0.1 で bridge URL 算出され動作確認済)。skill discovery は --plugin-dir で成立、CLI 到達のみ degrade",
+      "severity": "minor"
+    },
+    {
+      "finding": "その他 (cmd.Dir/respawn/cmd.Env PATH/--plugin-dir ordering/MCP) は clean と確認",
+      "disposition": "no action"
+    }
+  ]
 }
