@@ -3,14 +3,14 @@
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
     "sprints_done": 54,
-    "sprints_total": 54,
-    "percent": 100,
-    "current_sprint": "S7364e3",
+    "sprints_total": 55,
+    "percent": 98,
+    "current_sprint": "S4d8b1c",
     "done": 54,
     "in_progress": 0,
-    "total": 54,
-    "remaining": 0,
-    "percentage": 100
+    "total": 55,
+    "remaining": 1,
+    "percentage": 98
   },
   "execution_order": [
     "S001",
@@ -66,7 +66,8 @@
     "Sbe4eee",
     "S5818e8",
     "S62374c",
-    "S7364e3"
+    "S7364e3",
+    "S4d8b1c"
   ],
   "sprints": {
     "S001": {
@@ -9343,6 +9344,130 @@
               "id": "S7364e3-2-4",
               "status": "done",
               "title": "e2e (実機 UI: バッジ表示→更新→ready、host で非表示)"
+            }
+          }
+        }
+      }
+    },
+    "S4d8b1c": {
+      "id": "S4d8b1c",
+      "title": "Claude をコンテナ内で動かす (in-container claude — 隔離の完成 + browser skill 解禁)",
+      "status": "planned",
+      "milestone": false,
+      "phase": "Phase 5",
+      "description": "incus-container Workspace で claude CLI 本体をホストではなくコンテナ内で動かす。背景: 現状 Claude タブ (agent/tui どちらも) は palmux ホストから exec 直叩きで、コンテナを通るのはユーザの Bash タブだけ。よって Claude が Bash ツールで npm/pip/ファイル生成すると host を汚染し、incus 隔離の主目的が Claude に関して半分破れている。加えて palmux-browser の skill+CLI はコンテナ image にしか無いためホスト claude から届かない (S62374c の積み残し、--add-dir は skill を登録しない=--plugin-dir が正)。Claude をコンテナ内で動かせば両問題が同時に解決する。設計は docs/claude-in-container-design.md。実機で核心 (incus exec 経由で claude 起動・~/.claude マウントで認証・--plugin-dir で skill ロード) は de-risk 済み。runtime は既に bash タブ用のコンテナ内インタラクティブ PTY (incus exec -t + host pty) を持つので TUI は流用可。段階導入: Phase1=TUI、Phase2=agent(stream-json 用の非PTY interactive primitive が必要、MCP は in-process なので無改造)。",
+      "stories": {
+        "S4d8b1c-1": {
+          "id": "S4d8b1c-1",
+          "status": "planned",
+          "title": "claude-tui を in-container 化 + skill を --plugin-dir でロード",
+          "user_story": "incus-container Workspace で複数 Claude を併走させる自分として、TUI モードの Claude をコンテナ内で動かしたい。なぜなら、Claude の Bash/npm/ファイル操作を host から隔離し、かつコンテナ同梱の palmux-browser skill を Claude に使わせたいから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S4d8b1c-1-1",
+              "description": "incus-container Workspace で Claude タブ(TUIモード)を開くと claude プロセスがコンテナ内に立つ (incus exec -t 経由、host には立たない)。host runtime では従来どおりホスト exec のまま。",
+              "test": "tests/acceptance/s4d8b1c_incontainer.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S4d8b1c-1-2",
+              "description": "コンテナ内 claude は ~/.claude マウントで再認証なしに動き、worktree を cwd として正しく開く。PTY/ring/emulator/resize/respawn が従来どおり動作し WS に表示される。",
+              "test": "tests/acceptance/s4d8b1c_incontainer.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S4d8b1c-1-3",
+              "description": "skill を --plugin-dir で注入し /skills に palmux:palmux-browser が出る (--add-dir は廃止)。Claude が palmux-browser CLI で共有ブラウザを操作できる。",
+              "test": "tests/acceptance/s4d8b1c_incontainer.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S4d8b1c-1-4",
+              "description": "隔離検証: コンテナ内 claude の Bash ツールで実行したコマンド (hostname / npm install 等) が host ではなくコンテナ内で実行される (host の filesystem/プロセスを汚さない)。",
+              "test": "tests/acceptance/s4d8b1c_incontainer.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S4d8b1c-1-5",
+              "description": "hook(通知) と palmux-browser CLI がコンテナから palmux に到達する: hook 用 palmux 静的バイナリをコンテナに mount し PALMUX_NOTIFY_URL を bridge gateway URL で注入。Stop/Notification hook が Activity Inbox に届く。",
+              "test": "tests/acceptance/s4d8b1c_incontainer.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S4d8b1c-1-1": {
+              "id": "S4d8b1c-1-1",
+              "status": "pending",
+              "title": "claudetui daemon に runtime ハンドルの seam を追加 (Store.CurrentRuntime を attach 時に解決)"
+            },
+            "S4d8b1c-1-2": {
+              "id": "S4d8b1c-1-2",
+              "status": "pending",
+              "title": "daemon の PTY spawn を incus 時 incus exec -t 経路に分岐 (絶対パス claude + userExecFlags + --cwd + --env)、*os.File/Setsize を ptyConn/ResizeFunc に抽象化"
+            },
+            "S4d8b1c-1-3": {
+              "id": "S4d8b1c-1-3",
+              "status": "pending",
+              "title": "skill を plugin レイアウト化 (.claude-plugin/plugin.json + skills/) + daemon の --add-dir を --plugin-dir に置換 (build.sh も更新)"
+            },
+            "S4d8b1c-1-4": {
+              "id": "S4d8b1c-1-4",
+              "status": "pending",
+              "title": "hook 用 palmux 静的バイナリの container mount + PALMUX_NOTIFY_URL を bridge gateway 化 + プロセス reap"
+            },
+            "S4d8b1c-1-5": {
+              "id": "S4d8b1c-1-5",
+              "status": "pending",
+              "title": "image 再ビルド + acceptance (実機 incus: in-container 起動 / skill / 隔離 / hook)"
+            }
+          }
+        },
+        "S4d8b1c-2": {
+          "id": "S4d8b1c-2",
+          "status": "planned",
+          "title": "claude-agent (agent モード) を in-container 化",
+          "user_story": "agent モード (stream-json リッチ UI) を主に使う自分として、agent モードの Claude もコンテナ内で動かしたい。なぜなら、既定モードでも隔離と browser skill を効かせたいから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S4d8b1c-2-1",
+              "description": "runtime に非PTYの双方向 stdin/stdout + 分離 stderr で claude を起動する interactive primitive (ExecInteractive) を追加し、incus 時 claudeagent がそれ経由で起動する。",
+              "test": "tests/acceptance/s4d8b1c_agent_incontainer.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S4d8b1c-2-2",
+              "description": "stream-json 往復が binary-clean に成立し (stdout/stderr 分離維持)、MCP 権限フロー (palmux in-process) が無改造で動く。stale-resume 検知 (stderr パターン) も維持。",
+              "test": "tests/acceptance/s4d8b1c_agent_incontainer.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S4d8b1c-2-3",
+              "description": "respawn (--add-dir 追加 / --effort / --permission-mode / stale-resume) が incus exec 経路でも成立する。",
+              "test": "tests/acceptance/s4d8b1c_agent_incontainer.py",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S4d8b1c-2-4",
+              "description": "隔離検証: agent モード claude の Bash ツールもコンテナ内実行になる。host runtime は従来どおり。",
+              "test": "tests/acceptance/s4d8b1c_agent_incontainer.py",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S4d8b1c-2-1": {
+              "id": "S4d8b1c-2-1",
+              "status": "pending",
+              "title": "runtime ExecInteractive primitive (incus exec 非-t、stdin/stdout/stderr 個別パイプ、プロセス reap)"
+            },
+            "S4d8b1c-2-2": {
+              "id": "S4d8b1c-2-2",
+              "status": "pending",
+              "title": "claudeagent client の spawn を incus 時 ExecInteractive 経路に分岐 (env/cwd/絶対パス)"
+            },
+            "S4d8b1c-2-3": {
+              "id": "S4d8b1c-2-3",
+              "status": "pending",
+              "title": "respawn 経路の in-container 対応 + acceptance (実機: stream-json/MCP/respawn/隔離)"
             }
           }
         }
