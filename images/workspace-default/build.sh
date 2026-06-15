@@ -228,10 +228,18 @@ log "   Copying palmux-browser CLI → /usr/local/bin/ ..."
 incus file push "${SCRIPT_DIR}"/palmux-browser "${BUILD_INST}"/usr/local/bin/palmux-browser </dev/null
 incus exec "${BUILD_INST}" </dev/null -- chmod +x /usr/local/bin/palmux-browser
 
-log "   Copying palmux-browser skill → /usr/local/share/palmux/.claude/skills/ ..."
-incus exec "${BUILD_INST}" </dev/null -- mkdir -p /usr/local/share/palmux/.claude/skills/palmux-browser
+# Lay out /usr/local/share/palmux as a CLAUDE PLUGIN (S4d8b1c): claude loads it
+# via `--plugin-dir /usr/local/share/palmux`, which registers the bundled skill.
+# (--add-dir only grants file access and does NOT register skills, so the plugin
+# layout — .claude-plugin/plugin.json + skills/ — is required.)
+log "   Laying out palmux plugin → /usr/local/share/palmux/ ..."
+incus exec "${BUILD_INST}" </dev/null -- mkdir -p \
+  /usr/local/share/palmux/.claude-plugin \
+  /usr/local/share/palmux/skills/palmux-browser
+incus file push "${SCRIPT_DIR}"/plugin.json \
+  "${BUILD_INST}"/usr/local/share/palmux/.claude-plugin/plugin.json </dev/null
 incus file push "${SCRIPT_DIR}"/skills/palmux-browser/SKILL.md \
-  "${BUILD_INST}"/usr/local/share/palmux/.claude/skills/palmux-browser/SKILL.md </dev/null
+  "${BUILD_INST}"/usr/local/share/palmux/skills/palmux-browser/SKILL.md </dev/null
 
 log "   Verifying palmux-browser toolchain ..."
 incus exec "${BUILD_INST}" </dev/null -- sh -c "command -v node >/dev/null 2>&1" \
@@ -241,7 +249,10 @@ incus exec "${BUILD_INST}" </dev/null -- sh -c "command -v palmux-browser >/dev/
 incus exec "${BUILD_INST}" </dev/null -- sh -c "test -x /usr/local/bin/palmux-browser" \
   || die "palmux-browser not executable"
 incus exec "${BUILD_INST}" </dev/null -- sh -c \
-  "test -f /usr/local/share/palmux/.claude/skills/palmux-browser/SKILL.md" \
+  "test -f /usr/local/share/palmux/.claude-plugin/plugin.json" \
+  || die "palmux plugin manifest not found"
+incus exec "${BUILD_INST}" </dev/null -- sh -c \
+  "test -f /usr/local/share/palmux/skills/palmux-browser/SKILL.md" \
   || die "palmux-browser skill file not found"
 incus exec "${BUILD_INST}" </dev/null -- sh -c \
   "NODE_PATH=\$(npm root -g) node -e 'require(\"playwright-core\")' >/dev/null 2>&1" \

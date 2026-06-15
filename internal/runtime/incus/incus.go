@@ -117,6 +117,7 @@ var (
 	_ runtime.Runtime              = (*incusRuntime)(nil)
 	_ runtime.ImageDriftChecker    = (*incusRuntime)(nil)
 	_ runtime.ContainerRegenerator = (*incusRuntime)(nil)
+	_ runtime.PTYCommander         = (*incusRuntime)(nil)
 )
 
 // DefaultImageAlias is the incus image alias palmux containers are created from
@@ -347,6 +348,12 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 	claudeShareDir := filepath.Join(home, ".local", "share", "claude")
 	claudeBinDir := filepath.Join(home, ".local", "bin")
 
+	// S4d8b1c: the running palmux binary (static linux amd64) is bind-mounted at
+	// /usr/local/bin/palmux so an in-container claude can run `palmux hook` for
+	// Claude Code notifications (the host hookBinPath does not exist in the
+	// container). Resolved via os.Executable(); skipped if it can't be resolved.
+	palmuxBin, palmuxBinErr := os.Executable()
+
 	// S5818e8: also share the host's dev environment so the container's
 	// interactive shell matches the host (shell dotfiles), and the Claude agent
 	// can do GitHub operations (gh token, git identity, SSH keys). Same
@@ -381,6 +388,14 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 		{"dot-config-gh", mj(".config", "gh"), mj(".config", "gh")},
 		{"dot-ssh", mj(".ssh"), mj(".ssh")},
 	}
+	// S4d8b1c: palmux binary → /usr/local/bin/palmux (in-container `palmux hook`).
+	if palmuxBinErr == nil && palmuxBin != "" {
+		mounts = append(mounts, struct {
+			name   string
+			source string
+			path   string
+		}{"palmux-hook-bin", palmuxBin, "/usr/local/bin/palmux"})
+	}
 	for _, m := range mounts {
 		// Skip if source does not exist on host — silently omit to avoid
 		// failing on fresh machines where ~/.claude.json may not exist yet.
@@ -394,7 +409,7 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 		// on login. On those hosts the container falls back to its image-default
 		// shell instead. Hosts with real dotfiles (the common case) are unaffected.
 		// ghq/.claude are intentionally exempt — they are real dirs we always want.
-		if m.name != "ghq" && !strings.HasPrefix(m.name, "dot-claude") && !strings.HasPrefix(m.name, "dot-local") {
+		if m.name != "ghq" && m.name != "palmux-hook-bin" && !strings.HasPrefix(m.name, "dot-claude") && !strings.HasPrefix(m.name, "dot-local") {
 			if tgt, lerr := filepath.EvalSymlinks(m.source); lerr == nil {
 				if rel, rerr := filepath.Rel(home, tgt); rerr != nil || strings.HasPrefix(rel, "..") {
 					r.log.Info("incus: skipping dotfile that symlinks outside home (e.g. Nix store)",
@@ -520,6 +535,31 @@ func (r *incusRuntime) containerIP(ctx context.Context) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+// PTYCommand builds (does NOT start) a host *exec.Cmd that runs argv
+// interactively inside this container under a PTY: `incus exec -t <inst>
+// --user 1000 … --cwd <cwd> --env K=V … -- argv`. The caller (claude-tui
+// daemon) starts it with creack/pty and owns the master fd. This is the same
+// shape AttachByIndex uses for bash tabs. (S4d8b1c) [AC-S4d8b1c-1-1]
+func (r *incusRuntime) PTYCommand(ctx context.Context, argv []string, opts runtime.PTYCommandOpts) *exec.Cmd {
+	args := append([]string{"exec", "-t", r.inst}, userExecFlags()...)
+	if opts.Cwd != "" {
+		args = append(args, "--cwd", opts.Cwd)
+	}
+	for _, kv := range opts.Env {
+		args = append(args, "--env", kv)
+	}
+	args = append(args, "--")
+	args = append(args, argv...)
+	cmd := exec.CommandContext(ctx, "incus", args...) //nolint:gosec
+	// cmd.Env here is the env of the host-side `incus` CLI process; the
+	// container env is delivered via the --env flags above. TERM for the CLI is
+	// harmless; the container TERM is passed in opts.Env by the caller.
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	// Do NOT set Stdin/Stdout/Stderr — the caller's pty.Start wires them to the
+	// PTY slave.
+	return cmd
 }
 
 // imageAlias returns the image alias this container is created from

@@ -4,11 +4,38 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/tjst-t/palmux2/internal/runtime"
 )
+
+// fakePTYRuntime implements runtime.PTYCommander for the in-container spawn
+// test. It substitutes the (container) claude bin in argv[0] with the test fake
+// bin so the daemon's spawn actually runs, and records the argv/env/cwd.
+type fakePTYRuntime struct {
+	fakeBin string
+	mu      sync.Mutex
+	argv    []string
+	env     []string
+	cwd     string
+}
+
+func (f *fakePTYRuntime) PTYCommand(ctx context.Context, argv []string, opts runtime.PTYCommandOpts) *exec.Cmd {
+	f.mu.Lock()
+	f.argv = append([]string(nil), argv...)
+	f.env = append([]string(nil), opts.Env...)
+	f.cwd = opts.Cwd
+	f.mu.Unlock()
+	// Run the fake claude with everything AFTER the container claude bin path.
+	cmd := exec.CommandContext(ctx, f.fakeBin, argv[1:]...)
+	cmd.Env = append(os.Environ(), opts.Env...)
+	return cmd
+}
 
 func TestBuildHookSettings(t *testing.T) {
 	bin := "/usr/local/bin/palmux"
@@ -227,28 +254,128 @@ func TestDaemonInjectsAddDir(t *testing.T) {
 		t.Fatalf("invocation JSON: %v\n%s", err, raw)
 	}
 
-	// --add-dir must be present with the palmux skill bundle path.
-	found := false
-	for i, a := range rec.Argv {
-		if a == "--add-dir" && i+1 < len(rec.Argv) && rec.Argv[i+1] == palmuxSkillDir {
-			found = true
-			break
+	// S4d8b1c: HOST mode injects --settings (hooks) but NOT a skill flag — the
+	// palmux-browser skill plugin only exists inside the container image, so
+	// neither --add-dir nor --plugin-dir is injected on the host.
+	if !hasArg(rec.Argv, "--settings") {
+		t.Errorf("--settings not found in host argv; got: %v", rec.Argv)
+	}
+	if hasArg(rec.Argv, "--add-dir") {
+		t.Errorf("host mode must NOT inject --add-dir (skill plugin is container-only); got: %v", rec.Argv)
+	}
+	if hasArg(rec.Argv, "--plugin-dir") {
+		t.Errorf("host mode must NOT inject --plugin-dir (no container plugin on host); got: %v", rec.Argv)
+	}
+}
+
+func hasArg(argv []string, want string) bool {
+	for _, a := range argv {
+		if a == want {
+			return true
 		}
 	}
-	if !found {
-		t.Errorf("--add-dir %s not injected into claude argv; got: %v", palmuxSkillDir, rec.Argv)
+	return false
+}
+
+func hasArgPair(argv []string, flag, val string) bool {
+	for i, a := range argv {
+		if a == flag && i+1 < len(argv) && argv[i+1] == val {
+			return true
+		}
+	}
+	return false
+}
+
+// TestDaemonInContainerInjectsPluginDir verifies that when the workspace runtime
+// is a PTYCommander (incus), the daemon injects --plugin-dir (the correct flag
+// to load the bundled palmux-browser skill) and routes the spawn through the
+// runtime. [AC-S4d8b1c-1-3]
+func TestDaemonInContainerInjectsPluginDir(t *testing.T) {
+	bin := fakeBin(t)
+	dump := filepath.Join(t.TempDir(), "invocation.json")
+	fakeRT := &fakePTYRuntime{fakeBin: bin}
+
+	d := NewDaemon(DaemonConfig{
+		ClaudeBin:     "/nonexistent/host/claude", // must be overridden by container path
+		ClaudeArgs:    []string{"--dump-invocation", dump},
+		RingSize:      1 << 16,
+		ResumeOnDeath: false,
+		RepoID:        "repo1",
+		BranchID:      "branch1",
+		TabID:         "claude",
+		NotifyURL:     "http://127.0.0.1:8080/api/notify",
+		NotifyToken:   "tok",
+		HookBinPath:   "/host/palmux",
+		Worktree:      t.TempDir(),
+		RuntimeResolver: func(_, _ string) runtime.PTYCommander {
+			return fakeRT
+		},
+		NotifyURLInContainer: "http://10.0.0.1:8080/api/notify",
+	})
+	t.Cleanup(func() { d.Shutdown() })
+
+	if err := d.EnsureStarted(context.Background()); err != nil {
+		t.Fatalf("EnsureStarted: %v", err)
+	}
+	waitForState(t, d, StateRunning, 5*time.Second)
+
+	var raw []byte
+	deadline := time.After(5 * time.Second)
+	for {
+		if b, err := os.ReadFile(dump); err == nil && len(b) > 0 {
+			raw = b
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for invocation dump")
+		default:
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	var rec struct {
+		Argv []string `json:"argv"`
+	}
+	if err := json.Unmarshal(raw, &rec); err != nil {
+		t.Fatalf("invocation JSON: %v\n%s", err, raw)
 	}
 
-	// --settings must still be present (not displaced by --add-dir).
-	hasSettings := false
-	for _, a := range rec.Argv {
-		if a == "--settings" {
-			hasSettings = true
-			break
+	// --plugin-dir <palmux plugin> must be injected (registers the skill).
+	if !hasArgPair(rec.Argv, "--plugin-dir", palmuxSkillDir) {
+		t.Errorf("[AC-S4d8b1c-1-3] --plugin-dir %s not injected; got: %v", palmuxSkillDir, rec.Argv)
+	}
+	if hasArg(rec.Argv, "--add-dir") {
+		t.Errorf("--add-dir must not be used for skills (use --plugin-dir); got: %v", rec.Argv)
+	}
+	if !hasArg(rec.Argv, "--settings") {
+		t.Errorf("--settings (hooks) not injected in-container; got: %v", rec.Argv)
+	}
+
+	// The spawn must have routed through the runtime (container claude bin),
+	// NOT the host ClaudeBin.
+	fakeRT.mu.Lock()
+	gotArgv0 := ""
+	if len(fakeRT.argv) > 0 {
+		gotArgv0 = fakeRT.argv[0]
+	}
+	gotCwd := fakeRT.cwd
+	gotEnv := append([]string(nil), fakeRT.env...)
+	fakeRT.mu.Unlock()
+	if gotArgv0 != containerClaudeBin {
+		t.Errorf("[AC-S4d8b1c-1-1] in-container spawn argv[0]=%q, want container claude bin %q", gotArgv0, containerClaudeBin)
+	}
+	if gotCwd != d.worktree {
+		t.Errorf("in-container cwd=%q, want worktree %q", gotCwd, d.worktree)
+	}
+	// The bridge notify URL (not 127.0.0.1) must be in the container env. [AC-S4d8b1c-1-5]
+	foundBridge := false
+	for _, kv := range gotEnv {
+		if kv == "PALMUX_NOTIFY_URL=http://10.0.0.1:8080/api/notify" {
+			foundBridge = true
 		}
 	}
-	if !hasSettings {
-		t.Errorf("--settings not found in argv after --add-dir injection; got: %v", rec.Argv)
+	if !foundBridge {
+		t.Errorf("[AC-S4d8b1c-1-5] container env missing bridge PALMUX_NOTIFY_URL; got: %v", gotEnv)
 	}
 }
 

@@ -1,0 +1,55 @@
+{
+  "sprint": "S4d8b1c",
+  "title": "Claude をコンテナ内で動かす",
+  "planning_decisions": [
+    {
+      "decision": "Phase 1 (claude-tui) を先行実装し、Phase 2 (claude-agent) は stream-json over non-PTY incus-exec のリスクを spike してから判断",
+      "rationale": "design doc 通り。TUI が局所変更 + 高価値 (隔離 + browser skill) + 核心 de-risk 済み。agent の stream-json パイプ分離は唯一の大きな未知"
+    },
+    {
+      "decision": "claude-tui の spawn を incus 時 `incus exec -t <inst> userExecFlags --cwd worktree --env ... -- /abs/claude args` に分岐 (bash タブの AttachByIndex と同パターン)。ring/emulator/respawn 無改造",
+      "rationale": "runtime は既にこの interactive PTY 経路を bash で実証済み。最小 blast radius"
+    },
+    {
+      "decision": "skill を plugin 化 (.claude-plugin/plugin.json + skills/) し --plugin-dir で注入 (--add-dir 廃止)",
+      "rationale": "実機確認: --add-dir は skill 未登録、--plugin-dir は palmux:palmux-browser をロード"
+    },
+    {
+      "decision": "hook 用に稼働中 palmux 静的バイナリをコンテナ mount + PALMUX_NOTIFY_URL を bridge gateway 化",
+      "rationale": "host パスの hookBinPath はコンテナに無い / 127.0.0.1 はコンテナ自身。palmux は CGO 無し静的 linux amd64 なので mount で動く"
+    }
+  ],
+  "spike_results": [
+    {
+      "spike": "in-container claude の Bash ツールがコンテナ内実行か (AC-1-4 の核心)",
+      "result": "PASS — incus exec -t ... -- claude --print --permission-mode bypassPermissions --plugin-dir <plugin> でツール実行 → hostname=コンテナ名 (isc-projects-dhcp-cc97-dhcp-2dab-055ca4d7、host の palmux-deploy-test2 ではない)、user=ubuntu、cwd=/home/ubuntu。認証も効き --plugin-dir も成立",
+      "date": "2026-06-15"
+    }
+  ],
+  "implementation_decisions": [
+    {
+      "decision": "runtime.PTYCommander optional capability (incus builds `incus exec -t … -- argv` *exec.Cmd, not started); daemon creack/pty-starts it",
+      "rationale": "bash タブの AttachByIndex と同パターン。daemon の ring/emulator/respawn 無改造で in-container 化"
+    },
+    {
+      "decision": "RuntimeResolver は runtime.PTYCommander を返す (full Runtime ではなく)",
+      "rationale": "daemon が type-assert 不要・テストで fake が 1 メソッドで済む。host/nil → host exec"
+    },
+    {
+      "decision": "--add-dir を --plugin-dir に置換し、skill を image で plugin レイアウト化 (.claude-plugin/plugin.json + skills/)",
+      "rationale": "実機確認: --add-dir は skill 未登録、--plugin-dir で palmux:palmux-browser ロード。host では skill plugin 不在なので注入しない"
+    },
+    {
+      "decision": "hook 用 palmux 静的バイナリを /usr/local/bin/palmux に bind-mount (incus.go mounts、symlink-skip 例外)、PALMUX_NOTIFY_URL を bridge gateway URL (incusBridgeListenAddr) で注入",
+      "rationale": "host hookBinPath/127.0.0.1 はコンテナで無効。palmux は CGO 無し静的なので mount で動く (実機 palmux --version 確認)"
+    }
+  ],
+  "review_decisions": [],
+  "done_judgment": {},
+  "real_mode_validation": {
+    "host": "palmux-deploy-test.tjstkm.net (incus-container)",
+    "method": "WS /tui/attach (SSO cookie) で claude-tui daemon を起動 → incus でコンテナ内 claude を ground-truth 確認",
+    "result": "ALL PASS (tests/acceptance/s4d8b1c_incontainer.py) — AC-1-1 claude in container, AC-1-3 --plugin-dir + skill palmux:palmux-browser ロード, AC-1-4 isolation (claude Bash の hostname=コンテナ), AC-1-5 hook binary mount + --settings",
+    "observed_host_wrapper": "incus exec -t <inst> --user 1000 --cwd <worktree> --env PALMUX_NOTIFY_URL=http://10.146.187.1:8080/api/notify ... -- /home/ubuntu/.local/bin/claude --settings {hooks: /usr/local/bin/palmux hook} --plugin-dir /usr/local/share/palmux"
+  }
+}

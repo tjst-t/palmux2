@@ -1,0 +1,5 @@
+{
+  "name": "palmux",
+  "description": "Palmux workspace tools for Claude — control the shared in-container browser (palmux-browser) that the user also sees live in the Browser tab.",
+  "version": "0.1.0"
+}

@@ -16,6 +16,20 @@ import (
 	creackpty "github.com/creack/pty"
 
 	"github.com/tjst-t/palmux2/internal/notify"
+	"github.com/tjst-t/palmux2/internal/runtime"
+)
+
+// S4d8b1c: when the workspace runtime can build an in-container PTY command
+// (incus), claude runs INSIDE the container at these fixed paths.
+const (
+	// containerClaudeBin is the absolute path of the (host-mounted) claude
+	// binary inside the container. A non-login `incus exec` has no ~/.local/bin
+	// on PATH, so claude must be invoked by absolute path.
+	containerClaudeBin = "/home/ubuntu/.local/bin/claude"
+	// containerHookBinPath is where the running palmux binary is bind-mounted
+	// inside the container, used as the `<bin> hook` command for in-container
+	// claude (the host hookBinPath does not exist in the container).
+	containerHookBinPath = "/usr/local/bin/palmux"
 )
 
 const (
@@ -130,6 +144,16 @@ type Daemon struct {
 	// settings/env are injected (e.g. in tests using fake_claude).
 	notifyURL, notifyToken, hookBinPath string
 
+	// S4d8b1c: in-container spawn wiring.
+	// runtimeResolver returns a runtime.PTYCommander when the workspace's
+	// runtime can run claude INSIDE a container (incus), or nil for host. nil
+	// resolver / nil result → host exec (default / tests / host runtime).
+	runtimeResolver func(repoID, branchID string) runtime.PTYCommander
+	// notifyURLInContainer is the bridge-gateway notify URL used for the hook
+	// when claude runs in the container (the plain notifyURL's 127.0.0.1 points
+	// at the container itself). Empty → fall back to notifyURL.
+	notifyURLInContainer string
+
 	// feedMu serializes the readLoop's (ring.Write + emulator.Feed) pair with
 	// the attach-time (emulator.RenderSnapshot + ring.Subscribe) pair so a new
 	// client's screen-state replay and its live subscription are atomic with
@@ -219,6 +243,13 @@ type DaemonConfig struct {
 	NotifyURL   string
 	NotifyToken string
 	HookBinPath string
+
+	// S4d8b1c: RuntimeResolver returns a runtime.PTYCommander when the workspace
+	// runtime can run claude inside a container (incus), else nil → host exec.
+	// NotifyURLInContainer is the bridge-gateway notify URL for the in-container
+	// hook.
+	RuntimeResolver      func(repoID, branchID string) runtime.PTYCommander
+	NotifyURLInContainer string
 }
 
 // NewDaemon creates a Daemon from cfg.  No subprocess is spawned yet.
@@ -248,10 +279,12 @@ func NewDaemon(cfg DaemonConfig) *Daemon {
 		repoID:         cfg.RepoID,
 		branchID:       cfg.BranchID,
 		tabID:          cfg.TabID,
-		notifyURL:      cfg.NotifyURL,
-		notifyToken:    cfg.NotifyToken,
-		hookBinPath:    cfg.HookBinPath,
-		daemonCtx:      ctx,
+		notifyURL:            cfg.NotifyURL,
+		notifyToken:          cfg.NotifyToken,
+		hookBinPath:          cfg.HookBinPath,
+		runtimeResolver:      cfg.RuntimeResolver,
+		notifyURLInContainer: cfg.NotifyURLInContainer,
+		daemonCtx:            ctx,
 		daemonCancel:   cancel,
 		sessionIDReady: make(chan struct{}),
 		shutdownCh:     make(chan struct{}),
@@ -330,41 +363,71 @@ func (d *Daemon) spawnWithArgs(args []string) error {
 	// user's ~/.claude nor the repo's .claude; identity + callback URL travel as
 	// PALMUX_* env the hook command inherits.
 	env := appendOrReplace(os.Environ(), "TERM=xterm-256color")
-	if d.hookBinPath != "" && d.notifyURL != "" {
-		settings, err := buildHookSettings(d.hookBinPath)
+
+	// S4d8b1c: resolve the workspace runtime. When it can build an in-container
+	// PTY command (incus), claude runs INSIDE the container; otherwise host.
+	var pc runtime.PTYCommander
+	if d.runtimeResolver != nil {
+		pc = d.runtimeResolver(d.repoID, d.branchID)
+	}
+	inContainer := pc != nil
+
+	// Runtime-aware claude/hook/notify resolution.
+	claudeBin := d.claudeBin
+	hookBin := d.hookBinPath
+	notifyURL := d.notifyURL
+	if inContainer {
+		claudeBin = containerClaudeBin
+		hookBin = containerHookBinPath
+		if d.notifyURLInContainer != "" {
+			notifyURL = d.notifyURLInContainer
+		}
+		// The palmux-browser skill plugin only exists inside the container image.
+		// --plugin-dir is the correct flag to register it (--add-dir merely grants
+		// file access and does NOT load skills).
+		args = append([]string{"--plugin-dir", palmuxSkillDir}, args...)
+	}
+
+	// Claude Code notification hooks + PALMUX_* env (also consumed by the
+	// palmux-browser CLI inside the container). containerEnv carries the same
+	// KEY=VALUE pairs for the incus --env path.
+	var containerEnv []string
+	if hookBin != "" && notifyURL != "" {
+		settings, err := buildHookSettings(hookBin)
 		if err != nil {
 			d.logger.Warn("claudetui: failed to build hook settings; "+
 				"notifications disabled for this spawn", "err", err)
 		} else {
-			// Prepend --settings and --add-dir so the palmux skill bundle is
-			// always loaded for this claude-tui subprocess without polluting
-			// ~/.claude or the project's .claude directory.
-			// The palmux-browser skill lives at:
-			//   /usr/local/share/palmux/.claude/skills/palmux-browser/SKILL.md
-			// and is auto-discovered because --add-dir makes claude search
-			// <dir>/.claude/skills/ at startup.
-			args = append([]string{
-				"--settings", settings,
-				"--add-dir", palmuxSkillDir,
-			}, args...)
-			for _, kv := range hookEnv(d.notifyURL, d.notifyToken, d.repoID, d.branchID, d.tabID) {
-				env = appendOrReplace(env, kv)
+			args = append([]string{"--settings", settings}, args...)
+			for _, kv := range hookEnv(notifyURL, d.notifyToken, d.repoID, d.branchID, d.tabID) {
+				env = appendOrReplace(env, kv) // host path
+				containerEnv = append(containerEnv, kv)
 			}
 		}
 	}
 
-	// exec.CommandContext uses daemonCtx so that cancellation (Shutdown) can
-	// terminate the subprocess while keeping it alive across WS disconnects.
-	cmd := exec.CommandContext(d.daemonCtx, d.claudeBin, args...)
-	// Run the subprocess inside the branch's worktree. Without this, claude
-	// inherits palmux2 server's cwd (typically the palmux2 repo itself), and
-	// `~/.claude/projects/<slug>` ends up pointing at palmux2 regardless of
-	// which repo the user opened the tab in. cmd.Dir == "" means "inherit",
-	// which is acceptable for tests that don't pass a worktree.
-	if d.worktree != "" {
-		cmd.Dir = d.worktree
+	// Build the command. daemonCtx (not a request ctx) so Shutdown can cancel
+	// while WS disconnects keep the subprocess alive.
+	var cmd *exec.Cmd
+	if inContainer {
+		// claude runs INSIDE the container: `incus exec -t <inst> --user … --cwd
+		// <worktree> --env … -- /abs/claude <args>`. cwd + container env are
+		// delivered through the incus flags, not cmd.Dir/cmd.Env.
+		argv := append([]string{claudeBin}, args...)
+		cenv := append([]string{"TERM=xterm-256color"}, containerEnv...)
+		cmd = pc.PTYCommand(d.daemonCtx, argv, runtime.PTYCommandOpts{
+			Cwd: d.worktree,
+			Env: cenv,
+		})
+	} else {
+		cmd = exec.CommandContext(d.daemonCtx, claudeBin, args...)
+		// Run in the branch worktree so `~/.claude/projects/<slug>` resolves to
+		// the right repo. cmd.Dir == "" means inherit (tests without a worktree).
+		if d.worktree != "" {
+			cmd.Dir = d.worktree
+		}
+		cmd.Env = env
 	}
-	cmd.Env = env
 
 	ptmx, err := creackpty.Start(cmd)
 	if err != nil {

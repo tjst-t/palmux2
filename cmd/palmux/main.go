@@ -30,6 +30,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/gwq"
 	"github.com/tjst-t/palmux2/internal/notify"
 	"github.com/tjst-t/palmux2/internal/portman"
+	"github.com/tjst-t/palmux2/internal/runtime"
 	"github.com/tjst-t/palmux2/internal/runtime/incus"
 	"github.com/tjst-t/palmux2/internal/server"
 	"github.com/tjst-t/palmux2/internal/store"
@@ -348,6 +349,16 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		NotifyURL:   localNotifyURL(addr, basePath),
 		NotifyToken: token,
 		HookBinPath: hookBinPath,
+		// S4d8b1c: run claude INSIDE the workspace's incus container when the
+		// runtime supports it (runtime.PTYCommander). The bridge notify URL is
+		// used for the in-container hook (127.0.0.1 would be the container).
+		RuntimeResolver: func(repoID, branchID string) runtime.PTYCommander {
+			if pc, ok := st.CurrentRuntime(repoID, branchID).(runtime.PTYCommander); ok {
+				return pc
+			}
+			return nil
+		},
+		NotifyURLInContainer: bridgeNotifyURL(addr, basePath),
 	})
 	claudetuiProvider := claudetui.New(claudetuiMgr)
 	// Sadf90e: claudetui daemons live per-tab and are spawned lazily on the
@@ -618,6 +629,23 @@ func localNotifyURL(addr, basePath string) string {
 	if port == "" {
 		return ""
 	}
+	return notifyURLForHostPort("127.0.0.1:"+port, basePath)
+}
+
+// bridgeNotifyURL returns the notify endpoint reachable from INSIDE an incus
+// container — `http://<incusbr0-ip>:<port><base>api/notify`. The container's
+// default gateway is the incus bridge IP, so an in-container hook / palmux-browser
+// CLI posts there instead of 127.0.0.1 (which is the container itself). Returns
+// "" when there is no incus bridge or --addr is wildcard. (S4d8b1c)
+func bridgeNotifyURL(addr, basePath string) string {
+	b := incusBridgeListenAddr(addr)
+	if b == "" {
+		return ""
+	}
+	return notifyURLForHostPort(b, basePath)
+}
+
+func notifyURLForHostPort(hostPort, basePath string) string {
 	bp := basePath
 	if bp == "" {
 		bp = "/"
@@ -628,7 +656,7 @@ func localNotifyURL(addr, basePath string) string {
 	if !strings.HasSuffix(bp, "/") {
 		bp += "/"
 	}
-	return "http://127.0.0.1:" + port + bp + "api/notify"
+	return "http://" + hostPort + bp + "api/notify"
 }
 
 // branchResolver adapts *store.Store into the small BranchResolver interface
