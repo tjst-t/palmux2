@@ -1,0 +1,15 @@
+{
+  "sprint": "S4d8b1c",
+  "verified_at": "2026-06-15",
+  "go": {"build": "pass", "vet": "pass", "test": "pass", "lint": "pass (0 errors)"},
+  "tests": {
+    "unit": "pass — claudetui TestDaemonInContainerInjectsPluginDir + host no-skill; incus TestPTYCommand_ArgvShape + TestExecCommand_NoTTY (no -t); claudetui suite 11/11",
+    "story1_real_incus": "ALL PASS (s4d8b1c_incontainer.py on deploy VM) — claude in container, --plugin-dir skill palmux:palmux-browser loads, isolation, hook binary mounted",
+    "story2_real_incus": "ALL PASS (s4d8b1c_agent_incontainer.py on deploy VM) — agent claude in container (incus exec no -t), stream-json + MCP wired, isolation",
+    "spikes": "in-container claude Bash=container (isolation); incus exec(non-PTY) binary-clean stdio + separate stderr + claude stream-json (Phase2 de-risk)"
+  },
+  "story_judgments": [
+    {"story_id":"S4d8b1c-1","done_judgment":{"guard1_user_review_required_not_done":"pass","guard2_nil_injection_mock":"pass","guard3_mock_mode_not_real_smoke":"pass","guard4_priority_rule_9_exception_valid":"n/a","guard5_call_path_grep":"pass","guard6_deferred_comment_clean":"pass","guard7_adr_conformance":"n/a","guard8_destructive_multi_version_test":"n/a","overall":"ok"},"notes":"guard2: 1 nil = ExecCommander capability branch (not mock). guard4 n/a: real smoke done. guard5: WS /tui/attach → daemon → PTYCommand call path real-mode tested. guard7/8 n/a (no ADRs / no Hydra data path)."},
+    {"story_id":"S4d8b1c-2","done_judgment":{"guard1_user_review_required_not_done":"pass","guard2_nil_injection_mock":"pass","guard3_mock_mode_not_real_smoke":"pass","guard4_priority_rule_9_exception_valid":"n/a","guard5_call_path_grep":"pass","guard6_deferred_comment_clean":"pass","guard7_adr_conformance":"n/a","guard8_destructive_multi_version_test":"n/a","overall":"ok"},"notes":"agent WS attach → EnsureClient → ExecCommand call path real-mode tested. review edges (in-container reap / wildcard-addr notify) backlogged, bounded, deploy config validated working."}
+  ]
+}

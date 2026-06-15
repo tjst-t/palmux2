@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/tjst-t/palmux2/internal/notify"
+	"github.com/tjst-t/palmux2/internal/runtime"
 )
 
 // ManagerConfig holds configuration shared by all daemons in the Manager.
@@ -37,6 +38,13 @@ type ManagerConfig struct {
 	NotifyURL   string
 	NotifyToken string
 	HookBinPath string
+
+	// S4d8b1c: RuntimeResolver returns a runtime.PTYCommander when the workspace
+	// runtime can run claude inside a container (incus), else nil → host exec.
+	// NotifyURLInContainer is the bridge-gateway notify URL used for the hook
+	// when claude runs in-container.
+	RuntimeResolver      func(repoID, branchID string) runtime.PTYCommander
+	NotifyURLInContainer string
 }
 
 // managerEntry bundles a Daemon with its associated SessionWatcher so both
@@ -132,9 +140,11 @@ func (m *Manager) EnsureDaemon(ctx context.Context, repoID, branchID, tabID, wor
 		RepoID:        repoID,
 		BranchID:      branchID,
 		TabID:         tabID,
-		NotifyURL:     m.cfg.NotifyURL,
-		NotifyToken:   m.cfg.NotifyToken,
-		HookBinPath:   m.cfg.HookBinPath,
+		NotifyURL:            m.cfg.NotifyURL,
+		NotifyToken:          m.cfg.NotifyToken,
+		HookBinPath:          m.cfg.HookBinPath,
+		RuntimeResolver:      m.cfg.RuntimeResolver,
+		NotifyURLInContainer: m.cfg.NotifyURLInContainer,
 	})
 
 	// Pre-seed session ID if we loaded one from the store.  This unblocks

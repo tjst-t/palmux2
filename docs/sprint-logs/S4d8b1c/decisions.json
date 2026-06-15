@@ -1,0 +1,110 @@
+{
+  "sprint": "S4d8b1c",
+  "title": "Claude をコンテナ内で動かす",
+  "planning_decisions": [
+    {
+      "decision": "Phase 1 (claude-tui) を先行実装し、Phase 2 (claude-agent) は stream-json over non-PTY incus-exec のリスクを spike してから判断",
+      "rationale": "design doc 通り。TUI が局所変更 + 高価値 (隔離 + browser skill) + 核心 de-risk 済み。agent の stream-json パイプ分離は唯一の大きな未知"
+    },
+    {
+      "decision": "claude-tui の spawn を incus 時 `incus exec -t <inst> userExecFlags --cwd worktree --env ... -- /abs/claude args` に分岐 (bash タブの AttachByIndex と同パターン)。ring/emulator/respawn 無改造",
+      "rationale": "runtime は既にこの interactive PTY 経路を bash で実証済み。最小 blast radius"
+    },
+    {
+      "decision": "skill を plugin 化 (.claude-plugin/plugin.json + skills/) し --plugin-dir で注入 (--add-dir 廃止)",
+      "rationale": "実機確認: --add-dir は skill 未登録、--plugin-dir は palmux:palmux-browser をロード"
+    },
+    {
+      "decision": "hook 用に稼働中 palmux 静的バイナリをコンテナ mount + PALMUX_NOTIFY_URL を bridge gateway 化",
+      "rationale": "host パスの hookBinPath はコンテナに無い / 127.0.0.1 はコンテナ自身。palmux は CGO 無し静的 linux amd64 なので mount で動く"
+    }
+  ],
+  "spike_results": [
+    {
+      "spike": "in-container claude の Bash ツールがコンテナ内実行か (AC-1-4 の核心)",
+      "result": "PASS — incus exec -t ... -- claude --print --permission-mode bypassPermissions --plugin-dir <plugin> でツール実行 → hostname=コンテナ名 (isc-projects-dhcp-cc97-dhcp-2dab-055ca4d7、host の palmux-deploy-test2 ではない)、user=ubuntu、cwd=/home/ubuntu。認証も効き --plugin-dir も成立",
+      "date": "2026-06-15"
+    },
+    {
+      "spike": "Phase2: stream-json over incus exec (non-PTY) — binary-clean stdio + separate stderr",
+      "result": "PASS — incus exec(no -t) で binary stdin→stdout が clean round-trip、stdout/stderr 分離維持、claude --output-format stream-json が clean JSON 出力。Phase2 は claudeagent の cmd build を incus exec に分岐するだけ(transport 層は無改造)",
+      "date": "2026-06-15"
+    }
+  ],
+  "implementation_decisions": [
+    {
+      "decision": "runtime.PTYCommander optional capability (incus builds `incus exec -t … -- argv` *exec.Cmd, not started); daemon creack/pty-starts it",
+      "rationale": "bash タブの AttachByIndex と同パターン。daemon の ring/emulator/respawn 無改造で in-container 化"
+    },
+    {
+      "decision": "RuntimeResolver は runtime.PTYCommander を返す (full Runtime ではなく)",
+      "rationale": "daemon が type-assert 不要・テストで fake が 1 メソッドで済む。host/nil → host exec"
+    },
+    {
+      "decision": "--add-dir を --plugin-dir に置換し、skill を image で plugin レイアウト化 (.claude-plugin/plugin.json + skills/)",
+      "rationale": "実機確認: --add-dir は skill 未登録、--plugin-dir で palmux:palmux-browser ロード。host では skill plugin 不在なので注入しない"
+    },
+    {
+      "decision": "hook 用 palmux 静的バイナリを /usr/local/bin/palmux に bind-mount (incus.go mounts、symlink-skip 例外)、PALMUX_NOTIFY_URL を bridge gateway URL (incusBridgeListenAddr) で注入",
+      "rationale": "host hookBinPath/127.0.0.1 はコンテナで無効。palmux は CGO 無し静的なので mount で動く (実機 palmux --version 確認)"
+    },
+    {
+      "decision": "runtime.ExecCommander (incus exec NO -t、Stdin 未設定で caller が pipe) を追加、claudeagent client が incus 時これで cmd build (StdinPipe/StdoutPipe/StderrPipe + pump + MCP は無改造)",
+      "rationale": "spike で incus exec(非-t) が binary-clean stdio + 分離 stderr を保持と確認。-t は stream-json framing を壊すので禁止 (TestExecCommand_NoTTY で保証)"
+    },
+    {
+      "decision": "claudeagent にも --plugin-dir + PALMUX_* container env を注入 (agent モードでも browser skill が使える)",
+      "rationale": "TUI と対称。MCP 権限は in-process stdio で無改造"
+    }
+  ],
+  "review_decisions": [
+    {
+      "finding": "既存(ready)コンテナは Start の早期 return で palmux-hook-bin mount がスキップされ、in-container hook が無言で失敗する",
+      "fix": "ensureHookBinMount を StateReady 早期 return で idempotent に hot-plug。regenerate 不要で既存コンテナにも mount が付く",
+      "severity": "correctness"
+    },
+    {
+      "finding": "in-container で bridge notify URL が空(wildcard --addr)のとき host の 127.0.0.1 にフォールバックし、コンテナ内では到達不能",
+      "fix": "in-container は notifyURLInContainer のみ使用 (空なら hook を inject しない=通知 off の正しい degrade、壊れた URL を入れない)",
+      "severity": "correctness"
+    }
+  ],
+  "done_judgment": {},
+  "real_mode_validation": {
+    "host": "palmux-deploy-test.tjstkm.net (incus-container)",
+    "method": "WS /tui/attach (SSO cookie) で claude-tui daemon を起動 → incus でコンテナ内 claude を ground-truth 確認",
+    "result": "ALL PASS (tests/acceptance/s4d8b1c_incontainer.py) — AC-1-1 claude in container, AC-1-3 --plugin-dir + skill palmux:palmux-browser ロード, AC-1-4 isolation (claude Bash の hostname=コンテナ), AC-1-5 hook binary mount + --settings",
+    "observed_host_wrapper": "incus exec -t <inst> --user 1000 --cwd <worktree> --env PALMUX_NOTIFY_URL=http://10.146.187.1:8080/api/notify ... -- /home/ubuntu/.local/bin/claude --settings {hooks: /usr/local/bin/palmux hook} --plugin-dir /usr/local/share/palmux"
+  },
+  "deferred_to_backlog": [
+    {
+      "finding": "Shutdown/respawn は host 側 incus-exec client を kill するが、コンテナ内 claude の確実な reap は incus のクリーンアップ依存。leak の可能性",
+      "note": "bash タブも同 incus exec -t 機構を使い実運用で問題報告なし (incus が client disconnect で exec プロセスを reap)。要実機検証 + 必要なら明示 PID kill",
+      "severity": "minor"
+    },
+    {
+      "finding": "palmux バイナリの file bind-mount は host inode を pin。deploy で binary 置換すると container は旧 inode を指す (version skew/stale)",
+      "note": "regenerate で再 mount される。hook の notify JSON 契約は安定。palmux は CGO 無し静的 ELF (実機 palmux --version 確認済) で static-ELF 前提は満たす",
+      "severity": "minor"
+    }
+  ],
+  "real_mode_validation_agent": {
+    "result": "ALL PASS (tests/acceptance/s4d8b1c_agent_incontainer.py) — AC-2-1 agent claude in container (incus exec, no -t 直接確認 + TestExecCommand_NoTTY), AC-2-2 stream-json formats + MCP permission-prompt-tool wired, AC-2-4 isolation"
+  },
+  "review_decisions_story2": [
+    {
+      "finding": "Close/respawn が host incus-exec client のみ kill、in-container claude+MCP/node 子が orphan する可能性 (Story1 と同 class、agent は子プロセス多くより影響)",
+      "disposition": "backlog (bl-incontainer-claude-reap に統合)。foreground incus exec は通常 reap されるが SIGKILL/abnormal で leak リスク。確実な in-container reap を別途設計",
+      "severity": "minor"
+    },
+    {
+      "finding": "wildcard --addr で containerEnv が PALMUX_NOTIFY_URL を全く出さず、agent モードの palmux-browser CLI が base URL 無しで失敗",
+      "disposition": "bounded (wildcard-addr + 実 incus の稀な組合せ。deploy は 127.0.0.1 で bridge URL 算出され動作確認済)。skill discovery は --plugin-dir で成立、CLI 到達のみ degrade",
+      "severity": "minor"
+    },
+    {
+      "finding": "その他 (cmd.Dir/respawn/cmd.Env PATH/--plugin-dir ordering/MCP) は clean と確認",
+      "disposition": "no action"
+    }
+  ]
+}

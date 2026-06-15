@@ -12,6 +12,7 @@ package runtime
 import (
 	"context"
 	"io"
+	"os/exec"
 
 	"github.com/tjst-t/palmux2/internal/tmux"
 )
@@ -194,6 +195,37 @@ type ImageDriftChecker interface {
 	// false (not an error) when there is no update target (alias absent) or the
 	// base image is unknown.
 	IsImageStale(ctx context.Context) (bool, error)
+}
+
+// PTYCommandOpts configures a PTYCommand: the working directory and the
+// environment (KEY=VALUE pairs) to apply INSIDE the runtime. (S4d8b1c)
+type PTYCommandOpts struct {
+	Cwd string   // working dir inside the runtime
+	Env []string // KEY=VALUE pairs set inside the runtime
+}
+
+// PTYCommander is an optional capability a Runtime may implement to build (but
+// NOT start) a host *exec.Cmd that runs argv interactively INSIDE the runtime
+// under a PTY. The caller starts it with a pty library and owns the master fd.
+// For incus this wraps argv as `incus exec -t <inst> --user … --cwd … --env … --
+// argv`, so the process (e.g. an interactive `claude` TUI) runs in the
+// container. host does not implement it — the caller runs argv directly on the
+// host. This lets the claude-tui daemon route its PTY subprocess into the
+// container without importing the incus package. (S4d8b1c)
+type PTYCommander interface {
+	PTYCommand(ctx context.Context, argv []string, opts PTYCommandOpts) *exec.Cmd
+}
+
+// ExecCommander is an optional capability a Runtime may implement to build (but
+// NOT start) a host *exec.Cmd that runs argv INSIDE the runtime over plain
+// (non-PTY) pipes — `incus exec <inst> --user … --cwd … --env … -- argv` with
+// NO -t. The caller wires StdinPipe/StdoutPipe/StderrPipe itself (separate
+// stderr is preserved). Used by the claude-agent stream-json transport to run
+// claude in the container. host does not implement it (runs argv directly).
+// (S4d8b1c) Unlike PTYCommander (-t, for the TUI), this keeps stdout/stderr
+// separate and binary-clean as the stream-json protocol requires.
+type ExecCommander interface {
+	ExecCommand(ctx context.Context, argv []string, opts PTYCommandOpts) *exec.Cmd
 }
 
 // ContainerRegenerator is an optional capability a Runtime may implement to
