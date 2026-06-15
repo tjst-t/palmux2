@@ -9958,6 +9958,20 @@
       "detail": "drift 判定が incus workspace ごとに 10s 毎 2 CLI 呼び。同一 palmux-ws alias の image list を per-workspace で繰り返す。alias fingerprint を per-scan cycle 1 回に hoist するか TTL キャッシュ。single-user/少 workspace 前提では許容範囲。",
       "source": "S7364e3 review",
       "severity": "minor"
+    },
+    {
+      "id": "bl-incontainer-claude-reap",
+      "title": "in-container claude の確実な reap (Shutdown/respawn)",
+      "detail": "claude-tui の Shutdown は host incus-exec client を kill。コンテナ内 claude の reap が incus 依存で leak の可能性。実機検証 + 必要なら PID kill (S4d8b1c review)",
+      "source": "S4d8b1c review",
+      "severity": "minor"
+    },
+    {
+      "id": "bl-hookbin-mount-staleness",
+      "title": "palmux hook binary mount の inode staleness",
+      "detail": "palmux 再デプロイで host binary 置換 → container mount が旧 inode を指す。regenerate で解消するが、live 更新の手当て検討 (S4d8b1c review)",
+      "source": "S4d8b1c review",
+      "severity": "minor"
     }
   ]
 }

@@ -221,6 +221,11 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 	r.startMu.Lock()
 	defer r.startMu.Unlock()
 	if r.Status().State == runtime.StateReady {
+		// S4d8b1c: a container created before the palmux-hook-bin mount existed
+		// would otherwise never get it (the mounts loop below is skipped on this
+		// early return). Hot-plug it idempotently so in-container claude's
+		// `palmux hook` works without requiring a full container regenerate.
+		r.ensureHookBinMount(ctx)
 		return nil
 	}
 
@@ -560,6 +565,27 @@ func (r *incusRuntime) PTYCommand(ctx context.Context, argv []string, opts runti
 	// Do NOT set Stdin/Stdout/Stderr — the caller's pty.Start wires them to the
 	// PTY slave.
 	return cmd
+}
+
+// ensureHookBinMount idempotently bind-mounts the running palmux binary at
+// /usr/local/bin/palmux inside the container (for in-container `palmux hook`).
+// Safe to call on an already-running container — incus hot-plugs the disk device
+// and "already exists" is tolerated. Best-effort: failures are logged, not
+// fatal. (S4d8b1c)
+func (r *incusRuntime) ensureHookBinMount(ctx context.Context) {
+	palmuxBin, err := os.Executable()
+	if err != nil || palmuxBin == "" {
+		return
+	}
+	_, stderr, code, runErr := r.run(ctx,
+		"config", "device", "add", r.inst,
+		"palmux-hook-bin", "disk",
+		"source="+palmuxBin,
+		"path=/usr/local/bin/palmux",
+	)
+	if runErr != nil || (code != 0 && !strings.Contains(stderr, "already exists")) {
+		r.log.Debug("incus: ensureHookBinMount (non-fatal)", "inst", r.inst, "code", code, "stderr", strings.TrimSpace(stderr))
+	}
 }
 
 // imageAlias returns the image alias this container is created from

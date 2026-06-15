@@ -379,9 +379,11 @@ func (d *Daemon) spawnWithArgs(args []string) error {
 	if inContainer {
 		claudeBin = containerClaudeBin
 		hookBin = containerHookBinPath
-		if d.notifyURLInContainer != "" {
-			notifyURL = d.notifyURLInContainer
-		}
+		// Inside the container, 127.0.0.1 is the container itself — the host
+		// notifyURL is unusable. Use the bridge-gateway URL; if it's unknown
+		// (e.g. wildcard --addr / no incus bridge) leave it empty so the hook is
+		// skipped entirely rather than injecting a URL that always fails.
+		notifyURL = d.notifyURLInContainer
 		// The palmux-browser skill plugin only exists inside the container image.
 		// --plugin-dir is the correct flag to register it (--add-dir merely grants
 		// file access and does NOT load skills).
