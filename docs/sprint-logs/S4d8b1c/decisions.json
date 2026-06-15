@@ -24,6 +24,11 @@
       "spike": "in-container claude の Bash ツールがコンテナ内実行か (AC-1-4 の核心)",
       "result": "PASS — incus exec -t ... -- claude --print --permission-mode bypassPermissions --plugin-dir <plugin> でツール実行 → hostname=コンテナ名 (isc-projects-dhcp-cc97-dhcp-2dab-055ca4d7、host の palmux-deploy-test2 ではない)、user=ubuntu、cwd=/home/ubuntu。認証も効き --plugin-dir も成立",
       "date": "2026-06-15"
+    },
+    {
+      "spike": "Phase2: stream-json over incus exec (non-PTY) — binary-clean stdio + separate stderr",
+      "result": "PASS — incus exec(no -t) で binary stdin→stdout が clean round-trip、stdout/stderr 分離維持、claude --output-format stream-json が clean JSON 出力。Phase2 は claudeagent の cmd build を incus exec に分岐するだけ(transport 層は無改造)",
+      "date": "2026-06-15"
     }
   ],
   "implementation_decisions": [
@@ -42,6 +47,14 @@
     {
       "decision": "hook 用 palmux 静的バイナリを /usr/local/bin/palmux に bind-mount (incus.go mounts、symlink-skip 例外)、PALMUX_NOTIFY_URL を bridge gateway URL (incusBridgeListenAddr) で注入",
       "rationale": "host hookBinPath/127.0.0.1 はコンテナで無効。palmux は CGO 無し静的なので mount で動く (実機 palmux --version 確認)"
+    },
+    {
+      "decision": "runtime.ExecCommander (incus exec NO -t、Stdin 未設定で caller が pipe) を追加、claudeagent client が incus 時これで cmd build (StdinPipe/StdoutPipe/StderrPipe + pump + MCP は無改造)",
+      "rationale": "spike で incus exec(非-t) が binary-clean stdio + 分離 stderr を保持と確認。-t は stream-json framing を壊すので禁止 (TestExecCommand_NoTTY で保証)"
+    },
+    {
+      "decision": "claudeagent にも --plugin-dir + PALMUX_* container env を注入 (agent モードでも browser skill が使える)",
+      "rationale": "TUI と対称。MCP 権限は in-process stdio で無改造"
     }
   ],
   "review_decisions": [
@@ -74,5 +87,8 @@
       "note": "regenerate で再 mount される。hook の notify JSON 契約は安定。palmux は CGO 無し静的 ELF (実機 palmux --version 確認済) で static-ELF 前提は満たす",
       "severity": "minor"
     }
-  ]
+  ],
+  "real_mode_validation_agent": {
+    "result": "ALL PASS (tests/acceptance/s4d8b1c_agent_incontainer.py) — AC-2-1 agent claude in container (incus exec, no -t 直接確認 + TestExecCommand_NoTTY), AC-2-2 stream-json formats + MCP permission-prompt-tool wired, AC-2-4 isolation"
+  }
 }

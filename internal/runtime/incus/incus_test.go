@@ -1311,3 +1311,56 @@ func TestRegenerate_Success(t *testing.T) {
 			probeIdx, oldDelIdx, initIdx, calls)
 	}
 }
+
+// -------------------------------------------------------------------------
+// S4d8b1c: PTYCommand / ExecCommand argv shape (in-container claude)
+// -------------------------------------------------------------------------
+
+func TestPTYCommand_ArgvShape(t *testing.T) {
+	const inst = "ws-pty-aa11bb22"
+	r := New(runtime.Config{Kind: runtime.KindIncusContainer}, inst, newFakeRunner().asRunner(), nil).(*incusRuntime)
+	cmd := r.PTYCommand(context.Background(),
+		[]string{"/home/ubuntu/.local/bin/claude", "--plugin-dir", "/usr/local/share/palmux"},
+		runtime.PTYCommandOpts{Cwd: "/home/ubuntu/ghq/x", Env: []string{"PALMUX_NOTIFY_URL=http://10.0.0.1:8080/api/notify"}})
+	got := cmd.Args
+	// incus exec -t <inst> --user 1000 … --cwd … --env … -- claude …
+	mustContainSeq(t, got, []string{"exec", "-t", inst})
+	mustContainSeq(t, got, []string{"--cwd", "/home/ubuntu/ghq/x"})
+	mustContainSeq(t, got, []string{"--env", "PALMUX_NOTIFY_URL=http://10.0.0.1:8080/api/notify"})
+	mustContainSeq(t, got, []string{"--", "/home/ubuntu/.local/bin/claude", "--plugin-dir", "/usr/local/share/palmux"})
+}
+
+func TestExecCommand_NoTTY(t *testing.T) {
+	const inst = "ws-exec-cc33dd44"
+	r := New(runtime.Config{Kind: runtime.KindIncusContainer}, inst, newFakeRunner().asRunner(), nil).(*incusRuntime)
+	cmd := r.ExecCommand(context.Background(),
+		[]string{"/home/ubuntu/.local/bin/claude", "--output-format", "stream-json"},
+		runtime.PTYCommandOpts{Cwd: "/wt"})
+	got := cmd.Args
+	// MUST be `incus exec <inst>` with NO -t (stream-json needs separate stderr).
+	mustContainSeq(t, got, []string{"exec", inst})
+	for i := 0; i+1 < len(got); i++ {
+		if got[i] == "exec" && got[i+1] == "-t" {
+			t.Errorf("[AC-S4d8b1c-2-1] ExecCommand must NOT use -t (got %v)", got)
+		}
+	}
+	mustContainSeq(t, got, []string{"--", "/home/ubuntu/.local/bin/claude", "--output-format", "stream-json"})
+}
+
+// mustContainSeq asserts that `sub` appears as a contiguous subsequence of `s`.
+func mustContainSeq(t *testing.T, s, sub []string) {
+	t.Helper()
+	for i := 0; i+len(sub) <= len(s); i++ {
+		match := true
+		for j := range sub {
+			if s[i+j] != sub[j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return
+		}
+	}
+	t.Errorf("expected subsequence %v in %v", sub, s)
+}

@@ -216,6 +216,18 @@ type PTYCommander interface {
 	PTYCommand(ctx context.Context, argv []string, opts PTYCommandOpts) *exec.Cmd
 }
 
+// ExecCommander is an optional capability a Runtime may implement to build (but
+// NOT start) a host *exec.Cmd that runs argv INSIDE the runtime over plain
+// (non-PTY) pipes — `incus exec <inst> --user … --cwd … --env … -- argv` with
+// NO -t. The caller wires StdinPipe/StdoutPipe/StderrPipe itself (separate
+// stderr is preserved). Used by the claude-agent stream-json transport to run
+// claude in the container. host does not implement it (runs argv directly).
+// (S4d8b1c) Unlike PTYCommander (-t, for the TUI), this keeps stdout/stderr
+// separate and binary-clean as the stream-json protocol requires.
+type ExecCommander interface {
+	ExecCommand(ctx context.Context, argv []string, opts PTYCommandOpts) *exec.Cmd
+}
+
 // ContainerRegenerator is an optional capability a Runtime may implement to
 // recreate its backing container from the current image alias (image update).
 // It must be transactional against realistic failures: verify the new image

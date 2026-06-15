@@ -303,6 +303,16 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 	agentManager := claudeagent.NewManager(claudeagent.Config{
 		Binary:          "claude",
 		AttachmentDirFn: attachmentDirFn,
+		// S4d8b1c: run the agent-mode claude INSIDE the workspace's incus
+		// container when supported (runtime.ExecCommander).
+		RuntimeResolver: func(repoID, branchID string) runtime.ExecCommander {
+			if ec, ok := st.CurrentRuntime(repoID, branchID).(runtime.ExecCommander); ok {
+				return ec
+			}
+			return nil
+		},
+		NotifyURLInContainer: bridgeNotifyURL(addr, basePath),
+		NotifyToken:          token,
 	},
 		agentStore,
 		branchResolver{store: st},

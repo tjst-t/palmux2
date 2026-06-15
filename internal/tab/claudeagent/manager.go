@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/tjst-t/palmux2/internal/runtime"
 )
 
 // BranchResolver yields the on-disk worktree path for a branch. Implemented
@@ -44,6 +46,14 @@ type Config struct {
 	// land. Returning empty disables the auto-add (used by tests).
 	// (S008-1-3.)
 	AttachmentDirFn func(repoID, branchID string) string
+
+	// S4d8b1c: RuntimeResolver returns a runtime.ExecCommander when the
+	// workspace runtime can run claude inside a container (incus), else nil →
+	// host exec. NotifyURLInContainer / NotifyToken supply the bridge-gateway
+	// PALMUX_* env so the in-container palmux-browser CLI can reach palmux.
+	RuntimeResolver      func(repoID, branchID string) runtime.ExecCommander
+	NotifyURLInContainer string
+	NotifyToken          string
 }
 
 // NotificationSink is the subset of notify.Hub claudeagent uses to surface
@@ -126,6 +136,27 @@ func NewManager(cfg Config, store *Store, branches BranchResolver, events EventP
 // "claude" tab ids fold to CanonicalTabID for migration.
 func (m *Manager) key(repoID, branchID, tabID string) string {
 	return tabKey(repoID, branchID, tabID)
+}
+
+// containerEnv builds the KEY=VALUE env injected (via incus --env) into an
+// in-container claude so the bundled palmux-browser CLI can reach palmux over
+// the bridge gateway. Empty NotifyURLInContainer → only TERM (the skill is
+// still discoverable; the CLI just can't reach palmux). (S4d8b1c)
+func (m *Manager) containerEnv(repoID, branchID, tabID string) []string {
+	env := []string{"TERM=xterm-256color"}
+	if m.cfg.NotifyURLInContainer == "" {
+		return env
+	}
+	env = append(env,
+		"PALMUX_NOTIFY_URL="+m.cfg.NotifyURLInContainer,
+		"PALMUX_REPO_ID="+repoID,
+		"PALMUX_BRANCH_ID="+branchID,
+		"PALMUX_TAB_ID="+tabID,
+	)
+	if m.cfg.NotifyToken != "" {
+		env = append(env, "PALMUX_TOKEN="+m.cfg.NotifyToken)
+	}
+	return env
 }
 
 // Get returns the existing Agent for (repo, branch, tab), or nil. Empty
@@ -638,6 +669,15 @@ func (a *Agent) EnsureClient(ctx context.Context) error {
 			addDirsSnapshot = merged
 		}
 	}
+	// S4d8b1c: run claude inside the workspace's incus container when supported.
+	var execCmder runtime.ExecCommander
+	var containerEnv []string
+	if rr := a.deps.manager.cfg.RuntimeResolver; rr != nil {
+		if ec := rr(a.deps.repoID, a.deps.branchID); ec != nil {
+			execCmder = ec
+			containerEnv = a.deps.manager.containerEnv(a.deps.repoID, a.deps.branchID, a.deps.tabID)
+		}
+	}
 	cli, err := NewClient(ctx, ClientOptions{
 		Binary:            a.deps.manager.cfg.Binary,
 		Cwd:               a.deps.worktree,
@@ -650,6 +690,8 @@ func (a *Agent) EnsureClient(ctx context.Context) error {
 		AddDirs:           addDirsSnapshot,
 		ExtraArgs:         a.deps.manager.cfg.ExtraArgs,
 		Logger:            a.deps.logger,
+		ExecCommander:     execCmder,
+		ContainerEnv:      containerEnv,
 	}, a.handleStreamMsg, a.handleCanUseTool, a)
 	if err != nil {
 		a.mu.Lock()

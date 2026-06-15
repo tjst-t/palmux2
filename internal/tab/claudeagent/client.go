@@ -12,6 +12,15 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/tjst-t/palmux2/internal/runtime"
+)
+
+// S4d8b1c: in-container claude paths (mirror claudetui). When the workspace
+// runtime is an incus container, claude runs INSIDE it at these fixed paths.
+const (
+	containerClaudeBin = "/home/ubuntu/.local/bin/claude"
+	containerPluginDir = "/usr/local/share/palmux"
 )
 
 // ClientOptions configures one CLI subprocess.
@@ -44,6 +53,13 @@ type ClientOptions struct {
 	AddDirs   []string
 	ExtraArgs []string // user-supplied flags from settings.json
 	Logger    *slog.Logger
+
+	// S4d8b1c: when non-nil, claude runs INSIDE the workspace's incus container
+	// via this ExecCommander (incus exec, plain pipes — stream-json safe). nil →
+	// host exec. ContainerEnv carries KEY=VALUE pairs (PALMUX_* for the
+	// palmux-browser CLI) injected via incus --env when running in-container.
+	ExecCommander runtime.ExecCommander
+	ContainerEnv  []string
 }
 
 // CanUseToolHandler is invoked when the CLI asks permission to run a tool
@@ -150,8 +166,20 @@ func NewClient(ctx context.Context, opts ClientOptions, onMessage MessageHandler
 	// Run with a long-lived ctx so SIGTERM isn't delivered the moment the
 	// HTTP request that triggered the spawn finishes. The Manager kills the
 	// process explicitly on shutdown.
-	cmd := exec.CommandContext(context.Background(), opts.Binary, args...)
-	cmd.Dir = opts.Cwd
+	// S4d8b1c: when the runtime is an incus container, run claude INSIDE it via
+	// `incus exec` (plain pipes — the stream-json transport below is unchanged,
+	// spike-verified binary-clean + separate stderr). The container-only
+	// palmux-browser skill is registered via --plugin-dir.
+	var cmd *exec.Cmd
+	if opts.ExecCommander != nil {
+		cargs := append([]string{"--plugin-dir", containerPluginDir}, args...)
+		argv := append([]string{containerClaudeBin}, cargs...)
+		cmd = opts.ExecCommander.ExecCommand(context.Background(), argv,
+			runtime.PTYCommandOpts{Cwd: opts.Cwd, Env: opts.ContainerEnv})
+	} else {
+		cmd = exec.CommandContext(context.Background(), opts.Binary, args...)
+		cmd.Dir = opts.Cwd
+	}
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

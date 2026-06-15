@@ -118,6 +118,7 @@ var (
 	_ runtime.ImageDriftChecker    = (*incusRuntime)(nil)
 	_ runtime.ContainerRegenerator = (*incusRuntime)(nil)
 	_ runtime.PTYCommander         = (*incusRuntime)(nil)
+	_ runtime.ExecCommander        = (*incusRuntime)(nil)
 )
 
 // DefaultImageAlias is the incus image alias palmux containers are created from
@@ -586,6 +587,27 @@ func (r *incusRuntime) ensureHookBinMount(ctx context.Context) {
 	if runErr != nil || (code != 0 && !strings.Contains(stderr, "already exists")) {
 		r.log.Debug("incus: ensureHookBinMount (non-fatal)", "inst", r.inst, "code", code, "stderr", strings.TrimSpace(stderr))
 	}
+}
+
+// ExecCommand builds (does NOT start) a host *exec.Cmd that runs argv inside
+// this container over plain pipes: `incus exec <inst> --user … --cwd … --env …
+// -- argv` with NO -t. The caller wires StdinPipe/StdoutPipe/StderrPipe; incus
+// exec preserves binary-clean bidirectional stdio and a separate stderr (spike-
+// verified), as the claude-agent stream-json transport requires. (S4d8b1c)
+func (r *incusRuntime) ExecCommand(ctx context.Context, argv []string, opts runtime.PTYCommandOpts) *exec.Cmd {
+	args := append([]string{"exec", r.inst}, userExecFlags()...) // no -t
+	if opts.Cwd != "" {
+		args = append(args, "--cwd", opts.Cwd)
+	}
+	for _, kv := range opts.Env {
+		args = append(args, "--env", kv)
+	}
+	args = append(args, "--")
+	args = append(args, argv...)
+	cmd := exec.CommandContext(ctx, "incus", args...) //nolint:gosec
+	// Do NOT set Stdin/Stdout/Stderr — the caller pipes them (StdinPipe etc.).
+	// cmd.Env is the host incus-CLI env; container env comes via --env above.
+	return cmd
 }
 
 // imageAlias returns the image alias this container is created from
