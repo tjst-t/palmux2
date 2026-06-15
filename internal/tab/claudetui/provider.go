@@ -43,6 +43,8 @@ func New(mgr *Manager) *Provider {
 	return &Provider{manager: mgr}
 }
 
+var _ tab.RuntimeRestartHook = (*Provider)(nil) // S4d8b1c-fix
+
 // Type returns the stable registry key. Not user-visible since Sadf90e.
 func (p *Provider) Type() string { return TabType }
 
@@ -80,6 +82,20 @@ func (p *Provider) OnBranchOpen(_ context.Context, _ tab.OpenParams) (tab.Provid
 // OnBranchClose tears down every Daemon that belongs to this branch.
 // Idempotent — no-op when the Manager holds no entries for the branch.
 func (p *Provider) OnBranchClose(ctx context.Context, params tab.CloseParams) error {
+	if params.Branch == nil {
+		return nil
+	}
+	p.manager.CloseBranchDaemons(ctx, params.Branch.RepoID, params.Branch.ID)
+	return nil
+}
+
+// OnBranchRuntimeRestarted tears the claude-tui daemons down when the workspace
+// runtime is recreated (container regenerate / host↔incus switch). The in-
+// container claude is bound to the now-destroyed container; closing the daemon
+// makes the next WS attach respawn it against the new runtime. Without this the
+// daemon stays stuck on the dead container — a garbled screen with no input.
+// (S4d8b1c-fix)
+func (p *Provider) OnBranchRuntimeRestarted(ctx context.Context, params tab.CloseParams) error {
 	if params.Branch == nil {
 		return nil
 	}

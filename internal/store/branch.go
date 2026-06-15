@@ -607,6 +607,11 @@ func (s *Store) RestartBranchRuntime(ctx context.Context, repoID, branchID strin
 	// new incus container's drift is recomputed by the next scan).
 	s.clearDriftCached(repoID, branchID)
 
+	// S4d8b1c-fix: the Claude daemons (which may run claude inside the OLD
+	// container) are bound to a runtime that no longer exists — tear them down
+	// so the next WS attach respawns claude against the new runtime.
+	s.restartBranchTabDaemons(ctx, branch)
+
 	rtView := s.RuntimeViewFor(repoID, branchID)
 	s.hub.Publish(Event{
 		Type:     EventBranchRuntimeChanged,
@@ -625,6 +630,25 @@ func (s *Store) RestartBranchRuntime(ctx context.Context, repoID, branchID strin
 	s.logger.Info("store.RestartBranchRuntime: done",
 		"repoID", repoID, "branchID", branchID, "newKind", newKind)
 	return true, nil
+}
+
+// restartBranchTabDaemons invokes the optional RuntimeRestartHook on every
+// provider so tabs holding a process bound to the workspace runtime (the Claude
+// daemons running claude inside the container) tear that process down. Used by
+// RestartBranchRuntime + RegenerateBranchContainer when the runtime is recreated
+// in place, so the next WS attach respawns claude against the new container
+// instead of staying stuck on the destroyed one. (S4d8b1c-fix)
+func (s *Store) restartBranchTabDaemons(ctx context.Context, branch *domain.Branch) {
+	if branch == nil {
+		return
+	}
+	for _, p := range s.registry.Providers() {
+		if h, ok := p.(tab.RuntimeRestartHook); ok {
+			if err := h.OnBranchRuntimeRestarted(ctx, tab.CloseParams{Branch: branch}); err != nil {
+				s.logger.Warn("OnBranchRuntimeRestarted error", "provider", p.Type(), "err", err)
+			}
+		}
+	}
 }
 
 // RegenerateBranchContainer recreates an incus-container workspace's container
@@ -730,6 +754,10 @@ func (s *Store) RegenerateBranchContainer(ctx context.Context, repoID, branchID 
 			Payload:  map[string]any{"stale": false},
 		})
 	}
+
+	// S4d8b1c-fix: tear down the Claude daemons bound to the old (destroyed)
+	// container so the next WS attach respawns claude in the fresh container.
+	s.restartBranchTabDaemons(ctx, branch)
 
 	rtView := s.RuntimeViewFor(repoID, branchID)
 	s.hub.Publish(Event{

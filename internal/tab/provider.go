@@ -71,6 +71,19 @@ type HeadChangedHook interface {
 	OnBranchHeadChanged(ctx context.Context, params HeadChangedParams) error
 }
 
+// RuntimeRestartHook is an optional capability a [Provider] may implement when
+// its tabs hold a long-lived process bound to the workspace runtime (the Claude
+// daemons run claude inside the incus container). When the runtime is recreated
+// in place — a container regenerate (S7364e3) or a host↔incus switch (S8478ca)
+// — that process is tied to the now-destroyed container and cannot recover on
+// its own; the provider must tear its per-branch daemon down so the next WS
+// attach respawns it against the NEW runtime. Providers that don't implement it
+// are a no-op (their tabs are stateless or tmux-backed and reconnect on
+// branch.restarted). (S4d8b1c-fix)
+type RuntimeRestartHook interface {
+	OnBranchRuntimeRestarted(ctx context.Context, params CloseParams) error
+}
+
 // InstanceLimits captures min/max constraints on how many tabs of a given
 // provider may exist on a single branch. The Settings dependency lets the
 // upper bound vary by user config (e.g. maxClaudeTabsPerBranch).

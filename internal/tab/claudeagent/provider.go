@@ -29,6 +29,8 @@ func NewProvider(mgr *Manager) *Provider {
 	return &Provider{manager: mgr}
 }
 
+var _ tab.RuntimeRestartHook = (*Provider)(nil) // S4d8b1c-fix
+
 func (p *Provider) Type() string          { return TabType }
 func (p *Provider) DisplayName() string   { return "Claude" }
 func (p *Provider) Protected() bool       { return true }
@@ -75,6 +77,16 @@ func (p *Provider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.P
 
 // OnBranchClose terminates every Claude agent owned by this branch.
 func (p *Provider) OnBranchClose(ctx context.Context, params tab.CloseParams) error {
+	if params.Branch == nil {
+		return nil
+	}
+	return p.manager.KillBranch(ctx, params.Branch.RepoID, params.Branch.ID)
+}
+
+// OnBranchRuntimeRestarted kills the agent-mode claude clients when the runtime
+// is recreated (regenerate / host↔incus switch), so the next attach respawns
+// claude against the new container instead of the destroyed one. (S4d8b1c-fix)
+func (p *Provider) OnBranchRuntimeRestarted(ctx context.Context, params tab.CloseParams) error {
 	if params.Branch == nil {
 		return nil
 	}
