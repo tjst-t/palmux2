@@ -3,14 +3,14 @@
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
     "sprints_done": 55,
-    "sprints_total": 55,
-    "percent": 100,
+    "sprints_total": 59,
+    "percent": 93,
     "current_sprint": "S4d8b1c",
     "done": 55,
     "in_progress": 0,
-    "total": 55,
-    "remaining": 0,
-    "percentage": 100
+    "total": 59,
+    "remaining": 4,
+    "percentage": 93
   },
   "execution_order": [
     "S001",
@@ -67,7 +67,11 @@
     "S5818e8",
     "S62374c",
     "S7364e3",
-    "S4d8b1c"
+    "S4d8b1c",
+    "S18d013",
+    "Sa53137",
+    "S4c591a",
+    "S6ab0ed"
   ],
   "sprints": {
     "S001": {
@@ -9472,6 +9476,489 @@
           }
         }
       }
+    },
+    "Sa53137": {
+      "title": "統一設定プレーン — マスター設定ファイル + GUI + apply",
+      "status": "planned",
+      "milestone": true,
+      "design_doc": "docs/unified-config-design.md",
+      "stories": {
+        "Sa53137-1": {
+          "title": "アプリ設定の GUI 全フィールド化 + settings.json file-watch",
+          "status": "planned",
+          "user_story": "運用者として、settings.json を GUI で全フィールド編集でき、ディスク直接編集も即時反映されるようにしたい。なぜなら、現状は palette.userCommands しか GUI が無く他は手編集＋再起動が要って不便だから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sa53137-1-1",
+              "description": "設定パネルで Settings の全フィールド (maxClaudeTabsPerBranch, maxBashTabsPerBranch, previewMaxBytes, branchSortOrder, attachmentUploadDir/TtlDays, readPreviewLineCount, subagentStaleAfterDays, autoWorktreePathPatterns, claude.default_mode, defaultRuntime) を閲覧・編集・保存でき、PATCH /api/settings で即時反映 + WS settings.updated で全クライアント同期される。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sa53137-1-2",
+              "description": "settings.json をディスクで直接編集すると fsnotify watch が検知し、再ロード + WS broadcast され、再起動なしで反映される (バリデーション不正時は前値維持 + ログ)。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sa53137-1-3",
+              "description": "バリデーションエラー (不正な claude.default_mode / defaultRuntime.kind / userCommand) は GUI に 400 とエラー文言を表示し、保存が拒否される。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "Sa53137-1-1": {
+              "id": "Sa53137-1-1",
+              "status": "pending",
+              "title": "frontend: 設定パネル (アプリタブ) を Settings 全フィールド対応に拡張 (既存 user-commands-modal を内包/再構成)"
+            },
+            "Sa53137-1-2": {
+              "id": "Sa53137-1-2",
+              "status": "pending",
+              "title": "backend: SettingsStore に fsnotify watch を足し、変更検知→reload→Hub.Publish(settings.updated) (既存 worktreewatch / claudetui sessions の watcher パターン流用)"
+            },
+            "Sa53137-1-3": {
+              "id": "Sa53137-1-3",
+              "status": "pending",
+              "title": "GUI/E2E test: 全フィールド編集→即時反映、ディスク直接編集→watch 反映、バリデーションエラー表示"
+            }
+          }
+        },
+        "Sa53137-2": {
+          "title": "マスター config.toml + user所有 secrets + 解決チェーン (Phase 2 + 4a)",
+          "status": "planned",
+          "user_story": "運用者として、palmux のサーバ設定と秘密を単一マスター (config.toml + user所有 secrets.env) に集約し source of truth にしたい。なぜなら、現状 runtime.env / flake.nix / install.sh 引数 / CLI フラグの5箇所に散らばり、変更に home-manager switch が要って重いから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sa53137-2-1",
+              "description": "palmux は起動時に ~/.config/palmux/config.toml ([server]/[public]) と ~/.config/palmux/secrets.env をロードし、優先順 flag > env > file > default で解決する (既存フラグ動作は不変、dev のフラグ上書きは温存)。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sa53137-2-2",
+              "description": "秘密 (PALMUX_SSO_SECRET, BASIC_AUTH_HASH, token) を root所有 /etc/palmux/runtime.env から user所有 ~/.config/palmux/secrets.env (0600) に移し、palmux が読み書きできる。SSO ログイン / forward_auth /auth/verify / per-port route 注入は従来通り機能する。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sa53137-2-3",
+              "description": "install.sh は runtime.env + flake 属性のバラ撒きをやめ config.toml + secrets.env を生成し、systemd ExecStart を `palmux2 serve` (config駆動) にする。Nix module は binary + unit + config dir 用意までに薄化。bare install.sh (引数なし) で従来同等の公開デプロイ (SSO/公開サブドメイン) が成立する。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sa53137-2-4",
+              "description": "設定変更 (認証パスワード/SSO秘密/addr/token/ドメイン値/認証ON-OFF) が `systemctl --user restart palmux2` だけで反映され、sudo も home-manager switch も要しない。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "Sa53137-2-1": {
+              "id": "Sa53137-2-1",
+              "status": "pending",
+              "title": "internal/config: LoadServerConfig(dir) を追加し config.toml/secrets.env をパース (TOML 採用)、ServerConfig 構造体 + defaults"
+            },
+            "Sa53137-2-2": {
+              "id": "Sa53137-2-2",
+              "status": "pending",
+              "title": "cmd/palmux/main.go: flag 解決前に master をロードし優先順 flag>env>file>default を実装 (--public-domain/BASIC_AUTH_*/SSO の env-only を file 経由に統合)"
+            },
+            "Sa53137-2-3": {
+              "id": "Sa53137-2-3",
+              "status": "pending",
+              "title": "secrets を user所有 ~/.config/palmux/secrets.env (0600) へ移行、SSO/auth が新パスを読むよう配線、後方互換 (旧 runtime.env からの一回 migration)"
+            },
+            "Sa53137-2-4": {
+              "id": "Sa53137-2-4",
+              "status": "pending",
+              "title": "scripts/install.sh: config.toml + secrets.env 生成に切替、ExecStart serve 化、nix/modules/home-manager-palmux.nix を薄化"
+            },
+            "Sa53137-2-5": {
+              "id": "Sa53137-2-5",
+              "status": "pending",
+              "title": "acceptance test (実機: bare install 相当で SSO/公開サブドメイン成立、設定変更が user restart だけで反映)"
+            }
+          }
+        },
+        "Sa53137-3": {
+          "title": "palmux apply (差分分類 → hot/restart) + GUI デプロイタブ (Phase 3)",
+          "status": "planned",
+          "user_story": "運用者として、設定ファイルを編集して palmux apply を打つ (or GUI のデプロイタブで保存する) と、変更内容に応じて hot 反映かプロセス再起動が自動で選ばれて反映されるようにしたい。なぜなら、どの設定が再起動を要するか手で判断したくないから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sa53137-3-1",
+              "description": "`palmux apply` が master を再読込し差分を分類 (hot / restart / root) し、hot は in-process 適用、restart 必須 (addr/base_path/token/tmux_prefix/sso_secret/max_connections) は `systemctl --user restart palmux2` を発火する。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sa53137-3-2",
+              "description": "GUI に「デプロイ」タブが追加され、server/public セクションを編集・保存でき、restart 必須フィールドには「要再起動 — Apply」バッジが出る。secrets はマスク表示で値を返さず、更新は write-only 経路。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sa53137-3-3",
+              "description": "root を要する変更 (ベースドメイン/TLS/Cloudflare token) は apply が「要特権操作」と判定し、GUI/CLI に明示して Story 4 の経路へ誘導する。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sa53137-3-4",
+              "description": "初回起動オンボーディング: 未設定状態 (master が install.sh 未生成 or 既定のまま) を検知し、GUI でガイド付き初回設定フロー (app/server 設定 → 公開ドメイン/認証) を提示する。公開ドメイン/TLS の確定は Story 4 の特権操作 (reconcile / install.sh) に誘導する。install.sh パラメータで既に設定済みならウィザードは出さない (or 確認のみ)。これにより install.sh パラメータ方式と GUI 初回設定方式のどちらでも同じ master に到達できる。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "Sa53137-3-1": {
+              "id": "Sa53137-3-1",
+              "status": "pending",
+              "title": "internal/config: 差分分類器 (各フィールド→hot/restart/root) を定義し ServerConfig の delta を classify"
+            },
+            "Sa53137-3-2": {
+              "id": "Sa53137-3-2",
+              "status": "pending",
+              "title": "cmd/palmux: `palmux apply` サブコマンド (master 再読込→分類→hot in-process / `systemctl --user restart palmux2`)"
+            },
+            "Sa53137-3-3": {
+              "id": "Sa53137-3-3",
+              "status": "pending",
+              "title": "backend: hot-apply 経路 (public_domain ルート default / basic-auth per-port default / claude_bin の provider refresh) + write-only secrets endpoint"
+            },
+            "Sa53137-3-4": {
+              "id": "Sa53137-3-4",
+              "status": "pending",
+              "title": "frontend: 設定パネルに「デプロイ」タブ (server/public 編集、要再起動バッジ、secrets マスク、Apply ボタン)"
+            },
+            "Sa53137-3-5": {
+              "id": "Sa53137-3-5",
+              "status": "pending",
+              "title": "GUI/E2E + acceptance test (hot 変更→無停止反映、restart 変更→restart 発火、root 変更→誘導表示)"
+            },
+            "Sa53137-3-6": {
+              "id": "Sa53137-3-6",
+              "status": "pending",
+              "title": "frontend: 初回起動オンボーディング (未設定検知 → ガイド付きセットアップ、公開ドメインは Story 4 経路へ誘導、設定済みなら非表示)"
+            }
+          }
+        },
+        "Sa53137-4": {
+          "title": "ベースドメイン/TLS の特権 reconcile (Phase 4b)",
+          "status": "planned",
+          "user_story": "運用者として、稀なベースドメイン/TLS 変更も、許可された単一の特権操作で安全に反映できるようにしたい。なぜなら、それだけは root 所有の Caddy 設定の書き換えが要るが、任意コマンド実行の穴は開けたくないから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sa53137-4-1",
+              "description": "MVP として、ベースドメイン/TLS/Cloudflare token 変更は install.sh 再実行で反映でき、その手順が apply/GUI から案内される。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sa53137-4-2",
+              "description": "便利版として、`sudo palmux reconcile-system` 単一 verb が user所有 master を読み、domain を hostname 厳格バリデーションした上で /etc/caddy/Caddyfile を固定テンプレ再レンダ + Caddy向け env 更新 + `systemctl reload caddy` する。sudoers は当該 verb のみ NOPASSWD で許可し、任意コマンド/パスは受けない。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sa53137-4-3",
+              "description": "master を信頼しない入力として扱い、不正な domain や Caddy ディレクティブ注入を試みる値は reconcile が拒否する (テンプレ注入が起きない)。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "Sa53137-4-1": {
+              "id": "Sa53137-4-1",
+              "status": "pending",
+              "title": "apply/GUI: root 必須変更を検知したら install.sh 再実行手順を案内 (MVP 経路)"
+            },
+            "Sa53137-4-2": {
+              "id": "Sa53137-4-2",
+              "status": "pending",
+              "title": "cmd/palmux: `reconcile-system` 単一 verb (master 読み→domain 厳格バリデーション→/etc/caddy/Caddyfile 固定テンプレ再レンダ→reload caddy)、任意入力なし"
+            },
+            "Sa53137-4-3": {
+              "id": "Sa53137-4-3",
+              "status": "pending",
+              "title": "install.sh: reconcile-system 用 sudoers 当該verb限定 NOPASSWD drop-in を設置"
+            },
+            "Sa53137-4-4": {
+              "id": "Sa53137-4-4",
+              "status": "pending",
+              "title": "acceptance test (実機: domain 変更→reconcile→Caddy 反映、注入値拒否、PORTMAN_ROUTING caddy.json 経路の basic_auth caveat 確認)"
+            }
+          }
+        }
+      }
+    },
+    "S18d013": {
+      "title": "portman 連携の削除（incus 化で冗長化した分・Medium スコープ）",
+      "status": "planned",
+      "milestone": false,
+      "scope_note": "Medium: palmux 内 portman read-only 連携 + install.sh の PORTMAN_ROUTING(model-B) を削除。host ランタイム・make dev/serve・portman バイナリ install・既定 Caddyfile 経路は維持。incus は元々 portman 非依存。",
+      "stories": {
+        "S18d013-1": {
+          "title": "palmux 内 portman read-only 連携の削除",
+          "status": "planned",
+          "user_story": "開発者として、incus 化で不要になった palmux↔portman の read-only 連携 (lease 一覧 UI・--portman-url・Go package) を削除したい。なぜなら、incus ランタイムは portman 非依存で、この連携は保守負債になっているから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S18d013-1-1",
+              "description": "internal/portman パッケージ、GET .../portman ハンドラ + ルート、server の Portman dep / main.go の portman.New 配線を削除し、go build / 既存 unit test が通る。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S18d013-1-2",
+              "description": "--portman-url フラグ + HealthDetail の portmanURL + ヘッダの「Open portman dashboard」リンクを削除。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S18d013-1-3",
+              "description": "frontend の lease popover (useRepoPortmanLeases / PortmanLinks / PortmanPopover / PortmanLease 型) を削除し、workspace-actions が破綻なく描画される。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S18d013-1-4",
+              "description": "host ランタイム・make dev/serve・portman バイナリ install は無改変で維持され、dev ループが従来通り起動する。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S18d013-1-1": {
+              "id": "S18d013-1-1",
+              "status": "pending",
+              "title": "go: internal/portman 削除 + server.go / handler_portman.go / main.go の配線除去 + ルート削除"
+            },
+            "S18d013-1-2": {
+              "id": "S18d013-1-2",
+              "status": "pending",
+              "title": "go: --portman-url flag + HealthDetail.portmanURL 除去"
+            },
+            "S18d013-1-3": {
+              "id": "S18d013-1-3",
+              "status": "pending",
+              "title": "frontend: header.tsx リンク + workspace-actions.tsx lease popover + api.ts PortmanLease 型 + store portmanURL 除去"
+            },
+            "S18d013-1-4": {
+              "id": "S18d013-1-4",
+              "status": "pending",
+              "title": "test: build/lint + E2E (lease UI 不在でも workspace-actions 正常、make serve INSTANCE=dev 起動確認)"
+            }
+          }
+        },
+        "S18d013-2": {
+          "title": "install.sh の PORTMAN_ROUTING (model-B) 削除",
+          "status": "planned",
+          "user_story": "運用者として、incus の公開サブドメイン + SSO が代替した PORTMAN_ROUTING=1 (caddy.json model-B + portman systemd 群 + 残存 basic_auth) を install.sh から削除したい。なぜなら、二重メンテと旧 basic_auth の混乱要因になっているから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S18d013-2-1",
+              "description": "PORTMAN_ROUTING 環境変数・preflight・/etc/caddy/caddy.json 生成経路・/etc/portman config・portman-serve/sync/gc systemd units を install.sh から削除する。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S18d013-2-2",
+              "description": "既定の Caddyfile 経路 (apex forward_auth + *.DOMAIN wildcard) が唯一の Caddy 経路となり、残存 basic_auth が消え、bare install が従来同等 (SSO + 公開サブドメイン) に動く。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S18d013-2-3",
+              "description": "portman バイナリ install と Makefile (make dev/serve) は維持され、host runtime ユーザの portman exec ワークフローを壊さない。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S18d013-2-4",
+              "description": "README / docs の PORTMAN_ROUTING 記述を削除または更新する。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S18d013-2-1": {
+              "id": "S18d013-2-1",
+              "status": "pending",
+              "title": "install.sh: PORTMAN_ROUTING 分岐 + caddy.json 経路 + portman systemd units + /etc/portman + preflight 除去"
+            },
+            "S18d013-2-2": {
+              "id": "S18d013-2-2",
+              "status": "pending",
+              "title": "install.sh: 既定 Caddyfile 経路を唯一化、basic_auth 残骸除去"
+            },
+            "S18d013-2-3": {
+              "id": "S18d013-2-3",
+              "status": "pending",
+              "title": "docs/README: PORTMAN_ROUTING 記述削除・更新"
+            },
+            "S18d013-2-4": {
+              "id": "S18d013-2-4",
+              "status": "pending",
+              "title": "test: 実機 install smoke (既定経路で SSO + 公開サブドメインが従来通り、make dev 不変)"
+            }
+          }
+        }
+      }
+    },
+    "S4c591a": {
+      "title": "incus コンテナポートのホストポート公開モード（wildcard DNS 不要）",
+      "status": "planned",
+      "milestone": false,
+      "priority_note": "nice-to-have (ユーザ『できてもいいね』)。Backlog へ降格・順序変更可。",
+      "stories": {
+        "S4c591a-1": {
+          "title": "ホストポート公開モード (incus proxy device)",
+          "status": "planned",
+          "user_story": "運用者として、wildcard サブドメイン/TLS を用意できない環境でも、incus コンテナの listen ポートをホストのポート経由で外部アクセスしたい。なぜなら、See8bd4 のサブドメイン公開は wildcard DNS + 証明書前提で、それを用意できない環境があるから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S4c591a-1-1",
+              "description": "Ports タブ (incus 専用) で、サブドメイン公開に加え『ホストポート公開』を選べる。palmux が incus proxy device (listen=tcp:0.0.0.0:<hostPort> connect=tcp:127.0.0.1:<containerPort>) を追加し、http://<hostIP>:<hostPort> で外部からアクセスできる。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S4c591a-1-2",
+              "description": "ホストポートは自動空きポート割当 (or ユーザ指定) + 衝突回避され、公開停止で proxy device が削除される。portman に依存しない (incus native proxy device)。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S4c591a-1-3",
+              "description": "ホストポート直公開は Caddy/SSO を経由せず無認証で外部に晒される点を UI で明示警告し、公開操作に含める (dev サーバ自身の認証に委ねる)。サブドメイン公開 (forward_auth で保護) との差を区別表示する。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S4c591a-1-4",
+              "description": "host ランタイムには影響しない (incus 専用、Ports タブの conditional は従来通り KindIncusContainer ゲート)。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S4c591a-1-1": {
+              "id": "S4c591a-1-1",
+              "status": "pending",
+              "title": "go: incus runtime に host-port expose/unexpose capability (proxy device add/remove)"
+            },
+            "S4c591a-1-2": {
+              "id": "S4c591a-1-2",
+              "status": "pending",
+              "title": "go: 空きホストポート割当 + 状態管理 + scanPorts への反映 + events broadcast"
+            },
+            "S4c591a-1-3": {
+              "id": "S4c591a-1-3",
+              "status": "pending",
+              "title": "frontend: Ports タブにホストポート公開トグル + URL コピー + 無認証警告 badge"
+            },
+            "S4c591a-1-4": {
+              "id": "S4c591a-1-4",
+              "status": "pending",
+              "title": "test: 実機 incus (proxy device 追加→hostIP:port 到達→解除で消滅)"
+            }
+          }
+        }
+      }
+    },
+    "S6ab0ed": {
+      "title": "GUI セルフアップデート（リリース検出 + 通知 + ワンクリック一括更新）",
+      "status": "planned",
+      "milestone": false,
+      "design_note": "対象=palmux本体 + palmux-ws image をコア、周辺ツールはリポジトリ内マニフェストに明示したものだけ。検出+通知を先行(root不要)、一括実行は Sa53137 の特権基盤に乗せる。image 更新は S7364e3 の regenerate を再利用、リリース確認は runtime.go の latestReleaseAssetURL 系を流用。",
+      "stories": {
+        "S6ab0ed-1": {
+          "title": "リリース検出 + 右上「更新あり」通知",
+          "status": "planned",
+          "user_story": "運用者として、palmux が管理するコンポーネント (本体・palmux-ws image・リポジトリに明示した周辺ツール) の新リリースを GUI の右上で通知してほしい。なぜなら、更新が出たことに自分で気付くのは手間で、一覧で current→latest を見たいから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S6ab0ed-1-1",
+              "description": "palmux リポジトリ内に宣言的な管理対象マニフェスト (コア=本体 + palmux-ws image、周辺ツール gwq/portman/ghq/Caddy 等は明示されたものだけ) を定義し、各コンポーネントの version source (GitHub repo + tag/asset 取得方法 + installed version の取り方) を持つ。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S6ab0ed-1-2",
+              "description": "バックエンドが長間隔 (例 6h、GITHUB_TOKEN 対応でレート制限回避) でマニフェスト各コンポーネントの latest を GitHub から取得し、installed (本体=resolveVersion、image=installedImageVersion、ツール=各バイナリ version) と比較して update-available state を算出、WS event で publish する。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S6ab0ed-1-3",
+              "description": "GUI 右上に「更新あり」バッジ (Activity Inbox / workspace-update-badge の型を流用) + 更新パネルでコンポーネント別 current→latest 一覧を表示する。更新が無いときはバッジ非表示。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S6ab0ed-1-4",
+              "description": "GitHub 到達不可 / レート制限時は graceful degrade (バッジ非表示・ログのみ、既存 state 維持)。手置き override インストール (Nix 管理外) でも検出表示は出る。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S6ab0ed-1-1": {
+              "id": "S6ab0ed-1-1",
+              "status": "pending",
+              "title": "管理対象マニフェスト (JSON) をリポジトリに定義 + パーサ (コア固定 + 宣言ツール)"
+            },
+            "S6ab0ed-1-2": {
+              "id": "S6ab0ed-1-2",
+              "status": "pending",
+              "title": "go: 長間隔の version-check ポーラ (latestReleaseAssetURL 系流用、tag vs installed 比較) + update-available state + WS event"
+            },
+            "S6ab0ed-1-3": {
+              "id": "S6ab0ed-1-3",
+              "status": "pending",
+              "title": "frontend: 右上「更新あり」バッジ + 更新パネル (コンポーネント別 current→latest)"
+            },
+            "S6ab0ed-1-4": {
+              "id": "S6ab0ed-1-4",
+              "status": "pending",
+              "title": "GUI/E2E test: 更新あり/なし表示、GitHub 不達時の degrade"
+            }
+          }
+        },
+        "S6ab0ed-2": {
+          "title": "「Update all」ワンクリック一括更新 + 自己再起動→再接続",
+          "status": "planned",
+          "user_story": "運用者として、「Update all」ボタン一つで palmux が管理する全コンポーネントをまとめて更新し、更新後に GUI が自動で復帰してほしい。なぜなら、更新のたびに端末で update-palmux2.sh を手で叩いて再接続を待つのは面倒だから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S6ab0ed-2-1",
+              "description": "更新パネルの「Update all」が Sa53137 の特権基盤 (reconcile / 特権ヘルパー) 経由で update-palmux2.sh 相当 (最新tag解決→flake再pin→home-manager switch、ロールバック付き) を実行し、本体 + palmux-ws image + 宣言ツールを atomic に更新する。image は S7364e3 の regenerate を再利用する。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S6ab0ed-2-2",
+              "description": "本体バイナリ更新に伴う palmux 自己再起動後、GUI が WS 切断を検知→/health の version を polling→新 version 確認→WS 再接続→「vX に更新しました」トーストを出す (再接続ハンドシェイク)。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S6ab0ed-2-3",
+              "description": "更新失敗時は home-manager 世代でロールバックされ、GUI にエラーと「旧バージョン維持」を表示する。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S6ab0ed-2-4",
+              "description": "手置き override インストール (Nix 管理外) では一括実行を試みず、「このインストール形態は手動更新」と明示する (検出は Story 1 で出る)。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S6ab0ed-2-5",
+              "description": "CLI からも一括更新できる: `palmux update` サブコマンドが GUI の「Update all」と同一の実行経路 (Sa53137 特権ヘルパー経由の update-palmux2.sh 相当 + image regenerate) を共有して非対話で一括更新を実行し、終了コードで成否を返す。`palmux update --check` は検出のみ (更新せずコンポーネント別 current→latest を表示)。Nix 管理外インストールでは手動更新を案内して非ゼロ終了。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S6ab0ed-2-1": {
+              "id": "S6ab0ed-2-1",
+              "status": "pending",
+              "title": "go: Update all 実行経路 (Sa53137 特権ヘルパー経由で update-palmux2.sh 相当を起動、image は regenerate 再利用)"
+            },
+            "S6ab0ed-2-2": {
+              "id": "S6ab0ed-2-2",
+              "status": "pending",
+              "title": "frontend: 自己再起動の再接続ハンドシェイク (WS 切断検知→/health version polling→再接続→完了トースト)"
+            },
+            "S6ab0ed-2-3": {
+              "id": "S6ab0ed-2-3",
+              "status": "pending",
+              "title": "go/frontend: 失敗時ロールバック表示 + Nix管理外インストールの手動更新案内"
+            },
+            "S6ab0ed-2-4": {
+              "id": "S6ab0ed-2-4",
+              "status": "pending",
+              "title": "test: 実機 (検出→Update all→home-manager switch→自己再起動→GUI 再接続→新 version 確認、失敗時ロールバック)"
+            },
+            "S6ab0ed-2-5": {
+              "id": "S6ab0ed-2-5",
+              "status": "pending",
+              "title": "cmd/palmux: `update` サブコマンド (一括更新 + --check)、GUI の Update all 実行経路と共通化、終了コードで成否"
+            }
+          }
+        }
+      }
     }
   },
   "dependencies": {
@@ -9701,6 +10188,24 @@
         "S62374c"
       ],
       "reason": "S8478ca の runtime-switch トランザクショナル機構を再利用しコンテナを新イメージで再生成。S62374c で chromium 同梱によりイメージ更新が現実の運用課題になった"
+    },
+    "Sa53137": {
+      "depends_on": [],
+      "reason": "全先行 Sprint 完了済み。統一設定プレーンは既存 settings.json / install.sh / Caddy(forward_auth) を土台に独立して追加できる"
+    },
+    "S18d013": {
+      "depends_on": [],
+      "reason": "全先行 Sprint 完了済み。incus は portman 非依存なので read-only 連携 + PORTMAN_ROUTING を独立して除去できる。install.sh/Caddy 面を Sa53137 の前に減らす狙いで Sa53137 の前に配置"
+    },
+    "S4c591a": {
+      "depends_on": [],
+      "reason": "独立機能。Ports タブ(incus)に host-port 公開モードを足すだけで既存サブドメイン公開と排他しない"
+    },
+    "S6ab0ed": {
+      "depends_on": [
+        "Sa53137"
+      ],
+      "reason": "Story2 の一括実行は Sa53137 Phase 4b の特権基盤 (reconcile/特権ヘルパー) に依存。検出 (Story1) は独立だが Sprint 単位で Sa53137 の後に置く。image 更新は S7364e3 の regenerate を再利用"
     }
   },
   "backlog": [
