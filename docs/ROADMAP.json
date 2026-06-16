@@ -4,13 +4,13 @@
   "progress": {
     "sprints_done": 56,
     "sprints_total": 59,
-    "percent": 95,
-    "current_sprint": "S4d8b1c",
+    "percent": 94,
+    "current_sprint": "S18d013",
     "done": 56,
     "in_progress": 0,
     "total": 59,
     "remaining": 3,
-    "percentage": 95
+    "percentage": 94
   },
   "execution_order": [
     "S001",
@@ -9695,22 +9695,22 @@
             {
               "id": "AC-S18d013-1-1",
               "description": "internal/portman パッケージ、GET .../portman ハンドラ + ルート、server の Portman dep / main.go の portman.New 配線を削除し、go build / 既存 unit test が通る。",
-              "status": "pass"
+              "status": "passing"
             },
             {
               "id": "AC-S18d013-1-2",
               "description": "--portman-url フラグ + HealthDetail の portmanURL + ヘッダの「Open portman dashboard」リンクを削除。",
-              "status": "pass"
+              "status": "passing"
             },
             {
               "id": "AC-S18d013-1-3",
               "description": "frontend の lease popover (useRepoPortmanLeases / PortmanLinks / PortmanPopover / PortmanLease 型) を削除し、workspace-actions が破綻なく描画される。",
-              "status": "pass"
+              "status": "passing"
             },
             {
               "id": "AC-S18d013-1-4",
               "description": "host ランタイム・make dev/serve・portman バイナリ install は無改変で維持され、dev ループが従来通り起動する。",
-              "status": "pass"
+              "status": "passing"
             }
           ],
           "tasks": {
@@ -9744,22 +9744,22 @@
             {
               "id": "AC-S18d013-2-1",
               "description": "PORTMAN_ROUTING 環境変数・preflight・/etc/caddy/caddy.json 生成経路・/etc/portman config・portman-serve/sync/gc systemd units を install.sh から削除する。",
-              "status": "pass"
+              "status": "passing"
             },
             {
               "id": "AC-S18d013-2-2",
               "description": "既定の Caddyfile 経路 (apex forward_auth + *.DOMAIN wildcard) が唯一の Caddy 経路となり、残存 basic_auth が消え、bare install が従来同等 (SSO + 公開サブドメイン) に動く。",
-              "status": "pass"
+              "status": "passing"
             },
             {
               "id": "AC-S18d013-2-3",
               "description": "portman バイナリ install と Makefile (make dev/serve) は維持され、host runtime ユーザの portman exec ワークフローを壊さない。",
-              "status": "pass"
+              "status": "passing"
             },
             {
               "id": "AC-S18d013-2-4",
               "description": "README / docs の PORTMAN_ROUTING 記述を削除または更新する。",
-              "status": "pass"
+              "status": "passing"
             }
           ],
           "tasks": {
