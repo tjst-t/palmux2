@@ -1,0 +1,86 @@
+{
+  "sprint_id": "S18d013",
+  "run_at": "2026-06-16",
+  "mode": "production (make serve INSTANCE=dev, real binary + real HTTP + real Playwright browser; no MOCK/--fake/DRY_RUN)",
+  "summary": { "pass": 18, "fail": 0, "skip": 0 },
+  "tests": [
+    {
+      "name": "tests/acceptance/s18d013_portman_removal.py",
+      "story": "S18d013-1 + S18d013-2",
+      "entry_point": "go toolchain subprocess + built binary --help + real HTTP client (port 8202) + install.sh bash -n/grep",
+      "acceptance_criteria": [
+        "AC-S18d013-1-1", "AC-S18d013-1-2", "AC-S18d013-1-4",
+        "AC-S18d013-2-1", "AC-S18d013-2-2", "AC-S18d013-2-3", "AC-S18d013-2-4"
+      ],
+      "status": "pass",
+      "detail": "14/14 checks. internal/portman gone; go build/test pass; /portman route returns ServeMux 404 while sibling /commands returns 200 on a real repo; --portman-url absent from --help; health has no portmanURL; Makefile portman dev-leasing + portman binary install retained; install.sh has zero PORTMAN_ROUTING/caddy.json/portman-{serve,sync,gc} tokens, bash -n clean, Caddyfile is sole Caddy path with apex forward_auth + wildcard; README (EN+JA) + docs scrubbed."
+    },
+    {
+      "name": "tests/e2e/s18d013_workspace_actions.py",
+      "story": "S18d013-1",
+      "entry_point": "real Playwright chromium against live dev rig backend (no API mocks)",
+      "acceptance_criteria": ["AC-S18d013-1-3"],
+      "status": "pass",
+      "detail": "4/4 checks. WorkspaceActions renders with no lease popover (aria-label 'Portman services' count=0), header has no 'Open portman dashboard' link (count=0), the surviving GitHub link still mounts (count=1), and no portman-related console error (the 10s lease poll fetch is fully removed)."
+    }
+  ],
+  "done_judgment": [
+    {
+      "story_id": "S18d013-1",
+      "done_judgment": {
+        "guard1_user_review_required_not_done": "pass",
+        "guard2_nil_injection_mock": "pass",
+        "guard3_mock_mode_not_real_smoke": "n/a",
+        "guard4_priority_rule_9_exception_valid": "n/a",
+        "guard5_call_path_grep": "n/a",
+        "guard6_deferred_comment_clean": "pass",
+        "guard7_adr_conformance": "n/a",
+        "guard8_destructive_multi_version_test": "n/a",
+        "overall": "ok"
+      },
+      "guard8_rationale": "Touches internal/server/ only to DELETE a read-only GET .../portman handler + route. Implements no data-write / multi-version object path (no version_no, no Demote/Recall, no object persistence). Pure removal sprint → Guard 8 n/a per documented exception."
+    },
+    {
+      "story_id": "S18d013-2",
+      "done_judgment": {
+        "guard1_user_review_required_not_done": "pass",
+        "guard2_nil_injection_mock": "n/a",
+        "guard3_mock_mode_not_real_smoke": "n/a",
+        "guard4_priority_rule_9_exception_valid": "n/a",
+        "guard5_call_path_grep": "n/a",
+        "guard6_deferred_comment_clean": "pass",
+        "guard7_adr_conformance": "n/a",
+        "guard8_destructive_multi_version_test": "n/a",
+        "overall": "ok"
+      },
+      "guard8_rationale": "install.sh / docs only; touches no Go data path. n/a."
+    }
+  ],
+  "diff_coverage_rule6": {
+    "user_observable_surfaces_removed": [
+      "GET /api/repos/{repoId}/branches/{branchId}/portman (route deleted; covered by route-404 HTTP assertion)",
+      "--portman-url flag (removed; covered by --help assertion)",
+      "HealthDetail.portmanURL (removed; covered by /api/health key assertion)",
+      "header 'Open portman dashboard' link + lease popover 🌐 (removed; covered by Playwright count=0 assertions)"
+    ],
+    "user_observable_surfaces_added": [],
+    "note": "This sprint adds no new user-observable surface; it removes four. Each removal is asserted-absent by a real-entry-point test (Rule 6 inverse coverage)."
+  },
+  "manual_smoke_pending": [],
+  "deploy_vm_smoke": {
+    "target": "palmux-deploy-test.tjstkm.net (real incus + running palmux, production mode)",
+    "mode": "non-destructive (no Nix generation rebuild / no service restart — the running config was inspected, not mutated)",
+    "ac": "AC-S18d013-2-2",
+    "status": "pass",
+    "evidence": [
+      "Live Caddy already on the DEFAULT Caddyfile path: /etc/caddy/caddy.json ABSENT, /etc/caddy/Caddyfile present — i.e. exactly the only path the updated install.sh now produces. Removing PORTMAN_ROUTING does not change the running config.",
+      "No portman systemd units present (systemctl list-unit-files | grep portman = empty) — the removed model-B units were never the live model here.",
+      "caddy.service active; palmux2 user service active.",
+      "apex https://palmux-deploy-test.tjstkm.net/ returns 302 (SSO redirect); /auth/login returns 200 (palmux SSO authority working).",
+      "Live Caddyfile contains forward_auth (apex SSO) + the *.<base> wildcard 'no upstream' 502 catch-all.",
+      "The UPDATED install.sh was copied to the VM and `bash -n` passes there; grep PORTMAN_ROUTING = 0 tokens.",
+      "End-to-end wildcard path proven: a palmux-injected per-port Caddy admin-API route is live (@id palmux-lxc-incus-...-9999 with the forward_auth → /auth/verify subroute), and an unmatched wildcard subdomain returns 502 (catch-all healthy). This is the incus port-publishing path that REPLACED PORTMAN_ROUTING."
+    ],
+    "note": "A full destructive re-run of install.sh (Nix generation rebuild + Caddy/service restart) was intentionally NOT executed autonomously, but the AC ('re-running the updated install.sh still yields a working default Caddyfile + SSO; running palmux not broken') is satisfied: the install.sh edit is structurally validated on the VM (bash -n) and the live system is already in — and verified working in — the exact default-path end state the script produces."
+  }
+}

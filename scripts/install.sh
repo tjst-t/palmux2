@@ -577,9 +577,8 @@ if [ "$CADDY_ENABLED" = "1" ]; then
   sudo chmod 0640 /etc/palmux/runtime.env
 
   # --- Caddy config: Caddyfile with apex forward_auth + wildcard vhost -----
-
-    # Caddyfile with apex + wildcard vhosts (See8bd4-1 behavior).
-    # The admin API is enabled on localhost:2019 for palmux per-port route injection.
+  # apex + wildcard vhosts (See8bd4-1 behavior).
+  # The admin API is enabled on localhost:2019 for palmux per-port route injection.
     # The wildcard *.${DOMAIN} site shares :443 so Caddy merges both into srv0.
     log "writing /etc/caddy/Caddyfile (domain=${DOMAIN}, wildcard=yes, admin=localhost:2019, basic_auth=$( [ -n "$BASIC_AUTH_USER" ] && echo yes || echo no ))"
     {

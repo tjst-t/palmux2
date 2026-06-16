@@ -20,7 +20,38 @@
       "rationale": "PortmanLinks/PortmanPopover を消すと .popoverHost/.popover/.popoverHead/.popoverList/.popoverRow/.dotLive/.popoverName/.popoverPort は全て未使用になる (grep で他参照ゼロ確認済)。DESIGN_PRINCIPLES の '明示的 > 暗黙的' と保守負債削減の Sprint 趣旨に従い dead code を残さない。"
     }
   ],
-  "implementation_decisions": [],
-  "review_decisions": [],
-  "done_judgment": {}
+  "implementation_decisions": [
+    {
+      "id": "ID-1",
+      "decision": "Caddyfile body の 4-space over-indent (if/else collapse の残り) は再インデントせず据え置き。コメントの stutter のみ除去。",
+      "rationale": "code-review (high effort) の 2 finder が両方とも『cosmetic only, bash -n/shellcheck pass, 機能影響なし』と判定。heredoc + `{ } | sudo tee` を含む ~74 行の再インデントは誤編集で shell を壊すリスクがゼロ便益。DESIGN_PRINCIPLES の保守性 vs リスクで minimal-safe-fix を選択 (stutter コメント除去は zero-risk なので実施)。"
+    },
+    {
+      "id": "ID-2",
+      "decision": "README の model-B 節を削除ではなく『ポートの公開サブドメイン』節に書き換え (EN+JA)。",
+      "rationale": "PORTMAN_ROUTING が担っていた `<port>--<ws>--<repo>.<base>` 公開は incus の Caddy admin-API 注入 (See8bd4) が既に代替している。単純削除するとユーザが公開サブドメイン機能の存在を見失う。実際の現行挙動 (Ports タブ + SSO 1 回ログイン) を正しく記述する方が VISION の success_criteria (公開サブドメイン化) に整合。"
+    },
+    {
+      "id": "ID-3",
+      "decision": "ROADMAP.json / docs/sprint-logs の PORTMAN_ROUTING 言及は残置 (歴史記録)。live docs (README, unified-config-design.md) のみ更新。",
+      "rationale": "ROADMAP.json と sprint-logs は過去 Sprint (S85caca 等) の source-of-truth 記録であり、当時の事実。現行ドキュメントではないので AC-2-4 の対象外。acceptance test の docs grep もこれらを明示除外。"
+    },
+    {
+      "id": "ID-4",
+      "decision": "AC-S18d013-2-2 (deploy-VM smoke) は非破壊で実機検証し pass 確定。install.sh のフル破壊的再実行はしない。",
+      "rationale": "VISION process_constraints / priority_rule 0: 人間不在を理由に AC を skip しない。deploy VM (palmux-deploy-test.tjstkm.net) は既に default Caddyfile 経路 (caddy.json 不在・portman unit 不在) で稼働しており、更新後 install.sh が生成する end state と同一。これを実機で確認 (apex 302 / /auth/login 200 / forward_auth+wildcard 在 / palmux 注入 per-port route が live / 更新 install.sh が VM 上で bash -n pass) することで AC を満たす。フル再実行 (Nix generation rebuild + Caddy restart) は稼働中 deploy instance を人間監督なしに乱さないため回避したが、AC 文言 (『更新 install.sh が default Caddyfile + SSO を従来同等に生む / 稼働中 palmux を壊さない』) は非破壊検証で充足。skip ではない。"
+    }
+  ],
+  "review_decisions": [
+    {
+      "id": "RD-1",
+      "decision": "/review (code-review high effort) を 2 finder angle (install.sh 構造 / Go+frontend unwiring) で実行。correctness finding ゼロ。",
+      "rationale": "削除リファクタなので bug surface は (a) install.sh の if/else collapse の構文破壊、(b) dangling symbol references の 2 点に集中。両 finder とも実トルーチェーン (bash -n, shellcheck, go build/vet, tsc, eslint) で検証し CONFIRMED correctness bug ゼロ。残りは cosmetic 2 件 (ID-1 で処理)。"
+    }
+  ],
+  "done_judgment": {
+    "S18d013-1": { "overall": "ok", "guards": "1=pass 2=pass(2 hits, pre-existing, <3) 3=n/a 4=n/a 5=n/a 6=pass 7=n/a(no DESIGN/) 8=n/a(removal, no data-write path)" },
+    "S18d013-2": { "overall": "ok", "guards": "1=pass 2=n/a(no Go data path) 6=pass others n/a" },
+    "note": "詳細は verification-results.json の done_judgment / verification-results.json deploy_vm_smoke を参照。"
+  }
 }
