@@ -227,6 +227,15 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 		// early return). Hot-plug it idempotently so in-container claude's
 		// `palmux hook` works without requiring a full container regenerate.
 		r.ensureHookBinMount(ctx)
+		// If the cached container IP is empty (captured before the container
+		// finished networking — e.g. a DHCP race right after a regenerate), the
+		// browser tab's VNC/CDP can't reach it. Re-resolve it here so a consumer
+		// calling Start() to "ensure up" gets a usable address.
+		if r.Status().Address == "" {
+			if ip, ipErr := r.containerIP(ctx); ipErr == nil && ip != "" {
+				r.setStatus(runtime.Status{State: runtime.StateReady, Address: ip})
+			}
+		}
 		return nil
 	}
 
@@ -847,6 +856,20 @@ func (r *incusRuntime) ScanPortsOnce(ctx context.Context) ([]runtime.ListeningPo
 	// Always record the latest list for the Ports tab view (See8bd4-3).
 	r.recordPorts(ports)
 
+	// If the container IP wasn't resolved at Start() time (DHCP race / regenerate),
+	// re-resolve it now and update the cached status. MUST run before the
+	// public-mode early return below, otherwise the cached Address stays empty in
+	// public mode and the Browser tab can't reach the container's VNC/CDP.
+	addr := r.Status().Address
+	if addr == "" {
+		if ip, ipErr := r.containerIP(ctx); ipErr == nil && ip != "" {
+			addr = ip
+			r.setStatus(runtime.Status{State: runtime.StateReady, Address: addr})
+			r.log.Info("incus ScanPortsOnce: resolved container IP (deferred)",
+				"inst", r.inst, "addr", addr)
+		}
+	}
+
 	// Publish mode (--public-domain set): exposure is user-controlled via the
 	// Ports tab (ExposePortPublic), so the scan does NOT auto-create Caddy
 	// routes or relays here — it only records what is listening. It DOES
@@ -855,18 +878,6 @@ func (r *incusRuntime) ScanPortsOnce(ctx context.Context) ([]runtime.ListeningPo
 	if r.pub.enabled() {
 		r.resyncExposedRoutes(ctx)
 		return ports, nil
-	}
-
-	addr := r.Status().Address
-	// If the container IP wasn't resolved at Start() time (DHCP race),
-	// try to resolve it now and update the cached status.
-	if addr == "" {
-		if ip, ipErr := r.containerIP(ctx); ipErr == nil && ip != "" {
-			addr = ip
-			r.setStatus(runtime.Status{State: runtime.StateReady, Address: addr})
-			r.log.Info("incus ScanPortsOnce: resolved container IP (deferred)",
-				"inst", r.inst, "addr", addr)
-		}
 	}
 
 	for _, p := range ports {
