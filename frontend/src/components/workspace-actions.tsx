@@ -1,10 +1,8 @@
 // Workspace-scoped header buttons. They belong next to the TabBar (left
 // panel) or the right-panel selector (split mode), not in the app-global
-// Header, because GitHub / portman links change per repo+branch.
+// Header, because the GitHub link changes per repo+branch.
 
-import { useEffect, useState } from 'react'
-
-import { api, type Branch, type PortmanLease, type Repository } from '../lib/api'
+import { type Branch, type Repository } from '../lib/api'
 
 import styles from './workspace-actions.module.css'
 
@@ -15,13 +13,10 @@ interface Props {
   branch: Branch | undefined
 }
 
-export function WorkspaceActions({ repoId, branchId, repo, branch }: Props) {
+export function WorkspaceActions({ repo, branch }: Props) {
   const ghURL = repo ? githubURL(repo.ghqPath, branch?.name) : null
-  const leases = useRepoPortmanLeases(repoId, branchId)
-  const live = leases.filter((l) => l.expose && l.status === 'listening')
   return (
     <div className={styles.wrap}>
-      {live.length > 0 && <PortmanLinks leases={live} />}
       {ghURL && (
         <a
           className={styles.btn}
@@ -34,98 +29,6 @@ export function WorkspaceActions({ repoId, branchId, repo, branch }: Props) {
           <GithubMark />
         </a>
       )}
-    </div>
-  )
-}
-
-function useRepoPortmanLeases(repoId: string, branchId: string): PortmanLease[] {
-  // S13b16a-4: Track (repoId, branchId) inline so we can reset the
-  // lease list to [] without going through a useEffect+setState round.
-  const sessionKey = repoId && branchId ? `${repoId}/${branchId}` : null
-  const [state, setState] = useState<{ key: string | null; leases: PortmanLease[] }>(
-    { key: sessionKey, leases: [] },
-  )
-  if (state.key !== sessionKey) {
-    setState({ key: sessionKey, leases: [] })
-  }
-  const leases = state.key === sessionKey ? state.leases : []
-
-  useEffect(() => {
-    if (!repoId || !branchId) return
-    let cancelled = false
-    const fetchOnce = () =>
-      api
-        .get<PortmanLease[]>(
-          `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/portman`,
-        )
-        .then((res) => {
-          if (!cancelled) {
-            setState({ key: `${repoId}/${branchId}`, leases: res ?? [] })
-          }
-        })
-        .catch(() => {})
-    void fetchOnce()
-    const t = window.setInterval(fetchOnce, 10000)
-    return () => {
-      cancelled = true
-      window.clearInterval(t)
-    }
-  }, [repoId, branchId])
-  return leases
-}
-
-function PortmanLinks({ leases }: { leases: PortmanLease[] }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className={styles.popoverHost}>
-      <button
-        className={styles.btn}
-        onClick={() => setOpen((v) => !v)}
-        title={`${leases.length} portman service${leases.length === 1 ? '' : 's'} live`}
-        aria-label="Portman services"
-      >
-        🌐
-      </button>
-      {open && <PortmanPopover leases={leases} onClose={() => setOpen(false)} />}
-    </div>
-  )
-}
-
-function PortmanPopover({ leases, onClose }: { leases: PortmanLease[]; onClose: () => void }) {
-  useEffect(() => {
-    const onPointer = (e: PointerEvent) => {
-      const t = e.target as Element
-      if (!t.closest('[data-portman-popover]')) onClose()
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('pointerdown', onPointer, true)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('pointerdown', onPointer, true)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [onClose])
-  return (
-    <div data-portman-popover className={styles.popover}>
-      <header className={styles.popoverHead}>Portman services</header>
-      <ul className={styles.popoverList}>
-        {leases.map((l) => (
-          <li key={l.name}>
-            <a
-              href={l.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={styles.popoverRow}
-            >
-              <span className={styles.dotLive} />
-              <span className={styles.popoverName}>{l.name}</span>
-              <span className={styles.popoverPort}>:{l.port}</span>
-            </a>
-          </li>
-        ))}
-      </ul>
     </div>
   )
 }

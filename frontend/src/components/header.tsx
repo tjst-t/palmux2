@@ -26,7 +26,6 @@ export function Header() {
   const setDeviceSetting = usePalmuxStore((s) => s.setDeviceSetting)
   const mobileDrawerOpen = usePalmuxStore((s) => s.mobileDrawerOpen)
   const setMobileDrawerOpen = usePalmuxStore((s) => s.setMobileDrawerOpen)
-  const portmanURL = usePalmuxStore((s) => s.serverInfo.portmanURL)
   const runtimeCaps = usePalmuxStore((s) => s.runtimeCaps)
   const loadRuntimeCaps = usePalmuxStore((s) => s.loadRuntimeCaps)
   const patchWorkspaceRuntime = usePalmuxStore((s) => s.patchWorkspaceRuntime)
@@ -306,18 +305,6 @@ export function Header() {
         >
           {theme === 'dark' ? '☾' : '☀'}
         </button>
-        {portmanURL && (
-          <a
-            className={styles.iconBtn}
-            href={portmanURL}
-            target="_blank"
-            rel="noopener noreferrer"
-            title="Open portman dashboard"
-            aria-label="Portman"
-          >
-            P
-          </a>
-        )}
         {wide && (
           <button
             className={

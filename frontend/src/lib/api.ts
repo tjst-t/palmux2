@@ -166,17 +166,6 @@ export interface OrphanSession {
   windows: OrphanWindow[]
 }
 
-export interface PortmanLease {
-  name: string
-  project: string
-  worktree: string
-  port: number
-  hostname: string
-  expose: boolean
-  status: string
-  url: string
-}
-
 // S021: subagent cleanup result shape mirrors Go's
 // `store.SubagentCleanupResult`. Optional `removed`/`failed` arrays appear
 // only on the non-dry-run response (or via the `worktree.cleaned` event).

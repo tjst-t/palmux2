@@ -205,7 +205,6 @@ export interface RemoteEvent {
 export interface ServerInfo {
   version?: string
   open?: boolean
-  portmanURL?: string
 }
 
 interface PalmuxStoreState {

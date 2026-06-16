@@ -1,0 +1,42 @@
+{
+  "story_id": "S18d013-1",
+  "story_type": "mixed",
+  "title": "palmux 内 portman read-only 連携の削除",
+  "entry_points": ["api", "gui"],
+  "scenarios": [
+    {
+      "id": "scenario-build-route",
+      "entry_point": "api",
+      "acceptance_criteria": ["AC-S18d013-1-1", "AC-S18d013-1-2"],
+      "steps": [
+        {
+          "action": "ビルダーが `go build ./...` と `go test ./...` を実行する",
+          "expected": "両方とも exit 0。internal/portman パッケージが消えても全パッケージがコンパイル・テスト pass する。"
+        },
+        {
+          "action": "起動中の palmux2 (dev rig) の HTTP クライアントが `GET /api/repos/{repoId}/branches/{branchId}/portman` を叩く",
+          "expected": "404 (ルートが mux に登録されていない)。削除前は 200+JSON だった。"
+        },
+        {
+          "action": "HTTP クライアントが `GET /api/health` を叩き JSON を受ける",
+          "expected": "レスポンスに `portmanURL` キーが存在しない。"
+        },
+        {
+          "action": "ビルダーが `palmux2 --help` を実行する",
+          "expected": "出力に `--portman-url` フラグが現れない。"
+        }
+      ]
+    },
+    {
+      "id": "scenario-workspace-actions-ui",
+      "entry_point": "gui",
+      "acceptance_criteria": ["AC-S18d013-1-3"],
+      "steps": [
+        {
+          "action": "ユーザが実ブラウザで dev rig の palmux2 を開き、ある Workspace の Claude タブまで遷移する",
+          "expected": "TabBar 右の WorkspaceActions が描画され、GitHub リンクボタンは存在するが、🌐 ('Portman services') ボタンも 'P' (Open portman dashboard) ヘッダリンクも存在しない。コンソールに lease fetch (`/portman`) 由来のエラーが出ない。"
+        }
+      ]
+    }
+  ]
+}

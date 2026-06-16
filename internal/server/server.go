@@ -16,7 +16,6 @@ import (
 	"github.com/tjst-t/palmux2/internal/auth"
 	"github.com/tjst-t/palmux2/internal/commands"
 	"github.com/tjst-t/palmux2/internal/notify"
-	"github.com/tjst-t/palmux2/internal/portman"
 	"github.com/tjst-t/palmux2/internal/store"
 	"github.com/tjst-t/palmux2/internal/tmux"
 )
@@ -29,7 +28,6 @@ type Deps struct {
 	Tmux         tmux.Client
 	Commands     *commands.Detector
 	Notify       *notify.Hub
-	Portman      *portman.Client
 	FrontendFS   fs.FS // embedded SPA bundle
 	StaticFS     fs.FS // embedded third-party assets (e.g. drawio webapp); served at /static/* (S010)
 	BasePath     string
@@ -98,7 +96,6 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 		healthDetail: deps.HealthDetail,
 		commands:     deps.Commands,
 		notify:       deps.Notify,
-		portman:      deps.Portman,
 	}
 
 	mux.HandleFunc("GET /api/health", h.health)
@@ -144,7 +141,6 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("POST /api/repos/{repoId}/branches/{branchId}/runtime/regenerate", h.postWorkspaceRuntimeUpdate) // S7364e3: image update
 
 	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/commands", h.listCommands)
-	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/portman", h.listRepoPortman)
 	// S031-5: remote URL for "open on GitHub" builtin command.
 	mux.HandleFunc("GET /api/repos/{repoId}/branches/{branchId}/remote-url", h.remoteURL)
 
@@ -191,7 +187,6 @@ type handlers struct {
 	healthDetail map[string]any
 	commands     *commands.Detector
 	notify       *notify.Hub
-	portman      *portman.Client
 }
 
 // helpers ────────────────────────────────────────────────────────────────────

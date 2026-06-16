@@ -1,0 +1,26 @@
+{
+  "sprint_id": "S18d013",
+  "title": "portman 連携の削除 (Medium スコープ)",
+  "base_branch": "main",
+  "autopilot_branch": "autopilot/main/S18d013",
+  "planning_decisions": [
+    {
+      "id": "PD-1",
+      "decision": "2 Story を単一実装パスで直接実装する (worktree 並列サブエージェントを使わない)",
+      "rationale": "本 Sprint は純粋な削除リファクタ。Story 1 (palmux 内連携) と Story 2 (install.sh) は別ファイル群だが、削除漏れ (dangling reference) が最大のリスクで、go build / tsc / eslint が全体整合を要求する。並列 worktree に分割すると互いの削除が build を壊し統合時に再修正が必要。DESIGN_PRINCIPLES priority_rule 6 '既存資産活用・車輪の再発明回避' と 'Phase 区切り > 半完成投入' に従い、整合した単一 diff で完結させる。"
+    },
+    {
+      "id": "PD-2",
+      "decision": "KEEP 境界を grep で機械的に確定。internal/portman パッケージを実際に import するのは internal/server/server.go, internal/server/handler_portman.go, cmd/palmux/main.go の 3 ファイルのみ。",
+      "rationale": "internal/tab/ports, internal/tab/browser, internal/runtime/* の 'portman' 参照は全てコメント (host-side portman の説明) で、コードの依存ではない。これらは prompt の KEEP リスト (host runtime stubs, incus admin-API route injection は portman 非依存) と一致するため touch しない。frontend/src/tabs/ports/ports-view.tsx の 'portman' は host ポートが portman 管轄である旨の案内文字列で正しいので残置。"
+    },
+    {
+      "id": "PD-3",
+      "decision": "削除に伴う dead CSS (workspace-actions.module.css の popover* / dotLive キー群) も同時削除する。",
+      "rationale": "PortmanLinks/PortmanPopover を消すと .popoverHost/.popover/.popoverHead/.popoverList/.popoverRow/.dotLive/.popoverName/.popoverPort は全て未使用になる (grep で他参照ゼロ確認済)。DESIGN_PRINCIPLES の '明示的 > 暗黙的' と保守負債削減の Sprint 趣旨に従い dead code を残さない。"
+    }
+  ],
+  "implementation_decisions": [],
+  "review_decisions": [],
+  "done_judgment": {}
+}

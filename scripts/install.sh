@@ -47,11 +47,6 @@
 #                          vCPU). 8 is a good speed/security balance for a
 #                          single-user box behind TLS; raise it if you prefer.
 #
-# Portman dynamic subdomain routing (S85caca — opt-in):
-#   PORTMAN_ROUTING=1      opt-in: switch Caddy to portman-owned dynamic subdomain
-#                          routing (model B). Requires DOMAIN + CLOUDFLARE_API_TOKEN.
-#                          Default (unset/0): unchanged single-reverse_proxy Caddyfile.
-#
 # Incus container runtime (S8478ca — default ON, requires Ubuntu 24.04+):
 #   SKIP_INCUS=1           skip the entire Incus runtime setup step.
 #   PALMUX_WS_IMAGE_FILE   path to a local palmux-ws.tar.gz to import (skips GitHub download).
@@ -84,8 +79,6 @@ ACME_EMAIL="${ACME_EMAIL:-}"
 BASIC_AUTH_USER="${BASIC_AUTH_USER:-}"
 BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-}"
 BASIC_AUTH_BCRYPT_COST="${BASIC_AUTH_BCRYPT_COST:-8}"
-
-PORTMAN_ROUTING="${PORTMAN_ROUTING:-0}"
 
 SKIP_INCUS="${SKIP_INCUS:-0}"
 PALMUX_WS_IMAGE_FILE="${PALMUX_WS_IMAGE_FILE:-}"
@@ -160,12 +153,6 @@ if [ -n "$BASIC_AUTH_USER" ] && [ -z "$BASIC_AUTH_PASSWORD" ] && sudo test -r "$
   [ -n "$REUSE_BASIC_AUTH_HASH" ] && log "reusing basic-auth hash from ${CADDY_ENV_FILE} (set BASIC_AUTH_PASSWORD to rotate)"
 fi
 
-# PORTMAN_ROUTING=1 preflight: requires DOMAIN + CLOUDFLARE_API_TOKEN
-if [ "$PORTMAN_ROUTING" = "1" ]; then
-  [ -n "$DOMAIN" ] || die "PORTMAN_ROUTING=1 requires DOMAIN to be set"
-  [ -n "$CLOUDFLARE_API_TOKEN" ] || die "PORTMAN_ROUTING=1 requires CLOUDFLARE_API_TOKEN to be set"
-fi
-
 # See8bd4-1 preflight note: wildcard DNS must resolve to this host.
 # HTTP-01 cannot validate wildcards; DNS-01 (Cloudflare) is used instead.
 # Before running, ensure:
@@ -191,12 +178,11 @@ if [ -n "$BASIC_AUTH_USER" ] && [ -z "$DOMAIN" ]; then
   die "BASIC_AUTH_* requires DOMAIN + CLOUDFLARE_API_TOKEN (Caddy)"
 fi
 
-# Caddy is enabled by a configured DOMAIN, or forced on by PORTMAN_ROUTING=1
-# (which the preflight above guarantees has a DOMAIN). Computed here from the
-# documented inputs only — not read from a pre-exported CADDY_ENABLED — so a
-# stray environment value can't enter the Caddy block with an empty DOMAIN.
+# Caddy is enabled by a configured DOMAIN. Computed here from the documented
+# inputs only — not read from a pre-exported CADDY_ENABLED — so a stray
+# environment value can't enter the Caddy block with an empty DOMAIN.
 CADDY_ENABLED=0
-if [ -n "$DOMAIN" ] || [ "$PORTMAN_ROUTING" = "1" ]; then
+if [ -n "$DOMAIN" ]; then
   CADDY_ENABLED=1
 fi
 
@@ -590,270 +576,9 @@ if [ "$CADDY_ENABLED" = "1" ]; then
   sudo chown "root:${USERNAME}" /etc/palmux/runtime.env
   sudo chmod 0640 /etc/palmux/runtime.env
 
-  # --- Caddy config: PORTMAN_ROUTING=1 → caddy.json, else → Caddyfile -------
+  # --- Caddy config: Caddyfile with apex forward_auth + wildcard vhost -----
 
-  if [ "$PORTMAN_ROUTING" = "1" ]; then
-    log "PORTMAN_ROUTING=1: writing /etc/caddy/caddy.json (model B)"
-    sudo rm -f /etc/caddy/Caddyfile
-
-    # Build caddy.json using jq so it is always valid JSON.
-    # The edge-basic-auth route (no match = applies to all hosts, non-terminal)
-    # is included only when BASIC_AUTH_USER is set.
-    # The ACME email field is included only when ACME_EMAIL is set.
-    # The bcrypt hash MUST remain as the literal placeholder {env.BASIC_AUTH_HASH}
-    # (NOT the real hash) — the real hash lives only in /etc/caddy/palmux.env.
-    if [ -n "$BASIC_AUTH_USER" ]; then
-      # With edge basic auth route
-      if [ -n "$ACME_EMAIL" ]; then
-        sudo jq -n \
-          --arg domain "$DOMAIN" \
-          --arg email "$ACME_EMAIL" \
-          '{
-            "admin": { "listen": "localhost:2019" },
-            "apps": {
-              "http": {
-                "servers": {
-                  "srv0": {
-                    "listen": [":443"],
-                    "routes": [
-                      {
-                        "@id": "edge-basic-auth",
-                        "handle": [
-                          {
-                            "handler": "authentication",
-                            "providers": {
-                              "http_basic": {
-                                "hash": { "algorithm": "bcrypt" },
-                                "accounts": [
-                                  {
-                                    "username": "{env.BASIC_AUTH_USER}",
-                                    "password": "{env.BASIC_AUTH_HASH}"
-                                  }
-                                ]
-                              }
-                            }
-                          }
-                        ]
-                      }
-                    ],
-                    "automatic_https": { "disable_certificates": true }
-                  }
-                }
-              },
-              "tls": {
-                "certificates": {
-                  "automate": [$domain, ("*." + $domain)]
-                },
-                "automation": {
-                  "policies": [
-                    {
-                      "subjects": [$domain, ("*." + $domain)],
-                      "issuers": [
-                        {
-                          "module": "acme",
-                          "email": $email,
-                          "challenges": {
-                            "dns": {
-                              "provider": {
-                                "name": "cloudflare",
-                                "api_token": "{env.CLOUDFLARE_API_TOKEN}"
-                              }
-                            }
-                          }
-                        }
-                      ]
-                    }
-                  ]
-                }
-              }
-            }
-          }' | sudo tee /etc/caddy/caddy.json >/dev/null
-      else
-        # No email
-        sudo jq -n \
-          --arg domain "$DOMAIN" \
-          '{
-            "admin": { "listen": "localhost:2019" },
-            "apps": {
-              "http": {
-                "servers": {
-                  "srv0": {
-                    "listen": [":443"],
-                    "routes": [
-                      {
-                        "@id": "edge-basic-auth",
-                        "handle": [
-                          {
-                            "handler": "authentication",
-                            "providers": {
-                              "http_basic": {
-                                "hash": { "algorithm": "bcrypt" },
-                                "accounts": [
-                                  {
-                                    "username": "{env.BASIC_AUTH_USER}",
-                                    "password": "{env.BASIC_AUTH_HASH}"
-                                  }
-                                ]
-                              }
-                            }
-                          }
-                        ]
-                      }
-                    ],
-                    "automatic_https": { "disable_certificates": true }
-                  }
-                }
-              },
-              "tls": {
-                "certificates": {
-                  "automate": [$domain, ("*." + $domain)]
-                },
-                "automation": {
-                  "policies": [
-                    {
-                      "subjects": [$domain, ("*." + $domain)],
-                      "issuers": [
-                        {
-                          "module": "acme",
-                          "challenges": {
-                            "dns": {
-                              "provider": {
-                                "name": "cloudflare",
-                                "api_token": "{env.CLOUDFLARE_API_TOKEN}"
-                              }
-                            }
-                          }
-                        }
-                      ]
-                    }
-                  ]
-                }
-              }
-            }
-          }' | sudo tee /etc/caddy/caddy.json >/dev/null
-      fi
-    else
-      # No basic auth
-      if [ -n "$ACME_EMAIL" ]; then
-        sudo jq -n \
-          --arg domain "$DOMAIN" \
-          --arg email "$ACME_EMAIL" \
-          '{
-            "admin": { "listen": "localhost:2019" },
-            "apps": {
-              "http": {
-                "servers": {
-                  "srv0": {
-                    "listen": [":443"],
-                    "routes": [],
-                    "automatic_https": { "disable_certificates": true }
-                  }
-                }
-              },
-              "tls": {
-                "certificates": {
-                  "automate": [$domain, ("*." + $domain)]
-                },
-                "automation": {
-                  "policies": [
-                    {
-                      "subjects": [$domain, ("*." + $domain)],
-                      "issuers": [
-                        {
-                          "module": "acme",
-                          "email": $email,
-                          "challenges": {
-                            "dns": {
-                              "provider": {
-                                "name": "cloudflare",
-                                "api_token": "{env.CLOUDFLARE_API_TOKEN}"
-                              }
-                            }
-                          }
-                        }
-                      ]
-                    }
-                  ]
-                }
-              }
-            }
-          }' | sudo tee /etc/caddy/caddy.json >/dev/null
-      else
-        sudo jq -n \
-          --arg domain "$DOMAIN" \
-          '{
-            "admin": { "listen": "localhost:2019" },
-            "apps": {
-              "http": {
-                "servers": {
-                  "srv0": {
-                    "listen": [":443"],
-                    "routes": [],
-                    "automatic_https": { "disable_certificates": true }
-                  }
-                }
-              },
-              "tls": {
-                "certificates": {
-                  "automate": [$domain, ("*." + $domain)]
-                },
-                "automation": {
-                  "policies": [
-                    {
-                      "subjects": [$domain, ("*." + $domain)],
-                      "issuers": [
-                        {
-                          "module": "acme",
-                          "challenges": {
-                            "dns": {
-                              "provider": {
-                                "name": "cloudflare",
-                                "api_token": "{env.CLOUDFLARE_API_TOKEN}"
-                              }
-                            }
-                          }
-                        }
-                      ]
-                    }
-                  ]
-                }
-              }
-            }
-          }' | sudo tee /etc/caddy/caddy.json >/dev/null
-      fi
-    fi
-
-    sudo chmod 0644 /etc/caddy/caddy.json
-
-    log "installing /etc/systemd/system/caddy.service (model B — caddy.json)"
-    sudo tee /etc/systemd/system/caddy.service >/dev/null <<EOF
-[Unit]
-Description=Caddy web server (with caddy-dns/cloudflare for Let's Encrypt DNS-01)
-Documentation=https://caddyserver.com/docs/
-After=network.target network-online.target
-Requires=network-online.target
-
-[Service]
-Type=notify
-User=caddy
-Group=caddy
-EnvironmentFile=/etc/caddy/palmux.env
-ExecStart=${CADDY_BIN} run --environ --config /etc/caddy/caddy.json
-ExecReload=${CADDY_BIN} reload --config /etc/caddy/caddy.json --force
-TimeoutStopSec=5s
-LimitNOFILE=1048576
-PrivateTmp=true
-ProtectSystem=full
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-  else
-    # Default: Caddyfile with apex + wildcard vhosts (See8bd4-1 behavior).
+    # Caddyfile with apex + wildcard vhosts (See8bd4-1 behavior).
     # The admin API is enabled on localhost:2019 for palmux per-port route injection.
     # The wildcard *.${DOMAIN} site shares :443 so Caddy merges both into srv0.
     log "writing /etc/caddy/Caddyfile (domain=${DOMAIN}, wildcard=yes, admin=localhost:2019, basic_auth=$( [ -n "$BASIC_AUTH_USER" ] && echo yes || echo no ))"
@@ -927,7 +652,6 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
-  fi
 
   sudo systemctl daemon-reload
   sudo systemctl enable caddy
@@ -937,192 +661,6 @@ EOF
   # and is the only way to guarantee a secret rotation re-run is effective.
   log "(re)starting Caddy"
   sudo systemctl restart caddy
-fi
-
-# --- Portman routing: model B systemd units + config (S85caca) ---------------
-#
-# Only runs when PORTMAN_ROUTING=1. Creates /etc/portman config, installs
-# 4 systemd system units (portman-serve, portman-sync, portman-gc service +
-# timer), and runs an initial portman sync to register the palmux2 route.
-#
-# Troubleshooting — wildcard cert never obtained (palmux2.<base> /
-# *.<base> return TLS "internal error", and the SPA loads but its API calls
-# fail with "Failed to fetch"):
-#   Symptom in the Caddy log: the DNS-01 challenge VALIDATES, but then acme-v02
-#   (production) returns "No order for ID" / "No such authorization" /
-#   "accountDoesNotExist", repeated "creating new account", and the cert never
-#   lands (staging works end-to-end; DNS-01 itself is fine).
-#   Root cause: `portman sync` mutating Caddy via the admin API DURING the
-#   wildcard's DNS-01 validation window reloads the config and re-inits Caddy's
-#   ACME provider before the account/order is persisted, orphaning the order.
-#   Prevention: this installer now waits for the wildcard cert before the first
-#   portman sync (see the wait loop below), and portman-sync.service is enabled
-#   only after that, so a fresh install serializes cert-then-routes.
-#   Recovery if a host is already stuck in this state (clears orphaned ACME
-#   account state; obtains the cert with no admin-API thrash; existing certs are
-#   preserved):
-#     sudo systemctl disable --now portman-sync.service
-#     sudo systemctl stop caddy
-#     sudo rm -rf /var/lib/caddy/.local/share/caddy/acme/acme-v02.api.letsencrypt.org-directory/users
-#     sudo systemctl start caddy            # waits/obtains the wildcard cert cleanly
-#     # once .../certificates/.../wildcard_.<base>/*.crt exists:
-#     sudo systemctl enable portman-sync.service
-#     PORTMAN_CONFIG_DIR=/etc/portman portman sync
-#   install.sh deliberately does NOT reset ACME accounts automatically — wiping a
-#   working account on a healthy host would be destructive.
-
-if [ "$PORTMAN_ROUTING" = "1" ]; then
-  log "PORTMAN_ROUTING=1: configuring portman model B routing"
-
-  # Create directories
-  sudo install -d -m 0755 /etc/portman
-  sudo install -d -m 0755 -o "$USERNAME" -g "$USERNAME" /var/lib/portman
-  sudo install -d -m 0755 -o "$USERNAME" -g "$USERNAME" /var/lib/portman/portal
-
-  # Write /etc/portman/config.toml
-  log "writing /etc/portman/config.toml"
-  sudo tee /etc/portman/config.toml >/dev/null <<EOF
-[general]
-db_path = "/var/lib/portman/portman.db"
-
-[ports]
-range_start = 8200
-range_end = 8999
-stale_ttl_hours = 24
-
-[proxy]
-type = "caddy"
-caddy_api = "http://localhost:2019"
-domain_suffix = "${DOMAIN}"
-host_pattern = "{name}--{worktree}--{repo}"
-
-[dashboard]
-enabled = true
-host = "${DOMAIN}"
-output_dir = "/var/lib/portman/portal"
-auto_update = true
-serve_addr = "127.0.0.1:8090"
-EOF
-  sudo chmod 0644 /etc/portman/config.toml
-
-  # Write /etc/portman/services.json using jq for valid JSON
-  log "writing /etc/portman/services.json"
-  jq -n '{
-    "reserved": [
-      {"port": 80,   "description": "caddy http"},
-      {"port": 443,  "description": "caddy https"},
-      {"port": 2019, "description": "caddy admin api"},
-      {"port": 8080, "description": "palmux2"},
-      {"port": 8090, "description": "portman dashboard"}
-    ],
-    "permanent": [
-      {"name": "palmux2", "port": 8080, "expose": true}
-    ]
-  }' | sudo tee /etc/portman/services.json >/dev/null
-  sudo chmod 0644 /etc/portman/services.json
-
-  # Install portman-serve.service
-  log "installing portman-serve.service"
-  sudo tee /etc/systemd/system/portman-serve.service >/dev/null <<EOF
-[Unit]
-Description=portman live dashboard server
-After=network.target
-
-[Service]
-Type=simple
-User=${USERNAME}
-Environment=PORTMAN_CONFIG_DIR=/etc/portman
-ExecStart=${BIN_DIR}/portman serve --addr 127.0.0.1:8090
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-  # Install portman-sync.service
-  log "installing portman-sync.service"
-  sudo tee /etc/systemd/system/portman-sync.service >/dev/null <<EOF
-[Unit]
-Description=portman Caddy route sync
-After=caddy.service
-BindsTo=caddy.service
-
-[Service]
-Type=oneshot
-User=${USERNAME}
-Environment=PORTMAN_CONFIG_DIR=/etc/portman
-ExecStartPre=/bin/sleep 2
-ExecStart=${BIN_DIR}/portman sync
-RemainAfterExit=yes
-
-[Install]
-WantedBy=caddy.service
-EOF
-
-  # Install portman-gc.service
-  log "installing portman-gc.service"
-  sudo tee /etc/systemd/system/portman-gc.service >/dev/null <<EOF
-[Unit]
-Description=portman garbage collection
-
-[Service]
-Type=oneshot
-User=${USERNAME}
-Environment=PORTMAN_CONFIG_DIR=/etc/portman
-ExecStart=${BIN_DIR}/portman gc
-EOF
-
-  # Install portman-gc.timer
-  log "installing portman-gc.timer"
-  sudo tee /etc/systemd/system/portman-gc.timer >/dev/null <<EOF
-[Unit]
-Description=portman periodic garbage collection
-
-[Timer]
-OnCalendar=hourly
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-EOF
-
-  sudo systemctl daemon-reload
-  sudo systemctl enable --now portman-serve.service
-  sudo systemctl enable portman-sync.service
-  sudo systemctl enable --now portman-gc.timer
-
-  # IMPORTANT: wait for Caddy to obtain the *.${DOMAIN} wildcard cert BEFORE the
-  # first portman sync. `portman sync` mutates Caddy via the admin API, which
-  # triggers a config reload. Doing that during the wildcard's DNS-01 validation
-  # window (~tens of seconds) repeatedly re-inits Caddy's ACME provider before
-  # the new account/order is persisted, orphaning the order — Let's Encrypt then
-  # reports "No order for ID" / "accountDoesNotExist" and the wildcard cert never
-  # lands (DNS-01 itself validates fine; staging slips through because it's
-  # faster). Serializing cert-then-sync avoids the thrash. Cert issuance happened
-  # on the earlier `systemctl restart caddy`, when portman-sync.service was not
-  # yet enabled, so this is a clean window to wait on.
-  CADDY_CERT_DIR="/var/lib/caddy/.local/share/caddy/certificates"
-  log "waiting for Caddy to obtain the *.${DOMAIN} wildcard cert before portman sync (up to 240s)"
-  cert_ready=0
-  for _i in $(seq 1 48); do
-    if sudo find "$CADDY_CERT_DIR" -path "*wildcard_.${DOMAIN}*" -name '*.crt' 2>/dev/null | grep -q .; then
-      cert_ready=1
-      break
-    fi
-    sleep 5
-  done
-  if [ "$cert_ready" = "1" ]; then
-    log "wildcard cert obtained — proceeding with portman sync"
-  else
-    warn "wildcard cert not obtained within timeout; proceeding anyway (Caddy + portman-sync.service keep retrying). If https://palmux2.${DOMAIN}/ shows a TLS error, see the ACME troubleshooting note above."
-  fi
-
-  # Initial portman sync to register the palmux2 route in Caddy immediately.
-  # Non-fatal: portman-sync.service will reconcile on next caddy (re)start.
-  log "running initial portman sync (PORTMAN_CONFIG_DIR=/etc/portman)"
-  PORTMAN_CONFIG_DIR=/etc/portman "${BIN_DIR}/portman" sync \
-    || warn "initial portman sync failed (caddy may not be ready yet); portman-sync.service will retry on next caddy start"
 fi
 
 # --- Incus container runtime (S8478ca — default ON, SKIP_INCUS=1 to opt out) ------
@@ -1456,7 +994,6 @@ log "writing update helper ${UPDATE_SCRIPT}"
   echo 'set -euo pipefail'
   echo "export PROFILE=$(printf '%q' "$PROFILE")"
   echo "export PALMUX_FLAKE_REF=$(printf '%q' "$PALMUX_FLAKE_REF")"
-  [ "$PORTMAN_ROUTING" = "1" ] && echo 'export PORTMAN_ROUTING=1'
   [ "$CLAUDE_BYPASS_PERMISSIONS" = "1" ] && echo 'export CLAUDE_BYPASS_PERMISSIONS=1'
   [ -n "$DOMAIN" ] && echo "export DOMAIN=$(printf '%q' "$DOMAIN")"
   [ -n "$ACME_EMAIL" ] && echo "export ACME_EMAIL=$(printf '%q' "$ACME_EMAIL")"
@@ -1489,23 +1026,16 @@ cat <<EOM
     go       $(go version 2>/dev/null | awk '{print $3}' || echo '?')
 
 ==> Next:
-$(if [ "$PORTMAN_ROUTING" = "1" ]; then
-  echo "    1. palmux2 UI:        https://palmux2.${DOMAIN}/"
-  echo "       portman dashboard: https://${DOMAIN}/"
-  echo "       expose pattern:    https://<name>--<worktree>--<repo>.${DOMAIN}/"
+$(if [ "$CADDY_ENABLED" = "1" ]; then
+  echo "    1. palmux2 UI:     https://${DOMAIN}/  (Let's Encrypt cert via Cloudflare DNS-01)"
+  echo "       expose pattern: https://<port>--<worktree>--<repo>.${DOMAIN}/  (incus-container ports, published from the Ports tab)"
   if [ -n "$BASIC_AUTH_USER" ]; then
-    echo "       (basic auth: user=${BASIC_AUTH_USER})"
-  fi
-  echo "    2. To expose a service: PORTMAN_CONFIG_DIR=/etc/portman portman exec --name X --expose -- cmd"
-elif [ "$CADDY_ENABLED" = "1" ]; then
-  echo "    1. Open  https://${DOMAIN}/  (Let's Encrypt cert via Cloudflare DNS-01)"
-  if [ -n "$BASIC_AUTH_USER" ]; then
-    echo "       (basic auth: user=${BASIC_AUTH_USER})"
+    echo "       (SSO login: user=${BASIC_AUTH_USER})"
   fi
 else
   echo "    1. Open  http://$(hostname -I 2>/dev/null | awk '{print $1}'):8080"
 fi)
-    $(if [ "$PORTMAN_ROUTING" = "1" ]; then echo "3."; else echo "2."; fi) To update later, just run:  ${USER_HOME}/update-palmux2.sh
+    2. To update later, just run:  ${USER_HOME}/update-palmux2.sh
        (generated with this host's options; reuses secrets from /etc/caddy/palmux.env).
        Nix produces a new generation; failures roll back automatically. Rotate
        secrets by exporting CLOUDFLARE_API_TOKEN / BASIC_AUTH_PASSWORD first.
