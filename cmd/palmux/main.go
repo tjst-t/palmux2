@@ -29,7 +29,6 @@ import (
 	"github.com/tjst-t/palmux2/internal/ghq"
 	"github.com/tjst-t/palmux2/internal/gwq"
 	"github.com/tjst-t/palmux2/internal/notify"
-	"github.com/tjst-t/palmux2/internal/portman"
 	"github.com/tjst-t/palmux2/internal/runtime"
 	"github.com/tjst-t/palmux2/internal/runtime/incus"
 	"github.com/tjst-t/palmux2/internal/server"
@@ -115,7 +114,6 @@ func main() {
 	token := pflag.String("token", "", "auth token. empty = open access")
 	basePath := pflag.String("base-path", "/", "URL base path (e.g. /palmux/)")
 	maxConns := pflag.Int("max-connections", 0, "per-branch WS connection cap (0 = unlimited)")
-	portmanURL := pflag.String("portman-url", "", "URL of a portman dashboard; when set, the header shows a link")
 	// S009-fix-3: tmux session prefix. Default `_palmux_` matches every
 	// existing install. Override (e.g. `--tmux-prefix=_palmux_dev_`) to
 	// run a second palmux process side-by-side with the host instance on
@@ -146,13 +144,13 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
-	if err := run(*addr, *configDir, *token, *basePath, *maxConns, *portmanURL, *claudeBin, *claudeArgs, *publicDomain, *caddyAdmin); err != nil {
+	if err := run(*addr, *configDir, *token, *basePath, *maxConns, *claudeBin, *claudeArgs, *publicDomain, *caddyAdmin); err != nil {
 		slog.Error("fatal", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(addr, configDir, token, basePath string, maxConns int, portmanURL string, claudeBin string, claudeArgs []string, publicDomain, caddyAdmin string) error {
+func run(addr, configDir, token, basePath string, maxConns int, claudeBin string, claudeArgs []string, publicDomain, caddyAdmin string) error {
 	// Log the version up front so when a user sees "phase-X" or "dev"
 	// in the Drawer they can confirm which build is actually running
 	// without having to call /api/health.
@@ -446,7 +444,6 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		Tmux:       tmuxClient,
 		Commands:   commands.New(),
 		Notify:     notifyHub,
-		Portman:    portman.New(""),
 		FrontendFS: frontendFS,
 		// S010: serve bundled drawio webapp from internal/static via /static/*.
 		// fs.Sub is applied inside server.staticHandler so the request path
@@ -456,10 +453,9 @@ func run(addr, configDir, token, basePath string, maxConns int, portmanURL strin
 		BasePath: basePath,
 		Logger:   slog.Default(),
 		HealthDetail: map[string]any{
-			"version":    resolveVersion(),
-			"open":       authn.Open(),
-			"configDir":  configDir,
-			"portmanURL": portmanURL,
+			"version":   resolveVersion(),
+			"open":      authn.Open(),
+			"configDir": configDir,
 		},
 	})
 

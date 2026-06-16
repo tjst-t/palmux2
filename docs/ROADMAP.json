@@ -2,15 +2,15 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 55,
+    "sprints_done": 56,
     "sprints_total": 59,
-    "percent": 93,
+    "percent": 95,
     "current_sprint": "S4d8b1c",
-    "done": 55,
+    "done": 56,
     "in_progress": 0,
     "total": 59,
-    "remaining": 4,
-    "percentage": 93
+    "remaining": 3,
+    "percentage": 95
   },
   "execution_order": [
     "S001",
@@ -9683,104 +9683,104 @@
     },
     "S18d013": {
       "title": "portman 連携の削除（incus 化で冗長化した分・Medium スコープ）",
-      "status": "planned",
+      "status": "done",
       "milestone": false,
       "scope_note": "Medium: palmux 内 portman read-only 連携 + install.sh の PORTMAN_ROUTING(model-B) を削除。host ランタイム・make dev/serve・portman バイナリ install・既定 Caddyfile 経路は維持。incus は元々 portman 非依存。",
       "stories": {
         "S18d013-1": {
           "title": "palmux 内 portman read-only 連携の削除",
-          "status": "planned",
+          "status": "done",
           "user_story": "開発者として、incus 化で不要になった palmux↔portman の read-only 連携 (lease 一覧 UI・--portman-url・Go package) を削除したい。なぜなら、incus ランタイムは portman 非依存で、この連携は保守負債になっているから。",
           "acceptance_criteria": [
             {
               "id": "AC-S18d013-1-1",
               "description": "internal/portman パッケージ、GET .../portman ハンドラ + ルート、server の Portman dep / main.go の portman.New 配線を削除し、go build / 既存 unit test が通る。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S18d013-1-2",
               "description": "--portman-url フラグ + HealthDetail の portmanURL + ヘッダの「Open portman dashboard」リンクを削除。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S18d013-1-3",
               "description": "frontend の lease popover (useRepoPortmanLeases / PortmanLinks / PortmanPopover / PortmanLease 型) を削除し、workspace-actions が破綻なく描画される。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S18d013-1-4",
               "description": "host ランタイム・make dev/serve・portman バイナリ install は無改変で維持され、dev ループが従来通り起動する。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S18d013-1-1": {
               "id": "S18d013-1-1",
-              "status": "pending",
+              "status": "done",
               "title": "go: internal/portman 削除 + server.go / handler_portman.go / main.go の配線除去 + ルート削除"
             },
             "S18d013-1-2": {
               "id": "S18d013-1-2",
-              "status": "pending",
+              "status": "done",
               "title": "go: --portman-url flag + HealthDetail.portmanURL 除去"
             },
             "S18d013-1-3": {
               "id": "S18d013-1-3",
-              "status": "pending",
+              "status": "done",
               "title": "frontend: header.tsx リンク + workspace-actions.tsx lease popover + api.ts PortmanLease 型 + store portmanURL 除去"
             },
             "S18d013-1-4": {
               "id": "S18d013-1-4",
-              "status": "pending",
+              "status": "done",
               "title": "test: build/lint + E2E (lease UI 不在でも workspace-actions 正常、make serve INSTANCE=dev 起動確認)"
             }
           }
         },
         "S18d013-2": {
           "title": "install.sh の PORTMAN_ROUTING (model-B) 削除",
-          "status": "planned",
+          "status": "done",
           "user_story": "運用者として、incus の公開サブドメイン + SSO が代替した PORTMAN_ROUTING=1 (caddy.json model-B + portman systemd 群 + 残存 basic_auth) を install.sh から削除したい。なぜなら、二重メンテと旧 basic_auth の混乱要因になっているから。",
           "acceptance_criteria": [
             {
               "id": "AC-S18d013-2-1",
               "description": "PORTMAN_ROUTING 環境変数・preflight・/etc/caddy/caddy.json 生成経路・/etc/portman config・portman-serve/sync/gc systemd units を install.sh から削除する。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S18d013-2-2",
               "description": "既定の Caddyfile 経路 (apex forward_auth + *.DOMAIN wildcard) が唯一の Caddy 経路となり、残存 basic_auth が消え、bare install が従来同等 (SSO + 公開サブドメイン) に動く。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S18d013-2-3",
               "description": "portman バイナリ install と Makefile (make dev/serve) は維持され、host runtime ユーザの portman exec ワークフローを壊さない。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S18d013-2-4",
               "description": "README / docs の PORTMAN_ROUTING 記述を削除または更新する。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S18d013-2-1": {
               "id": "S18d013-2-1",
-              "status": "pending",
+              "status": "done",
               "title": "install.sh: PORTMAN_ROUTING 分岐 + caddy.json 経路 + portman systemd units + /etc/portman + preflight 除去"
             },
             "S18d013-2-2": {
               "id": "S18d013-2-2",
-              "status": "pending",
+              "status": "done",
               "title": "install.sh: 既定 Caddyfile 経路を唯一化、basic_auth 残骸除去"
             },
             "S18d013-2-3": {
               "id": "S18d013-2-3",
-              "status": "pending",
+              "status": "done",
               "title": "docs/README: PORTMAN_ROUTING 記述削除・更新"
             },
             "S18d013-2-4": {
               "id": "S18d013-2-4",
-              "status": "pending",
+              "status": "done",
               "title": "test: 実機 install smoke (既定経路で SSO + 公開サブドメインが従来通り、make dev 不変)"
             }
           }

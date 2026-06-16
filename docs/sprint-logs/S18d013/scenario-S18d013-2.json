@@ -1,0 +1,35 @@
+{
+  "story_id": "S18d013-2",
+  "story_type": "cli",
+  "title": "install.sh の PORTMAN_ROUTING (model-B) 削除",
+  "entry_points": ["cli"],
+  "scenarios": [
+    {
+      "id": "scenario-install-sh-clean",
+      "entry_point": "cli",
+      "acceptance_criteria": ["AC-S18d013-2-1", "AC-S18d013-2-2", "AC-S18d013-2-3", "AC-S18d013-2-4"],
+      "steps": [
+        {
+          "action": "ビルダーが `bash -n scripts/install.sh` で構文チェックする",
+          "expected": "exit 0。削除後もスクリプトの構文が壊れていない。"
+        },
+        {
+          "action": "ビルダーが scripts/install.sh を grep する",
+          "expected": "`PORTMAN_ROUTING`・`caddy.json`・`/etc/portman`・`portman-serve`・`portman-sync`・`portman-gc` の出現がゼロ。"
+        },
+        {
+          "action": "ビルダーが scripts/install.sh の Caddy config 経路を確認する",
+          "expected": "Caddy 設定は `/etc/caddy/Caddyfile` (apex forward_auth + `*.<DOMAIN>` wildcard) のみ。caddy.service は Caddyfile を指す。caddy.json 分岐は存在しない。"
+        },
+        {
+          "action": "ビルダーが portman バイナリ install と Makefile dev/serve を確認する",
+          "expected": "`port-manager` の binary release ダウンロード + `install -m 0755 .../portman` が残存。Makefile の `make dev`/`make serve`/`ports` は portman env/sync を使い続ける (無改変)。"
+        },
+        {
+          "action": "ビルダーが README.md / docs を grep する",
+          "expected": "`PORTMAN_ROUTING`・`--portman-url`・`モデルB` の記述が削除/更新されている。"
+        }
+      ]
+    }
+  ]
+}

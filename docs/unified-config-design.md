@@ -84,7 +84,7 @@ apply の挙動は「何が変わったか」で分岐する。これが設計�
 - sudoers は verb 限定。Caddy は既に admin API で palmux にルート注入を許しているので信頼増分は「root Caddyfile を書く + system Caddy 再起動」分のみ。
 
 ### caveat
-`PORTMAN_ROUTING=1` の代替パス (`/etc/caddy/caddy.json`) は Sbe4eee で未変換で **まだ Caddy basic_auth が残る** (`install.sh:625-637`)。default Caddyfile パスが本番なら無関係だが、両対応するなら要追変換。
+~~`PORTMAN_ROUTING=1` の代替パス (`/etc/caddy/caddy.json`) は Sbe4eee で未変換で Caddy basic_auth が残る~~ — S18d013 で `PORTMAN_ROUTING` (caddy.json model-B) 経路を install.sh から削除済み。Caddy 経路は default Caddyfile (apex forward_auth SSO + `*.<base>` wildcard) のみとなり、この caveat は解消した。
 
 ## 提案アーキテクチャ
 

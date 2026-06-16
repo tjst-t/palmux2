@@ -87,20 +87,13 @@ curl -fsSL https://raw.githubusercontent.com/tjst-t/palmux2/main/scripts/install
   bash
 ```
 
-**Dynamic subdomain routing (`PORTMAN_ROUTING=1`, "model B").** palmux2 is served
-at `palmux2.<base>`, the portman dashboard at `<base>`, and every
-`portman exec --expose`d dev server at `<name>--<worktree>--<repo>.<base>`, all
-behind one edge basic auth. Requires a **wildcard** `*.<base>` DNS record
-pointing at the host:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/tjst-t/palmux2/main/scripts/install.sh \
-| PORTMAN_ROUTING=1 \
-  DOMAIN=example.com \
-  CLOUDFLARE_API_TOKEN=cf_xxx ACME_EMAIL=you@example.com \
-  BASIC_AUTH_USER=admin BASIC_AUTH_PASSWORD=secret \
-  bash
-```
+**Public port subdomains.** With `DOMAIN` set, palmux2 is served at
+`<base>` behind its built-in SSO login, and every `incus-container` dev server
+you publish from the **Ports** tab is exposed at
+`<port>--<worktree>--<repo>.<base>` — palmux injects those routes into Caddy via
+its admin API, covered by the same single SSO login. This requires a
+**wildcard** `*.<base>` DNS record pointing at the host (validated by the
+Cloudflare DNS-01 challenge).
 
 Key environment variables (all optional):
 
@@ -112,7 +105,6 @@ Key environment variables (all optional):
 | `ACME_EMAIL` | (none) | Let's Encrypt contact email |
 | `BASIC_AUTH_USER` / `BASIC_AUTH_PASSWORD` | (none) | HTTP basic auth at the Caddy edge |
 | `BASIC_AUTH_BCRYPT_COST` | `8` | bcrypt cost; Caddy runs it on every request, so higher = more latency |
-| `PORTMAN_ROUTING` | `0` | `1` = portman-owned dynamic subdomain routing (model B) |
 | `PALMUX_VERSION` | `latest` | Pin a specific palmux2 release tag |
 | `SKIP_NODE` / `SKIP_SERVICE` | `0` | Skip Node + Claude Code / the user service |
 
@@ -171,7 +163,6 @@ you've already cloned.
 | `--token` | (empty) | Required token for browser + hook auth (see below) |
 | `--base-path` | `/` | Mount under a sub-path, e.g. `/palmux/` |
 | `--max-connections` | `0` | Per-branch WS cap. `0` = unlimited |
-| `--portman-url` | (empty) | If set, the header shows a link to your portman dashboard |
 
 ---
 
@@ -535,20 +526,12 @@ curl -fsSL https://raw.githubusercontent.com/tjst-t/palmux2/main/scripts/install
   bash
 ```
 
-**動的サブドメインルーティング（`PORTMAN_ROUTING=1`, モデルB）。** palmux2 を
-`palmux2.<base>`、portman ダッシュボードを `<base>`、`portman exec --expose`
-した dev サーバを `<name>--<worktree>--<repo>.<base>` で公開し、すべてエッジの
-basic 認証 1 か所で保護する。**ワイルドカード** `*.<base>` の DNS レコードを
-ホストに向けておく必要がある:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/tjst-t/palmux2/main/scripts/install.sh \
-| PORTMAN_ROUTING=1 \
-  DOMAIN=example.com \
-  CLOUDFLARE_API_TOKEN=cf_xxx ACME_EMAIL=you@example.com \
-  BASIC_AUTH_USER=admin BASIC_AUTH_PASSWORD=secret \
-  bash
-```
+**ポートの公開サブドメイン。** `DOMAIN` を設定すると palmux2 は `<base>` で
+組み込み SSO ログインの背後に公開され、**Ports** タブから公開した
+`incus-container` の dev サーバは `<port>--<worktree>--<repo>.<base>` で公開され
+る。これらの route は palmux が Caddy admin API 経由で注入し、同じ SSO ログイン
+1 回で保護される。**ワイルドカード** `*.<base>` の DNS レコードをホストに向けて
+おく必要がある（Cloudflare DNS-01 チャレンジで検証）:
 
 主な環境変数（すべて任意）:
 
@@ -560,7 +543,6 @@ curl -fsSL https://raw.githubusercontent.com/tjst-t/palmux2/main/scripts/install
 | `ACME_EMAIL` | (なし) | Let's Encrypt 連絡先メール |
 | `BASIC_AUTH_USER` / `BASIC_AUTH_PASSWORD` | (なし) | Caddy エッジの HTTP basic 認証 |
 | `BASIC_AUTH_BCRYPT_COST` | `8` | bcrypt コスト。Caddy はリクエストごとに計算するため高いほど遅い |
-| `PORTMAN_ROUTING` | `0` | `1` = portman 主導の動的サブドメインルーティング（モデルB） |
 | `PALMUX_VERSION` | `latest` | palmux2 リリースタグの固定 |
 | `SKIP_NODE` / `SKIP_SERVICE` | `0` | Node + Claude Code / ユーザサービスをスキップ |
 
@@ -618,7 +600,6 @@ clone はせず、clone 済みリポジトリの worktree を管理する。
 | `--token` | (空) | ブラウザ + フック認証用のトークン (下記参照) |
 | `--base-path` | `/` | サブパス配下にマウント (例: `/palmux/`) |
 | `--max-connections` | `0` | ブランチごとの WS 上限。`0` は無制限 |
-| `--portman-url` | (空) | 設定すると、ヘッダに portman ダッシュボードへのリンクが出る |
 
 ---
 
