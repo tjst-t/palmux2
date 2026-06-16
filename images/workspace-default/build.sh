@@ -41,6 +41,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ─── configuration ────────────────────────────────────────────────────────────
 OUT_DIR="${OUT_DIR:-./dist}"
 IMAGE_BASE="${IMAGE_BASE:-images:ubuntu/24.04}"
+# IMAGE_VERSION labels the palmux-ws image just like `palmux --version` labels
+# the binary. Defaults to `git describe` (or "dev"); the release pipeline passes
+# the release tag. Baked into /etc/palmux-ws-version + the incus image
+# description so `incus image list palmux-ws` and any container can show it.
+IMAGE_VERSION="${IMAGE_VERSION:-$(git -C "$(dirname "${BASH_SOURCE[0]}")" describe --tags --always --dirty 2>/dev/null || echo dev)}"
 BUILD_INST="palmux-ws-build-$$"   # unique name per run so parallel builds don't clash
 TEMP_ALIAS="palmux-ws-build-temp-$$"
 
@@ -314,11 +319,20 @@ fi
 log "   claude NOT present in image (correct — will be bind-mounted by palmux)"
 
 # ─── 5. stop, publish, export ─────────────────────────────────────────────────
+# Bake the version into the image filesystem so any container can `cat
+# /etc/palmux-ws-version` and palmux can read it without the incus store.
+log "   Baking image version '${IMAGE_VERSION}' → /etc/palmux-ws-version ..."
+incus exec "${BUILD_INST}" </dev/null -- sh -c "printf '%s\n' '${IMAGE_VERSION}' > /etc/palmux-ws-version"
+
 log "5. Stopping build instance ..."
 incus stop "${BUILD_INST}" </dev/null
 
-log "   Publishing as image alias '${TEMP_ALIAS}' ..."
+log "   Publishing as image alias '${TEMP_ALIAS}' (version ${IMAGE_VERSION}) ..."
 incus publish "${BUILD_INST}" </dev/null --alias "${TEMP_ALIAS}"
+# Stamp the version into the image metadata (properties.version + description) so
+# `incus image list/show palmux-ws` displays it. Travels in the exported tarball.
+incus image set-property "${TEMP_ALIAS}" version "${IMAGE_VERSION}" </dev/null 2>/dev/null || true
+incus image set-property "${TEMP_ALIAS}" description "palmux-ws ${IMAGE_VERSION}" </dev/null 2>/dev/null || true
 
 OUT_PATH="${OUT_DIR}/palmux-ws.tar.gz"
 log "   Exporting image to ${OUT_PATH} ..."

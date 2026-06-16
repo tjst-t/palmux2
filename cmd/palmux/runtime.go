@@ -241,10 +241,27 @@ func sha256File(path string) (string, error) {
 }
 
 // printSuccessSummary prints the post-install guidance.
+// installedImageVersion returns the palmux-ws image's baked version from its
+// incus metadata (properties.version, stamped by build.sh), or "" if unknown.
+func installedImageVersion() string {
+	c := exec.Command("incus", "image", "get-property", "palmux-ws", "version") //nolint:gosec
+	c.Stdin = nil
+	out, err := c.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 func printSuccessSummary(dryRun bool) {
 	prefix := ""
 	if dryRun {
 		prefix = "[dry-run] "
+	}
+	if !dryRun {
+		if v := installedImageVersion(); v != "" {
+			fmt.Printf("\nInstalled palmux-ws version: %s\n", v)
+		}
 	}
 	fmt.Printf("\n%s✓ palmux-ws image ready in incus\n", prefix)
 	fmt.Println()
