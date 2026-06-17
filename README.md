@@ -55,7 +55,7 @@ launch otherwise.
 | --- | --- |
 | [`claude`](https://docs.anthropic.com/en/docs/claude-code) (Anthropic Claude Code CLI) | The Claude tab spawns this binary for stream-json IPC. Authenticate it once with `claude auth login` |
 | Node.js 22+ and npm | Only for development (`make dev`) or building from source (`make build`). Pre-built release binaries already include the bundled frontend |
-| [`portman`](https://github.com/tjst-t/port-manager) | Only when you use the bundled `make serve`/`make dev` recipes — they lease ports through portman and (optionally) register with Caddy |
+| [`portman`](https://github.com/tjst-t/port-manager) | Only when you use the bundled `make serve`/`make dev` recipes — they lease ports through portman |
 | [Caddy](https://caddyserver.com/) | Only when you want HTTPS + a friendly hostname; Palmux itself is plain HTTP and doesn't terminate TLS |
 
 ---
@@ -94,6 +94,13 @@ you publish from the **Ports** tab is exposed at
 its admin API, covered by the same single SSO login. This requires a
 **wildcard** `*.<base>` DNS record pointing at the host (validated by the
 Cloudflare DNS-01 challenge).
+
+**Host-port mode (no wildcard DNS).** When no public domain is configured, the
+**Ports** tab falls back to publishing each container port directly on a host
+port (`http://<hostIP>:<hostPort>`) via an incus-native proxy device — no
+portman, no Caddy. This bypasses SSO, so the UI flags it with a standing
+`⚠ unauthenticated` warning. Set a public domain to get the SSO-protected
+subdomains above instead.
 
 Key environment variables (all optional):
 
@@ -219,9 +226,18 @@ running server holds the source of truth — restart after manual edits.
 | File | Purpose |
 | --- | --- |
 | `repos.json` | Open repositories. Branches are derived from `git worktree list` at runtime |
-| `settings.json` | Globally shared settings (Toolbar, Claude defaults, image upload dir) |
+| `settings.json` | Globally shared app settings (Toolbar, Claude defaults, image upload dir) |
+| `config.toml` | Server/infra master config (`[server]`/`[public]`) — single source for `palmux2 serve`. Resolution order is `flag > env > file > default` |
+| `secrets.env` | User-owned secrets (`0600`): `PALMUX_SSO_SECRET`, `BASIC_AUTH_HASH`, `CLOUDFLARE_API_TOKEN`, token. Edited via the GUI (masked, write-only) |
 | `sessions.json` | Claude tab persistence — last session_id per branch + per-branch model/effort/permission-mode prefs |
 | `env.${port}` | Notification-hook env file (regenerated on each start) |
+
+The **Settings → Deploy** tab edits `config.toml`/`secrets.env` from the browser
+(a first-run onboarding wizard walks new hosts through it). Apply changes with
+`palmux apply` — it classifies the diff into hot (in-process), restart
+(`systemctl --user restart palmux2`), and root (public domain / TLS, applied by
+`sudo palmux reconcile-system`). Manual edits are picked up live via an
+`fsnotify` watch.
 
 ### Example `settings.json`
 
@@ -295,10 +311,21 @@ at the home screen.
 
 ## Updating
 
+**From the GUI or CLI.** Palmux polls GitHub every 6h (`GITHUB_TOKEN`-aware) and
+compares installed vs latest for its managed components (palmux core +
+`palmux-ws` image). When an update is available a badge appears top-right; the
+update panel runs "Update everything" for you, and the binary self-restarts
+while the frontend reconnects automatically. The CLI shares the same path:
+
+```bash
+palmux update --check      # report what's behind
+palmux update              # update palmux2 + the palmux-ws image
+```
+
 **If you used the [Nix one-liner](#install)**, updating is a single command.
 The installer writes `~/update-palmux2.sh` on success, baking in the options you
 used and reusing secrets from the host (`/etc/caddy/palmux.env`), so nothing
-needs re-supplying:
+needs re-supplying (this is the path the GUI/CLI updater delegates to):
 
 ```bash
 ~/update-palmux2.sh        # update palmux2 + tooling and re-apply config
@@ -494,7 +521,7 @@ Palmux はフロントエンドを embed した単一の Go バイナリ。tmux 
 | --- | --- |
 | [`claude`](https://docs.anthropic.com/en/docs/claude-code) (Anthropic Claude Code CLI) | Claude タブが stream-json IPC でこのバイナリを spawn する。`claude auth login` で一度認証しておく |
 | Node.js 22+ と npm | 開発時 (`make dev`) もしくはソースビルド (`make build`) 時のみ。リリース版バイナリにはビルド済みフロントエンドが embed されている |
-| [`portman`](https://github.com/tjst-t/port-manager) | 同梱の `make serve` / `make dev` を使うときのみ。portman 経由でポートをリースし、Caddy への登録もする |
+| [`portman`](https://github.com/tjst-t/port-manager) | 同梱の `make serve` / `make dev` を使うときのみ。portman 経由でポートをリースする |
 | [Caddy](https://caddyserver.com/) | HTTPS と分かりやすいホスト名がほしいとき。Palmux 自体は HTTP のみ提供し、TLS 終端はしない |
 
 ---
@@ -532,6 +559,12 @@ curl -fsSL https://raw.githubusercontent.com/tjst-t/palmux2/main/scripts/install
 る。これらの route は palmux が Caddy admin API 経由で注入し、同じ SSO ログイン
 1 回で保護される。**ワイルドカード** `*.<base>` の DNS レコードをホストに向けて
 おく必要がある（Cloudflare DNS-01 チャレンジで検証）:
+
+**ホストポートモード（ワイルドカード DNS 不要）。** 公開ドメイン未設定のときは
+**Ports** タブが host-port モードにフォールバックし、incus native の proxy device
+で各コンテナポートを直接ホストポートに公開する（`http://<hostIP>:<hostPort>`、
+portman/Caddy 非依存）。SSO を通らない無認証公開なので UI に常時 `⚠ 無認証`
+警告が出る。公開ドメインを設定すれば上記の SSO 保護サブドメイン公開になる。
 
 主な環境変数（すべて任意）:
 
@@ -655,9 +688,17 @@ curl -fsS "$PALMUX_URL/api/notify" \
 | ファイル | 役割 |
 | --- | --- |
 | `repos.json` | Open 済みリポジトリ。ブランチは実行時に `git worktree list` から導出 |
-| `settings.json` | デバイス間で共有されるグローバル設定 (Toolbar, Claude のデフォルト, 画像アップロード先) |
+| `settings.json` | デバイス間で共有されるアプリ設定 (Toolbar, Claude のデフォルト, 画像アップロード先) |
+| `config.toml` | サーバ/インフラの master 設定 (`[server]`/`[public]`)。`palmux2 serve` の単一 source。解決順は `flag > env > file > default` |
+| `secrets.env` | user 所有のシークレット (`0600`): `PALMUX_SSO_SECRET` / `BASIC_AUTH_HASH` / `CLOUDFLARE_API_TOKEN` / token。GUI からマスク・書込のみで編集 |
 | `sessions.json` | Claude タブの永続化 — ブランチごとの最終 session_id と、model/effort/permission-mode |
 | `env.${port}` | 通知フック用の env ファイル（起動ごとに再生成） |
+
+**設定 → デプロイ** タブで `config.toml` / `secrets.env` をブラウザから編集でき
+る（新規ホストは初回オンボーディング ウィザードが案内）。変更は `palmux apply`
+で反映 — 差分を hot（in-process）/ restart（`systemctl --user restart palmux2`）/
+root（公開ドメイン・TLS、`sudo palmux reconcile-system`）に分類する。手編集は
+`fsnotify` watch で即時に拾われる。
 
 ### `settings.json` の例
 
@@ -731,10 +772,20 @@ URL はブックマーク可。Open されていないブランチへのリン�
 
 ## アップデート
 
+**GUI / CLI から。** Palmux は 6h ごとに GitHub を poll し（`GITHUB_TOKEN` 対応）、
+管理対象（palmux 本体 + `palmux-ws` image）の installed と latest を比較する。
+更新があると右上にバッジが出て、更新パネルの「すべてまとめて更新」で実行できる。
+本体は自己再起動し、フロントエンドは自動で再接続する。CLI も同じ経路を共有する:
+
+```bash
+palmux update --check      # 遅れているコンポーネントを表示
+palmux update              # palmux2 + palmux-ws image を更新
+```
+
 **[Nix ワンライナー](#インストール) で入れた場合**、更新は1コマンド。インス
 トーラが成功時に `~/update-palmux2.sh` を生成し、使用したオプションを埋め込み、
 シークレットはホスト（`/etc/caddy/palmux.env`）から再利用するので、何も渡し直す
-必要はない:
+必要はない（GUI/CLI アップデータもこの経路に委譲する）:
 
 ```bash
 ~/update-palmux2.sh        # palmux2 + ツール群を更新し設定を再適用
