@@ -1,0 +1,16 @@
+{
+  "sprint_range": ["S4c591a"],
+  "screens": [
+    {"file": "prototype/s4c591a-ports.html", "story": "S4c591a-1", "feedback_rounds": 1, "approved": true}
+  ],
+  "design_decisions": [
+    "ホストポート公開は『環境単位の択一フォールバック』: 公開ドメイン(wildcard DNS)が設定済みなら従来のサブドメイン公開(SSO保護)のみ。未設定のときだけ Ports タブが host-port 公開モードになる",
+    "ポートごとの二択トグルではなく、タブ全体のモード。上部バナー(ports-mode-hostport-notice)で状況とサブドメイン化への導線を明示",
+    "host-port は incus proxy device (host:port → container:port)。Caddy/SSO を通らないため各ポートに『⚠ 無認証で外部に公開』バッジを常時表示",
+    "ホストポート競合時は空きポートを自動再割当して表示 (例 6006→16006)",
+    "host runtime では従来どおり portman 管轄案内 (変更なし)"
+  ],
+  "feedback_applied": [
+    "当初『各ポートにサブドメイン+ホストポートの二択』だったのを、ユーザ指摘で『公開ドメイン無し時のみ host-port にフォールバックする環境単位の択一』に変更"
+  ]
+}
