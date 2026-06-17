@@ -201,6 +201,10 @@ type Daemon struct {
 
 	// attachedCount counts currently attached WS clients.
 	attachedCount atomic.Int32
+
+	// runtimeWaitNotified guards the one-time "container regenerating" status
+	// line printed while gateRespawn waits for the runtime to come back.
+	runtimeWaitNotified atomic.Bool
 }
 
 // DaemonConfig bundles the options for [NewDaemon].
@@ -662,6 +666,13 @@ func (d *Daemon) respawnLoop() {
 			"args", respawnArgs,
 		)
 
+		// S4d8b1c-fix2: gate the re-spawn so a regenerating incus container
+		// (briefly destroyed during Update) doesn't make `incus exec` re-run at
+		// full speed and spam "Error: Instance is not running" into the terminal.
+		if !d.gateRespawn() {
+			return // shutdown signalled while waiting
+		}
+
 		d.spawnMu.Lock()
 		spawnErr := d.spawnWithArgs(respawnArgs)
 		d.spawnMu.Unlock()
@@ -672,6 +683,71 @@ func (d *Daemon) respawnLoop() {
 		}
 		// Loop continues; will now wait on the new exited channel.
 	}
+}
+
+// respawnReadyPollInterval is how often gateRespawn re-checks runtime readiness
+// while waiting for a regenerating container to come back.
+const respawnReadyPollInterval = 1 * time.Second
+
+// runtimeReady reports whether the workspace runtime is ready to exec into.
+// Host runtime (nil resolver / nil commander / commander without a Status
+// method) is always considered ready. For incus it returns true only when the
+// container Status is StateReady — false while the container is being
+// regenerated/restarted, which is what lets gateRespawn pause instead of
+// re-exec'ing into a destroyed container.
+func (d *Daemon) runtimeReady() bool {
+	if d.runtimeResolver == nil {
+		return true
+	}
+	pc := d.runtimeResolver(d.repoID, d.branchID)
+	if pc == nil {
+		return true
+	}
+	sp, ok := pc.(interface{ Status() runtime.Status })
+	if !ok {
+		return true
+	}
+	return sp.Status().State == runtime.StateReady
+}
+
+// gateRespawn pauses the respawn loop until it is safe to re-exec, returning
+// false if shutdown was signalled while waiting. During an incus container
+// regenerate the container is briefly destroyed; re-exec'ing `incus exec` then
+// fails instantly with "Instance is not running". We wait (printing one status
+// line) until the container is ready again, so no error spam reaches the
+// terminal. When the runtime is already ready (host runtime, or a settled
+// container) this is a no-op and respawn timing is unchanged.
+func (d *Daemon) gateRespawn() bool {
+	if d.runtimeReady() {
+		return true
+	}
+	d.announceContainerWait()
+	for {
+		select {
+		case <-d.shutdownCh:
+			return false
+		case <-time.After(respawnReadyPollInterval):
+		}
+		if d.runtimeReady() {
+			// Re-arm the one-time notice for the next outage.
+			d.runtimeWaitNotified.Store(false)
+			return true
+		}
+	}
+}
+
+// announceContainerWait writes a single status line to the terminal so the user
+// understands why the session paused (vs. the old error spam). Idempotent per
+// outage via runtimeWaitNotified.
+func (d *Daemon) announceContainerWait() {
+	if d.runtimeWaitNotified.Swap(true) {
+		return
+	}
+	msg := []byte("\r\n\x1b[33m[palmux] workspace container is restarting — reconnecting automatically when it's back…\x1b[0m\r\n")
+	d.feedMu.Lock()
+	_, _ = d.ring.Write(msg)
+	d.emulator.Feed(msg)
+	d.feedMu.Unlock()
 }
 
 // SetSessionID records the session ID for the currently running claude process.
