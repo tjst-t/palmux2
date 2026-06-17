@@ -210,12 +210,26 @@ export interface PortView {
   exposed: boolean
   /** https://<port>--<ws>--<repo>.<base> when exposed, else "". */
   publicUrl: string
+  /** S4c591a host-port mode: true when an incus proxy device exposes this port
+   *  on the host (UNAUTHENTICATED). */
+  hostPublished: boolean
+  /** Host-side port the proxy device listens on (may differ from `port` when
+   *  auto-reassigned to avoid collision). 0 when not host-published. */
+  hostPort: number
+  /** http://<hostIP>:<hostPort> when host-published, else "". */
+  hostUrl: string
 }
 
 /** Response shape for GET .../ports */
 export interface WorkspacePorts {
   runtimeKind: 'host' | 'incus-container'
   ports: PortView[]
+  /** S4c591a: false when no wildcard-DNS public domain is configured — the FE
+   *  then shows host-port mode instead of subdomain publishing. */
+  publicDomainConfigured: boolean
+  /** Host's primary IP, for rendering http://<hostIP>:<port> URLs in host-port
+   *  mode. Empty in subdomain mode. */
+  hostIP?: string
 }
 
 /** Response from POST .../ports/{port}/expose */
@@ -223,6 +237,10 @@ export interface ExposePortResponse {
   port: number
   public: boolean
   publicUrl: string
+  /** S4c591a host-port mode fields. */
+  hostPublished?: boolean
+  hostPort?: number
+  hostUrl?: string
 }
 
 export const portsApi = {

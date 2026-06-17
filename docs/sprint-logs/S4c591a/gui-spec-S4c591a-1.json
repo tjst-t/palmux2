@@ -1,0 +1,28 @@
+{
+  "story": "S4c591a-1",
+  "title": "ホストポート公開モード (incus proxy device) — wildcard DNS 無し時のフォールバック",
+  "entry_point": "gui",
+  "mode_selection": "公開ドメイン (public.domain / wildcard DNS) が設定済みか否かの環境レベル either/or。設定済み → 従来のサブドメイン公開 (SSO 保護) のみ表示、host-port モードは出ない。未設定 → host-port モードを表示し各ポートを http://<hostIP>:<hostPort> で公開。",
+  "state_diagram": "stateDiagram-v2\n    [*] --> Loading: open Ports panel (incus)\n    Loading --> SubdomainMode: publicDomainConfigured == true\n    Loading --> HostPortMode: publicDomainConfigured == false\n    HostPortMode --> Publishing: hostport toggle ON\n    Publishing --> Published: POST expose 200 (hostUrl + noauth warning shown)\n    Publishing --> Realloc: host port busy → auto-reassigned (realloc badge)\n    Publishing --> Error: POST expose failed (inline error)\n    Published --> Unpublishing: hostport toggle OFF\n    Unpublishing --> HostPortMode: DELETE expose 200 (proxy device removed)\n    Published --> Published: copy hostUrl",
+  "scenarios": [
+    {"name": "host-port mode notice", "linked_ac": ["AC-S4c591a-1-1", "AC-S4c591a-1-3"], "steps": ["公開ドメイン未設定の incus Workspace で Ports パネルを開く", "ports-mode-hostport-notice が出て『ホストポート公開モード — 無認証公開』と案内する"], "observation": "公開ドメイン未設定時のみ host-port モードの注意 banner が出る"},
+    {"name": "hostport publish toggle", "linked_ac": ["AC-S4c591a-1-1", "AC-S4c591a-1-2"], "steps": ["ports-hostport-toggle-5173 を ON", "POST /ports/5173/expose が飛び incus proxy device が追加される", "ports-hostport-url-5173 に http://<hostIP>:5173 が出る", "toggle OFF で DELETE が飛び proxy device が消え URL が消える"], "observation": "トグルで http URL の出現/消去 + proxy device の add/remove"},
+    {"name": "unauth warning + copy", "linked_ac": ["AC-S4c591a-1-3"], "steps": ["公開中ポートに ports-noauth-warning-5173 (⚠ 無認証) が常時表示される", "ports-hostport-copy-5173 で hostUrl を clipboard コピー"], "observation": "無認証警告 badge が unmissable に出る + URL コピー可能。サブドメイン公開 (SSO 保護) と区別。"},
+    {"name": "host port collision realloc", "linked_ac": ["AC-S4c591a-1-2"], "steps": ["host 側で使用中のポート (6006) を公開", "空きポート (16006) に自動再割当され ports-hostport-realloc-6006 badge が出る", "ports-hostport-url-6006 が http://<hostIP>:16006 を指す"], "observation": "衝突回避 + 自動再割当が badge と URL に反映される"},
+    {"name": "subdomain mode (public domain set)", "linked_ac": ["AC-S4c591a-1-1"], "steps": ["公開ドメイン設定済みの incus Workspace で Ports パネルを開く", "従来のサブドメイン公開 UI (ports-expose-toggle) のみ表示", "ports-mode-hostport-notice / ports-hostport-toggle は出ない"], "observation": "公開ドメインありでは host-port モードに切り替わらない (排他)"},
+    {"name": "host runtime untouched", "linked_ac": ["AC-S4c591a-1-4"], "steps": ["host runtime の Workspace で Ports パネルを開く", "ports-host-notice (portman 管轄案内) が出る"], "observation": "Ports タブ conditional は KindIncusContainer ゲートのまま、host は従来通り"}
+  ],
+  "edge_cases": [
+    {"case": "hostport expose API 500", "expected": "ports-row-error (inline) を出し toggle を元に戻す (silent-success 禁止)"},
+    {"case": "host port 全帯域使用中", "expected": "空きポートが見つからない旨を inline error で出す"},
+    {"case": "host IP 解決失敗", "expected": "best-effort fallback IP で URL を組む (空表示にしない)"}
+  ],
+  "endpoint_contracts": [
+    {"method": "GET", "path": "/api/repos/{repoId}/branches/{branchId}/ports", "response": "{runtimeKind, publicDomainConfigured:bool, hostIP:string, ports:[{port, proto, bindAddr, process, localhostOnly, public, exposed, publicUrl, hostPort:int, hostPublished:bool, hostUrl:string}]}", "notes": "publicDomainConfigured=false で FE は host-port モードを出す。hostPort/hostPublished/hostUrl は host-port 公開状態。hostPort != port のとき自動再割当 (realloc)。"},
+    {"method": "POST", "path": "/api/repos/{repoId}/branches/{branchId}/ports/{port}/expose", "request": "{public: bool}", "response": "{port, public, publicUrl, hostPort, hostUrl, hostPublished}", "notes": "publicDomainConfigured=false のとき host-port (incus proxy device) を追加し hostUrl を返す。設定済みのときは従来のサブドメイン公開。"},
+    {"method": "DELETE", "path": "/api/repos/{repoId}/branches/{branchId}/ports/{port}/expose", "response": "204", "notes": "host-port モードでは proxy device を削除。idempotent。"},
+    {"event": "branch.portsChanged", "channel": "WS /api/events", "payload": "{repoId, branchId, runtimeKind, publicDomainConfigured, hostIP, ports:[...]}", "notes": "scan ループの変化検出時 broadcast。"}
+  ],
+  "data_testids": ["ports-panel", "ports-mode-hostport-notice", "ports-row-{port}", "ports-hostport-toggle-{port}", "ports-hostport-url-{port}", "ports-noauth-warning-{port}", "ports-hostport-copy-{port}", "ports-hostport-realloc-{port}", "ports-host-notice", "ports-row-error-{port}"],
+  "test_files": {"e2e": "tests/e2e/s4c591a_hostport_ui.py", "mock": "tests/e2e/s4c591a_hostport_ui_mock.py", "acceptance": "tests/acceptance/s4c591a_hostport_proxy.py"}
+}

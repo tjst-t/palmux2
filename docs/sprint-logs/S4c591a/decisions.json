@@ -1,0 +1,113 @@
+{
+  "sprint": "S4c591a",
+  "title": "incus コンテナポートのホストポート公開モード（wildcard DNS 不要）",
+  "branch": "autopilot/main/S4c591a",
+  "planning_decisions": [
+    {
+      "id": "PD-1",
+      "decision": "mode selection は publishConfig.enabled() (= public domain / wildcard DNS が設定済みか) を唯一の判定軸にする。public domain あり → サブドメイン公開モード (See8bd4 既存) のみ表示。public domain なし → host-port モードを表示。",
+      "rationale": "ユーザ明確化『環境レベルの either/or フォールバックであり、ポートごとの第2トグルではない』。既存 Sa53137 の config plane public.domain を再利用し、新たな設定軸を増やさない (DESIGN_PRINCIPLES priority_rule 7 明示的 > 暗黙的、 priority_rule 6 既存資産活用)。"
+    },
+    {
+      "id": "PD-2",
+      "decision": "host-port の proxy device は既存 incusRuntime.ExposePort(HostPort>0) を再利用する。新規に device add ロジックを書かない。",
+      "rationale": "既存コードが listen=tcp:0.0.0.0:<hostPort> connect=tcp:<containerIP>:<port> の proxy device を既に正しく実装している (DESIGN_PRINCIPLES priority_rule 6)。AC は connect=127.0.0.1 と記すが、incus forkproxy は host network namespace で connect するため 127.0.0.1 は host loopback を指し機能しない (incus.go の strace 検証コメント)。container bridge IP を使うのが正しい。AC の literal 127.0.0.1 は incus の仕様上の誤りであり、container IP で実装する (機能的には AC 意図 = 外部到達性 を満たす)。"
+    },
+    {
+      "id": "PD-3",
+      "decision": "ホストポート割当は『同番号を第一候補にし、host 側で衝突したら 1xxxx 帯から空きを線形探索 (containerPort+10000 起点)』で自動再割当。ユーザ指定は将来拡張とし本 Sprint は自動割当のみ。",
+      "rationale": "プロトタイプが 6006→16006 の自動再割当を示す。portman 非依存 (S18d013 で削除済) のため net.Listen で host 側空きを自前確認する。AC-1-2 の『自動空きポート割当 + 衝突回避』を満たす。ユーザ指定は AC が 'or ユーザ指定' と optional 表記のため自動割当で AC 充足。"
+    },
+    {
+      "id": "PD-4",
+      "decision": "host IP は net.Dial(\"udp\", \"192.0.2.1:80\") の LocalAddr で primary outbound IP を解決し、host-port URL (http://<hostIP>:<hostPort>) を組む。解決失敗時は hostname の最初の non-loopback IPv4 にフォールバック。",
+      "rationale": "proxy device は 0.0.0.0 で listen するので任意の host IP で到達可能。表示用に 1 つ代表 IP が要る。portman 非依存・追加設定なしで host の LAN IP を得る標準手法 (DESIGN_PRINCIPLES priority_rule 6/7)。"
+    },
+    {
+      "id": "PD-5",
+      "decision": "Ports タブの conditional は従来通り KindIncusContainer ゲートのまま。host runtime は既存 portman 案内 notice を表示し本機能は出さない。",
+      "rationale": "AC-1-4 を直接満たす。provider.Conditional() / isIncus() は無改造 (priority_rule 2 タブ間対称性 — Ports タブ専用の特殊分岐を増やさない)。"
+    },
+    {
+      "id": "PD-6",
+      "decision": "gui-spec: Story を gui type と判定。entry point は SPA の Ports タブ (real-browser Playwright)。no-public-domain 条件は dev インスタンスを --public-domain 無しで起動して再現。proxy device 実機 smoke は deploy VM の incus で別途実施。",
+      "rationale": "test-discipline Rule 2/4 — GUI surface は real browser で観測。Rule 7 — proxy device 実機検証は本番モード (deploy VM の real incus) で行う。"
+    }
+  ],
+  "implementation_decisions": [
+    {
+      "id": "ID-1",
+      "decision": "host-port の expose/unexpose は新規メソッド ExposePortHost/UnexposePortHost (internal/runtime/incus/hostport.go) として実装し、内部で既存 ExposePort(HostPort>0) / UnexposePort を呼ぶ。proxy device add/remove のコマンド生成は既存コードに委譲。",
+      "rationale": "既存資産活用 (priority_rule 6)。proxy device の正しい connect= 先 (container IP) を既存実装が知っている。"
+    },
+    {
+      "id": "ID-2",
+      "decision": "mode 判定は incusRuntime.HostPortMode() (= !pub.enabled()) を portPublisher interface に追加し、store.ExposeWorkspacePort/WorkspacePortsView が host-port vs subdomain を分岐。FE は WorkspacePorts.publicDomainConfigured で UI を切替。",
+      "rationale": "PD-1。環境レベル either/or を 1 つの真実 (public domain 設定有無) に集約。FE/BE で同じ判定軸。"
+    },
+    {
+      "id": "ID-3",
+      "decision": "host port 割当は portsMu 下で hostExposed map に予約 → ExposePort を lock 外で実行 → mappingID を書き戻す 2 段階。host port 空き判定は net.Listen probe (hostPortListenProbe、テストで差替可能)。",
+      "rationale": "incus exec を lock 保持中に走らせない (デッドロック/長時間ロック回避)。portman 非依存で空き確認 (S18d013 で portman 削除済)。"
+    },
+    {
+      "id": "ID-4",
+      "decision": "exposeResponse に hostPublished/hostPort/hostUrl を追加し、host-port モード時は PortsView を読み戻して埋める。publicUrl は host-port モードでは空にする。",
+      "rationale": "FE の optimistic update に再割当後の hostPort を即反映 (UI 即時フィードバック、ui_ux 楽観的更新)。"
+    },
+    {
+      "id": "ID-5",
+      "decision": "FE の Ports タブは HostPortRow を新設し、publicDomainConfigured=false の incus のときだけ描画。ports-mode-hostport-notice banner + per-row ⚠無認証 warning + realloc badge + host URL/copy。conditional (KindIncusContainer) と host-notice は無改造。",
+      "rationale": "PD-5 / AC-1-4。承認済みプロトタイプの data-testid に完全準拠 (ports-mode-hostport-notice / ports-hostport-toggle-{port} / ports-hostport-url-{port} / ports-noauth-warning-{port} / ports-hostport-copy-{port} / ports-hostport-realloc-{port})。"
+    }
+  ],
+  "review_decisions": [
+    {
+      "id": "RV-1",
+      "finding": "CRITICAL — 10s scan loop (sync_worktree.go) published branch.portsChanged WITHOUT publicDomainConfigured/hostIP. FE replaces (not merges) the branchPorts slice per event, so host-port mode (+ the mandated ⚠無認証 warning) flipped OFF ~10s after the tab opened.",
+      "resolution": "Extracted the payload build into a single shared helper store.PortsChangedPayload(kind, pv) used by BOTH emit sites (publishPortsChanged + scanPorts). portViewer is now a type alias of PortViewProvider so the scan loop carries HostPortMode()/HostIP(). Added ports_payload_test.go regression test. Root cause (two divergent emit sites) eliminated, not patched. (altitude: generalized the mechanism)"
+    },
+    {
+      "id": "RV-2",
+      "finding": "MEDIUM — race: a concurrent UnexposePortHost during an in-flight ExposePortHost (mappingID still empty) was dropped (st.mappingID != \"\" guard), leaking an unauthenticated proxy device contrary to user intent.",
+      "resolution": "Added a per-container-port mutex (hostOpLock) serialising ExposePortHost/UnexposePortHost for the same port. Verified with -race."
+    },
+    {
+      "id": "RV-3",
+      "finding": "MEDIUM — handler expose readback used PortsView() which only iterated scanned lastPorts; a just-exposed unscanned port returned zero host fields (Go non-pointer zero values, FE ?? guard doesn't catch), marking a successful expose as unpublished.",
+      "resolution": "PortsView() now also synthesises exposed-but-unscanned ports (subdomain + host-port) so the readback + WS event reflect a fresh expose immediately."
+    },
+    {
+      "id": "RV-4",
+      "finding": "LOW/cleanup — unpublishAllHost was dead code (comment claimed 'Called on Stop' but wasn't); Stop relied solely on incus delete --force for device teardown.",
+      "resolution": "Wired unpublishAllHost into Stop() (defense-in-depth, mirrors subdomain unpublishAll) before the activeMappings reset so mapping lookups still resolve; removed the now-redundant inline hostExposed reset."
+    },
+    {
+      "id": "RV-5",
+      "finding": "LOW — FE resp.hostPort ?? port could mask a real reassignment if readback failed.",
+      "resolution": "Made moot by RV-3 (backend now always returns the real reassigned hostPort); the ?? fallback remains only as a last-resort default."
+    }
+  ],
+  "real_machine_smoke": {
+    "vm": "palmux-deploy-test.tjstkm.net (192.168.1.43)",
+    "mode": "production — real incus, no MOCK/fake (test-discipline Rule 7)",
+    "note": "VM は旧 palmux2-sa53137 override binary 稼働中。新 host-port REST/UI バイナリは未デプロイ (running deployment を壊さない方針)。proxy-device capability layer (AC-1-1/1-2 の load-bearing 機構) を real incus に対して直接検証。",
+    "result": "PASS",
+    "evidence": "container lxc-incus-c18d-incus-5523-9d493c60 (ip 10.146.187.17) で python3 -m http.server 5174 を起動 → incus config device add proxy listen=tcp:0.0.0.0:5174 connect=tcp:10.146.187.17:5174 → http://127.0.0.1:5174 HTTP=200 + http://192.168.1.43:5174 (host LAN IP) HTTP=200 (外部到達) → device remove → GONE → HTTP=000 (refused)。connect 先が container IP であること (PD-2: 127.0.0.1 不可) を実機で確認。ephemeral device は cleanup 済、deployment 無改変。"
+  },
+  "done_judgment": {
+    "S4c591a-1": {
+      "guard1_user_review_required_not_done": "pass",
+      "guard2_nil_injection_mock": "pass",
+      "guard3_mock_mode_not_real_smoke": "pass",
+      "guard4_priority_rule_9_exception_valid": "n/a",
+      "guard5_call_path_grep": "pass",
+      "guard6_deferred_comment_clean": "pass",
+      "guard7_adr_conformance": "n/a",
+      "guard8_destructive_multi_version_test": "n/a",
+      "overall": "ok",
+      "notes": "Guard8 n/a: palmux2 にバージョン管理オブジェクトストア無し (Hydra data-path 規約は非該当)。internal/server/ は touch せず (handler は internal/tab/ports/)。実機 smoke は production mode (real incus) で PASS。in-palmux REST/UI 経路は dev インスタンス + real backend の mock E2E (6/6 PASS) で観測。"
+    }
+  },
+  "guard8_rationale": "n/a — touches internal/server/ (handler wiring) but this is not a Hydra data-path project; the data-path destructive multi-version rule (Guard 8) targets the storage-core/proxy-fuse object store, which does not exist in palmux2. palmux2 has no versioned object store. Recorded per sprint-done-judgment Guard 8 exception clause."
+}

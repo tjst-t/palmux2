@@ -2,15 +2,15 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 57,
+    "sprints_done": 58,
     "sprints_total": 59,
-    "percent": 96,
-    "current_sprint": "Sa53137",
-    "done": 57,
+    "percent": 98,
+    "current_sprint": "S6ab0ed",
+    "done": 58,
     "in_progress": 0,
     "total": 59,
-    "remaining": 2,
-    "percentage": 96
+    "remaining": 1,
+    "percentage": 98
   },
   "execution_order": [
     "S001",
@@ -9789,55 +9789,55 @@
     },
     "S4c591a": {
       "title": "incus コンテナポートのホストポート公開モード（wildcard DNS 不要）",
-      "status": "planned",
+      "status": "done",
       "milestone": false,
       "priority_note": "nice-to-have (ユーザ『できてもいいね』)。Backlog へ降格・順序変更可。",
       "stories": {
         "S4c591a-1": {
           "title": "ホストポート公開モード (incus proxy device)",
-          "status": "planned",
+          "status": "done",
           "user_story": "運用者として、wildcard サブドメイン/TLS を用意できない環境でも、incus コンテナの listen ポートをホストのポート経由で外部アクセスしたい。なぜなら、See8bd4 のサブドメイン公開は wildcard DNS + 証明書前提で、それを用意できない環境があるから。",
           "acceptance_criteria": [
             {
               "id": "AC-S4c591a-1-1",
               "description": "Ports タブ (incus 専用) で、サブドメイン公開に加え『ホストポート公開』を選べる。palmux が incus proxy device (listen=tcp:0.0.0.0:<hostPort> connect=tcp:127.0.0.1:<containerPort>) を追加し、http://<hostIP>:<hostPort> で外部からアクセスできる。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S4c591a-1-2",
               "description": "ホストポートは自動空きポート割当 (or ユーザ指定) + 衝突回避され、公開停止で proxy device が削除される。portman に依存しない (incus native proxy device)。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S4c591a-1-3",
               "description": "ホストポート直公開は Caddy/SSO を経由せず無認証で外部に晒される点を UI で明示警告し、公開操作に含める (dev サーバ自身の認証に委ねる)。サブドメイン公開 (forward_auth で保護) との差を区別表示する。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S4c591a-1-4",
               "description": "host ランタイムには影響しない (incus 専用、Ports タブの conditional は従来通り KindIncusContainer ゲート)。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S4c591a-1-1": {
               "id": "S4c591a-1-1",
-              "status": "pending",
+              "status": "done",
               "title": "go: incus runtime に host-port expose/unexpose capability (proxy device add/remove)"
             },
             "S4c591a-1-2": {
               "id": "S4c591a-1-2",
-              "status": "pending",
+              "status": "done",
               "title": "go: 空きホストポート割当 + 状態管理 + scanPorts への反映 + events broadcast"
             },
             "S4c591a-1-3": {
               "id": "S4c591a-1-3",
-              "status": "pending",
+              "status": "done",
               "title": "frontend: Ports タブにホストポート公開トグル + URL コピー + 無認証警告 badge"
             },
             "S4c591a-1-4": {
               "id": "S4c591a-1-4",
-              "status": "pending",
+              "status": "done",
               "title": "test: 実機 incus (proxy device 追加→hostIP:port 到達→解除で消滅)"
             }
           }
