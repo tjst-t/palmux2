@@ -5,7 +5,7 @@
     "sprints_done": 58,
     "sprints_total": 59,
     "percent": 98,
-    "current_sprint": "S6ab0ed",
+    "current_sprint": "S4c591a",
     "done": 58,
     "in_progress": 0,
     "total": 59,
@@ -9801,22 +9801,22 @@
             {
               "id": "AC-S4c591a-1-1",
               "description": "Ports タブ (incus 専用) で、サブドメイン公開に加え『ホストポート公開』を選べる。palmux が incus proxy device (listen=tcp:0.0.0.0:<hostPort> connect=tcp:127.0.0.1:<containerPort>) を追加し、http://<hostIP>:<hostPort> で外部からアクセスできる。",
-              "status": "pass"
+              "status": "passing"
             },
             {
               "id": "AC-S4c591a-1-2",
               "description": "ホストポートは自動空きポート割当 (or ユーザ指定) + 衝突回避され、公開停止で proxy device が削除される。portman に依存しない (incus native proxy device)。",
-              "status": "pass"
+              "status": "passing"
             },
             {
               "id": "AC-S4c591a-1-3",
               "description": "ホストポート直公開は Caddy/SSO を経由せず無認証で外部に晒される点を UI で明示警告し、公開操作に含める (dev サーバ自身の認証に委ねる)。サブドメイン公開 (forward_auth で保護) との差を区別表示する。",
-              "status": "pass"
+              "status": "passing"
             },
             {
               "id": "AC-S4c591a-1-4",
               "description": "host ランタイムには影響しない (incus 専用、Ports タブの conditional は従来通り KindIncusContainer ゲート)。",
-              "status": "pass"
+              "status": "passing"
             }
           ],
           "tasks": {
