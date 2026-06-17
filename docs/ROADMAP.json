@@ -9479,202 +9479,202 @@
     },
     "Sa53137": {
       "title": "統一設定プレーン — マスター設定ファイル + GUI + apply",
-      "status": "planned",
+      "status": "done",
       "milestone": true,
       "design_doc": "docs/unified-config-design.md",
       "stories": {
         "Sa53137-1": {
           "title": "アプリ設定の GUI 全フィールド化 + settings.json file-watch",
-          "status": "planned",
+          "status": "done",
           "user_story": "運用者として、settings.json を GUI で全フィールド編集でき、ディスク直接編集も即時反映されるようにしたい。なぜなら、現状は palette.userCommands しか GUI が無く他は手編集＋再起動が要って不便だから。",
           "acceptance_criteria": [
             {
               "id": "AC-Sa53137-1-1",
               "description": "設定パネルで Settings の全フィールド (maxClaudeTabsPerBranch, maxBashTabsPerBranch, previewMaxBytes, branchSortOrder, attachmentUploadDir/TtlDays, readPreviewLineCount, subagentStaleAfterDays, autoWorktreePathPatterns, claude.default_mode, defaultRuntime) を閲覧・編集・保存でき、PATCH /api/settings で即時反映 + WS settings.updated で全クライアント同期される。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sa53137-1-2",
               "description": "settings.json をディスクで直接編集すると fsnotify watch が検知し、再ロード + WS broadcast され、再起動なしで反映される (バリデーション不正時は前値維持 + ログ)。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sa53137-1-3",
               "description": "バリデーションエラー (不正な claude.default_mode / defaultRuntime.kind / userCommand) は GUI に 400 とエラー文言を表示し、保存が拒否される。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "Sa53137-1-1": {
               "id": "Sa53137-1-1",
-              "status": "pending",
+              "status": "done",
               "title": "frontend: 設定パネル (アプリタブ) を Settings 全フィールド対応に拡張 (既存 user-commands-modal を内包/再構成)"
             },
             "Sa53137-1-2": {
               "id": "Sa53137-1-2",
-              "status": "pending",
+              "status": "done",
               "title": "backend: SettingsStore に fsnotify watch を足し、変更検知→reload→Hub.Publish(settings.updated) (既存 worktreewatch / claudetui sessions の watcher パターン流用)"
             },
             "Sa53137-1-3": {
               "id": "Sa53137-1-3",
-              "status": "pending",
+              "status": "done",
               "title": "GUI/E2E test: 全フィールド編集→即時反映、ディスク直接編集→watch 反映、バリデーションエラー表示"
             }
           }
         },
         "Sa53137-2": {
           "title": "マスター config.toml + user所有 secrets + 解決チェーン (Phase 2 + 4a)",
-          "status": "planned",
+          "status": "needs_user_review",
           "user_story": "運用者として、palmux のサーバ設定と秘密を単一マスター (config.toml + user所有 secrets.env) に集約し source of truth にしたい。なぜなら、現状 runtime.env / flake.nix / install.sh 引数 / CLI フラグの5箇所に散らばり、変更に home-manager switch が要って重いから。",
           "acceptance_criteria": [
             {
               "id": "AC-Sa53137-2-1",
               "description": "palmux は起動時に ~/.config/palmux/config.toml ([server]/[public]) と ~/.config/palmux/secrets.env をロードし、優先順 flag > env > file > default で解決する (既存フラグ動作は不変、dev のフラグ上書きは温存)。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sa53137-2-2",
               "description": "秘密 (PALMUX_SSO_SECRET, BASIC_AUTH_HASH, token) を root所有 /etc/palmux/runtime.env から user所有 ~/.config/palmux/secrets.env (0600) に移し、palmux が読み書きできる。SSO ログイン / forward_auth /auth/verify / per-port route 注入は従来通り機能する。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sa53137-2-3",
               "description": "install.sh は runtime.env + flake 属性のバラ撒きをやめ config.toml + secrets.env を生成し、systemd ExecStart を `palmux2 serve` (config駆動) にする。Nix module は binary + unit + config dir 用意までに薄化。bare install.sh (引数なし) で従来同等の公開デプロイ (SSO/公開サブドメイン) が成立する。",
-              "status": "pending"
+              "status": "manual_smoke"
             },
             {
               "id": "AC-Sa53137-2-4",
               "description": "設定変更 (認証パスワード/SSO秘密/addr/token/ドメイン値/認証ON-OFF) が `systemctl --user restart palmux2` だけで反映され、sudo も home-manager switch も要しない。",
-              "status": "pending"
+              "status": "manual_smoke"
             }
           ],
           "tasks": {
             "Sa53137-2-1": {
               "id": "Sa53137-2-1",
-              "status": "pending",
+              "status": "done",
               "title": "internal/config: LoadServerConfig(dir) を追加し config.toml/secrets.env をパース (TOML 採用)、ServerConfig 構造体 + defaults"
             },
             "Sa53137-2-2": {
               "id": "Sa53137-2-2",
-              "status": "pending",
+              "status": "done",
               "title": "cmd/palmux/main.go: flag 解決前に master をロードし優先順 flag>env>file>default を実装 (--public-domain/BASIC_AUTH_*/SSO の env-only を file 経由に統合)"
             },
             "Sa53137-2-3": {
               "id": "Sa53137-2-3",
-              "status": "pending",
+              "status": "done",
               "title": "secrets を user所有 ~/.config/palmux/secrets.env (0600) へ移行、SSO/auth が新パスを読むよう配線、後方互換 (旧 runtime.env からの一回 migration)"
             },
             "Sa53137-2-4": {
               "id": "Sa53137-2-4",
-              "status": "pending",
+              "status": "done",
               "title": "scripts/install.sh: config.toml + secrets.env 生成に切替、ExecStart serve 化、nix/modules/home-manager-palmux.nix を薄化"
             },
             "Sa53137-2-5": {
               "id": "Sa53137-2-5",
-              "status": "pending",
+              "status": "done",
               "title": "acceptance test (実機: bare install 相当で SSO/公開サブドメイン成立、設定変更が user restart だけで反映)"
             }
           }
         },
         "Sa53137-3": {
           "title": "palmux apply (差分分類 → hot/restart) + GUI デプロイタブ (Phase 3)",
-          "status": "planned",
+          "status": "done",
           "user_story": "運用者として、設定ファイルを編集して palmux apply を打つ (or GUI のデプロイタブで保存する) と、変更内容に応じて hot 反映かプロセス再起動が自動で選ばれて反映されるようにしたい。なぜなら、どの設定が再起動を要するか手で判断したくないから。",
           "acceptance_criteria": [
             {
               "id": "AC-Sa53137-3-1",
               "description": "`palmux apply` が master を再読込し差分を分類 (hot / restart / root) し、hot は in-process 適用、restart 必須 (addr/base_path/token/tmux_prefix/sso_secret/max_connections) は `systemctl --user restart palmux2` を発火する。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sa53137-3-2",
               "description": "GUI に「デプロイ」タブが追加され、server/public セクションを編集・保存でき、restart 必須フィールドには「要再起動 — Apply」バッジが出る。secrets はマスク表示で値を返さず、更新は write-only 経路。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sa53137-3-3",
               "description": "root を要する変更 (ベースドメイン/TLS/Cloudflare token) は apply が「要特権操作」と判定し、GUI/CLI に明示して Story 4 の経路へ誘導する。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sa53137-3-4",
               "description": "初回起動オンボーディング: 未設定状態 (master が install.sh 未生成 or 既定のまま) を検知し、GUI でガイド付き初回設定フロー (app/server 設定 → 公開ドメイン/認証) を提示する。公開ドメイン/TLS の確定は Story 4 の特権操作 (reconcile / install.sh) に誘導する。install.sh パラメータで既に設定済みならウィザードは出さない (or 確認のみ)。これにより install.sh パラメータ方式と GUI 初回設定方式のどちらでも同じ master に到達できる。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "Sa53137-3-1": {
               "id": "Sa53137-3-1",
-              "status": "pending",
+              "status": "done",
               "title": "internal/config: 差分分類器 (各フィールド→hot/restart/root) を定義し ServerConfig の delta を classify"
             },
             "Sa53137-3-2": {
               "id": "Sa53137-3-2",
-              "status": "pending",
+              "status": "done",
               "title": "cmd/palmux: `palmux apply` サブコマンド (master 再読込→分類→hot in-process / `systemctl --user restart palmux2`)"
             },
             "Sa53137-3-3": {
               "id": "Sa53137-3-3",
-              "status": "pending",
+              "status": "done",
               "title": "backend: hot-apply 経路 (public_domain ルート default / basic-auth per-port default / claude_bin の provider refresh) + write-only secrets endpoint"
             },
             "Sa53137-3-4": {
               "id": "Sa53137-3-4",
-              "status": "pending",
+              "status": "done",
               "title": "frontend: 設定パネルに「デプロイ」タブ (server/public 編集、要再起動バッジ、secrets マスク、Apply ボタン)"
             },
             "Sa53137-3-5": {
               "id": "Sa53137-3-5",
-              "status": "pending",
+              "status": "done",
               "title": "GUI/E2E + acceptance test (hot 変更→無停止反映、restart 変更→restart 発火、root 変更→誘導表示)"
             },
             "Sa53137-3-6": {
               "id": "Sa53137-3-6",
-              "status": "pending",
+              "status": "done",
               "title": "frontend: 初回起動オンボーディング (未設定検知 → ガイド付きセットアップ、公開ドメインは Story 4 経路へ誘導、設定済みなら非表示)"
             }
           }
         },
         "Sa53137-4": {
           "title": "ベースドメイン/TLS の特権 reconcile (Phase 4b)",
-          "status": "planned",
+          "status": "needs_user_review",
           "user_story": "運用者として、稀なベースドメイン/TLS 変更も、許可された単一の特権操作で安全に反映できるようにしたい。なぜなら、それだけは root 所有の Caddy 設定の書き換えが要るが、任意コマンド実行の穴は開けたくないから。",
           "acceptance_criteria": [
             {
               "id": "AC-Sa53137-4-1",
               "description": "MVP として、ベースドメイン/TLS/Cloudflare token 変更は install.sh 再実行で反映でき、その手順が apply/GUI から案内される。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sa53137-4-2",
               "description": "便利版として、`sudo palmux reconcile-system` 単一 verb が user所有 master を読み、domain を hostname 厳格バリデーションした上で /etc/caddy/Caddyfile を固定テンプレ再レンダ + Caddy向け env 更新 + `systemctl reload caddy` する。sudoers は当該 verb のみ NOPASSWD で許可し、任意コマンド/パスは受けない。",
-              "status": "pending"
+              "status": "manual_smoke"
             },
             {
               "id": "AC-Sa53137-4-3",
               "description": "master を信頼しない入力として扱い、不正な domain や Caddy ディレクティブ注入を試みる値は reconcile が拒否する (テンプレ注入が起きない)。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "Sa53137-4-1": {
               "id": "Sa53137-4-1",
-              "status": "pending",
+              "status": "done",
               "title": "apply/GUI: root 必須変更を検知したら install.sh 再実行手順を案内 (MVP 経路)"
             },
             "Sa53137-4-2": {
               "id": "Sa53137-4-2",
-              "status": "pending",
+              "status": "done",
               "title": "cmd/palmux: `reconcile-system` 単一 verb (master 読み→domain 厳格バリデーション→/etc/caddy/Caddyfile 固定テンプレ再レンダ→reload caddy)、任意入力なし"
             },
             "Sa53137-4-3": {
               "id": "Sa53137-4-3",
-              "status": "pending",
+              "status": "done",
               "title": "install.sh: reconcile-system 用 sudoers 当該verb限定 NOPASSWD drop-in を設置"
             },
             "Sa53137-4-4": {
               "id": "Sa53137-4-4",
-              "status": "pending",
+              "status": "done",
               "title": "acceptance test (実機: domain 変更→reconcile→Caddy 反映、注入値拒否、PORTMAN_ROUTING caddy.json 経路の basic_auth caveat 確認)"
             }
           }

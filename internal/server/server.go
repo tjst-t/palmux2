@@ -15,6 +15,7 @@ import (
 
 	"github.com/tjst-t/palmux2/internal/auth"
 	"github.com/tjst-t/palmux2/internal/commands"
+	"github.com/tjst-t/palmux2/internal/deploy"
 	"github.com/tjst-t/palmux2/internal/notify"
 	"github.com/tjst-t/palmux2/internal/store"
 	"github.com/tjst-t/palmux2/internal/tmux"
@@ -28,6 +29,8 @@ type Deps struct {
 	Tmux         tmux.Client
 	Commands     *commands.Detector
 	Notify       *notify.Hub
+	Deploy       *deploy.Controller // Sa53137: unified-config deploy plane (nil = endpoints 503)
+	DeployConfigDir string          // config dir holding config.toml (for CLI-driven file-edit apply)
 	FrontendFS   fs.FS // embedded SPA bundle
 	StaticFS     fs.FS // embedded third-party assets (e.g. drawio webapp); served at /static/* (S010)
 	BasePath     string
@@ -91,11 +94,13 @@ func NewMux(deps Deps) *http.ServeMux {
 // add their handlers in their own files but use the same mux.
 func registerRoutes(mux *http.ServeMux, deps Deps) {
 	h := &handlers{
-		store:        deps.Store,
-		logger:       deps.Logger,
-		healthDetail: deps.HealthDetail,
-		commands:     deps.Commands,
-		notify:       deps.Notify,
+		store:           deps.Store,
+		logger:          deps.Logger,
+		healthDetail:    deps.HealthDetail,
+		commands:        deps.Commands,
+		notify:          deps.Notify,
+		deploy:          deps.Deploy,
+		deployConfigDir: deps.DeployConfigDir,
 	}
 
 	mux.HandleFunc("GET /api/health", h.health)
@@ -162,6 +167,11 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("GET /api/settings", h.getSettings)
 	mux.HandleFunc("PATCH /api/settings", h.patchSettings)
 
+	// Sa53137: unified-config deploy plane.
+	mux.HandleFunc("GET /api/deploy", h.getDeploy)
+	mux.HandleFunc("POST /api/deploy/apply", h.postDeployApply)
+	mux.HandleFunc("POST /api/deploy/secrets", h.postDeploySecrets)
+
 	mux.HandleFunc("GET /api/connections", h.connections)
 	mux.HandleFunc("GET /api/orphan-sessions", h.orphanSessions)
 
@@ -182,11 +192,13 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 
 // handlers groups every handler that needs Store access.
 type handlers struct {
-	store        *store.Store
-	logger       *slog.Logger
-	healthDetail map[string]any
-	commands     *commands.Detector
-	notify       *notify.Hub
+	store           *store.Store
+	logger          *slog.Logger
+	healthDetail    map[string]any
+	commands        *commands.Detector
+	notify          *notify.Hub
+	deploy          *deploy.Controller // Sa53137 (nil → deploy endpoints 503)
+	deployConfigDir string
 }
 
 // helpers ────────────────────────────────────────────────────────────────────

@@ -240,3 +240,53 @@ export const portsApi = {
       `/api/repos/${encodeURIComponent(repoId)}/branches/${encodeURIComponent(branchId)}/ports/${port}/expose`,
     ),
 }
+
+// Sa53137: Deploy config types ─────────────────────────────────────────────────
+
+/** Response shape for GET /api/deploy */
+export interface DeployView {
+  server: {
+    addr: string
+    base_path: string
+    max_connections: number
+    tmux_prefix: string
+    caddy_admin: string
+    claude_bin: string
+    claude_args: string
+  }
+  public: {
+    domain: string
+    basic_auth_user: string
+  }
+  secrets: {
+    hasSsoSecret: boolean
+    hasBasicAuthHash: boolean
+    hasToken: boolean
+    hasCloudflareToken: boolean
+  }
+  configured: boolean
+}
+
+/** Response shape for POST /api/deploy/apply */
+export interface ApplyResult {
+  changes: Array<{ field: string; class: 'hot' | 'restart' | 'root' }>
+  hotApplied: boolean
+  needRestart: boolean
+  needPrivilege: boolean
+  message: string
+}
+
+export const deployApi = {
+  get: (): Promise<DeployView> => api.get<DeployView>('/api/deploy'),
+  apply: (body: {
+    server?: Partial<DeployView['server']>
+    public?: Partial<DeployView['public']>
+    dryRun?: boolean
+  }): Promise<ApplyResult> => api.post<ApplyResult>('/api/deploy/apply', body),
+  rotateSecrets: (body: {
+    ssoSecret?: string
+    password?: string
+    token?: string
+  }): Promise<{ ok: boolean; needRestart: boolean; message: string }> =>
+    api.post('/api/deploy/secrets', body),
+}

@@ -120,10 +120,20 @@ export interface GlobalSettings {
   /** S017: number of leading lines of a Read tool result rendered
    *  before the "Show all (X lines)" toggle is offered (default 50). */
   readPreviewLineCount?: number
+  /** S021: age threshold (days) for the subagent-cleanup Drawer action. */
+  subagentStaleAfterDays?: number
   toolbar?: Partial<ToolbarConfig>
   /** S032: palette-specific settings (user-defined commands etc.) */
   palette?: {
     userCommands?: UserCommand[]
+  }
+  /** S1f75ec-2: global claude tab settings (default mode for new branches). */
+  claude?: {
+    default_mode?: 'agent' | 'tui'
+  }
+  /** S8478ca-3: global default runtime applied when no per-WS/per-repo override. */
+  defaultRuntime?: {
+    kind?: 'host' | 'incus-container'
   }
 }
 

@@ -1,0 +1,108 @@
+{
+  "sprint": "Sa53137",
+  "title": "統一設定プレーン — マスター設定ファイル + GUI + apply",
+  "branch": "autopilot/main/Sa53137",
+  "base_sha": "cafaa2668f77c5add0e6a2260a9006e6b3530914",
+  "planning_decisions": [
+    {
+      "id": "PD-1",
+      "decision": "TOML library = github.com/BurntSushi/toml v1.5.0",
+      "rationale": "DESIGN_PRINCIPLES priority_rule 6 (既存資産活用 > 新規実装). Mature, std-lib-shaped Marshal/Unmarshal, no transitive deps. design doc §1 specifies config.toml. Chosen over pelletier/go-toml/v2 for smaller surface and zero extra deps."
+    },
+    {
+      "id": "PD-2",
+      "decision": "Execute stories sequentially (2 underpins 3 and 4), not parallel worktrees",
+      "rationale": "Strong data dependency: Story 2 introduces ServerConfig/config.toml/secrets.env which Story 3 (apply, diff classify) and Story 4 (reconcile reads master) build directly on. Parallel worktrees would thrash the same new internal/config files. Story 1 is independent (settings.json system A) but small enough to fold in first."
+    },
+    {
+      "id": "PD-3",
+      "decision": "`palmux2 serve` subcommand: when argv[1]=='serve' OR no subcommand matched, run the server. Bare `palmux2 --addr=...` stays working.",
+      "rationale": "Critical caution: must not break running deploy VM (which invokes `palmux2-see8bd4 --addr=...`). Mirror existing hook/runtime dispatch in main.go: intercept known subcommands (hook, runtime, apply, reconcile-system, serve) before pflag.Parse; everything else falls through to the server as today. `serve` is accepted+stripped so install.sh ExecStart can use it."
+    },
+    {
+      "id": "PD-4",
+      "decision": "Story 4 privilege model: ship BOTH MVP (install.sh re-run guidance) AND the convenience `reconcile-system` verb with a strict fixed-template Caddyfile renderer + hostname validation + sudoers NOPASSWD limited to the single verb.",
+      "rationale": "ROADMAP AC-Sa53137-4-2/4-3 explicitly require the convenience verb and injection rejection. design doc §特権境界 4b sanctions it with security constraints (verb-limited sudoers, fixed template, no directive injection, untrusted-input domain validation). The orchestrator prompt allows shipping it IF the privilege model is unambiguous — it is: typed config only, no free-form commands/paths, strict RFC1123 hostname regex, template has zero interpolation points other than the validated domain + token-env reference. If real-machine reconcile cannot be safely smoke-tested non-destructively, that AC is surfaced as MANUAL SMOKE at milestone (priority_rule 0), NOT silently shipped."
+    },
+    {
+      "id": "PD-5",
+      "decision": "secrets.env migration: one-time copy from root-owned /etc/palmux/runtime.env → user-owned ~/.config/palmux/secrets.env (0600) at startup when secrets.env absent and runtime.env readable.",
+      "rationale": "AC-Sa53137-2-3 + design doc §4a. Backward compat: existing deploy VM keeps working; the env-var path (os.Getenv) remains as a fallback layer in the resolution chain so a systemd EnvironmentFile=runtime.env still feeds values until install.sh is re-run."
+    },
+    {
+      "id": "PD-6",
+      "decision": "Resolution chain precedence flag > env > config.toml/secrets.env > default; secrets resolve env > secrets.env (env wins for back-compat with running systemd EnvironmentFile).",
+      "rationale": "AC-Sa53137-2-1. design doc §2. Keeping env above file for secrets means the live deploy VM (systemd EnvironmentFile=runtime.env) is not regressed even before migration runs."
+    },
+    {
+      "id": "PD-7",
+      "decision": "GUI settings panel implemented as a modal (mounted from ⌘K command palette, reusing existing open mechanism) with two tabs (アプリ / デプロイ) + a separate first-launch onboarding wizard overlay. Uses project CSS Modules, not prototype's sa53137.css.",
+      "rationale": "Prototype is visual source of truth (match data-testid exactly). Existing settings UI (user-commands-modal) is already opened from the palette — priority_rule 6 reuse. CSS Modules per coding_conventions; prototype css is reference-only per orchestrator instructions."
+    },
+    {
+      "id": "PD-8",
+      "decision": "settings.json file-watch reuses the SessionWatcher dir-watch + basename-filter pattern (watch ~/.config/palmux dir, filter settings.json), debounced ~400ms, reload under mu, Hub.Publish(EventSettings).",
+      "rationale": "AC-Sa53137-1-2. priority_rule 6. SettingsStore.save() does atomic WriteFile(tmp)+Rename, so watching the parent dir + filtering basename is robust against the rename (same reasoning the explore agent surfaced). Invalid file on reload → keep previous value + slog.Warn (AC requires 前値維持 + ログ)."
+    }
+  ],
+  "implementation_decisions": [
+    {
+      "id": "ID-1",
+      "decision": "server/public config JSON tags added (snake_case) matching TOML keys",
+      "rationale": "Caught by real-HTTP E2E: without json tags the GUI saw PascalCase (Addr) and apply rejected snake_case body. priority_rule (明示的>暗黙的) + API compat."
+    },
+    {
+      "id": "ID-2",
+      "decision": "GET /api/deploy overlays on-disk master over the running snapshot",
+      "rationale": "Caught by E2E: a domain set via onboarding (root-class, not yet reconciled) must still be visible in the GUI as the saved value. The file is the editable source of truth; running snapshot fills empty fields."
+    },
+    {
+      "id": "ID-3",
+      "decision": "isConfigured heuristic = MasterExists(dir) OR public.domain!='' (NOT server.addr)",
+      "rationale": "Caught by E2E: addr always resolves to a non-empty default, so an addr-based check would make every install look configured and never show the onboarding wizard (AC-3-4)."
+    },
+    {
+      "id": "ID-4",
+      "decision": "settings/deploy palette commands moved to an always-available globalCommands list (not gated on activeRepo/activeBranch)",
+      "rationale": "Caught by E2E: builtinCommands return [] with no repo open, so settings were unreachable on a fresh install — exactly the onboarding case. Settings is a global concern."
+    },
+    {
+      "id": "ID-5",
+      "decision": "Stable EMPTY_USER_COMMANDS const in the settings selector",
+      "rationale": "Caught by real-browser E2E: a fresh [] in the Zustand selector each render caused React error #185 (infinite re-render loop) — Object.is equality treated every render as a change. priority_rule 10 (don't ship broken UI)."
+    },
+    {
+      "id": "ID-6",
+      "decision": "Hot-apply only swaps claude_bin/args + caddy_admin for FUTURE spawns/routes; existing daemons keep their binary until respawn",
+      "rationale": "design doc §パラメータ分類 hot scope; minimal manager setters under existing mutex (priority_rule 6). public.domain is root-class (reconcile), not the design's optimistic 'hot route default' — safer and matches the privilege boundary."
+    }
+  ],
+  "review_decisions": [
+    {
+      "id": "RD-1",
+      "decision": "Fixed: basic_auth_user (restart-class) no longer advances the applied snapshot + removed dead applyHotLocked case",
+      "rationale": "code-review CONFIRMED: caused second-apply 'no changes' that hid a pending restart. Regression test TestSaveAndClassify_RestartFieldNotPrematurelyAdvanced added."
+    },
+    {
+      "id": "RD-2",
+      "decision": "Fixed: settings watcher dedups (skip publish when disk==memory) to prevent double WS event on PATCH",
+      "rationale": "code-review CONFIRMED: PATCH published once, watcher republished ~400ms later. Verified 1 event/PATCH + 1/disk-edit via real WS client."
+    },
+    {
+      "id": "RD-3",
+      "decision": "Fixed: settings-watcher timer.Reset now drains the channel first",
+      "rationale": "code-review CONFIRMED Go timer pitfall (stale tick fires early). Reused single timer + Stop+drain pattern."
+    },
+    {
+      "id": "RD-4",
+      "decision": "Deferred (non-bug / out-of-scope for single-user): pickInt zero-value (flag default also 0), CurrentView RLock+IO TOCTOU, save() error path leak",
+      "rationale": "VISION out_of_scope = single-user self-hosted; no concurrent operators race on /api/deploy. pickInt 0 is preserved because the flag default is 0. Logged for transparency, not shipped as risk."
+    }
+  ],
+  "done_judgment": {
+    "Sa53137-1": "ok (done)",
+    "Sa53137-3": "ok (done)",
+    "Sa53137-2": "needs_user_review (AC-2-3/2-4 install.sh+restart MANUAL SMOKE on live deploy VM pending)",
+    "Sa53137-4": "needs_user_review (AC-4-2 privileged reconcile overwriting live Caddyfile MANUAL SMOKE pending; render verified identical to live non-destructively)"
+  }
+}

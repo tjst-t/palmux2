@@ -3,9 +3,13 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
+
+	"github.com/fsnotify/fsnotify"
 
 	"github.com/tjst-t/palmux2/internal/runtime"
 )
@@ -308,6 +312,9 @@ func (s *SettingsStore) Patch(update Settings) (Settings, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if update.BranchSortOrder != "" {
+		if update.BranchSortOrder != "name" && update.BranchSortOrder != "activity" {
+			return Settings{}, fmt.Errorf("config: patch: invalid branchSortOrder %q (must be name or activity)", update.BranchSortOrder)
+		}
 		s.settings.BranchSortOrder = update.BranchSortOrder
 	}
 	if update.LastActiveBranch != "" {
@@ -502,4 +509,140 @@ func (s *SettingsStore) SubagentStaleAfterDays() int {
 		return s.settings.SubagentStaleAfterDays
 	}
 	return DefaultSubagentStaleAfterDays
+}
+
+// Reload re-reads settings.json from disk and replaces the in-memory copy.
+// On parse failure the previous value is preserved (Sa53137-1: 不正時は前値維持)
+// and an error is returned so the caller can log it. On success it returns the
+// freshly loaded Settings. Used by the fsnotify watcher (and could be called
+// by `palmux apply`) so direct disk edits take effect without a restart.
+func (s *SettingsStore) Reload() (Settings, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	prev := s.settings
+	if err := s.load(); err != nil {
+		// load() leaves s.settings untouched on read error, but on a JSON
+		// parse error it returns before assigning, so prev is still intact.
+		s.settings = prev
+		return prev, err
+	}
+	return s.settings, nil
+}
+
+// SettingsWatcher watches the directory containing settings.json with fsnotify
+// and invokes onChange after the file is created/written. It reuses the
+// dir-watch + basename-filter pattern from claudetui.SessionWatcher: because
+// SettingsStore.save() writes a temp file then os.Rename()s it over
+// settings.json, watching the parent directory (not the file directly) and
+// filtering on the basename is the robust way to catch atomic-rename saves
+// done by both palmux itself and external editors.
+type SettingsWatcher struct {
+	fsw       *fsnotify.Watcher
+	dir       string
+	base      string
+	onChange  func(Settings)
+	logger    *slog.Logger
+	store     *SettingsStore
+	done      chan struct{}
+	closeOnce sync.Once
+}
+
+// WatchFile starts an fsnotify watcher on the directory holding settings.json.
+// Whenever the file changes on disk, the store is reloaded and onChange is
+// invoked with the new Settings (skipped when the reload fails validation —
+// previous value is kept and the error is logged). Returns a *SettingsWatcher
+// whose Close() releases the fd.
+func (s *SettingsStore) WatchFile(onChange func(Settings), logger *slog.Logger) (*SettingsWatcher, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	dir := filepath.Dir(s.path)
+	fsw, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, fmt.Errorf("config: settings watcher: %w", err)
+	}
+	if err := fsw.Add(dir); err != nil {
+		fsw.Close()
+		return nil, fmt.Errorf("config: settings watcher add %s: %w", dir, err)
+	}
+	w := &SettingsWatcher{
+		fsw:      fsw,
+		dir:      dir,
+		base:     filepath.Base(s.path),
+		onChange: onChange,
+		logger:   logger,
+		store:    s,
+		done:     make(chan struct{}),
+	}
+	go w.loop()
+	return w, nil
+}
+
+// Close stops the watcher. Idempotent and safe to call concurrently.
+func (w *SettingsWatcher) Close() error {
+	w.closeOnce.Do(func() { close(w.done) })
+	return w.fsw.Close()
+}
+
+func (w *SettingsWatcher) loop() {
+	// Coalesce the write+rename burst that a single save produces into one
+	// reload. 400ms is long enough to swallow editor multi-write saves while
+	// still feeling immediate.
+	const debounce = 400 * time.Millisecond
+	// A single Timer reused across events. Reset is always preceded by a
+	// Stop+drain so a stale tick cannot fire early (the documented Go pitfall).
+	timer := time.NewTimer(debounce)
+	timer.Stop()
+	drain := func() {
+		// Stop returns false when the timer already fired or was stopped; in the
+		// fired case a value may still be buffered in the channel — drain it.
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+	}
+	for {
+		select {
+		case <-w.done:
+			timer.Stop()
+			return
+		case ev, ok := <-w.fsw.Events:
+			if !ok {
+				return
+			}
+			if filepath.Base(ev.Name) != w.base {
+				continue
+			}
+			if ev.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Rename) == 0 {
+				continue
+			}
+			drain()
+			timer.Reset(debounce)
+		case _, ok := <-w.fsw.Errors:
+			if !ok {
+				return
+			}
+		case <-timer.C:
+			// Snapshot the in-memory settings BEFORE reloading. If the on-disk
+			// content matches what memory already held, the change was applied
+			// in-process (a PATCH that already published settings.updated), so
+			// the watcher must NOT publish a duplicate WS event. Only a genuine
+			// external edit (disk != memory) fires onChange.
+			before, beErr := json.Marshal(w.store.Get())
+			updated, err := w.store.Reload()
+			if err != nil {
+				w.logger.Warn("settings reload from disk failed; keeping previous values", "err", err)
+				continue
+			}
+			after, afErr := json.Marshal(updated)
+			if beErr == nil && afErr == nil && string(before) == string(after) {
+				continue // no external change → skip duplicate publish
+			}
+			if w.onChange != nil {
+				w.onChange(updated)
+			}
+		}
+	}
 }
