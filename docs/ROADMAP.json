@@ -9858,22 +9858,22 @@
             {
               "id": "AC-S6ab0ed-1-1",
               "description": "palmux リポジトリ内に宣言的な管理対象マニフェスト (コア=本体 + palmux-ws image、周辺ツール gwq/portman/ghq/Caddy 等は明示されたものだけ) を定義し、各コンポーネントの version source (GitHub repo + tag/asset 取得方法 + installed version の取り方) を持つ。",
-              "status": "passed"
+              "status": "passing"
             },
             {
               "id": "AC-S6ab0ed-1-2",
               "description": "バックエンドが長間隔 (例 6h、GITHUB_TOKEN 対応でレート制限回避) でマニフェスト各コンポーネントの latest を GitHub から取得し、installed (本体=resolveVersion、image=installedImageVersion、ツール=各バイナリ version) と比較して update-available state を算出、WS event で publish する。",
-              "status": "passed"
+              "status": "passing"
             },
             {
               "id": "AC-S6ab0ed-1-3",
               "description": "GUI 右上に「更新あり」バッジ (Activity Inbox / workspace-update-badge の型を流用) + 更新パネルでコンポーネント別 current→latest 一覧を表示する。更新が無いときはバッジ非表示。",
-              "status": "passed"
+              "status": "passing"
             },
             {
               "id": "AC-S6ab0ed-1-4",
               "description": "GitHub 到達不可 / レート制限時は graceful degrade (バッジ非表示・ログのみ、既存 state 維持)。手置き override インストール (Nix 管理外) でも検出表示は出る。",
-              "status": "passed"
+              "status": "passing"
             }
           ],
           "tasks": {
@@ -9907,27 +9907,27 @@
             {
               "id": "AC-S6ab0ed-2-1",
               "description": "更新パネルの「Update all」が Sa53137 の特権基盤 (reconcile / 特権ヘルパー) 経由で update-palmux2.sh 相当 (最新tag解決→flake再pin→home-manager switch、ロールバック付き) を実行し、本体 + palmux-ws image + 宣言ツールを atomic に更新する。image は S7364e3 の regenerate を再利用する。",
-              "status": "passed"
+              "status": "passing"
             },
             {
               "id": "AC-S6ab0ed-2-2",
               "description": "本体バイナリ更新に伴う palmux 自己再起動後、GUI が WS 切断を検知→/health の version を polling→新 version 確認→WS 再接続→「vX に更新しました」トーストを出す (再接続ハンドシェイク)。",
-              "status": "passed"
+              "status": "passing"
             },
             {
               "id": "AC-S6ab0ed-2-3",
               "description": "更新失敗時は home-manager 世代でロールバックされ、GUI にエラーと「旧バージョン維持」を表示する。",
-              "status": "passed"
+              "status": "passing"
             },
             {
               "id": "AC-S6ab0ed-2-4",
               "description": "手置き override インストール (Nix 管理外) では一括実行を試みず、「このインストール形態は手動更新」と明示する (検出は Story 1 で出る)。",
-              "status": "passed"
+              "status": "passing"
             },
             {
               "id": "AC-S6ab0ed-2-5",
               "description": "CLI からも一括更新できる: `palmux update` サブコマンドが GUI の「Update all」と同一の実行経路 (Sa53137 特権ヘルパー経由の update-palmux2.sh 相当 + image regenerate) を共有して非対話で一括更新を実行し、終了コードで成否を返す。`palmux update --check` は検出のみ (更新せずコンポーネント別 current→latest を表示)。Nix 管理外インストールでは手動更新を案内して非ゼロ終了。",
-              "status": "passed"
+              "status": "passing"
             }
           ],
           "tasks": {
