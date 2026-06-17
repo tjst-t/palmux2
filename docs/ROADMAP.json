@@ -5,7 +5,7 @@
     "sprints_done": 56,
     "sprints_total": 59,
     "percent": 94,
-    "current_sprint": "S18d013",
+    "current_sprint": "Sa53137",
     "done": 56,
     "in_progress": 0,
     "total": 59,
@@ -9479,7 +9479,7 @@
     },
     "Sa53137": {
       "title": "統一設定プレーン — マスター設定ファイル + GUI + apply",
-      "status": "done",
+      "status": "needs_user_review",
       "milestone": true,
       "design_doc": "docs/unified-config-design.md",
       "stories": {
