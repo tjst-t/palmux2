@@ -86,12 +86,14 @@ func RenderCaddyfile(domain, upstream, acmeEmail string, requireAuth bool) (stri
 		fmt.Fprintf(&b, "\treverse_proxy %s\n", upstream)
 	}
 	b.WriteString("\ttls {\n\t\tdns cloudflare {env.CLOUDFLARE_API_TOKEN}\n\t}\n")
+	b.WriteString("\tencode zstd gzip\n")
 	b.WriteString("}\n\n")
 
 	// Wildcard vhost — per-port routes are injected by palmux via the admin
 	// API; the static catch-all returns 502 until a route is present.
 	fmt.Fprintf(&b, "*.%s {\n", domain)
 	b.WriteString("\ttls {\n\t\tdns cloudflare {env.CLOUDFLARE_API_TOKEN}\n\t}\n")
+	b.WriteString("\tencode zstd gzip\n")
 	b.WriteString("\trespond \"no upstream\" 502\n")
 	b.WriteString("}\n")
 	return b.String(), nil

@@ -52,6 +52,7 @@ func TestRenderCaddyfile_NoInjection(t *testing.T) {
 		"uri /auth/verify",
 		"dns cloudflare {env.CLOUDFLARE_API_TOKEN}",
 		"admin localhost:2019",
+		"encode zstd gzip", // parity with install.sh default Caddyfile (compression)
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered Caddyfile missing %q\n---\n%s", want, out)
