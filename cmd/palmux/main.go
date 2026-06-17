@@ -25,6 +25,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/auth"
 	"github.com/tjst-t/palmux2/internal/commands"
 	"github.com/tjst-t/palmux2/internal/config"
+	"github.com/tjst-t/palmux2/internal/deploy"
 	"github.com/tjst-t/palmux2/internal/domain"
 	"github.com/tjst-t/palmux2/internal/ghq"
 	"github.com/tjst-t/palmux2/internal/gwq"
@@ -105,6 +106,28 @@ func main() {
 		os.Exit(runRuntime(os.Args[2:]))
 	}
 
+	// Sa53137-3: `palmux apply` re-reads the master config and applies the diff
+	// (hot in-process where possible, `systemctl --user restart` for restart
+	// fields, "needs privilege" guidance for root/Caddy changes).
+	if len(os.Args) > 1 && os.Args[1] == "apply" {
+		os.Exit(runApply(os.Args[2:]))
+	}
+
+	// Sa53137-4: `sudo palmux reconcile-system` renders /etc/caddy/Caddyfile
+	// from a fixed template using the user-owned master and reloads Caddy. The
+	// single privileged verb; takes no free-form input.
+	if len(os.Args) > 1 && os.Args[1] == "reconcile-system" {
+		os.Exit(runReconcileSystem(os.Args[2:]))
+	}
+
+	// Sa53137-2 (PD-3): `palmux2 serve [flags]` runs the server. Accept and
+	// strip the `serve` verb so config-driven systemd units can use it, while
+	// the bare `palmux2 --addr=...` invocation (the live deploy VM) keeps
+	// working — everything that is not a known subcommand falls through here.
+	if len(os.Args) > 1 && os.Args[1] == "serve" {
+		os.Args = append(os.Args[:1], os.Args[2:]...)
+	}
+
 	// Some Linux distros ship a slim mime DB that doesn't know about
 	// .webmanifest. Register the canonical type so PWAs install cleanly.
 	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
@@ -135,22 +158,140 @@ func main() {
 		return
 	}
 
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	slog.SetDefault(logger)
+
+	// Sa53137-2: layer the master config under the flags. Resolution order is
+	// flag > env > config.toml/secrets.env > default. A flag that the user
+	// passed explicitly (pflag .Changed) always wins, so dev invocations and
+	// the live deploy VM's explicit --addr/--public-domain are never overridden
+	// by a file. The master is read from configDir; missing files are fine.
+	rc := resolveServerConfig(*configDir, resolveFlags{
+		addr:         flagState{val: addr, changed: pflag.Lookup("addr").Changed},
+		token:        flagState{val: token, changed: pflag.Lookup("token").Changed},
+		basePath:     flagState{val: basePath, changed: pflag.Lookup("base-path").Changed},
+		maxConns:     flagState{val: maxConns, changed: pflag.Lookup("max-connections").Changed},
+		tmuxPrefix:   flagState{val: tmuxPrefix, changed: pflag.Lookup("tmux-prefix").Changed},
+		publicDomain: flagState{val: publicDomain, changed: pflag.Lookup("public-domain").Changed},
+		caddyAdmin:   flagState{val: caddyAdmin, changed: pflag.Lookup("caddy-admin").Changed},
+		claudeBin:    flagState{val: claudeBin, changed: pflag.Lookup("claude-bin").Changed},
+		claudeArgs:   flagState{val: claudeArgs, changed: pflag.Lookup("claude-arg").Changed},
+	})
+
 	// Apply the prefix BEFORE any other code reads from
 	// domain.PalmuxSessionPrefix. After this call, every session name
 	// generated/parsed by domain.{SessionName,ParseSessionName,…}
 	// uses the configured prefix.
-	domain.Configure(*tmuxPrefix)
+	domain.Configure(rc.tmuxPrefix)
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	slog.SetDefault(logger)
-
-	if err := run(*addr, *configDir, *token, *basePath, *maxConns, *claudeBin, *claudeArgs, *publicDomain, *caddyAdmin); err != nil {
+	if err := run(rc); err != nil {
 		slog.Error("fatal", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(addr, configDir, token, basePath string, maxConns int, claudeBin string, claudeArgs []string, publicDomain, caddyAdmin string) error {
+// resolved holds the fully-layered server configuration (flag > env > file >
+// default) passed to run().
+type resolved struct {
+	addr         string
+	configDir    string
+	token        string
+	basePath     string
+	maxConns     int
+	tmuxPrefix   string
+	publicDomain string
+	caddyAdmin   string
+	claudeBin    string
+	claudeArgs   []string
+	// secrets resolved from env (back-compat) or secrets.env.
+	ssoSecret     string
+	basicAuthHash string
+	basicAuthUser string
+}
+
+type flagState struct {
+	val     any
+	changed bool
+}
+
+type resolveFlags struct {
+	addr, token, basePath, maxConns, tmuxPrefix, publicDomain, caddyAdmin, claudeBin, claudeArgs flagState
+}
+
+// resolveServerConfig layers master config.toml + secrets.env under the parsed
+// flags. For each parameter: if the flag was explicitly set, use it; otherwise
+// fall back to env, then the file value, then the flag's default. Secrets
+// resolve env-first (so a running systemd EnvironmentFile=runtime.env keeps
+// working before migration) then secrets.env.
+func resolveServerConfig(configDir string, f resolveFlags) resolved {
+	mc, sec, err := config.LoadServerConfig(configDir)
+	if err != nil {
+		// A malformed config.toml is fatal — do not silently fall back to
+		// defaults and surprise the operator.
+		slog.Error("config load failed", "err", err)
+		os.Exit(1)
+	}
+
+	pick := func(fs flagState, env, file, def string) string {
+		if fs.changed {
+			return *fs.val.(*string)
+		}
+		if env != "" {
+			return env
+		}
+		if file != "" {
+			return file
+		}
+		return def
+	}
+	pickInt := func(fs flagState, file, def int) int {
+		if fs.changed {
+			return *fs.val.(*int)
+		}
+		if file != 0 {
+			return file
+		}
+		return def
+	}
+
+	r := resolved{configDir: configDir}
+	r.addr = pick(f.addr, "", mc.Server.Addr, *f.addr.val.(*string))
+	r.token = pick(f.token, sec.Token, "", *f.token.val.(*string))
+	r.basePath = pick(f.basePath, "", mc.Server.BasePath, *f.basePath.val.(*string))
+	r.maxConns = pickInt(f.maxConns, mc.Server.MaxConnections, *f.maxConns.val.(*int))
+	r.tmuxPrefix = pick(f.tmuxPrefix, "", mc.Server.TmuxPrefix, *f.tmuxPrefix.val.(*string))
+	r.publicDomain = pick(f.publicDomain, os.Getenv("PALMUX_PUBLIC_DOMAIN"), mc.Public.Domain, *f.publicDomain.val.(*string))
+	r.caddyAdmin = pick(f.caddyAdmin, "", mc.Server.CaddyAdmin, *f.caddyAdmin.val.(*string))
+	r.claudeBin = pick(f.claudeBin, "", mc.Server.ClaudeBin, *f.claudeBin.val.(*string))
+
+	if f.claudeArgs.changed {
+		r.claudeArgs = *f.claudeArgs.val.(*[]string)
+	} else {
+		r.claudeArgs = mc.Server.ClaudeArgs
+	}
+
+	// Secrets: env wins over file for back-compat with a live systemd
+	// EnvironmentFile=runtime.env; the file is the post-migration source.
+	r.ssoSecret = firstNonEmpty(os.Getenv("PALMUX_SSO_SECRET"), sec.SSOSecret)
+	r.basicAuthHash = firstNonEmpty(os.Getenv("BASIC_AUTH_HASH"), sec.BasicAuthHash)
+	r.basicAuthUser = firstNonEmpty(os.Getenv("BASIC_AUTH_USER"), mc.Public.BasicAuthUser)
+	return r
+}
+
+func run(rc resolved) error {
+	addr := rc.addr
+	configDir := rc.configDir
+	token := rc.token
+	basePath := rc.basePath
+	maxConns := rc.maxConns
+	claudeBin := rc.claudeBin
+	claudeArgs := rc.claudeArgs
+	publicDomain := rc.publicDomain
+	caddyAdmin := rc.caddyAdmin
+	if claudeBin == "" {
+		claudeBin = "claude"
+	}
+
 	// Log the version up front so when a user sees "phase-X" or "dev"
 	// in the Drawer they can confirm which build is actually running
 	// without having to call /api/health.
@@ -161,6 +302,16 @@ func run(addr, configDir, token, basePath string, maxConns int, claudeBin string
 	}
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir config dir %s: %w", configDir, err)
+	}
+
+	// Sa53137-2-3 (PD-5): one-time migration of secrets from the root-owned
+	// legacy /etc/palmux/runtime.env into the user-owned secrets.env (0600).
+	// Idempotent: skipped once secrets.env exists. Best-effort — a failure is
+	// logged, never fatal (env-var fallback still feeds the values).
+	if migrated, merr := config.MigrateLegacySecrets(configDir); merr != nil {
+		slog.Warn("secrets migration failed", "err", merr)
+	} else if migrated {
+		slog.Info("migrated secrets to user-owned secrets.env", "from", config.LegacyRuntimeEnvPath)
 	}
 
 	repoStore, err := config.NewRepoStore(configDir)
@@ -217,29 +368,29 @@ func run(addr, configDir, token, basePath string, maxConns int, claudeBin string
 	// creds come from flags / env (install.sh writes /etc/palmux/runtime.env
 	// with PALMUX_PUBLIC_DOMAIN / BASIC_AUTH_USER / BASIC_AUTH_HASH). Empty
 	// public domain leaves publishing disabled (local-dev / legacy snippet).
+	// Sa53137-2: public domain + secrets now come from the resolved master
+	// (flag > env > config.toml/secrets.env). The env-only path (Sbe4eee) was
+	// folded into resolveServerConfig, so these no longer read os.Getenv here.
 	resolvedPublicDomain := publicDomain
-	if resolvedPublicDomain == "" {
-		resolvedPublicDomain = os.Getenv("PALMUX_PUBLIC_DOMAIN")
-	}
 	// Sbe4eee: address Caddy uses to reach palmux for forward_auth (/auth/verify)
 	// and per-port auth. Listening on 0.0.0.0 → dial 127.0.0.1.
 	palmuxUpstream := loopbackUpstream(addr)
 	runtimeRegistry.SetPublishDefaults(incus.PublishDefaults{
 		BaseDomain:     resolvedPublicDomain,
 		CaddyAdmin:     caddyAdmin,
-		BasicUser:      os.Getenv("BASIC_AUTH_USER"),
-		BasicHash:      os.Getenv("BASIC_AUTH_HASH"),
+		BasicUser:      rc.basicAuthUser,
+		BasicHash:      rc.basicAuthHash,
 		PalmuxUpstream: palmuxUpstream,
 	})
 
-	// Sbe4eee: SSO provider. Disabled (no-op) when --public-domain is unset
+	// Sbe4eee: SSO provider. Disabled (no-op) when public domain is unset
 	// (local dev keeps the existing --token/open auth). Signing key is stable
-	// (PALMUX_SSO_SECRET, else derived from the password hash) so restarts don't
-	// log the user out.
+	// (secrets.env PALMUX_SSO_SECRET, else derived from the password hash) so
+	// restarts don't log the user out.
 	ssoProvider := auth.NewSSOProvider(
 		resolvedPublicDomain,
-		os.Getenv("BASIC_AUTH_HASH"),
-		os.Getenv("PALMUX_SSO_SECRET"),
+		rc.basicAuthHash,
+		rc.ssoSecret,
 		palmuxUpstream,
 	)
 
@@ -432,19 +583,64 @@ func run(addr, configDir, token, basePath string, maxConns int, claudeBin string
 
 	st.Run(ctx)
 
+	// Sa53137-1-2: watch settings.json on disk so direct edits (or `palmux
+	// apply`) reload without a restart and fan out to every connected client
+	// via the same WS event a PATCH emits. Reuses the SessionWatcher dir-watch
+	// pattern. Failure to start the watcher is non-fatal — the server still
+	// serves and GUI PATCH still works.
+	if sw, werr := settingsStore.WatchFile(func(updated config.Settings) {
+		slog.Info("settings.json changed on disk; reloaded")
+		st.Hub().Publish(store.Event{Type: store.EventSettings, Payload: updated})
+	}, slog.Default()); werr != nil {
+		slog.Warn("settings file watch disabled", "err", werr)
+	} else {
+		defer func() { _ = sw.Close() }()
+	}
+
 	frontendFS, err := fs.Sub(palmux2.FrontendFS, "frontend/dist")
 	if err != nil {
 		return fmt.Errorf("frontend embed: %w", err)
 	}
 
+	// Sa53137: deploy controller seeded with the config this process launched
+	// with. The masked view drives the GUI deploy tab; SaveAndClassify backs
+	// `palmux apply` and the GUI Apply button.
+	appliedMaster := config.MasterConfig{
+		Server: config.ServerSection{
+			Addr:           addr,
+			BasePath:       basePath,
+			MaxConnections: maxConns,
+			TmuxPrefix:     domain.PalmuxSessionPrefix,
+			CaddyAdmin:     caddyAdmin,
+			ClaudeBin:      claudeBin,
+			ClaudeArgs:     claudeArgs,
+		},
+		Public: config.PublicSection{
+			Domain:        resolvedPublicDomain,
+			BasicAuthUser: rc.basicAuthUser,
+		},
+	}
+	deployCtl := deploy.New(configDir, appliedMaster, deploy.SecretPresence{
+		SSOSecret:       rc.ssoSecret != "",
+		BasicHash:       rc.basicAuthHash != "",
+		Token:           token != "",
+		CloudflareToken: cloudflareTokenPresent(),
+	}, deployHotApplier{
+		registry:   runtimeRegistry,
+		agentMgr:   agentManager,
+		tuiMgr:     claudetuiMgr,
+	}, slog.Default())
+
 	mux := server.NewMux(server.Deps{
-		Store:      st,
-		Auth:       authn,
-		SSO:        ssoProvider,
-		Tmux:       tmuxClient,
-		Commands:   commands.New(),
-		Notify:     notifyHub,
-		FrontendFS: frontendFS,
+		Store:           st,
+		Auth:            authn,
+		SSO:             ssoProvider,
+		Tmux:            tmuxClient,
+		Commands:        commands.New(),
+		Notify:          notifyHub,
+		Deploy:          deployCtl,
+		DeployConfigDir: configDir,
+		FrontendFS:      frontendFS,
 		// S010: serve bundled drawio webapp from internal/static via /static/*.
 		// fs.Sub is applied inside server.staticHandler so the request path
 		// `/static/drawio/...` resolves to `internal/static/drawio/...` in
@@ -763,6 +959,55 @@ func (r storeWorktreeResolver) BranchWorktreePath(repoID, branchID string) strin
 		return ""
 	}
 	return b.WorktreePath
+}
+
+// deployHotApplier adapts the runtime registry + claude managers into
+// deploy.HotApplier so the deploy controller can hot-apply caddy_admin /
+// basic-auth / claude_bin / claude_args without a restart. (Sa53137-3)
+type deployHotApplier struct {
+	registry *incus.Registry
+	agentMgr *claudeagent.Manager
+	tuiMgr   *claudetui.Manager
+}
+
+func (a deployHotApplier) SetCaddyAdmin(addr string) {
+	if a.registry != nil {
+		a.registry.RefreshCaddyAdmin(addr)
+	}
+}
+
+func (a deployHotApplier) SetBasicAuthDefaults(user, hash string) {
+	if a.registry != nil {
+		a.registry.RefreshBasicAuth(user, hash)
+	}
+}
+
+func (a deployHotApplier) SetClaudeBin(bin string) {
+	if a.agentMgr != nil {
+		a.agentMgr.SetBinary(bin)
+	}
+	if a.tuiMgr != nil {
+		a.tuiMgr.SetClaudeBin(bin)
+	}
+}
+
+func (a deployHotApplier) SetClaudeArgs(args []string) {
+	if a.tuiMgr != nil {
+		a.tuiMgr.SetClaudeArgs(args)
+	}
+}
+
+// cloudflareTokenPresent reports whether a Cloudflare DNS token is configured
+// for the system Caddy (root-owned /etc/caddy/palmux.env). palmux can't read it
+// (root:caddy), so we only check file presence + a non-empty line. Best-effort —
+// returns false when unreadable.
+func cloudflareTokenPresent() bool {
+	b, err := os.ReadFile("/etc/caddy/palmux.env")
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(b), "CLOUDFLARE_API_TOKEN=") &&
+		!strings.Contains(string(b), "CLOUDFLARE_API_TOKEN=\n")
 }
 
 // eventPublisher adapts *store.EventHub to notify.Publisher so the Hub can

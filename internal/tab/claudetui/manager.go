@@ -65,6 +65,24 @@ type Manager struct {
 	entries map[string]*managerEntry
 }
 
+// SetClaudeBin hot-swaps the claude binary used for daemons spawned after this
+// call (Sa53137-3 hot apply). Existing daemons keep their binary until respawn.
+func (m *Manager) SetClaudeBin(bin string) {
+	if bin == "" {
+		return
+	}
+	m.mu.Lock()
+	m.cfg.ClaudeBin = bin
+	m.mu.Unlock()
+}
+
+// SetClaudeArgs hot-swaps the extra args passed to claude on spawn (Sa53137-3).
+func (m *Manager) SetClaudeArgs(args []string) {
+	m.mu.Lock()
+	m.cfg.ClaudeArgs = append([]string(nil), args...)
+	m.mu.Unlock()
+}
+
 // NewManager creates a Manager.  cfg.ClaudeBin defaults to "claude".
 func NewManager(cfg ManagerConfig) *Manager {
 	if cfg.ClaudeBin == "" {

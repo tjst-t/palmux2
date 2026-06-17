@@ -43,7 +43,11 @@ func isValidationErr(err error) bool {
 	if errors.Is(err, store.ErrInvalidArg) {
 		return true
 	}
-	// S032: config.Patch wraps validation errors with "config: patch: userCommand..."
+	// config.Patch wraps validation errors with "config: patch: ...".
+	// Sa53137-1-3 broadened this from userCommand-only to every field-level
+	// validation failure (invalid claude.default_mode / defaultRuntime.kind /
+	// branchSortOrder / userCommand) so the GUI shows a 400 + message and the
+	// save is rejected rather than surfacing as a 500.
 	msg := err.Error()
-	return strings.Contains(msg, "config: patch:") && strings.Contains(msg, "userCommand")
+	return strings.Contains(msg, "config: patch:")
 }

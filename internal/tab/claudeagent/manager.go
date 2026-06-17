@@ -100,6 +100,17 @@ type Manager struct {
 	agents map[string]*Agent
 }
 
+// SetBinary hot-swaps the claude binary used by agents spawned after this call
+// (Sa53137-3 hot apply). Existing agents keep their binary until respawn.
+func (m *Manager) SetBinary(bin string) {
+	if bin == "" {
+		return
+	}
+	m.mu.Lock()
+	m.cfg.Binary = bin
+	m.mu.Unlock()
+}
+
 // NewManager constructs a Manager. `cfg.Binary == ""` falls back to "claude".
 // `events` and `notify` are optional — Manager falls back to per-WS-only
 // broadcast when nil (handy for tests).

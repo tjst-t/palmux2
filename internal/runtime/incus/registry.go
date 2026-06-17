@@ -151,6 +151,33 @@ func (r *Registry) EvictRuntime(repoID, branchID string) {
 	r.mu.Unlock()
 }
 
+// RefreshCaddyAdmin hot-applies a new Caddy admin endpoint (Sa53137-3). It
+// updates the publish default and drops every cached incus runtime so the next
+// Get() rebuilds with the new admin URL; exposed routes self-heal via the 10s
+// resync loop. host runtimes are unaffected.
+func (r *Registry) RefreshCaddyAdmin(addr string) {
+	r.mu.Lock()
+	r.publish.CaddyAdmin = addr
+	for k := range r.cache {
+		delete(r.cache, k)
+	}
+	r.mu.Unlock()
+}
+
+// RefreshBasicAuth hot-applies new per-port basic-auth route defaults
+// (Sa53137-3). Same eviction strategy as RefreshCaddyAdmin.
+func (r *Registry) RefreshBasicAuth(user, hash string) {
+	r.mu.Lock()
+	r.publish.BasicUser = user
+	if hash != "" {
+		r.publish.BasicHash = hash
+	}
+	for k := range r.cache {
+		delete(r.cache, k)
+	}
+	r.mu.Unlock()
+}
+
 // IncusTmuxClientFor returns the incusTmuxClient for an incus-container Runtime
 // that was returned by Get(), or nil if the workspace resolves to host.  This
 // avoids a second type-assertion chain at the call site.

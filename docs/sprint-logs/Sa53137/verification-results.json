@@ -1,0 +1,52 @@
+{
+  "sprint": "Sa53137",
+  "generated": "2026-06-17",
+  "base_sha": "cafaa2668f77c5add0e6a2260a9006e6b3530914",
+  "branch": "autopilot/main/Sa53137",
+  "summary": { "pass": 26, "fail": 0, "skip": 0, "manual_smoke_pending": 3 },
+  "test_files": [
+    "tests/e2e/sa53137_unified_config.py",
+    "tests/acceptance/sa53137_unified_config.py",
+    "internal/config/server_config_test.go",
+    "internal/config/caddyfile_test.go",
+    "internal/config/classify_test.go",
+    "internal/config/settings_watch_test.go",
+    "internal/deploy/controller_test.go"
+  ],
+  "acceptance_criteria": [
+    { "id": "AC-Sa53137-1-1", "status": "pass", "evidence": "GUI e2e: settings panel opens from ⌘K, all app fields editable, save→app-save-status (即時反映), maxClaudeTabsPerBranch persisted (==8) via real backend; WS settings.updated broadcast verified (1 event/PATCH)." },
+    { "id": "AC-Sa53137-1-2", "status": "pass", "evidence": "Real HTTP: disk edit of settings.json → fsnotify watch reload (server log 'changed on disk; reloaded') → GET reflects new value → WS settings.updated; unit TestSettingsWatch_ReloadsOnDiskEdit + TestSettingsReload_KeepsPrevOnMalformed (前値維持)." },
+    { "id": "AC-Sa53137-1-3", "status": "pass", "evidence": "GUI e2e + real HTTP: invalid branchSortOrder → 400 with message; isValidationErr broadened to all config.Patch validation failures." },
+    { "id": "AC-Sa53137-2-1", "status": "pass", "evidence": "Acceptance (real binary): config.toml [server].addr binds when no --addr flag; explicit --addr wins over file. Verified on local + deploy VM." },
+    { "id": "AC-Sa53137-2-2", "status": "pass", "evidence": "Acceptance: secrets.env PALMUX_SSO_SECRET enables SSO + reported present(masked) via /api/deploy; deploy view never returns secret values. Deploy VM: SSO secret from secrets.env on scratch instance reported masked." },
+    { "id": "AC-Sa53137-2-3", "status": "partial", "evidence": "install.sh writes config.toml + secrets.env (0600); ExecStart→`palmux2 serve`; Nix module thinned. MigrateLegacySecrets unit-tested (idempotent). MANUAL SMOKE PENDING: full install.sh re-run on deploy VM (destructive to live SSO) not executed — config-driven serve + reconcile render verified non-destructively on the VM instead." },
+    { "id": "AC-Sa53137-2-4", "status": "partial", "evidence": "Resolution chain proven (flag>env>file>default); secrets.env path read by SSO/auth. MANUAL SMOKE PENDING: `systemctl --user restart palmux2` reflecting a config change end-to-end on the deploy VM (requires touching the live unit)." },
+    { "id": "AC-Sa53137-3-1", "status": "pass", "evidence": "Acceptance: `palmux apply` re-reads master, classifies hot (caddy_admin) and applies in-process; GUI apply returns classified result. Real HTTP confirms addr=restart, domain=root classification + needRestart/needPrivilege flags." },
+    { "id": "AC-Sa53137-3-2", "status": "pass", "evidence": "GUI e2e: deploy tab renders server/public fields with 即時/要再起動/要特権 badges, restart-required banner, secrets masked (設定済み, presence only, no values in DOM/API)." },
+    { "id": "AC-Sa53137-3-3", "status": "pass", "evidence": "GUI e2e: editing public.domain surfaces domain-root-notice; apply classifies domain change as root → needPrivilege with reconcile/install.sh guidance." },
+    { "id": "AC-Sa53137-3-4", "status": "pass", "evidence": "GUI e2e (live, fresh unconfigured instance): wizard auto-opens (configured:false), public mode reveals domain/cloudflare/auth fields + privileged notice, onboarding-next persists domain to master. install.sh-configured install suppresses wizard (MasterExists heuristic)." },
+    { "id": "AC-Sa53137-4-1", "status": "pass", "evidence": "apply/GUI surface install.sh re-run + reconcile guidance for root changes (verified in apply CLI output + GUI apply-result for domain change)." },
+    { "id": "AC-Sa53137-4-2", "status": "partial", "evidence": "Acceptance + deploy VM: reconcile-system renders /etc/caddy/Caddyfile from FIXED template for a valid domain; rendered output is STRUCTURALLY IDENTICAL to the live working Caddyfile on the deploy VM (apex forward_auth SSO + wildcard 502 + Cloudflare DNS-01). sudoers drop-in installed by install.sh (verb-limited, visudo-validated). MANUAL SMOKE PENDING: actual `sudo reconcile-system` overwriting the live root Caddyfile + `systemctl reload caddy` (would mutate the live edge) not executed." },
+    { "id": "AC-Sa53137-4-3", "status": "pass", "evidence": "Acceptance + unit (TestValidateDomain, TestRenderCaddyfile_NoInjection) + deploy VM: injection/malformed domains (braces, newlines, semicolons, env placeholders, single-label, oversize) rejected before render; reconcile exits 2 with no Caddyfile body." }
+  ],
+  "user_observable_surfaces": [
+    { "surface": "GET /api/deploy", "tested_by": "acceptance + GUI e2e" },
+    { "surface": "POST /api/deploy/apply", "tested_by": "acceptance (apply CLI) + GUI e2e (apply button) + real HTTP" },
+    { "surface": "POST /api/deploy/secrets", "tested_by": "GUI e2e (rotate inputs) + onboarding-next (password/token)" },
+    { "surface": "PATCH /api/settings (broadened validation)", "tested_by": "real HTTP 400 + GUI e2e" },
+    { "surface": "CLI `palmux apply`", "tested_by": "acceptance subprocess" },
+    { "surface": "CLI `palmux reconcile-system`", "tested_by": "acceptance subprocess + deploy VM" },
+    { "surface": "CLI `palmux2 serve`", "tested_by": "acceptance (serve binds config.toml addr) + deploy VM" },
+    { "surface": "GUI settings panel (app+deploy tabs)", "tested_by": "GUI e2e" },
+    { "surface": "GUI onboarding wizard", "tested_by": "GUI e2e (live fresh instance)" },
+    { "surface": "⌘K settings / deploy settings commands", "tested_by": "GUI e2e (palette open)" }
+  ],
+  "done_judgment": {
+    "Sa53137-1": { "guard1_user_review_required_not_done": "pass", "guard2_nil_injection_mock": "pass", "guard3_mock_mode_not_real_smoke": "pass", "guard4_priority_rule_9_exception_valid": "n/a", "guard5_call_path_grep": "pass", "guard6_deferred_comment_clean": "pass", "guard7_adr_conformance": "n/a", "guard8_destructive_multi_version_test": "n/a", "overall": "ok" },
+    "Sa53137-2": { "guard1_user_review_required_not_done": "pass", "guard2_nil_injection_mock": "pass", "guard3_mock_mode_not_real_smoke": "pass", "guard4_priority_rule_9_exception_valid": "n/a", "guard5_call_path_grep": "pass", "guard6_deferred_comment_clean": "pass", "guard7_adr_conformance": "n/a", "guard8_destructive_multi_version_test": "n/a", "overall": "needs_user_review", "reason": "AC-2-3/2-4 have MANUAL SMOKE pending (install.sh re-run + user-restart on live deploy VM, destructive to live SSO)." },
+    "Sa53137-3": { "guard1_user_review_required_not_done": "pass", "guard2_nil_injection_mock": "pass", "guard3_mock_mode_not_real_smoke": "pass", "guard4_priority_rule_9_exception_valid": "n/a", "guard5_call_path_grep": "pass", "guard6_deferred_comment_clean": "pass", "guard7_adr_conformance": "n/a", "guard8_destructive_multi_version_test": "n/a", "overall": "ok" },
+    "Sa53137-4": { "guard1_user_review_required_not_done": "pass", "guard2_nil_injection_mock": "pass", "guard3_mock_mode_not_real_smoke": "pass", "guard4_priority_rule_9_exception_valid": "n/a", "guard5_call_path_grep": "pass", "guard6_deferred_comment_clean": "pass", "guard7_adr_conformance": "n/a", "guard8_destructive_multi_version_test": "n/a", "overall": "needs_user_review", "reason": "AC-4-2 actual privileged reconcile (overwrite live root Caddyfile + reload caddy) is MANUAL SMOKE pending; render verified byte-structurally identical to live Caddyfile non-destructively." }
+  },
+  "guard8_rationale": "n/a — Sa53137 touches internal/server/ only for config/deploy HTTP endpoints (handler_deploy, handler_settings, server wiring). palmux2 has no storage object-versioning data path; the destructive multi-version-write scenario does not apply (that guard list is inherited from a different project domain).",
+  "code_review": "high-effort review (3+4 angles): 6 candidate findings triaged. Fixed: (a) basic_auth_user restart-class field wrongly advanced the applied snapshot + dead applyHotLocked case → second-apply divergence (regression test added); (b) double WS settings.updated publish on PATCH (watcher dedup: skip when disk==memory); (c) timer.Reset without channel drain in the settings watcher. Not fixed (assessed non-bugs/out-of-scope): pickInt zero-value (flag default is also 0 so 0 is preserved); CurrentView RLock+disk-IO and apply TOCTOU (single-user self-hosted scope per VISION out_of_scope — no concurrent operators; acceptable); settings.save() path-in-error (pre-existing, isValidationErr matching proven safe)."
+}

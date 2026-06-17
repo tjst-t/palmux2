@@ -8,6 +8,8 @@ import { terminalManager } from '../../lib/terminal-manager'
 import { selectBranchById, selectRepoById, usePalmuxStore, type UserCommand } from '../../stores/palmux-store'
 import { useTabSettingsStore } from '../../stores/tab-settings-store'
 import { ClaudeIcon } from '../icons/claude-icon'
+import { OnboardingWizardGated } from '../onboarding-wizard'
+import { SettingsPanel, type SettingsTab } from '../settings-panel'
 import { UserCommandsModal } from '../user-commands-modal'
 
 import styles from './palette.module.css'
@@ -123,6 +125,9 @@ export function CommandPalette() {
   // S032: user commands modal — lifted to CommandPalette so it survives
   // after the palette hides (PaletteInner unmounts on hide).
   const [userCmdModalOpen, setUserCmdModalOpen] = useState(false)
+  // Sa53137: settings panel
+  const [settingsPanelOpen, setSettingsPanelOpen] = useState(false)
+  const [settingsPanelTab, setSettingsPanelTab] = useState<SettingsTab>('app')
 
   // Global hotkey: Cmd+K / Ctrl+K toggles. Register once.
   useEffect(() => {
@@ -141,6 +146,12 @@ export function CommandPalette() {
     setUserCmdModalOpen(true)
   }, [hide])
 
+  const openSettings = useCallback((tab: SettingsTab = 'app') => {
+    hide()
+    setSettingsPanelTab(tab)
+    setSettingsPanelOpen(true)
+  }, [hide])
+
   return (
     <>
       {open && (
@@ -149,9 +160,16 @@ export function CommandPalette() {
           initialQuery={initialQuery}
           onClose={hide}
           onOpenUserCmdModal={openUserCmdModal}
+          onOpenSettings={openSettings}
         />
       )}
       <UserCommandsModal open={userCmdModalOpen} onClose={() => setUserCmdModalOpen(false)} />
+      <SettingsPanel
+        open={settingsPanelOpen}
+        onClose={() => setSettingsPanelOpen(false)}
+        initialTab={settingsPanelTab}
+      />
+      <OnboardingWizardGated />
     </>
   )
 }
@@ -160,10 +178,12 @@ function PaletteInner({
   initialQuery,
   onClose,
   onOpenUserCmdModal,
+  onOpenSettings,
 }: {
   initialQuery: string
   onClose: () => void
   onOpenUserCmdModal: () => void
+  onOpenSettings: (tab?: SettingsTab) => void
 }) {
   const [query, setQuery] = useState(initialQuery)
   const [active, setActive] = useState(0)
@@ -483,6 +503,30 @@ function PaletteInner({
     return items
   }, [activeRepo, activeBranch, params.tabId, addTab, removeTab, renameTab, setDeviceSetting, deviceSettings, navigate, searchParams, onOpenUserCmdModal, getTabSettings, patchTabSettings])
 
+  // Sa53137: global commands available regardless of whether a repo/branch is
+  // open. Settings (app + deploy) must be reachable on a fresh install with no
+  // repos — that is exactly the onboarding/first-launch case.
+  const globalCommands = useMemo<PaletteItem[]>(() => [
+    {
+      id: 'builtin:settings',
+      kind: 'command',
+      icon: '⚙',
+      label: 'settings',
+      detail: 'builtin',
+      searchable: 'settings preferences app config',
+      perform: () => onOpenSettings('app'),
+    },
+    {
+      id: 'builtin:deploy-settings',
+      kind: 'command',
+      icon: '✦',
+      label: 'deploy settings',
+      detail: 'builtin',
+      searchable: 'deploy server public domain config',
+      perform: () => onOpenSettings('deploy'),
+    },
+  ], [onOpenSettings])
+
   const items = useMemo<PaletteItem[]>(() => {
     // S031-4: read recents fresh on every render so pushRecent() during the
     // same session is reflected immediately (fix 1 from self-review).
@@ -594,6 +638,15 @@ function PaletteInner({
             navigate(url)
           },
         })
+      }
+    }
+
+    // Sa53137: global commands (settings / deploy settings) are available even
+    // with no repo open — required for the fresh-install onboarding case.
+    if (includeCommand) {
+      for (const g of globalCommands) {
+        if (!fuzzyContains(g.searchable, needle)) continue
+        out.push(g)
       }
     }
 
@@ -760,7 +813,7 @@ function PaletteInner({
       return capByKind(out, 6)
     }
     return out
-  }, [repos, mode, needle, commands, effectiveFiles, effectiveGrepHits, builtinCommands, userCommands, searchParams, navigate, activeRepo, activeBranch, runOnBash, bashPickerCmd])
+  }, [repos, mode, needle, commands, effectiveFiles, effectiveGrepHits, builtinCommands, globalCommands, userCommands, searchParams, navigate, activeRepo, activeBranch, runOnBash, bashPickerCmd])
 
   // Sentinel items (non-interactive, like grep:searching) don't participate
   // in keyboard navigation — compute the selectable count separately.

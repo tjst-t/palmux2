@@ -29,9 +29,6 @@
 let
   caddyEnabled = publicDomain != null;
 
-  # Extra ExecStart flags when Caddy wildcard is active.
-  publicDomainFlag = lib.optionalString caddyEnabled " --public-domain ${publicDomain}";
-
   # /etc/palmux/runtime.env is written by install.sh with:
   #   PALMUX_PUBLIC_DOMAIN=<domain>
   #   BASIC_AUTH_USER=<user>      (when basicAuth.enable)
@@ -71,17 +68,25 @@ in
 
         Service = {
           Type = "simple";
-          ExecStart = "${palmux2-pkg}/bin/palmux2 --addr=${bindAddr}${publicDomainFlag}";
+          # Sa53137-2: config-driven launch. `serve` reads the user-owned master
+          # (~/.config/palmux/config.toml + secrets.env) written by install.sh.
+          # --addr is kept as an explicit flag (it wins over the file) so the
+          # bind address is pinned regardless of the master; the public domain
+          # now comes from config.toml [public].domain, so --public-domain is no
+          # longer baked into the unit (changing the domain via the GUI /
+          # `palmux apply` no longer needs a home-manager switch).
+          ExecStart = "${palmux2-pkg}/bin/palmux2 serve --addr=${bindAddr}";
           Restart = "on-failure";
           RestartSec = 5;
           Environment = [
             "PATH=/usr/local/bin:%h/.local/bin:/run/current-system/sw/bin:%h/.nix-profile/bin:/usr/bin:/bin"
           ];
         } // lib.optionalAttrs caddyEnabled {
-          # When Caddy is enabled, read BASIC_AUTH_USER / BASIC_AUTH_HASH from
-          # /etc/palmux/runtime.env (written by install.sh, root:<user> 0640).
-          # This avoids reading /etc/caddy/palmux.env which is root:caddy 0640
-          # and not readable by the palmux2 user service.
+          # Back-compat: still source /etc/palmux/runtime.env when present so an
+          # install that has not re-run install.sh (no config.toml yet) keeps its
+          # secrets. The user-owned secrets.env supersedes it once written; env
+          # values win over the file only for those keys, which is harmless since
+          # install.sh writes identical values to both.
           EnvironmentFile = runtimeEnvFile;
         };
 
