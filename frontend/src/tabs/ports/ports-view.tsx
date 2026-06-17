@@ -1,6 +1,12 @@
-// Ports tab — See8bd4-3
-// Lists an incus-container workspace's listening ports and lets the user
-// publish / unpublish each as an HTTPS subdomain via the Caddy admin API.
+// Ports tab — See8bd4-3 + S4c591a
+// Lists an incus-container workspace's listening ports. Two publishing modes,
+// selected by whether a public domain (wildcard DNS) is configured:
+//   - subdomain mode (publicDomainConfigured=true): publish each port as an
+//     SSO-protected HTTPS subdomain via the Caddy admin API (See8bd4).
+//   - host-port mode  (publicDomainConfigured=false): publish each port as
+//     http://<hostIP>:<port> via an incus proxy device, UNAUTHENTICATED — the
+//     wildcard-DNS-less fallback (S4c591a). The mode is environment-level, not
+//     a per-port choice.
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { usePalmuxStore, selectBranchById } from '../../stores/palmux-store'
@@ -145,6 +151,102 @@ function PortRow({ port: p, state, onToggle, onFlipPublic, onCopy }: PortRowProp
   )
 }
 
+// ─── Host-port row (S4c591a — wildcard-DNS-less fallback) ─────────────────────
+
+interface HostPortRowProps {
+  port: PortView
+  state: PortRowState
+  hostIP: string
+  onToggle: (port: number, wantPublished: boolean) => void
+  onCopy: (port: number, url: string) => void
+}
+
+function HostPortRow({ port: p, state, hostIP, onToggle, onCopy }: HostPortRowProps) {
+  const isPublished = p.hostPublished
+  const hasError = !!state.error
+  // host port differs from container port → auto-reassigned to avoid collision.
+  const reassigned = isPublished && p.hostPort > 0 && p.hostPort !== p.port
+  const hostUrl = p.hostUrl || (hostIP ? `http://${hostIP}:${p.hostPort || p.port}` : '')
+
+  return (
+    <div
+      className={`${styles.portRow} ${isPublished ? styles.exposed : ''}`}
+      data-testid={`ports-row-${p.port}`}
+    >
+      {/* Toggle */}
+      <button
+        role="switch"
+        aria-checked={isPublished ? 'true' : 'false'}
+        data-testid={`ports-hostport-toggle-${p.port}`}
+        className={styles.toggle}
+        disabled={state.pending}
+        onClick={() => onToggle(p.port, !isPublished)}
+        aria-label={isPublished ? `Unpublish host port ${p.port}` : `Publish host port ${p.port}`}
+      />
+
+      {/* Port identity + URL */}
+      <div className={styles.portMain}>
+        <div className={styles.portIdent}>
+          <span className={styles.portNum}>:{p.port}</span>
+          <span className={styles.portMeta}>{p.proto} · {p.process}</span>
+          {isPublished && (
+            <span
+              className={styles.noAuthWarning}
+              data-testid={`ports-noauth-warning-${p.port}`}
+              title="このポートは Caddy/SSO を通らず無認証で外部に公開されています"
+            >
+              ⚠ 無認証で外部に公開
+            </span>
+          )}
+          {reassigned && (
+            <span
+              className={styles.reallocBadge}
+              data-testid={`ports-hostport-realloc-${p.port}`}
+              title={`${p.port} はホスト側で使用中のため、空きポート ${p.hostPort} を自動割当`}
+            >
+              host:{p.hostPort} に再割当
+            </span>
+          )}
+        </div>
+        {isPublished && hostUrl ? (
+          <a
+            className={styles.portUrl}
+            data-testid={`ports-hostport-url-${p.port}`}
+            href={hostUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={`${hostUrl} — 無認証で開く`}
+          >
+            {hostUrl}
+          </a>
+        ) : (
+          <span className={styles.portHint}>
+            トグルで <code>http://&lt;hostIP&gt;:{p.port}</code> に公開（無認証）。
+          </span>
+        )}
+      </div>
+
+      {/* Copy */}
+      {isPublished && hostUrl && (
+        <button
+          className={`${styles.copyBtn} ${state.copied ? styles.copied : ''}`}
+          data-testid={`ports-hostport-copy-${p.port}`}
+          onClick={() => onCopy(p.port, hostUrl)}
+          aria-label="Copy host URL"
+        >
+          {state.copied ? 'copied' : 'コピー'}
+        </button>
+      )}
+
+      {hasError && (
+        <div className={styles.rowError} data-testid={`ports-row-error-${p.port}`}>
+          {state.error}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── PortsView (root) ─────────────────────────────────────────────────────────
 
 export function PortsView({ repoId, branchId }: TabViewProps) {
@@ -231,6 +333,40 @@ export function PortsView({ repoId, branchId }: TabViewProps) {
     }
   }, [repoId, branchId, setRow, applyBranchPortPatch])
 
+  // S4c591a host-port mode: toggle adds/removes an incus proxy device exposing
+  // http://<hostIP>:<port>. Reuses the same expose/unexpose endpoints; the
+  // backend routes by mode (publicDomainConfigured=false → host-port).
+  const handleHostToggle = useCallback(async (port: number, wantPublished: boolean) => {
+    setRow(port, { pending: true, error: null })
+    try {
+      if (wantPublished) {
+        const resp = await portsApi.expose(repoId, branchId, port, true)
+        const patch = {
+          hostPublished: resp.hostPublished ?? true,
+          hostPort: resp.hostPort ?? port,
+          hostUrl: resp.hostUrl ?? '',
+        }
+        setRestPorts((prev) => prev && {
+          ...prev,
+          ports: prev.ports.map((p) => (p.port === port ? { ...p, ...patch } : p)),
+        })
+        applyBranchPortPatch(repoId, branchId, port, patch)
+      } else {
+        await portsApi.unexpose(repoId, branchId, port)
+        const patch = { hostPublished: false, hostPort: 0, hostUrl: '' }
+        setRestPorts((prev) => prev && {
+          ...prev,
+          ports: prev.ports.map((p) => (p.port === port ? { ...p, ...patch } : p)),
+        })
+        applyBranchPortPatch(repoId, branchId, port, patch)
+      }
+      setRow(port, { pending: false, error: null })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setRow(port, { pending: false, error: msg })
+    }
+  }, [repoId, branchId, setRow, applyBranchPortPatch])
+
   const handleFlipPublic = useCallback(async (port: number, wantPublic: boolean) => {
     setRow(port, { pending: true, error: null })
     try {
@@ -271,6 +407,12 @@ export function PortsView({ repoId, branchId }: TabViewProps) {
   const runtimeKind = portsData?.runtimeKind ?? branch?.runtime?.kind ?? 'host'
   const isHost = runtimeKind === 'host'
   const ports = portsData?.ports ?? []
+  // S4c591a: host-port mode iff a public domain is NOT configured. Default to
+  // subdomain mode (true) until the REST/WS payload tells us otherwise, so we
+  // never flash the unauth-warning banner spuriously.
+  const publicDomainConfigured = portsData?.publicDomainConfigured ?? true
+  const hostPortMode = !isHost && !publicDomainConfigured
+  const hostIP = portsData?.hostIP ?? ''
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -285,10 +427,24 @@ export function PortsView({ repoId, branchId }: TabViewProps) {
         <p className={styles.subtitle}>
           {isHost
             ? 'このタブは Workspace の runtime に依存します。'
-            : <>コンテナ内で listen 中のポートを <code>{'<port>--<workspace>--<repo>.<base>'}</code> の HTTPS サブドメインとして公開できます。公開は既定で <strong>エッジ basic_auth の内側</strong> — 🔒 を外すと無認証公開になります。</>
+            : hostPortMode
+              ? <>公開ドメイン (wildcard DNS) が未設定のため <strong>ホストポート公開モード</strong>です。各ポートを <code>{'http://<hostIP>:<port>'}</code> で公開できます。</>
+              : <>コンテナ内で listen 中のポートを <code>{'<port>--<workspace>--<repo>.<base>'}</code> の HTTPS サブドメインとして公開できます。公開は既定で <strong>エッジ basic_auth の内側</strong> — 🔒 を外すと無認証公開になります。</>
           }
         </p>
       </div>
+
+      {/* S4c591a: persistent host-port-mode notice (unauth warning + how to
+          switch to SSO-protected subdomain publishing). Only in host-port mode. */}
+      {hostPortMode && (
+        <div className={styles.hostPortNotice} data-testid="ports-mode-hostport-notice">
+          <span className={styles.hostPortNoticeIcon}>⚠</span>
+          <span>
+            <strong>ホストポート公開モード</strong> — 公開ドメイン (wildcard DNS) が未設定のため、各ポートを <code>{'http://<hostIP>:<port>'}</code> で公開します。
+            {' '}<strong>Caddy/SSO を通らない無認証公開</strong>です。デプロイ設定で公開ドメインを設定すると、自動で <strong>SSO 保護のサブドメイン公開</strong>に切り替わります。
+          </span>
+        </div>
+      )}
 
       {loading && !portsData ? (
         <div className={styles.centeredState}>
@@ -327,14 +483,25 @@ export function PortsView({ repoId, branchId }: TabViewProps) {
         <div className={styles.body}>
           <div className={styles.portsList}>
             {ports.map((p) => (
-              <PortRow
-                key={p.port}
-                port={p}
-                state={getRow(p.port)}
-                onToggle={handleToggle}
-                onFlipPublic={handleFlipPublic}
-                onCopy={handleCopy}
-              />
+              hostPortMode ? (
+                <HostPortRow
+                  key={p.port}
+                  port={p}
+                  state={getRow(p.port)}
+                  hostIP={hostIP}
+                  onToggle={handleHostToggle}
+                  onCopy={handleCopy}
+                />
+              ) : (
+                <PortRow
+                  key={p.port}
+                  port={p}
+                  state={getRow(p.port)}
+                  onToggle={handleToggle}
+                  onFlipPublic={handleFlipPublic}
+                  onCopy={handleCopy}
+                />
+              )
             ))}
           </div>
         </div>

@@ -34,8 +34,8 @@ type fakeRuntime struct {
 	mu        sync.Mutex
 }
 
-func (f *fakeRuntime) Kind() runtime.Kind  { return f.kind }
-func (f *fakeRuntime) Config() runtime.Config { return runtime.Config{Kind: f.kind} }
+func (f *fakeRuntime) Kind() runtime.Kind            { return f.kind }
+func (f *fakeRuntime) Config() runtime.Config        { return runtime.Config{Kind: f.kind} }
 func (f *fakeRuntime) Start(_ context.Context) error { return f.startErr }
 func (f *fakeRuntime) Stop(_ context.Context) error {
 	f.mu.Lock()
@@ -43,9 +43,9 @@ func (f *fakeRuntime) Stop(_ context.Context) error {
 	f.mu.Unlock()
 	return nil
 }
-func (f *fakeRuntime) Status() runtime.Status { return runtime.Status{State: runtime.StateReady} }
-func (f *fakeRuntime) TmuxClient() tmux.Client { return f.tc }
-func (f *fakeRuntime) NewTmuxSession(_ context.Context, _ string) error  { return nil }
+func (f *fakeRuntime) Status() runtime.Status                           { return runtime.Status{State: runtime.StateReady} }
+func (f *fakeRuntime) TmuxClient() tmux.Client                          { return f.tc }
+func (f *fakeRuntime) NewTmuxSession(_ context.Context, _ string) error { return nil }
 func (f *fakeRuntime) AttachTmuxSession(_ context.Context, _ string) (io.ReadWriteCloser, error) {
 	return nil, nil
 }
@@ -63,9 +63,9 @@ func (f *fakeRuntime) UnexposePort(_ context.Context, _ string) error { return n
 // ── fake registry ─────────────────────────────────────────────────────────────
 
 type fakeRegistry struct {
-	mu          sync.Mutex
-	runtimes    map[string]runtime.Runtime // key = repoID+"/"+branchID
-	evictCalls  map[string]int
+	mu         sync.Mutex
+	runtimes   map[string]runtime.Runtime // key = repoID+"/"+branchID
+	evictCalls map[string]int
 }
 
 func newFakeRegistry() *fakeRegistry {

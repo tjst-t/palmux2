@@ -176,10 +176,12 @@ type portScanner interface {
 }
 
 // portViewer is the subset of the incus Runtime that exposes the user-facing
-// Ports view (listening ports + exposure state). See8bd4-3.
-type portViewer interface {
-	PortsView() []runtime.PortView
-}
+// Ports view. It is PortViewProvider (see ports.go) — the scan-loop event MUST
+// carry publicDomainConfigured / hostIP (built by PortsChangedPayload) so the
+// FE, which replaces (not merges) the branchPorts slice on every event, does
+// not flip out of host-port mode (and drop the unauth warning) every scan.
+// (See8bd4-3 + S4c591a)
+type portViewer = PortViewProvider
 
 func (s *Store) scanPorts(ctx context.Context) {
 	if s.deps.RuntimeRegistry == nil {
@@ -254,10 +256,7 @@ func (s *Store) scanPorts(ctx context.Context) {
 				Type:     EventBranchPortsChanged,
 				RepoID:   ws.repoID,
 				BranchID: ws.branchID,
-				Payload: map[string]any{
-					"runtimeKind": string(rt.Kind()),
-					"ports":       pv.PortsView(),
-				},
+				Payload:  PortsChangedPayload(string(rt.Kind()), pv),
 			})
 		}
 	}

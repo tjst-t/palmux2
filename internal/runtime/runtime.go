@@ -97,6 +97,13 @@ type PortView struct {
 	Public        bool   `json:"public"`        // exposed without edge basic_auth
 	Exposed       bool   `json:"exposed"`       // a public route exists for this port
 	PublicURL     string `json:"publicUrl"`     // https://<port>--<ws>--<repo>.<base> when exposed, else ""
+
+	// Host-port publishing (S4c591a) — the wildcard-DNS-less fallback. Only
+	// meaningful when the runtime has NO public domain configured; in that mode
+	// the FE shows host-port toggles instead of subdomain ones.
+	HostPublished bool   `json:"hostPublished"` // an incus proxy device exposes this port on the host
+	HostPort      int    `json:"hostPort"`      // host-side port the proxy device listens on (0 = none)
+	HostURL       string `json:"hostUrl"`       // http://<hostIP>:<hostPort> when host-published, else ""
 }
 
 // PortSpec describes a port to expose from the runtime to the outside world.

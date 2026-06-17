@@ -42,6 +42,12 @@ type exposeResponse struct {
 	Port      int    `json:"port"`
 	Public    bool   `json:"public"`
 	PublicURL string `json:"publicUrl"`
+	// Host-port mode fields (S4c591a). HostPublished is true and HostURL is
+	// http://<hostIP>:<hostPort> when the runtime is in host-port (no public
+	// domain) mode. HostPort may differ from Port when auto-reassigned.
+	HostPublished bool   `json:"hostPublished"`
+	HostPort      int    `json:"hostPort"`
+	HostURL       string `json:"hostUrl"`
 }
 
 // expose handles POST .../ports/{port}/expose.
@@ -69,7 +75,22 @@ func (h *handler) expose(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, exposeResponse{Port: port, Public: req.Public, PublicURL: url})
+	resp := exposeResponse{Port: port, Public: req.Public, PublicURL: url}
+	// In host-port mode the URL is the host-port URL; surface the host-port
+	// fields by reading back the freshly-updated PortsView for this port.
+	view := h.st.WorkspacePortsView(repoID, branchID)
+	if !view.PublicDomainConfigured {
+		resp.PublicURL = ""
+		for _, p := range view.Ports {
+			if p.Port == port {
+				resp.HostPublished = p.HostPublished
+				resp.HostPort = p.HostPort
+				resp.HostURL = p.HostURL
+				break
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // unexpose handles DELETE .../ports/{port}/expose.

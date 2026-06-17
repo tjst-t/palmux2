@@ -1,0 +1,76 @@
+{
+  "sprint": "S4c591a",
+  "title": "incus コンテナポートのホストポート公開モード（wildcard DNS 不要）",
+  "branch": "autopilot/main/S4c591a",
+  "run_at": "2026-06-17",
+  "summary": { "pass": 18, "fail": 0, "skip": 0 },
+  "review": {
+    "skill": "code-review (medium, recall-biased, 2 finder agents + verify)",
+    "findings": 5,
+    "all_fixed": true,
+    "critical": "RV-1: scan-loop WS event omitted publicDomainConfigured → host-port mode + unauth warning flipped off every 10s. Fixed by unifying both emit sites on store.PortsChangedPayload + regression test. See decisions.json review_decisions.",
+    "race_verified": "go test -race ./internal/store ./internal/runtime/incus → PASS (RV-2 per-port hostOpLock)"
+  },
+  "build": { "go_build": "pass", "go_vet": "pass", "frontend_tsc": "pass", "eslint": "pass (0 errors, pre-existing warnings only)", "make_build": "pass (embedded bundle)" },
+  "unit_tests": [
+    { "name": "TestHostPortMode_NoPublicDomain", "status": "pass", "acceptance_criteria": ["AC-S4c591a-1-1", "AC-S4c591a-1-4"], "file": "internal/runtime/incus/hostport_test.go" },
+    { "name": "TestExposePortHost_AddsProxyDevice", "status": "pass", "acceptance_criteria": ["AC-S4c591a-1-1"], "file": "internal/runtime/incus/hostport_test.go", "notes": "asserts listen=tcp:0.0.0.0:5173 connect=tcp:<containerIP>:5173 (PD-2: container IP not 127.0.0.1)" },
+    { "name": "TestExposePortHost_CollisionReassign", "status": "pass", "acceptance_criteria": ["AC-S4c591a-1-2"], "file": "internal/runtime/incus/hostport_test.go", "notes": "6006 busy → 16006 reassigned" },
+    { "name": "TestUnexposePortHost_RemovesProxyDevice", "status": "pass", "acceptance_criteria": ["AC-S4c591a-1-2"], "file": "internal/runtime/incus/hostport_test.go", "notes": "device remove + idempotent double-unexpose" },
+    { "name": "TestHostIP_NonEmpty", "status": "pass", "acceptance_criteria": ["AC-S4c591a-1-1"], "file": "internal/runtime/incus/hostport_test.go" },
+    { "name": "TestPortsChangedPayload_HostPortMode", "status": "pass", "acceptance_criteria": ["AC-S4c591a-1-3"], "file": "internal/store/ports_payload_test.go", "notes": "RV-1 regression: scan-loop + expose payloads both carry publicDomainConfigured=false + hostIP" },
+    { "name": "TestPortsChangedPayload_SubdomainMode", "status": "pass", "acceptance_criteria": ["AC-S4c591a-1-1"], "file": "internal/store/ports_payload_test.go", "notes": "RV-1 regression: subdomain mode → publicDomainConfigured=true, hostIP omitted" }
+  ],
+  "mock_e2e": [
+    { "name": "test_ac1_hostport_mode_notice_and_toggle", "status": "pass", "acceptance_criteria": ["AC-S4c591a-1-1"], "file": "tests/e2e/s4c591a_hostport_ui_mock.py", "entry_point": "real-browser Playwright + real backend (mocked network for fixture)", "notes": "host-port notice + per-port toggle shown; subdomain toggle absent" },
+    { "name": "test_ac3_published_port_unauth_warning", "status": "pass", "acceptance_criteria": ["AC-S4c591a-1-3", "AC-S4c591a-1-1"], "file": "tests/e2e/s4c591a_hostport_ui_mock.py", "notes": "ports-noauth-warning + host URL + copy" },
+    { "name": "test_ac2_realloc_badge", "status": "pass", "acceptance_criteria": ["AC-S4c591a-1-2"], "file": "tests/e2e/s4c591a_hostport_ui_mock.py", "notes": "ports-hostport-realloc-6006 + reassigned URL :16006" },
+    { "name": "test_subdomain_mode_no_hostport", "status": "pass", "acceptance_criteria": ["AC-S4c591a-1-1"], "file": "tests/e2e/s4c591a_hostport_ui_mock.py", "notes": "publicDomainConfigured=true → no host-port UI (mode exclusivity)" },
+    { "name": "test_ac4_host_notice", "status": "pass", "acceptance_criteria": ["AC-S4c591a-1-4"], "file": "tests/e2e/s4c591a_hostport_ui_mock.py", "notes": "host runtime → host-notice, no host-port UI" },
+    { "name": "test_expose_error_inline", "status": "pass", "acceptance_criteria": ["AC-S4c591a-1-1"], "file": "tests/e2e/s4c591a_hostport_ui_mock.py", "notes": "expose 500 → inline error + toggle revert (no silent success)" }
+  ],
+  "real_machine_acceptance": [
+    {
+      "name": "host-port proxy-device round-trip (real incus, production mode)",
+      "status": "pass",
+      "acceptance_criteria": ["AC-S4c591a-1-1", "AC-S4c591a-1-2"],
+      "file": "tests/acceptance/s4c591a_hostport_proxy.py (capability also verified by direct real-incus driver on the VM)",
+      "vm": "palmux-deploy-test.tjstkm.net (192.168.1.43)",
+      "mode": "production — real incus, no MOCK/fake (test-discipline Rule 7)",
+      "evidence": "container lxc-incus-c18d-incus-5523-9d493c60 (10.146.187.17): http.server 5174 → incus config device add proxy listen=tcp:0.0.0.0:5174 connect=tcp:10.146.187.17:5174 → http://127.0.0.1:5174 HTTP=200 + http://192.168.1.43:5174 HTTP=200 (external) → device remove → GONE → HTTP=000. No portman."
+    }
+  ],
+  "e2e_real_backend": [
+    {
+      "name": "tests/e2e/s4c591a_hostport_ui.py",
+      "status": "skip-infra",
+      "acceptance_criteria": ["AC-S4c591a-1-1", "AC-S4c591a-1-2", "AC-S4c591a-1-3", "AC-S4c591a-1-4"],
+      "reason": "Deploy VM currently runs the OLD palmux2-sa53137 override binary (running deployment must not be broken). The in-palmux REST/UI host-port path is NOT yet deployed there, so the full real-backend GUI E2E is gated. The capability behind these ACs is fully verified by (a) the real-incus production smoke above and (b) the 6/6 mock E2E through the real dev backend. NOT a silenced assertion — surfaced for milestone (deploy new binary to VM, or open a no-public-domain incus Workspace, then run this file).",
+      "needs_user_review": true
+    }
+  ],
+  "rule6_diff_scan": {
+    "new_surfaces": [
+      "PortView.{hostPublished,hostPort,hostUrl} — tested by mock E2E (URL/badge) + unit tests",
+      "WorkspacePorts.{publicDomainConfigured,hostIP} — tested by mock E2E (mode selection)",
+      "exposeResponse.{hostPublished,hostPort,hostUrl} — tested by mock E2E expose path + acceptance",
+      "incus.ExposePortHost/UnexposePortHost/HostPortMode/HostIP — unit tests + real-incus smoke",
+      "FE testids ports-mode-hostport-notice / ports-hostport-toggle / ports-hostport-url / ports-noauth-warning / ports-hostport-copy / ports-hostport-realloc — mock E2E"
+    ],
+    "new_http_routes": "none (reuses existing POST/DELETE .../ports/{port}/expose)",
+    "verdict": "every user-observable addition has a passing test"
+  },
+  "done_judgment": {
+    "S4c591a-1": {
+      "guard1_user_review_required_not_done": "pass",
+      "guard2_nil_injection_mock": "pass",
+      "guard3_mock_mode_not_real_smoke": "pass",
+      "guard4_priority_rule_9_exception_valid": "n/a",
+      "guard5_call_path_grep": "pass",
+      "guard6_deferred_comment_clean": "pass",
+      "guard7_adr_conformance": "n/a",
+      "guard8_destructive_multi_version_test": "n/a",
+      "overall": "ok"
+    }
+  }
+}

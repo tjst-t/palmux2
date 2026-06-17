@@ -102,7 +102,23 @@ type incusRuntime struct {
 	// state used by the Ports tab. (See8bd4-3)
 	portsMu   sync.RWMutex
 	lastPorts []runtime.ListeningPort
-	exposed   map[int]exposeState // port → exposure state
+	exposed   map[int]exposeState // port → subdomain exposure state
+	// hostExposed tracks host-port publishing (incus proxy device) state, keyed
+	// by container port. Used in the wildcard-DNS-less fallback mode. (S4c591a)
+	hostExposed map[int]hostExposeState
+	// hostOpLocks serialises ExposePortHost/UnexposePortHost per container port
+	// so a concurrent unexpose during an in-flight expose cannot leak a proxy
+	// device. hostOpMapMu guards the map itself. (S4c591a review)
+	hostOpMapMu sync.Mutex
+	hostOpLocks map[int]*sync.Mutex
+}
+
+// hostExposeState records a container port published on the host via an incus
+// proxy device (S4c591a). hostPort is the host-side listen port (may differ
+// from the container port when the original was busy and got reassigned).
+type hostExposeState struct {
+	hostPort  int
+	mappingID string // ExposePort mapping ID, for UnexposePort
 }
 
 // exposeState records whether a port has a published Caddy route.
@@ -158,6 +174,7 @@ func NewWithCaddy(cfg runtime.Config, instName string, r runner, cr caddyRunner,
 		status:         runtime.Status{State: runtime.StateStopped},
 		activeMappings: map[string]string{},
 		exposed:        map[int]exposeState{},
+		hostExposed:    map[int]hostExposeState{},
 	}
 }
 
@@ -779,6 +796,11 @@ func (r *incusRuntime) Stop(ctx context.Context) error {
 	clearSnippets(ctx, r.inst, r.caddyRun, r.log)
 	// Remove all published admin-API routes for this workspace (See8bd4-2).
 	r.unpublishAll(ctx)
+	// Remove all host-port proxy devices for this workspace (S4c591a). The
+	// container delete above already drops its devices; this also clears the
+	// in-memory hostExposed state and is safe if Stop is reached without a
+	// successful delete.
+	r.unpublishAllHost(ctx)
 	// S7364e3: the container is gone, so all port-rescue state is invalid. Reset
 	// it so a re-created container (Regenerate reuses this same runtime object)
 	// re-runs ExposePort for localhost-only ports instead of seeing stale
@@ -789,6 +811,7 @@ func (r *incusRuntime) Stop(ctx context.Context) error {
 	r.activeMappingsMu.Unlock()
 	r.portsMu.Lock()
 	r.lastPorts = nil
+	// hostExposed was already cleared by unpublishAllHost above. (S4c591a)
 	r.portsMu.Unlock()
 	return nil
 }

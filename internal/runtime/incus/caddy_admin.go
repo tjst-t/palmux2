@@ -303,11 +303,18 @@ func (r *incusRuntime) PortsView() []runtime.PortView {
 	r.portsMu.RLock()
 	defer r.portsMu.RUnlock()
 	out := make([]runtime.PortView, 0, len(r.lastPorts))
+	seen := make(map[int]bool, len(r.lastPorts))
 	for _, p := range r.lastPorts {
 		if p.Port < 1024 {
 			continue // system ports are not user dev servers
 		}
+		seen[p.Port] = true
 		st, exposed := r.exposed[p.Port]
+		hst, hostPublished := r.hostExposed[p.Port]
+		hostURL := ""
+		if hostPublished {
+			hostURL = r.hostURL(hst.hostPort)
+		}
 		out = append(out, runtime.PortView{
 			Port:          p.Port,
 			Proto:         p.Proto,
@@ -317,6 +324,29 @@ func (r *incusRuntime) PortsView() []runtime.PortView {
 			Public:        st.public,
 			Exposed:       exposed,
 			PublicURL:     st.url,
+			HostPublished: hostPublished,
+			HostPort:      hst.hostPort,
+			HostURL:       hostURL,
+		})
+	}
+	// Include ports that are exposed (subdomain or host-port) but absent from
+	// the latest scan snapshot — e.g. a just-exposed port the next scan hasn't
+	// captured yet, so the expose readback + WS event reflect them immediately
+	// instead of reporting a zero-valued (unpublished) row. (S4c591a)
+	for port, hst := range r.hostExposed {
+		if seen[port] {
+			continue
+		}
+		st, exposed := r.exposed[port]
+		out = append(out, runtime.PortView{
+			Port:          port,
+			Proto:         "tcp",
+			Public:        st.public,
+			Exposed:       exposed,
+			PublicURL:     st.url,
+			HostPublished: true,
+			HostPort:      hst.hostPort,
+			HostURL:       r.hostURL(hst.hostPort),
 		})
 	}
 	return out
