@@ -10,6 +10,8 @@ import {
   type Repository,
   type RuntimeCaps,
   type RuntimeView,
+  type SelfUpdateSnapshot,
+  selfUpdateApi,
   type TabSet,
   type SubagentCleanupCandidate,
   type SubagentCleanupResult,
@@ -341,6 +343,29 @@ interface PalmuxStoreState {
 
   /** S7364e3: POST regenerate an incus container from the current image. */
   regenerateContainer: (repoId: string, branchId: string) => Promise<void>
+
+  // S6ab0ed: self-update ───────────────────────────────────────────────────
+  /** Latest detection snapshot (null until loaded). */
+  selfUpdate: SelfUpdateSnapshot | null
+  /** True while a GUI-triggered "Update all" is in flight (drives the progress
+   *  badge/panel + reconnect handshake). */
+  updateInProgress: boolean
+  /** Version recorded when the update was triggered, compared against /health
+   *  after reconnect to detect success. */
+  updateBaselineVersion: string | null
+  /** One-shot completion notice ("vX に更新しました") shown as a toast. Cleared
+   *  by the component after display. */
+  updateToast: { version: string } | null
+  /** Set when the post-restart reconnect handshake decided the update failed
+   *  (version unchanged after timeout). */
+  updateFailed: boolean
+  /** Fetch (or refresh) the self-update snapshot. */
+  loadSelfUpdate: () => Promise<void>
+  /** Trigger the one-click "Update all". Throws (ApiError) on 409 (Nix-unmanaged)
+   *  so the caller can show manual-update guidance. */
+  runSelfUpdate: () => Promise<void>
+  /** Clear the completion toast after it's been shown. */
+  clearUpdateToast: () => void
 }
 
 export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
@@ -363,6 +388,12 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
   agents: {},
   runtimeCaps: null,
   branchPorts: {},
+
+  selfUpdate: null,
+  updateInProgress: false,
+  updateBaselineVersion: null,
+  updateToast: null,
+  updateFailed: false,
 
   applyBranchPortPatch: (repoId, branchId, port, patch) =>
     set((s) => {
@@ -401,6 +432,9 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
         serverInfo: info ?? {},
         loading: false,
       })
+      // S6ab0ed: load the self-update snapshot in the background (best-effort —
+      // a failure must not block bootstrap; the WS event refreshes it later).
+      void get().loadSelfUpdate()
       // S0c6a1b: load the reserved host scope BEFORE flipping `bootstrapped`
       // so the /host--0000/host/* route resolves on a cold load / reload —
       // otherwise MainLayout's "branch not found → bounce to /" effect fires
@@ -624,6 +658,13 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
     // terminal tabs to reconnect — the old tmux session is gone.
     if (ev.type === 'branch.restarted' && ev.repoId && ev.branchId) {
       _triggerBranchTerminalReconnect(ev.repoId, ev.branchId, get().repos)
+    }
+
+    // S6ab0ed: the self-update poller detected a change in the set of
+    // update-available managed components. Payload is the full Snapshot —
+    // replace the cache so the top-right "更新あり" badge + panel refresh live.
+    if (ev.type === 'app.updateAvailable' && ev.payload) {
+      set({ selfUpdate: ev.payload as SelfUpdateSnapshot })
     }
 
     // See8bd4-3: ports scan detected a change — update the Ports tab cache
@@ -1130,6 +1171,38 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
       _triggerBranchTerminalReconnect(repoId, branchId, get().repos)
     }
   },
+
+  // S6ab0ed: self-update actions ─────────────────────────────────────────────
+  loadSelfUpdate: async () => {
+    try {
+      const snap = await selfUpdateApi.get()
+      set({ selfUpdate: snap })
+    } catch {
+      // best-effort; the WS event will refresh it later.
+    }
+  },
+
+  runSelfUpdate: async () => {
+    // Record the version we're updating FROM so the post-restart reconnect
+    // handshake can detect when the new version is live (decisions PD-6/PD-7).
+    const baseline = get().serverInfo.version ?? null
+    set({ updateInProgress: true, updateBaselineVersion: baseline, updateFailed: false })
+    try {
+      const resp = await selfUpdateApi.run()
+      if (!resp.ok) {
+        set({ updateInProgress: false })
+        throw new Error(resp.error ?? '更新を開始できませんでした。')
+      }
+      // Success path is observed asynchronously via the reconnect handshake in
+      // use-event-stream.ts (WS drops when palmux restarts → poll /health).
+    } catch (err) {
+      // 409 (Nix-unmanaged) or any failure to START the update — surface it.
+      set({ updateInProgress: false })
+      throw err
+    }
+  },
+
+  clearUpdateToast: () => set({ updateToast: null }),
 }))
 
 // S8478ca-refine: force terminal re-attachment for all terminal-backed tabs

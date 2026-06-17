@@ -60,6 +60,12 @@ func worktreeList(ctx context.Context, repoFullPath string) ([]worktree.Worktree
 var Version = ""
 
 func resolveVersion() string {
+	// Test seam (E2E rig only): PALMUX_FAKE_VERSION lets the self-update
+	// reconnect-handshake live test restart the dev binary as a "new version"
+	// without rebuilding (S6ab0ed). Never set in production.
+	if v := os.Getenv("PALMUX_FAKE_VERSION"); v != "" {
+		return v
+	}
 	if Version != "" {
 		return Version
 	}
@@ -118,6 +124,13 @@ func main() {
 	// single privileged verb; takes no free-form input.
 	if len(os.Args) > 1 && os.Args[1] == "reconcile-system" {
 		os.Exit(runReconcileSystem(os.Args[2:]))
+	}
+
+	// S6ab0ed: `palmux update [--check]` — one-click self-update (shares the
+	// GUI "Update all" execution path) / detection-only. Dispatch before server
+	// bootstrap.
+	if len(os.Args) > 1 && os.Args[1] == "update" {
+		os.Exit(runUpdate(os.Args[2:]))
 	}
 
 	// Sa53137-2 (PD-3): `palmux2 serve [flags]` runs the server. Accept and
@@ -626,10 +639,22 @@ func run(rc resolved) error {
 		Token:           token != "",
 		CloudflareToken: cloudflareTokenPresent(),
 	}, deployHotApplier{
-		registry:   runtimeRegistry,
-		agentMgr:   agentManager,
-		tuiMgr:     claudetuiMgr,
+		registry: runtimeRegistry,
+		agentMgr: agentManager,
+		tuiMgr:   claudetuiMgr,
 	}, slog.Default())
+
+	// S6ab0ed: self-update service. Polls GitHub for new releases of the
+	// managed components (palmux binary + palmux-ws image + declared tools) and
+	// broadcasts an app.updateAvailable WS event on a state transition. The GUI
+	// "Update all" button and `palmux update` CLI share its execution path.
+	selfUpdateSvc, suErr := newSelfUpdateService(st)
+	if suErr != nil {
+		slog.Warn("self-update disabled", "err", suErr)
+		selfUpdateSvc = nil
+	} else {
+		go selfUpdateSvc.Run(ctx)
+	}
 
 	mux := server.NewMux(server.Deps{
 		Store:           st,
@@ -640,6 +665,7 @@ func run(rc resolved) error {
 		Notify:          notifyHub,
 		Deploy:          deployCtl,
 		DeployConfigDir: configDir,
+		SelfUpdate:      selfUpdateSvc,
 		FrontendFS:      frontendFS,
 		// S010: serve bundled drawio webapp from internal/static via /static/*.
 		// fs.Sub is applied inside server.staticHandler so the request path

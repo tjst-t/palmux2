@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "comment": "Declarative manifest of palmux-managed components for the self-update feature (S6ab0ed). CORE entries (palmux binary + palmux-ws image) are always checked. tool entries are ONLY the ones declared here — palmux does not auto-discover host tooling. Each entry: name, kind (core-binary | core-image | tool), display, githubRepo (owner/repo for the GitHub Releases poll), source (free-text label shown in the panel). installed-version probing is wired in Go per kind.",
+  "components": [
+    {
+      "name": "palmux",
+      "kind": "core-binary",
+      "display": "palmux 本体",
+      "githubRepo": "tjst-t/palmux2",
+      "source": "tjst-t/palmux2"
+    },
+    {
+      "name": "image",
+      "kind": "core-image",
+      "display": "palmux-ws image",
+      "githubRepo": "tjst-t/palmux2",
+      "source": "release asset"
+    },
+    {
+      "name": "gwq",
+      "kind": "tool",
+      "display": "gwq",
+      "githubRepo": "tjst-t/gwq",
+      "source": "manifest 宣言ツール",
+      "bin": "gwq",
+      "versionArgs": ["--version"]
+    },
+    {
+      "name": "portman",
+      "kind": "tool",
+      "display": "portman",
+      "githubRepo": "tjst-t/port-manager",
+      "source": "manifest 宣言ツール",
+      "bin": "portman",
+      "versionArgs": ["--version"]
+    }
+  ]
+}

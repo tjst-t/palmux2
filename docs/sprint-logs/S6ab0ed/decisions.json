@@ -1,0 +1,129 @@
+{
+  "sprint": "S6ab0ed",
+  "title": "GUI セルフアップデート（リリース検出 + 通知 + ワンクリック一括更新）",
+  "planning_decisions": [
+    {
+      "id": "PD-1",
+      "decision": "管理対象マニフェストはリポジトリ内の宣言的 JSON (internal/selfupdate/manifest.json) を Go に go:embed する。コア=palmux本体 + palmux-ws image は固定エントリ、周辺ツール (gwq/portman/ghq) は manifest に明示宣言されたものだけ。各エントリは {name, kind(core-binary|core-image|tool), github_repo, installed_probe}。",
+      "rationale": "AC-S6ab0ed-1-1 要件。DESIGN_PRINCIPLES priority_rule 7 (明示的>暗黙的)・rule 6 (既存資産活用)。embed なら単一バイナリ配布を崩さない (VISION tech_constraints)。"
+    },
+    {
+      "id": "PD-2",
+      "decision": "version-check ポーラは新規 goroutine (internal/selfupdate/poller.go) を runPortScan と同じ ticker パターンで実装。間隔 6h。GITHUB_TOKEN 対応 (latestReleaseAssetURL/ghReleasesAPI の HTTP プランビングを汎用化して流用)。起動直後に1回 + 以後 6h ごと。結果は store の update cache に保持し、変化時のみ WS event app.updateAvailable を publish (setDriftCached と同じ transition-only パターン)。",
+      "rationale": "AC-S6ab0ed-1-2。rule 6 (runPortScan/latestReleaseAssetURL 再利用)。長間隔+token でレート制限回避。"
+    },
+    {
+      "id": "PD-3",
+      "decision": "GitHub 不達/レート制限時は graceful degrade: poll エラーは log.Warn のみ、前回の update state を維持しバッジは変えない。手置き override (Nix管理外 = ~/update-palmux2.sh 不在) でも検出表示は出す (検出は version 比較のみで privilege 不要)。",
+      "rationale": "AC-S6ab0ed-1-4。VISION process_constraints。"
+    },
+    {
+      "id": "PD-4",
+      "decision": "特権実行経路は Sa53137 の方式を踏襲しつつ『新たな特権機構を作らない』(rule 6)。canonical な更新フロー = install.sh が生成する ~/update-palmux2.sh (flake再pin→home-manager switch→restart、Nix世代ロールバック)。server/CLI はこれを detached プロセスで起動する (palmux 自身を再起動するため同期実行不可)。Nix管理 (=更新可能) 判定 = ~/update-palmux2.sh が存在し実行可能であること。image は S7364e3 の Regenerate を流用。",
+      "rationale": "AC-S6ab0ed-2-1/2-4。rule 6・Sa53137 privilege 設計 (PD-4: typed verb のみ)。update-palmux2.sh 自体が sudo を内部で持ち Nix 世代ロールバックを提供するので Go で再実装しない。"
+    },
+    {
+      "id": "PD-5",
+      "decision": "Update all / palmux update / palmux update --check は同一 internal/selfupdate のコア関数を共有: DetectUpdates() (検出) と RunUpdate() (~/update-palmux2.sh を起動)。HTTP POST /api/selfupdate/run と CLI runUpdate が同じ RunUpdate を呼ぶ。GUI 用に GET /api/selfupdate (検出 snapshot) も公開。",
+      "rationale": "AC-S6ab0ed-2-5 (CLI と GUI の実行経路共通化)。rule 6・rule 7。"
+    },
+    {
+      "id": "PD-6",
+      "decision": "自己再起動→再接続ハンドシェイク: 既存 ReconnectingWebSocket が自動再接続するので追加の reconnect ロジックは作らない。use-event-stream の onState('disconnected'→'open') 遷移を hook し、再接続時に /api/health の version を再取得、bootstrap 時に保存した serverInfo.version と比較。変化していたら『vX に更新しました』トーストを出す。更新ボタン押下中フラグ (updateInProgress) を store に持ち、切断中は update-reconnecting パネルを出す。",
+      "rationale": "AC-S6ab0ed-2-2。rule 6 (ReconnectingWebSocket 再利用)・priority_rule 8。"
+    },
+    {
+      "id": "PD-7",
+      "decision": "失敗時ロールバック表示: RunUpdate は detached 起動なので同期的に成否を返せない。GUI は再接続後 version 不変 + 一定 timeout 経過で『更新に失敗 / 旧バージョン維持 (home-manager世代でロールバック)』を表示。CLI palmux update は ~/update-palmux2.sh を同期 (前景) 実行し終了コードで成否を返す (CLI は自身を再起動しないので待てる)。",
+      "rationale": "AC-S6ab0ed-2-3/2-5。CLI と GUI で再起動の主体が違うため実行モードを分ける (CLI=同期, GUI=detached)。"
+    },
+    {
+      "id": "PD-8",
+      "decision": "GUI バッジ/パネルは Activity Inbox の bellWrap/badge/popover パターンと S7364e3 runtimeUpdateBadge スタイルを流用し、承認済 prototype (prototype/s6ab0ed-*.html) の data-testid を厳密一致させる: update-available-badge, update-panel, update-comp-{name}, update-all-btn, update-restart-note, update-progress-badge, update-progress-panel, update-reconnecting。新規 component frontend/src/components/update/update-panel.tsx。",
+      "rationale": "承認済プロトタイプが visual source of truth。rule 6・rule 2 (汎用基盤)。"
+    }
+  ],
+  "implementation_decisions": [
+    {
+      "id": "ID-1",
+      "decision": "internal/selfupdate を新規パッケージとして作成 (manifest.go/github.go/version.go/detect.go/service.go/detach.go)。GitHub fetch は cmd/palmux/runtime.go の latestReleaseAssetURL と同型の HTTP/auth/header プランビングを LatestTag として再実装 (runtime.go は package main で import 不可、import-cycle 回避のため)。共有化は将来 internal/github 抽出で対応可 (review CR-3 backlog)。",
+      "rationale": "rule 6。package main を internal から import できない Go 制約。"
+    },
+    {
+      "id": "ID-2",
+      "decision": "installed version probe は InstalledProbes 関数注入で cmd/palmux の resolveVersion/installedImageVersion を再利用 (selfupdate が cmd/palmux に依存しない)。CLI と server は newSelfUpdateService(st) 単一コンストラクタを共有 (st=nil で publish 無し) — review CR-6 で2関数を1本化。",
+      "rationale": "rule 6・PD-5 (CLI/GUI drift 防止)。"
+    },
+    {
+      "id": "ID-3",
+      "decision": "version 比較 (version.go) は dirty/dev ビルドで update を出さない conservative semver。tool version は dotted-token 正規表現で抽出し先頭の年/バナー整数を無視 (review CR-2)。",
+      "rationale": "dev ビルドへの誤通知防止。"
+    },
+    {
+      "id": "ID-4",
+      "decision": "E2E 用テストシーム 2 つ: PALMUX_SELFUPDATE_FAKE_INSTALLED (installed version 上書き) と PALMUX_FAKE_VERSION (/health version 上書き)。どちらも検出 INPUT のみ上書きし GitHub poll/WS/HTTP 経路は実物 (Rule 7 production mode 準拠)。frontend は window.__PALMUX_UPDATE_TIMEOUT_MS__ で handshake timeout を短縮可能 (rollback 経路テスト用、本番未設定)。",
+      "rationale": "Rule 7。dirty dev ビルドでは UpdateAvailable が false を返すため、実 GitHub poll で deterministic に『更新あり』を出すには installed の上書きが必要。"
+    }
+  ],
+  "review_decisions": [
+    {
+      "id": "CR-1",
+      "finding": "[CONFIRMED] use-event-stream pollForNewVersion: baseline が null (bootstrap /health 失敗) のとき v !== null が初回 poll で真になり、ロールバック (同 version) を false success と誤判定。",
+      "fix": "robust-baseline rule: baseline が空なら最初に取得した version を effective baseline として採用し、以後の poll で『変化』したときだけ success。これでロールバック (失敗) 経路が baseline 不在でも到達可能。"
+    },
+    {
+      "id": "CR-2",
+      "finding": "[CONFIRMED] toolVersion が CombinedOutput 全体を返し、semverRe が先頭の数字列 (年/バナー) を拾って誤った version core を作る。",
+      "fix": "toolVersionTokenRe (dotted token, 最低1ドット必須) で version トークンのみ抽出。bare 整数の年は拾わない。unit test 追加。"
+    },
+    {
+      "id": "CR-3",
+      "finding": "[CONFIRMED] service.go の running フラグが write-only の dead state で concurrent-run guard が無く、二重 POST で detached update が 2 本起動しうる。",
+      "fix": "RunUpdate 冒頭で running を実際にチェックし、in-flight なら ErrUpdateInFlight (409) で拒否。10分の grace 後 (script が再起動しなかった場合) guard を解除。handler が 409 を返す。unit test 追加。"
+    },
+    {
+      "id": "CR-4",
+      "finding": "[CONFIRMED] palmux update --check が全 component degrade (latest 取得不能) でも exit 0 (『最新』) を返し、スクリプトに『確認できなかった』を隠す。",
+      "fix": "allLatestUnresolved なら exit 3 (確認不能) を返す。"
+    },
+    {
+      "id": "CR-5",
+      "finding": "[CONFIRMED] RunUpdate の logFile open エラーが握り潰され、診断 trail 喪失時に説明が出ない。",
+      "fix": "logErr を Warn ログ出力。logFile==nil でも継続 (/dev/null)。"
+    },
+    {
+      "id": "CR-6",
+      "finding": "[cleanup] buildSelfUpdateService と newCLISelfUpdateService が probes 構築を二重実装。dead UpdateError フィールド (Go Snapshot + FE 型) が未使用。",
+      "fix": "newSelfUpdateService(st) 単一化 (st=nil で publish 無し)。UpdateError フィールド削除。Detect の GitHub fetch を WaitGroup で並列化 (1 遅延 repo が他を直列ブロックしない)。"
+    }
+  ],
+  "done_judgment": {
+    "S6ab0ed-1": {
+      "guard1_user_scenario": "pass — 運用者として右上で更新通知を見たい (user story)",
+      "guard2_tests_real_entrypoint": "pass — 実 GitHub poll + 実ブラウザ Playwright + 実 /api/selfupdate (E2E), 実 CLI subprocess",
+      "guard3_no_silent_skip": "pass — 全 4 AC にテスト",
+      "guard4_status_truthful": "pass",
+      "guard5_gui_e2e_real_backend": "pass — s6ab0ed_selfupdate.py が実バックエンド経由でバッジ/パネル観測",
+      "guard6_diff_scan_all_surfaces": "pass — badge/panel/CLI/snapshot/degrade すべてにテスト",
+      "result": "done"
+    },
+    "S6ab0ed-2": {
+      "guard1_user_scenario": "pass — ワンクリック一括更新 + 自動復帰 (user story)",
+      "guard2_tests_real_entrypoint": "pass — 実 WS drop + 実バイナリ再起動 (reconnect_live), 実 CLI subprocess, 実 HTTP 409",
+      "guard3_no_silent_skip": "pass — 全 5 AC にテスト。実 VM フル自己更新サイクルのみ manual-smoke-pending (下記)",
+      "guard4_status_truthful": "pass",
+      "guard5_gui_e2e_real_backend": "pass — reconnect handshake を実バイナリ再起動で観測",
+      "guard6_diff_scan_all_surfaces": "pass — Update-all/progress/reconnect/toast/rollback/manual-note/CLI 全テスト",
+      "result": "done"
+    }
+  },
+  "skips_or_manual_smoke": [
+    {
+      "id": "MS-1",
+      "type": "manual-smoke-pending (priority_rule 0 / process_constraints)",
+      "scope": "実デプロイ VM (palmux-deploy-test.tjstkm.net) での true end-to-end フル自己更新サイクル: 『更新あり検出 → Update all → flake 再pin → home-manager switch → 本体自己再起動 → GUI 再接続 → 新 version 確認』。",
+      "reason": "このフルサイクルは installed より NEWER な実リリースが存在しないと検出できない (現 latest = v0.10.0、デプロイ VM も v0.10.0 相当)。NEWER release tag が出るまで infra-gated。それ以外の全経路は検証済み: 検出 (実 GitHub poll, fake-installed で deterministic)、apply 経路 (CLI 同期実行 + detached server 起動を stub helper で確認)、reconnect handshake (実バイナリ version-bump 再起動で実 WS drop → /health polling → toast を確認)、rollback (同 version 再起動 → updateFailed → ロールバック表示)。次の実リリース後に milestone で実機目視を取ること。",
+      "covered_alternatively": "検出=s6ab0ed_selfupdate.py (実 GitHub)、実行+再接続=s6ab0ed_reconnect_live.py (実バイナリ再起動)、CLI=backend acceptance、特権経路=Sa53137 ~/update-palmux2.sh 委譲 (stub で起動確認)"
+    }
+  ]
+}

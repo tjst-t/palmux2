@@ -17,25 +17,27 @@ import (
 	"github.com/tjst-t/palmux2/internal/commands"
 	"github.com/tjst-t/palmux2/internal/deploy"
 	"github.com/tjst-t/palmux2/internal/notify"
+	"github.com/tjst-t/palmux2/internal/selfupdate"
 	"github.com/tjst-t/palmux2/internal/store"
 	"github.com/tjst-t/palmux2/internal/tmux"
 )
 
 // Deps bundles dependencies for NewMux.
 type Deps struct {
-	Store        *store.Store
-	Auth         *auth.Authenticator
-	SSO          *auth.SSOProvider // Sbe4eee: forward_auth SSO provider (nil/disabled in local dev)
-	Tmux         tmux.Client
-	Commands     *commands.Detector
-	Notify       *notify.Hub
-	Deploy       *deploy.Controller // Sa53137: unified-config deploy plane (nil = endpoints 503)
-	DeployConfigDir string          // config dir holding config.toml (for CLI-driven file-edit apply)
-	FrontendFS   fs.FS // embedded SPA bundle
-	StaticFS     fs.FS // embedded third-party assets (e.g. drawio webapp); served at /static/* (S010)
-	BasePath     string
-	Logger       *slog.Logger
-	HealthDetail map[string]any // optional fields appended to /api/health
+	Store           *store.Store
+	Auth            *auth.Authenticator
+	SSO             *auth.SSOProvider // Sbe4eee: forward_auth SSO provider (nil/disabled in local dev)
+	Tmux            tmux.Client
+	Commands        *commands.Detector
+	Notify          *notify.Hub
+	Deploy          *deploy.Controller  // Sa53137: unified-config deploy plane (nil = endpoints 503)
+	DeployConfigDir string              // config dir holding config.toml (for CLI-driven file-edit apply)
+	SelfUpdate      *selfupdate.Service // S6ab0ed: self-update service (nil = endpoints 503)
+	FrontendFS      fs.FS               // embedded SPA bundle
+	StaticFS        fs.FS               // embedded third-party assets (e.g. drawio webapp); served at /static/* (S010)
+	BasePath        string
+	Logger          *slog.Logger
+	HealthDetail    map[string]any // optional fields appended to /api/health
 }
 
 // NewMux builds the top-level mux: /auth, /api/* (auth-required) and the SPA
@@ -101,9 +103,14 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 		notify:          deps.Notify,
 		deploy:          deps.Deploy,
 		deployConfigDir: deps.DeployConfigDir,
+		selfupdate:      deps.SelfUpdate,
 	}
 
 	mux.HandleFunc("GET /api/health", h.health)
+
+	// S6ab0ed: self-update detection snapshot + one-click "Update all".
+	mux.HandleFunc("GET /api/selfupdate", h.getSelfUpdate)
+	mux.HandleFunc("POST /api/selfupdate/run", h.postSelfUpdateRun)
 
 	mux.HandleFunc("GET /api/runtimes", h.getRuntimes) // S8478ca-5: capability probe
 	mux.HandleFunc("GET /api/repos", h.listRepos)
@@ -199,6 +206,7 @@ type handlers struct {
 	notify          *notify.Hub
 	deploy          *deploy.Controller // Sa53137 (nil → deploy endpoints 503)
 	deployConfigDir string
+	selfupdate      *selfupdate.Service // S6ab0ed (nil → selfupdate endpoints 503)
 }
 
 // helpers ────────────────────────────────────────────────────────────────────
