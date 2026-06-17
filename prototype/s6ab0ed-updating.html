@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ja" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>S6ab0ed · セルフアップデート — 実行中 / 再接続</title>
+<link rel="stylesheet" href="sa53137.css">
+<style>
+  .stage { position: relative; min-height: 520px; }
+  .panel { position: absolute; top: 6px; right: 0; width: 420px; background: var(--elevated); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 18px 50px rgba(0,0,0,.5); overflow: hidden; }
+  .panel-head { padding: 15px 16px 12px; border-bottom: 1px solid var(--border); }
+  .panel-head .t { font-weight: 600; }
+  .step { display: flex; align-items: center; gap: 11px; padding: 11px 16px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .ic { width: 18px; height: 18px; flex: none; display: grid; place-items: center; border-radius: 50%; font-size: 11px; }
+  .ic.done { background: rgba(100,210,160,.18); color: var(--success); }
+  .ic.run { background: rgba(124,138,255,.18); color: var(--accent-light); }
+  .ic.wait { background: var(--surface); color: var(--fg-faint); border: 1px solid var(--border); }
+  .step .sx { color: var(--fg-dim); font-size: 11px; margin-left: auto; font-family: var(--font-mono); }
+  .reconnect { margin: 14px 16px; padding: 13px; border: 1px solid rgba(124,138,255,.3); background: rgba(124,138,255,.08); border-radius: 9px; font-size: 12.5px; color: var(--accent-light); display: flex; gap: 10px; align-items: center; }
+  .spin { width: 14px; height: 14px; border: 2px solid rgba(124,138,255,.3); border-top-color: var(--accent); border-radius: 50%; animation: sp 0.8s linear infinite; flex: none; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  .update-badge { background: rgba(124,138,255,.14); border-color: rgba(124,138,255,.35); color: var(--accent-light); width: auto; padding: 0 12px; gap: 7px; font-size: 12.5px; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span> palmux2</div>
+    <div class="hdr-right">
+      <span class="crumbs">tjst-t/palmux2 · main</span>
+      <button class="icon-btn update-badge" data-testid="update-progress-badge"><span class="spin"></span> 更新中…</button>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="panel" data-testid="update-progress-panel">
+      <div class="panel-head"><div class="t">まとめて更新中…</div></div>
+
+      <div class="step"><span class="ic done">✓</span> palmux-ws image を取得・再生成 <span class="sx">done</span></div>
+      <div class="step"><span class="ic done">✓</span> gwq を更新 <span class="sx">done</span></div>
+      <div class="step"><span class="ic run">●</span> palmux 本体を更新（flake 再pin → switch）<span class="sx">running</span></div>
+      <div class="step"><span class="ic wait">·</span> palmux を再起動 <span class="sx">pending</span></div>
+
+      <div class="reconnect" data-testid="update-reconnecting">
+        <span class="spin"></span>
+        <span>本体更新に伴い palmux が再起動します。<b>接続が切れたら自動で再接続</b>し、新バージョンを確認したら「v0.11.0 に更新しました」と表示します。</span>
+      </div>
+    </div>
+  </div>
+
+  <p class="help" style="text-align:center"><a href="index.html">← prototype index</a> · <a href="s6ab0ed-update-panel.html">← 更新パネル</a></p>
+</div>
+</body>
+</html>

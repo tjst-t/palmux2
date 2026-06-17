@@ -1,0 +1,15 @@
+{
+  "sprint_range": ["S6ab0ed"],
+  "screens": [
+    {"file": "prototype/s6ab0ed-update-panel.html", "story": "S6ab0ed-1", "feedback_rounds": 0, "approved": true},
+    {"file": "prototype/s6ab0ed-updating.html", "story": "S6ab0ed-2", "feedback_rounds": 0, "approved": true}
+  ],
+  "design_decisions": [
+    "右上『更新あり』バッジ (緑) は Activity Inbox / workspace-update-badge の型を流用",
+    "更新パネルは manifest 宣言コンポーネント別に current→latest を表示 (本体 + palmux-ws image をコア、周辺ツールは manifest に明示したものだけ)",
+    "『すべてまとめて更新』→ image regenerate 再利用 + 本体は flake 再pin→switch→自己再起動",
+    "自己再起動後の再接続ハンドシェイク (WS 切断検知→/health version polling→再接続→完了表示)",
+    "CLI 共通経路 palmux update / palmux update --check を明記"
+  ],
+  "feedback_applied": []
+}
