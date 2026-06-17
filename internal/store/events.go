@@ -100,6 +100,13 @@ const (
 	// `{stale: bool}`. The FE updates the "update available" badge on the
 	// header runtime chip and drawer entry without a full /api/repos reload.
 	EventBranchRuntimeDrift EventType = "branch.runtimeDrift"
+
+	// S6ab0ed: emitted by the self-update poller when the set of
+	// update-available managed components transitions. Payload is the full
+	// selfupdate.Snapshot (components current→latest + overall available +
+	// nixManaged). The FE drives the top-right "更新あり" badge + update panel
+	// from this (app-global, like settings.updated — no repo/branch fields).
+	EventAppUpdateAvailable EventType = "app.updateAvailable"
 )
 
 // Event is one broadcastable change.

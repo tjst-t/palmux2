@@ -294,6 +294,38 @@ export interface ApplyResult {
   message: string
 }
 
+// S6ab0ed: self-update detection snapshot + one-click "Update all".
+export interface SelfUpdateComponent {
+  name: string
+  display: string
+  source: string
+  kind: string
+  installed: string
+  latest: string
+  available: boolean
+}
+
+export interface SelfUpdateSnapshot {
+  components: SelfUpdateComponent[]
+  available: boolean
+  nixManaged: boolean
+  checkedAt: string
+  degraded: boolean
+}
+
+export interface SelfUpdateRunResult {
+  ok: boolean
+  nixManaged?: boolean
+  message?: string
+  error?: string
+}
+
+export const selfUpdateApi = {
+  get: (): Promise<SelfUpdateSnapshot> => api.get<SelfUpdateSnapshot>('/api/selfupdate'),
+  run: (): Promise<SelfUpdateRunResult> => api.post<SelfUpdateRunResult>('/api/selfupdate/run'),
+  health: (): Promise<{ version?: string }> => api.get<{ version?: string }>('/api/health'),
+}
+
 export const deployApi = {
   get: (): Promise<DeployView> => api.get<DeployView>('/api/deploy'),
   apply: (body: {

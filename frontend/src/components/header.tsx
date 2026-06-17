@@ -8,6 +8,8 @@ import { useCommandPaletteStore } from './command-palette/store'
 import { ActivityInbox } from './inbox/activity-inbox'
 import { RuntimeChangeConfirm } from './runtime-change-confirm'
 import { UpdateContainerConfirm } from './update-container-confirm'
+import { UpdatePanel } from './update/update-panel'
+import { UpdateToast } from './update/update-toast'
 import { UploadsIndicator } from './uploads/uploads-indicator'
 import styles from './header.module.css'
 
@@ -288,6 +290,7 @@ export function Header() {
       </div>
       <div className={styles.right}>
         <UploadsIndicator />
+        <UpdatePanel />
         <ActivityInbox />
         <button
           className={styles.iconBtn}
@@ -321,6 +324,7 @@ export function Header() {
         <span className={`${styles.dot} ${styles[status]}`} title={status} />
       </div>
     </header>
+    <UpdateToast />
     </>
   )
 }

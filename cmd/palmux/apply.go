@@ -28,10 +28,10 @@ type applyResult struct {
 		Field string `json:"field"`
 		Class string `json:"class"`
 	} `json:"changes"`
-	HotApplied   bool   `json:"hotApplied"`
-	NeedRestart  bool   `json:"needRestart"`
-	NeedPrivilege bool  `json:"needPrivilege"`
-	Message      string `json:"message"`
+	HotApplied    bool   `json:"hotApplied"`
+	NeedRestart   bool   `json:"needRestart"`
+	NeedPrivilege bool   `json:"needPrivilege"`
+	Message       string `json:"message"`
 }
 
 func runApply(args []string) int {
