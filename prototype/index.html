@@ -18,6 +18,27 @@
     </header>
 
     <section class="indexSection">
+      <h2>Active · Sa53137 — 統一設定プレーン (設定 GUI + 初回オンボーディング)</h2>
+      <div class="cardGrid">
+        <a class="card" href="sa53137-settings-app.html">
+          <span class="cardLabel">Sa53137-1 · アプリ設定</span>
+          <div class="cardTitle">設定パネル · アプリタブ（全フィールド）</div>
+          <p class="cardDesc"><code>settings.json</code> の全フィールドを GUI 編集。保存で即時反映 + file-watch。<code>data-testid=settings-tab-app</code> / <code>save-app-settings</code>。</p>
+        </a>
+        <a class="card" href="sa53137-settings-deploy.html">
+          <span class="cardLabel">Sa53137-3 · デプロイ設定</span>
+          <div class="cardTitle">設定パネル · デプロイタブ</div>
+          <p class="cardDesc">config.toml の server/public を編集。<b>即時 / 要再起動 / 要特権</b> バッジ + secrets マスク。<code>apply-deploy</code> / <code>restart-required-banner</code>。</p>
+        </a>
+        <a class="card" href="sa53137-onboarding.html">
+          <span class="cardLabel">Sa53137-3 · 初回</span>
+          <div class="cardTitle">初回オンボーディング ウィザード</div>
+          <p class="cardDesc">未設定検知 → ローカル/公開を選択 → 公開ドメイン/認証。ドメインは特権操作へ誘導。<code>onboarding-wizard</code> / <code>onboarding-mode-public</code>。</p>
+        </a>
+      </div>
+    </section>
+
+    <section class="indexSection">
       <h2>Active · S62374c — Workspace 共有ブラウザ (Browser タブ)</h2>
       <div class="cardGrid">
         <a class="card" href="s62374c-browser.html">

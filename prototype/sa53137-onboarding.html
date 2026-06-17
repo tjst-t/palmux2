@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ja" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sa53137 · 初回オンボーディング</title>
+<link rel="stylesheet" href="sa53137.css">
+</head>
+<body>
+<div class="wizard" data-testid="onboarding-wizard">
+  <div class="wizard-card">
+    <div class="steps" aria-label="進捗">
+      <div class="step-pip done"></div>
+      <div class="step-pip on"></div>
+      <div class="step-pip"></div>
+    </div>
+
+    <div class="brand" style="margin-bottom:14px"><span class="dot"></span> palmux2 へようこそ</div>
+    <h1>セットアップ — 公開方法を選ぶ</h1>
+    <p class="lead">この palmux をどう使うか選んでください。後から「デプロイ設定」でいつでも変更できます。install.sh にパラメータを渡して設定済みの場合、この画面は出ません。</p>
+
+    <div class="choice" data-testid="onboarding-mode">
+      <a class="opt" href="#" data-testid="onboarding-mode-local">
+        <div class="t">ローカル / 非公開</div>
+        <div class="d">この端末・LAN からのみ。公開ドメインも認証も不要。設定は全て GUI だけで完結（sudo なし）。</div>
+      </a>
+      <a class="opt sel" href="#" data-testid="onboarding-mode-public">
+        <div class="t">公開（ドメイン + SSO）✓</div>
+        <div class="d">独自ドメインで HTTPS 公開。1回ログインの SSO + 公開サブドメイン。ドメイン/TLS の確定だけ特権操作を1回挟みます。</div>
+      </a>
+    </div>
+
+    <div data-testid="onboarding-public-fields" style="margin-top:8px">
+      <div class="wfield">
+        <label for="d">公開ドメイン</label>
+        <input id="d" type="text" placeholder="例: palmux.example.net" value="palmux-deploy-test.tjstkm.net" data-testid="onboarding-domain">
+        <span class="help"><code>*.&lt;domain&gt;</code> の wildcard DNS レコードが必要（公開サブドメイン用）。</span>
+      </div>
+      <div class="wfield">
+        <label for="cf">Cloudflare API トークン</label>
+        <input id="cf" type="password" placeholder="DNS-01 wildcard TLS 用トークン" data-testid="onboarding-cloudflare-token">
+        <span class="help"><code>*.&lt;domain&gt;</code> の TLS 証明書を DNS-01 challenge で自動発行するのに使用。Cloudflare で対象 Zone の DNS 編集権限トークンを発行して貼り付け。</span>
+      </div>
+      <div class="wfield">
+        <label for="u">ログインユーザ</label>
+        <input id="u" type="text" value="admin" data-testid="onboarding-auth-user">
+      </div>
+      <div class="wfield">
+        <label for="p">ログインパスワード</label>
+        <input id="p" type="password" placeholder="SSO ログイン用パスワード" data-testid="onboarding-auth-password">
+      </div>
+
+      <div class="banner info" data-testid="onboarding-privileged-notice">
+        <span>🔐</span>
+        <span>公開ドメイン/TLS の確定には root が必要です。次へ進むと <code>sudo palmux reconcile-system</code>（or install.sh 再実行）の手順を案内します。アプリ/サーバ設定はこのまま GUI だけで反映されます。</span>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <a class="btn ghost" href="#" data-testid="onboarding-back">戻る</a>
+      <a class="btn primary" href="sa53137-settings-deploy.html" data-testid="onboarding-next">次へ — 確認して適用</a>
+      <a class="btn ghost" href="sa53137-settings-app.html" data-testid="onboarding-skip">スキップ（後で設定）</a>
+    </div>
+  </div>
+
+  <p class="help" style="text-align:center;margin-top:20px">
+    install.sh のパラメータ方式と、この GUI 方式は <b>同じマスター設定</b>（config.toml + secrets.env）に到達します。どちらでも選べます。
+    <br><a href="index.html">← prototype index</a>
+  </p>
+</div>
+</body>
+</html>

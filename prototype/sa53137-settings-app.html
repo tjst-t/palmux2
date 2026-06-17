@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ja" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sa53137 · 設定パネル — アプリ</title>
+<link rel="stylesheet" href="sa53137.css">
+</head>
+<body>
+<div class="app-shell">
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span> palmux2 · 設定</div>
+    <div class="hdr-right">
+      <span class="crumbs">tjst-t/palmux2 · main</span>
+      <a class="icon-btn" href="sa53137-onboarding.html" title="初回セットアップ">✦</a>
+      <span class="icon-btn" title="Activity Inbox">🔔<span class="badge-count">2</span></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="tabs" data-testid="settings-tabs">
+      <a class="tab active" href="sa53137-settings-app.html" data-testid="settings-tab-app">アプリ設定</a>
+      <a class="tab" href="sa53137-settings-deploy.html" data-testid="settings-tab-deploy">デプロイ設定</a>
+    </div>
+    <div class="card-body" data-testid="settings-app-panel">
+
+      <p class="help" style="margin:14px 0 2px">全デバイス共有のグローバル設定（<code>~/.config/palmux/settings.json</code>）。保存で即時反映され、再起動は不要です。ファイルを直接編集しても自動で反映されます（file-watch）。</p>
+
+      <div class="section-label">タブ / 表示</div>
+      <div class="field">
+        <div class="label"><span class="name">Workspace 並び順</span><span class="key">branchSortOrder</span></div>
+        <div class="control">
+          <div class="seg" data-testid="field-branchSortOrder">
+            <button class="on">name</button><button>activity</button>
+          </div>
+        </div>
+      </div>
+      <div class="field">
+        <div class="label"><span class="name">Claude タブ上限 / Workspace</span><span class="key">maxClaudeTabsPerBranch</span></div>
+        <div class="control"><input type="number" value="3" min="1" max="10" data-testid="field-maxClaudeTabsPerBranch"></div>
+      </div>
+      <div class="field">
+        <div class="label"><span class="name">Bash タブ上限 / Workspace</span><span class="key">maxBashTabsPerBranch</span></div>
+        <div class="control"><input type="number" value="5" min="1" max="20" data-testid="field-maxBashTabsPerBranch"></div>
+      </div>
+      <div class="field">
+        <div class="label"><span class="name">Claude 既定モード</span><span class="key">claude.default_mode</span></div>
+        <div class="control"><div class="seg" data-testid="field-claudeDefaultMode"><button class="on">agent</button><button>tui</button></div></div>
+      </div>
+      <div class="field">
+        <div class="label"><span class="name">既定 Runtime</span><span class="key">defaultRuntime.kind</span></div>
+        <div class="control"><div class="seg" data-testid="field-defaultRuntime"><button class="on">host</button><button>incus-container</button></div></div>
+      </div>
+
+      <div class="section-label">ファイル / プレビュー</div>
+      <div class="field">
+        <div class="label"><span class="name">プレビュー最大バイト</span><span class="key">previewMaxBytes</span></div>
+        <div class="control"><div class="row-inline"><input type="number" value="10485760" data-testid="field-previewMaxBytes"><span class="dim">= 10 MiB</span></div></div>
+      </div>
+      <div class="field">
+        <div class="label"><span class="name">Read プレビュー行数</span><span class="key">readPreviewLineCount</span></div>
+        <div class="control"><input type="number" value="50" data-testid="field-readPreviewLineCount"></div>
+      </div>
+      <div class="field">
+        <div class="label"><span class="name">添付アップロード先</span><span class="key">attachmentUploadDir</span></div>
+        <div class="control"><input type="text" value="/tmp/palmux-uploads/" data-testid="field-attachmentUploadDir"></div>
+      </div>
+      <div class="field">
+        <div class="label"><span class="name">添付保持日数</span><span class="key">attachmentTtlDays</span></div>
+        <div class="control"><input type="number" value="30" data-testid="field-attachmentTtlDays"></div>
+      </div>
+
+      <div class="section-label">Worktree / Subagent</div>
+      <div class="field">
+        <div class="label"><span class="name">自動 worktree path パターン</span><span class="key">autoWorktreePathPatterns</span><span class="hint">1行1パターン（glob）</span></div>
+        <div class="control"><textarea data-testid="field-autoWorktreePathPatterns">.claude/worktrees/*</textarea></div>
+      </div>
+      <div class="field">
+        <div class="label"><span class="name">Subagent stale 判定日数</span><span class="key">subagentStaleAfterDays</span></div>
+        <div class="control"><input type="number" value="7" data-testid="field-subagentStaleAfterDays"></div>
+      </div>
+
+      <div class="section-label">⌘K ユーザコマンド</div>
+      <div class="field">
+        <div class="label"><span class="name">palette.userCommands</span><span class="hint">既存の管理モーダルをこのタブに統合</span></div>
+        <div class="control">
+          <div class="dim" style="font-size:12.5px" data-testid="field-userCommands-summary">3 件登録済み（build / open docs / deploy）</div>
+          <a class="btn small ghost" href="#" data-testid="manage-user-commands">ユーザコマンドを編集…</a>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn primary" data-testid="save-app-settings">保存</button>
+        <span class="tag live" data-testid="app-save-status">✓ 保存しました — 即時反映</span>
+      </div>
+      <p class="help" style="margin-top:12px">バリデーションエラー（不正な <code>defaultRuntime.kind</code> 等）は保存時にインライン表示され、保存は拒否されます。</p>
+    </div>
+  </div>
+
+  <p class="help" style="text-align:center;margin-top:22px"><a href="index.html">← prototype index</a></p>
+</div>
+</body>
+</html>

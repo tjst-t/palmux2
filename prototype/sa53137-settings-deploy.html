@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ja" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sa53137 · 設定パネル — デプロイ</title>
+<link rel="stylesheet" href="sa53137.css">
+</head>
+<body>
+<div class="app-shell">
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span> palmux2 · 設定</div>
+    <div class="hdr-right">
+      <span class="crumbs">tjst-t/palmux2 · main</span>
+      <a class="icon-btn" href="sa53137-onboarding.html" title="初回セットアップ">✦</a>
+      <span class="icon-btn" title="Activity Inbox">🔔<span class="badge-count">2</span></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="tabs" data-testid="settings-tabs">
+      <a class="tab" href="sa53137-settings-app.html" data-testid="settings-tab-app">アプリ設定</a>
+      <a class="tab active" href="sa53137-settings-deploy.html" data-testid="settings-tab-deploy">デプロイ設定</a>
+    </div>
+    <div class="card-body" data-testid="settings-deploy-panel">
+
+      <div class="banner warn bar" data-testid="restart-required-banner" style="margin-top:14px">
+        <span>⟳</span>
+        <span>未適用の変更に <b>再起動が必要なもの</b> が含まれます（<code>addr</code>, <code>sso_secret</code>）。下部の <b>Apply</b> で <code>systemctl --user restart palmux2</code> が実行されます。</span>
+      </div>
+
+      <p class="help" style="margin:2px 0 2px">サーバ/公開設定のマスター（<code>~/.config/palmux/config.toml</code>）。install.sh のパラメータと同じ source-of-truth を編集します。<span class="tag live">即時</span> <span class="tag restart">要再起動</span> <span class="tag root">要特権</span> のバッジで反映コストを示します。</p>
+
+      <div class="section-label">[server]</div>
+      <div class="field">
+        <div class="label"><span class="name">待受アドレス <span class="tag restart">要再起動</span></span><span class="key">server.addr</span></div>
+        <div class="control"><input type="text" value="127.0.0.1:8080" data-testid="field-addr"></div>
+      </div>
+      <div class="field">
+        <div class="label"><span class="name">ベースパス <span class="tag restart">要再起動</span></span><span class="key">server.base_path</span></div>
+        <div class="control"><input type="text" value="/" data-testid="field-base_path"></div>
+      </div>
+      <div class="field">
+        <div class="label"><span class="name">tmux prefix <span class="tag restart">要再起動</span></span><span class="key">server.tmux_prefix</span></div>
+        <div class="control"><input type="text" value="_palmux_" data-testid="field-tmux_prefix"></div>
+      </div>
+      <div class="field">
+        <div class="label"><span class="name">WS 最大接続 / Workspace <span class="tag restart">要再起動</span></span><span class="key">server.max_connections</span></div>
+        <div class="control"><input type="number" value="0" data-testid="field-max_connections"><span class="help">0 = 無制限</span></div>
+      </div>
+      <div class="field">
+        <div class="label"><span class="name">Caddy admin API <span class="tag live">即時</span></span><span class="key">server.caddy_admin</span></div>
+        <div class="control"><input type="text" value="http://localhost:2019" data-testid="field-caddy_admin"></div>
+      </div>
+      <div class="field">
+        <div class="label"><span class="name">claude バイナリ <span class="tag live">即時</span></span><span class="key">server.claude_bin</span></div>
+        <div class="control"><input type="text" value="claude" data-testid="field-claude_bin"></div>
+      </div>
+
+      <div class="section-label">[public] · 公開 / 認証</div>
+      <div class="field">
+        <div class="label"><span class="name">公開ドメイン <span class="tag root">要特権</span></span><span class="key">public.domain</span><span class="hint">TLS 証明書 + Caddy の書換が要るため特権操作</span></div>
+        <div class="control">
+          <input type="text" value="palmux-deploy-test.tjstkm.net" data-testid="field-domain">
+          <div class="banner info" style="font-size:12px" data-testid="domain-root-notice"><span>この変更は root を要します。Apply で <code>palmux reconcile-system</code> の確認に進みます（or install.sh 再実行）。</span></div>
+        </div>
+      </div>
+      <div class="field">
+        <div class="label"><span class="name">BasicAuth ユーザ <span class="tag restart">要再起動</span></span><span class="key">public.basic_auth_user</span></div>
+        <div class="control"><input type="text" value="admin" data-testid="field-basic_auth_user"></div>
+      </div>
+
+      <div class="section-label">秘密（マスク表示・書込のみ）</div>
+      <div class="field">
+        <div class="label"><span class="name">SSO 署名鍵 <span class="tag restart">要再起動</span></span><span class="key">secrets.env · PALMUX_SSO_SECRET</span><span class="hint">変更すると全セッションが無効化されます</span></div>
+        <div class="control"><div class="row-inline"><span class="tag masked" data-testid="secret-sso-status">設定済み ••••••••</span><button class="btn small ghost" data-testid="rotate-sso">ローテーション…</button></div></div>
+      </div>
+      <div class="field">
+        <div class="label"><span class="name">ログインパスワード <span class="tag restart">要再起動</span></span><span class="key">secrets.env · BASIC_AUTH_HASH (bcrypt)</span></div>
+        <div class="control"><div class="row-inline"><input type="password" placeholder="新しいパスワード（空欄=変更なし）" data-testid="field-new-password"><span class="tag masked">設定済み</span></div><span class="help">bcrypt は palmux 内で計算。平文は保存しません。</span></div>
+      </div>
+      <div class="field">
+        <div class="label"><span class="name">Cloudflare API トークン <span class="tag root">要特権</span></span><span class="key">secrets · CLOUDFLARE_API_TOKEN</span><span class="hint">公開ドメインの wildcard TLS (DNS-01) に使用</span></div>
+        <div class="control"><div class="row-inline"><input type="password" placeholder="新しいトークン（空欄=変更なし）" data-testid="field-cloudflare-token"><span class="tag masked">設定済み</span></div><span class="help">Caddy が DNS-01 challenge で <code>*.&lt;domain&gt;</code> 証明書を発行する際に使用。変更は Caddy 再起動（特権）を伴います。Zone DNS 編集権限のトークン。</span></div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn primary" data-testid="apply-deploy">Apply（差分を反映）</button>
+        <button class="btn ghost" data-testid="reload-from-disk">ディスクから再読込</button>
+        <span class="help">Apply は差分を <b>即時 / 再起動 / 特権</b> に分類し、必要なものだけ実行します。</span>
+      </div>
+    </div>
+  </div>
+
+  <p class="help" style="text-align:center;margin-top:22px"><a href="index.html">← prototype index</a> · <a href="sa53137-onboarding.html">初回オンボーディング →</a></p>
+</div>
+</body>
+</html>

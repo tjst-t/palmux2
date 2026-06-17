@@ -1,0 +1,20 @@
+{
+  "sprint_range": ["Sa53137"],
+  "screens": [
+    {"file": "prototype/sa53137-settings-app.html", "story": "Sa53137-1", "feedback_rounds": 0, "approved": true},
+    {"file": "prototype/sa53137-settings-deploy.html", "story": "Sa53137-3", "feedback_rounds": 1, "approved": true},
+    {"file": "prototype/sa53137-onboarding.html", "story": "Sa53137-3", "feedback_rounds": 1, "approved": true}
+  ],
+  "design_decisions": [
+    "設定パネルを『アプリ』『デプロイ』の2タブに統合 — install.sh パラメータ方式と GUI 方式が同じマスター(config.toml + secrets.env)を編集する設計を UI 化",
+    "デプロイ各フィールドに反映コストバッジ (即時 / 要再起動 / 要特権) を付与し apply の差分分類を可視化",
+    "secrets (SSO鍵 / bcryptハッシュ / Cloudflare token) はマスク表示・書込のみ、値は返さない",
+    "初回オンボーディングは local/public 選択 + 公開時のみ domain/auth/Cloudflare token を展開、ドメイン確定は特権操作へ誘導",
+    "Fog palette v2.1 (dark)、全操作要素に data-testid 付与 (Playwright 整合)"
+  ],
+  "feedback_applied": [
+    "domain-root-notice バナーの3列化を修正 (.banner の display:flex が text/code/text を3 flex item に分割していた → 本文を単一 span で包む)",
+    "Cloudflare API トークン欄をデプロイ secrets セクションとオンボーディング両方に追加 (DNS-01 wildcard TLS 用)",
+    "typo 修正 (公開サブデイン → 公開サブドメイン)"
+  ]
+}
