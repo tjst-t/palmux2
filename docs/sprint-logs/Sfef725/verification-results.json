@@ -1,0 +1,99 @@
+{
+  "sprint_id": "Sfef725",
+  "summary": { "pass": 24, "fail": 0, "skip": 0 },
+  "test_files": [
+    "tests/acceptance/sfef725_incus_group_backend.py (real HTTP + real CLI subprocess, production mode)",
+    "tests/e2e/sfef725_incus_group_recover.py (real-browser Playwright + real backend, 3 button states + endpoint→verb wiring)",
+    "tests/e2e/sfef725_incus_group_handshake_mock.py (real-browser + real backend; real WS drop/reconnect; JSON-body transitions simulated)",
+    "internal/incusgroup/incusgroup_test.go (Go unit: 3-state classifier + /proc parsing + primary-gid)"
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-Sfef725-1-1",
+      "status": "pass",
+      "tests": [
+        "[AC-Sfef725-1-1] GET /api/incus-group returns a structured state (sfef725_incus_group_backend.py)",
+        "[AC-Sfef725-1-1] ok state classified",
+        "internal/incusgroup TestDetect_OK / TestDetect_RealProcess"
+      ]
+    },
+    {
+      "id": "AC-Sfef725-1-2",
+      "status": "pass",
+      "tests": [
+        "[AC-Sfef725-1-2] doctor emits an incus-admin group line + never uses `sg incus-admin` (sfef725_incus_group_backend.py)",
+        "[AC-Sfef725-1-2] stale detail says plain --user restart is NOT enough",
+        "internal/incusgroup TestProcessGroupsFromStatus / TestDetect_Stale"
+      ]
+    },
+    {
+      "id": "AC-Sfef725-1-3",
+      "status": "pass",
+      "tests": [
+        "[AC-Sfef725-1-3] stale/not-member/n-a states distinct + distinct remedies (sfef725_incus_group_backend.py)",
+        "internal/incusgroup TestDetect_Stale / TestDetect_NotMember / TestDetect_NotApplicable_*"
+      ]
+    },
+    {
+      "id": "AC-Sfef725-2-1",
+      "status": "pass",
+      "tests": [
+        "[AC-Sfef725-2-1] stale → recover button + --resume warning shown (sfef725_incus_group_recover.py, real browser + real backend)"
+      ]
+    },
+    {
+      "id": "AC-Sfef725-2-2",
+      "status": "pass",
+      "tests": [
+        "[AC-Sfef725-2-2] recover click triggers the privileged verb (endpoint→verb wiring real, sfef725_incus_group_recover.py)",
+        "[AC-Sfef725-2-2] `palmux fix-incus-group --check` prints `systemctl restart user@<uid>`; non-root refuses (sfef725_incus_group_backend.py)"
+      ]
+    },
+    {
+      "id": "AC-Sfef725-2-3",
+      "status": "pass",
+      "tests": [
+        "[AC-Sfef725-2-3] recover handshake (REAL WS drop/reconnect) → 'incus-admin を適用しました' toast (sfef725_incus_group_handshake_mock.py)"
+      ],
+      "note": "Full live cycle (real systemctl restart user@<uid>) flagged as manual-smoke MS-1; the reconnect handshake + completion toast are exercised here with a real backend restart producing the WS drop."
+    },
+    {
+      "id": "AC-Sfef725-2-4",
+      "status": "pass",
+      "tests": [
+        "[AC-Sfef725-2-4-noverb] no verb → no button, manual systemctl command guidance (sfef725_incus_group_recover.py)",
+        "[AC-Sfef725-2-4-notmember] not-member → usermod -aG incus-admin guidance (sfef725_incus_group_recover.py)"
+      ]
+    },
+    {
+      "id": "AC-Sfef725-2-5",
+      "status": "pass",
+      "tests": [
+        "[AC-Sfef725-2-5] install.sh writes the verb-limited NOPASSWD sudoers drop-in + visudo-validates it; the rendered line passes visudo -cf (sfef725_incus_group_backend.py)"
+      ]
+    },
+    {
+      "id": "AC-Sfef725-3-1",
+      "status": "pass",
+      "tests": [
+        "[AC-Sfef725-3-1] install.sh re-surfaces the one-time-action at the end summary + points to the GUI recover button (sfef725_incus_group_backend.py)"
+      ]
+    },
+    {
+      "id": "AC-Sfef725-3-2",
+      "status": "pass",
+      "tests": [
+        "[AC-Sfef725-3-2] post-self-update stale → recover surface routes the user to the fix button (sfef725_incus_group_handshake_mock.py + use-event-stream onSuccess loadIncusGroup wiring)"
+      ]
+    }
+  ],
+  "rule6_user_observable_surfaces": [
+    { "surface": "GET /api/incus-group", "tested_by": "sfef725_incus_group_backend.py (real HTTP)" },
+    { "surface": "POST /api/incus-group/fix", "tested_by": "sfef725_incus_group_recover.py (real browser click → real backend → verb)" },
+    { "surface": "CLI `palmux fix-incus-group [--check]`", "tested_by": "sfef725_incus_group_backend.py (subprocess)" },
+    { "surface": "`palmux runtime doctor` incus-admin group section", "tested_by": "sfef725_incus_group_backend.py (subprocess)" },
+    { "surface": "FE recover panel (incus-group-recover.tsx, 3 states)", "tested_by": "sfef725_incus_group_recover.py (real browser)" },
+    { "surface": "FE completion toast (incus-admin applied)", "tested_by": "sfef725_incus_group_handshake_mock.py (real WS reconnect)" },
+    { "surface": "install.sh sudoers drop-in + summary warning", "tested_by": "sfef725_incus_group_backend.py (static + visudo)" }
+  ]
+}

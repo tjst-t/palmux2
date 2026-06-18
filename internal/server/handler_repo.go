@@ -17,6 +17,12 @@ func (h *handlers) health(w http.ResponseWriter, _ *http.Request) {
 	for k, v := range h.healthDetail {
 		body[k] = v
 	}
+	// Note: the incus-admin stale-group state is intentionally NOT computed here.
+	// /api/health is polled on a hot path (liveness probes + the self-update /
+	// recover reconnect handshake every ~2s), and detection shells out
+	// (LookPath/getent). The FE routes to the recover surface via the dedicated
+	// GET /api/incus-group (loadIncusGroup) — including the post-self-update
+	// onSuccess path (Sfef725-3-2) — so health stays cheap.
 	writeJSON(w, http.StatusOK, body)
 }
 

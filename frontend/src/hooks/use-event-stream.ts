@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 
 import { type RemoteEvent, usePalmuxStore } from '../stores/palmux-store'
-import { selfUpdateApi } from '../lib/api'
+import { incusGroupApi, selfUpdateApi } from '../lib/api'
 import { ReconnectingWebSocket } from '../lib/ws'
 
 function buildEventsURL(): string {
@@ -69,6 +69,18 @@ export function useEventStream() {
 // generation rollback kept the old version) — AC-S6ab0ed-2-2 / 2-3.
 async function maybeFinishSelfUpdate(): Promise<void> {
   if (!usePalmuxStore.getState().updateInProgress) return
+
+  // Sfef725-2-3: the incus-admin click-recover restarts the user manager (which
+  // restarts palmux), so it rides the SAME WS-drop → reconnect handshake. We
+  // distinguish it by the incusGroupFixInProgress flag: instead of comparing
+  // /health versions (the version is unchanged across a user-manager restart),
+  // we wait for the server to come back and re-fetch the incus-admin group
+  // state, then route the toast / failure accordingly.
+  if (usePalmuxStore.getState().incusGroupFixInProgress) {
+    await maybeFinishIncusGroupFix()
+    return
+  }
+
   // Optional E2E hook: shorten the handshake poll window so the failure
   // (rollback) path is testable without a 60s wait. Never set in production.
   const w = window as unknown as { __PALMUX_UPDATE_TIMEOUT_MS__?: number }
@@ -84,8 +96,50 @@ async function maybeFinishSelfUpdate(): Promise<void> {
         serverInfo: { ...usePalmuxStore.getState().serverInfo, version: v },
       })
       void usePalmuxStore.getState().loadSelfUpdate()
+      // Sfef725-3-2: a self-update may have added the incus-admin group; if the
+      // restarted server reports a stale state, refresh it so the recover
+      // surface (Story 2) appears and routes the user to the fix.
+      void usePalmuxStore.getState().loadIncusGroup()
     },
     onFailure: () => usePalmuxStore.setState({ updateInProgress: false, updateFailed: true }),
+  })
+}
+
+// maybeFinishIncusGroupFix completes the incus-admin click-recover handshake: it
+// polls /api/incus-group until the server reports the group is no longer stale
+// (state OK) → success toast, or the timeout elapses → failure flag. Reuses the
+// pollForNewVersion mechanics with the group STATE as the changing signal.
+async function maybeFinishIncusGroupFix(): Promise<void> {
+  const w = window as unknown as { __PALMUX_UPDATE_TIMEOUT_MS__?: number }
+  await pollForNewVersion({
+    // The "baseline" here is the pre-restart state ("stale"); success is any
+    // reading that is NOT stale (ok = group applied). We encode the state as the
+    // version string and let the differ detect the transition out of "stale".
+    baseline: 'stale',
+    timeoutMs: typeof w.__PALMUX_UPDATE_TIMEOUT_MS__ === 'number' ? w.__PALMUX_UPDATE_TIMEOUT_MS__ : undefined,
+    fetchVersion: async () => {
+      const st = await incusGroupApi.get()
+      // Report the state so a transition stale→ok registers as a "change".
+      usePalmuxStore.setState({ incusGroup: st })
+      return st.state
+    },
+    onSuccess: (state) => {
+      // OK = the group is now applied. A transition to not-member/n/a means the
+      // restart ran but the group still isn't active on the process — surface a
+      // distinct message instead of silently resetting (the recover panel will
+      // re-render with the new state's guidance).
+      usePalmuxStore.setState({
+        incusGroupFixInProgress: false,
+        updateInProgress: false,
+        updateFailed: false,
+        updateToast:
+          state === 'ok'
+            ? { version: '', message: 'incus-admin を適用しました。incus-container が使えます。' }
+            : { version: '', message: 'サーバを再起動しましたが incus-admin はまだ反映されていません。下の案内を確認してください。' },
+      })
+    },
+    onFailure: () =>
+      usePalmuxStore.setState({ incusGroupFixInProgress: false, updateInProgress: false, updateFailed: true }),
   })
 }
 

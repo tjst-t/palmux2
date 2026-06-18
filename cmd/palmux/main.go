@@ -126,6 +126,13 @@ func main() {
 		os.Exit(runReconcileSystem(os.Args[2:]))
 	}
 
+	// Sfef725-2: `sudo palmux fix-incus-group` — the single privileged recover
+	// verb. Restarts the user systemd manager so a freshly-added incus-admin
+	// group is applied to the palmux service. Takes no free-form input.
+	if len(os.Args) > 1 && os.Args[1] == "fix-incus-group" {
+		os.Exit(runFixIncusGroup(os.Args[2:]))
+	}
+
 	// S6ab0ed: `palmux update [--check]` — one-click self-update (shares the
 	// GUI "Update all" execution path) / detection-only. Dispatch before server
 	// bootstrap.

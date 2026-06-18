@@ -6,6 +6,8 @@ import {
   type Branch,
   type BranchPickerEntry,
   type HostScope,
+  type IncusGroupStatus,
+  incusGroupApi,
   type OrphanSession,
   type Repository,
   type RuntimeCaps,
@@ -354,8 +356,9 @@ interface PalmuxStoreState {
    *  after reconnect to detect success. */
   updateBaselineVersion: string | null
   /** One-shot completion notice ("vX に更新しました") shown as a toast. Cleared
-   *  by the component after display. */
-  updateToast: { version: string } | null
+   *  by the component after display. `message`, when set, replaces the default
+   *  "<version> に更新しました" text (e.g. the incus-admin recover completion). */
+  updateToast: { version: string; message?: string } | null
   /** Set when the post-restart reconnect handshake decided the update failed
    *  (version unchanged after timeout). */
   updateFailed: boolean
@@ -366,6 +369,18 @@ interface PalmuxStoreState {
   runSelfUpdate: () => Promise<void>
   /** Clear the completion toast after it's been shown. */
   clearUpdateToast: () => void
+
+  // Sfef725: incus-admin stale-group detection + GUI click-recover ──────────
+  /** Latest incus-admin group detection (null until loaded). */
+  incusGroup: IncusGroupStatus | null
+  /** True while a click-recover (user-manager restart) is in flight (drives the
+   *  same WS-drop → /health reconnect handshake as the self-update). */
+  incusGroupFixInProgress: boolean
+  /** Fetch (or refresh) the incus-admin group status. Best-effort. */
+  loadIncusGroup: () => Promise<void>
+  /** Trigger the click-recover (POST /api/incus-group/fix). Throws on 409
+   *  (no privileged verb) so the caller shows the manual command instead. */
+  fixIncusGroup: () => Promise<void>
 }
 
 export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
@@ -394,6 +409,8 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
   updateBaselineVersion: null,
   updateToast: null,
   updateFailed: false,
+  incusGroup: null,
+  incusGroupFixInProgress: false,
 
   applyBranchPortPatch: (repoId, branchId, port, patch) =>
     set((s) => {
@@ -435,6 +452,9 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
       // S6ab0ed: load the self-update snapshot in the background (best-effort —
       // a failure must not block bootstrap; the WS event refreshes it later).
       void get().loadSelfUpdate()
+      // Sfef725: detect the incus-admin stale-group condition on cold load so
+      // the recover surface appears proactively (best-effort).
+      void get().loadIncusGroup()
       // S0c6a1b: load the reserved host scope BEFORE flipping `bootstrapped`
       // so the /host--0000/host/* route resolves on a cold load / reload —
       // otherwise MainLayout's "branch not found → bounce to /" effect fires
@@ -1183,6 +1203,13 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
   },
 
   runSelfUpdate: async () => {
+    // Guard: self-update and the incus-admin recover share the updateInProgress
+    // reconnect handshake. Refuse to start one while the other is in flight so
+    // the handshake isn't mis-routed (the recover polls /api/incus-group, the
+    // self-update polls /api/health for a version change).
+    if (get().updateInProgress) {
+      throw new Error('別の更新/復旧が実行中です。完了を待ってください。')
+    }
     // Record the version we're updating FROM so the post-restart reconnect
     // handshake can detect when the new version is live (decisions PD-6/PD-7).
     const baseline = get().serverInfo.version ?? null
@@ -1203,6 +1230,41 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
   },
 
   clearUpdateToast: () => set({ updateToast: null }),
+
+  // Sfef725: incus-admin group actions ────────────────────────────────────────
+  loadIncusGroup: async () => {
+    try {
+      const st = await incusGroupApi.get()
+      set({ incusGroup: st })
+    } catch {
+      // best-effort; surfaced on demand (runtime-switch failure / self-update).
+    }
+  },
+
+  fixIncusGroup: async () => {
+    // Guard against colliding with a self-update (both share updateInProgress +
+    // the reconnect handshake).
+    if (get().updateInProgress) {
+      throw new Error('別の更新/復旧が実行中です。完了を待ってください。')
+    }
+    // Record the baseline version so the post-restart reconnect handshake can
+    // detect the server came back (reusing the S6ab0ed updateInProgress path).
+    const baseline = get().serverInfo.version ?? null
+    set({ incusGroupFixInProgress: true, updateInProgress: true, updateBaselineVersion: baseline, updateFailed: false })
+    try {
+      const resp = await incusGroupApi.fix()
+      if (!resp.ok) {
+        set({ incusGroupFixInProgress: false, updateInProgress: false })
+        // 409 (no privileged verb) or other failure — surface the manual command.
+        throw new Error(resp.error ?? 'incus-admin の適用を開始できませんでした。')
+      }
+      // Success path observed asynchronously by the reconnect handshake in
+      // use-event-stream.ts (WS drops when the user manager restarts palmux).
+    } catch (err) {
+      set({ incusGroupFixInProgress: false, updateInProgress: false })
+      throw err
+    }
+  },
 }))
 
 // S8478ca-refine: force terminal re-attachment for all terminal-backed tabs

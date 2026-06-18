@@ -5,6 +5,7 @@ import { useViewport } from '../hooks/use-viewport'
 import { HOST_REPO_ID, selectBranchById, selectRepoById, usePalmuxStore } from '../stores/palmux-store'
 
 import { useCommandPaletteStore } from './command-palette/store'
+import { IncusGroupRecover } from './incus-group-recover'
 import { ActivityInbox } from './inbox/activity-inbox'
 import { RuntimeChangeConfirm } from './runtime-change-confirm'
 import { UpdateContainerConfirm } from './update-container-confirm'
@@ -32,6 +33,11 @@ export function Header() {
   const loadRuntimeCaps = usePalmuxStore((s) => s.loadRuntimeCaps)
   const patchWorkspaceRuntime = usePalmuxStore((s) => s.patchWorkspaceRuntime)
   const regenerateContainer = usePalmuxStore((s) => s.regenerateContainer)
+  // Sfef725: incus-admin stale-group recover surface.
+  const incusGroup = usePalmuxStore((s) => s.incusGroup)
+  const loadIncusGroup = usePalmuxStore((s) => s.loadIncusGroup)
+  const [recoverDismissed, setRecoverDismissed] = useState(false)
+  const [recoverContext, setRecoverContext] = useState<string | null>(null)
   const showPalette = useCommandPaletteStore((s) => s.show)
   const wide = useWideViewport(SPLIT_MIN_WIDTH)
   const viewport = useViewport()
@@ -76,6 +82,9 @@ export function Header() {
     if (!repoId || !branchId) return
     // Load caps lazily on first open
     void loadRuntimeCaps().catch(() => {})
+    // Sfef725: refresh the incus-admin group state so a stale condition surfaces
+    // the recover affordance when the user reaches for the runtime switch.
+    void loadIncusGroup().catch(() => {})
     setChipMenuOpen((o) => !o)
     setRuntimeError(null)
   }
@@ -95,9 +104,18 @@ export function Header() {
     try {
       await patchWorkspaceRuntime(repoId, branchId, kind)
     } catch (err) {
-      setRuntimeError(err instanceof Error ? err.message : String(err))
+      const msg = err instanceof Error ? err.message : String(err)
+      setRuntimeError(msg)
       // Re-open the chip menu so the inline error is visible to the user.
       setChipMenuOpen(true)
+      // Sfef725: a switch to incus-container that failed is very likely the
+      // stale-group condition (palmux can't reach the incus daemon). Refresh the
+      // group state so the recover surface appears with a one-click fix.
+      if (kind === 'incus-container') {
+        setRecoverDismissed(false)
+        setRecoverContext('incus-container への切替に失敗しました。')
+        void loadIncusGroup().catch(() => {})
+      }
     } finally {
       setRuntimePending(false)
     }
@@ -285,6 +303,18 @@ export function Header() {
                 )}
               </span>
             )}
+            {/* Sfef725: incus-admin stale-group / not-member recover surface.
+                Appears when the running palmux process can't reach the incus
+                daemon (so incus-container switches silently fall back to host). */}
+            {incusGroup &&
+              (incusGroup.state === 'stale' || incusGroup.state === 'not-member') &&
+              !recoverDismissed && (
+                <IncusGroupRecover
+                  status={incusGroup}
+                  context={recoverContext ?? undefined}
+                  onDismiss={() => setRecoverDismissed(true)}
+                />
+              )}
           </>
         )}
       </div>

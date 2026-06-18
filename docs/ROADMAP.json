@@ -5,7 +5,7 @@
     "sprints_done": 59,
     "sprints_total": 61,
     "percent": 96,
-    "current_sprint": "S6ab0ed",
+    "current_sprint": "Sfef725",
     "done": 59,
     "in_progress": 0,
     "total": 61,
@@ -9964,13 +9964,13 @@
     },
     "Sfef725": {
       "title": "incus-admin stale-group の GUI クリック復旧 + doctor 実態チェック",
-      "status": "planned",
+      "status": "needs_user_review",
       "milestone": false,
       "context_note": "ndev 移行(2026-06-18)で顕在化: install.sh が incus-admin を新規追加しても、稼働中 user マネージャがログイン時の古いグループをキャッシュするため palmux user サービスが incus daemon に届かず runtime 切替が silent fail。手動 sudo systemctl restart user@<uid> で復旧した。doctor は sg サブシェルで実行され false-positive を出していた。",
       "stories": {
         "Sfef725-1": {
           "title": "stale-group 検出 + runtime doctor 実態チェック (backend)",
-          "status": "planned",
+          "status": "done",
           "user_story": "運用者として、palmux が「incus-admin に追加済みだが稼働プロセスに未反映(stale)」を正しく検出してほしい。なぜなら、この状態だと incus-container 切替が silent fail するのに doctor が OK と誤判定して原因が分からないから。",
           "acceptance_criteria": [
             {
@@ -10014,7 +10014,7 @@
         },
         "Sfef725-2": {
           "title": "GUI クリック復旧 (button + 特権 verb + 再接続)",
-          "status": "planned",
+          "status": "needs_user_review",
           "user_story": "運用者として、incus-container 切替が権限エラーで失敗したとき、GUI のクリック1つで復旧したい。なぜなら、手で sudo systemctl restart user@<uid> を叩いて再接続を待つのは分かりにくく面倒だから。",
           "acceptance_criteria": [
             {
@@ -10068,7 +10068,7 @@
         },
         "Sfef725-3": {
           "title": "更新サマリで one-time-action 警告を表面化",
-          "status": "planned",
+          "status": "done",
           "user_story": "運用者として、incus-admin を新規追加した更新の直後に『user マネージャ再起動が要る』ことを見落としたくない。なぜなら、install.sh は警告を出していたのに更新ログに埋もれて今回取りこぼしたから。",
           "acceptance_criteria": [
             {
