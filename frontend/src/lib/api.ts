@@ -326,6 +326,36 @@ export const selfUpdateApi = {
   health: (): Promise<{ version?: string }> => api.get<{ version?: string }>('/api/health'),
 }
 
+// Sfef725: incus-admin stale-group detection + GUI click-recover.
+export type IncusGroupState = 'ok' | 'stale' | 'not-member' | 'n/a'
+
+export interface IncusGroupStatus {
+  state: IncusGroupState
+  gid: number
+  user?: string
+  remedy: string
+  detail: string
+  // fixAvailable: the privileged `sudo palmux fix-incus-group` verb is wired
+  // (sudoers drop-in present) → show the recover button; else show the manual
+  // command. Only set for the stale state.
+  fixAvailable?: boolean
+  // restartCommand: the exact manual `sudo systemctl restart user@<uid>` command.
+  restartCommand?: string
+}
+
+export interface IncusGroupFixResult {
+  ok: boolean
+  message?: string
+  error?: string
+  fixAvailable?: boolean
+  restartCommand?: string
+}
+
+export const incusGroupApi = {
+  get: (): Promise<IncusGroupStatus> => api.get<IncusGroupStatus>('/api/incus-group'),
+  fix: (): Promise<IncusGroupFixResult> => api.post<IncusGroupFixResult>('/api/incus-group/fix'),
+}
+
 export const deployApi = {
   get: (): Promise<DeployView> => api.get<DeployView>('/api/deploy'),
   apply: (body: {

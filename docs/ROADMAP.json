@@ -2,15 +2,15 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 59,
+    "sprints_done": 60,
     "sprints_total": 60,
-    "percent": 98,
-    "current_sprint": "S6ab0ed",
-    "done": 59,
+    "percent": 100,
+    "current_sprint": "Sfef725",
+    "done": 60,
     "in_progress": 0,
     "total": 60,
-    "remaining": 1,
-    "percentage": 98
+    "remaining": 0,
+    "percentage": 100
   },
   "execution_order": [
     "S001",
@@ -9963,138 +9963,138 @@
     },
     "Sfef725": {
       "title": "incus-admin stale-group の GUI クリック復旧 + doctor 実態チェック",
-      "status": "planned",
+      "status": "done",
       "milestone": false,
       "context_note": "ndev 移行(2026-06-18)で顕在化: install.sh が incus-admin を新規追加しても、稼働中 user マネージャがログイン時の古いグループをキャッシュするため palmux user サービスが incus daemon に届かず runtime 切替が silent fail。手動 sudo systemctl restart user@<uid> で復旧した。doctor は sg サブシェルで実行され false-positive を出していた。",
       "stories": {
         "Sfef725-1": {
           "title": "stale-group 検出 + runtime doctor 実態チェック (backend)",
-          "status": "planned",
+          "status": "done",
           "user_story": "運用者として、palmux が「incus-admin に追加済みだが稼働プロセスに未反映(stale)」を正しく検出してほしい。なぜなら、この状態だと incus-container 切替が silent fail するのに doctor が OK と誤判定して原因が分からないから。",
           "acceptance_criteria": [
             {
               "id": "AC-Sfef725-1-1",
               "description": "palmux が自プロセスの実効グループ (os.Getgroups) と getent group incus-admin の gid を比較し、『ユーザは incus-admin 所属 かつ 稼働プロセスは未保持』= stale-group 状態を判定して構造化 state/event として公開する (host 上 + incus 利用時のみ意味を持つ)。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sfef725-1-2",
               "description": "`palmux runtime doctor` が sg incus-admin サブシェルではなく『稼働中 palmux サービスプロセスの /proc/<pid>/status の実効 Groups』を見て incus-admin 反映を判定する。ユーザ所属だがプロセス未反映なら ✗ + 『user マネージャ再起動が必要 (systemctl --user restart では不可)』を明示。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sfef725-1-3",
               "description": "3状態を区別する: (a) プロセスに反映済み=OK、(b) ユーザ所属だがプロセス stale=要 user マネージャ再起動、(c) ユーザ未所属=要 usermod (root 追加)。それぞれ別の remedy を返す。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "Sfef725-1-1": {
               "id": "Sfef725-1-1",
-              "status": "pending",
+              "status": "done",
               "title": "go: incus-admin gid 解決 + os.Getgroups 比較 + 稼働プロセス Groups 読取で stale 判定 (3状態) を共通ヘルパー化"
             },
             "Sfef725-1-2": {
               "id": "Sfef725-1-2",
-              "status": "pending",
+              "status": "done",
               "title": "go: runtime doctor を稼働サービス実態ベースに変更 + 3状態別 remedy 文言"
             },
             "Sfef725-1-3": {
               "id": "Sfef725-1-3",
-              "status": "pending",
+              "status": "done",
               "title": "go: stale-group state を API / events で公開 (runtime view か専用 endpoint)"
             },
             "Sfef725-1-4": {
               "id": "Sfef725-1-4",
-              "status": "pending",
+              "status": "done",
               "title": "acceptance test: 3状態の判定 + doctor 出力 (実機 incus、stale を人為再現)"
             }
           }
         },
         "Sfef725-2": {
           "title": "GUI クリック復旧 (button + 特権 verb + 再接続)",
-          "status": "planned",
+          "status": "done",
           "user_story": "運用者として、incus-container 切替が権限エラーで失敗したとき、GUI のクリック1つで復旧したい。なぜなら、手で sudo systemctl restart user@<uid> を叩いて再接続を待つのは分かりにくく面倒だから。",
           "acceptance_criteria": [
             {
               "id": "AC-Sfef725-2-1",
               "description": "stale-group 状態 (Story1) のとき、runtime chip / 切替失敗トースト等に警告だけでなく『incus-admin を適用 (サーバ再起動)』ボタンを出す。ボタンには『走行中の tmux/Claude セッションが一旦落ちる (claude は --resume 復帰)』警告を併記する。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sfef725-2-2",
               "description": "ボタン→allowlist された特権 verb `sudo palmux fix-incus-group` (中身は `systemctl restart user@<uid>` 固定、任意入力なし、Sa53137 reconcile-system と同じ verb 限定 NOPASSWD sudoers) を実行し user マネージャを再起動、新 palmux が incus-admin を継承する。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sfef725-2-3",
               "description": "自己再起動に伴い、S6ab0ed の再接続ハンドシェイク (WS drop→/health polling→再接続→完了トースト『incus-admin を適用しました。incus-container が使えます』) を再利用する。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sfef725-2-4",
               "description": "出し分け/フォールバック: 特権 verb 未導入ホストはボタンを出さずコマンド案内 (sudo systemctl restart user@<uid>) を表示。ユーザが真に未所属 (state c) なら『sudo usermod -aG incus-admin <user> / install.sh 再実行』を案内。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sfef725-2-5",
               "description": "install.sh が `fix-incus-group` 用の verb 限定 NOPASSWD sudoers drop-in を設置する (visudo 検証、当該 verb のみ)。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "Sfef725-2-1": {
               "id": "Sfef725-2-1",
-              "status": "pending",
+              "status": "done",
               "title": "go: `palmux fix-incus-group` サブコマンド (systemctl restart user@<uid> 固定実行) + POST endpoint (特権経由)"
             },
             "Sfef725-2-2": {
               "id": "Sfef725-2-2",
-              "status": "pending",
+              "status": "done",
               "title": "install.sh: fix-incus-group 用 verb 限定 NOPASSWD sudoers drop-in 設置"
             },
             "Sfef725-2-3": {
               "id": "Sfef725-2-3",
-              "status": "pending",
+              "status": "done",
               "title": "frontend: stale 状態の復旧ボタン + 警告 + 出し分け (verb 有無 / 未所属) + S6ab0ed 再接続流用"
             },
             "Sfef725-2-4": {
               "id": "Sfef725-2-4",
-              "status": "pending",
+              "status": "done",
               "title": "test: GUI E2E (stale→ボタン→特権実行→再接続→incus-container 利用可) + フォールバック表示。実機検証は stale 再現環境で"
             }
           }
         },
         "Sfef725-3": {
           "title": "更新サマリで one-time-action 警告を表面化",
-          "status": "planned",
+          "status": "done",
           "user_story": "運用者として、incus-admin を新規追加した更新の直後に『user マネージャ再起動が要る』ことを見落としたくない。なぜなら、install.sh は警告を出していたのに更新ログに埋もれて今回取りこぼしたから。",
           "acceptance_criteria": [
             {
               "id": "AC-Sfef725-3-1",
               "description": "install.sh が incus-admin を新規追加し現セッションに未反映のとき出す one-time-action 警告を、更新完了サマリ (install.sh 末尾 + 生成する update-palmux2.sh の出力) の冒頭で目立つ形に表面化する。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sfef725-3-2",
               "description": "GUI セルフアップデート (S6ab0ed) 経由の更新後にも、stale-group 状態 (Story1) を検出したら完了トースト/パネルで『要 user マネージャ再起動』を案内し、Story2 の復旧ボタンへ導線する。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "Sfef725-3-1": {
               "id": "Sfef725-3-1",
-              "status": "pending",
+              "status": "done",
               "title": "install.sh: one-time-action 警告をサマリ冒頭に再掲 (埋もれ防止)"
             },
             "Sfef725-3-2": {
               "id": "Sfef725-3-2",
-              "status": "pending",
+              "status": "done",
               "title": "frontend: 自己更新完了後に stale 検出→復旧導線 (Story1 state + Story2 ボタン連携)"
             },
             "Sfef725-3-3": {
               "id": "Sfef725-3-3",
-              "status": "pending",
+              "status": "done",
               "title": "test: 更新後 stale 検出→案内表示 (acceptance / GUI E2E)"
             }
           }

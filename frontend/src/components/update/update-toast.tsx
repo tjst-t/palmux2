@@ -17,10 +17,12 @@ export function UpdateToast() {
   }, [toast, clear])
 
   if (!toast) return null
+  // Sfef725: when `message` is set (e.g. the incus-admin recover completion) it
+  // is shown verbatim; otherwise the self-update "<version> に更新しました" form.
   return (
     <div className={styles.toast} data-testid="update-complete-toast" role="status">
       <span className={styles.check}>✓</span>
-      <span>{toast.version} に更新しました</span>
+      <span>{toast.message ?? `${toast.version} に更新しました`}</span>
       <button className={styles.close} onClick={() => clear()} aria-label="閉じる">
         ×
       </button>

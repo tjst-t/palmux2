@@ -1,0 +1,135 @@
+{
+  "sprint_id": "Sfef725",
+  "title": "incus-admin stale-group GUI click-recover + doctor real-state check",
+  "planning_decisions": [
+    {
+      "id": "PD-1",
+      "decision": "Place the stale-group detection in a new pure package internal/incusgroup/ with a Detector struct taking 3 injected funcs (ResolveGID, UserInGroup, ProcessGroups). Defaults wire real os/user getent + os.Getgroups(+primary gid) + /proc parsing.",
+      "rationale": "DESIGN_PRINCIPLES coding_conventions: internal/ only. test-discipline Rule 7: the injected inputs let acceptance tests construct OK/stale/not-member deterministically against the REAL binary by varying gid/membership/process-group inputs — exactly the seam the prompt endorses ('vary the inputs, not fake the flow')."
+    },
+    {
+      "id": "PD-2",
+      "decision": "Surface the 3-state via a host-global GET /api/incus-group (not per-branch). Initially also folded a field into /api/health for the reconnect handshake, but REMOVED it during review (only consumed by a test; the FE already routes via loadIncusGroup, and /api/health is a hot polled path that must stay cheap).",
+      "rationale": "priority_rule 2 (host-level condition → host-global endpoint, not a Claude-tab API). priority_rule 6 (reuse the dedicated endpoint; keep health cheap)."
+    },
+    {
+      "id": "PD-3",
+      "decision": "Detection reads the running process's own groups (server) / the running palmux2 service's /proc groups (doctor), independent of incus container state. Returns n/a when incus is not installed or no incus-admin group exists.",
+      "rationale": "Background: it is a host-side group issue; the palmux server IS the process that talks to the incus socket. AC-Sfef725-1-1 scopes the state to host + incus use."
+    },
+    {
+      "id": "PD-4",
+      "decision": "New privileged verb `palmux fix-incus-group` whose ONLY action is `systemctl restart user@<uid>` (uid = service user via SUDO_UID/os.Getuid). NO free-form input. install.sh ships /etc/sudoers.d/palmux-fix-incus-group (verb-limited NOPASSWD), mirroring Sa53137's /etc/sudoers.d/palmux-reconcile.",
+      "rationale": "priority_rule 6 reuse of the Sa53137 verb-limited pattern. Security: restarting one's own user manager is a low-privilege action the user can already do; hardcoding verb+uid removes injection surface."
+    },
+    {
+      "id": "PD-5",
+      "decision": "Reuse the S6ab0ed reconnect handshake verbatim: fixIncusGroup() sets the shared updateInProgress + an incusGroupFixInProgress flag; the existing maybeFinishSelfUpdate branches to maybeFinishIncusGroupFix on that flag, polling /api/incus-group for the stale→ok transition (instead of /health version) via the same pollForNewVersion.",
+      "rationale": "AC-Sfef725-2-3 mandates reuse of the S6ab0ed handshake. priority_rule 6."
+    }
+  ],
+  "implementation_decisions": [
+    {
+      "id": "ID-1",
+      "decision": "doctor runs DIRECTLY in install.sh (removed `sg incus-admin -c` around `runtime doctor`); kept `sg` only around `runtime install` (which genuinely needs socket access in the install shell to import the image).",
+      "rationale": "AC-Sfef725-1-2: the sg wrapper activated the group in the subshell → false PASS. The doctor now judges the group by the running SERVICE process's /proc groups, so it is honest run plain."
+    },
+    {
+      "id": "ID-2",
+      "decision": "E2E seams added (dev-rig only, documented, never set in prod): PALMUX_INCUS_GROUP_FAKE_STATE (forces detector INPUTS, not the classifier), PALMUX_INCUS_GROUP_FAKE_VERB (force sudoers-present 1/0), PALMUX_INCUS_GROUP_FAKE_FIX_CMD (swap the leaf verb for a harmless marker command so the endpoint→verb WIRING stays real in the GUI E2E without killing the rig).",
+      "rationale": "test-discipline Rule 7 + the prompt's explicit guidance: vary inputs, keep wiring real, stub only the destructive leaf at the verb boundary."
+    },
+    {
+      "id": "ID-3",
+      "decision": "Recover panel rendered as a fixed-position banner (position:fixed, z-index 200) below the header.",
+      "rationale": "ui_ux: the panel must be reliably interactable; in-flow it was overlapped by the terminal scroll area."
+    },
+    {
+      "id": "ID-4",
+      "decision": "Guard against self-update and incus-group recover colliding: both runSelfUpdate and fixIncusGroup throw if updateInProgress is already set.",
+      "rationale": "Review finding: both share the updateInProgress reconnect handshake; without a guard, starting one mid-other mis-routes the handshake."
+    },
+    {
+      "id": "ID-5",
+      "decision": "Include the process's effective PRIMARY gid alongside supplementary groups in both the default ProcessGroups and ProcessGroupsFromStatus (parse the Gid: line).",
+      "rationale": "Review finding: POSIX does not guarantee os.Getgroups returns the primary gid; a process whose primary group is incus-admin would otherwise be misclassified as stale."
+    },
+    {
+      "id": "ID-6",
+      "decision": "Doctor socket permission-denied no longer early-returns: it skips ONLY the socket-dependent image check and continues the group-independent checks (subuid/subgid, docker).",
+      "rationale": "Review finding: install.sh now runs doctor plain; on a fresh stale install the doctor's own session lacks the group, so an early return would mask a genuinely missing palmux-ws image behind the stale-group skip."
+    }
+  ],
+  "review_decisions": [
+    {
+      "id": "RV-1",
+      "finding": "fix-incus-group sudoers drop-in was nested inside the CADDY_ENABLED (public-mode) block, so LOCAL incus installs never got the recover verb the summary advertises.",
+      "resolution": "Moved the drop-in into the incus-setup section (runs for any incus install). FIXED."
+    },
+    {
+      "id": "RV-2",
+      "finding": "/api/health computed detectIncusGroup() (LookPath+getent) on every hot-path request, and the field had no production FE consumer.",
+      "resolution": "Removed the field from /api/health; FE routes via /api/incus-group. FIXED."
+    },
+    {
+      "id": "RV-3",
+      "finding": "launchFixIncusGroup leaked the parent's log-file fd on every POST.",
+      "resolution": "Close the parent's fd after Start()/on Start error. FIXED."
+    },
+    {
+      "id": "RV-4",
+      "finding": "maybeFinishIncusGroupFix was silent when the post-restart state transitioned out of stale to a non-ok value.",
+      "resolution": "Show a distinct toast for the non-ok-but-resolved case. FIXED."
+    },
+    {
+      "id": "RV-5",
+      "finding": "sudoers bin-path drift (server palmuxBinPath() vs install.sh `command -v palmux2`) could make sudo reject the verb on hosts with path drift (e.g. the deploy-VM override binary).",
+      "resolution": "KEPT parity with Sa53137 reconcile-system (same `command -v palmux2` resolution, same risk, works in production). palmuxBinPath() prefers palmux2 on PATH (matching install.sh). Flagged in the report as a pre-existing shared concern rather than over-engineered."
+    }
+  ],
+  "guard8_rationale": "n/a — palmux2 has no object-versioning / cold-tier / WAL data path. Guard 8's destructive multi-version scenarios (write x2 → v1/v2, Demote→Recall byte verify, restart consistency) are defined for the storage-core/proxy-fuse system and are inapplicable. This Sprint touches internal/server/ only to add a host-group detection endpoint (no persisted object state).",
+  "done_judgment": {
+    "Sfef725-1": {
+      "guard1_user_review_required_not_done": "pass",
+      "guard2_nil_injection_mock": "pass",
+      "guard3_mock_mode_not_real_smoke": "pass",
+      "guard4_priority_rule_9_exception_valid": "n/a",
+      "guard5_call_path_grep": "pass",
+      "guard6_deferred_comment_clean": "pass",
+      "guard7_adr_conformance": "pass",
+      "guard8_destructive_multi_version_test": "n/a",
+      "overall": "ok"
+    },
+    "Sfef725-2": {
+      "guard1_user_review_required_not_done": "pass",
+      "guard2_nil_injection_mock": "pass",
+      "guard3_mock_mode_not_real_smoke": "pass",
+      "guard4_priority_rule_9_exception_valid": "n/a",
+      "guard5_call_path_grep": "pass",
+      "guard6_deferred_comment_clean": "pass",
+      "guard7_adr_conformance": "pass",
+      "guard8_destructive_multi_version_test": "n/a",
+      "overall": "ok"
+    },
+    "Sfef725-3": {
+      "guard1_user_review_required_not_done": "pass",
+      "guard2_nil_injection_mock": "pass",
+      "guard3_mock_mode_not_real_smoke": "pass",
+      "guard4_priority_rule_9_exception_valid": "n/a",
+      "guard5_call_path_grep": "pass",
+      "guard6_deferred_comment_clean": "pass",
+      "guard7_adr_conformance": "pass",
+      "guard8_destructive_multi_version_test": "n/a",
+      "overall": "ok"
+    }
+  },
+  "manual_smoke_pending": [
+    {
+      "id": "MS-1",
+      "ac": "AC-Sfef725-2-2 / AC-Sfef725-2-3 (full live cycle only)",
+      "what": "click → real `sudo palmux fix-incus-group` → real `systemctl restart user@<uid>` → user-manager restart → palmux self-restart → reconnect → group now present on the process.",
+      "why_deferred": "Reproducing a genuinely stale incus-admin group on a live host is contrived, and the real verb restarts the user manager (ends running tmux/Claude sessions). Per the prompt this is flagged as a manual smoke. ndev was just fixed and must NOT be disturbed; a disposable VM (palmux-deploy-test.tjstkm.net) is available for the user.",
+      "automated_coverage_instead": "The endpoint→verb WIRING is exercised for real in the GUI E2E (sfef725_incus_group_recover.py, leaf command stubbed at the verb boundary); the reconnect handshake is exercised with a REAL WS drop/reconnect (sfef725_incus_group_handshake_mock.py restarts the backend); the CLI verb + sudoers visudo-validity + doctor real-service-group logic are covered by the backend acceptance test."
+    }
+  ]
+}

@@ -306,20 +306,34 @@ func runRuntimeDoctor(args []string) int {
 		}
 	}
 
-	// ── incus daemon socket reachable (group membership)? ─────────────────────
-	// `incus version` works client-only, but any real call hits
-	// /var/lib/incus/unix.socket which is owned by the `incus-admin` group.
-	out, err := incusRun("image", "alias", "list", "-f", "json")
-	if err != nil && strings.Contains(err.Error(), "permission denied") {
-		fmt.Println("  ✗ incus socket: permission denied — your user is not in the incus-admin group")
-		fmt.Println("    Fix: sudo usermod -aG incus-admin $USER   (then log out/in, or `newgrp incus-admin`)")
-		fmt.Println("    palmux itself needs this to launch incus-container workspaces.")
-		fmt.Println("\nSocket access is required for the remaining checks — fix the above first.")
-		return 1
+	// ── incus-admin group on the RUNNING palmux service ───────────────────────
+	// Sfef725-1-2: judge by the running palmux2 service process's effective
+	// groups (/proc/<pid>/status), NOT an `sg incus-admin` subshell — the latter
+	// activates the group locally and reports a false PASS while the actual
+	// service cannot reach the incus socket. Distinguishes OK / stale (user has
+	// it, process doesn't → user-manager restart) / not-member (→ usermod).
+	if !doctorGroupCheck() {
+		ok = false
 	}
 
+	// ── incus daemon socket reachable? ────────────────────────────────────────
+	// `incus version` works client-only, but any real call hits
+	// /var/lib/incus/unix.socket which is owned by the `incus-admin` group.
+	// NOTE: this check runs as the DOCTOR process; it may lack the group even
+	// when the running palmux SERVICE has it (doctorGroupCheck above is the
+	// authoritative service-state check). So on permission-denied we SKIP just
+	// the socket-dependent image check and CONTINUE the group-independent checks
+	// (subuid/subgid, docker) rather than bailing — a missing palmux-ws image is
+	// not hidden behind a stale doctor session.
+	out, err := incusRun("image", "alias", "list", "-f", "json")
+	socketDenied := err != nil && strings.Contains(err.Error(), "permission denied")
+
 	// ── palmux-ws image imported? ─────────────────────────────────────────────
-	if err != nil {
+	if socketDenied {
+		fmt.Println("  • palmux-ws image: skipped (this doctor process lacks incus socket access)")
+		fmt.Println("    The running palmux service state is reported by the incus-admin group check above.")
+		ok = false
+	} else if err != nil {
 		fmt.Printf("  ✗ palmux-ws image: could not list aliases (%v)\n", err)
 		ok = false
 	} else {

@@ -113,6 +113,9 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("POST /api/selfupdate/run", h.postSelfUpdateRun)
 
 	mux.HandleFunc("GET /api/runtimes", h.getRuntimes) // S8478ca-5: capability probe
+	// Sfef725: incus-admin stale-group detection + GUI click-recover.
+	mux.HandleFunc("GET /api/incus-group", h.getIncusGroup)
+	mux.HandleFunc("POST /api/incus-group/fix", h.postIncusGroupFix)
 	mux.HandleFunc("GET /api/repos", h.listRepos)
 	mux.HandleFunc("GET /api/host", h.host) // S0c6a1b: reserved host scope descriptor
 	mux.HandleFunc("GET /api/repos/available", h.availableRepos)

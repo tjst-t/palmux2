@@ -773,6 +773,27 @@ if [ "${SKIP_INCUS}" != "1" ]; then
       _incus_group_added=1
     fi
 
+    # ── 3b. Sfef725-2-2: sudoers drop-in for the fix-incus-group recover verb ──
+    # Grant the install user NOPASSWD for EXACTLY `palmux2 fix-incus-group` (and
+    # nothing else). The verb takes no free-form input: its only action is
+    # `systemctl restart user@<uid>` (uid hardcoded to the service user) so a
+    # freshly-added incus-admin group is applied to the running palmux service.
+    # This is what the GUI "incus-admin を適用" recover button invokes. Installed
+    # here (in the incus section, NOT the Caddy/public-mode block) so a LOCAL
+    # incus install also gets the one-click recover the summary advertises.
+    PALMUX_BIN_FOR_SUDOERS="$(command -v palmux2 || echo "${USER_HOME}/.nix-profile/bin/palmux2")"
+    log "installing sudoers drop-in for fix-incus-group (NOPASSWD, verb-limited)"
+    {
+      echo "# Managed by palmux install.sh (Sfef725-2). Allows the single privileged"
+      echo "# recover verb 'palmux2 fix-incus-group' without a password. No other command."
+      echo "${USERNAME} ALL=(root) NOPASSWD: ${PALMUX_BIN_FOR_SUDOERS} fix-incus-group, ${PALMUX_BIN_FOR_SUDOERS} fix-incus-group *"
+    } | sudo tee /etc/sudoers.d/palmux-fix-incus-group >/dev/null
+    sudo chmod 0440 /etc/sudoers.d/palmux-fix-incus-group
+    if ! sudo visudo -cf /etc/sudoers.d/palmux-fix-incus-group >/dev/null 2>&1; then
+      log "WARNING: fix-incus-group sudoers drop-in failed validation; removing it"
+      sudo rm -f /etc/sudoers.d/palmux-fix-incus-group
+    fi
+
     # ── 4. subuid / subgid: ensure root:1000:1 ────────────────────────────────
     # Required so Incus can map UID 1000 (the workspace user) into an
     # unprivileged container via raw.idmap 'both 1000 1000'.
@@ -926,9 +947,15 @@ FWDUNIT
     fi
 
     # ── 7. run palmux2 runtime doctor ─────────────────────────────────────────
+    # Sfef725-1-2: run doctor DIRECTLY, NOT under `sg incus-admin`. The old `sg`
+    # wrapper activated the group in that subshell and produced a FALSE PASS for
+    # the incus-admin check while the actual running palmux service still lacked
+    # it. The doctor now judges the group by the running service's /proc groups,
+    # so running it plain gives the honest state (and correctly reports the
+    # stale condition this install may have just created).
     log "running palmux2 runtime doctor (host prerequisites check)"
     if [ -n "$_palmux_bin" ]; then
-      sg incus-admin -c "${_palmux_bin} runtime doctor" || true
+      "${_palmux_bin}" runtime doctor || true
     else
       warn "palmux2 not found — skipping doctor; run manually: palmux2 runtime doctor"
     fi
@@ -982,6 +1009,12 @@ if [ "${SKIP_SERVICE:-0}" != "1" ]; then
     if id -G 2>/dev/null | tr ' ' '\n' | grep -qx "$(getent group incus-admin | cut -d: -f3)"; then
       log "incus-admin already active in this session — no restart needed"
     else
+      # Sfef725-3-1: record that the stale-group one-time action is pending so it
+      # can be RE-SURFACED prominently in the final summary (the mid-log warning
+      # below gets buried; the summary block at the end is what users actually
+      # read). _incus_stale_uid carries the uid for the systemctl command.
+      _incus_stale_pending=1
+      _incus_stale_uid="$(id -u "$USERNAME" 2>/dev/null || echo "$(id -u)")"
       warn "----------------------------------------------------------------------"
       warn "ONE-TIME ACTION REQUIRED to finish incus-container setup:"
       warn "${USERNAME} was just added to the incus-admin group, but the running"
@@ -991,10 +1024,10 @@ if [ "${SKIP_SERVICE:-0}" != "1" ]; then
       warn ""
       warn "A plain 'systemctl --user restart palmux2' is NOT enough."
       warn "Apply it with EITHER:"
-      warn "  • a reboot (simplest), or"
-      warn "  • log out of ALL sessions and back in, or"
-      warn "  • sudo loginctl terminate-user ${USERNAME}   (also ends running"
-      warn "    tmux/Claude sessions)"
+      warn "  • the GUI: Header runtime chip → 'incus-admin を適用 (サーバ再起動)', or"
+      warn "  • sudo systemctl restart user@${_incus_stale_uid}, or"
+      warn "  • a reboot / log out of ALL sessions and back in"
+      warn "  (also ends running tmux/Claude sessions; claude resumes with --resume)"
       warn "----------------------------------------------------------------------"
     fi
   fi
@@ -1089,3 +1122,30 @@ fi)
        Nix produces a new generation; failures roll back automatically. Rotate
        secrets by exporting CLOUDFLARE_API_TOKEN / BASIC_AUTH_PASSWORD first.
 EOM
+
+# Sfef725-3-1: re-surface the incus-admin one-time-action at the very END so it
+# is not buried mid-log. This is the last thing the user sees.
+if [ "${_incus_stale_pending:-0}" = "1" ]; then
+  cat <<EOM
+
+  ############################################################################
+  ##  ⚠  ONE-TIME ACTION REQUIRED — incus-container is NOT usable yet        ##
+  ############################################################################
+
+  ${USERNAME} was added to the incus-admin group, but the running user systemd
+  manager still has the OLD groups, so palmux2 cannot reach the incus daemon.
+  Until you apply this, switching a Workspace to incus-container fails and
+  falls back to host.
+
+  A plain 'systemctl --user restart palmux2' is NOT enough.
+
+  Apply it with ANY of:
+    • the GUI: open palmux2 → Header runtime chip → "incus-admin を適用 (サーバ再起動)"
+    • sudo systemctl restart user@${_incus_stale_uid:-$(id -u)}
+    • a reboot / log out of ALL sessions and back in
+
+  (Restarting the user manager ends running tmux/Claude sessions; claude
+   resumes with --resume.)
+  ############################################################################
+EOM
+fi
