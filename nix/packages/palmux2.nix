@@ -10,10 +10,10 @@
 }:
 
 let
-  defaultVersion = "0.11.0";
+  defaultVersion = "0.11.1";
   defaultHashes = {
-    amd64 = "sha256-DC5KnH1VAqkWA0MM43i1ToJaHNEKTS2ZFKEZdQ2iMYk=";
-    arm64 = "sha256-BKHPJGxPOqOPTKekS7Q9JE52Nx665BXBUWTbLM+Ho28=";
+    amd64 = "sha256-yZCPGrXVzXdATP1BYCKtIgH5FxSsG6+MHSHYH8u2Rr8=";
+    arm64 = "sha256-liCsrBzK97/Q5RxyCgq+PvDvRlTgeakFCRjTduAf4LI=";
   };
 
   effectiveVersion = if version != null then version else defaultVersion;
