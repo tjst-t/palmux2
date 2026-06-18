@@ -3,14 +3,14 @@
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
     "sprints_done": 59,
-    "sprints_total": 61,
-    "percent": 96,
+    "sprints_total": 62,
+    "percent": 95,
     "current_sprint": "Sfd04db",
     "done": 59,
-    "total": 61,
-    "remaining": 2,
+    "total": 62,
+    "remaining": 3,
     "in_progress": 0,
-    "percentage": 96
+    "percentage": 95
   },
   "execution_order": [
     "S001",
@@ -73,7 +73,8 @@
     "S4c591a",
     "S6ab0ed",
     "Sfef725",
-    "Sfd04db"
+    "Sfd04db",
+    "S8fe0cb"
   ],
   "sprints": {
     "S001": {
@@ -10164,6 +10165,63 @@
           "needs_user_review": "AC-Sfd04db-1-3 Japanese-on-noVNC-canvas visual confirmation (manual smoke, priority_rule 0). All other AC pass on real incus."
         }
       }
+    },
+    "S8fe0cb": {
+      "title": "Browser タブ: ローカル(OS)IME 干渉を排除し raw キーをリモート転送",
+      "status": "planned",
+      "milestone": false,
+      "context_note": "noVNC 1.7 は canvas(非編集)で keydown を拾い e.code→keysym→リモート送信するが、OS の日本語 IME オン時は composition 中の keydown が keyCode 229・e.code 空でドロップ(keyboard.js:64) → リモートのブラウザに文字が入らない。Web から OS IME 設定は直接オフ不可だが <input type=password> は全ブラウザで IME composition を禁止(直接入力強制)。これを使い Browser タブ滞在中はローカル IME 無効化相当にする。日本語はリモートの fcitx5(Ctrl+Space, S62374c)で打つ本来ワークフローに乗せる。",
+      "stories": {
+        "S8fe0cb-1": {
+          "title": "IME 無効 input 経由で Browser タブのキー入力をリモート転送",
+          "status": "planned",
+          "user_story": "Browser タブを使う人として、ローカル(OS)の日本語 IME がオンのままでもリモートのブラウザに文字入力したい。なぜなら、現状ローカル IME がオンだと noVNC が物理キーを取れず入力がドロップし、毎回手動で OS の IME を切らないと使えないから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S8fe0cb-1-1",
+              "description": "Browser タブにフォーカス中、キー入力は noVNC の canvas でなく『IME 無効な隠し input(type=password 等で composition 禁止)』で捕捉され、捕捉した keydown/keyup を noVNC の keysym マッピングで rfb.sendKey(keysym, code, down) によりリモートへ転送する。ローカル OS IME がオン(日本語モード)でも raw キー(英字・数字・記号・Enter・Backspace・Space 等)がリモートに届き入力できる。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S8fe0cb-1-2",
+              "description": "修飾キー(Ctrl/Alt/Shift/Meta)・特殊キー(矢印/Esc/Tab/Function/Delete 等)・キーリピート(押しっぱなし)・フォーカス喪失時のキーリリース(stuck key 防止)が、従来の noVNC canvas 入力と同等に動く。マウス/スクロール/クリック/IME 候補ウィンドウ操作は canvas のまま不変。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S8fe0cb-1-3",
+              "description": "Browser タブを離脱(他タブ選択/アンマウント)するとフォーカス誘導を解除し、他タブ(ターミナル等)のキー入力・ローカル IME に干渉しない。タブ再選択で再び有効化される。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S8fe0cb-1-4",
+              "description": "実機 incus + 実ブラウザ検証(OS/ブラウザ横断): ローカル IME をオンにした状態で Browser に英字/記号が通り、かつ Ctrl+Space→リモート fcitx5 で日本語入力(nihongo→日本語)が textarea に成立する。隠し input がパスワードマネージャ/オートフィル/save-password プロンプトに拾われない(autocomplete=off・非表示・aria-hidden 等)。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S8fe0cb-1-1": {
+              "id": "S8fe0cb-1-1",
+              "status": "pending",
+              "title": "frontend(browser-view.tsx): IME 無効 input を追加しフォーカス管理(タブ active 時誘導/離脱で解除)、keydown/keyup 捕捉"
+            },
+            "S8fe0cb-1-2": {
+              "id": "S8fe0cb-1-2",
+              "status": "pending",
+              "title": "noVNC の keysym 取得(KeyboardUtil)で event→keysym/code 変換 + rfb.sendKey 転送、修飾/特殊/リピート/blur リリースを実装"
+            },
+            "S8fe0cb-1-3": {
+              "id": "S8fe0cb-1-3",
+              "status": "pending",
+              "title": "隠し input のパスワードマネージャ回避(autocomplete=off, aria-hidden, off-screen, name/id 難読化)"
+            },
+            "S8fe0cb-1-4": {
+              "id": "S8fe0cb-1-4",
+              "status": "pending",
+              "title": "GUI E2E(mock + 実バックエンド) + 実機 incus 検証: ローカル IME オンで英字通る/Ctrl+Space で日本語、修飾キー、タブ離脱で非干渉"
+            }
+          }
+        }
+      }
     }
   },
   "dependencies": {
@@ -10422,6 +10480,10 @@
     "Sfd04db": {
       "depends_on": [],
       "reason": "独立した image 変更。既存 Browser タブ(S62374c)の noVNC/IME/CDP スタックを ungoogled-chromium に載せ替えるだけで他 Sprint と排他しない"
+    },
+    "S8fe0cb": {
+      "depends_on": [],
+      "reason": "既存 Browser タブ(S62374c noVNC)のキーボード経路を差し替えるだけ。どの Chromium でも有効で他 Sprint と排他しない"
     }
   },
   "backlog": [
