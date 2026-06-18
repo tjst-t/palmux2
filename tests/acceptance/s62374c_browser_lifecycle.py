@@ -189,10 +189,13 @@ def main() -> int:
 
     # Verify --user-data-dir appears in the chromium command line.
     if chromium_running:
-        # The binary is google-chrome (symlinked as chromium), so its process
-        # comm is not exactly "chromium"; match the main process by its unique
-        # remote-debugging-port flag. (Empty pgrep → cat /proc//cmdline would
-        # read the KERNEL cmdline, hence the old BOOT_IMAGE false read.)
+        # The browser is ungoogled-chromium (Sfd04db; installed as
+        # /usr/bin/ungoogled-chromium and symlinked to /usr/local/bin/chromium),
+        # whose process comm may be truncated ("ungoogled-chromiu") rather than
+        # exactly "chromium"; match the main process by its unique
+        # remote-debugging-port flag instead of by comm. (Empty pgrep →
+        # cat /proc//cmdline would read the KERNEL cmdline, hence the old
+        # BOOT_IMAGE false read.)
         r_cmd = cexec("cat /proc/$(pgrep -f 'remote-debugging-port=9222' | head -1)/cmdline 2>/dev/null | tr '\\0' ' '")
         proc_cmd = r_cmd.stdout
         if "--remote-debugging-port=9222" in proc_cmd:

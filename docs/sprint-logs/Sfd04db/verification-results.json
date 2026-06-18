@@ -1,0 +1,126 @@
+{
+  "sprint": "Sfd04db",
+  "branch": "autopilot/main/Sfd04db",
+  "base_sha": "1846eea",
+  "generated": "2026-06-18",
+  "summary": { "pass": 11, "fail": 0, "skip": 0, "manual_smoke_pending": 1 },
+  "environment": {
+    "code_build": "host (go build ./... OK; go test ./internal/tab/browser OK; go vet OK)",
+    "real_machine": "palmux-deploy-test.tjstkm.net incus 6.0.0 (production mode — real image build + real unprivileged container, no MOCK/fake/DRY_RUN)",
+    "image_built": "palmux-ws IMAGE_VERSION=sfd04db-test (build.sh) → 1.09GB tarball → imported → container sfd04db-verify launched (raw.idmap both 1000 1000)",
+    "cleanup": "throwaway container + test image/alias deleted; ndev local-cleantest container untouched; 5 release images intact"
+  },
+  "tests": [
+    {
+      "id": "ac1-no-chrome-ungoogled-present",
+      "acceptance_criteria": ["AC-Sfd04db-1-1"],
+      "entry_point": "real incus container from new image (dpkg + command -v)",
+      "status": "pass",
+      "evidence": "dpkg -l: ungoogled-chromium 149.0.7827.114-1.1xtradeb1.2404.1 installed; no google-chrome. `chromium --version` → Chromium 149.0.7827.114 built on Ubuntu 24.04.4 LTS."
+    },
+    {
+      "id": "ac1-pinned-sha256-verified",
+      "acceptance_criteria": ["AC-Sfd04db-1-1"],
+      "entry_point": "build.sh install block run in fresh noble container",
+      "status": "pass",
+      "evidence": "apt-get download of pinned version succeeds; BOTH .deb SHA256 checks pass (main 2f8bf341..., common 77e170e3...): 'ungoogled-chromium_..._amd64.deb: OK' + 'ungoogled-chromium-common_..._amd64.deb: OK' + SHA256-BOTH-OK. XtraDeb PPA InRelease GPG-verified (key 5301FA4F... fingerprint-checked). Source is redistributable OSS (license-note.md)."
+    },
+    {
+      "id": "ac1-runtime-deps-resolve",
+      "acceptance_criteria": ["AC-Sfd04db-1-1"],
+      "entry_point": "real image build (apt-get install of local .debs)",
+      "status": "pass",
+      "evidence": "Image build completed: ungoogled-chromium + ungoogled-chromium-common + runtime deps (libnss3, libgtk-3-0t64, libgbm1, …) installed from ubuntu noble base archive; build 'Build complete.'"
+    },
+    {
+      "id": "ac1-binary-name-resolves",
+      "acceptance_criteria": ["AC-Sfd04db-1-1", "AC-Sfd04db-1-3"],
+      "entry_point": "real incus container (readlink + chromiumBin)",
+      "status": "pass",
+      "evidence": "/usr/local/bin/chromium → /usr/bin/ungoogled-chromium; `chromium` resolves; chromiumBin='chromium' in browser.go unchanged. Symlink probe fails loud if no launcher (first build caught this)."
+    },
+    {
+      "id": "ac2-launch-flags",
+      "acceptance_criteria": ["AC-Sfd04db-1-2"],
+      "entry_point": "real incus chromium process (pgrep -a) + Go diff",
+      "status": "pass",
+      "evidence": "launchChromium command line in the running process contains --no-first-run --no-default-browser-check (verified in pgrep output). Go build OK."
+    },
+    {
+      "id": "ac2-managed-policy-applied",
+      "acceptance_criteria": ["AC-Sfd04db-1-2"],
+      "entry_point": "strace openat + chrome://policy via CDP/playwright-core",
+      "status": "pass",
+      "evidence": "strace proved the binary opens /etc/chromium/policies/managed/palmux.json at startup (NOT /etc/ungoogled-chromium or /etc/chromium-browser). chrome://policy reports BrowserSignin=0 (Mandatory OK), SyncDisabled=true (Mandatory OK), PromotionalTabsEnabled=false (Mandatory). No 'Sign in to Chrome'."
+    },
+    {
+      "id": "ac3-cdp",
+      "acceptance_criteria": ["AC-Sfd04db-1-3"],
+      "entry_point": "real incus: curl http://127.0.0.1:9222/json/version + ss",
+      "status": "pass",
+      "evidence": "CDP /json/version → Chrome/149.0.7827.114, valid webSocketDebuggerUrl. CDP listening 127.0.0.1:9222. playwright-core connectOverCDP + textarea fill/read-back round-trip succeeds."
+    },
+    {
+      "id": "ac3-x11vnc-novnc-transport",
+      "acceptance_criteria": ["AC-Sfd04db-1-3"],
+      "entry_point": "real incus: ss -ltn",
+      "status": "pass",
+      "evidence": "x11vnc serving display :99 on 0.0.0.0:5900 (noVNC byte-pipe transport)."
+    },
+    {
+      "id": "ac3-launch-order",
+      "acceptance_criteria": ["AC-Sfd04db-1-3"],
+      "entry_point": "real incus: replicated Xvfb→dbus→fcitx5→chromium→x11vnc",
+      "status": "pass",
+      "evidence": "Full palmux launch order replicated in the new-image container; all daemons up; chromium alive with IME env (GTK_IM_MODULE=fcitx). Launch order in browser.go unchanged."
+    },
+    {
+      "id": "ac3-fcitx5-mozc-ime",
+      "acceptance_criteria": ["AC-Sfd04db-1-3"],
+      "entry_point": "real incus: fcitx5 log + fcitx5-remote/dbus + dpkg",
+      "status": "pass",
+      "evidence": "With the mozc profile written (palmux ensureFcitx5Config), fcitx5 'Loaded addon mozc' and mozc is in available input methods alongside keyboard-us. fcitx5-mozc.so + im-fcitx5.so (GTK3) + fcitx5-frontend-gtk4/qt5 all present. Ctrl+Space bound as trigger. de-googling confirmed (telemetry block in chromium.log)."
+    },
+    {
+      "id": "ac4-new-image-runs-browser",
+      "acceptance_criteria": ["AC-Sfd04db-1-4"],
+      "entry_point": "real incus: full image build → import → container → browser stack",
+      "status": "pass",
+      "evidence": "build.sh produced palmux-ws.tar.gz (1.09GB) with baked version sfd04db-test; imported as test alias; container launched (unprivileged + idmap); full browser stack started + CDP/x11vnc/policy operational. Release-asset flow (version baked to /etc/palmux-ws-version + image properties) unchanged."
+    },
+    {
+      "id": "ac3-japanese-novnc-canvas-visual",
+      "acceptance_criteria": ["AC-Sfd04db-1-3"],
+      "entry_point": "real-browser Playwright into live noVNC canvas (human eyes)",
+      "status": "manual_smoke_pending",
+      "evidence": "All automatable IME prerequisites PASS (mozc engine + GTK IM module + profile + Ctrl+Space trigger + CDP textarea round-trip). The final visual check — Ctrl+Space in the live noVNC canvas, type 'nihongo', convert → 日本語 renders into a textarea — needs human eyes (events flow below the CDP-observable DOM layer). Surfaced per priority_rule 0; NOT silently skipped. See decisions.json manual_smoke_pending."
+    }
+  ],
+  "story_review": {
+    "Sfd04db-1": {
+      "reviewed": true,
+      "findings_actioned": [
+        "Pinned exact .deb filenames (no wildcard) + clean download dir — avoids stale-file ambiguity on partial rebuild (verified in fresh noble container).",
+        "Added SHA256 pin for ungoogled-chromium-common too — makes the 'no silently-rotated pool entry' guarantee true for both packages (verified).",
+        "Fixed stale 'binary is google-chrome' comment in tests/acceptance/s62374c_browser_lifecycle.py → now ungoogled-chromium."
+      ],
+      "findings_by_design": [
+        "apt-get download version-pin can fail if XtraDeb purges the pinned version from the pool months later — inherent to version pinning (AC requires pinning). Mitigated by fail-loud + env-overridable UGCHROMIUM_VERSION/SHA256 + documented upgrade recipe in license-note.md."
+      ]
+    }
+  },
+  "done_judgment": {
+    "Sfd04db-1": {
+      "guard1_user_review_required_not_done": "pass",
+      "guard2_nil_injection_mock": "pass",
+      "guard3_mock_mode_not_real_smoke": "pass",
+      "guard4_priority_rule_9_exception_valid": "n/a",
+      "guard5_call_path_grep": "pass",
+      "guard6_deferred_comment_clean": "pass",
+      "guard7_adr_conformance": "n/a",
+      "guard8_destructive_multi_version_test": "n/a",
+      "overall": "needs_user_review",
+      "overall_reason": "All automatable AC-1/2/3/4 checks PASS on real incus (production mode). One AC-Sfd04db-1-3 sub-check (Japanese rendering on live noVNC canvas) is a manual-smoke requiring human eyes → Story held at needs_user_review for milestone visual confirmation, not auto-done."
+    }
+  }
+}
