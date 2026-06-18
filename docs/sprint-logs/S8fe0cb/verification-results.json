@@ -1,0 +1,68 @@
+{
+  "sprint_id": "S8fe0cb",
+  "run_at": "2026-06-18",
+  "dev_instance": "make serve INSTANCE=dev (port 8200)",
+  "summary": { "pass": 11, "fail": 0, "skip": 0, "manual_smoke_pending": 1 },
+  "tests": [
+    {
+      "file": "tests/e2e/s8fe0cb_browser_keycapture_mock.py",
+      "type": "gui-mock",
+      "entry_point": "real Playwright browser against the real dev frontend; API/WS routes intercepted (no real VNC); keysym/sendKey observed via the component's own __palmuxVncKeyTap output seam (not a network mock)",
+      "cases": [
+        { "name": "AC-S8fe0cb-1-1/ascii", "acceptance_criteria": ["AC-S8fe0cb-1-1"], "status": "pass",
+          "detail": "keydown on the hidden input forwards rfb.sendKey with correct keysyms for a/1/Enter/Backspace/Space/Minus + matching releases" },
+        { "name": "AC-S8fe0cb-1-1/ime-on", "acceptance_criteria": ["AC-S8fe0cb-1-1"], "status": "pass",
+          "detail": "keyCode 229 / isComposing event carrying a real e.code still forwards raw 'a' (0x61) — the local-OS-IME-ON case" },
+        { "name": "AC-S8fe0cb-1-1/empty-input", "acceptance_criteria": ["AC-S8fe0cb-1-1"], "status": "pass",
+          "detail": "preventDefault keeps the hidden password input empty after typing" },
+        { "name": "AC-S8fe0cb-1-2/modifiers-special", "acceptance_criteria": ["AC-S8fe0cb-1-2"], "status": "pass",
+          "detail": "Ctrl/Shift/Alt + ArrowUp/Escape/Tab/Delete/F1 forward with correct keysyms" },
+        { "name": "AC-S8fe0cb-1-2/key-repeat", "acceptance_criteria": ["AC-S8fe0cb-1-2"], "status": "pass",
+          "detail": "held key (repeated keydown) re-sends a stable keysym (no drift)" },
+        { "name": "AC-S8fe0cb-1-2/blur-release", "acceptance_criteria": ["AC-S8fe0cb-1-2"], "status": "pass",
+          "detail": "blur while a key is held forwards a key-up (no stuck modifier)" },
+        { "name": "AC-S8fe0cb-1-2/canvas-click-keeps-held", "acceptance_criteria": ["AC-S8fe0cb-1-2"], "status": "pass",
+          "detail": "regression guard (review finding): canvas mousedown while Shift held does NOT release it; focus stays on the hidden input" },
+        { "name": "AC-S8fe0cb-1-2/unmount-release", "acceptance_criteria": ["AC-S8fe0cb-1-2"], "status": "pass",
+          "detail": "regression guard (review finding): leaving the tab while Control held forwards Control-up BEFORE rfb.disconnect (no stuck key)" },
+        { "name": "AC-S8fe0cb-1-2/canvas-refocus", "acceptance_criteria": ["AC-S8fe0cb-1-2"], "status": "pass",
+          "detail": "canvas mousedown re-focuses the hidden input (keys keep flowing) while the pointer reaches the canvas" },
+        { "name": "AC-S8fe0cb-1-3/leave-return", "acceptance_criteria": ["AC-S8fe0cb-1-3"], "status": "pass",
+          "detail": "leaving the Browser tab removes the capture input from the DOM; returning re-mounts it (no cross-tab interference)" },
+        { "name": "AC-S8fe0cb-1-4/avoidance-attrs", "acceptance_criteria": ["AC-S8fe0cb-1-4"], "status": "pass",
+          "detail": "hidden input: type=password, autocomplete=off, aria-hidden, tabIndex=-1, obscured name/id, data-1p-ignore/data-lpignore/data-form-type=other, off-screen (opacity 0 / 1px clip)" }
+      ]
+    }
+  ],
+  "manual_smoke": [
+    {
+      "id": "AC-S8fe0cb-1-4/real-os-ime-visual",
+      "acceptance_criteria": ["AC-S8fe0cb-1-4"],
+      "status": "manual_smoke_pending",
+      "reason": "priority_rule 0: cannot be simulated headless. Requires a HUMAN with a real OS-level Japanese IME on a real browser: turn ON the OS IME, type into the live noVNC Browser canvas — ASCII must pass through AND Ctrl+Space -> remote fcitx5 -> 'nihongo' converts to 日本語 in a remote textarea. Headless Playwright cannot enable a real OS IME, so this is NOT faked.",
+      "substrate_verified": "Deploy VM ubuntu@palmux-deploy-test.tjstkm.net reachable; incus running with palmux-ws image (fingerprint 855c68cacd4f) and workspace containers carrying x11vnc + chromium + fcitx5 (the noVNC + remote-IME substrate is live). The deployed palmux2 binary is v0.11.0 (pre-S8fe0cb); the S8fe0cb fix is frontend-only, so the new embedded bundle must be deployed to the VM before the human visual check. NOT deployed by autopilot to avoid disturbing the VM.",
+      "needs": "human visual confirmation after deploying the new frontend bundle"
+    }
+  ],
+  "regressions_checked": [
+    { "test": "tests/e2e/s62374c_browser_ui_mock.py", "status": "pass",
+      "note": "ALL PASS — confirms the keyboard-capture change does not regress the Browser tab UI (testids, badges, start/stop, popout, fullscreen). Also fixed a latent onboarding-overlay flake in this test (added localStorage 'palmux:onboarding-seen' pre-dismiss)." }
+  ],
+  "build": { "frontend_lint": "0 errors (8 pre-existing warnings in unrelated files)", "frontend_build": "pass", "go_build": "pass" },
+  "done_judgment": [
+    {
+      "story_id": "S8fe0cb-1",
+      "guard1_user_review_required_not_done": "pass",
+      "guard2_nil_injection_mock": "pass",
+      "guard3_mock_mode_not_real_smoke": "pass",
+      "guard4_priority_rule_9_exception_valid": "n/a",
+      "guard5_call_path_grep": "pass",
+      "guard6_deferred_comment_clean": "pass",
+      "guard7_adr_conformance": "n/a",
+      "guard8_destructive_multi_version_test": "n/a",
+      "guard8_rationale": "frontend-only change (frontend/src/tabs/browser/, vite.config.ts, types). No data-path directory (internal/server, internal/proxyfuse, cmd/*, internal/workflow, internal/identity) touched.",
+      "overall": "needs_user_review",
+      "overall_reason": "All automatable ACs pass (AC-1, AC-2, AC-3 fully; AC-4 attributes fully). AC-4's real-OS-IME visual is a priority_rule 0 manual smoke that requires a human with a real OS IME — held for milestone user confirmation, not auto-done."
+    }
+  ]
+}

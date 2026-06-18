@@ -1,0 +1,79 @@
+{
+  "sprint_id": "S8fe0cb",
+  "title": "Browser タブ: ローカル(OS)IME 干渉を排除し raw キーをリモート転送",
+  "base_branch": "main",
+  "autopilot_branch": "autopilot/main/S8fe0cb",
+  "planning_decisions": [
+    {
+      "id": "plan-1",
+      "decision": "Story S8fe0cb-1 は単一 GUI Story として実行。分割しない。",
+      "rationale": "1 つの user-facing behavior (ローカル IME ON でも raw キーがリモートに届く) を 4 AC で記述しており granularity は適切。DESIGN_PRINCIPLES 'one story = one user-facing behavior' に合致。"
+    },
+    {
+      "id": "plan-2",
+      "decision": "実装は frontend/src/tabs/browser/browser-view.tsx の LiveViewport にのみ閉じる (バックエンド変更なし)。",
+      "rationale": "バグは noVNC のクライアント側 keyboard handler が canvas で keyCode 229 を drop することに起因。fix は client-only (隠し input + rfb.sendKey 転送)。RFB の WS byte-pipe / VNC backend は無変更。priority_rule 6 (既存資産活用) に合致。"
+    },
+    {
+      "id": "plan-3",
+      "decision": "keysym マッピングは noVNC が export する @novnc/novnc/core/input/util の getKeysym / getKeycode を使用。node_modules を fork しない。",
+      "rationale": "実装注意: 'Use noVNC PUBLIC API only (rfb.sendKey) + its exported util'。util.js は getKeysym/getKeycode を named export しており (1.7.0 確認済)、これで event→keysym/code を noVNC 自身と同じロジックで導出できる。"
+    }
+  ],
+  "implementation_decisions": [
+    {
+      "id": "impl-1",
+      "decision": "noVNC の util.js subpath は vite resolve.alias '@novnc/novnc/util' で公開 (node_modules fork せず)。TS は novnc.d.ts に declare module を追加。",
+      "rationale": "@novnc/novnc 1.7 の exports は bare string './core/rfb.js' で deep import を遮断する (esbuild probe で確認)。alias は明示的 config (priority_rule 7) で、shipped util.js を指すだけ。getKeysym/getKeycode の実値は node 直叩きで全 14 ケース照合し、ハードコード期待値と完全一致 (keyCode 229 ケースも 0x61 を返す = fix の前提が成立)。"
+    },
+    {
+      "id": "impl-2",
+      "decision": "隠し input は type=password。off-screen は display:none ではなく opacity 0 + 1px + clip-path inset で focusable のまま不可視に。pointer-events:none でマウスは canvas へ。",
+      "rationale": "password field は全ブラウザで IME composition を禁止 (直接入力強制) = ローカル OS IME を実質無効化。display:none/visibility:hidden は focusable でなくなるため不可。パスワードマネージャ回避は name 難読化 + autocomplete=off + data-1p-ignore/data-lpignore/data-form-type=other + aria-hidden。"
+    },
+    {
+      "id": "impl-3",
+      "decision": "keysym 追跡は code->keysym の Map。keydown で down 送信 + 記録、keyup は記録済み keysym のみ release、blur と unmount cleanup で releaseAll。",
+      "rationale": "noVNC core の _keyDownList と同型。press で送った keysym を release でも使うことで press/release ペアが崩れない。key-repeat は記録済み keysym を再利用 (drift 防止)。"
+    }
+  ],
+  "review_decisions": [
+    {
+      "id": "review-1",
+      "finding": "effect cleanup 順序バグ: connect effect (先宣言) の cleanup が rfb.disconnect() を呼び、その後 keyboard effect の releaseAll() が走る。disconnect 後は sendKey が no-op になるため、キー押下中にタブ離脱すると release バイトが落ちてリモートで stuck key になる。",
+      "resolution": "connect と keyboard を 1 つの effect に統合し、cleanup で releaseAll() を rfb.disconnect() の前に実行。回帰テスト test_ac2_unmount_releases_held で Control-up が disconnect 前に転送されることを検証。",
+      "severity": "high (CONFIRMED by 2 reviewers)"
+    },
+    {
+      "id": "review-2",
+      "finding": "canvas mousedown 毎に blur→releaseAll が発火し、修飾キーを押しながらの canvas クリック (shift-drag 等) で修飾が落ちる。",
+      "resolution": "refocusInput を capture phase で同期 focus に変更し、canvas クリックで input が focus を失わないようにした (blur が起きない)。回帰テスト test_ac2_canvas_click_keeps_held_modifier で Shift 保持を検証。",
+      "severity": "medium (PLAUSIBLE)"
+    },
+    {
+      "id": "review-3",
+      "finding": "altitude: noVNC の canvas keyboard grab が無効化されておらず、focus 遷移の隙間でキーが noVNC の IME-broken canvas path (keyCode 229 drop) に流れうる = この sprint が直すバグそのものが残存。",
+      "resolution": "rfb.focusOnClick=false でクリック時の canvas focus 奪取を停止し、connect 時に rfb._keyboard.ungrab() (try/catch でガード) を呼んで canvas のキーリスナを除去。隠し input を唯一の keyboard sink にした。これが最深の修正。",
+      "severity": "medium-high (CONFIRMED altitude)"
+    },
+    {
+      "id": "review-4",
+      "finding": "onKeyUp の `getKeysym(e) ?? 0` fallback が、keydown が drop された (keysym 0/null) のに keyup で keysym が解決した場合に unpaired key-up を送りうる。",
+      "resolution": "onKeyUp は downList に記録済みの keysym のみ release する (noVNC core と同じ) よう変更。",
+      "severity": "low (PLAUSIBLE)"
+    }
+  ],
+  "done_judgment": {
+    "S8fe0cb-1": {
+      "overall": "needs_user_review",
+      "reason": "全自動 AC pass。AC-4 の real-OS-IME 目視 (人間の OS IME 必須) は priority_rule 0 の manual smoke として milestone でユーザ確認待ち。6 ガード詳細は verification-results.json の done_judgment 参照。"
+    }
+  },
+  "skipped_manual_smoke": [
+    {
+      "ac": "AC-S8fe0cb-1-4 (real-OS-IME visual portion only)",
+      "status": "manual_smoke_pending (NOT skipped, NOT faked)",
+      "reason": "ローカル OS IME を実際にオンにして live noVNC canvas に入力し、ASCII 通過 + Ctrl+Space→remote fcitx5→日本語 を目視する検証は headless で再現不能。人間が実 OS IME + 実ブラウザで行う必要がある。substrate (deploy VM の incus + x11vnc/chromium/fcitx5) は到達確認済み。fix は frontend-only なので新 bundle を VM へ deploy 後に人間が目視。autopilot は VM を乱さないため deploy せず flag。"
+    }
+  ]
+}

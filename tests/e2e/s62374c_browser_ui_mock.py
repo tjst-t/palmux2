@@ -143,7 +143,14 @@ def _common_mocks(page, *, runtime_kind: str, browser_state: str,
     )
 
 
+# Pre-dismiss the first-run onboarding wizard — its overlay intercepts clicks on
+# the Start button (was a latent flake; surfaced once a dev instance had no repos
+# configured). Set BEFORE any page script runs.
+_DISMISS_ONBOARDING = "try { localStorage.setItem('palmux:onboarding-seen', '1'); } catch (e) {}"
+
+
 def _goto_browser(page, *, wait_for: str = "browser-tab-panel") -> None:
+    page.add_init_script(_DISMISS_ONBOARDING)
     page.goto(
         f"{BASE_URL}/{FAKE_REPO}/{FAKE_BRANCH}/browser",
         timeout=PLAYWRIGHT_TIMEOUT, wait_until="load",
