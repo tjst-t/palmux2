@@ -171,32 +171,114 @@ incus exec "${BUILD_INST}" </dev/null -- sh -c "
   rm -rf yazi.zip yazi-x86_64-unknown-linux-gnu
 "
 
-# chromium (S62374c-1): headless browser for the Browser tab.
-# Needed for CDP-based browser automation (--remote-debugging-port=9222).
+# chromium (S62374c-1 / Sfd04db): browser for the Browser tab.
+# Needed for noVNC rendering on :99 + CDP automation (--remote-debugging-port=9222).
 # Runs as ubuntu/uid 1000 inside the container; --no-sandbox is required for
 # unprivileged incus containers.  CDP is never Caddy-exposed (bridge-only).
 # The palmux browser manager calls `chromium` (binary name); ensure that name
-# exists regardless of whether the package installs chromium or chromium-browser.
-log "   Installing chromium (google-chrome-stable .deb) ..."
-# IMPORTANT: on Ubuntu 24.04 the `chromium`/`chromium-browser` apt package is a
-# SNAP wrapper. snapd cannot set up its devpts mounts inside an unprivileged
-# incus container (`mount devpts ... Permission denied`), so that install fails
-# at build time. We install Google Chrome's real .deb from Google's apt repo
-# (no snap), which is headless-capable with --no-sandbox in the container, and
-# symlink `chromium` → it so the browser manager's `chromium` binary name works.
-incus exec "${BUILD_INST}" </dev/null -- sh -c '
+# exists regardless of the upstream package's binary name.
+#
+# Sfd04db: switched from Google Chrome (proprietary; ToS restricts redistribution
+# of the bundled .deb in our public GitHub-Release image asset + every launch
+# shows a "Sign in to Chrome" promo) to ungoogled-chromium (open source,
+# redistributable, Google web-service integration + telemetry removed → no
+# sign-in promo). License note: docs/sprint-logs/Sfd04db/license-note.md.
+#
+# Source: XtraDeb PPA (ppa:xtradeb/apps) — a Launchpad apt repository whose
+# `InRelease` is GPG-signed (key ${UGCHROMIUM_KEY_FP}). It is the only actively
+# maintained, noble-targeting, redistributable ungoogled-chromium .deb source
+# (the official ungoogled-chromium-binaries site is stuck at v100/2022; the
+# openSUSE OBS personal repo does not publish a noble target). We PIN the exact
+# version and additionally VERIFY the downloaded .deb's SHA256 against a value
+# captured from the signed Packages index (belt-and-suspenders on top of apt's
+# own signed Release→Packages→.deb SHA256 chain).
+#
+# Why not snap chromium: on Ubuntu 24.04 the `chromium` apt package is a SNAP
+# wrapper; snapd cannot set up its devpts mounts inside an unprivileged incus
+# container, so that install fails at build time.
+UGCHROMIUM_VERSION="${UGCHROMIUM_VERSION:-149.0.7827.114-1.1xtradeb1.2404.1}"
+# SHA256 of ungoogled-chromium_<VERSION>_amd64.deb from the signed XtraDeb noble
+# Packages index (dists/noble/main/binary-amd64/Packages.xz). Pin must match the
+# version above; bump both together when upgrading.
+UGCHROMIUM_DEB_SHA256="${UGCHROMIUM_DEB_SHA256:-2f8bf341245d134b717f84f1788eec44951a84031620a2c4fb619b7c0fff0997}"
+# SHA256 of the co-installed ungoogled-chromium-common_<VERSION>_amd64.deb (ships
+# the browser resources/policy templates). Pinned for the same supply-chain
+# reason as the main .deb; bump together with UGCHROMIUM_VERSION.
+UGCHROMIUM_COMMON_DEB_SHA256="${UGCHROMIUM_COMMON_DEB_SHA256:-77e170e30a94c6122b0cd92947642487c8029f31ac957b701df3c9646b8b0ef8}"
+UGCHROMIUM_KEY_FP="5301FA4FD93244FBC6F6149982BB6851C64F6880"
+log "   Installing ungoogled-chromium ${UGCHROMIUM_VERSION} (XtraDeb PPA, pinned + sha256-verified) ..."
+incus exec "${BUILD_INST}" </dev/null \
+  --env UGCHROMIUM_VERSION="${UGCHROMIUM_VERSION}" \
+  --env UGCHROMIUM_DEB_SHA256="${UGCHROMIUM_DEB_SHA256}" \
+  --env UGCHROMIUM_COMMON_DEB_SHA256="${UGCHROMIUM_COMMON_DEB_SHA256}" \
+  --env UGCHROMIUM_KEY_FP="${UGCHROMIUM_KEY_FP}" \
+  -- sh -c '
   set -e
   export DEBIAN_FRONTEND=noninteractive
   apt-get install -y --no-install-recommends ca-certificates curl gnupg
   install -d -m 0755 /etc/apt/keyrings
-  curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
-    | gpg --dearmor -o /etc/apt/keyrings/google-chrome.gpg
-  echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
-    > /etc/apt/sources.list.d/google-chrome.list
+  # Fetch the XtraDeb PPA signing key by fingerprint from the Ubuntu keyserver
+  # and verify the returned key actually carries that fingerprint before trusting
+  # it (defends against a substituted key).
+  curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x${UGCHROMIUM_KEY_FP}" \
+    | gpg --dearmor -o /etc/apt/keyrings/xtradeb.gpg
+  gpg --show-keys --with-colons /etc/apt/keyrings/xtradeb.gpg \
+    | grep -q "^fpr:::::::::${UGCHROMIUM_KEY_FP}:" \
+    || { echo "xtradeb key fingerprint mismatch"; exit 1; }
+  echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/xtradeb.gpg] https://ppa.launchpadcontent.net/xtradeb/apps/ubuntu noble main" \
+    > /etc/apt/sources.list.d/xtradeb-apps.list
   apt-get update
-  apt-get install -y --no-install-recommends google-chrome-stable
+  # Belt-and-suspenders: download the pinned .debs via apt (which verifies the
+  # signed Packages SHA256), then re-verify BOTH .debs SHA256 against our
+  # hardcoded pins before installing — so a silently-rotated pool entry (same
+  # version string, rebuilt binary) cannot slip through. Work in a clean dir so a
+  # stale .deb from a prior partial run can never be picked up by a glob.
+  rm -rf /tmp/ugc && mkdir -p /tmp/ugc && cd /tmp/ugc
+  apt-get download "ungoogled-chromium=${UGCHROMIUM_VERSION}" "ungoogled-chromium-common=${UGCHROMIUM_VERSION}"
+  # apt-get download writes <pkg>_<ver>_<arch>.deb (no epoch in this version), so
+  # reference the exact filenames rather than a wildcard.
+  MAIN_DEB="ungoogled-chromium_${UGCHROMIUM_VERSION}_amd64.deb"
+  COMMON_DEB="ungoogled-chromium-common_${UGCHROMIUM_VERSION}_amd64.deb"
+  printf "%s  %s\n%s  %s\n" \
+    "${UGCHROMIUM_DEB_SHA256}" "${MAIN_DEB}" \
+    "${UGCHROMIUM_COMMON_DEB_SHA256}" "${COMMON_DEB}" | sha256sum -c - \
+    || { echo "ungoogled-chromium .deb SHA256 mismatch (supply-chain check failed)"; exit 1; }
+  # Install the pinned .debs; apt resolves the runtime deps (libnss3,
+  # libgtk-3-0t64, libgbm1, …) from the ubuntu noble base archive.
+  apt-get install -y --no-install-recommends "./${COMMON_DEB}" "./${MAIN_DEB}"
+  cd /tmp && rm -rf /tmp/ugc
   # Expose the binary under the `chromium` name the browser manager invokes.
-  ln -sf "$(command -v google-chrome-stable)" /usr/local/bin/chromium
+  # The XtraDeb ungoogled-chromium package installs the launcher as
+  # /usr/bin/ungoogled-chromium (NOT chromium); create a stable
+  # /usr/local/bin/chromium symlink so the browser manager`s `chromium` binary
+  # name resolves. Probe the known launcher names in order and fail loudly if
+  # none exist (rather than leaving a dangling symlink).
+  UG_BIN=""
+  for c in ungoogled-chromium chromium chromium-browser; do
+    if p="$(command -v "$c" 2>/dev/null)"; then UG_BIN="$p"; break; fi
+  done
+  [ -n "${UG_BIN}" ] || { echo "no ungoogled-chromium launcher found after install"; exit 1; }
+  ln -sf "${UG_BIN}" /usr/local/bin/chromium
+  # Sanity: the chromium name must now resolve and report a version.
+  chromium --version
+'
+
+# Bake a Chromium managed policy into the image so the browser never shows the
+# Google sign-in / sync promo, independent of per-launch flags (Sfd04db AC-2).
+# ungoogled-chromium / Debian-style chromium reads managed policy from
+# /etc/chromium/policies/managed/*.json (NOT google-chrome's /etc/opt/chrome/...).
+log "   Baking Chromium managed policy (no sign-in / no sync / no promo tabs) ..."
+incus exec "${BUILD_INST}" </dev/null -- sh -c '
+  set -e
+  install -d -m 0755 /etc/chromium/policies/managed
+  cat > /etc/chromium/policies/managed/palmux.json <<"JSON"
+{
+  "BrowserSignin": 0,
+  "SyncDisabled": true,
+  "PromotionalTabsEnabled": false
+}
+JSON
+  chmod 0644 /etc/chromium/policies/managed/palmux.json
 '
 
 log "   Verifying installed binaries ..."

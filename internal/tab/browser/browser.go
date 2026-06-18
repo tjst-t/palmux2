@@ -580,7 +580,15 @@ func (m *Manager) launchXvfb(ctx context.Context) (string, error) {
 // Flags kept from the headless era: --no-sandbox (unprivileged container),
 // --remote-debugging-port=9222 (CDP for Claude), --remote-allow-origins=*,
 // --user-data-dir (persistent profile). IME env vars enable fcitx5.
-// [AC-S62374c-1-1] [AC-S62374c-1-3]
+//
+// --no-first-run --no-default-browser-check suppress Chromium's first-run
+// experience (welcome page / "make default browser" prompt) so the Browser tab
+// opens straight to a usable window. Combined with the image's managed policy
+// (/etc/chromium/policies/managed/palmux.json: BrowserSignin=0 / SyncDisabled /
+// PromotionalTabsEnabled=false) the "Sign in to Chrome" promo never appears.
+// (Sfd04db: ungoogled-chromium is already sign-in-free, but flags+policy make it
+// deterministic across the swapped browser.)
+// [AC-S62374c-1-1] [AC-S62374c-1-3] [AC-Sfd04db-1-2]
 func (m *Manager) launchChromium(ctx context.Context, containerIP, profileDir string) (string, error) {
 	// containerIP is unused here (CDP is reached via relay on bridge IP); kept in
 	// signature for symmetry with other launchers and logging.
@@ -594,6 +602,8 @@ func (m *Manager) launchChromium(ctx context.Context, containerIP, profileDir st
 			" XMODIFIERS=@im=fcitx"+
 			" nohup %s"+
 			" --no-sandbox"+
+			" --no-first-run"+
+			" --no-default-browser-check"+
 			" --remote-debugging-port=%d"+
 			" --remote-allow-origins=*"+
 			" --user-data-dir=%s"+
