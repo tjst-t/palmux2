@@ -244,6 +244,10 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 		// early return). Hot-plug it idempotently so in-container claude's
 		// `palmux hook` works without requiring a full container regenerate.
 		r.ensureHookBinMount(ctx)
+		// Keep the home-area bind-mount parent dirs writable by the workspace
+		// user on already-running containers too (browser/XDG fix — see
+		// ensureHomeXDGOwnership). Idempotent.
+		r.ensureHomeXDGOwnership(ctx)
 		// If the cached container IP is empty (captured before the container
 		// finished networking — e.g. a DHCP race right after a regenerate), the
 		// browser tab's VNC/CDP can't reach it. Re-resolve it here so a consumer
@@ -492,6 +496,10 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 		return err
 	}
 
+	// 5b. Make the home-area bind-mount PARENT dirs writable by the workspace
+	// user. incus auto-creates them as container-root (see ensureHomeXDGOwnership).
+	r.ensureHomeXDGOwnership(ctx)
+
 	// 6. Resolve the container's bridge IP.
 	addr, err := r.containerIP(ctx)
 	if err != nil {
@@ -612,6 +620,34 @@ func (r *incusRuntime) ensureHookBinMount(ctx context.Context) {
 	)
 	if runErr != nil || (code != 0 && !strings.Contains(stderr, "already exists")) {
 		r.log.Debug("incus: ensureHookBinMount (non-fatal)", "inst", r.inst, "code", code, "stderr", strings.TrimSpace(stderr))
+	}
+}
+
+// ensureHomeXDGOwnership makes the home-area bind-mount PARENT directories
+// writable by the workspace user (uid 1000). The nested bind-mounts
+// (~/.config/gh, ~/.local/bin, ~/.local/share/claude, the browser profile
+// ~/.local/share/palmux-browser/<inst>) cause incus to AUTO-CREATE their parent
+// dirs (~/.config, ~/.local, ~/.local/share, ~/.local/share/palmux-browser) in
+// the container rootfs as container-root (uid 0) — even though `raw.idmap both
+// 1000 1000` + the subuid/subgid `root:1000:1` line are all correct. uid 1000
+// then cannot create XDG dirs there, so chromium's wrapper dies on launch
+// ("mkdir ~/.local/share/applications: Permission denied") and the Browser tab
+// shows a black noVNC screen; any other XDG-writing app is affected too.
+//
+// We chown ONLY the parent dirs themselves, NON-recursively — their children are
+// the bind-mounts, and a recursive chown would alter the HOST files through the
+// idmap. The exec runs as container-root (no --user), which is required for
+// chown. Idempotent + best-effort: failures are logged, never fatal. Runs on
+// both fresh Start and the already-ready early-return path so existing
+// containers are fixed on the next workspace open / palmux restart.
+func (r *incusRuntime) ensureHomeXDGOwnership(ctx context.Context) {
+	const dirs = wsHome + "/.config " + wsHome + "/.local " + wsHome + "/.local/share " + wsHome + "/.local/share/palmux-browser"
+	// mkdir -p first so a parent that a skipped mount never created still ends up
+	// owned by the user; chown is non-recursive (no -R) on purpose.
+	script := fmt.Sprintf("mkdir -p %s && chown %s:%s %s", dirs, wsUID, wsGID, dirs)
+	if _, stderr, code, err := r.run(ctx, "exec", r.inst, "--", "sh", "-c", script); err != nil || code != 0 {
+		r.log.Warn("incus: ensureHomeXDGOwnership (browser/XDG writes may fail)",
+			"inst", r.inst, "code", code, "stderr", strings.TrimSpace(stderr), "err", err)
 	}
 }
 
