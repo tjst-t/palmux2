@@ -2,10 +2,15 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 60,
+    "sprints_done": 59,
     "sprints_total": 61,
-    "percent": 98,
-    "current_sprint": "Sfef725"
+    "percent": 96,
+    "current_sprint": "Sfd04db",
+    "done": 59,
+    "total": 61,
+    "remaining": 2,
+    "in_progress": 0,
+    "percentage": 96
   },
   "execution_order": [
     "S001",
@@ -10099,7 +10104,7 @@
     },
     "Sfd04db": {
       "title": "Browser を ungoogled-chromium に差し替え（ライセンス解消 + サインイン促進除去）",
-      "status": "done",
+      "status": "needs_user_review",
       "milestone": false,
       "context_note": "現状 palmux-ws image は build.sh:180-197 で Google apt から google-chrome-stable .deb を入れ chromium に symlink= 実体は Google Chrome(プロプライエタリ、ToS で再配布制限)。公開 GitHub Release アセットに同梱=再配布で ToS 抵触リスク。+ 毎回「Sign in to Chrome」促進が出る (launchChromium に --no-first-run/sign-in 抑止が無い、image に policy 無し)。ユーザ選定: ungoogled-chromium (Google 連携剥がれ→促進なし+テレメトリ無し+再配布明確)。",
       "stories": {
