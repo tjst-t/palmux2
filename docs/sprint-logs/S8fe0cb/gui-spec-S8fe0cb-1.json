@@ -1,0 +1,46 @@
+{
+  "story_id": "S8fe0cb-1",
+  "story_type": "gui",
+  "title": "IME 無効 input 経由で Browser タブのキー入力をリモート転送",
+  "entry_point": "Browser タブ (/<repoId>/<branchId>/browser) の running 状態 noVNC viewport",
+  "components": [
+    "browser-view (LiveViewport)",
+    "hidden keyboard-capture input (browser-keycapture)",
+    "noVNC RFB canvas (browser-viewport)"
+  ],
+  "state_diagram": "running viewport mounted -> hidden input auto-focused -> keydown/keyup on input -> getKeysym/getKeycode -> rfb.sendKey(keysym, code, down) -> remote receives raw key. blur/unmount -> releaseAll (no stuck keys). leave tab -> input removed (no capture).",
+  "scenarios": [
+    {
+      "ac": "AC-S8fe0cb-1-1",
+      "steps": [
+        "Open the Browser tab in running state; the noVNC viewport + a hidden IME-disabled input mount.",
+        "Hidden input is auto-focused (keyboard capture active).",
+        "Dispatch keydown for an ASCII letter/digit/symbol/Enter/Backspace/Space (KeyA, Digit1, Enter, Backspace, Space) — including a keyCode:229 / isComposing:true variant that still carries a real e.code (simulating local OS IME ON).",
+        "Observe: rfb.sendKey is invoked with the correct keysym + code + down=true (captured via the __palmuxVncKeyTap test seam). The hidden input value stays empty (preventDefault)."
+      ]
+    },
+    {
+      "ac": "AC-S8fe0cb-1-2",
+      "steps": [
+        "Dispatch modifier keys (ControlLeft, ShiftLeft, AltLeft, MetaLeft) and special keys (ArrowUp, Escape, Tab, Delete, F1) — assert sendKey forwards each with correct keysym/code.",
+        "Hold a key (repeated keydown without keyup) — assert the same keysym is re-sent (no keysym drift).",
+        "Blur the input while a key is held — assert a keyup (down=false) is forwarded for the held key (no stuck key).",
+        "Mouse-down on the canvas — assert the hidden input regains focus (keys keep flowing) while the canvas still receives the pointer."
+      ]
+    },
+    {
+      "ac": "AC-S8fe0cb-1-3",
+      "steps": [
+        "Navigate away from the Browser tab (to /bash) — assert the keyboard-capture input is removed from the DOM (no capture, no interference).",
+        "Navigate back to /browser — assert the capture input is present and focused again."
+      ]
+    },
+    {
+      "ac": "AC-S8fe0cb-1-4",
+      "steps": [
+        "Assert the hidden input has type=password, autocomplete=off, aria-hidden=true, tabIndex=-1, an obscured name/id, and per-manager ignore attributes (data-1p-ignore, data-lpignore, data-form-type=other), and is off-screen (clip).",
+        "[MANUAL-SMOKE / real incus + real OS IME] turn ON a real OS Japanese IME and type into the live noVNC canvas: ASCII passes through AND Ctrl+Space -> remote fcitx5 -> nihongo converts to 日本語 in a remote textarea. Requires a human with a real OS IME (cannot be simulated headless)."
+      ]
+    }
+  ]
+}
