@@ -267,7 +267,12 @@ incus exec "${BUILD_INST}" </dev/null \
 # Google sign-in / sync promo, independent of per-launch flags (Sfd04db AC-2).
 # ungoogled-chromium / Debian-style chromium reads managed policy from
 # /etc/chromium/policies/managed/*.json (NOT google-chrome's /etc/opt/chrome/...).
-log "   Baking Chromium managed policy (no sign-in / no sync / no promo tabs) ..."
+log "   Baking Chromium managed policy (no sign-in / no sync / no promo tabs + DuckDuckGo omnibox search) ..."
+# DefaultSearchProvider: ungoogled-chromium ships with NO search engine, so an
+# address-bar keyword does nothing (privacy-by-default — it never sends omnibox
+# input to a provider). We restore convenient omnibox search by setting a
+# DuckDuckGo default (no tracking, fits ungoogled's ethos). Users can still add /
+# switch engines in Settings.
 incus exec "${BUILD_INST}" </dev/null -- sh -c '
   set -e
   install -d -m 0755 /etc/chromium/policies/managed
@@ -275,7 +280,12 @@ incus exec "${BUILD_INST}" </dev/null -- sh -c '
 {
   "BrowserSignin": 0,
   "SyncDisabled": true,
-  "PromotionalTabsEnabled": false
+  "PromotionalTabsEnabled": false,
+  "DefaultSearchProviderEnabled": true,
+  "DefaultSearchProviderName": "DuckDuckGo",
+  "DefaultSearchProviderKeyword": "ddg",
+  "DefaultSearchProviderSearchURL": "https://duckduckgo.com/?q={searchTerms}",
+  "DefaultSearchProviderSuggestURL": "https://ac.duckduckgo.com/ac/?q={searchTerms}&type=list"
 }
 JSON
   chmod 0644 /etc/chromium/policies/managed/palmux.json
