@@ -3,14 +3,14 @@
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
     "sprints_done": 59,
-    "sprints_total": 60,
-    "percent": 98,
+    "sprints_total": 61,
+    "percent": 96,
     "current_sprint": "S6ab0ed",
     "done": 59,
     "in_progress": 0,
-    "total": 60,
-    "remaining": 1,
-    "percentage": 98
+    "total": 61,
+    "remaining": 2,
+    "percentage": 96
   },
   "execution_order": [
     "S001",
@@ -72,7 +72,8 @@
     "Sa53137",
     "S4c591a",
     "S6ab0ed",
-    "Sfef725"
+    "Sfef725",
+    "Sfd04db"
   ],
   "sprints": {
     "S001": {
@@ -10100,6 +10101,68 @@
           }
         }
       }
+    },
+    "Sfd04db": {
+      "title": "Browser を ungoogled-chromium に差し替え（ライセンス解消 + サインイン促進除去）",
+      "status": "planned",
+      "milestone": false,
+      "context_note": "現状 palmux-ws image は build.sh:180-197 で Google apt から google-chrome-stable .deb を入れ chromium に symlink= 実体は Google Chrome(プロプライエタリ、ToS で再配布制限)。公開 GitHub Release アセットに同梱=再配布で ToS 抵触リスク。+ 毎回「Sign in to Chrome」促進が出る (launchChromium に --no-first-run/sign-in 抑止が無い、image に policy 無し)。ユーザ選定: ungoogled-chromium (Google 連携剥がれ→促進なし+テレメトリ無し+再配布明確)。",
+      "stories": {
+        "Sfd04db-1": {
+          "title": "palmux-ws image の Chromium を ungoogled-chromium に差し替え + サインイン抑止",
+          "status": "planned",
+          "user_story": "配布者として、palmux-ws image にバンドルするブラウザを Google Chrome(プロプライエタリ・再配布制限あり)から再配布可能なオープンソース ungoogled-chromium に差し替えたい。なぜなら、公開 image アセットに Chrome を同梱するのは Google ToS 抵触リスクがあり、かつ Google サインイン促進が毎回出て煩わしいから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sfd04db-1-1",
+              "description": "palmux-ws image (images/workspace-default/build.sh) が google-chrome-stable .deb の導入をやめ、再配布可能な ungoogled-chromium を入れる (信頼できる .deb 入手元 = ungoogled-chromium-binaries 等を固定 + 検証)。ビルド済み image の公開配布がライセンス/ToS 上問題ない構成になる。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sfd04db-1-2",
+              "description": "launchChromium (internal/tab/browser/browser.go) に --no-first-run --no-default-browser-check を追加し、image に Chromium managed policy (policies/managed に BrowserSignin=0 / SyncDisabled=true / PromotionalTabsEnabled=false) を焼く。起動直後にサインイン/同期促進画面が出ず、最初からブラウザ操作画面が表示される (ungoogled は元々サインイン無しだが flags+policy で確実化)。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sfd04db-1-3",
+              "description": "差し替えた ungoogled-chromium で従来機能が同等に動く (実機 incus 検証): noVNC 描画、fcitx5 GTK IM 日本語入力 (Ctrl+Space→『nihongo』変換→textarea 入力)、CDP (remote-debugging-port=9222 + relay、palmux-browser CLI / Claude 自動化)、`chromium` バイナリ名/symlink 解決、起動順 (Xvfb→dbus→fcitx5→chromium→x11vnc→CDP relay)。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sfd04db-1-4",
+              "description": "image 再ビルド (build.sh) + バージョン baked + リリース asset 配布が従来手順で通り、新 image から作成した incus-container で Browser タブが起動・操作できる。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "Sfd04db-1-1": {
+              "id": "Sfd04db-1-1",
+              "status": "pending",
+              "title": "build.sh: google-chrome-stable 導入を ungoogled-chromium .deb に差し替え (入手元固定 + 署名/ハッシュ検証)、chromium symlink/バイナリ名維持"
+            },
+            "Sfd04db-1-2": {
+              "id": "Sfd04db-1-2",
+              "status": "pending",
+              "title": "build.sh: Chromium managed policy (BrowserSignin=0/SyncDisabled=true/PromotionalTabsEnabled=false) を image に焼く"
+            },
+            "Sfd04db-1-3": {
+              "id": "Sfd04db-1-3",
+              "status": "pending",
+              "title": "browser.go: launchChromium に --no-first-run --no-default-browser-check 追加"
+            },
+            "Sfd04db-1-4": {
+              "id": "Sfd04db-1-4",
+              "status": "pending",
+              "title": "実機 incus 検証: noVNC 描画 / fcitx5 日本語入力 / CDP / 起動順 / サインイン画面が出ないこと (S62374c の noVNC 検証手順を踏襲)"
+            },
+            "Sfd04db-1-5": {
+              "id": "Sfd04db-1-5",
+              "status": "pending",
+              "title": "ライセンス確認メモ: ungoogled-chromium のライセンス(BSD系)と入手元の再配布可否を docs に記録"
+            }
+          }
+        }
+      }
     }
   },
   "dependencies": {
@@ -10354,6 +10417,10 @@
         "S6ab0ed"
       ],
       "reason": "特権 verb は Sa53137 reconcile-system の verb 限定 sudoers パターン、復旧後の再接続は S6ab0ed の自己再起動→再接続ハンドシェイクを再利用"
+    },
+    "Sfd04db": {
+      "depends_on": [],
+      "reason": "独立した image 変更。既存 Browser タブ(S62374c)の noVNC/IME/CDP スタックを ungoogled-chromium に載せ替えるだけで他 Sprint と排他しない"
     }
   },
   "backlog": [
