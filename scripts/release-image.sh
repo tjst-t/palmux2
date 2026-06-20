@@ -125,11 +125,15 @@ if [ "$FORCE_RESTAMP" -ne 1 ] && [ -n "$PREV_TAG" ]; then
   if ! git rev-parse -q --verify "$PREV_TAG^{commit}" >/dev/null 2>&1; then
     die "cannot resolve $PREV_TAG in git history (fetch tags, or pass --force-restamp)"
   fi
-  if git diff --quiet "$PREV_TAG"..HEAD -- "$IMAGES_DIR"; then
-    log "$IMAGES_DIR unchanged since $PREV_TAG → re-stamp (no rebuild needed)"
+  # Markdown docs under images/ are not build inputs — a README-only change must
+  # not force a rebuild. Everything else under $IMAGES_DIR (build.sh + baked
+  # sidecars) is treated as image content.
+  DIFF_PATHSPEC=("$IMAGES_DIR" ":(exclude)$IMAGES_DIR/**/*.md")
+  if git diff --quiet "$PREV_TAG"..HEAD -- "${DIFF_PATHSPEC[@]}"; then
+    log "$IMAGES_DIR unchanged since $PREV_TAG (docs ignored) → re-stamp (no rebuild needed)"
   else
     log "$IMAGES_DIR CHANGED since $PREV_TAG:"
-    git diff --name-only "$PREV_TAG"..HEAD -- "$IMAGES_DIR" | sed 's/^/  /' >&2
+    git diff --name-only "$PREV_TAG"..HEAD -- "${DIFF_PATHSPEC[@]}" | sed 's/^/  /' >&2
     gherr "$IMAGES_DIR changed since $PREV_TAG — the palmux-ws image must be REBUILT on a VM (images/workspace-default/build.sh) and uploaded for $NEW_TAG; release-image.sh re-stamps only, it does not rebuild"
     exit 3
   fi
