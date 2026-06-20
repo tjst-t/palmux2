@@ -2,7 +2,11 @@ package selfupdate
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 // [AC-S6ab0ed-1-1] The embedded manifest parses and carries the two CORE
@@ -62,28 +66,81 @@ func TestUpdateAvailable(t *testing.T) {
 	}
 }
 
-// [AC-S6ab0ed-1-4] When GitHub is unreachable for every component, Detect
-// degrades gracefully: it still returns a snapshot with installed versions,
-// marks Degraded, and reports no available updates (no badge flap).
-func TestDetectGracefulDegrade(t *testing.T) {
+// withLatestTagFn swaps the injectable tag resolver for the test's duration.
+func withLatestTagFn(t *testing.T, fn func(context.Context, string) (string, error)) {
+	t.Helper()
+	orig := latestTagFn
+	t.Cleanup(func() { latestTagFn = orig })
+	latestTagFn = fn
+}
+
+// [AC-S6ab0ed-1-4][AC-Sa8e7d0-2-2] A repo with NO published releases (GitHub
+// 404 → NoReleasesError) is un-fetchable but must NOT mark the cycle Degraded —
+// a stable "no releases" fact is not a transient outage, so the
+// rate-limit/unreachable banner must not show forever. (Deterministic: the tag
+// resolver is injected so the test is independent of live GitHub.)
+func TestDetectNoReleasesIsUnfetchableNotDegraded(t *testing.T) {
+	withLatestTagFn(t, func(_ context.Context, repo string) (string, error) {
+		return "", &NoReleasesError{Repo: repo}
+	})
 	m := Manifest{Components: []Component{
-		// Point at a repo that resolves to a failing host so LatestTag errors
-		// fast without network flake (invalid host → DNS error).
-		{Name: "palmux", Kind: KindCoreBinary, Display: "palmux", GithubRepo: "invalid-owner-zzz/does-not-exist-zzz"},
+		{Name: "gwq", Kind: KindTool, Display: "gwq", GithubRepo: "tjst-t/gwq"},
 	}}
-	probes := InstalledProbes{BinVersion: func() string { return "v0.10.0" }}
+	probes := InstalledProbes{}
 	snap := Detect(context.Background(), m, probes, false)
 	if len(snap.Components) != 1 {
 		t.Fatalf("want 1 component, got %d", len(snap.Components))
 	}
-	if snap.Components[0].Installed != "v0.10.0" {
-		t.Errorf("installed not probed: %q", snap.Components[0].Installed)
-	}
-	if !snap.Degraded {
-		t.Errorf("expected Degraded=true on GitHub failure")
+	if snap.Components[0].Fetchable {
+		t.Errorf("expected Fetchable=false when latest unresolved")
 	}
 	if snap.Available {
 		t.Errorf("expected Available=false when latest unresolved")
+	}
+	// The key Sa8e7d0-2-2 assertion: a no-releases 404 must NOT degrade the cycle.
+	if snap.Degraded {
+		t.Errorf("a no-releases (404) source must NOT mark the cycle Degraded")
+	}
+}
+
+// [AC-S6ab0ed-1-4] A TRANSIENT failure (rate-limit / network, NOT a 404) DOES
+// mark the cycle Degraded so the banner explains the outage. (Deterministic.)
+func TestDetectTransientFailureDegrades(t *testing.T) {
+	withLatestTagFn(t, func(_ context.Context, _ string) (string, error) {
+		return "", &RateLimitError{Status: 403}
+	})
+	m := Manifest{Components: []Component{
+		{Name: "palmux", Kind: KindCoreBinary, Display: "palmux", GithubRepo: "tjst-t/palmux2"},
+	}}
+	snap := Detect(context.Background(), m, InstalledProbes{BinVersion: func() string { return "v0.10.0" }}, false)
+	if snap.Components[0].Fetchable {
+		t.Errorf("expected Fetchable=false on transient failure")
+	}
+	if !snap.Degraded {
+		t.Errorf("expected Degraded=true on a transient GitHub failure")
+	}
+}
+
+// [AC-Sa8e7d0-2-2] A source whose latest cannot be resolved (no releases /
+// unreachable) is NEVER counted as "update available" — even when an installed
+// version is present — and is surfaced as un-fetchable, not as up-to-date.
+func TestUnfetchableSourceDoesNotLightBadge(t *testing.T) {
+	withLatestTagFn(t, func(_ context.Context, repo string) (string, error) {
+		return "", &NoReleasesError{Repo: repo} // deterministic "no releases"
+	})
+	m := Manifest{Components: []Component{
+		{Name: "gwq", Kind: KindTool, Display: "gwq", GithubRepo: "tjst-t/gwq", Bin: "definitely-not-a-real-bin-zzz"},
+	}}
+	snap := Detect(context.Background(), m, InstalledProbes{}, false)
+	gwq := snap.Components[0]
+	if gwq.Fetchable {
+		t.Errorf("gwq latest unresolved → Fetchable must be false, got true")
+	}
+	if gwq.Available {
+		t.Errorf("un-fetchable component must not be Available")
+	}
+	if snap.Available {
+		t.Errorf("snapshot must not report an available update when the only component is un-fetchable")
 	}
 }
 
@@ -124,6 +181,119 @@ func TestRunUpdateInFlightGuard(t *testing.T) {
 	// never claim "in flight" on a box that can't update at all). Assert that.
 	if err := s.RunUpdate(context.Background()); err != ErrNotNixManaged {
 		t.Fatalf("expected ErrNotNixManaged on non-managed box, got %v", err)
+	}
+}
+
+// [AC-Sa8e7d0-1-1][AC-Sa8e7d0-1-3] When the dedicated palmux-update unit is
+// present, RunUpdateForeground (the CLI path) drives it via `systemctl --user
+// start --wait palmux-update.service` — i.e. an INDEPENDENT systemd unit, not an
+// in-process `bash ~/update-palmux2.sh` child. A failing unit propagates as a
+// non-zero error. We stub systemctl with a recording script.
+func TestRunUpdateForegroundUsesIndependentUnit(t *testing.T) {
+	home := t.TempDir()
+	// nixManaged() requires an executable ~/update-palmux2.sh.
+	helper := filepath.Join(home, "update-palmux2.sh")
+	if err := os.WriteFile(helper, []byte("#!/usr/bin/env bash\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+
+	// Recording systemctl stub: append its args to a log and succeed.
+	argLog := filepath.Join(home, "systemctl-args.log")
+	stub := filepath.Join(home, "systemctl-stub")
+	script := "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> '" + argLog + "'\nexit 0\n"
+	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	origBin, origAvail := systemctlUserBin, updateUnitAvailable
+	t.Cleanup(func() { systemctlUserBin, updateUnitAvailable = origBin, origAvail })
+	systemctlUserBin = stub
+	updateUnitAvailable = func() bool { return true } // unit present
+
+	s := NewService(Manifest{Components: []Component{{Name: "palmux", Kind: KindCoreBinary}}},
+		InstalledProbes{}, nil, nil)
+	if err := s.RunUpdateForeground(context.Background(), os.Stdout, os.Stderr); err != nil {
+		t.Fatalf("RunUpdateForeground (unit present, stub ok): %v", err)
+	}
+	logged, _ := os.ReadFile(argLog)
+	got := string(logged)
+	if !strings.Contains(got, "--user start --wait "+updateUnitName) {
+		t.Errorf("CLI did not drive the independent unit via systemctl; args:\n%s", got)
+	}
+}
+
+// [AC-Sa8e7d0-1-2] A failing update unit must surface as a non-zero error from
+// the CLI path (no false success), so a half-done update is reported.
+func TestRunUpdateForegroundUnitFailurePropagates(t *testing.T) {
+	home := t.TempDir()
+	helper := filepath.Join(home, "update-palmux2.sh")
+	if err := os.WriteFile(helper, []byte("#!/usr/bin/env bash\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+
+	// Stub systemctl that fails on `start --wait` (simulating a failed oneshot)
+	// but succeeds on reset-failed.
+	stub := filepath.Join(home, "systemctl-stub")
+	script := "#!/usr/bin/env bash\ncase \"$*\" in\n  *'start --wait'*) exit 1 ;;\n  *) exit 0 ;;\nesac\n"
+	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	origBin, origAvail := systemctlUserBin, updateUnitAvailable
+	t.Cleanup(func() { systemctlUserBin, updateUnitAvailable = origBin, origAvail })
+	systemctlUserBin = stub
+	updateUnitAvailable = func() bool { return true }
+
+	s := NewService(Manifest{Components: []Component{{Name: "palmux", Kind: KindCoreBinary}}},
+		InstalledProbes{}, nil, nil)
+	err := s.RunUpdateForeground(context.Background(), os.Stdout, os.Stderr)
+	if err == nil {
+		t.Fatalf("expected non-nil error when the update unit fails")
+	}
+	if !strings.Contains(err.Error(), updateUnitName) {
+		t.Errorf("error should name the failed unit, got: %v", err)
+	}
+}
+
+// [AC-Sa8e7d0-1-2] watchUpdateUnit clears the in-flight guard when the unit ends
+// (failed or inactive) without restarting palmux2, using a BACKGROUND context —
+// NOT the request ctx (which would die immediately and wedge the guard). Here we
+// stub systemctl `show -p ActiveState` to report "failed" and assert the guard
+// clears promptly.
+func TestWatchUpdateUnitClearsGuardOnFailure(t *testing.T) {
+	home := t.TempDir()
+	// Stub systemctl: `show ... ActiveState ...` prints "failed".
+	stub := filepath.Join(home, "systemctl-stub")
+	script := "#!/usr/bin/env bash\ncase \"$*\" in\n  *ActiveState*) echo failed ;;\n  *) exit 0 ;;\nesac\n"
+	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orig := systemctlUserBin
+	t.Cleanup(func() { systemctlUserBin = orig })
+	systemctlUserBin = stub
+
+	s := NewService(Manifest{Components: []Component{{Name: "palmux", Kind: KindCoreBinary}}},
+		InstalledProbes{}, nil, nil)
+	s.running = true
+	cleared := make(chan struct{})
+	// Use Background ctx (the real call does too) — a request ctx would cancel.
+	go s.watchUpdateUnit(context.Background(), func() {
+		s.mu.Lock()
+		s.running = false
+		s.mu.Unlock()
+		close(cleared)
+	})
+	select {
+	case <-cleared:
+		// good — guard cleared without the 10-minute backstop
+	case <-time.After(8 * time.Second):
+		t.Fatalf("watchUpdateUnit did not clear the in-flight guard on a failed unit")
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.running {
+		t.Errorf("running should be false after clear")
 	}
 }
 

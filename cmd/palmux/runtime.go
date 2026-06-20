@@ -37,6 +37,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/tjst-t/palmux2/internal/selfupdate"
 )
 
 // runRuntime dispatches `palmux runtime <subcommand>`.
@@ -74,6 +76,7 @@ func runRuntimeInstall(args []string) int {
 		imageFile  string
 		dryRun     bool
 		includePre bool
+		requireVer string // Sa8e7d0-2-1: assert installed image version == this tag after import
 	)
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -85,6 +88,11 @@ func runRuntimeInstall(args []string) int {
 		case "--image-file":
 			if i+1 < len(args) {
 				imageFile = args[i+1]
+				i++
+			}
+		case "--require-version":
+			if i+1 < len(args) {
+				requireVer = args[i+1]
 				i++
 			}
 		case "--dry-run":
@@ -141,13 +149,20 @@ func runRuntimeInstall(args []string) int {
 
 	default:
 		// Default: latest GitHub Release asset.
-		assetURL, assetName, err := latestReleaseAssetURL(includePre)
+		assetURL, assetName, assetTag, err := latestReleaseAssetURLTag(includePre)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ERROR: could not resolve latest release asset: %v\n"+
 				"Tip: pass --pre to include pre-releases (RCs), set GITHUB_TOKEN to avoid rate limits, or use --image-url / --image-file\n", err)
 			return 1
 		}
 		fmt.Printf("Latest release asset: %s\n", assetName)
+		// Sa8e7d0-2-1: when the caller did not pin --require-version, the resolved
+		// release tag IS the expected installed version; use it as the completion
+		// guard target so a half-done update (image did not reach latest) fails
+		// explicitly instead of silently leaving the badge lit.
+		if requireVer == "" {
+			requireVer = assetTag
+		}
 		if dryRun {
 			fmt.Printf("[dry-run] would download: %s\n", assetURL)
 			tarballPath = "/tmp/palmux-ws.tar.gz (not downloaded)"
@@ -158,6 +173,25 @@ func runRuntimeInstall(args []string) int {
 				return 1
 			}
 			tempFile = tarballPath
+		}
+	}
+
+	// Sa8e7d0-2-1: completion-guard floor for the --image-url UPDATE path. A
+	// custom URL has no GitHub tag of its own, so without a floor the guard would
+	// be skipped and a stale tarball could pass as a successful update
+	// (re-introducing the badge-stays-lit loop). Best-effort resolve the latest
+	// STABLE release tag as the floor; the "not-older" guard then catches an image
+	// behind the latest release while a current/ahead build passes.
+	//
+	// SCOPE: only when this is an actual UPDATE (PALMUX_REQUIRE_IMAGE=1, set by
+	// ~/update-palmux2.sh) AND NOT a --image-file install. A plain
+	// `palmux runtime install --image-file ./local.tar.gz` is the explicitly
+	// OFFLINE path; injecting a GitHub round-trip (up to 20s on a blocked host)
+	// there would punish the very users who chose a local tarball to avoid the
+	// network. Local-file updates fall back to the non-empty version check.
+	if requireVer == "" && imageURL != "" && os.Getenv("PALMUX_REQUIRE_IMAGE") == "1" {
+		if _, _, tag, err := latestReleaseAssetURLTag(false); err == nil {
+			requireVer = tag
 		}
 	}
 
@@ -210,8 +244,7 @@ func runRuntimeInstall(args []string) int {
 				al.Stdin = nil
 				if al.Run() == nil {
 					fmt.Println("  (image already in store — aliased existing fingerprint to palmux-ws)")
-					printSuccessSummary(false)
-					return 0
+					return finishInstall(requireVer)
 				}
 				fmt.Fprintf(os.Stderr, "ERROR: image exists but could not alias it; run: incus image alias create palmux-ws %s\n", fp)
 				return 1
@@ -221,8 +254,127 @@ func runRuntimeInstall(args []string) int {
 		return 1
 	}
 
+	return finishInstall(requireVer)
+}
+
+// finishInstall runs the post-import completion steps (Sa8e7d0-2):
+//   - Re-stamp the incus image `version` property from the image's baked
+//     /etc/palmux-ws-version, so installedImageVersion() is reliable even on the
+//     re-alias-existing-fingerprint path where the property may not have been set
+//     (Sa8e7d0-2-3 — stable image-version detection).
+//   - If requireVer is non-empty AND parses as a version, VERIFY the installed
+//     image is NOT STILL OLDER than it. A still-older installed version means the
+//     image did NOT advance (half-done update — the 2026-06-20 incident: binary
+//     went to v0.11.3 but the image stayed v0.11.1); fail loudly so the GUI/CLI
+//     sees an explicit error and the old state is kept (Sa8e7d0-2-1).
+//
+// The guard is deliberately a "not-older" check, NOT an exact-tag match: the
+// release pipeline uploads the same tarball to BOTH the version release and a
+// `workspace-image` pre-release, and build.sh bakes `git describe`
+// (e.g. v0.11.3-3-gabc) when IMAGE_VERSION is not pinned. An exact match against
+// the GitHub tag (which may be the literal "workspace-image", or a clean
+// "v0.11.3" that the baked git-describe never equals) would reject a perfectly
+// good install and re-create the very failure loop this Sprint fixes. We only
+// fail when we can prove the image is strictly behind the expected version.
+//
+// Returns an exit code.
+func finishInstall(requireVer string) int {
+	ensureImageVersionProperty()
+	installed := installedImageVersion()
+
+	if strings.TrimSpace(installed) == "" {
+		// Detection gap (no version property AND baked-file probe failed). Do NOT
+		// hard-fail a real install on a detection gap — that would itself wedge the
+		// badge. Warn so it's visible; UpdateAvailable() is conservative on an
+		// empty installed version (never lights the badge), so an unknown version
+		// does not perpetually nag (Sa8e7d0-2-3).
+		fmt.Fprintln(os.Stderr,
+			"WARNING: could not read the installed palmux-ws image version (no incus 'version' "+
+				"property and /etc/palmux-ws-version unreadable). The image was imported, but "+
+				"the completion guard could not verify the version.")
+		printSuccessSummary(false)
+		return 0
+	}
+
+	if imageIsStrictlyOlder(installed, requireVer) {
+		fmt.Fprintf(os.Stderr,
+			"ERROR: image install incomplete — installed palmux-ws version %q is OLDER than expected %q.\n"+
+				"The image did NOT advance; the update is treated as FAILED and the 'update available' badge will remain.\n"+
+				"Re-run `palmux runtime install` (set GITHUB_TOKEN to avoid rate limits) to retry.\n",
+			installed, requireVer)
+		return 1
+	}
+	if strings.TrimSpace(requireVer) != "" {
+		fmt.Printf("\nVerified palmux-ws version: %s (>= expected %s)\n", installed, requireVer)
+	} else {
+		fmt.Printf("\nInstalled palmux-ws version: %s\n", installed)
+	}
 	printSuccessSummary(false)
 	return 0
+}
+
+// imageIsStrictlyOlder reports whether the installed image version is provably
+// OLDER than expected — i.e. an update available FROM installed TO expected
+// still exists after the install ran, which means the image did not advance.
+// Reuses selfupdate.UpdateAvailable so the comparison semantics (leading-v,
+// dev/dirty conservatism, unparseable→false) match the detection path exactly.
+// Returns false when either side is empty/unparseable or expected is not a
+// version (e.g. the "workspace-image" tag) — we only fail on a PROVABLE regression.
+func imageIsStrictlyOlder(installed, expected string) bool {
+	if strings.TrimSpace(installed) == "" || strings.TrimSpace(expected) == "" {
+		return false
+	}
+	return selfupdate.UpdateAvailable(installed, expected)
+}
+
+// ensureImageVersionProperty re-stamps the palmux-ws image's incus `version`
+// property from the image's baked /etc/palmux-ws-version when the property is
+// missing/empty (Sa8e7d0-2-3). The property normally travels in the exported
+// tarball metadata, but the re-alias-existing-fingerprint path and some
+// import/export round-trips can leave it unset, which would make
+// installedImageVersion() return "" and break the completion guard. Reading the
+// baked file is the authoritative fallback the build always writes. Best-effort:
+// any failure here is non-fatal (the guard still runs on whatever version is
+// readable).
+func ensureImageVersionProperty() {
+	if installedImageVersion() != "" {
+		return // already set — nothing to do
+	}
+	baked := bakedImageVersionFromStore()
+	if baked == "" {
+		return
+	}
+	c := exec.Command("incus", "image", "set-property", "palmux-ws", "version", baked) //nolint:gosec
+	c.Stdin = nil
+	if err := c.Run(); err == nil {
+		fmt.Printf("  (re-stamped image version property from baked /etc/palmux-ws-version: %s)\n", baked)
+	}
+}
+
+// bakedImageVersionFromStore reads /etc/palmux-ws-version from the palmux-ws
+// image filesystem via a throwaway, non-started instance file pull. This avoids
+// booting a container: `incus file pull` works against a stopped instance, so we
+// create one ephemeral instance from the image, pull the file, and delete it.
+// Returns "" if anything fails (best-effort fallback only).
+func bakedImageVersionFromStore() string {
+	const probe = "palmux-ws-verprobe"
+	_ = exec.Command("incus", "delete", "--force", probe).Run() //nolint:gosec,errcheck // clean any stale probe
+	// Create (do not start) an instance from the image.
+	create := exec.Command("incus", "create", "palmux-ws", probe) //nolint:gosec
+	create.Stdin = nil
+	if err := create.Run(); err != nil {
+		return ""
+	}
+	defer func() {
+		_ = exec.Command("incus", "delete", "--force", probe).Run() //nolint:gosec,errcheck
+	}()
+	pull := exec.Command("incus", "file", "pull", probe+"/etc/palmux-ws-version", "-") //nolint:gosec
+	pull.Stdin = nil
+	out, err := pull.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // sha256File returns the hex SHA-256 of a file (= the incus fingerprint of a
@@ -439,11 +591,13 @@ type ghRelease struct {
 	Assets     []ghAsset `json:"assets"`
 }
 
-// latestReleaseAssetURL queries the GitHub Releases API and returns the download
-// URL + name of a "palmux-ws*.tar.gz" asset. When includePre is false it uses
-// /releases/latest (stable only). When true it lists releases and picks the
-// newest one (including pre-releases / RCs) that carries the asset.
-func latestReleaseAssetURL(includePre bool) (url, name string, err error) {
+// latestReleaseAssetURLTag queries the GitHub Releases API and returns the download
+// URL + name + release tag of a "palmux-ws*.tar.gz" asset. When includePre is
+// false it uses /releases/latest (stable only). When true it lists releases and
+// picks the newest one (including pre-releases / RCs) that carries the asset.
+// The returned tag (e.g. "v0.11.3") is the version the baked image carries, used
+// by the completion guard (Sa8e7d0-2-1) to assert installed == latest.
+func latestReleaseAssetURLTag(includePre bool) (url, name, tag string, err error) {
 	client := &http.Client{Timeout: 20 * time.Second}
 	endpoint := ghReleasesAPI
 	if includePre {
@@ -451,7 +605,7 @@ func latestReleaseAssetURL(includePre bool) (url, name string, err error) {
 	}
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
-		return "", "", fmt.Errorf("build request: %w", err)
+		return "", "", "", fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
@@ -460,24 +614,24 @@ func latestReleaseAssetURL(includePre bool) (url, name string, err error) {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", "", fmt.Errorf("GET %s: %w", endpoint, err)
+		return "", "", "", fmt.Errorf("GET %s: %w", endpoint, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return "", "", fmt.Errorf("GitHub API returned %d: %s", resp.StatusCode, string(body))
+		return "", "", "", fmt.Errorf("GitHub API returned %d: %s", resp.StatusCode, string(body))
 	}
 
 	// Normalise to a list of releases (newest first) regardless of endpoint.
 	var releases []ghRelease
 	if includePre {
 		if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
-			return "", "", fmt.Errorf("decode releases JSON: %w", err)
+			return "", "", "", fmt.Errorf("decode releases JSON: %w", err)
 		}
 	} else {
 		var one ghRelease
 		if err := json.NewDecoder(resp.Body).Decode(&one); err != nil {
-			return "", "", fmt.Errorf("decode release JSON: %w", err)
+			return "", "", "", fmt.Errorf("decode release JSON: %w", err)
 		}
 		releases = []ghRelease{one}
 	}
@@ -487,7 +641,7 @@ func latestReleaseAssetURL(includePre bool) (url, name string, err error) {
 		for _, a := range rel.Assets {
 			if strings.Contains(a.Name, assetPattern) && strings.HasSuffix(a.Name, ".tar.gz") {
 				if a.Name == "palmux-ws.tar.gz" {
-					return a.BrowserDownloadURL, a.Name, nil
+					return a.BrowserDownloadURL, a.Name, strings.TrimSpace(rel.TagName), nil
 				}
 				if fallbackURL == "" {
 					fallbackURL, fallbackName = a.BrowserDownloadURL, a.Name
@@ -495,14 +649,14 @@ func latestReleaseAssetURL(includePre bool) (url, name string, err error) {
 			}
 		}
 		if fallbackURL != "" {
-			return fallbackURL, fallbackName, nil
+			return fallbackURL, fallbackName, strings.TrimSpace(rel.TagName), nil
 		}
 	}
 	scope := "latest release"
 	if includePre {
 		scope = "any of the recent releases (incl. pre-releases)"
 	}
-	return "", "", fmt.Errorf("no %q asset found in %s", assetPattern, scope)
+	return "", "", "", fmt.Errorf("no %q asset found in %s", assetPattern, scope)
 }
 
 // downloadToTemp downloads url to a temp file and returns the file path.

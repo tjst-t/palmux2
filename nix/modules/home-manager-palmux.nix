@@ -94,6 +94,52 @@ in
           WantedBy = [ "default.target" ];
         };
       };
+
+      # Sa8e7d0-1: dedicated update unit, INDEPENDENT of palmux2.service.
+      #
+      # The 2026-06-20 incident: the GUI/CLI "Update" used to run
+      # ~/update-palmux2.sh as a detached child of palmux2.service. Its
+      # `home-manager switch` STOPS palmux2.service to apply the new generation;
+      # systemd's control-group kill of palmux2 took the in-flight helper down
+      # with it → the update died mid-way (binary updated, image stale, palmux2
+      # never restarted → 502 + a re-Update loop).
+      #
+      # Fix: hold the update logic in its OWN oneshot user unit. It has its own
+      # cgroup, so stopping/restarting palmux2.service during the switch does NOT
+      # kill it — it completes (home-manager switch + `palmux runtime install`
+      # image + palmux2 restart). The GUI/CLI now just `systemctl --user start
+      # palmux-update[.service]` instead of running the helper in-process.
+      #
+      # ExecStart runs the install.sh-generated ~/update-palmux2.sh (flake re-pin
+      # → home-manager switch → image install → restart). Type=oneshot so
+      # `systemctl --user start --wait` (CLI) blocks until done and propagates
+      # failure as a non-zero job result.
+      systemd.user.services.palmux-update = {
+        Unit = {
+          Description = "palmux2 self-update (independent of palmux2.service so the update is not killed when home-manager switch restarts palmux2)";
+          # Do NOT bind to palmux2.service: this unit must survive palmux2 being
+          # stopped/restarted by the very update it runs.
+        };
+
+        Service = {
+          Type = "oneshot";
+          # Run in bash so the generated helper's shebang/set -euo pipefail apply.
+          # %h is the user's home; the helper is written there by install.sh.
+          ExecStart = "${pkgs.bash}/bin/bash %h/update-palmux2.sh";
+          # Generous timeout: a first-run home-manager switch + image download can
+          # take several minutes. 0 = no timeout would risk a hung switch wedging
+          # the unit; 30m is comfortably above the worst observed switch+download.
+          TimeoutStartSec = "30min";
+          # Keep the helper's PATH consistent with palmux2.service so `palmux2
+          # runtime install`, home-manager, nix, incus all resolve.
+          Environment = [
+            "PATH=/usr/local/bin:%h/.local/bin:/run/current-system/sw/bin:%h/.nix-profile/bin:/usr/bin:/bin"
+          ];
+        };
+
+        # No Install/WantedBy: this unit is started on demand only (by the GUI/CLI
+        # Update), never auto-started at login.
+      };
     }
 
     (lib.mkIf (profileName == "full") {

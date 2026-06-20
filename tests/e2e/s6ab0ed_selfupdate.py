@@ -55,13 +55,19 @@ def main() -> int:
           comps.get("palmux", {}).get("available") is True)
     check("AC-S6ab0ed-1-2 overall available=true", snap.get("available") is True)
 
-    # ---- AC-S6ab0ed-1-4: graceful degrade (a component whose latest failed) -
-    # gwq's repo has no matching releases here → its latest is "" but the whole
-    # snapshot still returns and is flagged degraded (no crash, others intact).
-    check("AC-S6ab0ed-1-4 degraded flag set when a component's GitHub fetch fails",
-          snap.get("degraded") is True)
-    check("AC-S6ab0ed-1-4 prior components still present despite degrade",
+    # ---- AC-S6ab0ed-1-4 / AC-Sa8e7d0-2-2: graceful handling of an un-resolvable
+    # component. gwq has NO GitHub releases (404). The snapshot still returns and
+    # all other components are intact (no crash). NOTE: as of Sa8e7d0, a stable
+    # "no releases" 404 is NOT counted as a transient degrade (it must not show
+    # the rate-limit banner forever) — it is surfaced as un-fetchable instead. So
+    # we assert the snapshot is intact and gwq is un-fetchable, NOT that the whole
+    # cycle is degraded. A genuine transient failure still sets degraded (covered
+    # by the Go unit test TestDetectTransientFailureDegrades).
+    check("AC-S6ab0ed-1-4 prior components still present despite an un-resolvable source",
           len(snap.get("components", [])) >= 2)
+    gwq = next((c for c in snap.get("components", []) if c["name"] == "gwq"), {})
+    check("AC-Sa8e7d0-2-2 un-released source (gwq) surfaced as un-fetchable (no crash)",
+          gwq.get("fetchable") is False and gwq.get("available") is False)
 
     # ---- AC-S6ab0ed-2-4: nixManaged reflects ~/update-palmux2.sh presence ---
     # (On this dev box the helper is absent → nixManaged=false → manual note.)
@@ -99,8 +105,11 @@ def main() -> int:
             check("AC-S6ab0ed-1-3 update-comp-palmux row present",
                   comp_palmux.count() > 0)
             txt = comp_palmux.inner_text() if comp_palmux.count() else ""
-            check("AC-S6ab0ed-1-3 palmux row shows current→latest (v0.9.0 → v0.10.0)",
-                  "v0.9.0" in txt and "→" in txt and "v0.10" in txt)
+            # Version-agnostic: assert installed→latest arrow with the real
+            # resolved latest (the repo advances over time; do not hardcode a tag).
+            comp_latest = comps.get("palmux", {}).get("latest", "")
+            check("AC-S6ab0ed-1-3 palmux row shows current→latest (v0.9.0 → <latest>)",
+                  "v0.9.0" in txt and "→" in txt and comp_latest != "" and comp_latest in txt)
 
             # AC-S6ab0ed-2-4: this install is Nix-unmanaged → manual note, NOT
             # the Update-all button. (If a future dev box IS Nix-managed, assert
@@ -118,8 +127,10 @@ def main() -> int:
     env = dict(os.environ, PALMUX_SELFUPDATE_FAKE_INSTALLED="v0.9.0")
     res = subprocess.run([BIN, "update", "--check"], capture_output=True, text=True, env=env)
     out = res.stdout
+    # Version-agnostic: the real latest tag (not a hardcoded one) must appear.
+    _latest = comps.get("palmux", {}).get("latest", "")
     check("AC-S6ab0ed-2-5 `update --check` lists palmux current→latest",
-          "palmux" in out and "v0.9.0" in out and "v0.10" in out)
+          "palmux" in out and "v0.9.0" in out and _latest != "" and _latest in out)
     check("AC-S6ab0ed-2-5 `update --check` exit 2 when update available",
           res.returncode == 2)
 

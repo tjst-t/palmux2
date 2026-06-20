@@ -943,6 +943,18 @@ FWDUNIT
         warn "Or:   palmux2 runtime install --pre"
         warn "Or build locally:  bash images/workspace-default/build.sh"
         warn "Incus itself is set up; the image can be added later."
+        # Sa8e7d0-2-1: completion guard. On an UPDATE (PALMUX_REQUIRE_IMAGE=1, set
+        # by ~/update-palmux2.sh), a failed image install must FAIL the whole run
+        # — `palmux runtime install` already verified installed==latest and exited
+        # non-zero when the image did not reach the new version. Letting the
+        # update "succeed" here is exactly the 2026-06-20 bug: binary updated,
+        # image stale, badge keeps nagging → re-Update loop. Propagate the failure
+        # so the palmux-update unit fails and the GUI/CLI shows an explicit error
+        # (old image state kept). On a FIRST install (no flag) we keep the lenient
+        # warn (an RC period with no stable asset shouldn't block setup).
+        if [ "${PALMUX_REQUIRE_IMAGE:-0}" = "1" ]; then
+          die "palmux-ws image install did not complete (installed != latest). Update aborted; previous image state kept."
+        fi
       fi
     fi
 
@@ -1074,6 +1086,11 @@ log "writing update helper ${UPDATE_SCRIPT}"
   echo '# To rotate a secret, export CLOUDFLARE_API_TOKEN / BASIC_AUTH_PASSWORD first.'
   echo '# To pin versions, export PALMUX_VERSION / GHQ_VERSION / GWQ_VERSION / PORTMAN_VERSION.'
   echo 'set -euo pipefail'
+  # Sa8e7d0-2-1: this is an UPDATE (not a first install). Enforce the image
+  # completion guard — a failed/half-done `palmux runtime install` (installed !=
+  # latest) must abort the update instead of silently leaving the image stale
+  # and the "update available" badge lit (the 2026-06-20 re-Update loop).
+  echo 'export PALMUX_REQUIRE_IMAGE=1'
   echo "export PROFILE=$(printf '%q' "$PROFILE")"
   echo "export PALMUX_FLAKE_REF=$(printf '%q' "$PALMUX_FLAKE_REF")"
   [ "$CLAUDE_BYPASS_PERMISSIONS" = "1" ] && echo 'export CLAUDE_BYPASS_PERMISSIONS=1'
@@ -1117,7 +1134,11 @@ $(if [ "$CADDY_ENABLED" = "1" ]; then
 else
   echo "    1. Open  http://$(hostname -I 2>/dev/null | awk '{print $1}'):8080"
 fi)
-    2. To update later, just run:  ${USER_HOME}/update-palmux2.sh
+    2. To update later: click "すべてまとめて更新" in the palmux UI, or run
+       'palmux update' in a terminal, or run  ${USER_HOME}/update-palmux2.sh
+       directly. The GUI/CLI update runs via the dedicated 'palmux-update'
+       systemd user unit (independent of palmux2.service) so the update is NOT
+       killed when home-manager switch restarts palmux2 mid-update.
        (generated with this host's options; reuses secrets from /etc/caddy/palmux.env).
        Nix produces a new generation; failures roll back automatically. Rotate
        secrets by exporting CLOUDFLARE_API_TOKEN / BASIC_AUTH_PASSWORD first.

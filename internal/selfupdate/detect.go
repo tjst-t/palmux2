@@ -2,6 +2,7 @@ package selfupdate
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -17,8 +18,21 @@ type ComponentStatus struct {
 	Source    string `json:"source"`
 	Kind      string `json:"kind"`
 	Installed string `json:"installed"` // "" when not installed / unknown
-	Latest    string `json:"latest"`    // "" when GitHub unreachable for this component
-	Available bool   `json:"available"` // installed < latest
+	Latest    string `json:"latest"`    // "" when GitHub unreachable / source has no releases
+	Available bool   `json:"available"` // installed < latest (always false when !Fetchable)
+	// Fetchable is false when this component's latest version could not be
+	// resolved from its source — either a transient GitHub failure OR a source
+	// that has no releases at all (e.g. tjst-t/gwq → 404 no releases). Such a
+	// component must NOT light the "update available" badge (Sa8e7d0-2-2); the
+	// GUI shows it as "取得不可" rather than "最新" or "更新あり".
+	Fetchable bool `json:"fetchable"`
+
+	// transientFail (unexported, not serialized) records that THIS cycle's fetch
+	// failed transiently (rate-limit / network), as opposed to a stable "no
+	// releases" 404. Only transient failures flag the snapshot Degraded, so a
+	// permanently release-less source does not show the rate-limit banner forever
+	// (Sa8e7d0-2-2).
+	transientFail bool
 }
 
 // Snapshot is the aggregate detection result.
@@ -84,6 +98,11 @@ func toolVersion(bin string, args []string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// latestTagFn resolves a repo's latest release tag. It is a var so tests can
+// inject deterministic results (no live GitHub dependency, which is rate-limited
+// for unauthenticated callers and would make classification tests flaky).
+var latestTagFn = LatestTag
+
 // Detect computes a fresh detection Snapshot for every manifest component by
 // probing installed versions and resolving each component's latest GitHub
 // release tag. GitHub failures degrade gracefully per-component (Latest left
@@ -110,16 +129,26 @@ func Detect(ctx context.Context, m Manifest, probes InstalledProbes, nixManaged 
 		wg.Add(1)
 		go func(i int, repo string) {
 			defer wg.Done()
-			tag, err := LatestTag(ctx, repo)
-			if err == nil {
+			tag, err := latestTagFn(ctx, repo)
+			switch {
+			case err == nil && strings.TrimSpace(tag) != "":
 				snap.Components[i].Latest = tag
+				snap.Components[i].Fetchable = true
 				snap.Components[i].Available = UpdateAvailable(snap.Components[i].Installed, tag)
+			case errors.As(err, new(*NoReleasesError)):
+				// Stable "no releases" fact (e.g. gwq): un-fetchable, but NOT a
+				// transient degrade. Leave hasTransientFailure unset so the
+				// rate-limit/unreachable banner is not falsely shown forever.
+			default:
+				// Transient failure (rate-limit / network / decode): un-fetchable
+				// AND degrade this cycle so the banner explains it.
+				snap.Components[i].transientFail = true
 			}
 		}(i, c.GithubRepo)
 	}
 	wg.Wait()
 	for _, cs := range snap.Components {
-		if cs.Latest == "" {
+		if cs.transientFail {
 			snap.Degraded = true
 		}
 		if cs.Available {
