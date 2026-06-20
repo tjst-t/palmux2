@@ -1077,6 +1077,17 @@ else
 fi
 
 log "writing update helper ${UPDATE_SCRIPT}"
+# Write atomically (temp + rename), NOT in place. ~/update-palmux2.sh re-runs
+# install.sh, so on an UPDATE this very file is the script bash is currently
+# executing — reading it by byte offset. An in-place truncate+rewrite here races
+# bash's own read of its trailing lines and yields a spurious
+# "unexpected EOF while looking for matching quote" → non-zero exit on an
+# otherwise-successful update (observed 2026-06-20). That bogus exit code would
+# also make Sa8e7d0's exit-code-based success detection (palmux-update.service /
+# `palmux update`) report failure on success → re-Update loop. A rename swaps the
+# directory entry to a fresh inode; the running bash keeps the old inode open and
+# finishes reading the original content cleanly.
+UPDATE_SCRIPT_TMP="${UPDATE_SCRIPT}.tmp.$$"
 {
   echo '#!/usr/bin/env bash'
   echo '#'
@@ -1106,8 +1117,9 @@ log "writing update helper ${UPDATE_SCRIPT}"
   [ -n "$PALMUX_WS_IMAGE_FILE" ] && [ -f "$PALMUX_WS_IMAGE_FILE" ] && \
     echo "export PALMUX_WS_IMAGE_FILE=$(printf '%q' "$PALMUX_WS_IMAGE_FILE")"
   echo "$INSTALLER_LINE"
-} > "$UPDATE_SCRIPT"
-chmod 0755 "$UPDATE_SCRIPT"
+} > "$UPDATE_SCRIPT_TMP"
+chmod 0755 "$UPDATE_SCRIPT_TMP"
+mv -f "$UPDATE_SCRIPT_TMP" "$UPDATE_SCRIPT"
 
 # --- summary ---------------------------------------------------------------
 
