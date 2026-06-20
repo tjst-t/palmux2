@@ -121,11 +121,28 @@ incus delete --force test-check </dev/null
 
 ## CI / Release
 
-The image is rebuilt automatically by
-`.github/workflows/build-workspace-image.yml` on:
-- `workflow_dispatch` (manual)
-- `push` to tags matching `v*`
-- Weekly schedule (Monday 02:00 UTC)
+GitHub-hosted runners can't run incus, so the image is **not** built in CI on
+tag push. The release flow distinguishes two cases automatically:
 
-The tarball is uploaded as a GitHub Release asset (named
-`palmux-ws-<date>.tar.gz` plus a stable `palmux-ws.tar.gz`).
+**1. Image unchanged (the common, binary-only release).** On every `v*` tag,
+`release.yml`'s `image` job runs `scripts/release-image.sh`. If nothing under
+`images/` changed since the previous image-bearing release, it **re-stamps**
+that release's `palmux-ws.tar.gz` — rewriting only the version in the unified
+incus tarball (`metadata.yaml` `properties.version` + `rootfs/etc/palmux-ws-version`)
+and re-attaching it. No apt, no incus, no VM. This keeps the self-update
+machinery honest (image version == release tag) without an unnecessary rebuild.
+
+**2. Image changed.** If `images/` changed since the previous release, the same
+job **fails loudly** with a `::error::` — CI cannot rebuild the image. Build it
+on a VM (or locally) and upload manually:
+
+```bash
+IMAGE_VERSION=<tag> ./images/workspace-default/build.sh   # → dist/palmux-ws.tar.gz
+gh release upload <tag> dist/palmux-ws.tar.gz --clobber
+```
+
+`.github/workflows/build-workspace-image.yml` (workflow_dispatch only) can also
+attempt the build, but a self-hosted incus runner is required for it to succeed.
+
+The tarball is attached to the GitHub Release as `palmux-ws.tar.gz`;
+`palmux runtime install` resolves it from the newest release carrying the asset.

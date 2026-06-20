@@ -53,6 +53,43 @@ jobs:
             bin/palmux-linux-amd64
             bin/palmux-linux-arm64
 
+  # Attach the palmux-ws container image asset to the release.
+  #
+  # The image only changes when something under images/ changes (build.sh + its
+  # sidecars). A binary-only release ships the SAME image content as the previous
+  # release — but the self-update machinery ties the image's reported version to
+  # the release tag, so the release still needs a palmux-ws.tar.gz carrying the
+  # NEW version (else `palmux runtime install` finds no asset and the self-update
+  # badge falsely lights "image 更新あり" forever).
+  #
+  # GitHub runners can't run incus, so we DON'T rebuild here. Instead
+  # release-image.sh RE-STAMPS the previous release's image: it rewrites only the
+  # version in the unified incus tarball (metadata.yaml + rootfs/etc/palmux-ws-version)
+  # via member-level tar surgery — no apt, no incus — and re-attaches it.
+  #
+  # When images/ DID change since the previous image-bearing release, the script
+  # exits 3 and this job FAILS with a ::error:: telling the maintainer to rebuild
+  # palmux-ws on a VM (images/workspace-default/build.sh) and upload it. The
+  # release's binaries are already published by the `release` job; this red job is
+  # purely the "image needs a real rebuild" signal — it never ships a stale image.
+  image:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          # Full history + all tags so release-image.sh can resolve the previous
+          # image-bearing release tag and `git diff <prev>..HEAD -- images/`.
+          fetch-depth: 0
+
+      - name: Re-stamp previous image to ${{ github.ref_name }} (or require rebuild)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          scripts/release-image.sh "${{ github.ref_name }}" --upload
+
   # Bump the baked-in defaultVersion + defaultHashes in nix/packages/palmux2.nix
   # so that `install.sh` / `palmux runtime install` default to the just-released
   # stable version when no PALMUX_VERSION override is given.
