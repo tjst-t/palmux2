@@ -3,14 +3,14 @@
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
     "sprints_done": 59,
-    "sprints_total": 62,
-    "percent": 95,
+    "sprints_total": 63,
+    "percent": 93,
     "current_sprint": "S8fe0cb",
     "done": 59,
-    "total": 62,
-    "remaining": 3,
+    "total": 63,
+    "remaining": 4,
     "in_progress": 0,
-    "percentage": 95
+    "percentage": 93
   },
   "execution_order": [
     "S001",
@@ -74,7 +74,8 @@
     "S6ab0ed",
     "Sfef725",
     "Sfd04db",
-    "S8fe0cb"
+    "S8fe0cb",
+    "Sa8e7d0"
   ],
   "sprints": {
     "S001": {
@@ -10223,6 +10224,102 @@
           "user_review_reason": "AC-S8fe0cb-1-4 の real-OS-IME 目視 (人間の実 OS IME 必須) は priority_rule 0 manual smoke として未実施。他 AC は全自動 pass。"
         }
       }
+    },
+    "Sa8e7d0": {
+      "title": "セルフアップデート堅牢化: 更新が自分(palmux2)を殺さない + 完了ガード",
+      "status": "planned",
+      "milestone": false,
+      "context_note": "2026-06-20 deploy VM 実障害: GUI/CLI Update → 更新ヘルパー(update-palmux2.sh 相当)が palmux2.service の cgroup 内子プロセスとして動き、home-manager switch が palmux2.service を停止する際に道連れ kill → 更新が途中で死亡(v0.11.3 binary は入ったが image は v0.11.1 のまま、palmux2 再起動されず 502)。古い image のまま『更新あり』が出続け、再 Update で再発する悪循環。palmux2 本体のモデルは正しい(通常の systemd user service)。問題は更新処理が palmux2 のライフサイクルに巻き込まれている点のみ。",
+      "stories": {
+        "Sa8e7d0-1": {
+          "title": "更新処理を palmux2 から独立した systemd ユニットに分離",
+          "status": "planned",
+          "user_story": "運用者として、GUI/CLI の Update でサービスが落ちず更新が最後まで完走してほしい。なぜなら、今は更新ヘルパーが palmux2 の cgroup 内で動き、home-manager switch が palmux2 を停止する瞬間に道連れで kill されて更新が途中で死に、応答停止するから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sa8e7d0-1-1",
+              "description": "install.sh が専用の systemd user oneshot ユニット `palmux-update.service`(更新ロジック= flake 再pin→home-manager switch→palmux runtime install で image 更新→palmux2 再起動 を実行)を設置する。GUI/CLI の Update は更新を自プロセスで実行せず `systemctl --user start palmux-update`(等価の独立起動)で起動するだけにする。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sa8e7d0-1-2",
+              "description": "更新中に palmux2.service が停止/再起動されても、更新ユニットは別 cgroup/ライフサイクルなので生存し最後まで完走する(home-manager switch + image install + palmux2 再起動)。palmux2 本体は従来どおり通常の systemd user service(cgroup 管理下)のまま — そのモデルは変えない。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sa8e7d0-1-3",
+              "description": "自己再起動後の GUI 再接続ハンドシェイク(S6ab0ed: WS drop→/health version polling→再接続→完了トースト)が、独立ユニット経由の更新でも機能する。CLI `palmux update` も独立ユニットを起動して完走を待つ(終了コードで成否)。Nix 非管理ホストは従来どおり手動更新案内(独立ユニット無し)。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "Sa8e7d0-1-1": {
+              "id": "Sa8e7d0-1-1",
+              "status": "pending",
+              "title": "install.sh: palmux-update.service(user oneshot) 設置 + 更新ロジックを更新スクリプト/ユニットに集約"
+            },
+            "Sa8e7d0-1-2": {
+              "id": "Sa8e7d0-1-2",
+              "status": "pending",
+              "title": "internal/selfupdate + handler: Update を `systemctl --user start palmux-update` 起動に変更(自プロセス実行をやめる)、CLI palmux update も同経路"
+            },
+            "Sa8e7d0-1-3": {
+              "id": "Sa8e7d0-1-3",
+              "status": "pending",
+              "title": "FE 再接続ハンドシェイクが独立ユニット経由でも動くことを確認/調整"
+            },
+            "Sa8e7d0-1-4": {
+              "id": "Sa8e7d0-1-4",
+              "status": "pending",
+              "title": "実機検証: 古い版のホストで GUI Update→サービス停止に巻き込まれず binary+image+再起動まで完走"
+            }
+          }
+        },
+        "Sa8e7d0-2": {
+          "title": "更新完了ガード + 『更新あり』バッジの誤点灯防止",
+          "status": "planned",
+          "user_story": "運用者として、更新が中途半端に終わったり取得不能なコンポーネントがあっても『更新あり』が出続けて再 Update を誘発しないでほしい。なぜなら、今回 image install 未完で v0.11.1 のまま残り、バッジが消えず再 Update→再障害のループになったから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sa8e7d0-2-1",
+              "description": "image install の完了を検証する(re-alias 後の installed image version が latest と一致するか確認)。更新が途中失敗したら『成功』扱いにせず、GUI/CLI に明示エラー + 旧状態維持を示す。完走時はバッジが確実に消える。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sa8e7d0-2-2",
+              "description": "manifest の version source が latest を取得できないコンポーネント(例 gwq: release 無しで『取得不可』)は『更新あり』として誤点灯させない。取得不能は更新候補から除外し、必要なら別表示(取得不可)にとどめる。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sa8e7d0-2-3",
+              "description": "image version 検出が安定: incus image `version` プロパティが runtime install 経由でも確実に設定される(or baked /etc/palmux-ws-version で代替判定)。installed image version が空/不明で永続バッジ点灯しない。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "Sa8e7d0-2-1": {
+              "id": "Sa8e7d0-2-1",
+              "status": "pending",
+              "title": "selfupdate: image install 完了検証(installed==latest)+ 失敗時の明示エラー/旧状態維持"
+            },
+            "Sa8e7d0-2-2": {
+              "id": "Sa8e7d0-2-2",
+              "status": "pending",
+              "title": "manifest/detect: 取得不能ソース(gwq 等)をバッジ誤点灯させない(更新候補から除外)"
+            },
+            "Sa8e7d0-2-3": {
+              "id": "Sa8e7d0-2-3",
+              "status": "pending",
+              "title": "image version 検出の安定化(runtime install で version プロパティ設定 or baked 版で判定)"
+            },
+            "Sa8e7d0-2-4": {
+              "id": "Sa8e7d0-2-4",
+              "status": "pending",
+              "title": "acceptance/GUI E2E: 中途失敗で旧状態維持+エラー、完走でバッジ消滅、取得不能で誤点灯しない"
+            }
+          }
+        }
+      }
     }
   },
   "dependencies": {
@@ -10485,6 +10582,12 @@
     "S8fe0cb": {
       "depends_on": [],
       "reason": "既存 Browser タブ(S62374c noVNC)のキーボード経路を差し替えるだけ。どの Chromium でも有効で他 Sprint と排他しない"
+    },
+    "Sa8e7d0": {
+      "depends_on": [
+        "S6ab0ed"
+      ],
+      "reason": "S6ab0ed の self-update 実装を堅牢化(自分を殺さない+完了ガード)。同じコンポーネント。2026-06-20 deploy VM 実障害の恒久対策"
     }
   },
   "backlog": [
