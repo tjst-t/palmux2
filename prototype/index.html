@@ -12,107 +12,26 @@
       <h1>palmux2 prototype</h1>
       <p>
         Static HTML mockups — the visual reference for sprint run (implementation matches markup,
-        classes, and <code>data-testid</code>s). The <b>active</b> sprint's screens are at the top;
+        classes, and <code>data-testid</code>s). The <b>active</b> sprint's screens appear at the top;
         completed sprints are archived under <code>prototype/old/&lt;SprintID&gt;/</code>.
+      </p>
+      <p style="color:var(--color-fg-muted);font-size:13px;">
+        No active prototypes pending review — all shipped. New sprints add their screens above.
       </p>
     </header>
 
     <section class="indexSection">
-      <h2>Active · S6ab0ed — GUI/CLI セルフアップデート</h2>
-      <div class="cardGrid">
-        <a class="card" href="s6ab0ed-update-panel.html">
-          <span class="cardLabel">S6ab0ed-1 · 検出+通知</span>
-          <div class="cardTitle">更新パネル · 右上「更新あり」バッジ</div>
-          <p class="cardDesc">manifest 宣言コンポーネント (本体 / image / gwq…) の current→latest。<code>update-available-badge</code> / <code>update-all-btn</code>。</p>
-        </a>
-        <a class="card" href="s6ab0ed-updating.html">
-          <span class="cardLabel">S6ab0ed-2 · 実行+再接続</span>
-          <div class="cardTitle">まとめて更新中 · 自己再起動→再接続</div>
-          <p class="cardDesc">一括更新の進行 + 本体自己再起動の再接続ハンドシェイク。<code>palmux update</code> CLI 共通経路。<code>update-reconnecting</code>。</p>
-        </a>
-      </div>
-    </section>
-
-    <section class="indexSection">
-      <h2>Active · S4c591a — incus ホストポート公開モード (Ports タブ)</h2>
-      <div class="cardGrid">
-        <a class="card" href="s4c591a-ports.html">
-          <span class="cardLabel">S4c591a-1 · Ports</span>
-          <div class="cardTitle">Ports タブ · ホストポート公開（フォールバック）</div>
-          <p class="cardDesc">公開ドメイン(wildcard DNS)が無い時のみ <code>http://&lt;hostIP&gt;:&lt;port&gt;</code> 公開（incus proxy device）。設定済みならサブドメイン公開のみ。<b>無認証警告</b> badge + 空きポート再割当。<code>ports-mode-hostport-notice</code> / <code>ports-hostport-toggle-{port}</code>。</p>
-        </a>
-      </div>
-    </section>
-
-    <section class="indexSection">
-      <h2>Active · Sa53137 — 統一設定プレーン (設定 GUI + 初回オンボーディング)</h2>
-      <div class="cardGrid">
-        <a class="card" href="sa53137-settings-app.html">
-          <span class="cardLabel">Sa53137-1 · アプリ設定</span>
-          <div class="cardTitle">設定パネル · アプリタブ（全フィールド）</div>
-          <p class="cardDesc"><code>settings.json</code> の全フィールドを GUI 編集。保存で即時反映 + file-watch。<code>data-testid=settings-tab-app</code> / <code>save-app-settings</code>。</p>
-        </a>
-        <a class="card" href="sa53137-settings-deploy.html">
-          <span class="cardLabel">Sa53137-3 · デプロイ設定</span>
-          <div class="cardTitle">設定パネル · デプロイタブ</div>
-          <p class="cardDesc">config.toml の server/public を編集。<b>即時 / 要再起動 / 要特権</b> バッジ + secrets マスク。<code>apply-deploy</code> / <code>restart-required-banner</code>。</p>
-        </a>
-        <a class="card" href="sa53137-onboarding.html">
-          <span class="cardLabel">Sa53137-3 · 初回</span>
-          <div class="cardTitle">初回オンボーディング ウィザード</div>
-          <p class="cardDesc">未設定検知 → ローカル/公開を選択 → 公開ドメイン/認証。ドメインは特権操作へ誘導。<code>onboarding-wizard</code> / <code>onboarding-mode-public</code>。</p>
-        </a>
-      </div>
-    </section>
-
-    <section class="indexSection">
-      <h2>Active · S62374c — Workspace 共有ブラウザ (Browser タブ)</h2>
-      <div class="cardGrid">
-        <a class="card" href="s62374c-browser.html">
-          <span class="cardLabel">S62374c-2 · running</span>
-          <div class="cardTitle">Browser タブ · running</div>
-          <p class="cardDesc">CDP screencast のライブ画面 + URL バー + 戻る/進む/リロード + <code>Stop</code>。Claude と共有中ヒント。<code>data-testid=browser-viewport</code>。</p>
-        </a>
-        <a class="card" href="s62374c-browser-stopped.html">
-          <span class="cardLabel">S62374c-2 · stopped</span>
-          <div class="cardTitle">Browser タブ · stopped</div>
-          <p class="cardDesc">既定は停止（自動起動なし）。<code>[▶ ブラウザを起動]</code>（<code>browser-start</code>）。Claude も <code>palmux-browser start</code> で起動可。</p>
-        </a>
-        <a class="card" href="s62374c-browser-host.html">
-          <span class="cardLabel">S62374c-2 · host</span>
-          <div class="cardTitle">Browser タブ · host runtime</div>
-          <p class="cardDesc">host runtime では非対応の案内（<code>browser-host-notice</code>）。incus-container に切替で利用可。</p>
-        </a>
-        <a class="card" href="s62374c-browser-fullscreen.html">
-          <span class="cardLabel">S62374c-2 · ↗ Open</span>
-          <div class="cardTitle">Browser · 別タブフル画面</div>
-          <p class="cardDesc"><code>↗ Open</code>（<code>browser-popout</code>, target=_blank）で開く standalone フル画面。Files の Open と同流儀。同じ共有ブラウザを大きく表示。</p>
-        </a>
-      </div>
-    </section>
-
-    <section class="indexSection">
-      <h2>Active · Sbe4eee — palmux forward_auth SSO</h2>
-      <div class="cardGrid">
-        <a class="card" href="sbe4eee-login.html">
-          <span class="cardLabel">Sbe4eee-1</span>
-          <div class="cardTitle">SSO login · default</div>
-          <p class="cardDesc">サーバレンダの単一パスワード画面 + remember me。1回ログインで apex + 全公開サブドメイン。<code>data-testid=auth-login-form</code>。</p>
-        </a>
-        <a class="card" href="sbe4eee-login-error.html">
-          <span class="cardLabel">Sbe4eee-1 · error</span>
-          <div class="cardTitle">SSO login · 誤パスワード</div>
-          <p class="cardDesc">誤入力時のインラインエラー (<code>auth-error</code>)。cookie は発行しない。</p>
-        </a>
-      </div>
-    </section>
-
-    <section class="indexSection">
       <h2>Archived (implemented) · <code>prototype/old/</code></h2>
       <p style="color:var(--color-fg-muted);font-size:13px;line-height:1.7;">
-        These prototypes have shipped. Open the folder for each sprint's screens.
+        These prototypes have shipped. Open the folder for each sprint's screens (PNG snapshots are
+        the durable record; the HTML's shared <code>styles.css</code> link is relative to this dir).
       </p>
       <ul style="color:var(--color-fg-muted);font-size:13px;line-height:1.9;font-family:var(--font-ui);">
+        <li><code>old/S6ab0ed/</code> — GUI/CLI セルフアップデート（更新パネル + 再接続）</li>
+        <li><code>old/Sa53137/</code> — 統一設定プレーン（設定 GUI + 初回オンボーディング）</li>
+        <li><code>old/S4c591a/</code> — incus ホストポート公開モード (Ports タブ)</li>
+        <li><code>old/Sbe4eee/</code> — palmux forward_auth SSO（ログイン画面）</li>
+        <li><code>old/S62374c/</code> — Workspace 共有ブラウザ (Browser タブ)</li>
         <li><code>old/See8bd4/</code> — incus コンテナポートの公開サブドメイン化 (Ports タブ)</li>
         <li><code>old/S8478ca/</code> — Workspace Runtime (host / incus-container) 選択 UI</li>
         <li><code>old/Sc7818e/</code> — Files tab download UX</li>
