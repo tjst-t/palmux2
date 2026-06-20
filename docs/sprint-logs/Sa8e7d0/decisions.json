@@ -1,0 +1,135 @@
+{
+  "sprint": "Sa8e7d0",
+  "title": "セルフアップデート堅牢化: 更新が自分(palmux2)を殺さない + 完了ガード",
+  "base_branch": "main",
+  "branch": "autopilot/main/Sa8e7d0",
+  "sprint_start_sha": "85ff757714d23ef6241664d0eed24d2e858d1a04",
+  "planning_decisions": [
+    {
+      "id": "PLAN-1",
+      "topic": "dedicated systemd unit vs systemd-run --scope",
+      "decision": "Dedicated `palmux-update.service` user oneshot, defined in the nix home-manager module (nix/modules/home-manager-palmux.nix) as a sibling of the palmux2 user service. ExecStart runs `bash %h/update-palmux2.sh` (the install.sh-generated helper).",
+      "rationale": "Prompt design (approved) prefers the dedicated unit over `systemd-run --user --scope`: it is install.sh/home-manager-friendly, has a stable name the GUI/CLI can `systemctl --user start`, and is self-cleaning (oneshot). Defining it in the nix module (priority_rule 6 既存資産活用) means `home-manager switch` maintains it just like palmux2.service, instead of install.sh hand-writing a raw unit that a later switch could clobber. The unit is its OWN cgroup, so when the helper's `home-manager switch` stops/restarts palmux2.service, systemd's control-group kill of palmux2 does NOT reach palmux-update.service — the real 2026-06-20 incident root cause."
+    },
+    {
+      "id": "PLAN-2",
+      "topic": "how GUI triggers the update",
+      "decision": "GUI RunUpdate() execs `systemctl --user start palmux-update.service` (fire-and-forget; systemctl returns once the job is enqueued/started). No more detached `bash ~/update-palmux2.sh` child of palmux2. The in-flight guard + WS-drop→/health reconnect handshake (S6ab0ed) are unchanged and still work because the unit still restarts palmux2 at the end.",
+      "rationale": "Decouples the update OPERATION from palmux2's lifecycle (the Sprint's whole point). systemctl is the supported, race-free way to launch an independent-cgroup unit. Fallback: if the unit is absent (older install that has not re-run install.sh / home-manager switch), fall back to the old detached-helper path so an un-migrated host still updates (graceful, priority_rule 3)."
+    },
+    {
+      "id": "PLAN-3",
+      "topic": "how CLI triggers + waits",
+      "decision": "CLI RunUpdateForeground() execs `systemctl --user start --wait palmux-update.service`, then reads the unit's result (`systemctl --user is-failed` / exit status of --wait) to return success/fail as the process exit code. Output is surfaced by tailing the unit journal / the helper log. Fallback to the old foreground `bash ~/update-palmux2.sh` when the unit is absent.",
+      "rationale": "`--wait` blocks until the oneshot finishes and propagates failure as a non-zero exit, preserving the existing CLI contract (exit code = success/fail, AC-S6ab0ed-2-5). The CLI itself is not killed by the palmux2 restart because it is a separate process AND the unit is a separate cgroup."
+    },
+    {
+      "id": "PLAN-4",
+      "topic": "Nix-unmanaged hosts",
+      "decision": "Unchanged: nixManaged() still gates on ~/update-palmux2.sh presence. No unit, no GUI/CLI update — same manual-update guidance as before.",
+      "rationale": "Prompt requirement; preserves AC-S6ab0ed-2-4 behavior."
+    },
+    {
+      "id": "PLAN-5",
+      "topic": "completion guard (Story 2a)",
+      "decision": "The update helper (~/update-palmux2.sh body via install.sh) re-pins flake, runs home-manager switch, runs `palmux runtime install`, then VERIFIES installedImageVersion()==latest-image-tag; the unit ExecStart fails (non-zero) if the image did not reach latest, so the GUI/CLI sees a failed unit (no false success) and the badge stays lit with an explicit error rather than a fake completion. On success the helper restarts palmux2, the badge clears.",
+      "rationale": "Real incident: binary updated, image stayed v0.11.1, but the run reported nothing wrong, so the badge kept nagging → re-Update loop. A hard image==latest gate at the END of the update converts a half-done update into an explicit failure (AC-Sa8e7d0-2-1)."
+    },
+    {
+      "id": "PLAN-6",
+      "topic": "don't false-light the badge for un-fetchable sources (Story 2b)",
+      "decision": "In Detect(), a component whose GitHub latest cannot be resolved (Latest==\"\") is NEVER counted toward snap.Available, and gets an explicit Fetchable=false / status label '取得不可'. gwq (tjst-t/gwq has no releases) thus shows '取得不可', not '更新あり'. Already partly true (Available requires Latest), but make it explicit + surfaced and ensure a 404-no-releases is treated as un-fetchable (not as an error that degrades the whole cycle).",
+      "rationale": "Incident corollary: a source with no releases must not perpetually light the global badge. AC-Sa8e7d0-2-2."
+    },
+    {
+      "id": "PLAN-7",
+      "topic": "stable image-version detection (Story 2c)",
+      "decision": "installedImageVersion() falls back to reading the baked /etc/palmux-ws-version from inside a throwaway/any running palmux-ws container OR, preferably, re-stamps the incus `version` property during `palmux runtime install` (set-property after import) so the property is reliably present even on the re-alias-existing-fingerprint path. Primary fix: `palmux runtime install` always `incus image set-property palmux-ws version <baked>` after a successful import/alias, where <baked> is read from the image's /etc/palmux-ws-version. Empty/unknown installed image version must NOT be treated as 'older' (UpdateAvailable already returns false on unparseable installed) — verified.",
+      "rationale": "Incident: re-import/re-alias path can lose the version property → installedImageVersion()=='' → if any code treated '' as older it would perpetually light the badge. UpdateAvailable() already returns false on empty installed (conservative), so the badge does NOT light on empty — but we still want a reliable version for the completion guard (Story 2a needs installed==latest). AC-Sa8e7d0-2-3."
+    }
+  ],
+  "gui_spec": {
+    "story_types": {
+      "Sa8e7d0-1": "mixed (api: POST /api/selfupdate/run via systemctl unit; cli: palmux update; gui: reconnect handshake)",
+      "Sa8e7d0-2": "mixed (api: GET /api/selfupdate snapshot; cli: palmux update --check; gui: badge clears / stays lit)"
+    },
+    "note": "No NEW GUI surface (no new screen/route/component). The existing update panel/badge/toast (S6ab0ed) is reused unchanged. The behavioral changes are backend (systemctl unit trigger) + detection logic (completion guard, un-fetchable exclusion, image version stability). FE E2E reuses the S6ab0ed reconnect-live test pattern to prove the handshake still fires when the update is triggered via the unit."
+  },
+  "implementation_decisions": [
+    {
+      "id": "IMPL-1",
+      "topic": "completion guard semantics — NOT exact-tag match",
+      "decision": "finishInstall uses imageIsStrictlyOlder (reusing selfupdate.UpdateAvailable), NOT an exact installed==tag match. It fails ONLY when the installed image is provably OLDER than the expected version. Empty/unknown installed version → WARN, not fail (a detection gap must not wedge a real install; UpdateAvailable is conservative on empty so the badge does not falsely light).",
+      "rationale": "Review (Angle A/B) caught that the release pipeline uploads the same tarball to BOTH the version release AND a 'workspace-image' pre-release, and build.sh bakes `git describe` (vX.Y.Z-N-gSHA) when IMAGE_VERSION is unpinned. An exact match would reject a perfectly-good install (tag='workspace-image' or baked git-describe != clean tag) → re-creating the very failure loop this Sprint fixes. The 'not-older' check catches the real incident (image stuck at older v0.11.1 < latest v0.11.3) while passing legitimate non-exact builds. priority_rule 6 (reuse UpdateAvailable) keeps comparison semantics identical to detection."
+    },
+    {
+      "id": "IMPL-2",
+      "topic": "NoReleasesError vs transient — don't false-light the degraded banner",
+      "decision": "LatestTag returns a typed NoReleasesError on GitHub 404 (repo has no releases). Detect classifies: clean→fetchable; NoReleasesError→un-fetchable but NOT degraded; everything else (rate-limit/network/decode)→un-fetchable AND transientFail→Degraded. Only transientFail flags the snapshot Degraded.",
+      "rationale": "Review (Angle A #4) caught that the first cut set Degraded whenever any component was un-fetchable, so gwq (permanent 404) would show the rate-limit banner forever and nag the user to set a token that can't help. Distinguishing a stable 'no releases' fact from a transient outage fixes that (AC-Sa8e7d0-2-2)."
+    },
+    {
+      "id": "IMPL-3",
+      "topic": "in-flight guard watcher must use background ctx + bounded grace",
+      "decision": "RunUpdate's unit path launches watchUpdateUnit with context.Background() (NOT the HTTP request ctx) and the watcher clears the guard when the unit reaches inactive/failed, using a 3s grace window before trusting 'inactive' and a 10-minute hard backstop.",
+      "rationale": "Review verifier caught a CRITICAL bug: the watcher was launched with r.Context(), which is cancelled milliseconds after RunUpdate returns → the watcher exited immediately and never cleared the guard on a fail-without-restart, wedging retries for 10 min (the exact bug it was meant to prevent). Also fixed the sawActive race that could delay clearing to the full backstop for a fast-failing unit."
+    },
+    {
+      "id": "IMPL-4",
+      "topic": "image-url/file floor scoped to updates, journal follower for CLI progress",
+      "decision": "The --require-version floor for custom-tarball installs is resolved (best-effort latest stable tag) ONLY for --image-url AND only when PALMUX_REQUIRE_IMAGE=1 (an update) — NOT for --image-file (the explicitly-offline path). RunUpdateForeground follows the unit journal (journalctl -f, killed via context) for live CLI progress and appends a journal tail on failure.",
+      "rationale": "Review (verifier #3, Angle A #5) caught that an unconditional latestReleaseAssetURLTag call would stall an offline `--image-file` install up to 20s on a GitHub timeout, and that `systemctl --wait` is silent so the CLI user saw no progress + the comment falsely claimed tailing. Scoping the floor + adding the journal follower fixes both."
+    },
+    {
+      "id": "IMPL-5",
+      "topic": "deterministic detection tests (no live-GitHub flake)",
+      "decision": "Detect's tag resolver is an injectable package var latestTagFn (default = LatestTag); classification unit tests inject NoReleasesError / RateLimitError deterministically instead of hitting live api.github.com.",
+      "rationale": "The unauthenticated GitHub API rate-limits (HTTP 403) on the dev box, which made tests that relied on a real 404 flaky (a 404 became a 403 = transient = degraded). Injecting the resolver makes the classification tests hermetic (priority_rule 7 spirit: tests must be deterministic, real GitHub poll stays for the live acceptance/E2E)."
+    }
+  ],
+  "review_decisions": [
+    {
+      "id": "REV-1",
+      "summary": "Stale hardcoded version assertions in tests/e2e/s6ab0ed_selfupdate.py (greps for literal 'v0.10') failed because the repo advanced to v0.11.3. Made the assertions version-agnostic (assert installed→<resolved latest> from the live snapshot). This is hardening a brittle pre-existing test, not weakening it."
+    },
+    {
+      "id": "REV-2",
+      "summary": "tests/e2e/s6ab0ed_selfupdate.py degraded-flag assertion encoded the OLD buggy behavior (gwq unfetchable → degraded=true). Updated to assert gwq is surfaced un-fetchable (the Sa8e7d0 corrected behavior); the transient-degrade path is covered by the deterministic Go unit test TestDetectTransientFailureDegrades."
+    },
+    {
+      "id": "REV-3",
+      "summary": "Removed orUnknown helper (dead after the guard switched from exact-match to not-older) + its test."
+    }
+  ],
+  "guard8_rationale": "n/a — Sprint touches internal/selfupdate/, cmd/palmux/, install.sh, nix/. None of these is a data-path directory in the Guard 8 list (internal/server/, internal/proxyfuse/, cmd/storage-core/, cmd/proxy-fuse/, cmd/workflow-worker/, internal/workflow/, internal/identity/). No object-store version semantics involved. Destructive multi-version test n/a.",
+  "manual_smoke_pending": [
+    {
+      "ac": "AC-Sa8e7d0-1-2 (full live old→new GUI Update via the unit, survives palmux2 restart, badge clears, completion guard passes on a real version bump)",
+      "reason": "Requires a NEWER release than installed (the deploy VM is already at latest v0.11.3) — same gating as S6ab0ed MS-1 / priority_rule 0. The SURVIVAL MECHANISM itself was verified directly on the real deploy VM (an independent oneshot user unit that stops palmux2.service mid-run KEEPS RUNNING to completion in its own cgroup — SURVIVAL_PASS, twice). The completion guard, badge honesty, and FE reconnect handshake are all verified by automated tests. What remains for a human is observing one end-to-end real-version-bump Update through the GUI on a host that is genuinely behind a new release."
+    }
+  ],
+  "done_judgment": {
+    "Sa8e7d0-1": {
+      "guard1_user_review_required_not_done": "pass",
+      "guard2_nil_injection_mock": "pass",
+      "guard3_mock_mode_not_real_smoke": "pass",
+      "guard4_priority_rule_9_exception_valid": "n/a",
+      "guard5_call_path_grep": "pass",
+      "guard6_deferred_comment_clean": "pass",
+      "guard7_adr_conformance": "n/a (no DESIGN/ ADRs in this repo)",
+      "guard8_destructive_multi_version_test": "n/a (not a data-path Sprint — see guard8_rationale)",
+      "overall": "ok"
+    },
+    "Sa8e7d0-2": {
+      "guard1_user_review_required_not_done": "pass",
+      "guard2_nil_injection_mock": "pass",
+      "guard3_mock_mode_not_real_smoke": "pass",
+      "guard4_priority_rule_9_exception_valid": "n/a",
+      "guard5_call_path_grep": "pass",
+      "guard6_deferred_comment_clean": "pass",
+      "guard7_adr_conformance": "n/a",
+      "guard8_destructive_multi_version_test": "n/a",
+      "overall": "ok"
+    }
+  }
+}

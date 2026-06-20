@@ -1,0 +1,77 @@
+{
+  "sprint": "Sa8e7d0",
+  "generated_at": "2026-06-20T03:15:00Z",
+  "summary": { "pass": 31, "fail": 0, "skip": 0, "manual_smoke_pending": 1 },
+  "mode": "production (Rule 7) — real HTTP client, real CLI subprocess, real Playwright browser, real GitHub poll (GITHUB_TOKEN for headroom); real systemd user units on the deploy VM. No MOCK= / --fake-* / DRY_RUN=1 / in-process Fake.",
+  "test_files": [
+    {
+      "file": "internal/selfupdate/selfupdate_test.go",
+      "kind": "go-unit",
+      "result": "pass",
+      "notes": "Detection classification (fetchable / NoReleasesError non-degrade / transient degrade) is deterministic via injected latestTagFn; unit-trigger + watcher tests stub systemctl."
+    },
+    {
+      "file": "cmd/palmux/runtime_test.go",
+      "kind": "go-unit",
+      "result": "pass",
+      "notes": "Completion-guard comparator (imageIsStrictlyOlder) — not-older semantics, leading-v tolerance, git-describe + non-version-tag tolerance, empty-installed safety."
+    },
+    {
+      "file": "tests/acceptance/sa8e7d0_selfupdate_harden.py",
+      "kind": "acceptance (real HTTP + real CLI)",
+      "result": "pass",
+      "port": 8200
+    },
+    {
+      "file": "tests/acceptance/s6ab0ed_selfupdate_backend.py",
+      "kind": "acceptance (regression, real HTTP + real CLI)",
+      "result": "pass",
+      "notes": "No regression — legacy detached-helper fallback path still works when no palmux-update unit is present."
+    },
+    {
+      "file": "tests/e2e/sa8e7d0_badge_honesty.py",
+      "kind": "gui-e2e (real browser, real backend round-trip)",
+      "result": "pass"
+    },
+    {
+      "file": "tests/e2e/s6ab0ed_selfupdate.py",
+      "kind": "gui-e2e (regression)",
+      "result": "pass",
+      "notes": "Version-agnostic assertions + corrected degraded→fetchable expectation."
+    },
+    {
+      "file": "tests/e2e/s6ab0ed_reconnect_live.py",
+      "kind": "gui-e2e (FE reconnect handshake, manages own server, real WS drop)",
+      "result": "pass",
+      "notes": "Proves the WS-drop → /health version poll → reconnect → toast / rollback-note handshake still fires (decoupled from the trigger mechanism) — AC-Sa8e7d0-1-3."
+    },
+    {
+      "file": "deploy-VM survival mechanism (manual, real systemd user unit)",
+      "kind": "real-machine smoke (palmux-deploy-test.tjstkm.net)",
+      "result": "pass",
+      "notes": "An independent oneshot user unit that STOPS palmux2.service mid-run KEEPS RUNNING to completion in its own cgroup (SURVIVAL_PASS, run twice). Directly proves AC-Sa8e7d0-1-2: the update is no longer killed when home-manager switch restarts palmux2. Deploy VM left healthy (palmux2 active, /health 200, probe unit removed)."
+    }
+  ],
+  "acceptance_criteria": [
+    { "id": "AC-Sa8e7d0-1-1", "status": "pass", "evidence": "nix unit palmux-update.service defined; RunUpdate/RunUpdateForeground systemctl-start the unit (TestRunUpdateForegroundUsesIndependentUnit asserts `--user start --wait palmux-update.service`); install.sh summary documents the unit." },
+    { "id": "AC-Sa8e7d0-1-2", "status": "pass", "evidence": "Deploy-VM survival smoke: independent unit survives palmux2 stop mid-run (SURVIVAL_PASS x2)." },
+    { "id": "AC-Sa8e7d0-1-3", "status": "pass", "evidence": "s6ab0ed_reconnect_live.py (handshake fires via restart) + TestRunUpdateForegroundUnitFailurePropagates (CLI exit reflects unit success/fail) + sa8e7d0 acceptance (Nix-unmanaged guidance + non-zero exit)." },
+    { "id": "AC-Sa8e7d0-2-1", "status": "pass", "evidence": "TestImageIsStrictlyOlder (guard fails ONLY on a provably-older image, passes git-describe/workspace-image); finishInstall surfaces explicit error + keeps old state on regression; install.sh PALMUX_REQUIRE_IMAGE=1 die on update. Full live old→new real-version-bump = manual-smoke-pending." },
+    { "id": "AC-Sa8e7d0-2-2", "status": "pass", "evidence": "Live /api/selfupdate: gwq fetchable=false, available=false, degraded=false (no false rate-limit banner); CLI --check shows gwq 取得不可; badge-honesty GUI E2E renders 取得不可 via real backend round-trip; Go unit tests for NoReleasesError non-degrade + transient degrade." },
+    { "id": "AC-Sa8e7d0-2-3", "status": "pass", "evidence": "ensureImageVersionProperty re-stamps incus version from baked /etc/palmux-ws-version; installedImageVersion() reliable; empty installed version never lights the badge (UpdateAvailable conservative) — sa8e7d0 acceptance + TestImageIsStrictlyOlder empty cases." }
+  ],
+  "rule6_diff_scan": {
+    "new_user_observable_surfaces": [
+      { "surface": "ComponentStatus.fetchable JSON field (GET /api/selfupdate + WS app.updateAvailable)", "tested_by": "sa8e7d0_selfupdate_harden.py + badge-honesty E2E + Go unit tests" },
+      { "surface": "CLI `palmux runtime install --require-version <tag>`", "tested_by": "sa8e7d0_selfupdate_harden.py (flag accepted) + TestImageIsStrictlyOlder (guard logic)" },
+      { "surface": "CLI `palmux update --check` 取得不可 label", "tested_by": "sa8e7d0_selfupdate_harden.py" },
+      { "surface": "GUI update-panel 取得不可 tag (data-testid update-unfetchable-<name>)", "tested_by": "sa8e7d0_badge_honesty.py" },
+      { "surface": "systemd unit palmux-update.service (nix) + systemctl trigger", "tested_by": "deploy-VM survival smoke + TestRunUpdateForegroundUsesIndependentUnit/*UnitFailurePropagates + TestWatchUpdateUnitClearsGuardOnFailure" }
+    ],
+    "result": "every added user-observable surface has a passing test"
+  },
+  "done_judgment": {
+    "Sa8e7d0-1": { "overall": "ok" },
+    "Sa8e7d0-2": { "overall": "ok" }
+  }
+}

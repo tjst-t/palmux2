@@ -101,11 +101,17 @@ func runUpdateCheck(ctx context.Context, svc *selfupdate.Service) int {
 			latest = "(取得不可)"
 		}
 		marker := "  "
-		if c.Available {
+		suffix := ""
+		switch {
+		case c.Available:
 			marker = "↑ "
+			suffix = "  [更新あり]"
+		case !c.Fetchable:
+			// Sa8e7d0-2-2: source has no resolvable latest (e.g. gwq has no
+			// releases). Not an update candidate — label it 取得不可, never 更新あり.
+			suffix = "  [取得不可]"
 		}
-		fmt.Printf("  %s%-16s %s → %s%s\n", marker, c.Display, installed, latest,
-			map[bool]string{true: "  [更新あり]", false: ""}[c.Available])
+		fmt.Printf("  %s%-16s %s → %s%s\n", marker, c.Display, installed, latest, suffix)
 	}
 	if snap.Degraded {
 		fmt.Println("\n注意: 一部コンポーネントの latest を GitHub から取得できませんでした (レート制限/到達不可)。GITHUB_TOKEN を設定すると緩和されます。")

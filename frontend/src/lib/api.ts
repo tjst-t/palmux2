@@ -303,6 +303,10 @@ export interface SelfUpdateComponent {
   installed: string
   latest: string
   available: boolean
+  // Sa8e7d0-2-2: false when this component's latest version could not be
+  // resolved (no releases / GitHub unreachable). Rendered as "取得不可" instead
+  // of "最新"; never counts toward the "update available" badge.
+  fetchable: boolean
 }
 
 export interface SelfUpdateSnapshot {

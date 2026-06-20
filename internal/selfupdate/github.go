@@ -25,7 +25,7 @@ type ghRelease struct {
 // (e.g. "v0.11.0").
 //
 // The HTTP/auth/header plumbing is the same shape as
-// cmd/palmux/runtime.go:latestReleaseAssetURL — reused rather than reinvented.
+// cmd/palmux/runtime.go:latestReleaseAssetURLTag — reused rather than reinvented.
 func LatestTag(ctx context.Context, repo string) (string, error) {
 	repo = strings.TrimSpace(repo)
 	if repo == "" {
@@ -52,6 +52,13 @@ func LatestTag(ctx context.Context, repo string) (string, error) {
 		// (decisions PD-3) without flapping the badge.
 		return "", &RateLimitError{Status: resp.StatusCode}
 	}
+	if resp.StatusCode == http.StatusNotFound {
+		// 404 = the repo has NO published releases at all (e.g. tjst-t/gwq). This
+		// is a STABLE fact, not a transient failure: surface a typed error so the
+		// poller marks the component un-fetchable WITHOUT flagging the whole cycle
+		// Degraded (which would falsely show the rate-limit banner forever).
+		return "", &NoReleasesError{Repo: repo}
+	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return "", fmt.Errorf("GitHub API returned %d for %s: %s", resp.StatusCode, repo, string(body))
@@ -72,4 +79,14 @@ type RateLimitError struct{ Status int }
 
 func (e *RateLimitError) Error() string {
 	return fmt.Sprintf("GitHub rate-limited (HTTP %d); set GITHUB_TOKEN for higher limits", e.Status)
+}
+
+// NoReleasesError marks a 404 from the releases/latest endpoint — the repo has
+// no published releases at all. This is a permanent, non-degrading condition
+// (the component is simply un-fetchable, not transiently unreachable), so the
+// poller must NOT flag the whole cycle Degraded for it (Sa8e7d0-2-2).
+type NoReleasesError struct{ Repo string }
+
+func (e *NoReleasesError) Error() string {
+	return fmt.Sprintf("%s has no published GitHub releases", e.Repo)
 }

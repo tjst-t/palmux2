@@ -110,15 +110,21 @@ export function UpdatePanel() {
                       {c.installed || '?'} <span className={styles.arrow}>→</span>{' '}
                       <span className={styles.new}>{c.latest}</span>
                     </>
-                  ) : (
+                  ) : c.fetchable ? (
                     <>{c.installed || '?'} (最新)</>
+                  ) : (
+                    <>{c.installed || '?'} (最新版を取得できません)</>
                   )}
                 </div>
               </div>
               {c.available ? (
                 <span className={styles.uptag}>更新あり</span>
-              ) : (
+              ) : c.fetchable ? (
                 <span className={styles.curtag}>最新</span>
+              ) : (
+                <span className={styles.curtag} data-testid={`update-unfetchable-${c.name}`}>
+                  取得不可
+                </span>
               )}
             </div>
           ))}
