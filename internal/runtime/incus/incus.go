@@ -878,6 +878,18 @@ func isLocalhostBind(addr string) bool {
 	return addr == "127.0.0.1" || addr == "::1" || addr == "localhost"
 }
 
+// isLoopbackBind is a broader loopback check than isLocalhostBind: it also covers
+// the whole 127.0.0.0/8 block (e.g. systemd-resolved's 127.0.0.53/54 stubs) and
+// zone-suffixed forms (::1%lo, [::1]). Used when aggregating the Ports view so a
+// port that only ever binds loopback is correctly flagged localhost-only.
+func isLoopbackBind(addr string) bool {
+	a := strings.Trim(addr, "[]")
+	if i := strings.IndexByte(a, '%'); i >= 0 {
+		a = a[:i] // strip zone id like "%lo"
+	}
+	return a == "localhost" || a == "::1" || strings.HasPrefix(a, "127.")
+}
+
 // isGlobalBind returns true for addresses that already allow connections from
 // outside the container (0.0.0.0, *, ::, [::]).
 func isGlobalBind(addr string) bool {

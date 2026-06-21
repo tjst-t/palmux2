@@ -302,25 +302,57 @@ func (r *incusRuntime) recordPorts(ports []runtime.ListeningPort) {
 func (r *incusRuntime) PortsView() []runtime.PortView {
 	r.portsMu.RLock()
 	defer r.portsMu.RUnlock()
-	out := make([]runtime.PortView, 0, len(r.lastPorts))
-	seen := make(map[int]bool, len(r.lastPorts))
+	// Aggregate the scan snapshot by port number: a service listening on several
+	// addresses (e.g. 0.0.0.0:80 AND [::]:80, or 127.0.0.1:9222 AND <bridge>:9222)
+	// is ONE port, not one row per bind address. A port is localhost-only only
+	// when EVERY bind for it is loopback (then it needs the in-container relay to
+	// be reachable). No port-number filter — every listening port is shown,
+	// including well-known ones like 80/443 (a dev nginx is a real dev server).
+	type portAgg struct {
+		proto, bindAddr, process string
+		localhostOnly            bool
+	}
+	byPort := make(map[int]*portAgg)
+	order := make([]int, 0, len(r.lastPorts))
 	for _, p := range r.lastPorts {
-		if p.Port < 1024 {
-			continue // system ports are not user dev servers
+		if a := byPort[p.Port]; a != nil {
+			a.localhostOnly = a.localhostOnly && isLoopbackBind(p.BindAddr)
+			// Prefer a non-loopback bind address for display (the reachable one).
+			if isLoopbackBind(a.bindAddr) && !isLoopbackBind(p.BindAddr) {
+				a.bindAddr = p.BindAddr
+			}
+			if a.process == "" {
+				a.process = p.Process
+			}
+			continue
 		}
-		seen[p.Port] = true
-		st, exposed := r.exposed[p.Port]
-		hst, hostPublished := r.hostExposed[p.Port]
+		byPort[p.Port] = &portAgg{
+			proto:         p.Proto,
+			bindAddr:      p.BindAddr,
+			process:       p.Process,
+			localhostOnly: isLoopbackBind(p.BindAddr),
+		}
+		order = append(order, p.Port)
+	}
+	sort.Ints(order)
+
+	out := make([]runtime.PortView, 0, len(order))
+	seen := make(map[int]bool, len(order))
+	for _, port := range order {
+		a := byPort[port]
+		seen[port] = true
+		st, exposed := r.exposed[port]
+		hst, hostPublished := r.hostExposed[port]
 		hostURL := ""
 		if hostPublished {
 			hostURL = r.hostURL(hst.hostPort)
 		}
 		out = append(out, runtime.PortView{
-			Port:          p.Port,
-			Proto:         p.Proto,
-			BindAddr:      p.BindAddr,
-			Process:       p.Process,
-			LocalhostOnly: isLocalhostBind(p.BindAddr),
+			Port:          port,
+			Proto:         a.proto,
+			BindAddr:      a.bindAddr,
+			Process:       a.process,
+			LocalhostOnly: a.localhostOnly,
 			Public:        st.public,
 			Exposed:       exposed,
 			PublicURL:     st.url,

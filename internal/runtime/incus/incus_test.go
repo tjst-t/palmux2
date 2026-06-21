@@ -787,6 +787,54 @@ func TestListListeningPorts_Parse(t *testing.T) {
 	}
 }
 
+// TestPortsView_DedupAndAllPorts verifies the Ports view (a) shows EVERY
+// listening port — no low-port (<1024) filter, so a dev nginx on :80 appears —
+// and (b) collapses a port listening on multiple addresses into a SINGLE row,
+// with LocalhostOnly true only when every bind is loopback.
+func TestPortsView_DedupAndAllPorts(t *testing.T) {
+	rt := &incusRuntime{}
+	rt.recordPorts([]runtime.ListeningPort{
+		{Port: 80, Proto: "tcp", BindAddr: "0.0.0.0", Process: "nginx"},
+		{Port: 80, Proto: "tcp", BindAddr: "::", Process: "nginx"}, // dup bind of 80
+		{Port: 9222, Proto: "tcp", BindAddr: "127.0.0.1"},
+		{Port: 9222, Proto: "tcp", BindAddr: "10.100.50.90"}, // dup bind of 9222 (one non-loopback)
+		{Port: 53, Proto: "tcp", BindAddr: "127.0.0.53"},     // resolved stub — loopback (127.0.0.0/8)
+		{Port: 3000, Proto: "tcp", BindAddr: "127.0.0.1"},    // truly localhost-only
+	})
+	views := rt.PortsView()
+
+	byPort := map[int]runtime.PortView{}
+	for _, v := range views {
+		if _, dup := byPort[v.Port]; dup {
+			t.Fatalf("port %d appears in more than one row — dedup failed", v.Port)
+		}
+		byPort[v.Port] = v
+	}
+
+	// (a) no <1024 filter: 80 and 53 must be present.
+	for _, p := range []int{80, 53, 3000, 9222} {
+		if _, ok := byPort[p]; !ok {
+			t.Errorf("port %d must be shown (all listening ports are listed)", p)
+		}
+	}
+	// (b) dedup + localhost-only aggregation.
+	if v := byPort[80]; v.LocalhostOnly {
+		t.Errorf("80 binds 0.0.0.0/:: → must NOT be localhost-only (bind=%s)", v.BindAddr)
+	}
+	if v := byPort[9222]; v.LocalhostOnly {
+		t.Errorf("9222 also binds a non-loopback addr → must NOT be localhost-only (bind=%s)", v.BindAddr)
+	}
+	if v := byPort[9222]; isLoopbackBind(v.BindAddr) {
+		t.Errorf("9222 should display the reachable (non-loopback) bind, got %q", v.BindAddr)
+	}
+	if v := byPort[53]; !v.LocalhostOnly {
+		t.Errorf("53 (only 127.0.0.53) must be localhost-only")
+	}
+	if v := byPort[3000]; !v.LocalhostOnly {
+		t.Errorf("3000 (only 127.0.0.1) must be localhost-only")
+	}
+}
+
 // -------------------------------------------------------------------------
 // TestExposePort_BindInstance verifies that ExposePort (HostPort==0) starts
 // an in-container Python relay via `incus exec <inst> -- sh -c ...` rather
