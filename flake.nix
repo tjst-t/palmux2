@@ -36,5 +36,21 @@
       });
 
       lib.mkPalmuxHost = import ./nix/lib/mkPalmuxHost.nix { inherit inputs; };
+
+      # palmuxOS NixOS appliance (Sb14caa). Additive — does not affect the
+      # install.sh / lib.mkPalmuxHost (home-manager on Ubuntu) path. The overlay
+      # exposes pkgs.palmux2 / pkgs.caddy-cloudflare for the module's references;
+      # the root flake keeps nix/packages in-tree, so there is no cross-flake-root
+      # path issue (unlike a nixos/-subdir flake).
+      overlays.default = final: prev: {
+        palmux2 = final.callPackage ./nix/packages/palmux2.nix { };
+        caddy-cloudflare = final.callPackage ./nix/packages/caddy-cloudflare.nix { };
+      };
+
+      nixosModules = {
+        palmux = ./nixos/modules/palmux.nix;       # services.palmux.* host layer
+        appliance = ./nixos/modules/appliance.nix; # appliance: state split + drop-in
+        default = ./nixos/modules/appliance.nix;
+      };
     };
 }
