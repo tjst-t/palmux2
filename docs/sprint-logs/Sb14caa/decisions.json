@@ -1,0 +1,46 @@
+{
+  "sprint": "Sb14caa",
+  "title": "palmuxOS — NixOS アプライアンス化",
+  "mode": "sprint auto (main-loop driven — infra-bound: nix builds on a controller VM + nixos-rebuild on the test VM; sub-agents in worktrees have no nix/VM access)",
+  "execution_constraint": "Stage 1-4 on a disposable VM (testbox 192.168.1.44, installed via nixos-anywhere from controller 192.168.1.43). Stage 5 (dev VM blue-green) is NOT done autonomously — needs_user_review.",
+  "planning_decisions": [
+    {
+      "id": "PD-1",
+      "decision": "root flake を NixOS appliance modules の正典にする",
+      "detail": "既存 root flake.nix は ./nix/packages を in-tree で持つので cross-flake-root path 問題が無い。nixosModules.{palmux,appliance} + overlays.default を root flake から公開(追加のみ、install.sh の lib.mkPalmuxHost に無影響)。scaffold の nixos/flake.nix(../nix 参照) は使わない。",
+      "rationale": "install.sh path を壊さず宣言化(VISION: 自前ホスティング)。DESIGN: 既存資産活用。"
+    }
+  ],
+  "implementation_decisions": [
+    {
+      "id": "ID-1",
+      "story": "Sb14caa-1",
+      "decision": "テスト VM 実機構成に合わせる: SeaBIOS(legacy GRUB) + /dev/sda(VirtIO SCSI)",
+      "detail": "192.168.1.44 は OVMF/UEFI ではなく SeaBIOS、disk は /dev/vda ではなく /dev/sda。disko=GPT(1M EF02 bios_grub + ext4 root)、boot.loader.grub(legacy)。disko が EF02 から grub.devices を配線するので grub.device は設定しない(mirroredBoots 二重定義回避)。qemu-guest profile で virtio driver。"
+    },
+    {
+      "id": "ID-2",
+      "story": "Sb14caa-1",
+      "decision": "palmux2 の起動時必須バイナリ(tmux/ghq/gwq/git)を systemd service PATH に注入",
+      "detail": "ghq は nixpkgs。gwq は nixpkgs に無い→public な d-kuro/gwq の release を fetchurl で nix/packages/gwq.nix に packaging(静的 Go バイナリ、patchelf 不要)。install.sh と同一ソース(d-kuro/gwq)。overlay で pkgs.gwq 公開。"
+    },
+    {
+      "id": "ID-3",
+      "story": "Sb14caa-1",
+      "decision": "users.users.<palmux>.home を mkDefault でなく plain に",
+      "detail": "NixOS の isNormalUser default home(/home/<user>) も mkDefault のため、module 側 mkDefault と二重 mkDefault 衝突。home は stateDir option 由来の構造値なので plain(優先度100)で nixos default(1000)に勝たせる。"
+    }
+  ],
+  "verification": {
+    "Sb14caa-1": {
+      "AC-Sb14caa-1-1": "PASS — root flake の nixosModules.palmux が options.services.palmux.* を公開、nix build .#nixosConfigurations.testbox.config.system.build.toplevel が eval+build 成功(実機 controller 192.168.1.43)。",
+      "AC-Sb14caa-1-2": "PASS — 実 NixOS(192.168.1.44, nixos-anywhere で素 NixOS 導入済)に nixos-rebuild switch → palmux2.service active、127.0.0.1:7683 listen、HTTP / 200(title 'Palmux v2')、log 'palmux2 listening version=v0.11.4 auth=open'。host runtime。",
+      "AC-Sb14caa-1-3": "BLOCKED(needs_user_review) — SSO(services.caddy forward_auth + *.domain wildcard)は実公開ドメイン + Cloudflare API token(DNS-01)が必要。testbox は domain=null(local-only)で検証不可。実ドメイン付きホスト(または Stage 5 dev/ndev)で要検証。これは外部クレデンシャル依存の escalation。"
+    }
+  },
+  "notes": [
+    "nixos-anywhere は controller(deploy VM, Determinate Nix)から実行。dev 箱には nix が無く、かつ触らない方針のため。",
+    "controller iteration: path:/home/ubuntu/palmux2-src を rsync で更新 → /tmp/tb/flake.lock 削除で再 lock(NAR hash mismatch 回避)。",
+    "Stage 2(incus-on-NixOS)以降は継続予定。Stage 5(dev blue-green)は autonomous で実行しない。"
+  ]
+}

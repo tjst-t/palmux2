@@ -98,7 +98,10 @@ in {
     {
       users.users.${cfg.user} = {
         isNormalUser = lib.mkDefault true;
-        home = lib.mkDefault cfg.stateDir;
+        # plain (not mkDefault): derived from the stateDir option, and must win
+        # over NixOS's isNormalUser default home (/home/<user>), which is also
+        # mkDefault — two mkDefaults would conflict.
+        home = cfg.stateDir;
         createHome = lib.mkDefault true;
         # incus-admin so palmux2 can drive the workspace runtime; see
         # project memory: missing group → silent host rollback.
@@ -111,8 +114,11 @@ in {
         wantedBy = [ "multi-user.target" ];
         after = [ "network-online.target" ] ++ lib.optional cfg.incus.enable "incus.service";
         wants = [ "network-online.target" ];
-        # palmux2 shells out to tmux/git/incus/claude.
-        path = with pkgs; [ tmux git gitMinimal openssh ] ++ lib.optional cfg.incus.enable pkgs.incus;
+        # palmux2 requires tmux/ghq/gwq/git on PATH at startup, and shells out to
+        # incus when the container runtime is enabled. gwq comes from the overlay
+        # (nix/packages/gwq.nix); ghq is in nixpkgs.
+        path = with pkgs; [ tmux git gitMinimal openssh ghq gwq ]
+          ++ lib.optional cfg.incus.enable pkgs.incus;
         serviceConfig = {
           User = lib.mkDefault cfg.user;
           WorkingDirectory = lib.mkDefault cfg.stateDir;

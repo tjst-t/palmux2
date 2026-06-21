@@ -45,6 +45,7 @@
       overlays.default = final: prev: {
         palmux2 = final.callPackage ./nix/packages/palmux2.nix { };
         caddy-cloudflare = final.callPackage ./nix/packages/caddy-cloudflare.nix { };
+        gwq = final.callPackage ./nix/packages/gwq.nix { }; # palmux2 runtime dep (d-kuro/gwq)
       };
 
       nixosModules = {
