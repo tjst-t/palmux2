@@ -10339,7 +10339,7 @@
       "status": "planned",
       "milestone": true,
       "phase": "Phase 6 — palmuxOS",
-      "goal": "palmux ホストを NixOS で全体宣言化し、palmux を不変アプライアンス image として配布する。incus/Caddy/SSO/設定プレーンを services.palmux.* + virtualisation.incus + services.caddy に集約。更新は flake pin + nixos-rebuild の世代ロールバックで install.sh self-update(Sa8e7d0)を構造的に置換。設計は docs/nixos-appliance-design.md、scaffold は nixos/。",
+      "goal": "palmux ホストを NixOS で全体宣言化し、palmux を不変アプライアンス image として配布する。incus/Caddy/SSO/設定プレーンを services.palmux.* + virtualisation.incus + services.caddy に集約。更新は flake pin + nixos-rebuild の世代ロールバックで install.sh self-update(Sa8e7d0)を構造的に置換。設計は docs/nixos-appliance-design.md、scaffold は nixos/。 【実行制約(ユーザ指示)】Stage 1-4(Sb14caa-1〜4)の実装・実機テストは disposable VM で行う(推奨: test VM 192.168.1.41 か新規。deploy VM 192.168.1.43 は install.sh canary として温存)。dev VM(dev.tjstkm.net=Claude が乗る箱)では実装テストしない — dev VM は Stage 5(Sb14caa-5)の最終 blue-green 採用先のみ。",
       "stories": {
         "Sb14caa-1": {
           "title": "NixOS モジュールで palmux2 + Caddy(SSO) + 設定プレーンが nixos-rebuild だけで立つ",
