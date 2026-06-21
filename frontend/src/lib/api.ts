@@ -202,6 +202,9 @@ export interface PortView {
   proto: string
   bindAddr: string
   process: string
+  /** "user" | "system" | "palmux" — the UI shows user by default and reveals
+   *  system/palmux (OS infra / palmux's browser stack) behind a toggle. */
+  category?: string
   /** True when bound to 127.0.0.1 only — reachable via in-container relay. */
   localhostOnly: boolean
   /** True when the port is exposed without edge basic_auth. */

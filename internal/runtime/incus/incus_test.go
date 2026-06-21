@@ -833,6 +833,13 @@ func TestPortsView_DedupAndAllPorts(t *testing.T) {
 	if v := byPort[3000]; !v.LocalhostOnly {
 		t.Errorf("3000 (only 127.0.0.1) must be localhost-only")
 	}
+	// (c) category classification: user / system / palmux.
+	wantCat := map[int]string{80: "user", 3000: "user", 53: "system", 9222: "palmux"}
+	for port, want := range wantCat {
+		if got := byPort[port].Category; got != want {
+			t.Errorf("port %d category = %q, want %q", port, got, want)
+		}
+	}
 }
 
 // -------------------------------------------------------------------------

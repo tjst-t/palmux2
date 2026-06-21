@@ -76,6 +76,17 @@ function PortRow({ port: p, state, onToggle, onFlipPublic, onCopy }: PortRowProp
           <span className={styles.portNum}>:{p.port}</span>
           <span className={styles.portMeta}>{p.proto} · {p.process}</span>
           <span className={styles.portBind}>{p.bindAddr}</span>
+          {(p.category === 'system' || p.category === 'palmux') && (
+            <span
+              className={`${styles.catBadge} ${p.category === 'palmux' ? styles.catBadgePalmux : styles.catBadgeSystem}`}
+              data-testid={`ports-cat-badge-${p.port}`}
+              title={p.category === 'palmux'
+                ? 'palmux の Browser タブ用ポート (noVNC / CDP) — あなたのサーバではありません'
+                : 'OS のシステム/インフラポート'}
+            >
+              {p.category}
+            </span>
+          )}
           {p.localhostOnly && (
             <span className={styles.relayMark} title="localhost-only — exposed via in-container relay">
               localhost · relay
@@ -403,10 +414,17 @@ export function PortsView({ repoId, branchId }: TabViewProps) {
     }, 1500)
   }, [setRow])
 
+  // Reveal system (OS infra) + palmux-internal (browser stack) ports. Hidden by
+  // default so the tab shows only the user's dev servers.
+  const [showHidden, setShowHidden] = useState(false)
+
   // ── Derived state ──────────────────────────────────────────────────────────
   const runtimeKind = portsData?.runtimeKind ?? branch?.runtime?.kind ?? 'host'
   const isHost = runtimeKind === 'host'
   const ports = portsData?.ports ?? []
+  const isUserPort = (p: PortView) => !p.category || p.category === 'user'
+  const hiddenCount = ports.filter((p) => !isUserPort(p)).length
+  const visiblePorts = showHidden ? ports : ports.filter(isUserPort)
   // S4c591a: host-port mode iff a public domain is NOT configured. Default to
   // subdomain mode (true) until the REST/WS payload tells us otherwise, so we
   // never flash the unauth-warning banner spuriously.
@@ -432,6 +450,16 @@ export function PortsView({ repoId, branchId }: TabViewProps) {
               : <>コンテナ内で listen 中のポートを <code>{'<port>--<workspace>--<repo>.<base>'}</code> の HTTPS サブドメインとして公開できます。公開は既定で <strong>エッジ basic_auth の内側</strong> — 🔒 を外すと無認証公開になります。</>
           }
         </p>
+        {!isHost && hiddenCount > 0 && (
+          <label className={styles.showHidden} data-testid="ports-show-hidden">
+            <input
+              type="checkbox"
+              checked={showHidden}
+              onChange={(e) => setShowHidden(e.target.checked)}
+            />
+            <span>システム / 内部ポートも表示 <span className={styles.showHiddenCount}>({hiddenCount})</span></span>
+          </label>
+        )}
       </div>
 
       {/* S4c591a: persistent host-port-mode notice (unauth warning + how to
@@ -469,20 +497,23 @@ export function PortsView({ repoId, branchId }: TabViewProps) {
             </div>
           </div>
         </div>
-      ) : ports.length === 0 ? (
+      ) : visiblePorts.length === 0 ? (
         <div className={styles.centeredState}>
           <div className={styles.emptyCard} data-testid="ports-empty">
             <div className={styles.emptyIcon}>🔌</div>
             <div className={styles.emptyTitle}>listen 中のポートはありません</div>
             <div className={styles.emptyDesc}>
               コンテナ内で dev サーバ (<code>npm run dev</code> / <code>python3 -m http.server</code> 等) を起動すると、ここに自動で現れます。10 秒ごとにスキャンします。
+              {hiddenCount > 0 && (
+                <> <br />（システム / 内部ポートが {hiddenCount} 個あります — 上のトグルで表示できます）</>
+              )}
             </div>
           </div>
         </div>
       ) : (
         <div className={styles.body}>
           <div className={styles.portsList}>
-            {ports.map((p) => (
+            {visiblePorts.map((p) => (
               hostPortMode ? (
                 <HostPortRow
                   key={p.port}

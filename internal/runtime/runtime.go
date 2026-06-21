@@ -93,6 +93,7 @@ type PortView struct {
 	Proto         string `json:"proto"`
 	BindAddr      string `json:"bindAddr"`
 	Process       string `json:"process"`
+	Category      string `json:"category"`      // "user" | "system" | "palmux" — UI hides system/palmux by default behind a toggle
 	LocalhostOnly bool   `json:"localhostOnly"` // bound to 127.0.0.1 — reachable via in-container relay
 	Public        bool   `json:"public"`        // exposed without edge basic_auth
 	Exposed       bool   `json:"exposed"`       // a public route exists for this port

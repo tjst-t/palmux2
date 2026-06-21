@@ -297,6 +297,41 @@ func (r *incusRuntime) recordPorts(ports []runtime.ListeningPort) {
 	r.portsMu.Unlock()
 }
 
+// palmuxInternalPorts are palmux's OWN Browser-tab stack ports (not user dev
+// servers): the noVNC display + the chromium CDP. Kept here (not imported from
+// internal/tab/browser) to avoid an import cycle; mirrors browser.VNCPort /
+// browser.CDPPort.
+var palmuxInternalPorts = map[int]bool{
+	5900: true, // x11vnc / noVNC Browser tab  (browser.VNCPort)
+	9222: true, // chromium CDP + in-container relay (browser.CDPPort)
+}
+
+// systemPorts are well-known OS/infra services that are almost never a user's
+// dev server (DNS resolver stub, ssh, dhcp, ntp, mDNS, …). Deliberately a small,
+// conservative denylist — common web-dev ports like 80/443/3000/8080 are NOT
+// here, so they stay in the "user" category.
+var systemPorts = map[int]bool{
+	22: true, 25: true, 53: true, 67: true, 68: true, 111: true,
+	123: true, 137: true, 138: true, 139: true, 323: true, 445: true,
+	631: true, 5353: true,
+}
+
+// portCategory classifies a port for the Ports view: "palmux" (palmux's browser
+// stack), "system" (OS/infra), or "user" (everything else — the dev servers the
+// user cares about). The UI shows "user" by default and reveals system/palmux
+// behind a toggle. Port-number based because the in-container ss scan does not
+// reliably carry process names.
+func portCategory(port int) string {
+	switch {
+	case palmuxInternalPorts[port]:
+		return "palmux"
+	case systemPorts[port]:
+		return "system"
+	default:
+		return "user"
+	}
+}
+
 // PortsView returns the user-facing view of the container's listening ports,
 // merged with the current exposure state. (See8bd4-3)
 func (r *incusRuntime) PortsView() []runtime.PortView {
@@ -352,6 +387,7 @@ func (r *incusRuntime) PortsView() []runtime.PortView {
 			Proto:         a.proto,
 			BindAddr:      a.bindAddr,
 			Process:       a.process,
+			Category:      portCategory(port),
 			LocalhostOnly: a.localhostOnly,
 			Public:        st.public,
 			Exposed:       exposed,
@@ -373,6 +409,7 @@ func (r *incusRuntime) PortsView() []runtime.PortView {
 		out = append(out, runtime.PortView{
 			Port:          port,
 			Proto:         "tcp",
+			Category:      portCategory(port),
 			Public:        st.public,
 			Exposed:       exposed,
 			PublicURL:     st.url,
