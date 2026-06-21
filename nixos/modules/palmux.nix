@@ -148,7 +148,12 @@ in {
           name = "incusbr0";
           type = "bridge";
           config = {
-            "ipv4.address" = "auto";
+            # STATIC, not "auto": the preseed is re-applied on every incus
+            # (re)start, and "auto" re-randomises the subnet each time — the bridge
+            # address keeps changing and containers never get a stable DHCP lease
+            # (observed: 10.141→10.1.207→… and no container IP). A fixed address is
+            # idempotent across re-applies.
+            "ipv4.address" = "10.100.50.1/24";
             "ipv4.nat" = "true";
             "ipv6.address" = "none";
           };
@@ -184,6 +189,29 @@ in {
       # so incus re-reads the map; on fresh boot the activation runs before incus
       # starts. TODO(stage2): order an incus restart trigger on the subid file.)
       networking.nftables.enable = lib.mkDefault true; # incus bridge fw
+      # Trust the incus bridge: the firewall's input chain drops conntrack-invalid
+      # packets (`ct state invalid : drop`) BEFORE the per-port accepts, and a
+      # container's DHCP DISCOVER (src 0.0.0.0, broadcast) is classed invalid — so
+      # it's dropped before reaching dnsmasq and the container never leases. Trusted
+      # interfaces are accepted early, before the conntrack check. (plain list — it
+      # must merge, not mkDefault.)
+      networking.firewall.trustedInterfaces = [ "incusbr0" ];
+      # Don't run the host firewall on L2-bridged frames. With br_netfilter's
+      # bridge-nf-call-iptables=1 (its default once loaded), a workspace
+      # container's DHCP DISCOVER/OFFER across incusbr0 traverses nftables and is
+      # dropped — the container never gets a lease (no IP → no DNS → "couldn't
+      # resolve host" inside the workspace). NAT for container→internet is routed
+      # (postrouting masquerade), not bridged, so this does not affect it.
+      boot.kernel.sysctl = {
+        "net.bridge.bridge-nf-call-iptables" = 0;
+        "net.bridge.bridge-nf-call-ip6tables" = 0;
+        "net.bridge.bridge-nf-call-arptables" = 0;
+        # Route container→internet. incus adds the masquerade rule for ipv4.nat but
+        # NixOS does not enable IP forwarding by default, so packets from the
+        # workspace container never leave the host (DNS resolves via the host's
+        # dnsmasq, but TCP to the internet times out) without this.
+        "net.ipv4.ip_forward" = 1;
+      };
       # palmux-ws image install (`palmux runtime install`) is a runtime step (1GB
       # download), run post-switch by the operator or a oneshot — not declarative.
     })
