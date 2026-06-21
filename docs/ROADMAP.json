@@ -10436,6 +10436,11 @@
               "id": "AC-Sb14caa-3-2",
               "description": "~/ghq・~/.claude(+.claude.json)・~/.config/palmux・secrets.env が /persist に bind-mount され、image を別世代/別ビルドに差し替えても state が残存することを実証。",
               "status": "pending"
+            },
+            {
+              "id": "AC-Sb14caa-3-3",
+              "description": "配布 image に SSH 鍵/パスワードが一切焼かれていない(image-build CI で authorized_keys を grep して空を確認)。デプロイ者は cloud-init(Proxmox ドライブ等)で初回ブートに自分の公開鍵を注入してログインでき、作者/個人の鍵はどの配布物にも含まれない。services.cloud-init.enable + PasswordAuthentication=false が既定。",
+              "status": "pending"
             }
           ],
           "tasks": {

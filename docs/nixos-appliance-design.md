@@ -125,6 +125,33 @@ bind-mount で各所へ）に置き、image を再ビルド/差し替え/アッ�
 化は state/image 分離を**強制する**ので、そのデータが設計上「明示的・可搬・バックアップ対象」に
 なり、むしろ綺麗に解決する。
 
+## アクセスと鍵 — 配布物に作者/運用者の鍵を焼かない（セキュリティ要件）
+
+**配布するアプライアンス image / `nixosModules.*` には SSH 鍵・パスワードを一切焼かない。**
+作者の公開鍵を image に焼けば、それは**全 PalmuxOS への作者バックドア**になる。配るのは
+**コード（モジュール）であって鍵ではない**。作者/個人の鍵は、配布しない自分のホスト config
+（`nixos/hosts/testbox/` 等）にだけ存在してよい。
+
+デプロイ**する人**が、初回ブート時に**自分の鍵を注入**する。手段:
+
+1. **cloud-init（主、Proxmox ネイティブ）** — image は鍵ゼロ。Proxmox の cloud-init ドライブで
+   デプロイ者の公開鍵を渡す → 初回ブートで注入（`services.cloud-init.enable`）。Ubuntu cloud
+   image が鍵を焼かずにログインできるのと同じ。
+2. **palmux 初回 onboarding/claim（web）** — 初回ブートを未 claim 状態にし、最初のアクセスで
+   運用者がパスワード/SSO secret（＋任意で鍵）を設定するまで何も公開しない（Sa53137 onboarding
+   の延長）。cloud-init を使わない人向けの palmux ネイティブ経路。
+3. **flake 合成派** — 自分の flake に自分の鍵を書いて自分でビルド（`examples/user-flake/`）。
+
+運用者が自分の鍵を `/etc/palmux/local/*.nix` に足すのは、上記で**最初のアクセスを得た後**。
+つまり「**image は鍵ゼロで出荷、鍵はデプロイ単位で初回注入**」。
+
+`modules/appliance.nix` は `services.openssh.enable` + `services.cloud-init.enable` +
+`PasswordAuthentication=false` を既定にし、**authorizedKeys は一切設定しない**。
+「配布 image に鍵が焼かれていない」不変条件は **eval assertion ではなく image-build の CI
+チェック**（ビルドした image の authorized_keys を grep）で担保する（assertion は「出荷 image の
+ビルド」と「運用者の rebuild（鍵を足してよい）」を区別できず、正当なカスタマイズを壊すため）。
+TODO(stage3): image-build の no-baked-keys CI チェックを追加。
+
 ## 更新（Update）— ここが install.sh self-update を根本から置き換える
 
 palmux の v0.11.x は self-update の堅牢化に何度も苦しんだ（Sa8e7d0: 更新ヘルパが

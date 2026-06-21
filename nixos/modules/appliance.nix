@@ -38,8 +38,31 @@
     flake = lib.mkDefault "/etc/palmux";
   };
 
-  # ── login / access ─────────────────────────────────────────────────────────
+  # ── login / access — NEVER bake an author/operator key into the image ──────
+  # SECURITY: a distributed appliance image MUST ship with ZERO baked SSH keys /
+  # passwords. Baking the author's pubkey here would be a backdoor into every
+  # deployed PalmuxOS. Access is provisioned by the DEPLOYER at first boot:
+  #   1. cloud-init (primary, Proxmox-native): the deployer attaches their own
+  #      SSH pubkey via the platform's cloud-init drive → injected on first boot.
+  #   2. palmux first-boot onboarding/claim (web): the operator claims the
+  #      instance (password / SSO secret / optional key) before anything is
+  #      exposed (extends the Sa53137 onboarding wizard).
+  #   3. source/flake users put THEIR OWN key in THEIR OWN flake (examples/user-flake).
+  # The operator's own key is later layered via /etc/palmux/local/*.nix — AFTER
+  # they have claimed access. This module deliberately sets NO authorizedKeys.
   services.openssh.enable = lib.mkDefault true;
+  services.openssh.settings.PasswordAuthentication = lib.mkDefault false;
+  services.cloud-init.enable = lib.mkDefault true; # first-boot key/user injection from the platform
+
+  # This module sets NO authorizedKeys — that is the whole point. The deployer's
+  # key is provisioned at first boot (cloud-init / onboarding) or layered in their
+  # own /etc/palmux/local AFTER claiming. So a deployed+customized appliance WILL
+  # have the deployer's key; the *distributed image build* must not. That "no
+  # baked keys in the shipped artifact" invariant is enforced by an image-build CI
+  # check (grep the built image's authorized_keys), NOT by an eval assertion —
+  # an assertion can't tell the shipped-image build from an operator's rebuild and
+  # would wrongly break legitimate operator customization. TODO(stage3): add the
+  # image-build no-baked-keys CI check.
 
   # NOTE: the OPERATOR DROP-IN import is wired in the ON-APPLIANCE flake
   # (examples/onappliance-flake/flake.nix), which does:
