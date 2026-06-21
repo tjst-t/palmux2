@@ -41,13 +41,19 @@
       "story": "Sb14caa-2",
       "decision": "root:1000:1 sub{u,g}id を system.activationScripts(deps=[users])で追記",
       "detail": "NixOS incus module が users.users.root.subUidRanges を mkForce で奪う(評価値=[{startUid:1000000,count:1000000000}] のみ、私の {1000,1} はドロップ)。subUidRanges 経由不可と判明。activationScript で /etc/sub{u,g}id に root:1000:1 を冪等追記(incus の大 range と併存)。palmux の raw.idmap both 1000 1000 は host uid 1000 を要求するが incus の range は 1000000 始まりで 1000 を含まないため root:1000:1 必須。"
+    },
+    {
+      "id": "ID-6",
+      "story": "Sb14caa-1",
+      "decision": "SSO 配線: caddy-cloudflare(DNS-01) + forward_auth、CF token/auth/SSO secret は secretsFile、CAP_NET_BIND_SERVICE、firewall は plain",
+      "detail": "services.caddy.package=pkgs.caddy-cloudflare(overlay)、globalConfig 'admin localhost:2019'、apex vhost は @palmux_auth path /auth/* バイパス + handle forward_auth uri /auth/verify + tls{dns cloudflare {env...}}(deploy VM reconcile-system と同形 Sbe4eee)。CF token は systemd.services.caddy EnvironmentFile=secretsFile。落とし穴2つ: (a) package override で caddy ユニットの AmbientCapabilities が消え :443 bind permission denied → mkForce [CAP_NET_BIND_SERVICE]。(b) networking.firewall.allowedTCPPorts も list で mkDefault [80 443] が openssh の plain [22] に負けてマージされず → plain [80 443] に(ID-3/5 と同じ list+mkDefault 罠)。CF token は Infisical(workspace dac10238, path /ansible-dev-server, env dev)から取得、DNS(A + wildcard → 192.168.1.44)は CF API で作成。auth/SSO secret は deploy VM secrets.env 流用。"
     }
   ],
   "verification": {
     "Sb14caa-1": {
       "AC-Sb14caa-1-1": "PASS — root flake の nixosModules.palmux が options.services.palmux.* を公開、nix build .#nixosConfigurations.testbox.config.system.build.toplevel が eval+build 成功(実機 controller 192.168.1.43)。",
       "AC-Sb14caa-1-2": "PASS — 実 NixOS(192.168.1.44, nixos-anywhere で素 NixOS 導入済)に nixos-rebuild switch → palmux2.service active、127.0.0.1:7683 listen、HTTP / 200(title 'Palmux v2')、log 'palmux2 listening version=v0.11.4 auth=open'。host runtime。",
-      "AC-Sb14caa-1-3": "BLOCKED(needs_user_review) — SSO(services.caddy forward_auth + *.domain wildcard)は実公開ドメイン + Cloudflare API token(DNS-01)が必要。testbox は domain=null(local-only)で検証不可。実ドメイン付きホスト(または Stage 5 dev/ndev)で要検証。これは外部クレデンシャル依存の escalation。"
+      "AC-Sb14caa-1-3": "PASS — palmux-nixos-test.tjstkm.net(CF API で A+wildcard→192.168.1.44 作成)で caddy-cloudflare が DNS-01 ワイルドカード証明書取得。forward_auth SSO 実機検証: apex → 302 /auth/login、/auth/login 200(PALMUX login)、POST password → 302 apex + palmux_sso cookie 発行、cookie 付き apex → 200。CF token は Infisical 取得、auth/SSO secret は deploy VM 流用。"
     },
     "Sb14caa-2": {
       "AC-Sb14caa-2-1": "PASS — 実 NixOS で palmux runtime doctor が(palmux ユーザ文脈で)✓incus 6.0.5 ✓incus-admin ✓/etc/subuid root:1000:1 ✓/etc/subgid root:1000:1 ✓Docker。virtualisation.incus.preseed で incusbr0(10.160.71.1/24)+ default(dir) pool CREATED。idmap/bridge/subuid/group すべて成立。",

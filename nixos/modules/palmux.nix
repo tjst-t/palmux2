@@ -192,25 +192,51 @@ in {
     # Caddy front (TLS + SSO + wildcard port subdomains)
     ##########################################################################
     (lib.mkIf (cfg.caddy.enable && cfg.domain != null) {
-      networking.firewall.allowedTCPPorts = lib.mkIf cfg.openFirewall (lib.mkDefault [ 80 443 ]);
+      # plain (not mkDefault): allowedTCPPorts is a list — an mkDefault definition
+      # loses entirely to plain ones (e.g. openssh's [22]) instead of merging, so
+      # 80/443 would silently drop. Plain concatenates → [22 80 443].
+      networking.firewall.allowedTCPPorts = lib.mkIf cfg.openFirewall [ 80 443 ];
       services.caddy = {
         enable = lib.mkDefault true;
-        # TODO(stage1): Cloudflare DNS-01 needs the caddy-cloudflare build
-        # (nix/packages/caddy-cloudflare.nix) as services.caddy.package for the
-        # wildcard cert. Apex = forward_auth → palmux /auth/verify (SSO);
-        # *.domain = wildcard 502 catch-all that palmux's admin-API routes front.
+        # Caddy built with the Cloudflare DNS plugin (DNS-01 wildcard cert).
+        package = lib.mkDefault pkgs.caddy-cloudflare;
+        # palmux injects per-port subdomain routes via the admin API (See8bd4).
+        globalConfig = lib.mkDefault "admin localhost:2019";
+        # Apex = SSO (forward_auth → palmux /auth/verify), with /auth/* bypassed so
+        # the login page is reachable. Mirrors the reconcile-system render (Sbe4eee).
         virtualHosts.${cfg.domain}.extraConfig = lib.mkDefault ''
-          forward_auth ${cfg.bindAddr} {
-            uri /auth/verify
-            copy_headers X-Palmux-User
+          @palmux_auth path /auth/*
+          handle @palmux_auth {
+            reverse_proxy ${cfg.bindAddr}
           }
-          reverse_proxy ${cfg.bindAddr}
+          handle {
+            forward_auth ${cfg.bindAddr} {
+              uri /auth/verify
+            }
+            reverse_proxy ${cfg.bindAddr}
+          }
+          tls {
+            dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+          }
+          encode zstd gzip
         '';
+        # *.domain = wildcard (DNS-01 cert) + 502 catch-all that palmux's
+        # admin-API per-port routes are inserted ahead of.
         virtualHosts."*.${cfg.domain}".extraConfig = lib.mkDefault ''
-          # palmux injects per-port subroutes via the Caddy admin API; this is the
-          # 502 catch-all evaluated after them. (See See8bd4.)
-          respond "no route" 502
+          tls {
+            dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+          }
+          respond "no upstream" 502
         '';
+      };
+      # Caddy reads CLOUDFLARE_API_TOKEN (for DNS-01) from the secrets file; systemd
+      # reads the EnvironmentFile as root before dropping to the caddy user.
+      systemd.services.caddy.serviceConfig = {
+        EnvironmentFile = lib.mkIf (cfg.secretsFile != null) cfg.secretsFile;
+        # caddy runs as a non-root user with NoNewPrivileges — grant the capability
+        # to bind :80/:443 (the package override drops the module's default here).
+        AmbientCapabilities = lib.mkForce [ "CAP_NET_BIND_SERVICE" ];
+        CapabilityBoundingSet = lib.mkForce [ "CAP_NET_BIND_SERVICE" ];
       };
     })
   ]);

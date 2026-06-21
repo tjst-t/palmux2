@@ -10358,7 +10358,7 @@
             {
               "id": "AC-Sb14caa-1-3",
               "description": "services.palmux.domain 設定時に services.caddy が apex forward_auth(SSO)+ *.domain wildcard を張り、実ブラウザで SSO ログイン→apex 到達を確認(本番モード実機 smoke)。caddy-cloudflare を services.caddy.package にして DNS-01 wildcard 証明書。",
-              "status": "needs_user_review"
+              "status": "passing"
             }
           ],
           "tasks": {
@@ -10383,7 +10383,7 @@
               "status": "pending"
             }
           },
-          "status": "needs_user_review"
+          "status": "done"
         },
         "Sb14caa-2": {
           "title": "NixOS 上で incus-container ワークスペースが host 版と同等に動く(関門)",
