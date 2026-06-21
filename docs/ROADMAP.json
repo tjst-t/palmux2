@@ -10361,28 +10361,28 @@
               "status": "pending"
             }
           ],
-          "tasks": [
-            {
+          "tasks": {
+            "Sb14caa-1-1": {
               "id": "Sb14caa-1-1",
-              "description": "nixos/flake.nix + modules/palmux.nix を eval 通す(palmux2 package 参照, root-flake vs subdir を確定)",
+              "title": "nixos/flake.nix + modules/palmux.nix を eval 通す(palmux2 package 参照, root-flake vs subdir を確定)",
               "status": "pending"
             },
-            {
+            "Sb14caa-1-2": {
               "id": "Sb14caa-1-2",
-              "description": "systemd service(User=palmux, palmux2 serve --addr, EnvironmentFile=secrets) を NixOS native で定義",
+              "title": "systemd service(User=palmux, palmux2 serve --addr, EnvironmentFile=secrets) を NixOS native で定義",
               "status": "pending"
             },
-            {
+            "Sb14caa-1-3": {
               "id": "Sb14caa-1-3",
-              "description": "services.caddy で apex SSO + wildcard、caddy-cloudflare package、firewall",
+              "title": "services.caddy で apex SSO + wildcard、caddy-cloudflare package、firewall",
               "status": "pending"
             },
-            {
+            "Sb14caa-1-4": {
               "id": "Sb14caa-1-4",
-              "description": "NixOS VM で実ブラウザ SSO + 各タブの acceptance",
+              "title": "NixOS VM で実ブラウザ SSO + 各タブの acceptance",
               "status": "pending"
             }
-          ]
+          }
         },
         "Sb14caa-2": {
           "title": "NixOS 上で incus-container ワークスペースが host 版と同等に動く(関門)",
@@ -10405,23 +10405,23 @@
               "status": "pending"
             }
           ],
-          "tasks": [
-            {
+          "tasks": {
+            "Sb14caa-2-1": {
               "id": "Sb14caa-2-1",
-              "description": "virtualisation.incus + subUid/subGidRanges + nftables bridge を配線",
+              "title": "virtualisation.incus + subUid/subGidRanges + nftables bridge を配線",
               "status": "pending"
             },
-            {
+            "Sb14caa-2-2": {
               "id": "Sb14caa-2-2",
-              "description": "palmux-ws image install を版 pin の oneshot 化(または post-deploy 手順を確定)",
+              "title": "palmux-ws image install を版 pin の oneshot 化(または post-deploy 手順を確定)",
               "status": "pending"
             },
-            {
+            "Sb14caa-2-3": {
               "id": "Sb14caa-2-3",
-              "description": "tests/acceptance 同様の incus-on-NixOS 実機 smoke(workspace/browser/ports/SSO)",
+              "title": "tests/acceptance 同様の incus-on-NixOS 実機 smoke(workspace/browser/ports/SSO)",
               "status": "pending"
             }
-          ]
+          }
         },
         "Sb14caa-3": {
           "title": "宣言から不変アプライアンス image を生成し可変 state を /persist に分離",
@@ -10438,23 +10438,23 @@
               "status": "pending"
             }
           ],
-          "tasks": [
-            {
+          "tasks": {
+            "Sb14caa-3-1": {
               "id": "Sb14caa-3-1",
-              "description": "nixos-generators ターゲット(qcow2/iso)を flake に追加",
+              "title": "nixos-generators ターゲット(qcow2/iso)を flake に追加",
               "status": "pending"
             },
-            {
+            "Sb14caa-3-2": {
               "id": "Sb14caa-3-2",
-              "description": "/persist の fileSystems + tmpfiles + bind-mount を appliance.nix で確定",
+              "title": "/persist の fileSystems + tmpfiles + bind-mount を appliance.nix で確定",
               "status": "pending"
             },
-            {
+            "Sb14caa-3-3": {
               "id": "Sb14caa-3-3",
-              "description": "image swap で state 残存を実機検証",
+              "title": "image swap で state 残存を実機検証",
               "status": "pending"
             }
-          ]
+          }
         },
         "Sb14caa-4": {
           "title": "運用者が fork せず宣言設定を足せ、更新は世代ロールバック付きで安全",
@@ -10476,23 +10476,23 @@
               "status": "pending"
             }
           ],
-          "tasks": [
-            {
+          "tasks": {
+            "Sb14caa-4-1": {
               "id": "Sb14caa-4-1",
-              "description": "onappliance-flake の ./local drop-in import を確定 + mkDefault 上書き検証",
+              "title": "onappliance-flake の ./local drop-in import を確定 + mkDefault 上書き検証",
               "status": "pending"
             },
-            {
+            "Sb14caa-4-2": {
               "id": "Sb14caa-4-2",
-              "description": "pin bump→switch→rollback の更新/復帰 smoke",
+              "title": "pin bump→switch→rollback の更新/復帰 smoke",
               "status": "pending"
             },
-            {
+            "Sb14caa-4-3": {
               "id": "Sb14caa-4-3",
-              "description": "GUI/CLI Update の nixos-rebuild 写像(NixManaged 検出の拡張)",
+              "title": "GUI/CLI Update の nixos-rebuild 写像(NixManaged 検出の拡張)",
               "status": "pending"
             }
-          ]
+          }
         },
         "Sb14caa-5": {
           "title": "作り直す dev を NixOS アプライアンスとして本番採用(blue-green)",
@@ -10509,23 +10509,23 @@
               "status": "pending"
             }
           ],
-          "tasks": [
-            {
+          "tasks": {
+            "Sb14caa-5-1": {
               "id": "Sb14caa-5-1",
-              "description": "新 VM に appliance image を build/boot",
+              "title": "新 VM に appliance image を build/boot",
               "status": "pending"
             },
-            {
+            "Sb14caa-5-2": {
               "id": "Sb14caa-5-2",
-              "description": "~/.claude + ~/ghq を rsync で /persist へ移行",
+              "title": "~/.claude + ~/ghq を rsync で /persist へ移行",
               "status": "pending"
             },
-            {
+            "Sb14caa-5-3": {
               "id": "Sb14caa-5-3",
-              "description": "検証 → dev.tjstkm.net DNS 切替 → 旧箱撤去",
+              "title": "検証 → dev.tjstkm.net DNS 切替 → 旧箱撤去",
               "status": "pending"
             }
-          ]
+          }
         }
       }
     }
