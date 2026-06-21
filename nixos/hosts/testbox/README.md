@@ -52,3 +52,9 @@ For local module iteration against your checkout:
 - SeaBIOS (legacy) instead of OVMF → switch `disko.nix` to GRUB + a `bios_grub`
   partition and `boot.loader.grub` in `configuration.nix`.
 - Refresh the GitHub keys: `nix flake update tjstKeys`.
+- **Networking on the minimal ISO**: wired DHCP is on by default — `ip a` shows
+  the IP, no setup needed. No DHCP / want static in the live session:
+  `sudo ip addr add <ip>/24 dev ens18 && sudo ip route add default via <gw>` (find
+  the NIC with `ip link`). The installed system's networking is declared in
+  `configuration.nix` (DHCP default; static example commented there). For a stable
+  homelab address, a DHCP reservation by MAC is simplest.
