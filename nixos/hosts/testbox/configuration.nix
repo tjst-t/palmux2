@@ -4,13 +4,17 @@
 # GitHub keys for SSH. Iterate on it with:
 #   sudo nixos-rebuild switch --flake .#testbox      (run ON the box), or
 #   nixos-rebuild switch --flake .#testbox --target-host root@<ip>   (remote)
-{ config, lib, pkgs, authorizedKeys, ... }:
+{ config, lib, pkgs, modulesPath, authorizedKeys, ... }:
 {
+  # Proxmox virtio guest drivers (disk/net) in initrd.
+  imports = [ (modulesPath + "/profiles/qemu-guest.nix") ];
+
   # ── boot (Proxmox) ─────────────────────────────────────────────────────────
-  # Assumes UEFI (Proxmox VM → BIOS = OVMF). For SeaBIOS/legacy, switch to GRUB
-  # + a bios_grub partition in disko.nix.
-  boot.loader.systemd-boot.enable = true;
-  boot.loader.efi.canTouchEfiVariables = true;
+  # This VM is SeaBIOS (legacy) → GRUB. disko's EF02 partition already sets
+  # boot.loader.grub.devices, so DON'T set grub.device here (duplicates
+  # mirroredBoots). For UEFI (OVMF) VMs use systemd-boot + an ESP instead.
+  boot.loader.grub.enable = true;
+  boot.loader.grub.efiSupport = false;
 
   networking.hostName = "palmux-testbox";
   # Static IP. IMPORTANT: the NIC name must match the VM. Proxmox virtio is

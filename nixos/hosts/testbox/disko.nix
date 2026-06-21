@@ -1,12 +1,15 @@
 # nixos/hosts/testbox/disko.nix
 #
 # Declarative partitioning for the Proxmox test VM (disko applies this during
-# nixos-anywhere, wiping the disk). Single disk, UEFI: ESP + ext4 root.
+# nixos-anywhere, wiping the disk). Matches the actual test VM verified on
+# 192.168.1.44: SeaBIOS (legacy boot) + a VirtIO SCSI / SATA disk at /dev/sda.
 #
-# Device name depends on the Proxmox disk bus:
-#   - VirtIO Block (virtio0)        → /dev/vda   (default below)
-#   - VirtIO SCSI  (scsi0)          → /dev/sda
-# Set the bus when creating the VM, or change `device` here to match.
+# Layout: GPT with a 1M BIOS-boot partition (EF02, for legacy GRUB) + ext4 root.
+# disko wires boot.loader.grub.devices from the EF02 partition — so do NOT also
+# set boot.loader.grub.device in configuration.nix (that duplicates mirroredBoots).
+#
+# If your VM instead uses UEFI (OVMF) + VirtIO Block (/dev/vda), switch to an ESP
+# (size 512M, type EF00, vfat /boot) + systemd-boot — see git history.
 #
 # /persist (the appliance's mutable-state volume) is NOT created here — the test
 # box for Stage 1-2 doesn't need it. Add a second disk + a /persist entry when
@@ -14,19 +17,13 @@
 {
   disko.devices.disk.main = {
     type = "disk";
-    device = "/dev/vda"; # ← /dev/sda if the VM uses VirtIO SCSI
+    device = "/dev/sda"; # VirtIO SCSI / SATA (this VM); /dev/vda for VirtIO Block
     content = {
       type = "gpt";
       partitions = {
-        ESP = {
-          size = "512M";
-          type = "EF00";
-          content = {
-            type = "filesystem";
-            format = "vfat";
-            mountpoint = "/boot";
-            mountOptions = [ "umask=0077" ];
-          };
+        boot = {
+          size = "1M";
+          type = "EF02"; # BIOS boot partition for legacy GRUB (SeaBIOS)
         };
         root = {
           size = "100%";
