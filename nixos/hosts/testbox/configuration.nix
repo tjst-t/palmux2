@@ -22,7 +22,10 @@
   networking.interfaces.ens18.ipv4.addresses = [
     { address = "192.168.1.44"; prefixLength = 24; }
   ];
-  networking.defaultGateway = "192.168.1.1";
+  # Real LAN gateway is .254 (verified from the working host; 192.168.1.1 does not
+  # answer ARP on this segment). The LAN resolver is 192.168.0.254; public DNS
+  # works too once routed via .254.
+  networking.defaultGateway = "192.168.1.254";
   networking.nameservers = [ "1.1.1.1" "9.9.9.9" ];
   # Name-independent alternative (drop the three options above and use this if the
   # NIC name is unknown/variable):
@@ -30,7 +33,7 @@
   #   systemd.network.networks."10-lan" = {
   #     matchConfig.Name = "en*";
   #     address = [ "192.168.1.44/24" ];
-  #     routes = [ { Gateway = "192.168.1.1"; } ];
+  #     routes = [ { Gateway = "192.168.1.254"; } ];
   #     networkConfig.DNS = [ "1.1.1.1" "9.9.9.9" ];
   #   };
   time.timeZone = "Asia/Tokyo";
