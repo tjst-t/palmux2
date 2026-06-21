@@ -10336,7 +10336,7 @@
     },
     "Sb14caa": {
       "title": "palmuxOS — NixOS アプライアンス化 (host 宣言化 + 配布 image + ユーザ拡張 + 更新)",
-      "status": "in_progress",
+      "status": "partial",
       "milestone": true,
       "phase": "Phase 6 — palmuxOS",
       "goal": "palmux ホストを NixOS で全体宣言化し、palmux を不変アプライアンス image として配布する。incus/Caddy/SSO/設定プレーンを services.palmux.* + virtualisation.incus + services.caddy に集約。更新は flake pin + nixos-rebuild の世代ロールバックで install.sh self-update(Sa8e7d0)を構造的に置換。設計は docs/nixos-appliance-design.md、scaffold は nixos/。 【実行制約(ユーザ指示)】Stage 1-4(Sb14caa-1〜4)の実装・実機テストは disposable VM で行う(推奨: test VM 192.168.1.41 か新規。deploy VM 192.168.1.43 は install.sh canary として温存)。dev VM(dev.tjstkm.net=Claude が乗る箱)では実装テストしない — dev VM は Stage 5(Sb14caa-5)の最終 blue-green 採用先のみ。",
@@ -10382,7 +10382,8 @@
               "title": "NixOS VM で実ブラウザ SSO + 各タブの acceptance",
               "status": "pending"
             }
-          }
+          },
+          "status": "needs_user_review"
         },
         "Sb14caa-2": {
           "title": "NixOS 上で incus-container ワークスペースが host 版と同等に動く(関門)",
@@ -10392,17 +10393,17 @@
             {
               "id": "AC-Sb14caa-2-1",
               "description": "virtualisation.incus.enable + raw.idmap both 1000 1000 + root:1000:1 の subUid/subGidRanges + bridge が NixOS 上で成立し、palmux runtime doctor が全 pass。",
-              "status": "pending"
+              "status": "passing"
             },
             {
               "id": "AC-Sb14caa-2-2",
               "description": "palmux runtime install で palmux-ws image を導入しワークスペースコンテナが起動、claude/tmux/bash が in-container 実行(隔離検証: claude の Bash hostname=コンテナ)。",
-              "status": "pending"
+              "status": "passing"
             },
             {
               "id": "AC-Sb14caa-2-3",
               "description": "Browser タブ(noVNC)・Ports 公開・SSO 公開サブドメイン(See8bd4)が NixOS 上で動作することを実機 acceptance で確認。",
-              "status": "pending"
+              "status": "needs_user_review"
             }
           ],
           "tasks": {
@@ -10421,7 +10422,8 @@
               "title": "tests/acceptance 同様の incus-on-NixOS 実機 smoke(workspace/browser/ports/SSO)",
               "status": "pending"
             }
-          }
+          },
+          "status": "needs_user_review"
         },
         "Sb14caa-3": {
           "title": "宣言から不変アプライアンス image を生成し可変 state を /persist に分離",

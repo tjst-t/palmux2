@@ -29,6 +29,18 @@
       "story": "Sb14caa-1",
       "decision": "users.users.<palmux>.home を mkDefault でなく plain に",
       "detail": "NixOS の isNormalUser default home(/home/<user>) も mkDefault のため、module 側 mkDefault と二重 mkDefault 衝突。home は stateDir option 由来の構造値なので plain(優先度100)で nixos default(1000)に勝たせる。"
+    },
+    {
+      "id": "ID-4",
+      "story": "Sb14caa-2",
+      "decision": "virtualisation.incus.preseed で incusbr0 bridge + dir pool + default profile を宣言",
+      "detail": "preseed 無しだと incus に bridge/storage が無く container 起動不可。palmux は incusbr0 を期待(See8bd4)。dir storage pool。実機で incusbr0(10.160.71.1/24) + default pool が CREATED 確認。"
+    },
+    {
+      "id": "ID-5",
+      "story": "Sb14caa-2",
+      "decision": "root:1000:1 sub{u,g}id を system.activationScripts(deps=[users])で追記",
+      "detail": "NixOS incus module が users.users.root.subUidRanges を mkForce で奪う(評価値=[{startUid:1000000,count:1000000000}] のみ、私の {1000,1} はドロップ)。subUidRanges 経由不可と判明。activationScript で /etc/sub{u,g}id に root:1000:1 を冪等追記(incus の大 range と併存)。palmux の raw.idmap both 1000 1000 は host uid 1000 を要求するが incus の range は 1000000 始まりで 1000 を含まないため root:1000:1 必須。"
     }
   ],
   "verification": {
@@ -36,6 +48,11 @@
       "AC-Sb14caa-1-1": "PASS — root flake の nixosModules.palmux が options.services.palmux.* を公開、nix build .#nixosConfigurations.testbox.config.system.build.toplevel が eval+build 成功(実機 controller 192.168.1.43)。",
       "AC-Sb14caa-1-2": "PASS — 実 NixOS(192.168.1.44, nixos-anywhere で素 NixOS 導入済)に nixos-rebuild switch → palmux2.service active、127.0.0.1:7683 listen、HTTP / 200(title 'Palmux v2')、log 'palmux2 listening version=v0.11.4 auth=open'。host runtime。",
       "AC-Sb14caa-1-3": "BLOCKED(needs_user_review) — SSO(services.caddy forward_auth + *.domain wildcard)は実公開ドメイン + Cloudflare API token(DNS-01)が必要。testbox は domain=null(local-only)で検証不可。実ドメイン付きホスト(または Stage 5 dev/ndev)で要検証。これは外部クレデンシャル依存の escalation。"
+    },
+    "Sb14caa-2": {
+      "AC-Sb14caa-2-1": "PASS — 実 NixOS で palmux runtime doctor が(palmux ユーザ文脈で)✓incus 6.0.5 ✓incus-admin ✓/etc/subuid root:1000:1 ✓/etc/subgid root:1000:1 ✓Docker。virtualisation.incus.preseed で incusbr0(10.160.71.1/24)+ default(dir) pool CREATED。idmap/bridge/subuid/group すべて成立。",
+      "AC-Sb14caa-2-2": "PASS(core) — palmux runtime install で palmux-ws image(fp 963aa5468d8f, v0.11.4)導入。incus launch palmux-ws -c raw.idmap='both 1000 1000' が RUNNING(=root:1000:1 が実効、関門クリア)。隔離検証: in-container hostname=ws-test vs host=palmux-testbox。uid1000=ubuntu、baked tools(tmux/git)present。claude の in-container 実行は host claude の bind-mount(appliance/dev 文脈)前提で testbox 単体では未(機構は同一)。",
+      "AC-Sb14caa-2-3": "BLOCKED(needs_user_review) — Browser(noVNC)は full app workspace flow、Ports 公開 + SSO 公開サブドメインは実公開ドメイン+CF token 必要。testbox(domain=null)では未検証。"
     }
   },
   "notes": [
