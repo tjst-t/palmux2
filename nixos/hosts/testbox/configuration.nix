@@ -13,18 +13,26 @@
   boot.loader.efi.canTouchEfiVariables = true;
 
   networking.hostName = "palmux-testbox";
-  # DHCP by default (matches the minimal ISO). For a stable homelab address,
-  # easiest is a DHCP reservation by MAC on the router/Proxmox — then leave this
-  # as-is. To pin a static IP in-config instead, comment useDHCP and set the
-  # interface block below (find the NIC name with `ip link`; Proxmox virtio is
-  # typically ens18):
-  networking.useDHCP = lib.mkDefault true;
-  # networking.useDHCP = false;
-  # networking.interfaces.ens18.ipv4.addresses = [
-  #   { address = "192.168.1.50"; prefixLength = 24; }
-  # ];
-  # networking.defaultGateway = "192.168.1.1";
-  # networking.nameservers = [ "1.1.1.1" "9.9.9.9" ];
+  # Static IP. IMPORTANT: the NIC name must match the VM. Proxmox virtio is
+  # typically `ens18` — VERIFY with `ip link` on the install ISO before relying on
+  # this; a wrong name = no network after reboot (recover via the Proxmox console).
+  # If the NIC is not ens18, either change the name below, or use the
+  # name-independent systemd-networkd block at the bottom of this comment.
+  networking.useDHCP = false;
+  networking.interfaces.ens18.ipv4.addresses = [
+    { address = "192.168.1.44"; prefixLength = 24; }
+  ];
+  networking.defaultGateway = "192.168.1.1";
+  networking.nameservers = [ "1.1.1.1" "9.9.9.9" ];
+  # Name-independent alternative (drop the three options above and use this if the
+  # NIC name is unknown/variable):
+  #   systemd.network.enable = true;
+  #   systemd.network.networks."10-lan" = {
+  #     matchConfig.Name = "en*";
+  #     address = [ "192.168.1.44/24" ];
+  #     routes = [ { Gateway = "192.168.1.1"; } ];
+  #     networkConfig.DNS = [ "1.1.1.1" "9.9.9.9" ];
+  #   };
   time.timeZone = "Asia/Tokyo";
 
   # ── SSH access (author's GitHub keys; this is a personal, non-shipped host) ──
