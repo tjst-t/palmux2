@@ -140,14 +140,52 @@ in {
     ##########################################################################
     (lib.mkIf cfg.incus.enable {
       virtualisation.incus.enable = lib.mkDefault true;
+      # Declarative incus init: a managed incusbr0 bridge (palmux's expected bridge,
+      # See8bd4) + a dir storage pool + default profile. Without a preseed, incus
+      # has no bridge/pool and containers can't launch.
+      virtualisation.incus.preseed = lib.mkDefault {
+        networks = [{
+          name = "incusbr0";
+          type = "bridge";
+          config = {
+            "ipv4.address" = "auto";
+            "ipv4.nat" = "true";
+            "ipv6.address" = "none";
+          };
+        }];
+        storage_pools = [{
+          name = "default";
+          driver = "dir";
+        }];
+        profiles = [{
+          name = "default";
+          devices = {
+            eth0 = { name = "eth0"; network = "incusbr0"; type = "nic"; };
+            root = { path = "/"; pool = "default"; type = "disk"; };
+          };
+        }];
+      };
       # unprivileged + raw.idmap "both 1000 1000" needs a root:1000:1 sub{u,g}id
-      # range for the host (palmux sets this on containers at runtime).
-      users.users.root.subUidRanges = lib.mkDefault [ { startUid = 1000; count = 1; } ];
-      users.users.root.subGidRanges = lib.mkDefault [ { startGid = 1000; count = 1; } ];
+      # range. NixOS's incus module sets users.users.root.subUidRanges with mkForce
+      # (to a huge 1000000:1000000000 range that does NOT include host uid 1000), so
+      # adding via subUidRanges is dropped. Append root:1000:1 to the generated
+      # /etc/sub{u,g}id after the `users` activation, idempotently (re-runs every
+      # switch/boot). incus is restarted once below so it picks the new map up.
+      system.activationScripts.palmuxIncusSubid = {
+        deps = [ "users" ];
+        text = ''
+          for f in /etc/subuid /etc/subgid; do
+            ${pkgs.gnugrep}/bin/grep -qxF 'root:1000:1' "$f" 2>/dev/null \
+              || echo 'root:1000:1' >> "$f"
+          done
+        '';
+      };
+      # (On a running system a `systemctl restart incus` is needed after the append
+      # so incus re-reads the map; on fresh boot the activation runs before incus
+      # starts. TODO(stage2): order an incus restart trigger on the subid file.)
       networking.nftables.enable = lib.mkDefault true; # incus bridge fw
-      # TODO(stage2): palmux-ws image install is a runtime step (`palmux runtime
-      # install`), not declarative — wire as a oneshot that runs once per image
-      # version, OR document as a post-deploy command. Validate idmap/bridge.
+      # palmux-ws image install (`palmux runtime install`) is a runtime step (1GB
+      # download), run post-switch by the operator or a oneshot — not declarative.
     })
 
     ##########################################################################
