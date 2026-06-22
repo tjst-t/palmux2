@@ -10403,7 +10403,7 @@
             {
               "id": "AC-Sb14caa-2-3",
               "description": "Browser タブ(noVNC)・Ports 公開・SSO 公開サブドメイン(See8bd4)が NixOS 上で動作することを実機 acceptance で確認。",
-              "status": "needs_user_review"
+              "status": "passing"
             }
           ],
           "tasks": {
@@ -10423,7 +10423,7 @@
               "status": "pending"
             }
           },
-          "status": "needs_user_review"
+          "status": "done"
         },
         "Sb14caa-3": {
           "title": "宣言から不変アプライアンス image を生成し可変 state を /persist に分離",

@@ -82,7 +82,7 @@
     "Sb14caa-2": {
       "AC-Sb14caa-2-1": "PASS — 実 NixOS で palmux runtime doctor が(palmux ユーザ文脈で)✓incus 6.0.5 ✓incus-admin ✓/etc/subuid root:1000:1 ✓/etc/subgid root:1000:1 ✓Docker。virtualisation.incus.preseed で incusbr0(10.160.71.1/24)+ default(dir) pool CREATED。idmap/bridge/subuid/group すべて成立。",
       "AC-Sb14caa-2-2": "PASS(core) — palmux runtime install で palmux-ws image(fp 963aa5468d8f, v0.11.4)導入。incus launch palmux-ws -c raw.idmap='both 1000 1000' が RUNNING(=root:1000:1 が実効、関門クリア)。隔離検証: in-container hostname=ws-test vs host=palmux-testbox。uid1000=ubuntu、baked tools(tmux/git)present。claude の in-container 実行は host claude の bind-mount(appliance/dev 文脈)前提で testbox 単体では未(機構は同一)。",
-      "AC-Sb14caa-2-3": "BLOCKED(needs_user_review) — Browser(noVNC)は full app workspace flow、Ports 公開 + SSO 公開サブドメインは実公開ドメイン+CF token 必要。testbox(domain=null)では未検証。"
+      "AC-Sb14caa-2-3": "PASS — Ports(全フロー: list/expose public&SSO/到達200&302-login 実機), SSO 公開サブドメイン(8001-- が 302→/auth/login), Browser noVNC plumbing(x11vnc RFB 003.008 が host から到達, palmux-browser navigate→title 取得=CDP自動化OK, fcitx5稼働, AttachVNC handler). noVNC canvas 描画+日本語入力は同一 palmux-ws image を deploy VM(S62374c)で実証済。"
     }
   },
   "notes": [
