@@ -316,6 +316,9 @@ export interface SelfUpdateSnapshot {
   components: SelfUpdateComponent[]
   available: boolean
   nixManaged: boolean
+  /** Running on a NixOS host (palmuxOS appliance) → updates are operator-driven
+   * `nixos-rebuild switch`, not the in-app one-click. */
+  nixOSHost?: boolean
   checkedAt: string
   degraded: boolean
 }

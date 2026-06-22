@@ -299,6 +299,52 @@ func TestWatchUpdateUnitClearsGuardOnFailure(t *testing.T) {
 
 // [AC-S6ab0ed-1-2] availabilityChanged fires only on transitions (mirrors
 // setDriftCached) so we publish WS events sparingly.
+// [AC-Sb14caa-4-3] On a NixOS host the snapshot flags NixOSHost so the GUI maps
+// the update badge to nixos-rebuild guidance instead of the in-app one-click. The
+// /etc/NIXOS marker and an os-release `ID=nixos` are both recognised; a non-NixOS
+// host is not flagged.
+func TestDetectNixOSHost(t *testing.T) {
+	saveMarker, saveOS := nixosMarkerPath, osReleasePath
+	defer func() { nixosMarkerPath, osReleasePath = saveMarker, saveOS }()
+
+	dir := t.TempDir()
+	// 1) /etc/NIXOS marker present → NixOS.
+	marker := filepath.Join(dir, "NIXOS")
+	if err := os.WriteFile(marker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	nixosMarkerPath = marker
+	osReleasePath = filepath.Join(dir, "os-release-absent")
+	if !detectNixOSHost() {
+		t.Errorf("/etc/NIXOS marker present → want NixOS host")
+	}
+
+	// 2) No marker, but os-release ID=nixos → NixOS.
+	nixosMarkerPath = filepath.Join(dir, "NIXOS-absent")
+	osr := filepath.Join(dir, "os-release")
+	if err := os.WriteFile(osr, []byte("NAME=NixOS\nID=nixos\nVERSION=\"25.05\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	osReleasePath = osr
+	if !detectNixOSHost() {
+		t.Errorf("os-release ID=nixos → want NixOS host")
+	}
+
+	// 3) Ubuntu os-release, no marker → NOT NixOS.
+	if err := os.WriteFile(osr, []byte("NAME=\"Ubuntu\"\nID=ubuntu\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if detectNixOSHost() {
+		t.Errorf("ID=ubuntu → want non-NixOS host")
+	}
+
+	// 4) Neither marker nor os-release present → NOT NixOS.
+	osReleasePath = filepath.Join(dir, "os-release-gone")
+	if detectNixOSHost() {
+		t.Errorf("no markers → want non-NixOS host")
+	}
+}
+
 func TestAvailabilityChanged(t *testing.T) {
 	a := Snapshot{Available: false, Components: []ComponentStatus{{Name: "palmux", Available: false}}}
 	b := Snapshot{Available: true, Components: []ComponentStatus{{Name: "palmux", Available: true}}}

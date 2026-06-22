@@ -130,7 +130,14 @@ export function UpdatePanel() {
           ))}
 
           <div className={styles.foot}>
-            {snap?.nixManaged ? (
+            {snap?.nixOSHost ? (
+              <div className={styles.manualNote} data-testid="update-nixos-note">
+                このホストは NixOS（palmuxOS アプライアンス）です。更新は端末から{' '}
+                <code>sudo nixos-rebuild switch --flake /etc/palmux#appliance</code>{' '}
+                で行ってください（世代切替＝アトミック、<code>nixos-rebuild switch --rollback</code>{' '}
+                または旧世代 boot で確実に戻せます）。本体更新後、この画面は数秒で再接続します。
+              </div>
+            ) : snap?.nixManaged ? (
               <>
                 <button
                   className={styles.primaryBtn}

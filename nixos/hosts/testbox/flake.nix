@@ -19,7 +19,7 @@
     };
     # The palmux NixOS modules + overlay. For local module iteration, override:
     #   nixos-anywhere ... --override-input palmux path:/path/to/palmux2/nixos
-    palmux.url = "github:tjst-t/palmux2?dir=nixos";
+    palmux.url = "github:tjst-t/palmux2";
     # The author's public SSH keys — a non-flake file input, pinned in flake.lock.
     tjstKeys = {
       url = "https://github.com/tjst-t.keys";

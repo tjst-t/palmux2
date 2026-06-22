@@ -66,6 +66,7 @@ func (s *Service) Refresh(ctx context.Context) Snapshot {
 		kept.CheckedAt = snap.CheckedAt
 		kept.Degraded = true
 		kept.NixManaged = snap.NixManaged
+		kept.NixOSHost = snap.NixOSHost
 		s.snapshot = kept
 		s.mu.Unlock()
 		s.logger.Warn("selfupdate: GitHub unreachable this cycle; keeping prior state")

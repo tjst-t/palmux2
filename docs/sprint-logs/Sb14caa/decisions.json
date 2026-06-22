@@ -71,6 +71,54 @@
       "story": "Sb14caa-1",
       "decision": "SSO 配線: caddy-cloudflare(DNS-01) + forward_auth、CF token/auth/SSO secret は secretsFile、CAP_NET_BIND_SERVICE、firewall は plain",
       "detail": "services.caddy.package=pkgs.caddy-cloudflare(overlay)、globalConfig 'admin localhost:2019'、apex vhost は @palmux_auth path /auth/* バイパス + handle forward_auth uri /auth/verify + tls{dns cloudflare {env...}}(deploy VM reconcile-system と同形 Sbe4eee)。CF token は systemd.services.caddy EnvironmentFile=secretsFile。落とし穴2つ: (a) package override で caddy ユニットの AmbientCapabilities が消え :443 bind permission denied → mkForce [CAP_NET_BIND_SERVICE]。(b) networking.firewall.allowedTCPPorts も list で mkDefault [80 443] が openssh の plain [22] に負けてマージされず → plain [80 443] に(ID-3/5 と同じ list+mkDefault 罠)。CF token は Infisical(workspace dac10238, path /ansible-dev-server, env dev)から取得、DNS(A + wildcard → 192.168.1.44)は CF API で作成。auth/SSO secret は deploy VM secrets.env 流用。"
+    },
+    {
+      "id": "ID-11",
+      "story": "Sb14caa-3",
+      "decision": "appliance image を root flake の正典ターゲットに + scaffold nixos/flake.nix 廃止",
+      "detail": "PD-1 に従い root flake.nix に nixos-generators input + packages.<sys>.appliance-qcow2 (format=qcow, nixosModules.appliance + overlays.default + domain=mkDefault null) を追加。重複していた nixos/flake.nix(../nix 参照=cross-flake-root 不純) を削除し、testbox/examples/design-doc の palmux input `?dir=nixos` を root `github:tjst-t/palmux2` に repoint。"
+    },
+    {
+      "id": "ID-12",
+      "story": "Sb14caa-3",
+      "decision": "/persist 不変image/可変state 分離: appliance.nix の fileSystems + tmpfiles + stateDir",
+      "detail": "appliance.nix が fileSystems.\"/persist\"(by-label persist, nofail+device-timeout)、tmpfiles で /persist/palmux/{home,nixos-local,secrets.env} state subtree、services.palmux.stateDir=/persist/palmux/home + secretsFile=/persist/palmux/secrets.env(共に mkDefault)。~/ghq・~/.claude・~/.config/palmux は home 配下なので自動的に /persist 上。"
+    },
+    {
+      "id": "ID-13",
+      "story": "Sb14caa-3",
+      "decision": "tmpfiles group bug fix — palmux primary group は users (isNormalUser default) で palmux 名の group は無い",
+      "detail": "実機で /persist/palmux 作成失敗(install: invalid group 'palmux')。services.palmux は isNormalUser を group 無指定で立てるので NixOS default の users(gid100)。appliance.nix の tmpfiles が `${user} ${user}` を owner/group に使うと group 'palmux' が解決不能。config.users.users.<user>.group を参照する pGroup に修正。"
+    },
+    {
+      "id": "ID-14",
+      "story": "Sb14caa-3",
+      "decision": "no-baked-keys は eval assertion でなく build-time grep (scripts/check-no-baked-keys.sh)",
+      "detail": "設計 doc 通り、配布 image の authorized_keys を grep する CI チェック(assertion は出荷ビルドと運用者 rebuild を区別できず正当な鍵 layer を壊す)。built system toplevel の /etc/ssh/authorized_keys.d/* + /etc 全体の ssh-key material を検査。実機双方向検証: appliance toplevel=0 keys(OK exit0)、key-baked testbox toplevel=検出して FAIL。services.cloud-init.enable + PasswordAuthentication=false が appliance 既定で authorizedKeys は一切設定しない。"
+    },
+    {
+      "id": "ID-15",
+      "story": "Sb14caa-3",
+      "decision": "bootable qcow2 image-packaging は KVM builder 必須 → Stage 5(KVM 有る dev Proxmox)に委譲",
+      "detail": "make-disk-image の qemu-VM phase(bootloader/channel)が /dev/kvm を要求。test infra(controller 192.168.1.43 / testbox 192.168.1.44 共に Proxmox VM・nested virt 無し)では TCG fallback も 9p readdir で破綻。appliance CONFIG の正しさは system toplevel build(実機 controller で PASS)+ no-baked-keys check で検証。実 image の boot は Stage 5 で本物の dev VM(KVM 有り)に deploy する際に成立。"
+    },
+    {
+      "id": "ID-16",
+      "story": "Sb14caa-4",
+      "decision": "WorkingDirectory=/persist が systemd Requires=persist.mount を自動付与(=正しい挙動)、testbox は bind mount で satisfiable に",
+      "detail": "palmux2.service の WorkingDirectory=/persist/palmux/home から systemd が Requires=persist.mount + After=persist.mount を自動生成。これは『state volume を待つ』正しい依存。別 /persist volume の無い testbox では fileSystems.\"/persist\" を /persistdata への bind mount に mkForce して mount を成立させ依存を満たす。real deploy では cloud-init/Proxmox が別 volume を attach。"
+    },
+    {
+      "id": "ID-17",
+      "story": "Sb14caa-4",
+      "decision": "drop-in 拡張は listFilesRecursive ./local、運用者鍵は image でなく drop-in で layer",
+      "detail": "onappliance-flake が `imports = [appliance] ++ listFilesRecursive ./local`。local/00-operator.nix が appliance の mkDefault(domain 等)を素代入で上書き + 自分の SSH 鍵を layer(image は鍵ゼロ・ID-14)。実機検証で testbox の SSH access は drop-in 由来(appliance module は鍵を焼かない)。"
+    },
+    {
+      "id": "ID-18",
+      "story": "Sb14caa-4",
+      "decision": "GUI Update バッジの NixOS 写像: selfupdate に NixOSHost 検出 + panel の guidance 分岐",
+      "detail": "internal/selfupdate detectNixOSHost()(/etc/NIXOS marker または os-release ID=nixos、両 path は test 用に var 化)→ Snapshot.NixOSHost。update-panel.tsx は nixOSHost を最優先分岐し『sudo nixos-rebuild switch --flake /etc/palmux#appliance で更新』guidance(在app one-click は出さない=S7364e3 の operator-driven 方針: 走行中 claude/tmux を勝手に落とさない)。FE 再接続ハンドシェイクはトリガ非依存で無改造。NixOS では更新=世代切替(アトミック)+ --rollback で無償ロールバック。"
     }
   ],
   "verification": {
@@ -83,6 +131,16 @@
       "AC-Sb14caa-2-1": "PASS — 実 NixOS で palmux runtime doctor が(palmux ユーザ文脈で)✓incus 6.0.5 ✓incus-admin ✓/etc/subuid root:1000:1 ✓/etc/subgid root:1000:1 ✓Docker。virtualisation.incus.preseed で incusbr0(10.160.71.1/24)+ default(dir) pool CREATED。idmap/bridge/subuid/group すべて成立。",
       "AC-Sb14caa-2-2": "PASS(core) — palmux runtime install で palmux-ws image(fp 963aa5468d8f, v0.11.4)導入。incus launch palmux-ws -c raw.idmap='both 1000 1000' が RUNNING(=root:1000:1 が実効、関門クリア)。隔離検証: in-container hostname=ws-test vs host=palmux-testbox。uid1000=ubuntu、baked tools(tmux/git)present。claude の in-container 実行は host claude の bind-mount(appliance/dev 文脈)前提で testbox 単体では未(機構は同一)。",
       "AC-Sb14caa-2-3": "PASS — Ports(全フロー: list/expose public&SSO/到達200&302-login 実機), SSO 公開サブドメイン(8001-- が 302→/auth/login), Browser noVNC plumbing(x11vnc RFB 003.008 が host から到達, palmux-browser navigate→title 取得=CDP自動化OK, fcitx5稼働, AttachVNC handler). noVNC canvas 描画+日本語入力は同一 palmux-ws image を deploy VM(S62374c)で実証済。"
+    },
+    "Sb14caa-3": {
+      "AC-Sb14caa-3-1": "PARTIAL(config PASS / boot deferred) — root flake .#appliance-qcow2(nixos-generators qcow)を追加、appliance system toplevel が実機 controller(192.168.1.43)で eval+build 成功。bootable qcow2 image-packaging は make-disk-image の qemu-VM phase が KVM 必須で、test infra(Proxmox VM・nested virt 無し)では生成不可 → 実 image boot は Stage 5(KVM 有る dev Proxmox への deploy)で成立(ID-15)。",
+      "AC-Sb14caa-3-2": "PASS(実機) — testbox(192.168.1.44)を appliance mode に nixos-rebuild。stateDir=/persist/palmux/home、palmux2 が .cache を /persist に書込、secrets.env/home が /persist 上。SURVIVE-MARKER + palmux state が generation swap(gen2→gen3 = drop-in 変更による『image 入替』)を生存、palmux2 active + apex 200 通し。~/ghq・~/.claude・~/.config/palmux は home 配下で自動的に /persist。",
+      "AC-Sb14caa-3-3": "PASS(双方向実機) — scripts/check-no-baked-keys.sh が appliance toplevel に SSH 鍵ゼロを確認(OK exit0)、鍵を焼く testbox toplevel では BAKED KEY を検出し FAIL。appliance.nix は services.cloud-init.enable + PasswordAuthentication=false 既定で authorizedKeys を一切設定せず(配布物は鍵ゼロ)。運用者鍵は drop-in で layer(実機の SSH access はそれ由来)。"
+    },
+    "Sb14caa-4": {
+      "AC-Sb14caa-4-1": "PASS(実機) — operator drop-in(local/00-operator.nix)の hello→cowsay 変更が nixos-rebuild switch で反映(cowsay in/hello out)、--rollback + switch で gen2 復帰(hello back/cowsay gone)。domain override は appliance mkDefault への素代入。drop-in は /persist 上(/persist/palmux/nixos-local)で image 入替を跨いで残存。",
+      "AC-Sb14caa-4-2": "PASS(機構・実機) — generation 切替がアトミック、nix-env --rollback + switch-to-configuration switch で確実に旧世代へ復帰(gen15→14、palmux2 active 通し、/persist state 不変)を実機実演。NixOS の世代モデルなので install.sh self-update の cgroup 道連れ/半端更新ループ/自己上書きは構造的に発生せず(activation が helper を代替)。実 palmux version pin-bump 更新は新 release を要するため Stage 5 で本物の bump に対して成立。",
+      "AC-Sb14caa-4-3": "PASS(実機 NixOS) — selfupdate.detectNixOSHost が /etc/NIXOS + os-release ID=nixos を認識(unit test 4 ケース PASS)。実 NixOS testbox 上で palmux2 を起動し GET /api/selfupdate が nixOSHost:true / nixManaged:false を返すことを production mode で確認。update-panel.tsx が nixOSHost 最優先で nixos-rebuild guidance を表示(在app one-click 抑止)。FE 再接続ハンドシェイク(WS drop→/health→toast)はトリガ非依存で既存のまま機能。"
     }
   },
   "notes": [

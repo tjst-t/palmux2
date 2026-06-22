@@ -12,6 +12,14 @@
 #
 # NOTE: scaffold — not yet eval-checked. TODO(stageN) markers per the design doc.
 { config, lib, pkgs, ... }:
+let
+  pUser = config.services.palmux.user;
+  # The palmux user's PRIMARY GROUP. services.palmux sets isNormalUser without an
+  # explicit `group`, so NixOS defaults it to "users" (gid 100) — there is no
+  # "palmux" group. tmpfiles rules must chown to this real group, not to `${pUser}`
+  # (which would be an unresolvable group name and make the rule fail).
+  pGroup = config.users.users.${pUser}.group;
+in
 {
   imports = [ ./palmux.nix ];
 
@@ -21,16 +29,27 @@
   services.palmux.secretsFile = lib.mkDefault "/persist/palmux/secrets.env";
 
   # ── immutable image / mutable state split ──────────────────────────────────
-  # All durable user data lives on /persist (a separate volume), bind-mounted into
-  # place so the image stays disposable. (TODO(stage3): the actual fileSystems for
-  # /persist depend on the generator target / disk layout — qcow2 vs cloud vs bare.)
+  # All durable user data lives on /persist — a SEPARATE volume the operator
+  # attaches (labelled "persist"). The image itself is disposable: rebuild/swap it
+  # and /persist (repos, ~/.claude, config, secrets, operator drop-ins) survives.
+  # `nofail` so the appliance still boots to fix things if /persist isn't attached
+  # yet; the palmux service (stateDir under /persist) just runs degraded until it is.
+  fileSystems."/persist" = {
+    device = lib.mkDefault "/dev/disk/by-label/persist";
+    fsType = lib.mkDefault "ext4";
+    options = [ "nofail" "x-systemd.device-timeout=10s" ];
+  };
+  # Ensure the state subtree exists on /persist (the palmux user's home, the
+  # secrets file, and the operator drop-in dir). ~/ghq and ~/.claude live under
+  # the home → automatically on /persist.
   systemd.tmpfiles.rules = [
     "d /persist/palmux 0755 root root -"
-    "d /persist/palmux/home 0700 ${config.services.palmux.user} ${config.services.palmux.user} -"
+    "d /persist/palmux/home 0700 ${pUser} ${pGroup} -"
     "d /persist/palmux/nixos-local 0755 root root -"
-    "f /persist/palmux/secrets.env 0600 ${config.services.palmux.user} ${config.services.palmux.user} -"
+    "f /persist/palmux/secrets.env 0600 ${pUser} ${pGroup} -"
   ];
-  # ~/ghq and ~/.claude live under the bind-mounted home → already on /persist.
+
+  system.stateVersion = lib.mkDefault "25.05";
 
   # ── generation-based upgrades (replaces unattended-upgrades + self-update) ──
   system.autoUpgrade = {

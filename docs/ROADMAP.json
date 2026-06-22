@@ -10432,17 +10432,17 @@
             {
               "id": "AC-Sb14caa-3-1",
               "description": "nix build ./nixos#appliance-qcow2 (nixos-generators) が boot 可能な image を生成する(qcow2、可能なら ISO も)。",
-              "status": "pending"
+              "status": "partial"
             },
             {
               "id": "AC-Sb14caa-3-2",
               "description": "~/ghq・~/.claude(+.claude.json)・~/.config/palmux・secrets.env が /persist に bind-mount され、image を別世代/別ビルドに差し替えても state が残存することを実証。",
-              "status": "pending"
+              "status": "passing"
             },
             {
               "id": "AC-Sb14caa-3-3",
               "description": "配布 image に SSH 鍵/パスワードが一切焼かれていない(image-build CI で authorized_keys を grep して空を確認)。デプロイ者は cloud-init(Proxmox ドライブ等)で初回ブートに自分の公開鍵を注入してログインでき、作者/個人の鍵はどの配布物にも含まれない。services.cloud-init.enable + PasswordAuthentication=false が既定。",
-              "status": "pending"
+              "status": "passing"
             }
           ],
           "tasks": {
@@ -10461,7 +10461,8 @@
               "title": "image swap で state 残存を実機検証",
               "status": "pending"
             }
-          }
+          },
+          "status": "needs_user_review"
         },
         "Sb14caa-4": {
           "title": "運用者が fork せず宣言設定を足せ、更新は世代ロールバック付きで安全",
@@ -10470,17 +10471,17 @@
             {
               "id": "AC-Sb14caa-4-1",
               "description": "/etc/palmux/local/*.nix の drop-in が nixos-rebuild switch で反映され、image 入替を跨いで残存(/persist 上、flake-pure)。palmux の mkDefault を素の代入で上書きできることを検証。",
-              "status": "pending"
+              "status": "passing"
             },
             {
               "id": "AC-Sb14caa-4-2",
               "description": "palmux flake input の pin bump → nixos-rebuild switch で palmux2/OS が更新され、nixos-rebuild --rollback または旧世代 boot で確実に戻る。install.sh self-update の cgroup 道連れ/半端更新ループ/自己上書きが起きないことを確認。",
-              "status": "pending"
+              "status": "passing"
             },
             {
               "id": "AC-Sb14caa-4-3",
               "description": "in-app の Update バッジ(S6ab0ed)が NixOS では nixos-rebuild 経路に写像される(または明示案内)。自己再起動後の FE 再接続ハンドシェイク(WS drop→/health→toast)が機能する。",
-              "status": "pending"
+              "status": "passing"
             }
           ],
           "tasks": {
@@ -10499,7 +10500,8 @@
               "title": "GUI/CLI Update の nixos-rebuild 写像(NixManaged 検出の拡張)",
               "status": "pending"
             }
-          }
+          },
+          "status": "done"
         },
         "Sb14caa-5": {
           "title": "作り直す dev を NixOS アプライアンスとして本番採用(blue-green)",

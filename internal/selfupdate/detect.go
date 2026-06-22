@@ -3,6 +3,7 @@ package selfupdate
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -40,8 +41,42 @@ type Snapshot struct {
 	Components []ComponentStatus `json:"components"`
 	Available  bool              `json:"available"`  // any component has an update
 	NixManaged bool              `json:"nixManaged"` // ~/update-palmux2.sh present (one-click possible)
-	CheckedAt  string            `json:"checkedAt"`  // RFC3339; "" if never checked
-	Degraded   bool              `json:"degraded"`   // GitHub unreachable / rate-limited this cycle
+	// NixOSHost is true when palmux2 runs on a NixOS system (the palmuxOS
+	// appliance, Sb14caa). On NixOS the in-app one-click update does NOT apply —
+	// updates are operator-driven `nixos-rebuild switch` (atomic generation swap +
+	// free rollback), deliberately out-of-band so a running claude/tmux is not
+	// killed by the host that is hosting it (S7364e3 principle). The GUI maps the
+	// "update available" badge to nixos-rebuild guidance instead of a button.
+	NixOSHost bool   `json:"nixOSHost"`
+	CheckedAt string `json:"checkedAt"` // RFC3339; "" if never checked
+	Degraded  bool   `json:"degraded"`  // GitHub unreachable / rate-limited this cycle
+}
+
+// nixosMarkers are the paths whose presence identifies a NixOS host. /etc/NIXOS
+// is the canonical NixOS marker (also what nixos-rebuild itself checks);
+// /etc/os-release carrying `ID=nixos` is the secondary signal. Both are package
+// vars so tests can point them at a fixture without touching the real /etc.
+var (
+	nixosMarkerPath = "/etc/NIXOS"
+	osReleasePath   = "/etc/os-release"
+)
+
+// detectNixOSHost reports whether this machine is a NixOS system.
+func detectNixOSHost() bool {
+	if _, err := os.Stat(nixosMarkerPath); err == nil {
+		return true
+	}
+	b, err := os.ReadFile(osReleasePath)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "ID=nixos" || line == `ID="nixos"` {
+			return true
+		}
+	}
+	return false
 }
 
 // InstalledProbes injects how installed versions are read. This keeps the
@@ -110,6 +145,7 @@ var latestTagFn = LatestTag
 func Detect(ctx context.Context, m Manifest, probes InstalledProbes, nixManaged bool) Snapshot {
 	snap := Snapshot{
 		NixManaged: nixManaged,
+		NixOSHost:  detectNixOSHost(),
 		CheckedAt:  time.Now().UTC().Format(time.RFC3339),
 	}
 	// Probe installed versions + resolve each component's latest tag. The

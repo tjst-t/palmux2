@@ -6,7 +6,7 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
-    palmux.url = "github:tjst-t/palmux2?dir=nixos";
+    palmux.url = "github:tjst-t/palmux2";
   };
 
   outputs = { self, nixpkgs, palmux, ... }: {

@@ -65,7 +65,7 @@ palmux は `nixosModules.palmux` として配布される。ユーザは自分�
 ```nix
 # ユーザの flake.nix
 {
-  inputs.palmux.url = "github:tjst-t/palmux2?dir=nixos";
+  inputs.palmux.url = "github:tjst-t/palmux2";
   outputs = { nixpkgs, palmux, ... }: {
     nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
       modules = [

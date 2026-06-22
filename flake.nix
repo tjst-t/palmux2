@@ -11,6 +11,13 @@
       url = "github:numtide/system-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # palmuxOS appliance image generator (Sb14caa Stage 3). Additive — only the
+    # appliance-qcow2 package consumes it; the install.sh / home-manager path is
+    # untouched.
+    nixos-generators = {
+      url = "github:nix-community/nixos-generators";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -18,6 +25,7 @@
     , nixpkgs
     , home-manager
     , system-manager
+    , nixos-generators
     , ...
     }:
     let
@@ -33,6 +41,25 @@
         palmux2 = pkgs.callPackage ./nix/packages/palmux2.nix { };
         caddy-cloudflare = pkgs.callPackage ./nix/packages/caddy-cloudflare.nix { };
         default = self.packages.${system}.palmux2;
+
+        # palmuxOS appliance image (Sb14caa Stage 3). A disposable qcow2 built from
+        # nixosModules.appliance: immutable image, all durable state on a separate
+        # /persist volume (repos, ~/.claude, config, secrets, operator drop-ins).
+        # Ships with ZERO baked SSH keys / passwords — access is provisioned at
+        # first boot (cloud-init / palmux onboarding). domain=null → local-only by
+        # default; the deployer sets services.palmux.domain in their own drop-in.
+        #   nix build .#appliance-qcow2   →  result/nixos.qcow2
+        appliance-qcow2 = nixos-generators.nixosGenerate {
+          inherit system;
+          format = "qcow";
+          modules = [
+            { nixpkgs.overlays = [ self.overlays.default ]; }
+            self.nixosModules.appliance
+            ({ lib, ... }: {
+              services.palmux.domain = lib.mkDefault null; # local-only until the deployer sets it
+            })
+          ];
+        };
       });
 
       lib.mkPalmuxHost = import ./nix/lib/mkPalmuxHost.nix { inherit inputs; };

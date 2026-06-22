@@ -16,7 +16,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
     # Pin the palmux appliance modules. On a real appliance this is pinned to the
     # shipped version; `nixos-rebuild` after a version bump picks up new defaults.
-    palmux.url = "github:tjst-t/palmux2?dir=nixos";
+    palmux.url = "github:tjst-t/palmux2";
   };
 
   outputs = { self, nixpkgs, palmux, ... }:
