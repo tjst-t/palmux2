@@ -8,8 +8,12 @@
   #        sudo nixos-rebuild switch --flake /etc/palmux#appliance
   #
   # Everything under ./local is imported with the FULL NixOS option surface and
-  # merged over palmux's mkDefaults. ./local lives on /persist, so it survives
-  # image swaps/upgrades. No --impure: ./local is part of this flake's source.
+  # merged over palmux's mkDefaults. ./local is a symlink to the drop-in slice of
+  # the OPERATOR CONFIG BUNDLE (/persist/palmux/config/nixos), so it survives image
+  # swaps/upgrades and travels with the bundle on backup/restore. No --impure:
+  # ./local is part of this flake's source. (The other bundle slices —
+  # config/app/config.toml and the separate secrets.env — are read by palmux2, not
+  # imported here.) See docs/nixos-appliance-design.md §運用者コンフィグ束.
   description = "palmux appliance — operator config (extend via ./local/*.nix)";
 
   inputs = {

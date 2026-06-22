@@ -50,6 +50,19 @@ in {
       description = "Address palmux2 binds (Caddy reverse-proxies to it).";
     };
 
+    configDir = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+      example = "/persist/palmux/config/app";
+      description = ''
+        palmux2 `--config-dir` (config.toml + settings.json live here). null = the
+        palmux2 default (~/.config/palmux). On the appliance this points into the
+        OPERATOR CONFIG BUNDLE on /persist (config/app) so the operator's settings
+        are a separated, backup-/restore-able file set, distinct from the immutable
+        PalmuxOS core. See docs/nixos-appliance-design.md §運用者コンフィグ束.
+      '';
+    };
+
     domain = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
@@ -124,7 +137,8 @@ in {
           WorkingDirectory = lib.mkDefault cfg.stateDir;
           # serve resolves domain/secrets from config.toml [public]; --public-domain
           # stays out unless explicitly needed (mirrors home-manager module).
-          ExecStart = lib.mkDefault "${cfg.package}/bin/palmux2 serve --addr=${cfg.bindAddr}";
+          ExecStart = lib.mkDefault ("${cfg.package}/bin/palmux2 serve --addr=${cfg.bindAddr}"
+            + lib.optionalString (cfg.configDir != null) " --config-dir=${cfg.configDir}");
           EnvironmentFile = lib.mkIf (cfg.secretsFile != null) cfg.secretsFile;
           Restart = lib.mkDefault "on-failure";
           RestartSec = lib.mkDefault 2;

@@ -19,13 +19,31 @@ let
   # "palmux" group. tmpfiles rules must chown to this real group, not to `${pUser}`
   # (which would be an unresolvable group name and make the rule fail).
   pGroup = config.users.users.${pUser}.group;
+
+  # ── the OPERATOR CONFIG BUNDLE (Sb14caa, docs/nixos-appliance-design.md) ────
+  # Everything the operator sets (vs the immutable PalmuxOS core = the Nix modules
+  # in the image) lives as a SEPARATED, backup-/restore-able file set on /persist:
+  #
+  #   /persist/palmux/config/        ← the bundle (git/GitHub-friendly, no secrets)
+  #     ├─ nixos/  *.nix             declarative drop-ins (domain, extra pkgs, …)
+  #     └─ app/    config.toml       palmux2 app/server settings + settings.json
+  #   /persist/palmux/secrets.env    ← SECRETS (CF token / SSO secret / bcrypt) — NOT
+  #                                    git-plaintext; back up encrypted / restore apart
+  #   /persist/palmux/home/          ← DATA (~/ghq, ~/.claude) — separate, large
+  #
+  # Keeping config/ a single self-contained dir is what makes "back up the config,
+  # restore it on a fresh appliance, store it in git" a one-directory operation.
+  cfgBundle = "/persist/palmux/config";
+  dropinDir = "${cfgBundle}/nixos"; # operator NixOS drop-ins, injected by the on-appliance flake
+  appCfgDir = "${cfgBundle}/app";   # palmux2 --config-dir (config.toml + settings.json)
 in
 {
   imports = [ ./palmux.nix ];
 
   # ── palmux defaults suitable for an appliance ──────────────────────────────
   services.palmux.enable = lib.mkDefault true;
-  services.palmux.stateDir = lib.mkDefault "/persist/palmux/home";
+  services.palmux.stateDir = lib.mkDefault "/persist/palmux/home";   # DATA
+  services.palmux.configDir = lib.mkDefault appCfgDir;               # operator config bundle
   services.palmux.secretsFile = lib.mkDefault "/persist/palmux/secrets.env";
 
   # ── immutable image / mutable state split ──────────────────────────────────
@@ -44,9 +62,11 @@ in
   # the home → automatically on /persist.
   systemd.tmpfiles.rules = [
     "d /persist/palmux 0755 root root -"
-    "d /persist/palmux/home 0700 ${pUser} ${pGroup} -"
-    "d /persist/palmux/nixos-local 0755 root root -"
-    "f /persist/palmux/secrets.env 0600 ${pUser} ${pGroup} -"
+    "d /persist/palmux/home 0700 ${pUser} ${pGroup} -"                 # DATA
+    "d ${cfgBundle} 0755 root root -"                                  # operator config bundle
+    "d ${dropinDir} 0755 root root -"                                  # *.nix drop-ins (root reads at rebuild)
+    "d ${appCfgDir} 0750 ${pUser} ${pGroup} -"                         # config.toml (palmux2 writes via deploy API)
+    "f /persist/palmux/secrets.env 0600 ${pUser} ${pGroup} -"         # SECRETS
   ];
 
   system.stateVersion = lib.mkDefault "25.05";
@@ -87,6 +107,8 @@ in
   # (examples/onappliance-flake/flake.nix), which does:
   #     imports = [ palmux.nixosModules.appliance ]
   #            ++ lib.filesystem.listFilesRecursive ./local;
-  # so fragments in /persist/palmux/nixos-local (symlinked as the flake's ./local)
-  # are merged with full NixOS surface + override palmux's mkDefaults.
+  # where the flake's ./local is a symlink to ${dropinDir}
+  # (/persist/palmux/config/nixos) — the drop-in slice of the operator config
+  # bundle. Fragments there are merged with the full NixOS surface + override
+  # palmux's mkDefaults, and travel with the bundle on backup/restore.
 }

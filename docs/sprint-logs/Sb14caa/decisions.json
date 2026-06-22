@@ -125,6 +125,12 @@
       "story": "Sb14caa-3",
       "decision": "qcow2 image を実際にビルド+boot 検証 (KVM builder で AC-3-1 を full close)",
       "detail": "controller(.43) を Proxmox で nested virt 有効化(CPU host)→ /dev/kvm 出現 → nix build .#appliance-qcow2 が nixos.qcow2(4.2G sparse/7.48GB)を生成。make-disk-image の qemu-VM phase(virtiofs)で readdir EINVAL 警告は出るが NON-FATAL(out-link 生成=success)。controller 上 qemu+KVM で test-boot: grub→kernel→multi-user→nixos login 到達、incus active。cloud-init NoCloud seed で鍵注入し SSH ログイン成功(=鍵ゼロ image + cloud-init 経路の実証)、persist ラベルディスク添付で /persist mount→palmux2 active(apex 200)。AC-3-1 full PASS。"
+    },
+    {
+      "id": "ID-20",
+      "story": "Sb14caa-4",
+      "decision": "運用者コンフィグ束 (operator config bundle) でコア↔運用者設定をファイル分離",
+      "detail": "ユーザ要望(将来の設定 backup/GitHub restore)。/persist/palmux/config を束に整理: config/nixos(drop-in *.nix 注入先)、config/app(palmux2 --config-dir = config.toml/settings.json)、別レイヤで secrets.env(秘密)・home(データ)。palmux.nix に services.palmux.configDir option 追加(ExecStart に --config-dir append)、appliance.nix が configDir=config/app + tmpfiles で束を作成。バックアップ3層: config/=git-ok(平文・宣言的)/secrets.env=暗号化 or 除外/home=別。実機 eval で ExecStart に --config-dir=/persist/palmux/config/app・tmpfiles 束ルール解決を確認。LAN bind・WebUI→nixos-rebuild 自動化・backup/restore 機能は backlog story 化。"
     }
   ],
   "verification": {

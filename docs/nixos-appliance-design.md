@@ -116,14 +116,49 @@ bind-mount で各所へ）に置き、image を再ビルド/差し替え/アッ�
 |---|---|---|
 | リポジトリ | `~/ghq` | `/persist/ghq` |
 | Claude 記録（履歴, memory, projects） | `~/.claude`, `~/.claude.json` | `/persist/claude/...` |
-| palmux 設定 | `~/.config/palmux` | `/persist/palmux/config` |
+| palmux 設定 (config.toml/settings.json) | `--config-dir` | `/persist/palmux/config/app` |
 | secrets | `secrets.env` | `/persist/palmux/secrets.env` (0600) |
-| 運用者 NixOS オーバーライド | `/etc/palmux/local/` | `/persist/palmux/nixos-local` |
+| 運用者 NixOS オーバーライド | `/etc/palmux/local/` | `/persist/palmux/config/nixos` |
 | incus（ワークスペースコンテナは使い捨て、state は bind-mount） | `/var/lib/incus` | ポリシー次第で永続/揮発 |
 
 これは dev 移行で話した `~/.claude` / `~/ghq` 引き継ぎの懸念とそのまま直結する。アプライアンス
 化は state/image 分離を**強制する**ので、そのデータが設計上「明示的・可搬・バックアップ対象」に
 なり、むしろ綺麗に解決する。
+
+## 運用者コンフィグ束（operator config bundle）— コアと運用者設定の切り分け
+
+**PalmuxOS コア**（＝`nixosModules.{palmux,appliance}` の Nix モジュール、image に焼かれる不変・
+バージョン管理対象・運用者は触らない）と、**運用者が設定する部分**（WebUI / 手で設定）を、
+`/persist` 上の**切り分けたファイル束**として明確に分離する。将来の「設定だけバックアップ／
+GitHub に保存・別ホストへ restore」を一操作にするのが狙い（実装は `nixos/modules/{palmux,appliance}.nix`
+で配線済み: `services.palmux.configDir` を追加し、drop-in 注入先と config-dir を束へ向ける）。
+
+```
+/persist/palmux/
+├─ config/                    ← 運用者コンフィグ束（バックアップ/restore 対象・git-friendly）
+│  ├─ nixos/  *.nix           宣言的 drop-in（domain, 追加 pkg 等）。on-appliance flake が注入
+│  ├─ app/    config.toml     palmux2 の app/server 設定 + settings.json（--config-dir）
+│  └─ manifest.json           束のメタ（版・中身）— restore 用（将来）
+├─ secrets.env                ← 秘密（CFトークン / SSO secret / bcrypt）— 別扱い
+└─ home/                      ← データ（~/ghq, ~/.claude）— 別扱い・大きい
+```
+
+**バックアップ3層**（一緒に GitHub に置かない）:
+
+| 層 | 中身 | GitHub バックアップ |
+|---|---|---|
+| **`config/`** | drop-in `.nix` + `config.toml` | **そのまま OK**（宣言的・秘密なし）= 設定の git バックアップ/restore の本体 |
+| **`secrets.env`** | CFトークン / SSO secret / bcrypt | **平文 NG**。age/sops 暗号化で置くか git 除外して別経路 restore |
+| **`home/`** | `~/ghq`, `~/.claude` | データ。別バックアップ（大きい・独自履歴） |
+
+restore＝新アプライアンスに `config/` を戻す → secrets を別途復元 → `nixos-rebuild switch`。
+コア（image）は起動した版そのまま。これで「設定だけ持ち運び・git 管理・別ホストへ復元」が成立する。
+
+**未実装（後続スプリント、`docs/ROADMAP.json` に story 化）**: ① 公開ドメイン未設定時に WebUI を
+LAN へ出す first-boot bind、② WebUI/CLI のデプロイ設定（domain/CF トークン等）を NixOS では
+`config/nixos/*.nix` drop-in + `secrets.env` へ書いて `nixos-rebuild switch` まで自動化（Ubuntu の
+`reconcile-system` 経路の NixOS 版＝GUI→nixos-rebuild 写像の config 版）、③ `config/` 束の
+backup/GitHub restore 機能（manifest + secrets 暗号化）。
 
 ## アクセスと鍵 — 配布物に作者/運用者の鍵を焼かない（セキュリティ要件）
 
