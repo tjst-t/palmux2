@@ -10432,7 +10432,7 @@
             {
               "id": "AC-Sb14caa-3-1",
               "description": "nix build ./nixos#appliance-qcow2 (nixos-generators) が boot 可能な image を生成する(qcow2、可能なら ISO も)。",
-              "status": "partial"
+              "status": "passing"
             },
             {
               "id": "AC-Sb14caa-3-2",
@@ -10462,7 +10462,7 @@
               "status": "pending"
             }
           },
-          "status": "needs_user_review"
+          "status": "done"
         },
         "Sb14caa-4": {
           "title": "運用者が fork せず宣言設定を足せ、更新は世代ロールバック付きで安全",

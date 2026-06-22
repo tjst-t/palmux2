@@ -119,6 +119,12 @@
       "story": "Sb14caa-4",
       "decision": "GUI Update バッジの NixOS 写像: selfupdate に NixOSHost 検出 + panel の guidance 分岐",
       "detail": "internal/selfupdate detectNixOSHost()(/etc/NIXOS marker または os-release ID=nixos、両 path は test 用に var 化)→ Snapshot.NixOSHost。update-panel.tsx は nixOSHost を最優先分岐し『sudo nixos-rebuild switch --flake /etc/palmux#appliance で更新』guidance(在app one-click は出さない=S7364e3 の operator-driven 方針: 走行中 claude/tmux を勝手に落とさない)。FE 再接続ハンドシェイクはトリガ非依存で無改造。NixOS では更新=世代切替(アトミック)+ --rollback で無償ロールバック。"
+    },
+    {
+      "id": "ID-19",
+      "story": "Sb14caa-3",
+      "decision": "qcow2 image を実際にビルド+boot 検証 (KVM builder で AC-3-1 を full close)",
+      "detail": "controller(.43) を Proxmox で nested virt 有効化(CPU host)→ /dev/kvm 出現 → nix build .#appliance-qcow2 が nixos.qcow2(4.2G sparse/7.48GB)を生成。make-disk-image の qemu-VM phase(virtiofs)で readdir EINVAL 警告は出るが NON-FATAL(out-link 生成=success)。controller 上 qemu+KVM で test-boot: grub→kernel→multi-user→nixos login 到達、incus active。cloud-init NoCloud seed で鍵注入し SSH ログイン成功(=鍵ゼロ image + cloud-init 経路の実証)、persist ラベルディスク添付で /persist mount→palmux2 active(apex 200)。AC-3-1 full PASS。"
     }
   ],
   "verification": {
@@ -133,7 +139,7 @@
       "AC-Sb14caa-2-3": "PASS — Ports(全フロー: list/expose public&SSO/到達200&302-login 実機), SSO 公開サブドメイン(8001-- が 302→/auth/login), Browser noVNC plumbing(x11vnc RFB 003.008 が host から到達, palmux-browser navigate→title 取得=CDP自動化OK, fcitx5稼働, AttachVNC handler). noVNC canvas 描画+日本語入力は同一 palmux-ws image を deploy VM(S62374c)で実証済。"
     },
     "Sb14caa-3": {
-      "AC-Sb14caa-3-1": "PARTIAL(config PASS / boot deferred) — root flake .#appliance-qcow2(nixos-generators qcow)を追加、appliance system toplevel が実機 controller(192.168.1.43)で eval+build 成功。bootable qcow2 image-packaging は make-disk-image の qemu-VM phase が KVM 必須で、test infra(Proxmox VM・nested virt 無し)では生成不可 → 実 image boot は Stage 5(KVM 有る dev Proxmox への deploy)で成立(ID-15)。",
+      "AC-Sb14caa-3-1": "PASS(実 image boot) — nested virt 有効化した controller で nix build .#appliance-qcow2 が bootable qcow2(4.2G)を生成。qemu+KVM で実 boot 確認: multi-user→nixos login 到達・incus active。full 配備リハーサル(qemu)で cloud-init seed の鍵注入→SSH ログイン(鍵ゼロ image)、persist ラベルディスク→/persist mount→palmux2 active(apex 200)・state subtree on /persist。Proxmox import レシピを end-to-end 実証。ISO は未生成(AC は『可能なら』)。",
       "AC-Sb14caa-3-2": "PASS(実機) — testbox(192.168.1.44)を appliance mode に nixos-rebuild。stateDir=/persist/palmux/home、palmux2 が .cache を /persist に書込、secrets.env/home が /persist 上。SURVIVE-MARKER + palmux state が generation swap(gen2→gen3 = drop-in 変更による『image 入替』)を生存、palmux2 active + apex 200 通し。~/ghq・~/.claude・~/.config/palmux は home 配下で自動的に /persist。",
       "AC-Sb14caa-3-3": "PASS(双方向実機) — scripts/check-no-baked-keys.sh が appliance toplevel に SSH 鍵ゼロを確認(OK exit0)、鍵を焼く testbox toplevel では BAKED KEY を検出し FAIL。appliance.nix は services.cloud-init.enable + PasswordAuthentication=false 既定で authorizedKeys を一切設定せず(配布物は鍵ゼロ)。運用者鍵は drop-in で layer(実機の SSH access はそれ由来)。"
     },
