@@ -1,0 +1,3 @@
+# Operator drop-ins go here (*.nix). Each is merged into the appliance config by
+# the on-appliance flake (listFilesRecursive ./local) and applied with
+# `nixos-rebuild switch --flake /persist/palmux/nixos#appliance`.

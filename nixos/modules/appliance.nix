@@ -20,22 +20,27 @@ let
   # (which would be an unresolvable group name and make the rule fail).
   pGroup = config.users.users.${pUser}.group;
 
-  # ── the OPERATOR CONFIG BUNDLE (Sb14caa, docs/nixos-appliance-design.md) ────
-  # Everything the operator sets (vs the immutable PalmuxOS core = the Nix modules
-  # in the image) lives as a SEPARATED, backup-/restore-able file set on /persist:
+  # ── the SINGLE-DISK on-/persist layout (Sb14caa, docs/nixos-appliance-design.md)
+  # The appliance is a SINGLE disk: /persist is just a directory on the root fs, not
+  # a separate volume. nixos-rebuild's generation switch only swaps /nix/store +
+  # /run/current-system, so everything under /persist (state, config, the update
+  # flake) is untouched by updates and survives reboots. `qm resize` + growPartition
+  # grow the disk for more space. (An operator who wants the OLD separate-volume
+  # model for whole-image-swap updates can add `fileSystems."/persist"` in a drop-in.)
   #
-  #   /persist/palmux/config/        ← the bundle (git/GitHub-friendly, no secrets)
-  #     ├─ nixos/  *.nix             declarative drop-ins (domain, extra pkgs, …)
-  #     └─ app/    config.toml       palmux2 app/server settings + settings.json
-  #   /persist/palmux/secrets.env    ← SECRETS (CF token / SSO secret / bcrypt) — NOT
-  #                                    git-plaintext; back up encrypted / restore apart
-  #   /persist/palmux/home/          ← DATA (~/ghq, ~/.claude) — separate, large
-  #
-  # Keeping config/ a single self-contained dir is what makes "back up the config,
-  # restore it on a fresh appliance, store it in git" a one-directory operation.
-  cfgBundle = "/persist/palmux/config";
-  dropinDir = "${cfgBundle}/nixos"; # operator NixOS drop-ins, injected by the on-appliance flake
-  appCfgDir = "${cfgBundle}/app";   # palmux2 --config-dir (config.toml + settings.json)
+  #   /persist/palmux/nixos/     ← ON-APPLIANCE FLAKE (update + extend via nixos-rebuild)
+  #     ├─ flake.nix             pins palmux; nixos-rebuild switch --flake .#appliance
+  #     ├─ hardware-base.nix     virtio + by-label root + growPartition
+  #     ├─ grub-device.nix       generated on first boot (detected bootsector disk)
+  #     └─ local/  *.nix         operator drop-ins (domain, extra pkgs, …)
+  #   /persist/palmux/config/    ← palmux2 --config-dir (config.toml + settings.json)
+  #   /persist/palmux/secrets.env  ← SECRETS (CF token / SSO secret / bcrypt), 0600
+  #   /persist/palmux/home/      ← DATA (~/ghq, ~/.claude)
+  flakeDir = "/persist/palmux/nixos";   # on-appliance flake (+ local/ drop-ins)
+  dropinDir = "${flakeDir}/local";
+  appCfgDir = "/persist/palmux/config"; # palmux2 --config-dir (config.toml + settings.json)
+  appFlakeNix = ../appliance-flake/flake.nix;
+  appHwBase = ../appliance-flake/hardware-base.nix;
 in
 {
   imports = [ ./palmux.nix ];
@@ -121,43 +126,47 @@ in
   # cleanly through cloud-init.
   networking.useNetworkd = lib.mkDefault true;
 
-  # ── immutable image / mutable state split ──────────────────────────────────
-  # All durable user data lives on /persist — a SEPARATE volume the operator
-  # attaches (labelled "persist"). The image itself is disposable: rebuild/swap it
-  # and /persist (repos, ~/.claude, config, secrets, operator drop-ins) survives.
-  # `nofail` so the appliance still boots to fix things if /persist isn't attached
-  # yet; the palmux service (stateDir under /persist) just runs degraded until it is.
-  fileSystems."/persist" = {
-    device = lib.mkDefault "/dev/disk/by-label/persist";
-    fsType = lib.mkDefault "ext4";
-    options = [ "nofail" "x-systemd.device-timeout=10s" ];
-  };
-  # Ensure the state subtree exists on /persist (the palmux user's home, the
-  # secrets file, and the operator drop-in dir). ~/ghq and ~/.claude live under
-  # the home → automatically on /persist.
+  # ── /persist state + on-appliance update flake (single disk) ────────────────
+  # /persist is a directory on the ROOT fs (single-disk model — no separate volume).
+  # palmux-state-init creates the durable state subtree AND ships the on-appliance
+  # flake to /persist/palmux/nixos so the box can `nixos-rebuild switch` to update.
   #
-  # This MUST run AFTER /persist is mounted. systemd.tmpfiles.rules can't be used
-  # here: the /persist mount is `nofail`, so it does NOT block local-fs.target, and
-  # systemd-tmpfiles-setup (ordered only After=local-fs.target) can race ahead and
-  # create the dirs on the underlying root fs — then persist.mount mounts an empty
-  # volume OVER them, hiding them. palmux2 then fails (missing WorkingDirectory +
-  # EnvironmentFile, systemd reports `resources`). A dedicated oneshot with
-  # RequiresMountsFor=/persist is ordered strictly after the mount and is idempotent.
+  # Why a oneshot (not systemd.tmpfiles.rules): historically /persist was a `nofail`
+  # mount and tmpfiles-setup (ordered only After=local-fs.target) could race ahead
+  # of the mount and create the dirs on the underlying fs, then the mount hid them →
+  # palmux2 failed (missing WorkingDirectory/EnvironmentFile, `resources`). A oneshot
+  # with RequiresMountsFor=/persist + before/requiredBy palmux2 is deterministic and
+  # works for both the root-fs dir and a future separate-volume drop-in. Idempotent.
   systemd.services.palmux-state-init = {
-    description = "Create the palmux /persist state subtree (after /persist is mounted)";
+    description = "Create the palmux /persist state subtree + on-appliance update flake";
     before = [ "palmux2.service" ];
     requiredBy = [ "palmux2.service" ]; # palmux2 Requires + waits for this
     unitConfig.RequiresMountsFor = "/persist";
+    path = with pkgs; [ coreutils util-linux ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
       ExecStart = pkgs.writeShellScript "palmux-state-init" ''
         set -eu
-        ${pkgs.coreutils}/bin/install -d -m 0755 /persist/palmux ${cfgBundle} ${dropinDir}
-        ${pkgs.coreutils}/bin/install -d -m 0700 -o ${pUser} -g ${pGroup} /persist/palmux/home
-        ${pkgs.coreutils}/bin/install -d -m 0750 -o ${pUser} -g ${pGroup} ${appCfgDir}
+        # durable state subtree (palmux2 needs these to start)
+        install -d -m 0755 /persist/palmux
+        install -d -m 0700 -o ${pUser} -g ${pGroup} /persist/palmux/home
+        install -d -m 0750 -o ${pUser} -g ${pGroup} ${appCfgDir}
         [ -e /persist/palmux/secrets.env ] \
-          || ${pkgs.coreutils}/bin/install -m 0600 -o ${pUser} -g ${pGroup} /dev/null /persist/palmux/secrets.env
+          || install -m 0600 -o ${pUser} -g ${pGroup} /dev/null /persist/palmux/secrets.env
+
+        # on-appliance flake for `nixos-rebuild switch` updates + operator drop-ins
+        install -d -m 0755 ${flakeDir} ${dropinDir}
+        install -m 0644 ${appFlakeNix} ${flakeDir}/flake.nix
+        install -m 0644 ${appHwBase} ${flakeDir}/hardware-base.nix
+        # generate grub-device.nix with THIS VM's actual bootsector disk (the parent
+        # of the root partition — /dev/sda on virtio-scsi, /dev/vda on virtio-blk) so
+        # `nixos-rebuild` installs grub to the right place across hardware variants.
+        rootsrc=$(findmnt -nfo SOURCE /)
+        disk=/dev/$(lsblk -no pkname "$rootsrc" | head -n1)
+        if [ ! -e ${flakeDir}/grub-device.nix ]; then
+          printf '{ boot.loader.grub.device = "%s"; }\n' "$disk" > ${flakeDir}/grub-device.nix
+        fi
       '';
     };
   };
@@ -167,8 +176,11 @@ in
   # ── generation-based upgrades (replaces unattended-upgrades + self-update) ──
   system.autoUpgrade = {
     enable = lib.mkDefault false; # opt-in; appliance updates are operator-driven
-    flake = lib.mkDefault "/etc/palmux";
+    flake = lib.mkDefault "${flakeDir}#appliance";
   };
+  # The update path is `nixos-rebuild switch --flake ${flakeDir}#appliance`, so the
+  # appliance needs flakes enabled.
+  nix.settings.experimental-features = lib.mkDefault [ "nix-command" "flakes" ];
 
   # ── login / access — NEVER bake an author/operator key into the image ──────
   # SECURITY: a distributed appliance image MUST ship with ZERO baked SSH keys /
@@ -196,12 +208,10 @@ in
   # would wrongly break legitimate operator customization. TODO(stage3): add the
   # image-build no-baked-keys CI check.
 
-  # NOTE: the OPERATOR DROP-IN import is wired in the ON-APPLIANCE flake
-  # (examples/onappliance-flake/flake.nix), which does:
-  #     imports = [ palmux.nixosModules.appliance ]
+  # NOTE: the OPERATOR DROP-IN import is wired in the ON-APPLIANCE flake shipped to
+  # ${flakeDir}/flake.nix (source: nixos/appliance-flake/), which does:
+  #     imports = [ palmux.nixosModules.appliance ./hardware-base.nix ./grub-device.nix ]
   #            ++ lib.filesystem.listFilesRecursive ./local;
-  # where the flake's ./local is a symlink to ${dropinDir}
-  # (/persist/palmux/config/nixos) — the drop-in slice of the operator config
-  # bundle. Fragments there are merged with the full NixOS surface + override
-  # palmux's mkDefaults, and travel with the bundle on backup/restore.
+  # so *.nix dropped into ${dropinDir} are merged with the full NixOS surface +
+  # override palmux's mkDefaults on the next `nixos-rebuild switch --flake ${flakeDir}#appliance`.
 }
