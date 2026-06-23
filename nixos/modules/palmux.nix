@@ -143,7 +143,10 @@ in {
           # stays out unless explicitly needed (mirrors home-manager module).
           ExecStart = lib.mkDefault ("${cfg.package}/bin/palmux2 serve --addr=${cfg.bindAddr}"
             + lib.optionalString (cfg.configDir != null) " --config-dir=${cfg.configDir}");
-          EnvironmentFile = lib.mkIf (cfg.secretsFile != null) cfg.secretsFile;
+          # `-` prefix: tolerate a missing/not-yet-created secrets file instead of
+          # failing the whole service (systemd `resources` error). On the appliance
+          # palmux-state-init creates it before this runs; this is belt-and-braces.
+          EnvironmentFile = lib.mkIf (cfg.secretsFile != null) "-${cfg.secretsFile}";
           Restart = lib.mkDefault "on-failure";
           RestartSec = lib.mkDefault 2;
         };

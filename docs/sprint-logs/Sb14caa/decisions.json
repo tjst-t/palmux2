@@ -161,6 +161,12 @@
       "story": "Sb14caa-3",
       "decision": "first-boot LAN 公開 (domain 未設定時 0.0.0.0:7683 bind + firewall 7683)",
       "detail": "ユーザ要望(最初から公開・onboarding を IP で到達)。appliance.nix で services.palmux.bindAddr を条件付き: domain=null→0.0.0.0:7683(LAN 公開)、domain 設定後→127.0.0.1(Caddy+SSO の裏に隠す、直アクセスで SSO 迂回を防ぐ)。NixOS firewall 既定 on なので domain=null 時 networking.firewall.allowedTCPPorts に 7683 を mkIf で追加(でないと bind しても弾かれる)。セキュリティ: domain 未設定時は無認証(onboarding/claim ゲートは未実装=backlog、ユーザ承認の上で trusted LAN 前提)。実機検証(qemu boot+hostfwd): ss が *:7683 で listen(127.0.0.1 でない)、guest 外から hostfwd 経由 curl で apex 200(bind+firewall 両方 OK)、incus/palmux2 active。image 944M 維持。"
+    },
+    {
+      "id": "ID-26",
+      "story": "Sb14caa-3",
+      "decision": "FIX: /persist state subtree を tmpfiles でなく persist.mount 後の oneshot で作成",
+      "detail": "実機(ユーザの Proxmox)で palmux2 が activating(auto-restart)(Result: resources)でループ。原因: /persist マウント(nofail)が local-fs.target をブロックしないため systemd-tmpfiles-setup(After=local-fs.target のみ)がマウント前に走り、dir を root fs に作成→persist.mount が空ボリュームを被せて隠す→/persist/palmux 不在で WorkingDirectory + EnvironmentFile 欠落→systemd resources エラー。私の qemu テストはたまたま順序が合って通った(レース)。修正: tmpfiles を廃し、palmux-state-init oneshot(unitConfig.RequiresMountsFor=/persist、before+requiredBy palmux2)で /persist マウント後・palmux2 前に確実に subtree+secrets.env を install。加えて EnvironmentFile を `-` prefix で optional 化(欠損で resources にしない、belt-and-braces)。応急処置として手動 install -d でユーザを即復旧。"
     }
   ],
   "verification": {

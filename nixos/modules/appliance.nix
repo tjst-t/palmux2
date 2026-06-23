@@ -135,14 +135,32 @@ in
   # Ensure the state subtree exists on /persist (the palmux user's home, the
   # secrets file, and the operator drop-in dir). ~/ghq and ~/.claude live under
   # the home → automatically on /persist.
-  systemd.tmpfiles.rules = [
-    "d /persist/palmux 0755 root root -"
-    "d /persist/palmux/home 0700 ${pUser} ${pGroup} -"                 # DATA
-    "d ${cfgBundle} 0755 root root -"                                  # operator config bundle
-    "d ${dropinDir} 0755 root root -"                                  # *.nix drop-ins (root reads at rebuild)
-    "d ${appCfgDir} 0750 ${pUser} ${pGroup} -"                         # config.toml (palmux2 writes via deploy API)
-    "f /persist/palmux/secrets.env 0600 ${pUser} ${pGroup} -"         # SECRETS
-  ];
+  #
+  # This MUST run AFTER /persist is mounted. systemd.tmpfiles.rules can't be used
+  # here: the /persist mount is `nofail`, so it does NOT block local-fs.target, and
+  # systemd-tmpfiles-setup (ordered only After=local-fs.target) can race ahead and
+  # create the dirs on the underlying root fs — then persist.mount mounts an empty
+  # volume OVER them, hiding them. palmux2 then fails (missing WorkingDirectory +
+  # EnvironmentFile, systemd reports `resources`). A dedicated oneshot with
+  # RequiresMountsFor=/persist is ordered strictly after the mount and is idempotent.
+  systemd.services.palmux-state-init = {
+    description = "Create the palmux /persist state subtree (after /persist is mounted)";
+    before = [ "palmux2.service" ];
+    requiredBy = [ "palmux2.service" ]; # palmux2 Requires + waits for this
+    unitConfig.RequiresMountsFor = "/persist";
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = pkgs.writeShellScript "palmux-state-init" ''
+        set -eu
+        ${pkgs.coreutils}/bin/install -d -m 0755 /persist/palmux ${cfgBundle} ${dropinDir}
+        ${pkgs.coreutils}/bin/install -d -m 0700 -o ${pUser} -g ${pGroup} /persist/palmux/home
+        ${pkgs.coreutils}/bin/install -d -m 0750 -o ${pUser} -g ${pGroup} ${appCfgDir}
+        [ -e /persist/palmux/secrets.env ] \
+          || ${pkgs.coreutils}/bin/install -m 0600 -o ${pUser} -g ${pGroup} /dev/null /persist/palmux/secrets.env
+      '';
+    };
+  };
 
   system.stateVersion = lib.mkDefault "25.05";
 
