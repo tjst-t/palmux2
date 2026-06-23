@@ -46,14 +46,32 @@ in
   services.palmux.configDir = lib.mkDefault appCfgDir;               # operator config bundle
   services.palmux.secretsFile = lib.mkDefault "/persist/palmux/secrets.env";
 
-  # ── slim the appliance: drop GBs the appliance never uses ──────────────────
-  # The NixOS incus module hardwires full qemu_kvm (+ its GUI/audio backends: SDL,
-  # GTK4, pipewire, gstreamer, spice, zenity ≈ 1GB) into incus.service for the VM
-  # driver. palmux uses incus CONTAINERS ONLY, so swap in the GUI-less nixos-test
-  # qemu — incus stays functional for containers, the desktop stack is gone. An
-  # operator who actually wants incus VMs overrides qemu_kvm back in their own
-  # overlay (drop-in). (nixpkgs.overlays is a list → this merges with the flake's.)
-  nixpkgs.overlays = [ (final: prev: { qemu_kvm = prev.qemu_test; }) ];
+  # ── slim the appliance: stub out incus features the appliance never uses ───
+  # The NixOS incus module hardwires, into incus.service, big dependencies that
+  # only its VM driver / S3 storage backend need:
+  #   - qemu_kvm (+ GUI/audio backends: SDL, GTK4, pipewire, gstreamer, spice,
+  #     zenity) ≈ 1GB for the VM driver
+  #   - minio / minio-client ≈ 140MB for the S3 object-storage pool
+  # palmux uses incus CONTAINERS ONLY and the `dir` storage pool, so neither is
+  # ever invoked. Replace them with empty stubs (the daemon starts fine; it just
+  # reports VM instances / S3 pools as unavailable). An operator who actually wants
+  # incus VMs or S3 storage overrides these back in their own drop-in overlay.
+  # (nixpkgs.overlays is a list → this merges with the flake's overlay.)
+  # NOTE: qemu can't be fully stubbed — `make-disk-image` (the qcow2 builder) runs
+  # its own bootloader-install VM with real qemu-system-x86_64, so a stub breaks the
+  # IMAGE BUILD itself. Use the GUI-less nixos-test qemu instead: real qemu (build +
+  # incus both work), but without the ~1GB SDL/GTK/pipewire/spice desktop stack.
+  # minio (incus S3 object-storage pool) IS fully stubbable — neither the builder nor
+  # the `dir` storage pool palmux uses ever invokes it.
+  nixpkgs.overlays = [
+    (final: prev:
+      let stub = name: prev.runCommand "${name}-stub-0" { } "mkdir -p $out/bin $out/libexec";
+      in {
+        qemu_kvm = prev.qemu_test;
+        minio = stub "minio";
+        minio-client = stub "minio-client";
+      })
+  ];
 
   # Headless appliance: no man pages / NixOS manual / info (~150MB).
   documentation.enable = lib.mkDefault false;

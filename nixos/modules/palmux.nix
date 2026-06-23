@@ -130,8 +130,12 @@ in {
         # palmux2 requires tmux/ghq/gwq/git on PATH at startup, and shells out to
         # incus when the container runtime is enabled. gwq comes from the overlay
         # (nix/packages/gwq.nix); ghq is in nixpkgs.
-        path = with pkgs; [ tmux git gitMinimal openssh ghq gwq ]
-          ++ lib.optional cfg.incus.enable pkgs.incus;
+        # NB: use the SAME incus as the daemon (config.virtualisation.incus.package,
+        # = incus-lts), not pkgs.incus — otherwise palmux2's CLI pulls a second,
+        # different incus build into the closure (~217MB of pure duplication) and
+        # talks to the daemon with a mismatched client version.
+        path = with pkgs; [ tmux gitMinimal openssh ghq gwq ]
+          ++ lib.optional cfg.incus.enable config.virtualisation.incus.package;
         serviceConfig = {
           User = lib.mkDefault cfg.user;
           WorkingDirectory = lib.mkDefault cfg.stateDir;
