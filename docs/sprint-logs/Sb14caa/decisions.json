@@ -131,6 +131,12 @@
       "story": "Sb14caa-4",
       "decision": "運用者コンフィグ束 (operator config bundle) でコア↔運用者設定をファイル分離",
       "detail": "ユーザ要望(将来の設定 backup/GitHub restore)。/persist/palmux/config を束に整理: config/nixos(drop-in *.nix 注入先)、config/app(palmux2 --config-dir = config.toml/settings.json)、別レイヤで secrets.env(秘密)・home(データ)。palmux.nix に services.palmux.configDir option 追加(ExecStart に --config-dir append)、appliance.nix が configDir=config/app + tmpfiles で束を作成。バックアップ3層: config/=git-ok(平文・宣言的)/secrets.env=暗号化 or 除外/home=別。実機 eval で ExecStart に --config-dir=/persist/palmux/config/app・tmpfiles 束ルール解決を確認。LAN bind・WebUI→nixos-rebuild 自動化・backup/restore 機能は backlog story 化。"
+    },
+    {
+      "id": "ID-21",
+      "story": "Sb14caa-3",
+      "decision": "appliance image を slim 化 (4.2G→2.7G) + cloud-init で static IP を効かせる",
+      "detail": "実測で膨張主因を特定: NixOS incus モジュールが VM ドライバ用に full qemu_kvm(GUI/音声 backend: SDL/GTK4/pipewire/gstreamer/spice/zenity ≈1GB)+OVMF を incus.service に直書き。palmux はコンテナのみで VM 不使用 → overlay qemu_kvm=qemu_test(GUI-less nixos-test qemu)で GUI スタック除去。加えて documentation.enable=false(~150M)、i18n.supportedLocales 最小(~200M)、nixpkgs.flake.setNixPath/setFlakeRegistry=false(closure から nixpkgs source 除去)、qcow2 target で copyChannel=false(image に nixpkgs channel を焼かない)。closure 3.3G→2.5G、image 4.2G→2.7G。static IP: NixOS の cloud-init は network 管理が既定 OFF(NixOS networking は宣言的)で Proxmox の static IP が無視されていた → services.cloud-init.network.enable=true で cloud-init が /etc/systemd/network/*.network を書き static IP/GW を反映。qemu+KVM(controller) で実 boot 検証: 2.7G image が起動・incus active(qemu_test で壊れない)・palmux2 apex 200・/persist mount・cloud-init が static network config を書込。残: qemu_test 388M(VM-only)/incus×2 430M/minio 138M は更に削れるが incus 必須機能。~1G は NixOS+incus+cloud-init では非現実的、floor ~2.5G。"
     }
   ],
   "verification": {

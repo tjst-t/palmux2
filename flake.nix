@@ -55,8 +55,19 @@
           modules = [
             { nixpkgs.overlays = [ self.overlays.default ]; }
             self.nixosModules.appliance
-            ({ lib, ... }: {
+            ({ lib, config, pkgs, modulesPath, ... }: {
               services.palmux.domain = lib.mkDefault null; # local-only until the deployer sets it
+              # Don't bake a full copy of the nixpkgs channel into the image (~0.9GB
+              # of dead weight — the appliance is flake-managed, not nix-channel).
+              # nixos-generators' qcow format calls make-disk-image with copyChannel
+              # defaulting to true; re-issue the same call with copyChannel=false.
+              system.build.qcow = lib.mkForce (import "${toString modulesPath}/../lib/make-disk-image.nix" {
+                inherit lib config pkgs;
+                inherit (config.virtualisation) diskSize;
+                format = "qcow2";
+                partitionTableType = "hybrid";
+                copyChannel = false;
+              });
             })
           ];
         };
