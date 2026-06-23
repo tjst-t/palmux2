@@ -143,6 +143,12 @@
       "story": "Sb14caa-3",
       "decision": "image を更に slim 化 (2.7G→2.3G): incus dedup + minio stub + git整理。qemu は stub 不可",
       "detail": "(1) incus 二重バグ修正: palmux.nix が palmux2.service path に pkgs.incus(6.17, 別ビルド217M)を入れてデーモンの incus-lts(6.0.5)と二重 → config.virtualisation.incus.package に統一(-217M、version 整合も改善)。(2) minio stub: incus モジュールが S3 ストレージ用に minio/minio-client(138M)を serverBinPath に直書きするが palmux は dir プールのみ → 空 stub overlay(-138M)。(3) git→gitMinimal: palmux2 path から full git を外す(-52M+doc)。(4) **qemu は stub 不可**: make-disk-image の bootloader-install VM が real qemu-system-x86_64 を実行するため stub だと image ビルド自体が失敗 → qemu_kvm=qemu_test(GUI-less real qemu)を維持。floor は qemu_test 388M(builder 必須)+incus 214M+kernel 147M+python/cloud-init 108M+systemd/glibc/perl で ~2.3G、~1-2G は非現実的。実機検証(qemu_test で boot): 2.3G image 起動・incus active(minio stub で壊れない)・incus list 動作・palmux2 apex 200・/persist mount・cloud-init OK。"
+    },
+    {
+      "id": "ID-23",
+      "story": "Sb14caa-3",
+      "decision": "appliance-qcow2 を圧縮 qcow2 化 (2.3G→944M) — read-only squashfs より優位",
+      "detail": "ユーザ要望(更に小さく)。read-only squashfs store は /nix/store が read-only になり nixos-rebuild switch + drop-in(Stage 4)が壊れるため不採用。代わりに make-disk-image の format=qcow2-compressed(qemu-img convert -c でクラスタ圧縮)。読み込みは透過解凍、内側 ext4 store は read-write のまま → nixos-rebuild/drop-in 維持。書き込みは別ディスクの /persist へ行くので root qcow2 は圧縮されたまま小さく保たれる。2.3G→944M(~2.4x、<1GB の当初目標を達成)。実機検証(qemu+KVM で boot): 944M image 起動・incus active・incus list 動作・palmux2 apex 200・/persist mount・cloud-init OK。トレードオフ: read 時に微小な解凍 CPU コスト(無視可)、ビルド時の qemu-img convert -c が遅い(1回限り)。"
     }
   ],
   "verification": {

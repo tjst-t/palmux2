@@ -61,10 +61,15 @@
               # of dead weight — the appliance is flake-managed, not nix-channel).
               # nixos-generators' qcow format calls make-disk-image with copyChannel
               # defaulting to true; re-issue the same call with copyChannel=false.
+              # qcow2-compressed: qemu-img convert -c compresses the qcow2 clusters
+              # ~2-3x. Reads are decompressed transparently and the inner ext4 store
+              # stays READ-WRITE, so `nixos-rebuild switch` + operator drop-ins keep
+              # working (unlike a read-only squashfs store). Guest writes land on the
+              # separate /persist disk, so the root qcow2 stays compressed/compact.
               system.build.qcow = lib.mkForce (import "${toString modulesPath}/../lib/make-disk-image.nix" {
                 inherit lib config pkgs;
                 inherit (config.virtualisation) diskSize;
-                format = "qcow2";
+                format = "qcow2-compressed";
                 partitionTableType = "hybrid";
                 copyChannel = false;
               });
