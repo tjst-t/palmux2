@@ -1,0 +1,42 @@
+# palmuxOS appliance: enforce the "ship ZERO baked SSH keys" invariant.
+#
+# A distributed appliance image MUST NOT contain any operator/author SSH key — that
+# would be a backdoor into every deployment (docs/nixos-appliance-design.md). We
+# enforce it as a build-time grep of the appliance system closure (NOT an eval
+# assertion, which can't tell the shipped image build from an operator's own
+# rebuild that legitimately DOES add their key). See scripts/check-no-baked-keys.sh.
+name: appliance-no-baked-keys
+
+on:
+  pull_request:
+    paths:
+      - "nixos/**"
+      - "nix/**"
+      - "flake.nix"
+      - "flake.lock"
+      - "scripts/check-no-baked-keys.sh"
+      - ".github/workflows/appliance-no-baked-keys.yml"
+  push:
+    branches: [main]
+    paths:
+      - "nixos/**"
+      - "nix/**"
+      - "flake.nix"
+      - "flake.lock"
+      - "scripts/check-no-baked-keys.sh"
+  workflow_dispatch:
+
+jobs:
+  no-baked-keys:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: DeterminateSystems/nix-installer-action@main
+      - name: Build appliance system toplevel
+        run: |
+          sys=$(nix build --no-link --print-out-paths \
+            '.#nixosConfigurations.appliance.config.system.build.toplevel')
+          echo "appliance toplevel: $sys"
+          echo "SYS=$sys" >> "$GITHUB_ENV"
+      - name: Assert no baked SSH keys
+        run: bash scripts/check-no-baked-keys.sh "$SYS"

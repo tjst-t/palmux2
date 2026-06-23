@@ -196,19 +196,24 @@ in {
       # (to a huge 1000000:1000000000 range that does NOT include host uid 1000), so
       # adding via subUidRanges is dropped. Append root:1000:1 to the generated
       # /etc/sub{u,g}id after the `users` activation, idempotently (re-runs every
-      # switch/boot). incus is restarted once below so it picks the new map up.
+      # switch/boot). If we actually appended (i.e. the map changed) AND incus is
+      # already running (a `nixos-rebuild switch`, not first boot), restart it so it
+      # re-reads the map — otherwise an idmapped container launch fails until a manual
+      # restart. On first boot the activation runs before incus starts, so the
+      # try-restart is a harmless no-op there.
       system.activationScripts.palmuxIncusSubid = {
         deps = [ "users" ];
         text = ''
+          changed=0
           for f in /etc/subuid /etc/subgid; do
             ${pkgs.gnugrep}/bin/grep -qxF 'root:1000:1' "$f" 2>/dev/null \
-              || echo 'root:1000:1' >> "$f"
+              || { echo 'root:1000:1' >> "$f"; changed=1; }
           done
+          if [ "$changed" = 1 ] && [ -d /run/systemd/system ]; then
+            ${pkgs.systemd}/bin/systemctl try-restart incus.service 2>/dev/null || true
+          fi
         '';
       };
-      # (On a running system a `systemctl restart incus` is needed after the append
-      # so incus re-reads the map; on fresh boot the activation runs before incus
-      # starts. TODO(stage2): order an incus restart trigger on the subid file.)
       networking.nftables.enable = lib.mkDefault true; # incus bridge fw
       # Trust the incus bridge: the firewall's input chain drops conntrack-invalid
       # packets (`ct state invalid : drop`) BEFORE the per-port accepts, and a

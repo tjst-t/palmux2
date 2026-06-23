@@ -173,6 +173,12 @@
       "story": "Sb14caa-3",
       "decision": "単一ディスク化 + on-appliance flake で nixos-rebuild 更新を可能に",
       "detail": "ユーザの本命構成。(1) 単一ディスク: fileSystems.\"/persist\" を廃止し /persist を root fs 上のディレクトリに。nixos-rebuild の世代切替は store/current-system だけ入替で /persist は不変→state は更新/再起動を生存。deploy は importdisk 1本+boot のみ(別ディスク+mkfs 不要)、容量は qm resize+growPartition で拡張。(2) 更新: palmux-state-init が初回ブートで on-appliance flake を /persist/palmux/nixos に配置(flake.nix+hardware-base.nix+生成 grub-device.nix+local/)。更新は cd /persist/palmux/nixos && nix flake update palmux && nixos-rebuild switch --flake .#appliance(アトミック+rollback)。grub device は findmnt/lsblk で実ディスク(sda/vda)を検出して書込み環境差吸収。nix.settings.experimental-features=[nix-command flakes]。flake の palmux input は暫定で Sb14caa ブランチ pin(main merge 後に main/release へ)。appliance-flake 配置: nixos/appliance-flake/。"
+    },
+    {
+      "id": "ID-28",
+      "story": "Sb14caa-3",
+      "decision": "subagent レビュー指摘の修正: 25.05 channel 統一 + 更新経路の堅牢化",
+      "detail": "2 subagent で Nix 実装をレビュー(最小コンテキスト)。修正: (1) channel 不一致解消 — root flake に nixpkgs-appliance(nixos-25.05) input を足し nixos-generators を follows、appliance-qcow2 を 25.05 でビルド(従来 unstable=26.11、on-appliance flake は 25.05 で skew→初回 rebuild 大差分)。on-appliance flake と一致。(2) state-init が毎ブート flake.nix/hardware-base.nix を上書きするバグ→ [!-e] seed-only ガード(運用者の編集/lock を保護)。(3) grub-device 検出に [-b \"$disk\"] 検証+失敗時 placeholder fallback(空 pkname→/dev/ で rebuild 死亡を防止)。(4) network-online wait hang 回避: systemd.network.wait-online.anyInterface=true。(5) incus idmap append 時に systemctl try-restart incus(変更時のみ・systemd 稼働時のみ)。(6) no-baked-keys CI: nixosConfigurations.appliance(25.05・buildable)を公開し .github/workflows/appliance-no-baked-keys.yml が toplevel build→scripts/check-no-baked-keys.sh。(7) flake.nix override の /persist 別ディスク stale コメント修正。flake.lock 同梱は自己参照問題(palmux pin rev に lock+参照が存在する必要=循環)+ channel 統一で初回差分が十分小さいため見送り。実機 controller eval: appliance/qcow2 とも 25.05 で PASS。"
     }
   ],
   "verification": {

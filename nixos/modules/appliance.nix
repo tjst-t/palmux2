@@ -126,6 +126,12 @@ in
   # cleanly through cloud-init.
   networking.useNetworkd = lib.mkDefault true;
 
+  # palmux2/incus order after network-online.target; with networkd that pulls
+  # systemd-networkd-wait-online, which by default waits for ALL managed links to be
+  # online and can HANG to its timeout (~2min) on a down/virtual interface (e.g. the
+  # incus bridge before a container starts), delaying boot. Wait for ANY one link.
+  systemd.network.wait-online.anyInterface = lib.mkDefault true;
+
   # ── /persist state + on-appliance update flake (single disk) ────────────────
   # /persist is a directory on the ROOT fs (single-disk model — no separate volume).
   # palmux-state-init creates the durable state subtree AND ships the on-appliance
@@ -155,17 +161,27 @@ in
         [ -e /persist/palmux/secrets.env ] \
           || install -m 0600 -o ${pUser} -g ${pGroup} /dev/null /persist/palmux/secrets.env
 
-        # on-appliance flake for `nixos-rebuild switch` updates + operator drop-ins
+        # on-appliance flake for `nixos-rebuild switch` updates + operator drop-ins.
+        # SEED-ONLY: only write these if absent, so an operator who edits flake.nix
+        # (e.g. bumps the palmux pin) or whose `nix flake update` rewrote flake.lock
+        # isn't silently reverted on the next reboot.
         install -d -m 0755 ${flakeDir} ${dropinDir}
-        install -m 0644 ${appFlakeNix} ${flakeDir}/flake.nix
-        install -m 0644 ${appHwBase} ${flakeDir}/hardware-base.nix
+        [ -e ${flakeDir}/flake.nix ]        || install -m 0644 ${appFlakeNix} ${flakeDir}/flake.nix
+        [ -e ${flakeDir}/hardware-base.nix ] || install -m 0644 ${appHwBase} ${flakeDir}/hardware-base.nix
         # generate grub-device.nix with THIS VM's actual bootsector disk (the parent
         # of the root partition — /dev/sda on virtio-scsi, /dev/vda on virtio-blk) so
         # `nixos-rebuild` installs grub to the right place across hardware variants.
-        rootsrc=$(findmnt -nfo SOURCE /)
-        disk=/dev/$(lsblk -no pkname "$rootsrc" | head -n1)
+        # Only on first boot, and only if we resolved a REAL block device (an empty
+        # pkname would yield "/dev/" and make a later rebuild's grub-install fail —
+        # fall back to the shipped placeholder in that case).
         if [ ! -e ${flakeDir}/grub-device.nix ]; then
-          printf '{ boot.loader.grub.device = "%s"; }\n' "$disk" > ${flakeDir}/grub-device.nix
+          rootsrc=$(findmnt -nfo SOURCE / || true)
+          disk=/dev/$(lsblk -no pkname "$rootsrc" 2>/dev/null | head -n1)
+          if [ -b "$disk" ]; then
+            printf '{ boot.loader.grub.device = "%s"; }\n' "$disk" > ${flakeDir}/grub-device.nix
+          else
+            install -m 0644 ${../appliance-flake/grub-device.nix} ${flakeDir}/grub-device.nix
+          fi
         fi
       '';
     };

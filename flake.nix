@@ -3,6 +3,11 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # The appliance image + its on-appliance update flake both build from the
+    # STABLE release, so an in-place `nixos-rebuild` minimises the closure delta and
+    # doesn't swap kernel/systemd versions out from under the box (the install.sh /
+    # home-manager path keeps tracking unstable above).
+    nixpkgs-appliance.url = "github:NixOS/nixpkgs/nixos-25.05";
     home-manager = {
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -13,16 +18,17 @@
     };
     # palmuxOS appliance image generator (Sb14caa Stage 3). Additive — only the
     # appliance-qcow2 package consumes it; the install.sh / home-manager path is
-    # untouched.
+    # untouched. Built against nixpkgs-appliance (25.05) to match the on-appliance flake.
     nixos-generators = {
       url = "github:nix-community/nixos-generators";
-      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.nixpkgs.follows = "nixpkgs-appliance";
     };
   };
 
   outputs =
     inputs@{ self
     , nixpkgs
+    , nixpkgs-appliance
     , home-manager
     , system-manager
     , nixos-generators
@@ -62,10 +68,13 @@
               # nixos-generators' qcow format calls make-disk-image with copyChannel
               # defaulting to true; re-issue the same call with copyChannel=false.
               # qcow2-compressed: qemu-img convert -c compresses the qcow2 clusters
-              # ~2-3x. Reads are decompressed transparently and the inner ext4 store
-              # stays READ-WRITE, so `nixos-rebuild switch` + operator drop-ins keep
-              # working (unlike a read-only squashfs store). Guest writes land on the
-              # separate /persist disk, so the root qcow2 stays compressed/compact.
+              # ~2-3x for distribution. Reads are decompressed transparently and the
+              # inner ext4 store stays READ-WRITE, so `nixos-rebuild switch` + operator
+              # drop-ins keep working (unlike a read-only squashfs store). NOTE: this
+              # is a SINGLE-disk appliance — /persist is a directory on the root fs, so
+              # runtime writes (repos, ~/.claude, nix-store growth on rebuild) DO land
+              # on this disk and the qcow2 grows from its compressed seed size as the
+              # box is used. The compression only shrinks the DISTRIBUTED artifact.
               system.build.qcow = lib.mkForce (import "${toString modulesPath}/../lib/make-disk-image.nix" {
                 inherit lib config pkgs;
                 inherit (config.virtualisation) diskSize;
@@ -95,6 +104,19 @@
         palmux = ./nixos/modules/palmux.nix;       # services.palmux.* host layer
         appliance = ./nixos/modules/appliance.nix; # appliance: state split + drop-in
         default = ./nixos/modules/appliance.nix;
+      };
+
+      # A buildable appliance system (nixos-25.05), for CI build/eval + the
+      # no-baked-keys check. Same modules the qcow2 image + on-appliance flake use.
+      nixosConfigurations.appliance = nixpkgs-appliance.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
+          { nixpkgs.overlays = [ self.overlays.default ]; }
+          self.nixosModules.appliance
+          ./nixos/appliance-flake/hardware-base.nix
+          ./nixos/appliance-flake/grub-device.nix
+          ({ lib, ... }: { services.palmux.domain = lib.mkDefault null; })
+        ];
       };
     };
 }
