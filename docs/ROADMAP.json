@@ -11085,7 +11085,7 @@
     },
     {
       "title": "PalmuxOS 運用者コンフィグ束 + WebUI→nixos-rebuild + 設定 backup/restore",
-      "description": "(Sb14caa 由来) アプライアンスの「運用者が設定する部分」を /persist/palmux/config 束 (config/nixos=drop-in、config/app=config.toml、別: secrets.env / home データ) に切り分け、コア(Nixモジュール)と分離。土台 (パス分離 + 注入配線 + services.palmux.configDir) は Sb14caa で実装済。後続 story: ① 公開ドメイン未設定時に WebUI を LAN bind して first-boot オンボーディングをブラウザ到達可能に (今は 127.0.0.1 固定)、② WebUI/CLI のデプロイ設定 (domain/CFトークン/SSO) を NixOS では config/nixos drop-in + secrets.env に書いて nixos-rebuild switch まで自動化 (Ubuntu reconcile-system の NixOS 版 = GUI→nixos-rebuild 写像の config 版)、③ config 束の backup/GitHub restore 機能 (manifest.json + secrets は age/sops 暗号化、config/ は平文 git-ok)。秘密を平文で git に出さない 3層分離が肝。",
+      "description": "(Sb14caa 由来) アプライアンスの「運用者が設定する部分」を /persist/palmux/config 束 (config/nixos=drop-in、config/app=config.toml、別: secrets.env / home データ) に切り分け、コア(Nixモジュール)と分離。土台 + first-boot LAN bind は Sb14caa で実装済 (services.palmux.configDir、domain=null 時に 0.0.0.0:7683 bind + firewall 7683 開放=無認証 LAN 公開、domain 設定で loopback+SSO に戻る)。後続 story: ① WebUI/CLI のデプロイ設定 (domain/CFトークン/SSO) を NixOS では config/nixos drop-in + secrets.env に書いて nixos-rebuild switch まで自動化 (Ubuntu reconcile-system の NixOS 版)、② onboarding/claim 認証ゲート (LAN 公開時に未設定だと無認証なので、claim するまで公開しない gate)、③ config 束の backup/GitHub restore 機能 (manifest.json + secrets は age/sops 暗号化、config/ は平文 git-ok)。秘密を平文で git に出さない 3層分離が肝。",
       "added_in": "Sb14caa",
       "reason": "ユーザ要望 (2026-06-22): 設定の簡単な backup・GitHub での設定 backup/restore を将来想定。コア設定と運用者設定をファイルとして切り分け注入できるようにする"
     }

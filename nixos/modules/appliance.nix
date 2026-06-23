@@ -46,6 +46,24 @@ in
   services.palmux.configDir = lib.mkDefault appCfgDir;               # operator config bundle
   services.palmux.secretsFile = lib.mkDefault "/persist/palmux/secrets.env";
 
+  # ── first-boot LAN exposure (so onboarding is reachable on the IP) ─────────
+  # Before a public domain is set, bind the WebUI to the LAN so the deployer can
+  # reach http://<ip>:7683 directly (cloud-init assigns the IP) for first-boot
+  # setup — no SSH tunnel needed. Once services.palmux.domain is set, bind back to
+  # loopback so palmux2 sits behind Caddy + SSO and can't be hit directly (which
+  # would bypass SSO).
+  # SECURITY: with no domain there is NO auth yet (the onboarding/claim gate is
+  # still backlog), so the WebUI — terminals included — is open to anyone on the
+  # LAN until SSO/domain is configured. Operator-accepted for a trusted LAN.
+  services.palmux.bindAddr = lib.mkDefault (
+    if config.services.palmux.domain == null then "0.0.0.0:7683" else "127.0.0.1:7683"
+  );
+  # The firewall (on by default) would otherwise drop incoming :7683 even with the
+  # 0.0.0.0 bind, so open it in the no-domain LAN-exposed mode. (mkIf list → merges
+  # with the Caddy block's [80 443] when a domain is set.)
+  networking.firewall.allowedTCPPorts =
+    lib.mkIf (config.services.palmux.domain == null) [ 7683 ];
+
   # ── slim the appliance: stub out incus features the appliance never uses ───
   # The NixOS incus module hardwires, into incus.service, big dependencies that
   # only its VM driver / S3 storage backend need:

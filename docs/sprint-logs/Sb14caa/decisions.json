@@ -155,6 +155,12 @@
       "story": "Sb14caa-3",
       "decision": "networking.useNetworkd=true で networkd/dhcpcd 二重管理を解消",
       "detail": "cloud-init.network.enable=true は network config を networkd .network でレンダリングするが、NixOS 既定の scripted dhcpcd backend も同時に動き同一 IF を二重管理(NixOS が loss-of-networking 警告)。特に cloud-init の static IP が dhcpcd の DHCP lease と競合しうる。networking.useNetworkd=true で networkd を唯一の manager に一本化。実機検証(qemu boot): systemd-networkd active / dhcpcd inactive(競合消滅)、DHCP は networkd 経由で取得(ens3=10.0.2.15)、incus/palmux2 active・apex 200(回帰なし)。これで cloud-init static IP が networkd 経由で綺麗に適用される。"
+    },
+    {
+      "id": "ID-25",
+      "story": "Sb14caa-3",
+      "decision": "first-boot LAN 公開 (domain 未設定時 0.0.0.0:7683 bind + firewall 7683)",
+      "detail": "ユーザ要望(最初から公開・onboarding を IP で到達)。appliance.nix で services.palmux.bindAddr を条件付き: domain=null→0.0.0.0:7683(LAN 公開)、domain 設定後→127.0.0.1(Caddy+SSO の裏に隠す、直アクセスで SSO 迂回を防ぐ)。NixOS firewall 既定 on なので domain=null 時 networking.firewall.allowedTCPPorts に 7683 を mkIf で追加(でないと bind しても弾かれる)。セキュリティ: domain 未設定時は無認証(onboarding/claim ゲートは未実装=backlog、ユーザ承認の上で trusted LAN 前提)。実機検証(qemu boot+hostfwd): ss が *:7683 で listen(127.0.0.1 でない)、guest 外から hostfwd 経由 curl で apex 200(bind+firewall 両方 OK)、incus/palmux2 active。image 944M 維持。"
     }
   ],
   "verification": {
