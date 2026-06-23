@@ -149,6 +149,12 @@
       "story": "Sb14caa-3",
       "decision": "appliance-qcow2 を圧縮 qcow2 化 (2.3G→944M) — read-only squashfs より優位",
       "detail": "ユーザ要望(更に小さく)。read-only squashfs store は /nix/store が read-only になり nixos-rebuild switch + drop-in(Stage 4)が壊れるため不採用。代わりに make-disk-image の format=qcow2-compressed(qemu-img convert -c でクラスタ圧縮)。読み込みは透過解凍、内側 ext4 store は read-write のまま → nixos-rebuild/drop-in 維持。書き込みは別ディスクの /persist へ行くので root qcow2 は圧縮されたまま小さく保たれる。2.3G→944M(~2.4x、<1GB の当初目標を達成)。実機検証(qemu+KVM で boot): 944M image 起動・incus active・incus list 動作・palmux2 apex 200・/persist mount・cloud-init OK。トレードオフ: read 時に微小な解凍 CPU コスト(無視可)、ビルド時の qemu-img convert -c が遅い(1回限り)。"
+    },
+    {
+      "id": "ID-24",
+      "story": "Sb14caa-3",
+      "decision": "networking.useNetworkd=true で networkd/dhcpcd 二重管理を解消",
+      "detail": "cloud-init.network.enable=true は network config を networkd .network でレンダリングするが、NixOS 既定の scripted dhcpcd backend も同時に動き同一 IF を二重管理(NixOS が loss-of-networking 警告)。特に cloud-init の static IP が dhcpcd の DHCP lease と競合しうる。networking.useNetworkd=true で networkd を唯一の manager に一本化。実機検証(qemu boot): systemd-networkd active / dhcpcd inactive(競合消滅)、DHCP は networkd 経由で取得(ens3=10.0.2.15)、incus/palmux2 active・apex 200(回帰なし)。これで cloud-init static IP が networkd 経由で綺麗に適用される。"
     }
   ],
   "verification": {

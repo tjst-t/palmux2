@@ -95,6 +95,14 @@ in
   # ignored — the per-instance modules (ssh keys/hostname) ran but networking did not.
   services.cloud-init.network.enable = lib.mkDefault true;
 
+  # Use systemd-networkd as the SINGLE network manager. cloud-init renders its
+  # network config as networkd .network files, so without this NixOS also runs the
+  # scripted dhcpcd backend and the two fight over the same interface (NixOS warns
+  # this "can lead to loss of networking"); a cloud-init static IP in particular can
+  # race a dhcpcd DHCP lease. With networkd authoritative, static + DHCP both apply
+  # cleanly through cloud-init.
+  networking.useNetworkd = lib.mkDefault true;
+
   # ── immutable image / mutable state split ──────────────────────────────────
   # All durable user data lives on /persist — a SEPARATE volume the operator
   # attaches (labelled "persist"). The image itself is disposable: rebuild/swap it
