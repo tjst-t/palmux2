@@ -24,22 +24,28 @@
     # The palmux modules + packages. `nix flake update palmux` bumps to latest.
     # TODO: point at `github:tjst-t/palmux2` (main) or a release tag once the
     # palmuxOS appliance work (Sb14caa) is merged to main. Until then, the appliance
-    # module only exists on this branch.
-    palmux.url = "github:tjst-t/palmux2/autopilot/main/Sb14caa";
+    # module only exists on this branch — and a slashed branch name must use the
+    # `?ref=` query form (github:owner/repo/a/b/c misparses and falls back to main).
+    palmux.url = "github:tjst-t/palmux2?ref=autopilot/main/Sb14caa";
   };
 
-  outputs = { self, nixpkgs, palmux, ... }: {
-    nixosConfigurations.appliance = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      modules =
-        [
+  outputs = { self, nixpkgs, palmux, ... }:
+    let
+      lib = nixpkgs.lib;
+      # operator drop-ins — every *.nix under ./local is merged in (skip non-.nix
+      # like the .keep placeholder).
+      dropins = builtins.filter (p: lib.hasSuffix ".nix" (toString p))
+        (lib.filesystem.listFilesRecursive ./local);
+    in
+    {
+      nixosConfigurations.appliance = lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
           { nixpkgs.overlays = [ palmux.overlays.default ]; }
           palmux.nixosModules.appliance
           ./hardware-base.nix    # static: virtio + by-label root + growPartition
           ./grub-device.nix      # generated on first boot: the detected boot disk
-        ]
-        # operator drop-ins — every *.nix under ./local is merged in
-        ++ nixpkgs.lib.filesystem.listFilesRecursive ./local;
+        ] ++ dropins;
+      };
     };
-  };
 }
