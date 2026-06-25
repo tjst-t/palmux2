@@ -112,6 +112,18 @@ in
   nixpkgs.flake.setNixPath = lib.mkDefault false;
   nixpkgs.flake.setFlakeRegistry = lib.mkDefault false;
 
+  # Stage-1 storage controllers. The qcow2 IMAGE build pulls in only nixosModules.
+  # appliance (NOT hardware-base.nix / the qemu-guest profile), so the shipped initrd
+  # had no virtio_scsi and could not see a virtio-SCSI root disk — Proxmox's DEFAULT
+  # bus. Stage 1 then hung "waiting for /dev/disk/by-label/nixos" → panic. virtio-blk
+  # happened to work only because virtio_blk is in the stock initrd. Bake the common
+  # virtio + SATA/AHCI controllers into the initrd here (this module IS in the image
+  # build, the CI config, AND the on-appliance flake) so the appliance boots on
+  # whichever disk bus the platform hands it — scsi (sda) or blk (vda).
+  boot.initrd.availableKernelModules = [
+    "virtio_pci" "virtio_scsi" "virtio_blk" "sd_mod" "sr_mod" "ahci"
+  ];
+
   # cloud-init manages networking so the deployer's static IP/GW (or DHCP) from the
   # platform's cloud-init drive is applied. NixOS leaves this OFF by default (its
   # networking is declarative), which is why a Proxmox-set static IP was previously
