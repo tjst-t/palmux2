@@ -259,6 +259,30 @@ opt-in 可能。失敗しても世代ロールバックがあるので安全側�
   ndev / deploy-test も移行（単一テナントで低リスク）。Ubuntu + install.sh は非NixOS/既存箱の
   サポート経路として残す。
 
+## Proxmox デプロイの実務 — ディスクバスと initrd
+
+実 Proxmox でのデプロイで判明した落とし穴: qcow2 IMAGE ビルドは `self.nixosModules.appliance`
+だけを取り込み `appliance-flake/hardware-base.nix`（= `qemu-guest` profile）は**含まない**。その
+ため、出荷 initrd のストレージドライバは `nixos-generators` の qcow デフォルト + appliance.nix
+が明示したものに限られる。Proxmox の**既定ディスクバスは virtio-scsi**（`scsi0` /
+`scsihw=virtio-scsi-pci`）で、initrd に `virtio_scsi` が無いと stage-1 が
+`/dev/disk/by-label/nixos` を待ち続けてタイムアウト → `switch_root` 失敗 → kernel panic
+（"Attempted to kill init"）になる。virtio-blk（`virtio0`）は stock initrd に `virtio_blk` がある
+ため偶然動いてしまい、切り分けを誤らせる。
+
+対策として `modules/appliance.nix` で
+`boot.initrd.availableKernelModules = [ virtio_pci virtio_scsi virtio_blk sd_mod sr_mod ahci ]`
+を明示する。このモジュールは **IMAGE ビルド・CI config（`nixosConfigurations.appliance`）・
+on-appliance flake のすべて**が取り込むので、プラットフォームが渡すバス（scsi=`/dev/sda` /
+blk=`/dev/vda`）に依らず起動する。`grub-device.nix` は初回ブートで実ブートセクタディスク
+（root パーティションの親）を解決して書くので、どちらのバスでも `nixos-rebuild` の grub-install
+が正しい場所に当たる。
+
+実機検証（pve-01, VM 9001）: 786M qcow2 を `qm importdisk` → `scsi0`（virtio-scsi-pci）+
+`qm resize +20G` で再デプロイ → virtio-scsi で完全起動を確認（`/dev/sda` 認識・by-label/nixos を
+root mount・cloud-init growpart/resize2fs で root fs 23G に拡張・palmux2 active /
+`192.168.1.45:7683` health 200・incus active・`/persist{config,home,nixos,secrets.env}` 正常）。
+
 ## install.sh との関係（無くならない）
 
 `install.sh` は**非NixOS/既存箱向けの簡易インストーラ**として残る（Ubuntu + Determinate Nix +
