@@ -283,6 +283,38 @@ blk=`/dev/vda`）に依らず起動する。`grub-device.nix` は初回ブート
 root mount・cloud-init growpart/resize2fs で root fs 23G に拡張・palmux2 active /
 `192.168.1.45:7683` health 200・incus active・`/persist{config,home,nixos,secrets.env}` 正常）。
 
+## 特権 apply（公開ドメイン/TLS）— NixOS では nixos-rebuild を GUI からキック
+
+Ubuntu/install.sh 経路の特権 apply は単一 verb `sudo palmux reconcile-system`（user 所有
+master を読んで固定テンプレで `/etc/caddy/Caddyfile` を再レンダ → `systemctl reload caddy`）。
+**NixOS アプライアンスではこれは使えない**: ① Caddy は宣言的（`services.palmux.domain` →
+flake の `virtualHosts`）で `/etc/caddy/Caddyfile` は nix 管理、② palmux ユーザは password 未設定
+かつ wheel 外（鍵ゼロ image の帰結）なので `sudo` 自体が成立しない。実機オンボーディングで公開
+ドメインを設定したユーザがまさにここで詰まった（`reconcile-system` のパスワードプロンプトが無限）。
+
+解決は **polkit で特権境界を越える**:
+
+- `modules/appliance.nix` が **root system oneshot `palmux-rebuild.service`**（`nixos-rebuild
+  switch --flake ${flakeDir}#appliance` を実行）を定義。
+- **polkit ルールで palmux ユーザに「`palmux-rebuild.service` の start だけ」をシステムバス経由で
+  許可**（`org.freedesktop.systemd1.manage-units` + `unit==palmux-rebuild.service` + `verb in
+  {start,restart}` + `subject.user==palmux` → YES）。no password / no wheel で、reconcile-system の
+  単一 verb-sudoers の NixOS 等価。スコープはその1ユニット1アクションに限定。
+- ユニットは **独立 cgroup** で走るので、switch が palmux2.service を再起動しても rebuild は道連れに
+  ならない（S6ab0ed/Sa8e7d0 の自己アップデート教訓を OS レベルに適用）。
+
+palmux2（非 root）の `POST /api/deploy/rebuild` は `systemctl start --no-block
+palmux-rebuild.service` を呼ぶだけ。`GET /api/deploy/rebuild` が `systemctl show` の
+ActiveState/Result を返し、GUI（オンボーディングウィザード / 設定デプロイパネルの「適用
+(nixos-rebuild)」ボタン）が進捗を poll する。switch 中の palmux2 再起動は既存の reconnect
+handshake（WS drop → `/health` → 再接続）が吸収。CLI `palmux apply` も NixOS 検出時は
+`systemctl start palmux-rebuild.service`（root 不要）/ root シェルでの `nixos-rebuild switch` を案内。
+`GET /api/deploy` の `nixOSHost` フラグ（`selfupdate.IsNixOSHost()`）で GUI/CLI が分岐する。
+
+**bootstrap**: 既存コンテナに unit + polkit を入れる初回の `nixos-rebuild switch` だけは root シェル
+で手動（その後は GUI からキック可）。これは「image は seed、初回 switch 後は on-appliance flake が
+正典」という Stage 4 の構造そのもの。
+
 ## install.sh との関係（無くならない）
 
 `install.sh` は**非NixOS/既存箱向けの簡易インストーラ**として残る（Ubuntu + Determinate Nix +
