@@ -442,8 +442,47 @@ function DeployTab() {
   const [applyError, setApplyError] = useState<string | null>(null)
   // reloadKey bumps to re-trigger the load effect (reload-from-disk button).
   const [reloadKey, setReloadKey] = useState(0)
+  // Sb14caa: NixOS appliance — kick `nixos-rebuild switch` to apply privileged
+  // (domain/TLS) changes from the GUI instead of `sudo palmux reconcile-system`.
+  const [rebuildState, setRebuildState] = useState<'idle' | 'running' | 'done' | 'failed'>('idle')
 
   const loadDeploy = useCallback(() => setReloadKey((k) => k + 1), [])
+
+  const handleRebuild = useCallback(async () => {
+    setRebuildState('running')
+    setApplyError(null)
+    try {
+      await deployApi.rebuild()
+    } catch (err: unknown) {
+      setRebuildState('failed')
+      setApplyError(err instanceof Error ? err.message : String(err))
+      return
+    }
+    const started = Date.now()
+    const poll = async (): Promise<void> => {
+      if (Date.now() - started > 15 * 60 * 1000) {
+        setRebuildState('failed')
+        setApplyError('nixos-rebuild timed out (15m). Check `journalctl -u palmux-rebuild`.')
+        return
+      }
+      try {
+        const st = await deployApi.rebuildStatus()
+        if (st.active === 'failed' || (st.result && st.result !== 'success' && !st.running)) {
+          setRebuildState('failed')
+          setApplyError('nixos-rebuild failed — previous generation kept. See `journalctl -u palmux-rebuild`.')
+          return
+        }
+        if (st.active === 'inactive' && st.result === 'success') {
+          setRebuildState('done')
+          return
+        }
+      } catch {
+        // transient — palmux2 likely restarting from the switch; keep polling.
+      }
+      setTimeout(() => void poll(), 3000)
+    }
+    setTimeout(() => void poll(), 3000)
+  }, [])
 
   // Fetch the current deploy view when the tab mounts and whenever the user
   // hits "reload from disk". The async work is fully inside the effect's inner
@@ -862,10 +901,38 @@ function DeployTab() {
             </p>
           )}
           {applyResult.needPrivilege && (
-            <p className={styles.help}>
-              🔐 ドメイン/TLS の確定には root が必要です。{' '}
-              <code>sudo palmux reconcile-system</code> または install.sh を再実行してください。
-            </p>
+            deployView.nixOSHost ? (
+              <div className={styles.help} data-testid="deploy-rebuild">
+                <p style={{ margin: 0 }}>
+                  🔄 ドメイン/TLS の反映には generation 切替が必要です（NixOS）。下のボタンで{' '}
+                  <code>nixos-rebuild switch</code> を実行します（root 不要・適用中に palmux2 が再起動→自動再接続・失敗時は旧 generation 維持）。
+                </p>
+                {rebuildState === 'done' ? (
+                  <p style={{ margin: '8px 0 0', color: 'var(--color-success)' }} data-testid="deploy-rebuild-done">
+                    ✓ 適用しました。
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.btnPrimary}
+                    data-testid="deploy-rebuild-btn"
+                    disabled={rebuildState === 'running'}
+                    onClick={() => void handleRebuild()}
+                    style={{ marginTop: '8px' }}
+                  >
+                    {rebuildState === 'running' ? 'nixos-rebuild 実行中…' : '適用 (nixos-rebuild)'}
+                  </button>
+                )}
+                <p style={{ margin: '8px 0 0', fontSize: '12px', color: 'var(--color-fg-muted)' }}>
+                  手動(root): <code>systemctl start palmux-rebuild.service</code>
+                </p>
+              </div>
+            ) : (
+              <p className={styles.help}>
+                🔐 ドメイン/TLS の確定には root が必要です。{' '}
+                <code>sudo palmux reconcile-system</code> または install.sh を再実行してください。
+              </p>
+            )
           )}
         </div>
       )}

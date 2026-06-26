@@ -181,6 +181,8 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("GET /api/deploy", h.getDeploy)
 	mux.HandleFunc("POST /api/deploy/apply", h.postDeployApply)
 	mux.HandleFunc("POST /api/deploy/secrets", h.postDeploySecrets)
+	mux.HandleFunc("POST /api/deploy/rebuild", h.postDeployRebuild)
+	mux.HandleFunc("GET /api/deploy/rebuild", h.getDeployRebuild)
 
 	mux.HandleFunc("GET /api/connections", h.connections)
 	mux.HandleFunc("GET /api/orphan-sessions", h.orphanSessions)

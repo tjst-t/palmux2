@@ -286,6 +286,17 @@ export interface DeployView {
     hasCloudflareToken: boolean
   }
   configured: boolean
+  /** Running on a NixOS appliance → the privileged "apply domain/TLS" step is a
+   * GUI-kicked `nixos-rebuild switch` (POST /api/deploy/rebuild), not
+   * `sudo palmux reconcile-system`. */
+  nixOSHost?: boolean
+}
+
+/** Response shape for GET /api/deploy/rebuild (NixOS appliance only). */
+export interface RebuildStatus {
+  active: string // systemd ActiveState: inactive|activating|active|failed
+  result: string // systemd Result: success|exit-code|...
+  running: boolean
 }
 
 /** Response shape for POST /api/deploy/apply */
@@ -379,4 +390,9 @@ export const deployApi = {
     token?: string
   }): Promise<{ ok: boolean; needRestart: boolean; message: string }> =>
     api.post('/api/deploy/secrets', body),
+  // Sb14caa: kick `nixos-rebuild switch` on the appliance to apply privileged
+  // (domain/TLS) changes. NixOS-only; 409 elsewhere.
+  rebuild: (): Promise<{ ok: boolean; status: string; message: string }> =>
+    api.post('/api/deploy/rebuild', {}),
+  rebuildStatus: (): Promise<RebuildStatus> => api.get<RebuildStatus>('/api/deploy/rebuild'),
 }

@@ -61,6 +61,12 @@ var (
 	osReleasePath   = "/etc/os-release"
 )
 
+// IsNixOSHost reports whether this machine is a NixOS system. Exported so other
+// packages (e.g. the deploy plane) can switch the privileged apply path from
+// `palmux reconcile-system` to a GUI-kicked `nixos-rebuild switch` without
+// duplicating the marker-file detection.
+func IsNixOSHost() bool { return detectNixOSHost() }
+
 // detectNixOSHost reports whether this machine is a NixOS system.
 func detectNixOSHost() bool {
 	if _, err := os.Stat(nixosMarkerPath); err == nil {

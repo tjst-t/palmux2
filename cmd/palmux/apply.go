@@ -20,6 +20,8 @@ import (
 	"os"
 	"os/exec"
 	"time"
+
+	"github.com/tjst-t/palmux2/internal/selfupdate"
 )
 
 // applyResult mirrors the JSON returned by POST /api/deploy/apply.
@@ -103,8 +105,18 @@ func runApply(args []string) int {
 	if res.NeedPrivilege {
 		fmt.Println()
 		fmt.Println("apply: some changes require a privileged system operation (public domain / TLS / Cloudflare token).")
-		fmt.Println("       Run:  sudo palmux reconcile-system    (renders /etc/caddy/Caddyfile + reloads caddy)")
-		fmt.Println("       or re-run scripts/install.sh with the new DOMAIN / CLOUDFLARE_API_TOKEN.")
+		if selfupdate.IsNixOSHost() {
+			// NixOS appliance: Caddy is declarative; reconcile-system is the wrong
+			// (Ubuntu) verb. The switch is kickable without a password via the
+			// polkit-authorized palmux-rebuild unit, or from the GUI deploy panel.
+			fmt.Println("       NixOS appliance: apply with a generation switch (atomic + rollback):")
+			fmt.Println("         systemctl start palmux-rebuild.service        # no sudo — polkit-authorized for the palmux user")
+			fmt.Println("       or click “適用 (nixos-rebuild)” in the GUI deploy panel, or run as root:")
+			fmt.Println("         cd /persist/palmux/nixos && nixos-rebuild switch --flake .#appliance")
+		} else {
+			fmt.Println("       Run:  sudo palmux reconcile-system    (renders /etc/caddy/Caddyfile + reloads caddy)")
+			fmt.Println("       or re-run scripts/install.sh with the new DOMAIN / CLOUDFLARE_API_TOKEN.")
+		}
 	}
 	if res.NeedRestart {
 		if dryRun {

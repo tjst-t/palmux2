@@ -33,6 +33,55 @@ export function OnboardingWizard({ open, onClose }: Props) {
   const [applying, setApplying] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showPrivilegedNotice, setShowPrivilegedNotice] = useState(false)
+  // Sb14caa: on a NixOS appliance the privileged apply is a GUI-kicked
+  // `nixos-rebuild switch` rather than the `sudo palmux reconcile-system`
+  // instruction (which the password-less, non-wheel palmux user cannot run).
+  const [nixOSHost, setNixOSHost] = useState(false)
+  const [rebuildState, setRebuildState] = useState<'idle' | 'running' | 'done' | 'failed'>('idle')
+
+  useEffect(() => {
+    void deployApi.get().then((d) => setNixOSHost(Boolean(d.nixOSHost))).catch(() => {})
+  }, [])
+
+  // Trigger `nixos-rebuild switch` via the palmux-rebuild unit and poll until it
+  // settles. palmux2 itself restarts when the new config activates; the global
+  // reconnect handshake (WS drop → /health → reconnect) covers that gap, and the
+  // poll's transient failures are ignored until the post-switch server answers.
+  const handleRebuild = useCallback(async () => {
+    setRebuildState('running')
+    setError(null)
+    try {
+      await deployApi.rebuild()
+    } catch (err: unknown) {
+      setRebuildState('failed')
+      setError(err instanceof Error ? err.message : String(err))
+      return
+    }
+    const started = Date.now()
+    const poll = async (): Promise<void> => {
+      if (Date.now() - started > 15 * 60 * 1000) {
+        setRebuildState('failed')
+        setError('nixos-rebuild timed out (15m). Check `journalctl -u palmux-rebuild`.')
+        return
+      }
+      try {
+        const st = await deployApi.rebuildStatus()
+        if (st.active === 'failed' || (st.result && st.result !== 'success' && !st.running)) {
+          setRebuildState('failed')
+          setError('nixos-rebuild failed — config unchanged (previous generation kept). See `journalctl -u palmux-rebuild`.')
+          return
+        }
+        if (st.active === 'inactive' && st.result === 'success') {
+          setRebuildState('done')
+          return
+        }
+      } catch {
+        // transient — palmux2 is likely restarting from the switch; keep polling.
+      }
+      setTimeout(() => void poll(), 3000)
+    }
+    setTimeout(() => void poll(), 3000)
+  }, [])
 
   const markSeen = useCallback(() => {
     try {
@@ -107,6 +156,36 @@ export function OnboardingWizard({ open, onClose }: Props) {
         </p>
 
         {showPrivilegedNotice ? (
+          nixOSHost ? (
+            <div className={styles.privilegedNotice} data-testid="onboarding-rebuild">
+              <strong>🔄 ドメイン/TLS を反映するには generation 切替が必要です。</strong>
+              <p style={{ margin: '8px 0 0', fontSize: '13px' }}>
+                下のボタンで <code>nixos-rebuild switch</code> を実行します（root 不要・polkit 認可）。
+                適用中に palmux2 が再起動しますが、自動で再接続します。失敗しても旧 generation のまま
+                （<code>--rollback</code> 可）なので安全です。
+              </p>
+              {rebuildState === 'done' ? (
+                <p style={{ margin: '12px 0 0', color: 'var(--color-success)' }} data-testid="onboarding-rebuild-done">
+                  ✓ 適用しました。公開ドメインで HTTPS が有効になります。
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  className={styles.btnPrimary}
+                  data-testid="onboarding-rebuild-btn"
+                  disabled={rebuildState === 'running'}
+                  onClick={() => void handleRebuild()}
+                  style={{ marginTop: '12px' }}
+                >
+                  {rebuildState === 'running' ? 'nixos-rebuild 実行中… (数分かかります)' : '適用 (nixos-rebuild)'}
+                </button>
+              )}
+              <p style={{ margin: '10px 0 0', fontSize: '12px', color: 'var(--color-fg-muted)' }}>
+                手動で行う場合（root シェル）:{' '}
+                <code>systemctl start palmux-rebuild.service</code>
+              </p>
+            </div>
+          ) : (
           <div className={styles.privilegedNotice}>
             <strong>🔐 ドメイン/TLS の確定には root が必要です。</strong>
             <p style={{ margin: '8px 0 0' }}>
@@ -119,6 +198,7 @@ export function OnboardingWizard({ open, onClose }: Props) {
               または install.sh を再実行。アプリ/サーバ設定はこのまま GUI だけで反映されます。
             </p>
           </div>
+          )
         ) : (
           <>
             <div className={styles.choice} data-testid="onboarding-mode">
@@ -213,11 +293,21 @@ export function OnboardingWizard({ open, onClose }: Props) {
                 </div>
 
                 <div className={styles.bannerInfo} data-testid="onboarding-privileged-notice">
-                  <span>🔐</span>
+                  <span>{nixOSHost ? '🔄' : '🔐'}</span>
                   <span>
-                    公開ドメイン/TLS の確定には root が必要です。次へ進むと{' '}
-                    <code>sudo palmux reconcile-system</code>（or install.sh 再実行）の手順を案内します。
-                    アプリ/サーバ設定はこのまま GUI だけで反映されます。
+                    {nixOSHost ? (
+                      <>
+                        公開ドメイン/TLS の反映には generation 切替が要ります。次へ進むと{' '}
+                        <code>nixos-rebuild switch</code> をその場でキックするボタンを出します（root 不要）。
+                        アプリ/サーバ設定はこのまま GUI だけで反映されます。
+                      </>
+                    ) : (
+                      <>
+                        公開ドメイン/TLS の確定には root が必要です。次へ進むと{' '}
+                        <code>sudo palmux reconcile-system</code>（or install.sh 再実行）の手順を案内します。
+                        アプリ/サーバ設定はこのまま GUI だけで反映されます。
+                      </>
+                    )}
                   </span>
                 </div>
               </div>

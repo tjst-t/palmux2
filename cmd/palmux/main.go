@@ -32,6 +32,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/notify"
 	"github.com/tjst-t/palmux2/internal/runtime"
 	"github.com/tjst-t/palmux2/internal/runtime/incus"
+	"github.com/tjst-t/palmux2/internal/selfupdate"
 	"github.com/tjst-t/palmux2/internal/server"
 	"github.com/tjst-t/palmux2/internal/store"
 	"github.com/tjst-t/palmux2/internal/tab"
@@ -650,6 +651,9 @@ func run(rc resolved) error {
 		agentMgr: agentManager,
 		tuiMgr:   claudetuiMgr,
 	}, slog.Default())
+	// On a NixOS appliance the privileged apply path is `nixos-rebuild switch`
+	// (GUI-kickable via palmux-rebuild.service), not `palmux reconcile-system`.
+	deployCtl.SetNixOSHost(selfupdate.IsNixOSHost())
 
 	// S6ab0ed: self-update service. Polls GitHub for new releases of the
 	// managed components (palmux binary + palmux-ws image + declared tools) and

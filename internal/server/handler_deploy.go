@@ -139,5 +139,50 @@ func (h *handlers) postDeploySecrets(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// postDeployRebuild kicks `nixos-rebuild switch` on a NixOS appliance to apply
+// privileged (public domain / TLS) changes the GUI can't hot-apply. It is the
+// NixOS counterpart of `palmux reconcile-system`: palmux2 (non-root palmux user)
+// starts the root palmux-rebuild.service over the system bus (authorized by a
+// polkit rule), which runs the switch in its own cgroup so restarting palmux2
+// mid-switch doesn't kill it. Returns 202 immediately; the GUI polls GET .../rebuild.
+func (h *handlers) postDeployRebuild(w http.ResponseWriter, r *http.Request) {
+	if h.deploy == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "deploy plane unavailable"})
+		return
+	}
+	if !h.deploy.CurrentView().NixOSHost {
+		writeJSON(w, http.StatusConflict, errorResponse{Error: "nixos-rebuild trigger is for the NixOS appliance only; on this host apply via `sudo palmux reconcile-system`"})
+		return
+	}
+	if err := deploy.TriggerRebuild(r.Context()); err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"ok":      true,
+		"status":  "triggered",
+		"message": "nixos-rebuild switch started; palmux2 will restart when the new config activates",
+	})
+}
+
+// getDeployRebuild reports palmux-rebuild.service state so the GUI can show
+// progress (activating → active / failed). NixOS-appliance only.
+func (h *handlers) getDeployRebuild(w http.ResponseWriter, r *http.Request) {
+	if h.deploy == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "deploy plane unavailable"})
+		return
+	}
+	if !h.deploy.CurrentView().NixOSHost {
+		writeJSON(w, http.StatusConflict, errorResponse{Error: "nixos-rebuild trigger is for the NixOS appliance only"})
+		return
+	}
+	st, err := deploy.QueryRebuild(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
+}
+
 // ensure deploy is referenced for the import even when nil in tests.
 var _ = deploy.View{}

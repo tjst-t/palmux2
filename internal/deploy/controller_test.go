@@ -12,10 +12,10 @@ type fakeHot struct {
 	claudeBin  string
 }
 
-func (f *fakeHot) SetCaddyAdmin(a string)            { f.caddyAdmin = a }
-func (f *fakeHot) SetBasicAuthDefaults(u, h string)  {}
-func (f *fakeHot) SetClaudeBin(b string)             { f.claudeBin = b }
-func (f *fakeHot) SetClaudeArgs(a []string)          {}
+func (f *fakeHot) SetCaddyAdmin(a string)           { f.caddyAdmin = a }
+func (f *fakeHot) SetBasicAuthDefaults(u, h string) {}
+func (f *fakeHot) SetClaudeBin(b string)            { f.claudeBin = b }
+func (f *fakeHot) SetClaudeArgs(a []string)         {}
 
 func TestCurrentView_MasksSecrets(t *testing.T) {
 	dir := t.TempDir()

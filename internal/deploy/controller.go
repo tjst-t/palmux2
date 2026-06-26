@@ -38,12 +38,26 @@ type Controller struct {
 	configDir string
 	applied   config.MasterConfig // what the server is currently running with
 	// secret presence (never the values).
-	hasSSOSecret  bool
-	hasBasicHash  bool
-	hasToken      bool
-	hasCFToken    bool
-	hot           HotApplier
-	logger        *slog.Logger
+	hasSSOSecret bool
+	hasBasicHash bool
+	hasToken     bool
+	hasCFToken   bool
+	hot          HotApplier
+	logger       *slog.Logger
+	// nixOSHost is true when palmux2 runs on a NixOS appliance (Sb14caa). On NixOS
+	// the privileged "apply public domain / TLS" step is NOT `palmux reconcile-system`
+	// (an Ubuntu/install.sh verb that the non-root, password-less, non-wheel palmux
+	// user cannot even run) — it is `nixos-rebuild switch`, which the GUI can KICK via
+	// the palmux-rebuild systemd unit (POST /api/deploy/rebuild). Set from main.go.
+	nixOSHost bool
+}
+
+// SetNixOSHost records whether this is a NixOS appliance, switching the privileged
+// apply path from `reconcile-system` to the GUI-kickable nixos-rebuild unit.
+func (c *Controller) SetNixOSHost(b bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.nixOSHost = b
 }
 
 // New constructs a Controller seeded with the config the server launched with
@@ -87,6 +101,11 @@ type View struct {
 	// Configured is false on a fresh, unconfigured install (no config.toml
 	// written and no public domain). Drives the onboarding wizard (Sa53137-3-4).
 	Configured bool `json:"configured"`
+	// NixOSHost is true on a NixOS appliance. The GUI uses it to swap the privileged
+	// apply path: on NixOS the wizard/deploy panel offer a "nixos-rebuild で適用"
+	// button (POST /api/deploy/rebuild) instead of the `sudo palmux reconcile-system`
+	// instruction (which is an Ubuntu-only verb and unusable as the palmux user).
+	NixOSHost bool `json:"nixOSHost"`
 }
 
 // CurrentView returns the masked deploy config. It reflects the on-disk master
@@ -111,6 +130,7 @@ func (c *Controller) CurrentView() View {
 	v.Secrets.HasToken = c.hasToken
 	v.Secrets.HasCloudflareToken = c.hasCFToken
 	v.Configured = c.isConfiguredLocked()
+	v.NixOSHost = c.nixOSHost
 	return v
 }
 
@@ -218,6 +238,11 @@ func (c *Controller) SaveAndClassify(ctx context.Context, neu config.MasterConfi
 	}
 
 	switch {
+	case out.NeedPrivilege && c.nixOSHost:
+		// On a NixOS appliance reconcile-system is the wrong (Ubuntu) verb and the
+		// palmux user can't sudo. The privileged apply is `nixos-rebuild switch`,
+		// kickable from the GUI via POST /api/deploy/rebuild (palmux-rebuild.service).
+		out.Message = "public domain / TLS changes apply via `nixos-rebuild switch` — use “適用 (nixos-rebuild)” or POST /api/deploy/rebuild"
 	case out.NeedPrivilege:
 		out.Message = "some changes require `sudo palmux reconcile-system` (public domain / TLS)"
 	case out.NeedRestart:

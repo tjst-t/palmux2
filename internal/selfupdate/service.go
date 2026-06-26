@@ -236,7 +236,7 @@ func (s *Service) RunUpdate(ctx context.Context) error {
 		// `systemctl --user start --no-block`: enqueue the oneshot and return; the
 		// unit runs in its own cgroup and survives the palmux2 restart the update
 		// itself triggers.
-		_ = exec.Command(systemctlUserBin, "--user", "reset-failed", updateUnitName).Run() //nolint:gosec,errcheck
+		_ = exec.Command(systemctlUserBin, "--user", "reset-failed", updateUnitName).Run()       //nolint:gosec,errcheck
 		start := exec.Command(systemctlUserBin, "--user", "start", "--no-block", updateUnitName) //nolint:gosec // fixed unit name
 		start.Stdin = nil
 		if err := start.Run(); err != nil {

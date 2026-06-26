@@ -210,6 +210,51 @@ in
   # appliance needs flakes enabled.
   nix.settings.experimental-features = lib.mkDefault [ "nix-command" "flakes" ];
 
+  # ── GUI/CLI-kickable nixos-rebuild (apply public domain/TLS without a shell) ──
+  # palmux2 runs as the NON-root `${pUser}` user, which on the appliance has no
+  # password and is not in `wheel` (key-zero image) — so it can run neither
+  # `nixos-rebuild` nor `sudo`. (This is exactly what dead-ends the onboarding
+  # wizard's old `sudo palmux reconcile-system` step, which is an Ubuntu-only verb
+  # anyway; on NixOS Caddy is declarative.) Expose the switch as a ROOT system
+  # oneshot and let `${pUser}` START it over the system bus via a polkit rule. The
+  # unit runs in its OWN cgroup, so the switch restarting palmux2.service does NOT
+  # kill the rebuild mid-flight — the Sa8e7d0 self-update lesson, applied to the OS.
+  # palmux2's POST /api/deploy/rebuild does `systemctl start --no-block
+  # palmux-rebuild.service`; the GUI deploy panel / onboarding wizard surface it as
+  # the “適用 (nixos-rebuild)” button, and the FE reconnect handshake covers the
+  # palmux2 restart.
+  systemd.services.palmux-rebuild = {
+    description = "Apply palmux appliance config via nixos-rebuild switch (GUI/CLI-triggered)";
+    # Don't let the very switch we run restart this oneshot out from under itself.
+    restartIfChanged = false;
+    path = [ config.system.build.nixos-rebuild pkgs.nix pkgs.git pkgs.coreutils pkgs.systemd ];
+    serviceConfig = {
+      Type = "oneshot";
+      Environment = "HOME=/root"; # nixos-rebuild writes its eval cache under $HOME
+    };
+    script = ''
+      set -eu
+      cd ${flakeDir}
+      exec nixos-rebuild switch --flake .#appliance
+    '';
+  };
+
+  # Authorize ONLY `${pUser}` to start ONLY palmux-rebuild.service over the system
+  # bus (no password, no wheel). Scoped to that single unit + action so it grants
+  # nothing else. polkit is the NixOS-idiomatic equivalent of reconcile-system's
+  # single verb-limited sudoers entry.
+  security.polkit.enable = lib.mkDefault true;
+  security.polkit.extraConfig = lib.mkAfter ''
+    polkit.addRule(function(action, subject) {
+      if (action.id == "org.freedesktop.systemd1.manage-units" &&
+          action.lookup("unit") == "palmux-rebuild.service" &&
+          (action.lookup("verb") == "start" || action.lookup("verb") == "restart") &&
+          subject.user == "${pUser}") {
+        return polkit.Result.YES;
+      }
+    });
+  '';
+
   # ── login / access — NEVER bake an author/operator key into the image ──────
   # SECURITY: a distributed appliance image MUST ship with ZERO baked SSH keys /
   # passwords. Baking the author's pubkey here would be a backdoor into every
