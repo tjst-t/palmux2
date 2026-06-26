@@ -105,9 +105,10 @@ func (h *handlers) postDeployApply(w http.ResponseWriter, r *http.Request) {
 // deploySecretsRequest is the write-only secret rotation body. All fields are
 // optional; empty fields leave the secret unchanged.
 type deploySecretsRequest struct {
-	SSOSecret string `json:"ssoSecret"`
-	Password  string `json:"password"` // plaintext; bcrypt-hashed server-side
-	Token     string `json:"token"`
+	SSOSecret       string `json:"ssoSecret"`
+	Password        string `json:"password"` // plaintext; bcrypt-hashed server-side
+	Token           string `json:"token"`
+	CloudflareToken string `json:"cloudflareToken"` // CLOUDFLARE_API_TOKEN (Caddy DNS-01)
 }
 
 func (h *handlers) postDeploySecrets(w http.ResponseWriter, r *http.Request) {
@@ -125,8 +126,9 @@ func (h *handlers) postDeploySecrets(w http.ResponseWriter, r *http.Request) {
 		return string(b), err
 	}
 	changedRestart, err := h.deploy.RotateSecrets(config.Secrets{
-		SSOSecret: req.SSOSecret,
-		Token:     req.Token,
+		SSOSecret:       req.SSOSecret,
+		Token:           req.Token,
+		CloudflareToken: req.CloudflareToken,
 	}, hashFn, req.Password)
 	if err != nil {
 		writeErr(w, err)

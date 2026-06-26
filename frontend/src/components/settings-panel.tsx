@@ -540,7 +540,8 @@ function DeployTab() {
         await deployApi.rotateSecrets({
           ...(form.ssoSecret.trim() ? { ssoSecret: form.ssoSecret } : {}),
           ...(form.newPassword.trim() ? { password: form.newPassword } : {}),
-          ...(form.cloudflareToken.trim() ? { token: form.cloudflareToken } : {}),
+          // CLOUDFLARE_API_TOKEN (DNS-01), not the palmux auth token (PALMUX_TOKEN).
+          ...(form.cloudflareToken.trim() ? { cloudflareToken: form.cloudflareToken } : {}),
         })
       }
       const result = await deployApi.apply({

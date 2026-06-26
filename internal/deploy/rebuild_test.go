@@ -109,3 +109,28 @@ func TestSaveAndClassify_NixOSMessage(t *testing.T) {
 		t.Error("CurrentView should report NixOSHost=true after SetNixOSHost(true)")
 	}
 }
+
+// [AC] The Cloudflare API token written via RotateSecrets lands in secrets.env as
+// CLOUDFLARE_API_TOKEN (not the palmux auth token) and flips the presence flag —
+// regression for the onboarding bug that mis-sent it as `token`.
+func TestRotateSecrets_CloudflareToken(t *testing.T) {
+	dir := t.TempDir()
+	c := New(dir, config.MasterConfig{}, SecretPresence{}, &fakeHot{}, nil)
+
+	if _, err := c.RotateSecrets(config.Secrets{CloudflareToken: "cf-secret-123"}, nil, ""); err != nil {
+		t.Fatalf("RotateSecrets: %v", err)
+	}
+	if !c.CurrentView().Secrets.HasCloudflareToken {
+		t.Error("HasCloudflareToken should be true after rotating the CF token")
+	}
+	_, sec, err := config.LoadServerConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sec.CloudflareToken != "cf-secret-123" {
+		t.Errorf("CLOUDFLARE_API_TOKEN not persisted; got %q", sec.CloudflareToken)
+	}
+	if sec.Token != "" {
+		t.Errorf("CF token must NOT leak into PALMUX_TOKEN; got %q", sec.Token)
+	}
+}

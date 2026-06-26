@@ -173,6 +173,17 @@ in
         [ -e /persist/palmux/secrets.env ] \
           || install -m 0600 -o ${pUser} -g ${pGroup} /dev/null /persist/palmux/secrets.env
 
+        # Generate a STABLE SSO signing key once (PALMUX_SSO_SECRET) if absent. SSO
+        # cookies are HMAC-signed with it; an empty key breaks the apex forward_auth
+        # login and a per-boot-random one would log everyone out on every restart.
+        # install.sh does the same for the Ubuntu path. Seed-only; never overwrite.
+        if ! grep -q '^PALMUX_SSO_SECRET=' /persist/palmux/secrets.env 2>/dev/null; then
+          secret=$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')
+          printf 'PALMUX_SSO_SECRET=%s\n' "$secret" >> /persist/palmux/secrets.env
+          chown ${pUser}:${pGroup} /persist/palmux/secrets.env
+          chmod 0600 /persist/palmux/secrets.env
+        fi
+
         # on-appliance flake for `nixos-rebuild switch` updates + operator drop-ins.
         # SEED-ONLY: only write these if absent, so an operator who edits flake.nix
         # (e.g. bumps the palmux pin) or whose `nix flake update` rewrote flake.lock
@@ -227,13 +238,40 @@ in
     description = "Apply palmux appliance config via nixos-rebuild switch (GUI/CLI-triggered)";
     # Don't let the very switch we run restart this oneshot out from under itself.
     restartIfChanged = false;
-    path = [ config.system.build.nixos-rebuild pkgs.nix pkgs.git pkgs.coreutils pkgs.systemd ];
+    path = [ config.system.build.nixos-rebuild pkgs.nix pkgs.git pkgs.coreutils pkgs.gnugrep pkgs.gnused pkgs.systemd ];
     serviceConfig = {
       Type = "oneshot";
       Environment = "HOME=/root"; # nixos-rebuild writes its eval cache under $HOME
     };
+    # Materialize the NixOS-side public config from the GUI-saved master, THEN
+    # switch. The GUI/onboarding writes the domain into config.toml [public] (which
+    # palmux2 reads for its own --public-domain), but Caddy's vhost is generated
+    # from the `services.palmux.domain` NixOS OPTION — set only via the flake. So
+    # this unit projects config.toml's domain into a drop-in (${dropinDir}/10-public.nix)
+    # so that the same `nixos-rebuild switch` actually stands up Caddy (TLS + apex
+    # SSO + *.domain). Empty domain → remove the drop-in (revert to local mode).
+    # The drop-in is written by THIS root unit (the palmux user can't write the
+    # root-owned flake dir), keeping palmux2's role to just `systemctl start`.
     script = ''
       set -eu
+      cfg=${appCfgDir}/config.toml
+      domain=""
+      if [ -f "$cfg" ]; then
+        # Extract `domain = "..."` from the [public] section of palmux's own writer.
+        domain=$(sed -n '/^\[public\]/,/^\[/p' "$cfg" \
+          | grep -E '^[[:space:]]*domain[[:space:]]*=' \
+          | head -n1 | sed -E 's/^[^=]*=[[:space:]]*"?//; s/"[[:space:]]*$//; s/[[:space:]]*$//')
+      fi
+      mkdir -p ${dropinDir}
+      if [ -n "$domain" ]; then
+        # Defense-in-depth: only a hostname charset may reach the generated .nix.
+        case "$domain" in
+          *[!a-zA-Z0-9.-]*) echo "palmux-rebuild: refusing invalid domain '$domain'" >&2; exit 1 ;;
+        esac
+        printf '{ ... }: {\n  # Generated from config.toml [public].domain by palmux-rebuild.service.\n  services.palmux.domain = "%s";\n}\n' "$domain" > ${dropinDir}/10-public.nix
+      else
+        rm -f ${dropinDir}/10-public.nix
+      fi
       cd ${flakeDir}
       exec nixos-rebuild switch --flake .#appliance
     '';

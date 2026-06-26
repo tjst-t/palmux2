@@ -122,7 +122,11 @@ export function OnboardingWizard({ open, onClose }: Props) {
         if (authPassword.trim() || cloudflareToken.trim()) {
           await deployApi.rotateSecrets({
             ...(authPassword.trim() ? { password: authPassword } : {}),
-            ...(cloudflareToken.trim() ? { token: cloudflareToken } : {}),
+            // CLOUDFLARE_API_TOKEN (DNS-01 wildcard cert) — NOT the palmux auth
+            // token. Earlier this was mis-sent as `token` (= PALMUX_TOKEN), so the
+            // Cloudflare token never reached secrets.env and Caddy couldn't issue
+            // the wildcard cert.
+            ...(cloudflareToken.trim() ? { cloudflareToken: cloudflareToken } : {}),
           })
         }
         markSeen()

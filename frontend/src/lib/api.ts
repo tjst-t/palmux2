@@ -388,6 +388,7 @@ export const deployApi = {
     ssoSecret?: string
     password?: string
     token?: string
+    cloudflareToken?: string
   }): Promise<{ ok: boolean; needRestart: boolean; message: string }> =>
     api.post('/api/deploy/secrets', body),
   // Sb14caa: kick `nixos-rebuild switch` on the appliance to apply privileged

@@ -55,7 +55,7 @@ func TestLoadServerConfig_MalformedIsError(t *testing.T) {
 
 func TestSecrets_RoundTripAndPerm(t *testing.T) {
 	dir := t.TempDir()
-	if err := WriteSecrets(dir, Secrets{SSOSecret: "abc", BasicAuthHash: "$2a$hash", Token: "tok"}); err != nil {
+	if err := WriteSecrets(dir, Secrets{SSOSecret: "abc", BasicAuthHash: "$2a$hash", Token: "tok", CloudflareToken: "cf-xyz"}); err != nil {
 		t.Fatalf("WriteSecrets: %v", err)
 	}
 	info, _ := os.Stat(filepath.Join(dir, SecretsFileName))
@@ -66,7 +66,7 @@ func TestSecrets_RoundTripAndPerm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sec.SSOSecret != "abc" || sec.BasicAuthHash != "$2a$hash" || sec.Token != "tok" {
+	if sec.SSOSecret != "abc" || sec.BasicAuthHash != "$2a$hash" || sec.Token != "tok" || sec.CloudflareToken != "cf-xyz" {
 		t.Errorf("secrets mismatch: %+v", sec)
 	}
 }

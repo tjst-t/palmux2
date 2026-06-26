@@ -21,16 +21,16 @@ func TestValidateDomain(t *testing.T) {
 	// Injection / malformed attempts must all be rejected (AC-Sa53137-4-3).
 	invalid := []string{
 		"",
-		"localhost",                              // single label
-		"example.net {\n  reverse_proxy evil}",   // directive injection
-		"example.net\nreverse_proxy 1.1.1.1:80",  // newline injection
-		"exam ple.net",                            // space
-		"example.net; rm -rf",                     // semicolon
-		"example.net\"",                           // quote
-		"-bad.example.net",                        // leading hyphen label
-		"example.net}",                            // brace
-		"{env.X}.example.net",                     // env placeholder injection
-		strings.Repeat("a", 300) + ".net",        // too long
+		"localhost",                             // single label
+		"example.net {\n  reverse_proxy evil}",  // directive injection
+		"example.net\nreverse_proxy 1.1.1.1:80", // newline injection
+		"exam ple.net",                          // space
+		"example.net; rm -rf",                   // semicolon
+		"example.net\"",                         // quote
+		"-bad.example.net",                      // leading hyphen label
+		"example.net}",                          // brace
+		"{env.X}.example.net",                   // env placeholder injection
+		strings.Repeat("a", 300) + ".net",       // too long
 	}
 	for _, d := range invalid {
 		if err := ValidateDomain(d); err == nil {

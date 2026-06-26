@@ -314,6 +314,11 @@ func (c *Controller) RotateSecrets(s config.Secrets, bcryptHashFn func(string) (
 		c.hasToken = true
 		changedRestart = true
 	}
+	if s.CloudflareToken != "" {
+		merged.CloudflareToken = s.CloudflareToken
+		c.hasCFToken = true
+		changedRestart = true
+	}
 	if err := config.WriteSecrets(c.configDir, merged); err != nil {
 		return changedRestart, fmt.Errorf("deploy: write secrets: %w", err)
 	}

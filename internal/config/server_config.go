@@ -59,9 +59,10 @@ type MasterConfig struct {
 // Secrets holds the values from secrets.env (never serialised back to the
 // non-secret master; the GUI/API never returns these values).
 type Secrets struct {
-	SSOSecret     string // PALMUX_SSO_SECRET
-	BasicAuthHash string // BASIC_AUTH_HASH (bcrypt)
-	Token         string // PALMUX_TOKEN (--token equivalent, optional)
+	SSOSecret       string // PALMUX_SSO_SECRET
+	BasicAuthHash   string // BASIC_AUTH_HASH (bcrypt)
+	Token           string // PALMUX_TOKEN (--token equivalent, optional)
+	CloudflareToken string // CLOUDFLARE_API_TOKEN (Caddy DNS-01 wildcard cert)
 }
 
 // LoadServerConfig reads config.toml and secrets.env under dir. Both files are
@@ -106,6 +107,8 @@ func loadSecretsFile(path string) (Secrets, error) {
 			s.BasicAuthHash = v
 		case "PALMUX_TOKEN":
 			s.Token = v
+		case "CLOUDFLARE_API_TOKEN":
+			s.CloudflareToken = v
 		}
 	}
 	return s, nil
@@ -165,7 +168,7 @@ func MigrateLegacySecrets(dir string) (bool, error) {
 	var b strings.Builder
 	b.WriteString("# palmux secrets (user-owned, 0600). Migrated from " + LegacyRuntimeEnvPath + ".\n")
 	wrote := false
-	for _, k := range []string{"PALMUX_SSO_SECRET", "BASIC_AUTH_HASH", "PALMUX_TOKEN"} {
+	for _, k := range []string{"PALMUX_SSO_SECRET", "BASIC_AUTH_HASH", "PALMUX_TOKEN", "CLOUDFLARE_API_TOKEN"} {
 		if v, ok := kv[k]; ok && v != "" {
 			fmt.Fprintf(&b, "%s=%s\n", k, v)
 			wrote = true
@@ -197,6 +200,9 @@ func WriteSecrets(dir string, s Secrets) error {
 	}
 	if s.Token != "" {
 		fmt.Fprintf(&b, "PALMUX_TOKEN=%s\n", s.Token)
+	}
+	if s.CloudflareToken != "" {
+		fmt.Fprintf(&b, "CLOUDFLARE_API_TOKEN=%s\n", s.CloudflareToken)
 	}
 	dst := filepath.Join(dir, SecretsFileName)
 	tmp := dst + ".tmp"
