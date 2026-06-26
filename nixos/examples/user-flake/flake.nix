@@ -20,7 +20,9 @@
           # palmux options:
           services.palmux.enable = true;
           services.palmux.domain = "dev.example.net";
-          services.palmux.secretsFile = "/persist/palmux/secrets.env";
+          # Keep this the SAME file palmux2's --config-dir reads/writes, or
+          # GUI-set secrets and the systemd EnvironmentFile diverge.
+          services.palmux.secretsFile = "/persist/palmux/config/secrets.env";
 
           # ...and the full NixOS surface, yours to control:
           environment.systemPackages = [ pkgs.git pkgs.htop ];

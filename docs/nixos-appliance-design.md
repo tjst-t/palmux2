@@ -117,7 +117,7 @@ bind-mount で各所へ）に置き、image を再ビルド/差し替え/アッ�
 | リポジトリ | `~/ghq` | `/persist/ghq` |
 | Claude 記録（履歴, memory, projects） | `~/.claude`, `~/.claude.json` | `/persist/claude/...` |
 | palmux 設定 (config.toml/settings.json) | `--config-dir` | `/persist/palmux/config/app` |
-| secrets | `secrets.env` | `/persist/palmux/secrets.env` (0600) |
+| secrets | `secrets.env` | `/persist/palmux/config/secrets.env` (0600) |
 | 運用者 NixOS オーバーライド | `/etc/palmux/local/` | `/persist/palmux/config/nixos` |
 | incus（ワークスペースコンテナは使い捨て、state は bind-mount） | `/var/lib/incus` | ポリシー次第で永続/揮発 |
 

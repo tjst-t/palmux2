@@ -34,7 +34,9 @@ let
   #     ├─ grub-device.nix       generated on first boot (detected bootsector disk)
   #     └─ local/  *.nix         operator drop-ins (domain, extra pkgs, …)
   #   /persist/palmux/config/    ← palmux2 --config-dir (config.toml + settings.json)
-  #   /persist/palmux/secrets.env  ← SECRETS (CF token / SSO secret / bcrypt), 0600
+  #     └─ secrets.env           ← SECRETS (CF token / SSO secret / bcrypt), 0600;
+  #                                 same file palmux2 reads/writes AND systemd's
+  #                                 EnvironmentFile (services.palmux.secretsFile)
   #   /persist/palmux/home/      ← DATA (~/ghq, ~/.claude)
   flakeDir = "/persist/palmux/nixos";   # on-appliance flake (+ local/ drop-ins)
   dropinDir = "${flakeDir}/local";
@@ -49,7 +51,13 @@ in
   services.palmux.enable = lib.mkDefault true;
   services.palmux.stateDir = lib.mkDefault "/persist/palmux/home";   # DATA
   services.palmux.configDir = lib.mkDefault appCfgDir;               # operator config bundle
-  services.palmux.secretsFile = lib.mkDefault "/persist/palmux/secrets.env";
+  # The systemd EnvironmentFile MUST be the SAME secrets.env that palmux2's
+  # --config-dir layer reads/writes (config.WriteSecrets → <configDir>/secrets.env,
+  # per the Sa53137 model). Pointing it elsewhere splits secrets across two files:
+  # the GUI's RotateSecrets writes <configDir>/secrets.env while systemd loads the
+  # other, so a GUI-set SSO secret / password never reaches the process env (and a
+  # state-init-generated SSO secret never shows in the GUI). Unify on configDir.
+  services.palmux.secretsFile = lib.mkDefault "${appCfgDir}/secrets.env";
 
   # ── first-boot LAN exposure (so onboarding is reachable on the IP) ─────────
   # Before a public domain is set, bind the WebUI to the LAN so the deployer can
@@ -170,18 +178,22 @@ in
         install -d -m 0755 /persist/palmux
         install -d -m 0700 -o ${pUser} -g ${pGroup} /persist/palmux/home
         install -d -m 0750 -o ${pUser} -g ${pGroup} ${appCfgDir}
-        [ -e /persist/palmux/secrets.env ] \
-          || install -m 0600 -o ${pUser} -g ${pGroup} /dev/null /persist/palmux/secrets.env
+        # secrets.env is the SAME file palmux2's --config-dir layer reads/writes
+        # (config.WriteSecrets → ${appCfgDir}/secrets.env) AND the systemd
+        # EnvironmentFile (services.palmux.secretsFile, unified above). One file.
+        secrets=${appCfgDir}/secrets.env
+        [ -e "$secrets" ] \
+          || install -m 0600 -o ${pUser} -g ${pGroup} /dev/null "$secrets"
 
         # Generate a STABLE SSO signing key once (PALMUX_SSO_SECRET) if absent. SSO
         # cookies are HMAC-signed with it; an empty key breaks the apex forward_auth
         # login and a per-boot-random one would log everyone out on every restart.
         # install.sh does the same for the Ubuntu path. Seed-only; never overwrite.
-        if ! grep -q '^PALMUX_SSO_SECRET=' /persist/palmux/secrets.env 2>/dev/null; then
+        if ! grep -q '^PALMUX_SSO_SECRET=' "$secrets" 2>/dev/null; then
           secret=$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')
-          printf 'PALMUX_SSO_SECRET=%s\n' "$secret" >> /persist/palmux/secrets.env
-          chown ${pUser}:${pGroup} /persist/palmux/secrets.env
-          chmod 0600 /persist/palmux/secrets.env
+          printf 'PALMUX_SSO_SECRET=%s\n' "$secret" >> "$secrets"
+          chown ${pUser}:${pGroup} "$secrets"
+          chmod 0600 "$secrets"
         fi
 
         # on-appliance flake for `nixos-rebuild switch` updates + operator drop-ins.
