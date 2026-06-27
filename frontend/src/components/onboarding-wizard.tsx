@@ -1,8 +1,11 @@
 /**
  * OnboardingWizard — Sa53137
  *
- * Full-screen first-launch wizard shown when GET /api/deploy returns
- * configured:false AND localStorage 'palmux:onboarding-seen' is not set.
+ * Full-screen first-launch wizard shown whenever GET /api/deploy returns
+ * configured:false (and the wizard wasn't explicitly skipped this tab session).
+ * It is NOT silenced on completion — completing it makes configured:true, which
+ * suppresses it on its own — so resetting an install back to configured:false
+ * correctly re-shows the wizard instead of being permanently dismissed.
  *
  * Modes:
  *   - ローカル/非公開: minimal config, no public domain needed
@@ -15,7 +18,10 @@ import { deployApi } from '../lib/api'
 
 import styles from './onboarding-wizard.module.css'
 
-const LS_KEY = 'palmux:onboarding-seen'
+// Session-scoped skip flag (sessionStorage, NOT localStorage): an explicit skip
+// hides the wizard for THIS tab session only, and is never set on completion. So
+// it reappears on a new session / after a reset while configured:false.
+const SKIP_KEY = 'palmux:onboarding-skipped'
 
 type Mode = 'local' | 'public'
 
@@ -83,18 +89,20 @@ export function OnboardingWizard({ open, onClose }: Props) {
     setTimeout(() => void poll(), 3000)
   }, [])
 
-  const markSeen = useCallback(() => {
+  // Mark "skipped this session" — only ever called on an explicit dismiss (skip /
+  // ×), never on completion (completion → configured:true suppresses it instead).
+  const markSkipped = useCallback(() => {
     try {
-      localStorage.setItem(LS_KEY, '1')
+      sessionStorage.setItem(SKIP_KEY, '1')
     } catch {
       // ignore
     }
   }, [])
 
   const handleSkip = useCallback(() => {
-    markSeen()
+    markSkipped()
     onClose()
-  }, [markSeen, onClose])
+  }, [markSkipped, onClose])
 
   const handleBack = useCallback(() => {
     setShowPrivilegedNotice(false)
@@ -109,7 +117,9 @@ export function OnboardingWizard({ open, onClose }: Props) {
         await deployApi.apply({
           public: { domain: '', basic_auth_user: '' },
         })
-        markSeen()
+        // No markSkipped() here: applying writes config.toml → configured:true,
+        // which suppresses the wizard on its own. (If the install is later reset
+        // to configured:false, the wizard should come back.)
         onClose()
       } else {
         // Public mode: apply server + public, then handle secrets
@@ -129,7 +139,7 @@ export function OnboardingWizard({ open, onClose }: Props) {
             ...(cloudflareToken.trim() ? { cloudflareToken: cloudflareToken } : {}),
           })
         }
-        markSeen()
+        // No markSkipped(): the apply above wrote config.toml → configured:true.
         setShowPrivilegedNotice(true)
       }
     } catch (err: unknown) {
@@ -137,7 +147,7 @@ export function OnboardingWizard({ open, onClose }: Props) {
     } finally {
       setApplying(false)
     }
-  }, [selectedMode, domain, authUser, authPassword, cloudflareToken, markSeen, onClose])
+  }, [selectedMode, domain, authUser, authPassword, cloudflareToken, onClose])
 
   if (!open) return null
 
@@ -335,7 +345,7 @@ export function OnboardingWizard({ open, onClose }: Props) {
               <button
                 type="button"
                 className={styles.btnPrimary}
-                onClick={() => { markSeen(); onClose() }}
+                onClick={() => { markSkipped(); onClose() }}
               >
                 完了
               </button>
@@ -382,20 +392,22 @@ export function OnboardingWizard({ open, onClose }: Props) {
 
 // ─── Self-gating wrapper ──────────────────────────────────────────────────────
 
-/** Checks configured state once at mount; shows wizard if not configured and not seen. */
+/** Shows the wizard whenever the install is unconfigured, unless it was explicitly
+ * skipped this tab session. configured:false re-evaluates on every mount, so a
+ * reset brings the wizard back. */
 export function OnboardingWizardGated() {
   const [shouldShow, setShouldShow] = useState(false)
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
-    const seen = (() => {
+    const skipped = (() => {
       try {
-        return localStorage.getItem(LS_KEY) === '1'
+        return sessionStorage.getItem(SKIP_KEY) === '1'
       } catch {
         return false
       }
     })()
-    if (seen) return
+    if (skipped) return
 
     void deployApi.get().then((d) => {
       if (!d.configured) {
