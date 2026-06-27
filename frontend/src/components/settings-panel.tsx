@@ -8,7 +8,7 @@
  * Opened from ⌘K palette (settings / deploy-settings items).
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { api, deployApi, type DeployView, type ApplyResult } from '../lib/api'
 import { usePalmuxStore, type GlobalSettings } from '../stores/palmux-store'
@@ -445,6 +445,11 @@ function DeployTab() {
   // Sb14caa: NixOS appliance — kick `nixos-rebuild switch` to apply privileged
   // (domain/TLS) changes from the GUI instead of `sudo palmux reconcile-system`.
   const [rebuildState, setRebuildState] = useState<'idle' | 'running' | 'done' | 'failed'>('idle')
+  // The apply result (and its "適用 (nixos-rebuild)" button) renders at the bottom
+  // of a long scrollable modal, below the Apply button — so a click could look
+  // like "nothing happened" when the result was just below the fold. Scroll it
+  // into view whenever it appears.
+  const applyResultRef = useRef<HTMLDivElement>(null)
 
   const loadDeploy = useCallback(() => setReloadKey((k) => k + 1), [])
 
@@ -570,6 +575,13 @@ function DeployTab() {
       setApplying(false)
     }
   }, [form])
+
+  // Bring the apply result / rebuild button into view so the click is never silent.
+  useEffect(() => {
+    if (applyResult || applyError) {
+      applyResultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [applyResult, applyError])
 
   const domainChanged = deployView && form && form.domain !== deployView.public.domain
 
@@ -881,7 +893,7 @@ function DeployTab() {
       </div>
 
       {applyResult && (
-        <div className={styles.applyResult} data-testid="apply-result">
+        <div ref={applyResultRef} className={styles.applyResult} data-testid="apply-result">
           <div className={styles.applyMessage}>{applyResult.message}</div>
           {applyResult.changes.length > 0 && (
             <div className={styles.changesList}>
