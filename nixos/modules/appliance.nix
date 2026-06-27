@@ -267,6 +267,7 @@ in
     script = ''
       set -eu
       cfg=${appCfgDir}/config.toml
+      secrets=${appCfgDir}/secrets.env
       domain=""
       if [ -f "$cfg" ]; then
         # Extract `domain = "..."` from the [public] section of palmux's own writer.
@@ -280,12 +281,37 @@ in
         case "$domain" in
           *[!a-zA-Z0-9.-]*) echo "palmux-rebuild: refusing invalid domain '$domain'" >&2; exit 1 ;;
         esac
+        # PRE-FLIGHT: enabling a domain firewalls off :7683 and routes ONLY through
+        # Caddy, which needs a Cloudflare token for its DNS-01 wildcard cert. With an
+        # empty token Caddy can't even start → the box would be unreachable. Refuse
+        # BEFORE switching (cheap, no lockout) rather than discover it after.
+        if ! grep -qE '^CLOUDFLARE_API_TOKEN=.+' "$secrets" 2>/dev/null; then
+          echo "palmux-rebuild: refusing to enable domain '$domain' — CLOUDFLARE_API_TOKEN is empty. Set the Cloudflare API token in deploy settings first (Caddy needs it for the *.$domain cert)." >&2
+          exit 1
+        fi
         printf '{ ... }: {\n  # Generated from config.toml [public].domain by palmux-rebuild.service.\n  services.palmux.domain = "%s";\n}\n' "$domain" > ${dropinDir}/10-public.nix
       else
         rm -f ${dropinDir}/10-public.nix
       fi
       cd ${flakeDir}
-      exec nixos-rebuild switch --flake .#appliance
+      nixos-rebuild switch --flake .#appliance
+
+      # SAFETY NET: a domain switch closes :7683 and serves only via Caddy. If Caddy
+      # can't come up (bad/expired token, DNS, config), the box is locked out — only
+      # SSH/console can recover it. Verify Caddy is healthy; if not, undo the domain
+      # everywhere and re-switch to the reachable no-domain config, then fail. This
+      # keeps a botched domain apply from ever bricking GUI/LAN access (S7364e3
+      # transactional-regenerate philosophy, applied to the public-domain flip).
+      if [ -n "$domain" ]; then
+        sleep 6
+        if ! systemctl is-active --quiet caddy; then
+          echo "palmux-rebuild: Caddy failed to start under domain '$domain' — rolling back to keep the box reachable (:7683 LAN). Check the Cloudflare token / DNS, then retry." >&2
+          rm -f ${dropinDir}/10-public.nix
+          sed -i -E '/^[[:space:]]*domain[[:space:]]*=/ s/=.*/= ""/' "$cfg"
+          nixos-rebuild switch --flake .#appliance
+          exit 1
+        fi
+      fi
     '';
   };
 
