@@ -23,6 +23,13 @@
       url = "github:nix-community/nixos-generators";
       inputs.nixpkgs.follows = "nixpkgs-appliance";
     };
+    # disko (Sb14caa): declaratively partition the appliance image at BUILD time —
+    # root + /persist baked in, so the deployer never partitions anything. Only the
+    # appliance-qcow2 build consumes it; the running system finds its fs by label.
+    disko = {
+      url = "github:nix-community/disko";
+      inputs.nixpkgs.follows = "nixpkgs-appliance";
+    };
   };
 
   outputs =
@@ -32,6 +39,7 @@
     , home-manager
     , system-manager
     , nixos-generators
+    , disko
     , ...
     }:
     let
@@ -48,43 +56,33 @@
         caddy-cloudflare = pkgs.callPackage ./nix/packages/caddy-cloudflare.nix { };
         default = self.packages.${system}.palmux2;
 
-        # palmuxOS appliance image (Sb14caa Stage 3). A disposable qcow2 built from
-        # nixosModules.appliance: immutable image, all durable state on a separate
-        # /persist volume (repos, ~/.claude, config, secrets, operator drop-ins).
-        # Ships with ZERO baked SSH keys / passwords — access is provisioned at
-        # first boot (cloud-init / palmux onboarding). domain=null → local-only by
-        # default; the deployer sets services.palmux.domain in their own drop-in.
-        #   nix build .#appliance-qcow2   →  result/nixos.qcow2
-        appliance-qcow2 = nixos-generators.nixosGenerate {
-          inherit system;
-          format = "qcow";
-          modules = [
-            { nixpkgs.overlays = [ self.overlays.default ]; }
-            self.nixosModules.appliance
-            ({ lib, config, pkgs, modulesPath, ... }: {
-              services.palmux.domain = lib.mkDefault null; # local-only until the deployer sets it
-              # Don't bake a full copy of the nixpkgs channel into the image (~0.9GB
-              # of dead weight — the appliance is flake-managed, not nix-channel).
-              # nixos-generators' qcow format calls make-disk-image with copyChannel
-              # defaulting to true; re-issue the same call with copyChannel=false.
-              # qcow2-compressed: qemu-img convert -c compresses the qcow2 clusters
-              # ~2-3x for distribution. Reads are decompressed transparently and the
-              # inner ext4 store stays READ-WRITE, so `nixos-rebuild switch` + operator
-              # drop-ins keep working (unlike a read-only squashfs store). NOTE: this
-              # is a SINGLE-disk appliance — /persist is a directory on the root fs, so
-              # runtime writes (repos, ~/.claude, nix-store growth on rebuild) DO land
-              # on this disk and the qcow2 grows from its compressed seed size as the
-              # box is used. The compression only shrinks the DISTRIBUTED artifact.
-              system.build.qcow = lib.mkForce (import "${toString modulesPath}/../lib/make-disk-image.nix" {
-                inherit lib config pkgs;
-                inherit (config.virtualisation) diskSize;
-                format = "qcow2-compressed";
-                partitionTableType = "hybrid";
-                copyChannel = false;
-              });
-            })
-          ];
-        };
+        # palmuxOS appliance image (Sb14caa Stage 3). A qcow2 built via DISKO with a
+        # 2-partition layout baked in: root (16G, fixed) + /persist (rest, last,
+        # autoResize). All durable state lives on /persist (repos / ~ (home) /
+        # config / secrets / incus storage / operator drop-ins); growing the VM disk
+        # grows ONLY /persist, so the OS root can't be filled by a runaway clone or
+        # container. Immutable-OS / mutable-state split is physical and transparent —
+        # the image ships pre-partitioned, the deployer never partitions anything.
+        # Ships with ZERO baked SSH keys / passwords (cloud-init / onboarding at
+        # first boot). domain=null → local-only until the deployer sets it.
+        #   nix build .#appliance-qcow2   →  result/main.qcow2
+        appliance-qcow2 =
+          let
+            sys = nixpkgs-appliance.lib.nixosSystem {
+              inherit system;
+              modules = [
+                { nixpkgs.overlays = [ self.overlays.default ]; }
+                disko.nixosModules.disko
+                ./nixos/modules/disko-layout.nix
+                ./nixos/modules/image-hardware.nix
+                self.nixosModules.appliance
+                ({ lib, ... }: { services.palmux.domain = lib.mkDefault null; })
+              ];
+            };
+          in
+          # disko builds the image(s) for disko.devices in a VM (partitions, mkfs by
+          # label, copies the closure, installs GRUB). One disk → one qcow2.
+          sys.config.system.build.diskoImages;
       });
 
       lib.mkPalmuxHost = import ./nix/lib/mkPalmuxHost.nix { inherit inputs; };

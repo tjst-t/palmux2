@@ -20,24 +20,26 @@ let
   # (which would be an unresolvable group name and make the rule fail).
   pGroup = config.users.users.${pUser}.group;
 
-  # ── the SINGLE-DISK on-/persist layout (Sb14caa, docs/nixos-appliance-design.md)
-  # The appliance is a SINGLE disk: /persist is just a directory on the root fs, not
-  # a separate volume. nixos-rebuild's generation switch only swaps /nix/store +
-  # /run/current-system, so everything under /persist (state, config, the update
-  # flake) is untouched by updates and survives reboots. `qm resize` + growPartition
-  # grow the disk for more space. (An operator who wants the OLD separate-volume
-  # model for whole-image-swap updates can add `fileSystems."/persist"` in a drop-in.)
+  # ── the on-/persist layout (Sb14caa, docs/nixos-appliance-design.md) ─────────
+  # The image ships with TWO partitions (disko, see nixos/modules/disko-layout.nix):
+  #   /        ext4 LABEL=nixos    16G fixed  ← Nix store + OS (can't be filled)
+  #   /persist ext4 LABEL=persist  rest,last  ← ALL mutable state, autoResize
+  # nixos-rebuild's generation switch only swaps /nix/store + /run/current-system, so
+  # everything under /persist (state, config, update flake, home, incus storage) is
+  # untouched by updates and survives reboots/re-image. `qm resize` + growPartition
+  # grow ONLY the last partition (/persist) → user data expands, root stays bounded.
   #
   #   /persist/palmux/nixos/     ← ON-APPLIANCE FLAKE (update + extend via nixos-rebuild)
   #     ├─ flake.nix             pins palmux; nixos-rebuild switch --flake .#appliance
-  #     ├─ hardware-base.nix     virtio + by-label root + growPartition
+  #     ├─ hardware-base.nix     by-label root(fixed) + /persist(autoResize) + grub
   #     ├─ grub-device.nix       generated on first boot (detected bootsector disk)
   #     └─ local/  *.nix         operator drop-ins (domain, extra pkgs, …)
   #   /persist/palmux/config/    ← palmux2 --config-dir (config.toml + settings.json)
   #     └─ secrets.env           ← SECRETS (CF token / SSO secret / bcrypt), 0600;
   #                                 same file palmux2 reads/writes AND systemd's
   #                                 EnvironmentFile (services.palmux.secretsFile)
-  #   /persist/palmux/home/      ← DATA (~/ghq, ~/.claude)
+  #   /persist/palmux/home/      ← DATA (= palmux $HOME: ~/ghq, ~/.claude, dotfiles)
+  #   /persist/incus/storage/    ← incus dir storage pool (container/image volumes)
   flakeDir = "/persist/palmux/nixos";   # on-appliance flake (+ local/ drop-ins)
   dropinDir = "${flakeDir}/local";
   appCfgDir = "/persist/palmux/config"; # palmux2 --config-dir (config.toml + settings.json)
@@ -58,6 +60,18 @@ in
   # other, so a GUI-set SSO secret / password never reaches the process env (and a
   # state-init-generated SSO secret never shows in the GUI). Unify on configDir.
   services.palmux.secretsFile = lib.mkDefault "${appCfgDir}/secrets.env";
+
+  # Put the incus `dir` storage pool (container + image volumes — the part that
+  # GROWS) on /persist, not its default under /var/lib/incus (the OS root). With
+  # root fixed at 16G, a workspace clone/build/image pull must not be able to fill
+  # it; on /persist it grows with the data partition instead. The source dir is
+  # created by palmux-state-init before incus starts. (mkForce: replace palmux.nix's
+  # mkDefault pool list wholesale — lists don't deep-merge.)
+  virtualisation.incus.preseed.storage_pools = lib.mkForce [{
+    name = "default";
+    driver = "dir";
+    config.source = "/persist/incus/storage";
+  }];
 
   # ── first-boot LAN exposure (so onboarding is reachable on the IP) ─────────
   # Before a public domain is set, bind the WebUI to the LAN so the deployer can
@@ -152,20 +166,56 @@ in
   # incus bridge before a container starts), delaying boot. Wait for ANY one link.
   systemd.network.wait-online.anyInterface = lib.mkDefault true;
 
-  # ── /persist state + on-appliance update flake (single disk) ────────────────
-  # /persist is a directory on the ROOT fs (single-disk model — no separate volume).
-  # palmux-state-init creates the durable state subtree AND ships the on-appliance
+  # ── grow /persist (the LAST partition) into free disk space ────────────────
+  # NixOS's boot.growPartition + a filesystem's autoResize only grow the ROOT
+  # partition (cloud-image convention); nothing grows a non-root last partition. So
+  # after a `qm resize`, growpart the /persist partition BEFORE it is mounted, then
+  # its autoResize (systemd-growfs) fills the enlarged partition. growpart is
+  # idempotent (NOCHANGE → nonzero exit when already max), so this is a no-op when
+  # there is nothing to grow. Runs in both the image (gen 1) and the on-appliance
+  # flake (gen 2+) since it lives in this shared module.
+  systemd.services.palmux-grow-persist = {
+    description = "Grow the /persist partition into free disk space";
+    wantedBy = [ "persist.mount" ];
+    before = [ "persist.mount" ];
+    after = [ "local-fs-pre.target" ];
+    wants = [ "local-fs-pre.target" ];
+    unitConfig.DefaultDependencies = false;
+    path = with pkgs; [ cloud-utils util-linux coreutils ];
+    serviceConfig.Type = "oneshot";
+    script = ''
+      set -u
+      # Resolve /persist's partition (give udev a moment for the by-label symlink).
+      dev=""
+      for _ in 1 2 3 4 5; do
+        dev=$(readlink -f /dev/disk/by-label/persist 2>/dev/null || true)
+        [ -b "$dev" ] && break
+        udevadm settle || true; sleep 1
+      done
+      [ -b "$dev" ] || { echo "grow-persist: /persist device not found, skipping" >&2; exit 0; }
+      base=$(basename "$dev")
+      disk="/dev/$(lsblk -no PKNAME "$dev" | head -n1)"
+      num=$(cat "/sys/class/block/$base/partition" 2>/dev/null || true)
+      [ -b "$disk" ] && [ -n "$num" ] || exit 0
+      growpart "$disk" "$num" || true   # NOCHANGE => nonzero; that is expected
+    '';
+  };
+
+  # ── /persist state + on-appliance update flake ─────────────────────────────
+  # /persist is its own ext4 partition (LABEL=persist, disko-layout.nix). palmux-
+  # state-init creates the durable state subtree under it AND ships the on-appliance
   # flake to /persist/palmux/nixos so the box can `nixos-rebuild switch` to update.
   #
-  # Why a oneshot (not systemd.tmpfiles.rules): historically /persist was a `nofail`
-  # mount and tmpfiles-setup (ordered only After=local-fs.target) could race ahead
-  # of the mount and create the dirs on the underlying fs, then the mount hid them →
-  # palmux2 failed (missing WorkingDirectory/EnvironmentFile, `resources`). A oneshot
-  # with RequiresMountsFor=/persist + before/requiredBy palmux2 is deterministic and
-  # works for both the root-fs dir and a future separate-volume drop-in. Idempotent.
+  # Why a oneshot (not systemd.tmpfiles.rules): tmpfiles-setup (ordered only
+  # After=local-fs.target) could race ahead of the /persist mount and create the
+  # dirs on the underlying root fs, then the mount hides them → palmux2 fails
+  # (missing WorkingDirectory/EnvironmentFile, `resources`). A oneshot with
+  # RequiresMountsFor=/persist + before/requiredBy palmux2 is deterministic. Idempotent.
   systemd.services.palmux-state-init = {
     description = "Create the palmux /persist state subtree + on-appliance update flake";
-    before = [ "palmux2.service" ];
+    # Before palmux2 (needs config/secrets) AND incus (its dir storage pool lives
+    # under /persist/incus so container/image growth can't fill the OS root).
+    before = [ "palmux2.service" "incus.service" ];
     requiredBy = [ "palmux2.service" ]; # palmux2 Requires + waits for this
     unitConfig.RequiresMountsFor = "/persist";
     path = with pkgs; [ coreutils util-linux ];
@@ -184,6 +234,11 @@ in
         secrets=${appCfgDir}/secrets.env
         [ -e "$secrets" ] \
           || install -m 0600 -o ${pUser} -g ${pGroup} /dev/null "$secrets"
+
+        # incus dir storage pool lives on /persist (See virtualisation.incus.preseed
+        # override below) so container/image data grows on the data partition, not the
+        # OS root. Create its source dir before incus starts.
+        install -d -m 0711 /persist/incus /persist/incus/storage
 
         # Generate a STABLE SSO signing key once (PALMUX_SSO_SECRET) if absent. SSO
         # cookies are HMAC-signed with it; an empty key breaks the apex forward_auth
