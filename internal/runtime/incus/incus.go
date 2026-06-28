@@ -1625,13 +1625,36 @@ func (c *incusTmuxClient) NewSession(ctx context.Context, opts tmux.NewSessionOp
 	// For the command case, wrap in sh -c "export ... && cmd" is fragile; leave
 	// them as shell env — the caller sets them in the Command string already.
 	_, err := c.incus(ctx, args...)
-	if err != nil && strings.Contains(err.Error(), "duplicate session") {
-		// Idempotent: the session already exists (e.g. a concurrent
-		// ensureSession from the sync_tmux recovery loop created it first during
-		// a runtime switch). The goal — a session with this name — is met.
-		return nil
+	if err != nil {
+		if strings.Contains(err.Error(), "duplicate session") {
+			// Idempotent: the session already exists (e.g. a concurrent
+			// ensureSession from the sync_tmux recovery loop created it first
+			// during a runtime switch). The goal — a session with this name — is
+			// met; still (re)apply the per-session options.
+			c.applyPalmuxSessionOptions(ctx, opts.Name)
+			return nil
+		}
+		return err
 	}
-	return err
+	c.applyPalmuxSessionOptions(ctx, opts.Name)
+	return nil
+}
+
+// applyPalmuxSessionOptions sets Palmux's per-session tmux defaults INSIDE the
+// container — mirror of the host execClient's helper, so the container bash tab
+// gets the same UX: mouse on (wheel scroll / click-select / pane resize), status
+// line (footer bar) off, set-clipboard on (mouse selection's OSC52 reaches the
+// browser clipboard). Routed through c.incus so they run as `incus exec <inst> --
+// tmux set-option …` against the container's tmux server. Best-effort: a failed
+// option must never abort session creation.
+func (c *incusTmuxClient) applyPalmuxSessionOptions(ctx context.Context, session string) {
+	for _, opt := range [][2]string{
+		{"mouse", "on"},
+		{"status", "off"},
+		{"set-clipboard", "on"},
+	} {
+		_, _ = c.incus(ctx, "set-option", "-t", session, opt[0], opt[1]) //nolint:errcheck // best-effort cosmetics
+	}
 }
 
 func (c *incusTmuxClient) KillSession(ctx context.Context, name string) error {
@@ -1763,8 +1786,13 @@ func (c *incusTmuxClient) AttachByIndex(ctx context.Context, session string, idx
 
 // NewGroupSession creates a tmux group session inside the container.
 func (c *incusTmuxClient) NewGroupSession(ctx context.Context, target, groupName string) error {
-	_, err := c.incus(ctx, "new-session", "-d", "-t", target, "-s", groupName)
-	return err
+	if _, err := c.incus(ctx, "new-session", "-d", "-t", target, "-s", groupName); err != nil {
+		return err
+	}
+	// The grouped session (the one the browser client attaches to) gets default
+	// options, so apply Palmux's per-session defaults here too.
+	c.applyPalmuxSessionOptions(ctx, groupName)
+	return nil
 }
 
 // ---------------------------------------------------------------------------

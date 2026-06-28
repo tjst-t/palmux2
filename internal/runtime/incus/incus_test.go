@@ -1479,3 +1479,32 @@ func TestUserExecFlags_GitCredentialHelperRepair(t *testing.T) {
 		t.Errorf("want 2 resets + 2 gh-helper adds; got %d resets, %d adds", resets, adds)
 	}
 }
+
+// TestIncusTmuxClient_AppliesPalmuxSessionOptions verifies the CONTAINER tmux gets
+// Palmux's per-session defaults (mouse on, status off, set-clipboard on) — the
+// fix must land here (incusTmuxClient), not only in the host execClient, since the
+// container bash tab routes through this client.
+func TestIncusTmuxClient_AppliesPalmuxSessionOptions(t *testing.T) {
+	inst := "ws-tmux-opts-cafe0012"
+	fr := newFakeRunner()
+	tc := NewTmuxClient(inst, fr.asRunner())
+	if err := tc.NewSession(context.Background(), tmux.NewSessionOpts{Name: "s1"}); err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	calls := fr.recorded()
+	for _, opt := range [][2]string{{"mouse", "on"}, {"status", "off"}, {"set-clipboard", "on"}} {
+		if _, ok := findExecCall(calls, inst, "tmux", "set-option", "-t", "s1", opt[0], opt[1]); !ok {
+			t.Errorf("NewSession: expected `tmux set-option -t s1 %s %s` in the container, got %v", opt[0], opt[1], calls)
+		}
+	}
+
+	// And on the grouped (multi-device) session the browser actually attaches to.
+	fr2 := newFakeRunner()
+	tc2 := NewTmuxClient(inst, fr2.asRunner())
+	if err := tc2.NewGroupSession(context.Background(), "s1", "s1__grp_1"); err != nil {
+		t.Fatalf("NewGroupSession: %v", err)
+	}
+	if _, ok := findExecCall(fr2.recorded(), inst, "tmux", "set-option", "-t", "s1__grp_1", "status", "off"); !ok {
+		t.Errorf("NewGroupSession: expected `tmux set-option -t s1__grp_1 status off`, got %v", fr2.recorded())
+	}
+}
