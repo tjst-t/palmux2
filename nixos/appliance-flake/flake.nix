@@ -21,12 +21,12 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
-    # The palmux modules + packages. `nix flake update palmux` bumps to latest.
-    # TODO: point at `github:tjst-t/palmux2` (main) or a release tag once the
-    # palmuxOS appliance work (Sb14caa) is merged to main. Until then, the appliance
-    # module only exists on this branch — and a slashed branch name must use the
-    # `?ref=` query form (github:owner/repo/a/b/c misparses and falls back to main).
-    palmux.url = "github:tjst-t/palmux2?ref=autopilot/main/Sb14caa";
+    # The palmux modules + packages, tracking main. `nix flake update palmux` bumps
+    # the appliance to latest main (module source); the palmux2 BINARY follows
+    # palmux2.nix's defaultVersion on main, which release.yml bumps to each tag.
+    # Operators who want to freeze a version can pin a tag in a local drop-in, e.g.
+    # `palmux.url = "github:tjst-t/palmux2/v0.12.0";`.
+    palmux.url = "github:tjst-t/palmux2";
   };
 
   outputs = { self, nixpkgs, palmux, ... }:
