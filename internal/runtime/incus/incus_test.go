@@ -1419,3 +1419,63 @@ func mustContainSeq(t *testing.T, s, sub []string) {
 	}
 	t.Errorf("expected subsequence %v in %v", sub, s)
 }
+
+// TestUserExecFlags_GitCredentialHelperRepair verifies the exec env injects a
+// github/gist-scoped credential.helper RESET + a PATH-relative `!gh auth
+// git-credential`, so a Nix-host ~/.gitconfig's absolute .gh-wrapped helper can't
+// break git HTTPS auth inside the (Nix-less) container. The host file is untouched.
+func TestUserExecFlags_GitCredentialHelperRepair(t *testing.T) {
+	flags := userExecFlags()
+	joined := strings.Join(flags, " ")
+
+	// Base identity flags still present.
+	for _, want := range []string{"--user 1000", "--group 1000", "HOME=/home/ubuntu", "USER=ubuntu"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("userExecFlags missing %q; got: %s", want, joined)
+		}
+	}
+
+	// Collect the GIT_CONFIG_* env values (each preceded by --env).
+	env := map[string]string{}
+	for i := 0; i+1 < len(flags); i++ {
+		if flags[i] != "--env" {
+			continue
+		}
+		k, v, _ := strings.Cut(flags[i+1], "=")
+		env[k] = v
+	}
+	if env["GIT_CONFIG_COUNT"] != "4" {
+		t.Fatalf("GIT_CONFIG_COUNT = %q, want 4", env["GIT_CONFIG_COUNT"])
+	}
+	// For each of the two hosts: a reset (empty) then the gh helper, on the
+	// URL-SCOPED key (an unscoped reset would not clear a url-scoped helper).
+	wantKeys := []string{
+		"credential.https://github.com.helper",
+		"credential.https://gist.github.com.helper",
+	}
+	resets, adds := 0, 0
+	for i := 0; i < 4; i++ {
+		k := env[fmt.Sprintf("GIT_CONFIG_KEY_%d", i)]
+		v := env[fmt.Sprintf("GIT_CONFIG_VALUE_%d", i)]
+		isScoped := false
+		for _, wk := range wantKeys {
+			if k == wk {
+				isScoped = true
+			}
+		}
+		if !isScoped {
+			t.Errorf("GIT_CONFIG_KEY_%d = %q, not a github/gist-scoped helper key", i, k)
+		}
+		switch v {
+		case "":
+			resets++
+		case "!gh auth git-credential":
+			adds++
+		default:
+			t.Errorf("GIT_CONFIG_VALUE_%d = %q, want empty(reset) or the gh helper", i, v)
+		}
+	}
+	if resets != 2 || adds != 2 {
+		t.Errorf("want 2 resets + 2 gh-helper adds; got %d resets, %d adds", resets, adds)
+	}
+}

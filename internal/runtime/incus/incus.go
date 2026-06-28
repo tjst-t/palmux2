@@ -1060,12 +1060,43 @@ const (
 // must carry these so the single in-container tmux SERVER is owned by uid 1000
 // and every later op reaches the same /tmp/tmux-1000 socket.
 func userExecFlags() []string {
-	return []string{
+	f := []string{
 		"--user", wsUID,
 		"--group", wsGID,
 		"--env", "HOME=" + wsHome,
 		"--env", "USER=" + wsUser,
 	}
+	return append(f, gitCredentialHelperEnv()...)
+}
+
+// gitCredentialHelperEnv repairs git HTTPS auth inside the container. The host's
+// ~/.gitconfig is bind-mounted in, but on a Nix/home-manager host `gh auth
+// setup-git` writes a github-SCOPED credential.helper that is an ABSOLUTE Nix path
+// (e.g. ~/.nix-profile/bin/.gh-wrapped — gh wrapped by wrapProgram). The container
+// has no /nix or ~/.nix-profile, so that helper resolves to "not found" and every
+// plain `git` HTTPS pull/push fails. We must NOT edit the shared ~/.gitconfig (it
+// is the host's live file, correct on the host). Instead inject high-precedence
+// GIT_CONFIG_* env (applied after all config files) that RESETS the github/gist-
+// scoped helper and re-points it at a PATH-RELATIVE `!gh auth git-credential`,
+// which resolves to the container's own gh (/usr/bin/gh, authed via the bind-
+// mounted ~/.config/gh). The reset MUST be url-scoped — an unscoped reset does not
+// clear a url-scoped helper (verified). Identity/aliases still come from
+// ~/.gitconfig; the host is untouched; non-github remotes are unaffected (the gh
+// helper no-ops for them).
+func gitCredentialHelperEnv() []string {
+	hosts := []string{"https://github.com", "https://gist.github.com"}
+	env := []string{"--env", fmt.Sprintf("GIT_CONFIG_COUNT=%d", len(hosts)*2)}
+	i := 0
+	for _, h := range hosts {
+		key := "credential." + h + ".helper"
+		// reset (empty value clears the accumulated helper list for this url)…
+		env = append(env, "--env", fmt.Sprintf("GIT_CONFIG_KEY_%d=%s", i, key), "--env", fmt.Sprintf("GIT_CONFIG_VALUE_%d=", i))
+		i++
+		// …then the PATH-relative gh helper.
+		env = append(env, "--env", fmt.Sprintf("GIT_CONFIG_KEY_%d=%s", i, key), "--env", fmt.Sprintf("GIT_CONFIG_VALUE_%d=!gh auth git-credential", i))
+		i++
+	}
+	return env
 }
 
 // Exec runs a command inside the container and captures output.
