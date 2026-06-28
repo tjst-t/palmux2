@@ -409,11 +409,17 @@ log "5. Stopping build instance ..."
 incus stop "${BUILD_INST}" </dev/null
 
 log "   Publishing as image alias '${TEMP_ALIAS}' (version ${IMAGE_VERSION}) ..."
-incus publish "${BUILD_INST}" </dev/null --alias "${TEMP_ALIAS}"
-# Stamp the version into the image metadata (properties.version + description) so
-# `incus image list/show palmux-ws` displays it. Travels in the exported tarball.
-incus image set-property "${TEMP_ALIAS}" version "${IMAGE_VERSION}" </dev/null 2>/dev/null || true
-incus image set-property "${TEMP_ALIAS}" description "palmux-ws ${IMAGE_VERSION}" </dev/null 2>/dev/null || true
+# Set properties.version + description AT PUBLISH TIME (trailing key=value args), so
+# they are baked into the published metadata blob and TRAVEL IN THE EXPORTED TARBALL.
+# This matters for the release pipeline: scripts/release-image.sh re-stamps a release
+# by rewriting metadata.yaml's `properties.version`, which must therefore exist in the
+# exported image. incus 7.x's `image export` streams the PUBLISH-TIME metadata and
+# IGNORES properties set afterward via `incus image set-property` (verified) — so the
+# old set-property-after-publish left `properties: {}` in the tarball and the re-stamp
+# failed with "expected exactly 1 indented 'version:' line ... found 0". Publish-time
+# properties avoid that on both incus 6.0 and 7.x.
+incus publish "${BUILD_INST}" </dev/null --alias "${TEMP_ALIAS}" \
+  version="${IMAGE_VERSION}" description="palmux-ws ${IMAGE_VERSION}"
 
 OUT_PATH="${OUT_DIR}/palmux-ws.tar.gz"
 log "   Exporting image to ${OUT_PATH} ..."
