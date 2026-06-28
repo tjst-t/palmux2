@@ -188,29 +188,26 @@ incus exec "${BUILD_INST}" </dev/null -- sh -c "
 # `InRelease` is GPG-signed (key ${UGCHROMIUM_KEY_FP}). It is the only actively
 # maintained, noble-targeting, redistributable ungoogled-chromium .deb source
 # (the official ungoogled-chromium-binaries site is stuck at v100/2022; the
-# openSUSE OBS personal repo does not publish a noble target). We PIN the exact
-# version and additionally VERIFY the downloaded .deb's SHA256 against a value
-# captured from the signed Packages index (belt-and-suspenders on top of apt's
-# own signed Release→Packages→.deb SHA256 chain).
+# openSUSE OBS personal repo does not publish a noble target).
+#
+# We DO NOT pin an exact version or .deb SHA. XtraDeb keeps only the LATEST
+# chromium in its noble pool — it PURGES old versions on every upstream bump — so
+# any pinned version string is gone within weeks and the build breaks with
+# "Version ... not found" (this has bitten .114 → .155 → .196 in quick succession).
+# The supply-chain anchor is instead the PINNED GPG KEY FINGERPRINT (verified
+# below): the repo InRelease is signed by it, and apt verifies every .deb through
+# the signed Release → Packages → SHA256 chain. So we install whatever the signed
+# repo currently offers (the latest) and record the resolved version into the image
+# for traceability (/etc/palmux-ws-chromium-version). A hardcoded per-.deb SHA was
+# redundant with apt's signed-Packages verification AND unmaintainable against the
+# purge cadence, so it is gone.
 #
 # Why not snap chromium: on Ubuntu 24.04 the `chromium` apt package is a SNAP
 # wrapper; snapd cannot set up its devpts mounts inside an unprivileged incus
 # container, so that install fails at build time.
-UGCHROMIUM_VERSION="${UGCHROMIUM_VERSION:-149.0.7827.196-1.1xtradeb1.2404.1}"
-# SHA256 of ungoogled-chromium_<VERSION>_amd64.deb from the signed XtraDeb noble
-# Packages index (dists/noble/main/binary-amd64/Packages.xz). Pin must match the
-# version above; bump both together when upgrading.
-UGCHROMIUM_DEB_SHA256="${UGCHROMIUM_DEB_SHA256:-24e34fd4a941ccbb4ea059f41833afe130ff8d61b17495bb28981cfc8138b87e}"
-# SHA256 of the co-installed ungoogled-chromium-common_<VERSION>_amd64.deb (ships
-# the browser resources/policy templates). Pinned for the same supply-chain
-# reason as the main .deb; bump together with UGCHROMIUM_VERSION.
-UGCHROMIUM_COMMON_DEB_SHA256="${UGCHROMIUM_COMMON_DEB_SHA256:-99bd822e880c624952858b9acd2eefe5b58f839179fec9206ccd78048ab0c3a1}"
 UGCHROMIUM_KEY_FP="5301FA4FD93244FBC6F6149982BB6851C64F6880"
-log "   Installing ungoogled-chromium ${UGCHROMIUM_VERSION} (XtraDeb PPA, pinned + sha256-verified) ..."
+log "   Installing ungoogled-chromium (latest from GPG-key-pinned XtraDeb PPA) ..."
 incus exec "${BUILD_INST}" </dev/null \
-  --env UGCHROMIUM_VERSION="${UGCHROMIUM_VERSION}" \
-  --env UGCHROMIUM_DEB_SHA256="${UGCHROMIUM_DEB_SHA256}" \
-  --env UGCHROMIUM_COMMON_DEB_SHA256="${UGCHROMIUM_COMMON_DEB_SHA256}" \
   --env UGCHROMIUM_KEY_FP="${UGCHROMIUM_KEY_FP}" \
   -- sh -c '
   set -e
@@ -228,25 +225,17 @@ incus exec "${BUILD_INST}" </dev/null \
   echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/xtradeb.gpg] https://ppa.launchpadcontent.net/xtradeb/apps/ubuntu noble main" \
     > /etc/apt/sources.list.d/xtradeb-apps.list
   apt-get update
-  # Belt-and-suspenders: download the pinned .debs via apt (which verifies the
-  # signed Packages SHA256), then re-verify BOTH .debs SHA256 against our
-  # hardcoded pins before installing — so a silently-rotated pool entry (same
-  # version string, rebuilt binary) cannot slip through. Work in a clean dir so a
-  # stale .deb from a prior partial run can never be picked up by a glob.
-  rm -rf /tmp/ugc && mkdir -p /tmp/ugc && cd /tmp/ugc
-  apt-get download "ungoogled-chromium=${UGCHROMIUM_VERSION}" "ungoogled-chromium-common=${UGCHROMIUM_VERSION}"
-  # apt-get download writes <pkg>_<ver>_<arch>.deb (no epoch in this version), so
-  # reference the exact filenames rather than a wildcard.
-  MAIN_DEB="ungoogled-chromium_${UGCHROMIUM_VERSION}_amd64.deb"
-  COMMON_DEB="ungoogled-chromium-common_${UGCHROMIUM_VERSION}_amd64.deb"
-  printf "%s  %s\n%s  %s\n" \
-    "${UGCHROMIUM_DEB_SHA256}" "${MAIN_DEB}" \
-    "${UGCHROMIUM_COMMON_DEB_SHA256}" "${COMMON_DEB}" | sha256sum -c - \
-    || { echo "ungoogled-chromium .deb SHA256 mismatch (supply-chain check failed)"; exit 1; }
-  # Install the pinned .debs; apt resolves the runtime deps (libnss3,
-  # libgtk-3-0t64, libgbm1, …) from the ubuntu noble base archive.
-  apt-get install -y --no-install-recommends "./${COMMON_DEB}" "./${MAIN_DEB}"
-  cd /tmp && rm -rf /tmp/ugc
+  # Install the LATEST ungoogled-chromium straight from the signed repo. apt
+  # verifies each .deb against the GPG-signed Packages SHA256 (anchored by the key
+  # fingerprint checked above) — so no separate hardcoded SHA is needed, and there
+  # is no pinned version that XtraDeb can purge out from under us. apt resolves the
+  # runtime deps (libnss3, libgtk-3-0t64, libgbm1, …) from the ubuntu noble archive.
+  apt-get install -y --no-install-recommends ungoogled-chromium ungoogled-chromium-common
+  # Record the actually-installed version into the image for traceability (no $-in-
+  # awk here: the install block is single-quoted, so use grep+cut, not awk $2).
+  UGC_VER=$(dpkg-query -s ungoogled-chromium 2>/dev/null | grep "^Version:" | cut -d" " -f2)
+  echo "installed ungoogled-chromium version: ${UGC_VER}"
+  printf "%s\n" "${UGC_VER}" > /etc/palmux-ws-chromium-version
   # Expose the binary under the `chromium` name the browser manager invokes.
   # The XtraDeb ungoogled-chromium package installs the launcher as
   # /usr/bin/ungoogled-chromium (NOT chromium); create a stable
