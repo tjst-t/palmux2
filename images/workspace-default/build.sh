@@ -196,15 +196,15 @@ incus exec "${BUILD_INST}" </dev/null -- sh -c "
 # Why not snap chromium: on Ubuntu 24.04 the `chromium` apt package is a SNAP
 # wrapper; snapd cannot set up its devpts mounts inside an unprivileged incus
 # container, so that install fails at build time.
-UGCHROMIUM_VERSION="${UGCHROMIUM_VERSION:-149.0.7827.155-1.1xtradeb1.2404.1}"
+UGCHROMIUM_VERSION="${UGCHROMIUM_VERSION:-149.0.7827.196-1.1xtradeb1.2404.1}"
 # SHA256 of ungoogled-chromium_<VERSION>_amd64.deb from the signed XtraDeb noble
 # Packages index (dists/noble/main/binary-amd64/Packages.xz). Pin must match the
 # version above; bump both together when upgrading.
-UGCHROMIUM_DEB_SHA256="${UGCHROMIUM_DEB_SHA256:-18e3667abb28d723cb7b6e80d522d8b16a389ee10db1cb55ec392d3cab9f79b0}"
+UGCHROMIUM_DEB_SHA256="${UGCHROMIUM_DEB_SHA256:-24e34fd4a941ccbb4ea059f41833afe130ff8d61b17495bb28981cfc8138b87e}"
 # SHA256 of the co-installed ungoogled-chromium-common_<VERSION>_amd64.deb (ships
 # the browser resources/policy templates). Pinned for the same supply-chain
 # reason as the main .deb; bump together with UGCHROMIUM_VERSION.
-UGCHROMIUM_COMMON_DEB_SHA256="${UGCHROMIUM_COMMON_DEB_SHA256:-84b62800de1f587f07836f7beeb1622d9d4964547a99ec3f0c04a60a78fe04c2}"
+UGCHROMIUM_COMMON_DEB_SHA256="${UGCHROMIUM_COMMON_DEB_SHA256:-99bd822e880c624952858b9acd2eefe5b58f839179fec9206ccd78048ab0c3a1}"
 UGCHROMIUM_KEY_FP="5301FA4FD93244FBC6F6149982BB6851C64F6880"
 log "   Installing ungoogled-chromium ${UGCHROMIUM_VERSION} (XtraDeb PPA, pinned + sha256-verified) ..."
 incus exec "${BUILD_INST}" </dev/null \
