@@ -84,7 +84,30 @@ func (c *execClient) NewSession(ctx context.Context, opts NewSessionOpts) error 
 	if err != nil {
 		return fmt.Errorf("tmux new-session %s: %s", opts.Name, strings.TrimSpace(string(out)))
 	}
+	c.applyPalmuxSessionOptions(ctx, opts.Name)
 	return nil
+}
+
+// applyPalmuxSessionOptions sets the per-session tmux defaults Palmux applies to
+// every session it creates:
+//   - mouse on       : wheel scroll / click-to-select / pane resize work in the tab.
+//   - status off     : hide tmux's status line (the green "footer" bar) — Palmux
+//     renders its own tab chrome in the UI, so the in-terminal one is redundant.
+//   - set-clipboard on : a mouse selection's OSC52 reaches the browser clipboard.
+//
+// Set PER-SESSION (-t), not globally (-g): Palmux shares the host's default tmux
+// socket, so a global set would also change the user's OWN tmux sessions. (mouse and
+// status are session options; set-clipboard is a server option and applies
+// server-wide regardless of -t, but enabling clipboard forwarding is benign.)
+// Best-effort: a failed set-option must never abort session creation.
+func (c *execClient) applyPalmuxSessionOptions(ctx context.Context, session string) {
+	for _, opt := range [][2]string{
+		{"mouse", "on"},
+		{"status", "off"},
+		{"set-clipboard", "on"},
+	} {
+		_, _ = c.run(ctx, "set-option", "-t", session, opt[0], opt[1]) //nolint:errcheck // best-effort cosmetics
+	}
 }
 
 func (c *execClient) KillSession(ctx context.Context, name string) error {

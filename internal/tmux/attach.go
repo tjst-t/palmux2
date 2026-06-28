@@ -68,8 +68,14 @@ func (c *execClient) NewGroupSession(ctx context.Context, target, groupName stri
 	if target == "" || groupName == "" {
 		return fmt.Errorf("NewGroupSession: empty argument")
 	}
-	_, err := c.run(ctx, "new-session", "-d", "-t", target, "-s", groupName)
-	return err
+	if _, err := c.run(ctx, "new-session", "-d", "-t", target, "-s", groupName); err != nil {
+		return err
+	}
+	// A grouped session shares windows with the base but gets DEFAULT session
+	// options, so apply Palmux's per-session defaults (mouse on, status off) here
+	// too — this is the session the browser client actually attaches to.
+	c.applyPalmuxSessionOptions(ctx, groupName)
+	return nil
 }
 
 // ptyConn wraps the pty file + tmux client process so closing the conn also
