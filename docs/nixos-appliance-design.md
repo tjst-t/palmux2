@@ -1,9 +1,9 @@
 # palmuxOS — NixOS アプライアンス設計
 
-> ステータス: **設計 + scaffold**（2026-06）。`nixos/` ツリーは scaffold 済みだが、
-> Nix を持たない設計箱のため **まだ eval 検証していない**。下記 Stage 1〜5 が検証・
-> 構築計画。Nix ファイルは「提案する形」であり、staged plan に沿って
-> `nix flake check` と実機検証を行う前提で読むこと。
+> ステータス: **Stage 1〜4 実装・実機検証済み**（2026-06）。`nixos/` ツリーは eval + 実機
+> （controller でビルド、Proxmox pve-01 / 旧 testbox に実デプロイ）まで通っている。Stage 5
+> （dev VM 本番採用）のみ user GO 待ち。本ドキュメントは設計意図 + 実装の対応を記す。
+> イメージは **disko で 2 パーティション**（root 固定 + /persist 成長、下記）を焼き込む。
 
 ## なぜ NixOS か（決定の振り返り）
 
@@ -106,24 +106,27 @@ flake-pure（`--impure` 不要、flake の外から `/etc` を eval 時に読ま
 は永続データボリュームにあり、image の入替/アップグレードを跨いで残る。これがアプライアンスが
 約束する仕組み: *自分の設定を palmux の上に宣言的に重ね、その場で `nixos-rebuild switch`*。
 
-## 不変 image + 永続 state の分離
+## 不変 image + 永続 state の分離（disko 2 パーティション）
 
-アプライアンス image は不変。可変 state は全て**別の永続ボリューム**（`/persist` にマウント、
-bind-mount で各所へ）に置き、image を再ビルド/差し替え/アップグレードしてもデータが失われない
-ようにする:
+アプライアンス image は **disko** でビルド時に 2 パーティションを焼き込む（`nixos/modules/
+disko-layout.nix`）。デプロイ者はパーティション操作を一切しない（単一 qcow2 を import するだけ）。
+不変 OS と可変 state を**物理的に**分離する:
 
-| state | パス | マウント元 |
-|---|---|---|
-| リポジトリ | `~/ghq` | `/persist/ghq` |
-| Claude 記録（履歴, memory, projects） | `~/.claude`, `~/.claude.json` | `/persist/claude/...` |
-| palmux 設定 (config.toml/settings.json) | `--config-dir` | `/persist/palmux/config/app` |
-| secrets | `secrets.env` | `/persist/palmux/config/secrets.env` (0600) |
-| 運用者 NixOS オーバーライド | `/etc/palmux/local/` | `/persist/palmux/config/nixos` |
-| incus（ワークスペースコンテナは使い捨て、state は bind-mount） | `/var/lib/incus` | ポリシー次第で永続/揮発 |
+| パーティション | ラベル | マウント | サイズ | 中身 |
+|---|---|---|---|---|
+| bios | — | （GRUB BIOS-boot） | 1M | GRUB 埋め込み（GPT） |
+| root | `nixos` | `/` | **16G 固定**（autoResize しない） | Nix ストア + OS。データでは埋まらない |
+| persist | `persist` | `/persist` | **残り・末尾**（autoResize） | 全 mutable state |
 
-これは dev 移行で話した `~/.claude` / `~/ghq` 引き継ぎの懸念とそのまま直結する。アプライアンス
-化は state/image 分離を**強制する**ので、そのデータが設計上「明示的・可搬・バックアップ対象」に
-なり、むしろ綺麗に解決する。
+`nixos-rebuild` の世代切替は `/nix/store` + `/run/current-system` を入替えるだけなので、`/persist`
+配下は更新・再イメージを跨いで残る。`qm resize` で disk を増やすと **末尾の /persist だけが伸びる**
+（`palmux-grow-persist` oneshot が mount 前に growpart で末尾パーティションを拡張 → autoResize＝
+systemd-growfs が ext4 を拡張。`boot.growPartition`/autoResize は cloud-image 慣習で root しか
+伸ばさないため、末尾パーティション用の oneshot を自前で持つ）。root は 16G 固定なので、暴走
+`git clone` / ビルド / incus コンテナ増殖で **OS が詰まることが構造的に無い**（フル保護）。
+
+state/image 分離が**物理パーティションで強制される**ので、`~/.claude` / `~/ghq` 等のデータは
+設計上「明示的・可搬・バックアップ対象」になる（dev 移行で話した引き継ぎ懸念がそのまま解決）。
 
 ## 運用者コンフィグ束（operator config bundle）— コアと運用者設定の切り分け
 
@@ -134,25 +137,31 @@ GitHub に保存・別ホストへ restore」を一操作にするのが狙い�
 で配線済み: `services.palmux.configDir` を追加し、drop-in 注入先と config-dir を束へ向ける）。
 
 ```
-/persist/palmux/
-├─ config/                    ← 運用者コンフィグ束（バックアップ/restore 対象・git-friendly）
-│  ├─ nixos/  *.nix           宣言的 drop-in（domain, 追加 pkg 等）。on-appliance flake が注入
-│  ├─ app/    config.toml     palmux2 の app/server 設定 + settings.json（--config-dir）
-│  └─ manifest.json           束のメタ（版・中身）— restore 用（将来）
-├─ secrets.env                ← 秘密（CFトークン / SSO secret / bcrypt）— 別扱い
-└─ home/                      ← データ（~/ghq, ~/.claude）— 別扱い・大きい
+/persist/                        ← persist パーティション（ext4, LABEL=persist, autoResize）
+├─ palmux/
+│  ├─ config/                    palmux2 --config-dir（バックアップ/restore 対象・git-friendly）
+│  │  ├─ config.toml             app/server 設定（domain 等）
+│  │  ├─ settings.json           UI 設定
+│  │  └─ secrets.env             秘密（CFトークン/SSO secret/bcrypt, 0600）
+│  │                             ※ palmux2 が読み書き AND systemd EnvironmentFile を同一ファイルに統一
+│  ├─ nixos/                     on-appliance flake（nixos-rebuild switch の元）
+│  │  ├─ flake.nix / hardware-base.nix / grub-device.nix
+│  │  └─ local/ *.nix            運用者の宣言的 drop-in。公開ドメイン適用は palmux-rebuild が
+│  │                             config.toml から 10-public.nix（services.palmux.domain）を自動生成
+│  └─ home/                      = palmux $HOME（~/ghq・~/.claude・dotfiles）— データ・大きい
+└─ incus/storage/                incus dir storage pool（コンテナ/イメージ volume）
 ```
 
 **バックアップ3層**（一緒に GitHub に置かない）:
 
-| 層 | 中身 | GitHub バックアップ |
+| 層 | パス | GitHub バックアップ |
 |---|---|---|
-| **`config/`** | drop-in `.nix` + `config.toml` | **そのまま OK**（宣言的・秘密なし）= 設定の git バックアップ/restore の本体 |
-| **`secrets.env`** | CFトークン / SSO secret / bcrypt | **平文 NG**。age/sops 暗号化で置くか git 除外して別経路 restore |
-| **`home/`** | `~/ghq`, `~/.claude` | データ。別バックアップ（大きい・独自履歴） |
+| **設定** | `palmux/config/{config.toml,settings.json}` + `palmux/nixos/local/*.nix` | **そのまま OK**（宣言的・秘密なし）= 設定 git バックアップ/restore の本体 |
+| **secrets** | `palmux/config/secrets.env` | **平文 NG**。age/sops 暗号化で置くか git 除外して別経路 restore |
+| **データ** | `palmux/home/`（`~/ghq`,`~/.claude`）+ `incus/storage/` | 別バックアップ（大きい・独自履歴） |
 
-restore＝新アプライアンスに `config/` を戻す → secrets を別途復元 → `nixos-rebuild switch`。
-コア（image）は起動した版そのまま。これで「設定だけ持ち運び・git 管理・別ホストへ復元」が成立する。
+restore＝新アプライアンスに 設定 + secrets を戻す → `nixos-rebuild switch`。コア（image）は起動した
+版そのまま。これで「設定だけ持ち運び・git 管理・別ホストへ復元」が成立する。
 
 **未実装（後続スプリント、`docs/ROADMAP.json` に story 化）**: ① 公開ドメイン未設定時に WebUI を
 LAN へ出す first-boot bind、② WebUI/CLI のデプロイ設定（domain/CF トークン等）を NixOS では
@@ -250,9 +259,11 @@ opt-in 可能。失敗しても世代ロールバックがあるので安全側�
   `both 1000 1000` + `/etc/subuid`/`subgid` + bridge + `palmux runtime install`（palmux-ws
   image）+ ワークスペースコンテナ起動 + Browser/ports/SSO サブドメインを検証。
   `tests/acceptance/*` 同様の実機 acceptance。
-- **Stage 3 — アプライアンス image:** `nixos-generators` の qcow2/ISO ターゲット追加、`/persist`
-  state 分離 + `/etc/palmux/local` drop-in を配線。image を boot し、image 入替で state が残ること、
-  運用者 drop-in の `nixos-rebuild switch` が効くことを実証。
+- **Stage 3 — アプライアンス image（実装済み）:** **disko** で 2 パーティション qcow2 を
+  ビルド（root 固定 + /persist 成長、上記）。`/persist` state 分離 + on-appliance flake +
+  `local/` drop-in を配線。image を boot し、image 入替で state が残ること、運用者 drop-in の
+  `nixos-rebuild switch` が効くことを実証。当初は nixos-generators の qcow（単一 root partition）
+  だったが、不変OS/可変state の物理分離 + 「disk 拡張で /persist だけ伸びる」のために disko へ移行。
 - **Stage 4 — 拡張性 + docs + 更新 UX 確定:** `nixosModules.palmux`、user-flake 例、drop-in を
   確定。GUI/CLI Update の `nixos-rebuild` 写像（更新観点）を確定。
 - **Stage 5 — 採用:** 作り直した **dev** を NixOS アプライアンスとして稼働。安定したら任意で
@@ -278,10 +289,13 @@ blk=`/dev/vda`）に依らず起動する。`grub-device.nix` は初回ブート
 （root パーティションの親）を解決して書くので、どちらのバスでも `nixos-rebuild` の grub-install
 が正しい場所に当たる。
 
-実機検証（pve-01, VM 9001）: 786M qcow2 を `qm importdisk` → `scsi0`（virtio-scsi-pci）+
-`qm resize +20G` で再デプロイ → virtio-scsi で完全起動を確認（`/dev/sda` 認識・by-label/nixos を
-root mount・cloud-init growpart/resize2fs で root fs 23G に拡張・palmux2 active /
-`192.168.1.45:7683` health 200・incus active・`/persist{config,home,nixos,secrets.env}` 正常）。
+実機検証（pve-01, VM 9001、disko 2 パーティション image）: ~810M qcow2 を `qm importdisk` →
+`scsi0`（virtio-scsi-pci）+ `qm resize +25G` で再デプロイ → virtio-scsi で完全起動を確認
+（`/dev/sda` 認識・by-label/nixos を root mount・**root は 16G 固定**・`palmux-grow-persist` →
+autoResize で **/persist だけ 1G→26G に拡張**・home(`/persist/palmux/home`) と incus storage
+(`/persist/incus/storage`) が persist・palmux2 active / `192.168.1.45:7683` health 200・incus
+active・`configured:false`）。disko image の bootability は controller の store qemu(+KVM) で
+`-snapshot` boot test 済（GRUB 導入・両パーティション mount・login 到達・FSラベル nixos/persist 確認）。
 
 ## 特権 apply（公開ドメイン/TLS）— NixOS では nixos-rebuild を GUI からキック
 
