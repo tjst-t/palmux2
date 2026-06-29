@@ -229,10 +229,29 @@ log "palmux2 ${PALMUX_TAG}: ${PALMUX_HASH_SRI}"
 # computing it unconditionally is harmless and keeps the logic simple.
 CADDY_DL_URL="https://caddyserver.com/api/download?os=linux&arch=${PALMUX_BIN_ARCH}&p=github.com%2Fcaddy-dns%2Fcloudflare"
 log "computing sha256 of caddy-cloudflare (${PALMUX_BIN_ARCH})"
-CADDY_HASH_HEX="$(curl -fsSL "$CADDY_DL_URL" | sha256sum | awk '{print $1}')"
-[ -n "$CADDY_HASH_HEX" ] || die "failed to compute caddy-cloudflare sha256"
-CADDY_HASH_SRI="sha256-$(printf '%s' "$CADDY_HASH_HEX" | xxd -r -p | base64 -w0)"
-log "caddy-cloudflare: ${CADDY_HASH_SRI}"
+# caddyserver.com builds this binary ON DEMAND and is an external single point of
+# failure: it has outages where /api/download accepts the connection but never
+# streams the body, so a timeout-less curl hangs FOREVER and blocks the WHOLE
+# update — even a palmux2-only update that doesn't touch Caddy. So bound the fetch
+# (--max-time + one retry), and on failure REUSE the caddyHash already pinned in
+# /etc/palmux/flake.nix from the previous install (Caddy is not what's being
+# updated). Only a fresh install with no prior hash genuinely cannot proceed.
+CADDY_TMP="$(mktemp)"
+if curl -fsSL --max-time 60 --retry 1 --retry-delay 3 "$CADDY_DL_URL" -o "$CADDY_TMP" 2>/dev/null && [ -s "$CADDY_TMP" ]; then
+  CADDY_HASH_HEX="$(sha256sum "$CADDY_TMP" | awk '{print $1}')"
+  CADDY_HASH_SRI="sha256-$(printf '%s' "$CADDY_HASH_HEX" | xxd -r -p | base64 -w0)"
+  log "caddy-cloudflare: ${CADDY_HASH_SRI}"
+else
+  PRIOR_CADDY_HASH="$(sed -nE 's/.*caddyHash = "(sha256-[^"]+)".*/\1/p' /etc/palmux/flake.nix 2>/dev/null | head -1)"
+  if [ -n "$PRIOR_CADDY_HASH" ]; then
+    CADDY_HASH_SRI="$PRIOR_CADDY_HASH"
+    warn "caddyserver.com /api/download unreachable — reusing the caddyHash already pinned in /etc/palmux/flake.nix (${CADDY_HASH_SRI}); Caddy is NOT re-pinned this run (re-run later to pick up a newer Caddy)"
+  else
+    rm -f "$CADDY_TMP"
+    die "failed to fetch caddy-cloudflare from caddyserver.com (external build service appears down) and no prior caddyHash in /etc/palmux/flake.nix to fall back to — retry when caddyserver.com/api/download responds"
+  fi
+fi
+rm -f "$CADDY_TMP"
 
 # --- apt: base packages (curl/git/jq are bootstrap deps) ----------------------
 
