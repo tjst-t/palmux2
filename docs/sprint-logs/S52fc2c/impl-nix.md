@@ -2,144 +2,184 @@
 
 Sprint: S52fc2c — NixOS appliance stability (persist.mount restart + grub.device mismatch)
 
+> This log reflects the **post-review (NEEDS-WORK)** design. The first pass used
+> `X-StopOnReconfiguration` (Story 2) and `lib.mkForce` grub override (Story 3); the
+> reviewer demonstrated from `switch-to-configuration-ng` and disko `make-disk-image.nix`
+> source that both were wrong. The mechanisms below are the corrected ones.
+
 ## Files Changed
 
 | File | Change |
 |------|--------|
-| `nixos/modules/appliance.nix` | S52fc2c-2: added `environment.etc` drop-in for `X-StopOnReconfiguration = false` on `persist.mount`; S52fc2c-3: added `grub2` to `palmux-state-init` path and a bus-agnostic `grub-install` step on first boot |
-| `nixos/modules/image-hardware.nix` | S52fc2c-3: replaced `boot.loader.grub.device = lib.mkDefault "/dev/sda"` with `boot.loader.grub.device = lib.mkForce "nodev"` + `boot.loader.grub.devices = lib.mkForce [ "/dev/sda" ]` |
+| `nixos/modules/appliance.nix` | S52fc2c-2: wrapped the `nixos-rebuild switch` in `palmux-rebuild.service` with a `run_switch` shell function that absorbs a persist.mount-only restart failure when palmux2 is healthy. S52fc2c-3: `grub2` added to `palmux-state-init` path + first-boot `grub-install` MBR heal on the detected disk. |
+| `nixos/modules/image-hardware.nix` | S52fc2c-3: reverted to the original single `boot.loader.grub.device = lib.mkDefault "/dev/sda";` line + a comment explaining why a `mkForce` override would break the image build. |
 
 ---
 
-## Story S52fc2c-2: persist.mount restart on nixos-rebuild switch
+## Story S52fc2c-2: false "更新失敗" from persist.mount restart
 
-### Root Cause
+### Root cause (confirmed from switch-to-configuration-ng source)
 
-NixOS 25.05 uses `switch-to-configuration-ng` (Rust rewrite, default since 24.11) to apply generation changes. When the `persist.mount` unit definition differs between old and new generations (e.g. `autoResize` flag added, `disko-layout.nix` tweaked), the tool detects the change and tries to `stop → restart` the unit.
+NixOS 25.05 uses `switch-to-configuration-ng` (the Rust rewrite). Its `handle_modified_unit`
+**unconditionally** places any changed `.mount` unit into `units_to_restart` — the only
+exceptions are `-.mount` (`/`) and `nix.mount`, which are reload-only. There is **no**
+config flag to suppress this:
+- `X-StopOnReconfiguration` is checked **only for `.target` units** (a dependency-ordering
+  bookkeeping concern); it has no effect on `.mount` units.
+- WORSE: `X-StopOnReconfiguration` is **not** in the unit-section ignore list, so adding it
+  as a `persist.mount` drop-in makes the unit compare-unequal on the first activation,
+  which would *trigger* the very restart it was meant to suppress. (This is why the first-pass
+  drop-in approach was removed.)
 
-`/persist` is always busy while the system runs (home directories, config, incus storage, and the on-appliance flake itself all live there). The unmount fails:
+When `persist.mount`'s generated unit changes between generations (the first image→flake
+switch; any `disko-layout.nix` change), the switch tries to stop→start it. `/persist` is
+always busy (home, config, incus storage, the on-appliance flake all live there), so the
+umount fails (`target is busy`) and `nixos-rebuild switch` exits non-zero — even though the
+switch otherwise fully applied (new system profile activated, boot entry installed, palmux2
+running the new closure).
 
-```
-umount: /persist: target is busy
-```
+`palmux2`'s `POST /api/deploy/rebuild` and the onboarding wizard `handleRebuild` poll the
+`palmux-rebuild.service` exit code, so a non-zero rc shows a false "更新失敗".
 
-`nixos-rebuild switch` returns rc=1 even though everything else succeeded — the binary was updated, the boot entry was installed, palmux2 is running correctly. The onboarding wizard's `palmux-rebuild.service` polls the exit code, so rc=1 falsely shows "更新失敗".
+### Mechanism chosen: exit-code wrapper at the `palmux-rebuild.service` layer
 
-### Mechanism chosen: `X-StopOnReconfiguration = false` via systemd drop-in
+Since `nixos-rebuild` itself cannot be made to return 0 without patching
+switch-to-configuration-ng (out of scope), the fix is at the UX/exit-code layer — the place
+the GUI actually polls. A `run_switch()` shell function wraps the switch:
 
-`X-StopOnReconfiguration` is a NixOS-specific extension to the systemd unit `[Unit]` section. When set to `false`, `switch-to-configuration-ng` skips stopping/restarting the unit even if its definition changed between generations.
+1. Run `nixos-rebuild switch --flake .#appliance`, capturing combined output to a temp log
+   and the exit code (`set +e` around it so `set -eu` doesn't abort).
+2. `rc == 0` → success.
+3. `rc != 0` → override to success **only if BOTH**:
+   - `systemctl is-active --quiet palmux2.service` (the new closure is actually running), AND
+   - the `the following units failed: ...` summary lists **exactly** `persist.mount`
+     (extracted + normalised to space-separated tokens, compared to `"persist.mount"`).
+   On override it logs a clear note ("persist.mount could not be remounted while in use —
+   expected and harmless; /persist stays mounted") and returns 0.
+4. Otherwise propagate the real non-zero exit (build error, a different unit failed, palmux2
+   down → all still fail correctly).
 
-This is the correct tool for the job:
-- `neededForBoot = true` was considered but rejected: it mounts `/persist` in initrd, but `switch-to-configuration-ng` still sees the `persist.mount` unit as changed and tries to restart it. Does not address the root cause.
-- `systemd.units."persist.mount"` override was considered but rejected: `fileSystems."/persist"` auto-generates an entry in `systemd.units."persist.mount"` with `text = "..."`. Merging another `text` from our module causes a module-system conflict (the `text` attribute is `types.str`, not `types.lines`). Using `asDropin` without a conflicting `text` might work but the merge semantics are implementation-defined.
-- `environment.etc` drop-in (chosen): creates `/etc/systemd/system/persist.mount.d/palmux-no-restart-on-switch.conf` in a generation-specific path that `switch-to-configuration-ng` reads when checking `X-StopOnReconfiguration`. No conflict with the auto-generated unit.
+**Why not also gate on a `target is busy` string?** That detail is emitted to the journal by
+the mount unit, not reliably to `nixos-rebuild`'s captured stdout/stderr (systemctl prints
+"Job for persist.mount failed … see journalctl"). Requiring it would re-introduce false
+"更新失敗" via a false-negative. On a running appliance `/persist` mounted cleanly at boot and
+its FS is valid, so a persist.mount *restart* can only fail because /persist is in use —
+exactly the harmless case. The exact-failed-units match (only persist.mount) + palmux2-healthy
+is the conservative, precise signal for "no other unit failed".
 
-**File added (appliance.nix, before `palmux-grow-persist`):**
-```nix
-environment.etc."systemd/system/persist.mount.d/palmux-no-restart-on-switch.conf".text = ''
-  [Unit]
-  X-StopOnReconfiguration = false
-'';
-```
+`run_switch` replaces both `nixos-rebuild switch` calls in the unit: the primary apply and the
+domain-rollback re-apply (the latter as `run_switch || true` since that path reports the
+domain failure with `exit 1` regardless).
 
-### Scope
+`palmux-rebuild.service` already has `pkgs.coreutils`, `pkgs.gnugrep`, `pkgs.gnused`,
+`pkgs.systemd` in its `path`, so `mktemp`/`cat`/`tr`/`rm`/`grep`/`sed`/`systemctl` all resolve.
 
-Applies to both the image-build generation (gen1) and all on-appliance generations (gen2+) since the change is in the shared `appliance` module. Affects all deployments where `fileSystems."/persist"` is present (i.e., every palmuxOS appliance).
+### Revised AC framing
+
+**AC-S52fc2c-2-3** is satisfied when the GUI / `palmux-rebuild.service` update path does NOT
+report a false "更新失敗" for a persist.mount-only restart failure while palmux2 is healthy —
+NOT by making `nixos-rebuild` itself return 0 (which would require patching
+switch-to-configuration-ng, out of scope).
+
+### Note on frequency
+
+Routine binary-only updates do NOT change `persist.mount`'s generated unit, so they never hit
+this path. The rc=1 only occurs on the image→flake first switch or a disko-layout change. The
+wrapper makes the UX robust regardless.
 
 ---
 
-## Story S52fc2c-3: grub.device mismatch (gen1 bakes /dev/vda, deployed disk is /dev/sda)
+## Story S52fc2c-3: grub.device mismatch (gen1 bakes /dev/vda)
 
-### Root Cause
+### Root cause (confirmed from disko make-disk-image.nix)
 
-`disko`'s `diskoImages` build runs a QEMU VM to partition, format, and install NixOS into the raw image. In that VM, the disk appears as `/dev/vda` (virtio-blk, QEMU's default disk interface). Disko internally overrides `disko.devices.disk.main.device` — and consequently `boot.loader.grub.devices` — to `/dev/vda` for its image-build evaluation context.
+disko's image builder (`diskoImages` → `make-disk-image.nix`) runs a QEMU VM to partition,
+format, and install. In that VM the disk is `/dev/vda` (virtio-blk). disko's
+`prepareDiskoConfig` scans the `EF02` (BIOS-boot) partition declared in `disko-layout.nix` and
+sets `boot.loader.grub.devices` with **`lib.mkForce`** (priority 50) to the build VM's disk
+(`/dev/vda`). So gen1's **sealed** closure bakes `grub.devices = ["/dev/vda"]`.
 
-Result: gen1's NixOS closure has `boot.loader.grub.devices = ["/dev/vda"]`. The image is bootable (disko uses its own partitioning step to install GRUB into the MBR using the actual build device, independently of the NixOS `installBootLoader` config). But when a gen1 activation runs (e.g. `nixos-rebuild switch --rollback` to gen1), the generated `installBootLoader` script calls:
+On a Proxmox virtio-scsi target the actual disk is `/dev/sda`, so a gen1 activation
+(`nixos-rebuild switch --rollback` to gen1) calls `grub-install /dev/vda` → fails:
+`grub-install: cannot find a GRUB drive for /dev/vda`.
 
-```
-grub-install /dev/vda
-```
+### Why the first-pass `mkForce ["/dev/sda"]` was WRONG (reverted)
 
-On Proxmox virtio-scsi targets the disk is at `/dev/sda` — `/dev/vda` does not exist:
+`boot.loader.grub.devices` is a `listOf`. disko sets it with `mkForce` (priority 50). My
+first-pass `mkForce [ "/dev/sda" ]` is **also** priority 50, and for a `listOf` equal-priority
+definitions **merge** rather than replace → `["/dev/vda" "/dev/sda"]` → during the image build
+`grub-install /dev/sda` fails inside the QEMU VM (no such device) → `nix build .#appliance-qcow2`
+**breaks**. (My earlier assumption that disko used plain-assignment priority 100 was incorrect.)
 
-```
-grub-install: cannot find a GRUB drive for /dev/vda
-```
-
-`nixos-rebuild switch --rollback` returns rc=1. On Proxmox virtio-blk targets (disk = `/dev/vda`), rollback succeeds because the baked device happens to match.
-
-### Fix Part 1: image-hardware.nix — prevent /dev/vda from being baked into gen1
-
-`image-hardware.nix` is included ONLY in the `flake.nix` image-build config (not in the on-appliance flake). Using `lib.mkForce` (priority 50) overrides disko's internal override (plain assignment, priority 100):
-
+So `image-hardware.nix` is **reverted** to the original single line:
 ```nix
-boot.loader.grub.device = lib.mkForce "nodev";    # defer to the devices list
-boot.loader.grub.devices = lib.mkForce [ "/dev/sda" ]; # Proxmox virtio-scsi default
+boot.loader.grub.device = lib.mkDefault "/dev/sda";
 ```
+`mkDefault` (priority 1000) is a harmless no-op in the build context — disko's `mkForce` wins —
+and does not break the build. A comment documents the trap so it isn't re-attempted.
 
-`grub.device = "nodev"` suppresses the single-device code path; `grub.devices` (non-empty list) is used exclusively. The NixOS grub module assertion (`devices != [] || device != "nodev"`) is satisfied because `devices = ["/dev/sda"]` is non-empty.
+### Fix kept: first-boot grub-install MBR heal (appliance.nix, Part 2)
 
-**Critical assumption**: Disko's physical GRUB MBR installation is done independently of the NixOS `installBootLoader` config option (using the actual loop/QEMU build device). If this assumption is wrong and disko DOES use the NixOS `installBootLoader` to install GRUB, the image build would try `grub-install /dev/sda` inside a QEMU VM where only `/dev/vda` exists → image build would fail. The orchestrator must verify the image build succeeds after this change.
+`palmux-state-init` (oneshot, runs once on first boot, inside the existing
+`if [ ! -e grub-device.nix ]` block) now:
+- detects the actual boot disk (`lsblk -no pkname` of the root partition's source),
+- writes `grub-device.nix` pinning that disk (existing behaviour, for gen 2+), and
+- **physically re-installs GRUB to the detected disk**: `grub-install --no-floppy "$disk"`
+  (non-fatal — logs on failure). `grub2` was added to the service `path`.
 
-The on-appliance flake (gen2+) is NOT affected — it uses `hardware-base.nix` + `grub-device.nix` (generated on first boot), which completely replaces `image-hardware.nix`.
+This plants a correct MBR on the real disk regardless of bus type (sda or vda). Forward
+generations (gen 2+) install GRUB correctly because they use the first-boot-generated
+`grub-device.nix`. The reviewer approved this as the correct bus-agnostic heal.
 
-### Fix Part 2: appliance.nix — bus-agnostic grub-install on first boot
+### Accepted residual limitation
 
-Added to `palmux-state-init` (runs once, on first boot, inside the existing `if [ ! -e ${flakeDir}/grub-device.nix ]` block):
+`nixos-rebuild switch --rollback` to **gen1** (the sealed image closure, which still bakes
+`/dev/vda`) prints rc=1 from `grub-install /dev/vda` on a virtio-scsi host. This is **harmless**:
+the MBR planted at first boot stays valid and the system boots correctly. This is an inherent
+disko limitation — gen1's closure is sealed at image-build time and cannot be corrected
+post-hoc without breaking the build. Accepted.
+
+---
+
+## Verification
+
+### Syntax / build
+
+- `nix-instantiate --parse` and `nix build .#appliance-qcow2` **could not be run** in this
+  worktree environment: there is no Nix store (`/nix` absent), no `nix`/`nix-instantiate`
+  binary, and no `/dev/kvm`. The Story-3 build-verify (the key gate that the
+  `image-hardware.nix` revert lets `nix build .#appliance-qcow2` build) **must be run by the
+  orchestrator on a Nix builder with KVM**.
+- Manual review performed: Nix antiquotation (`${appCfgDir}`/`${dropinDir}`/`${flakeDir}` are
+  intended; no shell `${var}` that Nix would misparse — all shell vars use `$x`/`$(...)`),
+  shell function syntax under `set -eu` (the `set +e`/`set -e` bracketing around the switch is
+  correct), and `path` completeness for the new commands.
+
+### Orchestrator: build gate (Story 3)
 
 ```bash
-if [ -b "$disk" ]; then
-  grub-install --no-floppy "$disk" 2>&1 \
-    || echo "palmux-state-init: grub-install $disk returned non-zero (non-fatal, gen2+ will use correct grub-device.nix)" >&2
-fi
+nix build .#appliance-qcow2 --print-build-logs   # MUST succeed (was the failure mode)
 ```
 
-This detects the ACTUAL disk at runtime (the parent block device of the root partition) and physically re-installs GRUB to it. This works regardless of the bus type (virtio-scsi = `/dev/sda`, virtio-blk = `/dev/vda`) and provides a complementary safety net for:
-- Deployments on virtio-blk targets (where Part 1's `/dev/sda` would still be wrong in gen1 without the heal)
-- Future image builds that might accidentally bake in a wrong device
+### Orchestrator: real-machine (deferred — do NOT run from this agent)
 
-After this runs, GRUB is correctly installed. Gen2+ use `grub-device.nix` (seeded by the same first-boot run) which correctly declares the detected disk. Any subsequent `nixos-rebuild switch --rollback` to gen1 would call `grub-install /dev/sda` (from the Part 1 fix) which succeeds on virtio-scsi.
+AC-S52fc2c-2-3 (no false "更新失敗"):
+1. On an appliance whose `persist.mount` unit will differ in the next generation (first
+   image→flake switch, or make a benign `disko-layout.nix` edit in the on-appliance flake):
+   `systemctl start palmux-rebuild.service && sleep 60 && systemctl status palmux-rebuild.service`
+2. Expected: `ExecMainStatus=0` (unit succeeds), the journal shows the "persist.mount could
+   not be remounted while in use … Treating the rebuild as SUCCESS (S52fc2c-2)" note, `/persist`
+   stays mounted, and the GUI/onboarding wizard shows success (not "更新失敗").
+3. Negative check: introduce a genuine build error (or a second failing unit) and confirm
+   `palmux-rebuild.service` still **fails** (ExecMainStatus != 0) — the override must not mask
+   real failures.
 
-`grub2` was added to `palmux-state-init`'s `path` list.
-
-### Scope
-
-- Part 1 (`image-hardware.nix`): affects only the NEXT image build. Existing deployed gen1 is not changed (already on disk); the Part 2 first-boot heal covers this case.
-- Part 2 (`appliance.nix`): affects all appliances on first boot (or next boot if the grub-device.nix check passes), both gen1 and via on-appliance flake.
-
----
-
-## Real-Machine Verification Steps (for orchestrator on 192.168.1.45)
-
-### AC-S52fc2c-2-1 (persist.mount not restarted)
-
-1. SSH into the appliance: `ssh ubuntu@192.168.1.45`
-2. Check that the drop-in file exists in the new generation: `cat /etc/systemd/system/persist.mount.d/palmux-no-restart-on-switch.conf`
-3. Run a generation switch that causes `persist.mount` to be "changed" (if no existing change, make a benign edit to `disko-layout.nix` in the on-appliance flake, then `nixos-rebuild switch --flake .#appliance`):
-   ```bash
-   nixos-rebuild switch --flake /persist/palmux/nixos#appliance 2>&1 | tail -30
-   echo "rc=$?"
-   ```
-4. Expected: `rc=0`, no `umount: /persist: target is busy` in output, `/persist` remains mounted.
-
-### AC-S52fc2c-2-2 (palmux-rebuild.service succeeds)
-
-1. Trigger via GUI (Deploy panel → 適用) or API: `systemctl start palmux-rebuild.service && sleep 30 && systemctl status palmux-rebuild.service`
-2. Expected: `ActiveState=inactive ExecMainStatus=0`, no "更新失敗" in the frontend.
-
-### AC-S52fc2c-3-1 (new image build: gen1 does not bake /dev/vda)
-
-1. On a builder machine with Nix + KVM: `nix build .#appliance-qcow2`
-2. Confirm image build succeeds (rc=0).
-3. Deploy to a fresh Proxmox VM (virtio-scsi, disk=/dev/sda): `qm importdisk ...`
-4. Boot the VM. After first boot, check: `cat /etc/nixos/nixos-rebuild.log` or `systemctl status palmux-state-init`.
-5. In the on-appliance flake: `cat /persist/palmux/nixos/grub-device.nix` — should show `/dev/sda`.
-6. Check gen1's grub config: `nixos-rebuild list-generations` → find gen1, check `boot.loader.grub.devices` by inspecting the gen1 closure: `nix eval --impure --expr '(import /run/booted-system/nixpkgs {}).config.boot.loader.grub.devices'` (approximate).
-
-### AC-S52fc2c-3-2 (rollback to gen1 does not fail grub-install)
-
-1. After the first `nixos-rebuild switch` creates gen2, roll back: `nixos-rebuild switch --rollback`
-2. Expected: `rc=0`, no `grub-install: cannot find a GRUB drive` error.
-3. Confirm GRUB is still installed: `grub-install --recheck /dev/sda; echo "rc=$?"` (should succeed).
-
-**Note on the two-step safety**: If Part 1 (`mkForce ["/dev/sda"]`) breaks the image build (i.e., disko DOES call the NixOS `installBootLoader` and `/dev/sda` doesn't exist in the QEMU build VM), revert `image-hardware.nix` to the old `lib.mkDefault "/dev/sda"` line and rely solely on Part 2 (the first-boot `grub-install` heal) for the virtio-scsi rollback fix. Part 2 alone fixes the problem for all deployments after first boot; it only leaves a window where rolling back to gen1 BEFORE the first `nixos-rebuild switch` (i.e., immediately after imaging) would still fail on virtio-scsi.
+AC-S52fc2c-3 (grub heal):
+1. `nix build .#appliance-qcow2`, deploy to a fresh Proxmox VM (virtio-scsi, disk=/dev/sda).
+2. After first boot: `cat /persist/palmux/nixos/grub-device.nix` → `/dev/sda`;
+   `journalctl -u palmux-state-init` shows the grub-install ran.
+3. `nixos-rebuild switch --flake /persist/palmux/nixos#appliance` (creates gen2) → rc handled by
+   `run_switch`; then `nixos-rebuild switch --rollback` to gen2/gen1.
+4. Rollback to a flake-generated gen (gen2+) installs grub to `/dev/sda` and succeeds. Rollback
+   to gen1 may print the documented harmless rc=1 (`grub-install /dev/vda`); confirm the box
+   still boots from the first-boot-planted MBR.

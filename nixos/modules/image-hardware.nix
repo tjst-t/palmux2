@@ -9,37 +9,24 @@
 
   boot.loader.grub.enable = lib.mkDefault true;
   boot.loader.grub.efiSupport = lib.mkDefault false;
-  # S52fc2c-3: Override disko's build-time device substitution so gen1 (the image-
-  # baked NixOS generation) uses the correct DEPLOYED device rather than the QEMU
-  # image-build VM's device.
+  # GRUB installs to the whole disk (embeds in the BIOS-boot partition disko made).
   #
-  # Root cause: disko's diskoImages runs a QEMU VM where the disk appears as /dev/vda
-  # (virtio-blk, QEMU's default). Disko internally overrides disko.devices.disk.main.device
-  # (and therefore boot.loader.grub.devices) to /dev/vda for its image-build evaluation
-  # context, so gen1's closure has grub.devices = ["/dev/vda"]. On Proxmox virtio-scsi
-  # targets (disk = /dev/sda) rolling back to gen1 then fails:
-  #   grub-install: cannot find a GRUB drive for /dev/vda
-  #
-  # lib.mkForce (priority 50, higher than disko's plain-assignment priority 100) overrides
-  # disko's /dev/vda with the actual deployed-target device.
-  #
-  # Disko's PHYSICAL GRUB install into the MBR is done via its own build-time
-  # partitioning step (calling grub-install on the actual loop/QEMU device), which is
-  # INDEPENDENT of this NixOS config option. The image therefore boots correctly on any
-  # bus type. This setting only affects what `grub-install` is called with during
-  # `nixos-rebuild switch` activations (including rollbacks to gen1).
-  #
-  # grub.device = "nodev" suppresses the single-device code path; grub.devices (the list)
-  # is used exclusively — satisfying the NixOS grub module assertion (devices != []).
-  #
-  # NOTE: if deploying to virtio-blk targets (disk = /dev/vda, not /dev/sda), either
-  #   (a) change /dev/sda to /dev/vda here before building the image, OR
-  #   (b) rely on palmux-state-init's first-boot grub-install heal (appliance.nix,
-  #       S52fc2c-3) which detects the actual disk regardless of what gen1 baked in.
-  # The appliance's on-box flake (gen 2+) uses the first-boot-generated grub-device.nix
-  # and is not affected by this setting.
-  boot.loader.grub.device = lib.mkForce "nodev";    # defer to the devices list
-  boot.loader.grub.devices = lib.mkForce [ "/dev/sda" ]; # Proxmox virtio-scsi default
+  # S52fc2c-3 note: this mkDefault value is a no-op in the image-build context — disko's
+  # make-disk-image.nix ALSO sets boot.loader.grub.devices via lib.mkForce (priority 50)
+  # to the build VM's disk (/dev/vda, derived by prepareDiskoConfig scanning the EF02
+  # bios partition in disko-layout.nix), and mkForce wins over this mkDefault. So gen1's
+  # SEALED closure bakes grub.devices = ["/dev/vda"]. We deliberately do NOT try to
+  # mkForce ["/dev/sda"] here: for a `listOf`, an equal-priority (mkForce/50) definition
+  # would MERGE with disko's rather than replace it, yielding ["/dev/vda" "/dev/sda"] →
+  # grub-install /dev/sda fails inside the QEMU build VM (no such device) →
+  # `nix build .#appliance-qcow2` breaks. The correct fix lives at runtime:
+  # palmux-state-init re-installs GRUB to the actual detected disk on first boot
+  # (appliance.nix, S52fc2c-3), and gen 2+ use the first-boot-generated grub-device.nix.
+  # The only residual limitation is that `nixos-rebuild switch --rollback` to gen1 (the
+  # sealed image closure) prints an rc=1 from grub-install /dev/vda on virtio-scsi hosts
+  # — harmless, the MBR planted at first boot stays valid and the box boots fine
+  # (accepted inherent disko limitation: gen1's closure is sealed at image-build time).
+  boot.loader.grub.device = lib.mkDefault "/dev/sda";
   boot.loader.timeout = lib.mkDefault 1;
   boot.kernelParams = [ "console=ttyS0" ];
 }
