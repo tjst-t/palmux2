@@ -673,6 +673,20 @@ func (d *Daemon) respawnLoop() {
 			return // shutdown signalled while waiting
 		}
 
+		// S52fc2c-4: before respawning, kill any lingering in-container claude so
+		// only one instance runs at a time. [AC-S52fc2c-4-2]
+		if d.runtimeResolver != nil {
+			if pc := d.runtimeResolver(d.repoID, d.branchID); pc != nil {
+				if kk, ok := pc.(runtime.ContainerProcessKiller); ok {
+					kCtx, kCancel := context.WithTimeout(context.Background(), 3*time.Second)
+					if err := kk.KillContainerProcesses(kCtx, "TERM", containerClaudeBin); err != nil {
+						d.logger.Debug("claudetui: pre-respawn in-container kill (non-fatal)", "err", err)
+					}
+					kCancel()
+				}
+			}
+		}
+
 		d.spawnMu.Lock()
 		spawnErr := d.spawnWithArgs(respawnArgs)
 		d.spawnMu.Unlock()
@@ -876,6 +890,23 @@ func (d *Daemon) Shutdown() {
 					case <-time.After(2 * time.Second):
 						d.logger.Error("claudetui: subprocess still alive after SIGKILL; giving up")
 					}
+				}
+			}
+		}
+
+		// S52fc2c-4: reap any lingering in-container claude process. Killing the
+		// host-side incus exec wrapper does not always propagate SIGTERM into the
+		// container child. We attempt an explicit pkill inside the container as
+		// a best-effort cleanup. Runs after the host process is dead (or timed out)
+		// so we don't race with the live process's own cleanup.
+		if d.runtimeResolver != nil {
+			if pc := d.runtimeResolver(d.repoID, d.branchID); pc != nil {
+				if kk, ok := pc.(runtime.ContainerProcessKiller); ok {
+					kCtx, kCancel := context.WithTimeout(context.Background(), 5*time.Second)
+					if err := kk.KillContainerProcesses(kCtx, "TERM", containerClaudeBin); err != nil {
+						d.logger.Debug("claudetui: in-container claude TERM (non-fatal)", "err", err)
+					}
+					kCancel()
 				}
 			}
 		}

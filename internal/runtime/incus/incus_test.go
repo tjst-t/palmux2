@@ -1508,3 +1508,259 @@ func TestIncusTmuxClient_AppliesPalmuxSessionOptions(t *testing.T) {
 		t.Errorf("NewGroupSession: expected `tmux set-option -t s1__grp_1 status off`, got %v", fr2.recorded())
 	}
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// S52fc2c-4: KillContainerProcesses — in-container claude reap
+// ─────────────────────────────────────────────────────────────────────────────
+
+// TestKillContainerProcesses verifies the correct pkill arg sequence and that
+// pkill exit code 1 (no match) is not treated as an error. [AC-S52fc2c-4-1]
+func TestKillContainerProcesses(t *testing.T) {
+	inst := "ws-kill-test-aabb1234"
+	fr := newFakeRunner()
+	// pkill exit 1 = no processes matched — must NOT be an error.
+	fr.setResult("exec "+inst, fakeResult{code: 1})
+
+	rt := New(runtime.Config{Kind: runtime.KindIncusContainer}, inst, fr.asRunner(), nil)
+	ctx := context.Background()
+
+	if err := rt.(*incusRuntime).KillContainerProcesses(ctx, "TERM", "/home/ubuntu/.local/bin/claude"); err != nil {
+		t.Fatalf("[AC-S52fc2c-4-1] KillContainerProcesses (pkill no match): %v", err)
+	}
+
+	calls := fr.recorded()
+	// Must issue: exec <inst> -- pkill -TERM -f /home/ubuntu/.local/bin/claude
+	found := false
+	for _, c := range calls {
+		cmd := execCmdAfterSep(c)
+		if len(cmd) >= 4 && cmd[0] == "pkill" && cmd[1] == "-TERM" && cmd[2] == "-f" &&
+			cmd[3] == "/home/ubuntu/.local/bin/claude" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("[AC-S52fc2c-4-1] expected pkill exec call, got %v", calls)
+	}
+
+	// pkill exit 0 (processes found + killed) must also return nil.
+	fr2 := newFakeRunner()
+	fr2.setResult("exec "+inst, fakeResult{code: 0})
+	rt2 := New(runtime.Config{Kind: runtime.KindIncusContainer}, inst, fr2.asRunner(), nil)
+	if err := rt2.(*incusRuntime).KillContainerProcesses(ctx, "KILL", "/home/ubuntu/.local/bin/claude"); err != nil {
+		t.Fatalf("[AC-S52fc2c-4-1] KillContainerProcesses (pkill match): %v", err)
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// S52fc2c-5: ensureHookBinMount inode-staleness detection
+// ─────────────────────────────────────────────────────────────────────────────
+
+// TestEnsureHookBinMount_RefreshesOnInodeChange verifies that when hookBinInode
+// is set to a different value than the current binary's inode, ensureHookBinMount
+// issues a `config device remove` before the `config device add`.
+// [AC-S52fc2c-5-1] [AC-S52fc2c-5-2]
+func TestEnsureHookBinMount_RefreshesOnInodeChange(t *testing.T) {
+	inst := "ws-hook-inode-ccdd5678"
+	fr := newFakeRunner()
+
+	rt := New(runtime.Config{Kind: runtime.KindIncusContainer}, inst, fr.asRunner(), nil)
+	ir := rt.(*incusRuntime)
+
+	// Simulate a stale inode: set hookBinInode to a non-zero "old" value.
+	// The real binary has a different inode, so ensureHookBinMount should detect
+	// the mismatch and issue a remove before the re-add.
+	ir.hookBinMu.Lock()
+	ir.hookBinInode = 1 // forced "old" inode — extremely unlikely to match the real binary
+	ir.hookBinMu.Unlock()
+
+	ctx := context.Background()
+	ir.ensureHookBinMount(ctx)
+
+	calls := fr.recorded()
+
+	// Expect a device remove call for "palmux-hook-bin".
+	foundRemove := false
+	for _, c := range calls {
+		if len(c) >= 5 && c[0] == "config" && c[1] == "device" && c[2] == "remove" && c[4] == "palmux-hook-bin" {
+			foundRemove = true
+		}
+	}
+	if !foundRemove {
+		t.Errorf("[AC-S52fc2c-5-1] expected 'config device remove ... palmux-hook-bin', got %v", calls)
+	}
+
+	// Expect a device add call after the remove.
+	foundAdd := false
+	for _, c := range calls {
+		if len(c) >= 5 && c[0] == "config" && c[1] == "device" && c[2] == "add" && c[4] == "palmux-hook-bin" {
+			foundAdd = true
+		}
+	}
+	if !foundAdd {
+		t.Errorf("[AC-S52fc2c-5-2] expected 'config device add ... palmux-hook-bin' after remove, got %v", calls)
+	}
+
+	// hookBinInode must be updated to the current (non-1) value after success.
+	ir.hookBinMu.Lock()
+	updatedInode := ir.hookBinInode
+	ir.hookBinMu.Unlock()
+	if updatedInode == 1 {
+		t.Errorf("[AC-S52fc2c-5-2] hookBinInode was not updated after re-mount (still 1)")
+	}
+}
+
+// TestEnsureHookBinMount_Idempotent verifies that when hookBinInode matches
+// the current binary inode, no remove is issued (idempotent). [AC-S52fc2c-5-2]
+func TestEnsureHookBinMount_Idempotent(t *testing.T) {
+	inst := "ws-hook-inode-idem-eeff"
+	fr := newFakeRunner()
+
+	rt := New(runtime.Config{Kind: runtime.KindIncusContainer}, inst, fr.asRunner(), nil)
+	ir := rt.(*incusRuntime)
+
+	ctx := context.Background()
+	// First call: mounts and records inode.
+	ir.ensureHookBinMount(ctx)
+	fr.mu.Lock()
+	fr.calls = nil // reset recorded calls
+	fr.mu.Unlock()
+
+	// Second call with the SAME inode: must NOT issue a remove.
+	ir.ensureHookBinMount(ctx)
+	calls := fr.recorded()
+	for _, c := range calls {
+		if len(c) >= 5 && c[0] == "config" && c[1] == "device" && c[2] == "remove" && c[4] == "palmux-hook-bin" {
+			t.Errorf("[AC-S52fc2c-5-2] unexpected remove on idempotent call (inode unchanged): %v", calls)
+		}
+	}
+}
+
+// TestEnsureHookBinMount_RefreshesAfterRestart verifies the AC-S52fc2c-5-3
+// scenario: after a palmux2 update + restart the incusRuntime struct is fresh
+// (hookBinInode == 0) but the container's mount still pins the OLD binary. The
+// first call on a fresh struct MUST still issue remove + re-add so the stale
+// mount is replaced — the `lastInode != 0` guard would (incorrectly) skip it.
+// [AC-S52fc2c-5-1] [AC-S52fc2c-5-3]
+func TestEnsureHookBinMount_RefreshesAfterRestart(t *testing.T) {
+	inst := "ws-hook-restart-99aabbcc"
+	fr := newFakeRunner()
+
+	rt := New(runtime.Config{Kind: runtime.KindIncusContainer}, inst, fr.asRunner(), nil)
+	ir := rt.(*incusRuntime)
+
+	// Fresh struct: hookBinInode is the zero value (0), exactly as after a
+	// process restart. Do NOT pre-seed it.
+	ir.hookBinMu.Lock()
+	if ir.hookBinInode != 0 {
+		t.Fatalf("precondition: fresh struct should have hookBinInode==0, got %d", ir.hookBinInode)
+	}
+	ir.hookBinMu.Unlock()
+
+	ir.ensureHookBinMount(context.Background())
+
+	calls := fr.recorded()
+	// A remove MUST be issued even though lastInode was 0 (stale container mount).
+	foundRemove := false
+	for _, c := range calls {
+		if len(c) >= 5 && c[0] == "config" && c[1] == "device" && c[2] == "remove" && c[4] == "palmux-hook-bin" {
+			foundRemove = true
+		}
+	}
+	if !foundRemove {
+		t.Errorf("[AC-S52fc2c-5-3] post-restart (lastInode==0) must still remove the stale mount, got %v", calls)
+	}
+	// And the inode must now be recorded so the next call is idempotent.
+	ir.hookBinMu.Lock()
+	got := ir.hookBinInode
+	ir.hookBinMu.Unlock()
+	if got == 0 {
+		t.Errorf("[AC-S52fc2c-5-3] hookBinInode not recorded after first mount")
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// S52fc2c-7: IsImageStaleWithCache — one alias resolution per scan cycle
+// ─────────────────────────────────────────────────────────────────────────────
+
+// TestIsImageStaleWithCache_OneCallPerCycle verifies that three workspaces
+// sharing the same image alias produce only ONE `incus image list` call when
+// they use a shared AliasFingerprintCache. [AC-S52fc2c-7-1] [AC-S52fc2c-7-3]
+func TestIsImageStaleWithCache_OneCallPerCycle(t *testing.T) {
+	const alias = "palmux-ws"
+	const baseImg = "abc123def456"
+	const aliasImg = "abc123def456" // same → not stale
+
+	// We use a SINGLE fakeRunner shared by all 3 runtimes so we can count
+	// "image list" calls across all of them.
+	fr := newFakeRunner()
+	// `incus image list <alias> -f json` returns alias pointing at baseImg.
+	imageListJSON := `[{"fingerprint":"abc123def456","aliases":[{"name":"palmux-ws"}]}]`
+	fr.setResult("image list", fakeResult{stdout: imageListJSON, code: 0})
+	// `incus config get <inst> volatile.base_image` returns baseImg for all.
+	fr.setResult("config get", fakeResult{stdout: baseImg + "\n", code: 0})
+
+	instances := []string{
+		"ws-cache-test-1111",
+		"ws-cache-test-2222",
+		"ws-cache-test-3333",
+	}
+
+	cache := &runtime.AliasFingerprintCache{}
+	ctx := context.Background()
+
+	for _, inst := range instances {
+		rt := New(runtime.Config{Kind: runtime.KindIncusContainer, Image: alias}, inst, fr.asRunner(), nil)
+		cdc, ok := rt.(runtime.CachedImageDriftChecker)
+		if !ok {
+			t.Fatalf("incusRuntime does not implement CachedImageDriftChecker")
+		}
+		stale, err := cdc.IsImageStaleWithCache(ctx, cache)
+		if err != nil {
+			t.Fatalf("[AC-S52fc2c-7-1] IsImageStaleWithCache(%s): %v", inst, err)
+		}
+		if stale {
+			t.Errorf("[AC-S52fc2c-7-2] expected not-stale (fingerprints match), got stale for %s", inst)
+		}
+	}
+
+	// Count how many times "image list" was called.
+	imageListCount := 0
+	for _, c := range fr.recorded() {
+		if len(c) >= 2 && c[0] == "image" && c[1] == "list" {
+			imageListCount++
+		}
+	}
+	if imageListCount != 1 {
+		t.Errorf("[AC-S52fc2c-7-3] expected 1 'incus image list' call for 3 workspaces, got %d; calls: %v",
+			imageListCount, fr.recorded())
+	}
+}
+
+// TestIsImageStaleWithCache_StaleDetected verifies that IsImageStaleWithCache
+// correctly identifies a stale container (base image ≠ alias fingerprint).
+// [AC-S52fc2c-7-2]
+func TestIsImageStaleWithCache_StaleDetected(t *testing.T) {
+	const alias = "palmux-ws"
+	// aliasImg is the current "latest" fingerprint for the alias.
+	const aliasImg = "new999fingerprint"
+	// baseImg is the old fingerprint the container was built with.
+	const baseImg = "oldfingerprint111"
+
+	fr := newFakeRunner()
+	imageListJSON := `[{"fingerprint":"new999fingerprint","aliases":[{"name":"palmux-ws"}]}]`
+	fr.setResult("image list", fakeResult{stdout: imageListJSON, code: 0})
+	fr.setResult("config get", fakeResult{stdout: baseImg + "\n", code: 0})
+
+	inst := "ws-stale-cache-aabb"
+	rt := New(runtime.Config{Kind: runtime.KindIncusContainer, Image: alias}, inst, fr.asRunner(), nil)
+	cdc := rt.(runtime.CachedImageDriftChecker)
+
+	cache := &runtime.AliasFingerprintCache{}
+	stale, err := cdc.IsImageStaleWithCache(context.Background(), cache)
+	if err != nil {
+		t.Fatalf("[AC-S52fc2c-7-2] IsImageStaleWithCache: %v", err)
+	}
+	if !stale {
+		t.Errorf("[AC-S52fc2c-7-2] expected stale=true (base=%s, alias=%s), got false", baseImg, aliasImg)
+	}
+}
