@@ -173,15 +173,15 @@ type Manager struct {
 	log         *slog.Logger
 	deviceAdder DeviceAdder // injectable for tests
 
-	mu        sync.Mutex
-	state     BrowserState
-	xvfbPID   string // PID of Xvfb inside the container
-	dbusPID   string // PID of the session dbus-daemon inside the container
-	pid       string // PID of chromium inside the container
-	fcitxPID  string // PID of fcitx5 inside the container
-	vncPID    string // PID of x11vnc inside the container
-	relayPID  string // PID of the in-container CDP relay
-	cdpAddr   string // containerIP used for CDP and VNC; set on start
+	mu       sync.Mutex
+	state    BrowserState
+	xvfbPID  string // PID of Xvfb inside the container
+	dbusPID  string // PID of the session dbus-daemon inside the container
+	pid      string // PID of chromium inside the container
+	fcitxPID string // PID of fcitx5 inside the container
+	vncPID   string // PID of x11vnc inside the container
+	relayPID string // PID of the in-container CDP relay
+	cdpAddr  string // containerIP used for CDP and VNC; set on start
 }
 
 // cdpRelayScript is a raw TCP forwarder (same pattern as the incus runtime's
@@ -492,6 +492,30 @@ func (m *Manager) Stop(ctx context.Context) (StopResponse, error) {
 
 	m.log.Info("browser: stack stopped", "inst", m.inst)
 	return StopResponse{State: StateStopped}, nil
+}
+
+// Reset clears the Manager's in-memory connection state WITHOUT exec'ing into
+// the container. It is used when the underlying container is recreated in place
+// — a container regenerate (S7364e3) or a host↔incus switch (S8478ca): the old
+// container, along with its daemons, bridge IP, and VNC/CDP endpoints, is
+// already destroyed, so there is nothing to kill (unlike Stop, which pkills in a
+// live container). The Manager must simply forget the stale PIDs/address so the
+// next Start() spawns a fresh stack — and re-resolves the NEW container's bridge
+// IP — instead of dialing the dead one. Idempotent and runtime-free: safe to
+// call when already stopped and never touches the (possibly absent) runtime.
+// [AC-S52fc2c-6-1] [AC-S52fc2c-6-2]
+func (m *Manager) Reset() {
+	m.mu.Lock()
+	m.state = StateStopped
+	m.xvfbPID = ""
+	m.dbusPID = ""
+	m.pid = ""
+	m.fcitxPID = ""
+	m.vncPID = ""
+	m.relayPID = ""
+	m.cdpAddr = ""
+	m.mu.Unlock()
+	m.log.Info("browser: manager reset (container recreated)", "inst", m.inst)
 }
 
 // ---------------------------------------------------------------------------
