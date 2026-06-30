@@ -34,11 +34,26 @@ func (c *execClient) run(ctx context.Context, args ...string) ([]byte, error) {
 	return stdout.Bytes(), nil
 }
 
+// IsNoServerErr reports whether a tmux command error means "there is no tmux
+// server / session to talk to" (vs a real failure). tmux prints "no server
+// running on <socket>" or "error connecting to <socket> (No such file or
+// directory)" when the server is absent. List operations treat this as an empty
+// result rather than an error. Exported so the incus tmux client (different
+// package) can apply the same rule to its `incus exec … tmux …` errors, which
+// wrap the same tmux stderr text.
+func IsNoServerErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "no server running") || strings.Contains(msg, "error connecting")
+}
+
 func (c *execClient) ListSessions(ctx context.Context) ([]Session, error) {
 	out, err := c.run(ctx, "list-sessions", "-F", "#{session_name}\t#{session_created}\t#{session_attached}")
 	if err != nil {
 		// `no server running` is not an error — it just means zero sessions.
-		if strings.Contains(err.Error(), "no server running") || strings.Contains(err.Error(), "error connecting") {
+		if IsNoServerErr(err) {
 			return nil, nil
 		}
 		return nil, err
@@ -159,6 +174,15 @@ func (c *execClient) ListWindows(ctx context.Context, session string) ([]Window,
 	}
 	out, err := c.run(ctx, "list-windows", "-t", session, "-F", "#{window_index}\t#{window_name}")
 	if err != nil {
+		// No tmux server (or the session vanished — e.g. its only window's
+		// command exited, closing the window→session→server) means "no windows",
+		// not a hard error. Mirror ListSessions so callers like ensureSession can
+		// treat it as empty and (re)create windows rather than aborting (this is
+		// what failed an incus→host runtime switch with a cryptic list-windows
+		// "no server" error).
+		if IsNoServerErr(err) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	var windows []Window

@@ -1682,6 +1682,11 @@ func (c *incusTmuxClient) RenameSession(ctx context.Context, oldName, newName st
 func (c *incusTmuxClient) ListWindows(ctx context.Context, session string) ([]tmux.Window, error) {
 	out, err := c.incus(ctx, "list-windows", "-t", session, "-F", "#{window_index}\t#{window_name}")
 	if err != nil {
+		// No in-container tmux server / vanished session → "no windows", not a
+		// hard error (mirrors the host ListWindows + ListSessions).
+		if tmux.IsNoServerErr(err) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	var windows []tmux.Window

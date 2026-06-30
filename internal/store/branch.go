@@ -396,37 +396,49 @@ func (s *Store) ensureSession(ctx context.Context, branch *domain.Branch, window
 		s.knownBaseSessions[sessionName] = struct{}{}
 	}
 	s.mu.Unlock()
+	origWindows := windows
+	placeholder := tab.WindowSpec{Name: domain.WindowName("placeholder", "placeholder")}
+	// newSessionWith (re)creates the base session with w as its sole initial
+	// window. Reused for the first real window, the no-window placeholder, and to
+	// self-heal if the session vanishes mid-build (below).
+	newSessionWith := func(w tab.WindowSpec) error {
+		return tc.NewSession(ctx, tmux.NewSessionOpts{
+			Name:       sessionName,
+			WindowName: w.Name,
+			Cwd:        firstNonEmpty(w.Cwd, cwd),
+			Command:    w.Command,
+			Env:        w.Env,
+		})
+	}
+
 	if !exists {
 		if len(windows) == 0 {
 			// No terminal-backed providers (e.g. only Files/Git). Create a
 			// minimal placeholder window so the session is valid.
-			err = tc.NewSession(ctx, tmux.NewSessionOpts{
-				Name:       branch.TabSet.TmuxSession,
-				WindowName: domain.WindowName("placeholder", "placeholder"),
-				Cwd:        cwd,
-			})
-			if err != nil {
-				return err
-			}
-			return nil
+			return newSessionWith(placeholder)
 		}
-		first := windows[0]
-		err = tc.NewSession(ctx, tmux.NewSessionOpts{
-			Name:       branch.TabSet.TmuxSession,
-			WindowName: first.Name,
-			Cwd:        firstNonEmpty(first.Cwd, cwd),
-			Command:    first.Command,
-			Env:        first.Env,
-		})
-		if err != nil {
+		if err := newSessionWith(windows[0]); err != nil {
 			return err
 		}
 		windows = windows[1:]
 	}
-	// Get current windows once so we don't add duplicates.
-	have, err := tc.ListWindows(ctx, branch.TabSet.TmuxSession)
+	// Get current windows once so we don't add duplicates. ListWindows now
+	// returns empty (not an error) when the session/server is gone — e.g. the
+	// first window's command exited immediately, taking the session and the tmux
+	// server with it. That edge used to abort the whole call (and any incus→host
+	// runtime switch through it) with a cryptic "list-windows: no server".
+	have, err := tc.ListWindows(ctx, sessionName)
 	if err != nil {
-		return err
+		// ListWindows already returns empty for "no server". A "can't find
+		// session" here means the session vanished but the tmux server is still
+		// up (e.g. another workspace's session keeps it alive on the host's
+		// shared socket). Treat a gone session as "no windows" and let the loop +
+		// final guarantee re-establish it, instead of aborting the open / switch.
+		msg := err.Error()
+		if !tmux.IsNoServerErr(err) && !strings.Contains(msg, "can't find session") && !strings.Contains(msg, "not found") {
+			return err
+		}
+		have = nil
 	}
 	existing := map[string]bool{}
 	for _, w := range have {
@@ -436,14 +448,44 @@ func (s *Store) ensureSession(ctx context.Context, branch *domain.Branch, window
 		if existing[w.Name] {
 			continue
 		}
-		err := tc.NewWindow(ctx, branch.TabSet.TmuxSession, tmux.NewWindowOpts{
+		if err := tc.NewWindow(ctx, sessionName, tmux.NewWindowOpts{
 			Name:    w.Name,
 			Cwd:     firstNonEmpty(w.Cwd, cwd),
 			Command: w.Command,
 			Env:     w.Env,
-		})
-		if err != nil {
-			return err
+		}); err != nil {
+			// NewWindow can fail because the session vanished (an earlier
+			// window's command exited, closing the tmux server). If the session
+			// is genuinely gone, re-establish it from this window; otherwise the
+			// failure is real and propagates.
+			live, herr := tc.HasSession(ctx, sessionName)
+			if herr != nil {
+				return herr
+			}
+			if live {
+				return err
+			}
+			if rerr := newSessionWith(w); rerr != nil {
+				return fmt.Errorf("ensureSession re-establish session for window %q: %w", w.Name, rerr)
+			}
+		}
+		existing[w.Name] = true
+	}
+	// Final guarantee: end with a LIVE session to attach to. If every window's
+	// command exited, the tmux server may be gone by now; re-seed from the first
+	// window (or a placeholder) so a runtime switch / open ends usable instead of
+	// leaving a sessionless workspace.
+	live, err := tc.HasSession(ctx, sessionName)
+	if err != nil {
+		return err
+	}
+	if !live {
+		seed := placeholder
+		if len(origWindows) > 0 {
+			seed = origWindows[0]
+		}
+		if err := newSessionWith(seed); err != nil {
+			return fmt.Errorf("ensureSession: session vanished and could not be re-established: %w", err)
 		}
 	}
 	return nil
