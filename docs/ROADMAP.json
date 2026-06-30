@@ -2,15 +2,15 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 63,
+    "sprints_done": 64,
     "sprints_total": 65,
-    "percent": 96,
-    "current_sprint": "S52fc2c",
-    "done": 63,
+    "percent": 98,
+    "current_sprint": "Sb14caa",
+    "done": 64,
     "total": 65,
-    "remaining": 2,
+    "remaining": 1,
     "in_progress": 0,
-    "percentage": 96
+    "percentage": 98
   },
   "execution_order": [
     "S001",
@@ -10541,7 +10541,7 @@
     },
     "S52fc2c": {
       "title": "palmuxOS 更新堅牢化 + self-update 検証アフォーダンス + runtime/container 堅牢性 backlog 一掃",
-      "status": "planned",
+      "status": "done",
       "milestone": false,
       "stories": {
         "S52fc2c-1": {
@@ -10590,7 +10590,7 @@
         },
         "S52fc2c-2": {
           "title": "appliance: nixos-rebuild switch が persist.mount restart(busy)で rc=1 誤『失敗』になるのを解消",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmuxOS 運用者として、構成変更を `nixos-rebuild switch` で適用したとき成功時は終了コード 0 を返してほしい。なぜなら、現状は世代間で `/persist` の mount unit 定義が変わると switch が persist.mount を restart しようとし、使用中(umount: target is busy)で失敗して rc=1 を返し、exit-code 駆動の更新 UX(onboarding wizard の deployApi.rebuild / palmux-rebuild.service status ポーリング)が switch 成功にもかかわらず『更新失敗』と誤表示するからだ。",
           "acceptance_criteria": [
             {
@@ -10612,24 +10612,24 @@
           "tasks": {
             "S52fc2c-2-1": {
               "id": "S52fc2c-2-1",
-              "status": "pending",
+              "status": "done",
               "title": "nixos/modules: /persist の fileSystems/mount を switch 時 no-restart 化(x-systemd.no-restart 相当 / neededForBoot 等の適切な手段を選定)"
             },
             "S52fc2c-2-2": {
               "id": "S52fc2c-2-2",
-              "status": "pending",
+              "status": "done",
               "title": "影響範囲(palmux-grow-persist 等の persist 依存 oneshot)との整合確認"
             },
             "S52fc2c-2-3": {
               "id": "S52fc2c-2-3",
-              "status": "pending",
+              "status": "done",
               "title": "実機 192.168.1.45 で switch rc=0 + /persist 健全を検証(acceptance ログ)"
             }
           }
         },
         "S52fc2c-3": {
           "title": "appliance: image generation の grub.device 誤検出(/dev/vda vs /dev/sda)を解消",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmuxOS 運用者として、どのディスクバス(virtio-scsi=/dev/sda, virtio-blk=/dev/vda 等)で起動したアプライアンスでも世代の grub-install が成功してほしい。なぜなら、image generation(gen1)が誤ったディスク(/dev/vda)を焼くと、実機が /dev/sda の環境では gen1 への rollback や再導入で `grub-install: cannot find a GRUB drive for /dev/vda` が失敗し、ブートが脆くなるからだ。",
           "acceptance_criteria": [
             {
@@ -10651,24 +10651,24 @@
           "tasks": {
             "S52fc2c-3-1": {
               "id": "S52fc2c-3-1",
-              "status": "pending",
+              "status": "done",
               "title": "image build / first-boot の grub-device 検出を堅牢化(誤バス焼き込み防止、安定デバイス参照)"
             },
             "S52fc2c-3-2": {
               "id": "S52fc2c-3-2",
-              "status": "pending",
+              "status": "done",
               "title": "既存 appliance(gen1 が /dev/vda 焼き)の救済方針を整理(on-box flake は /dev/sda で正なので前進更新は OK の旨を doc 化)"
             },
             "S52fc2c-3-3": {
               "id": "S52fc2c-3-3",
-              "status": "pending",
+              "status": "done",
               "title": "実機 192.168.1.45 で rollback→grub OK を検証"
             }
           }
         },
         "S52fc2c-4": {
           "title": "in-container claude の確実な reap (S4d8b1c 残課題)",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux 運用者として、incus-container Workspace で動く claude(TUI/agent)がタブ閉鎖・セッション再起動・コンテナ再生成のときに確実に終了(reap)してほしい。なぜなら、現状は in-container claude プロセスの確実な reap(Shutdown/respawn)が保証されておらず、孤児プロセスがコンテナ内に残ってリソースを食う/二重起動するリスクがあるからだ。",
           "acceptance_criteria": [
             {
@@ -10690,24 +10690,24 @@
           "tasks": {
             "S52fc2c-4-1": {
               "id": "S52fc2c-4-1",
-              "status": "pending",
+              "status": "done",
               "title": "incus exec 起点プロセスの確実な kill(プロセスグループ/コンテナ内シグナル送出)を Shutdown/respawn 経路に実装"
             },
             "S52fc2c-4-2": {
               "id": "S52fc2c-4-2",
-              "status": "pending",
+              "status": "done",
               "title": "claude-tui daemon と claudeagent client の両経路で reap を担保"
             },
             "S52fc2c-4-3": {
               "id": "S52fc2c-4-3",
-              "status": "pending",
+              "status": "done",
               "title": "実機 acceptance: close/restart 後の孤児ゼロを検証"
             }
           }
         },
         "S52fc2c-5": {
           "title": "palmux hook binary mount の inode staleness 解消 (S4d8b1c 残課題)",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux 運用者として、palmux2 を更新(再ビルド/再起動)した後も、コンテナにマウントした `palmux hook` バイナリが新しい実体を指してほしい。なぜなら、現状は `/usr/local/bin/palmux` への bind-mount が起動時の inode に固定され、palmux2 バイナリ更新で inode が変わると古い実体を掴んだまま(stale)になり、hook(通知)が古い挙動になる/壊れるリスクがあるからだ。",
           "acceptance_criteria": [
             {
@@ -10729,24 +10729,24 @@
           "tasks": {
             "S52fc2c-5-1": {
               "id": "S52fc2c-5-1",
-              "status": "pending",
+              "status": "done",
               "title": "ensureHookBinMount を inode staleness 耐性のあるマウント方式に(再マウント検出 or path 安定化)"
             },
             "S52fc2c-5-2": {
               "id": "S52fc2c-5-2",
-              "status": "pending",
+              "status": "done",
               "title": "既存コンテナへの hot-reflect を idempotent に"
             },
             "S52fc2c-5-3": {
               "id": "S52fc2c-5-3",
-              "status": "pending",
+              "status": "done",
               "title": "実機 acceptance: 更新後 hook 動作を検証"
             }
           }
         },
         "S52fc2c-6": {
           "title": "Browser tab Manager をコンテナ再生成(S7364e3)時にリセット",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux 利用者として、Workspace コンテナを update/再生成した後も Browser タブが正しく動いてほしい。なぜなら、現状はコンテナ再生成(S7364e3 RegenerateBranchContainer)時に Browser tab の Manager(CDP/VNC 接続 state)がリセットされず、古いコンテナ向けの接続を掴んだまま壊れるからだ。",
           "acceptance_criteria": [
             {
@@ -10768,24 +10768,24 @@
           "tasks": {
             "S52fc2c-6-1": {
               "id": "S52fc2c-6-1",
-              "status": "pending",
+              "status": "done",
               "title": "RegenerateBranchContainer の経路に Browser tab Manager のリセット/破棄フックを追加"
             },
             "S52fc2c-6-2": {
               "id": "S52fc2c-6-2",
-              "status": "pending",
+              "status": "done",
               "title": "再生成後の再接続(新 bridge IP/コンテナ)を確認"
             },
             "S52fc2c-6-3": {
               "id": "S52fc2c-6-3",
-              "status": "pending",
+              "status": "done",
               "title": "実機 acceptance: 再生成後 Browser 動作を検証"
             }
           }
         },
         "S52fc2c-7": {
           "title": "image drift スキャン効率化 — alias fingerprint の per-scan キャッシュ",
-          "status": "planned",
+          "status": "done",
           "user_story": "palmux 運用者として、image drift 検出(10s ポートスキャンループ相乗り)が incus を不要に何度も叩かないでほしい。なぜなら、現状は drift 判定で `incus image list <alias>` の fingerprint 解決を Workspace ごとに繰り返し、スキャンの度に冗長な incus 呼び出しが走るからだ。",
           "acceptance_criteria": [
             {
@@ -10807,17 +10807,17 @@
           "tasks": {
             "S52fc2c-7-1": {
               "id": "S52fc2c-7-1",
-              "status": "pending",
+              "status": "done",
               "title": "ImageDriftChecker のスキャンに per-scan fingerprint キャッシュを導入(scan 開始時 1 回解決)"
             },
             "S52fc2c-7-2": {
               "id": "S52fc2c-7-2",
-              "status": "pending",
+              "status": "done",
               "title": "drift 結果の同一性(回帰なし)をユニットで担保"
             },
             "S52fc2c-7-3": {
               "id": "S52fc2c-7-3",
-              "status": "pending",
+              "status": "done",
               "title": "実機/ユニット acceptance: 呼び出し回数削減 + badge 挙動不変を検証"
             }
           }

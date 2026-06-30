@@ -1,0 +1,36 @@
+{
+  "sprint": "S52fc2c",
+  "title": "palmuxOS 更新堅牢化 + self-update 検証アフォーダンス + runtime/container 堅牢性 backlog 一掃",
+  "decisions": [
+    {
+      "id": "D1",
+      "topic": "Sprint scope/placement",
+      "decision": "7 Story (force 検証 + appliance 更新堅牢化x2 + runtime/container backlog x4) を Sb14caa の前に実行。appliance 更新堅牢化(Story2/3)は Sb14caa Stage5(本番採用)の前提のため先行。",
+      "rationale": "ユーザ指示。backlog は runtime/container 堅牢性のみ fold (機能要望は除外)。"
+    },
+    {
+      "id": "D2",
+      "topic": "Story1 force-update affordance",
+      "decision": "PALMUX_SELFUPDATE_FORCE env ゲート + 永続カウンタ(+force.N サフィックス overlay)。実 unit+実 switch を走らせ確実な再起動を保証。E2E seam=PALMUX_SELFUPDATE_RESTART_CMD。",
+      "rationale": "リリースを待たず self-update フル GUI フローを実機検証(S6ab0ed MS-1/Sa8e7d0 manual-smoke gap を回収)。本番 env 未設定で完全 no-op。"
+    },
+    {
+      "id": "D3",
+      "topic": "Story2 persist.mount rc=1 — 機構変更(レビュー駆動)",
+      "decision": "当初の systemd drop-in X-StopOnReconfiguration=false を破棄し、palmux-rebuild.service の run_switch() wrapper に変更。rc!=0 を成功扱いするのは palmux2 active かつ失敗ユニットが persist.mount のみの時だけ。",
+      "rationale": "レビューが switch-to-configuration-ng(Rust)のソースを引用し、X-StopOnReconfiguration は .target にのみ作用し .mount restart を抑止しない(かつ drop-in 初回適用で逆に restart を誘発)と判明。nixos-rebuild 自体を rc=0 にするには s-t-c のパッチが必要で scope 外 → UX 層(exit-code)で吸収する option1 を採用。AC-2-3 を『UX が false 更新失敗を出さない』に再定義。"
+    },
+    {
+      "id": "D4",
+      "topic": "Story3 grub Part1 revert(レビュー駆動)",
+      "decision": "image-hardware.nix の grub.devices mkForce[/dev/sda] を破棄し mkDefault[/dev/sda] に revert。Part2(first-boot grub-install で実検出ディスクに MBR heal)を維持。",
+      "rationale": "レビューが disko make-disk-image.nix を引用し、disko も grub.devices を mkForce(prio50)で[/dev/vda]設定するため、同 prio の listOf はマージされ[vda,sda]→ build VM で grub-install /dev/sda 失敗→ nix build .#appliance-qcow2 が壊れると判明。revert で既知 good に戻し build リスク消滅。gen1 rollback の rc=1 は sealed closure の inherent disko 制約として文書化(MBR は first-boot heal で有効)。"
+    },
+    {
+      "id": "D5",
+      "topic": "実機検証方針",
+      "decision": "GitHub push せず rsync で appliance(192.168.1.45)へツリー送付し flake を path: に向けて検証。incus は throwaway palmux-ws コンテナで surgical smoke。",
+      "rationale": "feature ブランチを main に出す前に実機検証。controller パターン(rsync)で push 不要。既存 ansible コンテナは不可触。"
+    }
+  ]
+}
