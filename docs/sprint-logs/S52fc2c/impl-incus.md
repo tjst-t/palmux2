@@ -65,3 +65,50 @@ All tests in `internal/runtime/incus/incus_test.go`:
 - `TestIsImageStaleWithCache_StaleDetected` — verifies stale=true when fingerprints differ [AC-S52fc2c-7-2]
 
 All 5 tests PASS.
+
+## REAL-INCUS VERIFICATION STEPS (orchestrator, serial, on a real incus host)
+
+These confirm AC-S52fc2c-4-3 / -5-3 / -7 against a live incus-container Workspace
+(e.g. `palmux-deploy-test.tjstkm.net`). `<C>` = the workspace container name
+(`incus list` to find it, e.g. `palmux2-main-xxxxxxxx`).
+
+### AC-S52fc2c-4-3 — no in-container claude orphan after tab close / session restart
+
+1. Open an incus-container Workspace, start the Claude tab (TUI and/or agent) so
+   claude runs inside the container.
+2. Confirm it is running inside the container:
+   `incus exec <C> -- pgrep -af /home/ubuntu/.local/bin/claude`  → at least 1 pid.
+3. Close the Claude tab / restart palmux2 (`systemctl --user restart palmux2`).
+4. Re-check inside the container:
+   `incus exec <C> -- pgrep -af /home/ubuntu/.local/bin/claude`  → MUST be empty
+   (exit code 1, no pids). Confirms the pkill reap fired and left no orphan.
+5. Respawn check: trigger a claude crash+resume (or send input that respawns),
+   then `pgrep -af` again → exactly ONE claude, not two (AC-4-2).
+
+### AC-S52fc2c-5-3 — hook mount points at the NEW binary after a palmux2 update
+
+1. Note the current mounted binary inode:
+   `incus exec <C> -- stat -c %i /usr/local/bin/palmux`  → inode A.
+   Cross-check the host: `stat -c %i $(readlink -f "$(which palmux2)")` → inode A.
+2. Update palmux2 (new release / `nixos-rebuild switch` / home-manager switch) so
+   the host binary inode changes; restart palmux2.
+3. Open / re-open the Workspace (drives `Start` → `ensureHookBinMount`).
+4. Re-check inside the container:
+   `incus exec <C> -- stat -c %i /usr/local/bin/palmux`  → inode B ≠ A, equal to
+   the new host binary inode. Confirms the stale device was removed + re-added.
+5. Functional check: `incus exec <C> -- /usr/local/bin/palmux --version` (or any
+   subcommand whose output changed between versions) reports the NEW version.
+
+### AC-S52fc2c-7 — one `incus image list` per scan cycle regardless of workspace count
+
+1. Open 3+ incus-container Workspaces from the same `palmux-ws` alias.
+2. Trace incus CLI invocations for ~30s (3 scan cycles). Either:
+   - wrap/temporarily shim the `incus` binary to append argv to a log, OR
+   - `sudo journalctl -u incus --since "30s ago"` / `incusd` debug, OR
+   - run palmux2 with debug logging and count `image list` calls.
+3. Expect ~1 `incus image list palmux-ws -f json` per 10s scan cycle (≈3 over
+   30s) — NOT 3-per-cycle (≈9). `config get <inst> volatile.base_image` still
+   runs once per workspace per cycle (that is per-container and unavoidable).
+4. Parity: the stale ⬆ update badge must appear/clear exactly as before (rebuild
+   + re-alias the image, confirm all 3 Workspaces show the badge on the next
+   cycle; regenerate one, confirm only that one clears).
