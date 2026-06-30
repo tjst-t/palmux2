@@ -63,8 +63,23 @@ All tests in `internal/runtime/incus/incus_test.go`:
 - `TestEnsureHookBinMount_Idempotent` — verifies no remove when inode is unchanged [AC-S52fc2c-5-2]
 - `TestIsImageStaleWithCache_OneCallPerCycle` — verifies one `incus image list` for 3 workspaces [AC-S52fc2c-7-1] [AC-S52fc2c-7-3]
 - `TestIsImageStaleWithCache_StaleDetected` — verifies stale=true when fingerprints differ [AC-S52fc2c-7-2]
+- `TestEnsureHookBinMount_RefreshesAfterRestart` — post-restart (lastInode==0) still removes the stale mount [AC-S52fc2c-5-1] [AC-S52fc2c-5-3]
 
-All 5 tests PASS.
+All 6 tests PASS.
+
+## Review fix (APPROVE-WITH-FIXES)
+
+- **BUG (Story 5, blocked AC-5-3)**: the `inodeChanged` condition originally had a
+  `lastInode != 0` clause. After a palmux2 update + restart the `incusRuntime`
+  struct is fresh so `hookBinInode`(lastInode)=0 while the container's mount still
+  serves the OLD inode — that clause made `inodeChanged=false`, so the stale mount
+  was never refreshed (the exact AC-5-3 scenario). Fixed by dropping the guard:
+  `inodeChanged := currentInode != 0 && currentInode != lastInode`. The first-ever
+  mount now harmlessly does a remove ("not found", logged+ignored) then add. Added
+  `TestEnsureHookBinMount_RefreshesAfterRestart` to lock this in.
+- **Test hardening (Story 4)**: `TestKillContainerProcesses` now also asserts the
+  pkill pattern arg (`cmd[3] == "/home/ubuntu/.local/bin/claude"`) so a wrong/empty
+  pattern can't silently pass.
 
 ## REAL-INCUS VERIFICATION STEPS (orchestrator, serial, on a real incus host)
 

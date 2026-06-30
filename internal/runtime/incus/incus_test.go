@@ -1533,7 +1533,8 @@ func TestKillContainerProcesses(t *testing.T) {
 	found := false
 	for _, c := range calls {
 		cmd := execCmdAfterSep(c)
-		if len(cmd) >= 4 && cmd[0] == "pkill" && cmd[1] == "-TERM" && cmd[2] == "-f" {
+		if len(cmd) >= 4 && cmd[0] == "pkill" && cmd[1] == "-TERM" && cmd[2] == "-f" &&
+			cmd[3] == "/home/ubuntu/.local/bin/claude" {
 			found = true
 		}
 	}
@@ -1631,6 +1632,49 @@ func TestEnsureHookBinMount_Idempotent(t *testing.T) {
 		if len(c) >= 5 && c[0] == "config" && c[1] == "device" && c[2] == "remove" && c[4] == "palmux-hook-bin" {
 			t.Errorf("[AC-S52fc2c-5-2] unexpected remove on idempotent call (inode unchanged): %v", calls)
 		}
+	}
+}
+
+// TestEnsureHookBinMount_RefreshesAfterRestart verifies the AC-S52fc2c-5-3
+// scenario: after a palmux2 update + restart the incusRuntime struct is fresh
+// (hookBinInode == 0) but the container's mount still pins the OLD binary. The
+// first call on a fresh struct MUST still issue remove + re-add so the stale
+// mount is replaced — the `lastInode != 0` guard would (incorrectly) skip it.
+// [AC-S52fc2c-5-1] [AC-S52fc2c-5-3]
+func TestEnsureHookBinMount_RefreshesAfterRestart(t *testing.T) {
+	inst := "ws-hook-restart-99aabbcc"
+	fr := newFakeRunner()
+
+	rt := New(runtime.Config{Kind: runtime.KindIncusContainer}, inst, fr.asRunner(), nil)
+	ir := rt.(*incusRuntime)
+
+	// Fresh struct: hookBinInode is the zero value (0), exactly as after a
+	// process restart. Do NOT pre-seed it.
+	ir.hookBinMu.Lock()
+	if ir.hookBinInode != 0 {
+		t.Fatalf("precondition: fresh struct should have hookBinInode==0, got %d", ir.hookBinInode)
+	}
+	ir.hookBinMu.Unlock()
+
+	ir.ensureHookBinMount(context.Background())
+
+	calls := fr.recorded()
+	// A remove MUST be issued even though lastInode was 0 (stale container mount).
+	foundRemove := false
+	for _, c := range calls {
+		if len(c) >= 5 && c[0] == "config" && c[1] == "device" && c[2] == "remove" && c[4] == "palmux-hook-bin" {
+			foundRemove = true
+		}
+	}
+	if !foundRemove {
+		t.Errorf("[AC-S52fc2c-5-3] post-restart (lastInode==0) must still remove the stale mount, got %v", calls)
+	}
+	// And the inode must now be recorded so the next call is idempotent.
+	ir.hookBinMu.Lock()
+	got := ir.hookBinInode
+	ir.hookBinMu.Unlock()
+	if got == 0 {
+		t.Errorf("[AC-S52fc2c-5-3] hookBinInode not recorded after first mount")
 	}
 }
 

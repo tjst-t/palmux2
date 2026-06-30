@@ -643,7 +643,13 @@ func (r *incusRuntime) ensureHookBinMount(ctx context.Context) {
 
 	r.hookBinMu.Lock()
 	lastInode := r.hookBinInode
-	inodeChanged := currentInode != 0 && lastInode != 0 && currentInode != lastInode
+	// S52fc2c-5: do NOT guard on lastInode != 0. After a palmux2 update + restart
+	// the incusRuntime struct is fresh (lastInode == 0) but the container's mount
+	// still pins the OLD binary inode; we MUST treat that as changed so the stale
+	// device is removed + re-added. A first-ever mount where the device does not
+	// yet exist harmlessly issues a remove ("not found", logged + ignored) then
+	// the add. This is exactly the AC-S52fc2c-5-3 restart-after-update path.
+	inodeChanged := currentInode != 0 && currentInode != lastInode
 	r.hookBinMu.Unlock()
 
 	if inodeChanged {
