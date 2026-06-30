@@ -40,6 +40,11 @@ type Provider struct {
 	managers map[string]*Manager
 }
 
+// Compile-time guarantee that Provider implements the optional
+// RuntimeRestartHook so a container regenerate / runtime switch resets the
+// per-workspace browser Manager. (S52fc2c-6)
+var _ tab.RuntimeRestartHook = (*Provider)(nil)
+
 // New returns a Provider.
 func New(s *store.Store) *Provider {
 	return &Provider{
@@ -104,6 +109,33 @@ func (p *Provider) OnBranchClose(ctx context.Context, params tab.CloseParams) er
 			p.log.Warn("browser: stop on branch close failed", "err", err)
 		}
 	}
+	return nil
+}
+
+// OnBranchRuntimeRestarted implements tab.RuntimeRestartHook. It is invoked by
+// the store whenever a workspace's runtime is recreated in place — a container
+// regenerate (S7364e3, RegenerateBranchContainer) or a host↔incus switch
+// (S8478ca, RestartBranchRuntime). In both cases the old container holding this
+// workspace's chromium / x11vnc / CDP is destroyed, but the per-workspace
+// Manager still holds the stale PIDs + bridge IP, so any later browser attach
+// would dial the dead container. We reset the Manager here (in-memory only) so
+// the next browser Start() / attach spawns a fresh stack and re-resolves the NEW
+// container's bridge IP.
+//
+// Idempotent and safe for host-runtime workspaces: if no Manager exists for the
+// branch (host runtime never creates one, or the browser was never opened) this
+// is a no-op. Unlike OnBranchClose it keeps the Manager in the map — the
+// workspace is still open, only its container changed. (S52fc2c-6)
+// [AC-S52fc2c-6-1] [AC-S52fc2c-6-2]
+func (p *Provider) OnBranchRuntimeRestarted(_ context.Context, params tab.CloseParams) error {
+	if params.Branch == nil {
+		return nil
+	}
+	mgr := p.managerFor(params.Branch.RepoID, params.Branch.ID)
+	if mgr == nil {
+		return nil
+	}
+	mgr.Reset()
 	return nil
 }
 
