@@ -96,6 +96,11 @@ export function UpdatePanel() {
             <div className={styles.headSub}>
               palmux が管理するコンポーネントに新リリースが出ています。6時間ごとに GitHub を確認。
             </div>
+            {snap?.forced && (
+              <div className={styles.headSub} data-testid="update-forced-note">
+                🧪 強制更新テスト（同一バージョンで実行経路を検証中。実リリースではありません）
+              </div>
+            )}
           </div>
 
           {(snap?.components ?? []).map((c) => (

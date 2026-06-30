@@ -54,7 +54,7 @@ def main() -> int:
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         ctx = browser.new_context()
-        ctx.add_init_script("window.localStorage.setItem('palmux:onboarding-seen','1')")
+        ctx.add_init_script("window.localStorage.setItem('palmux:onboarding-seen','1'); window.sessionStorage.setItem('palmux:onboarding-skipped','1')")
         page = ctx.new_page()
         page.goto(BASE, wait_until="domcontentloaded", timeout=20000)
         page.wait_for_timeout(1500)

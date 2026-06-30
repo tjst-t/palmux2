@@ -659,7 +659,7 @@ func run(rc resolved) error {
 	// managed components (palmux binary + palmux-ws image + declared tools) and
 	// broadcasts an app.updateAvailable WS event on a state transition. The GUI
 	// "Update all" button and `palmux update` CLI share its execution path.
-	selfUpdateSvc, suErr := newSelfUpdateService(st)
+	selfUpdateSvc, suErr := newSelfUpdateService(st, configDir)
 	if suErr != nil {
 		slog.Warn("self-update disabled", "err", suErr)
 		selfUpdateSvc = nil
@@ -686,7 +686,11 @@ func run(rc resolved) error {
 		BasePath: basePath,
 		Logger:   slog.Default(),
 		HealthDetail: map[string]any{
-			"version":   resolveVersion(),
+			// resolveVersion() + the force-update synthetic suffix (empty unless the
+			// env-gated test affordance is armed-and-applied). The suffix is read at
+			// startup, so each restart picks up the advanced "+force.N" — that is the
+			// version DELTA the self-update reconnect handshake reads (force.go).
+			"version":   resolveVersion() + selfupdate.ForceVersionSuffix(configDir),
 			"open":      authn.Open(),
 			"configDir": configDir,
 		},

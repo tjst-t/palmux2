@@ -332,6 +332,11 @@ export interface SelfUpdateSnapshot {
   nixOSHost?: boolean
   checkedAt: string
   degraded: boolean
+  /** This "update available" was synthesized by the env-gated force-update test
+   * affordance (same real version, not a real release). Always false in
+   * production. The panel marks it so a test run is never mistaken for a real
+   * update. */
+  forced?: boolean
 }
 
 export interface SelfUpdateRunResult {
