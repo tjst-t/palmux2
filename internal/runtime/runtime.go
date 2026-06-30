@@ -246,3 +246,54 @@ type ContainerRegenerator interface {
 	// previous container must remain usable.
 	Regenerate(ctx context.Context) error
 }
+
+// ContainerProcessKiller is an optional Runtime capability for reliably
+// terminating in-container processes. Killing the host-side `incus exec`
+// wrapper does NOT always propagate SIGTERM into the container child. This
+// interface lets the caller explicitly signal the in-container process tree.
+// (S52fc2c-4)
+type ContainerProcessKiller interface {
+	// KillContainerProcesses sends sig (e.g. "TERM", "KILL", or signal numbers
+	// like "15") to all processes inside the container whose full command-line
+	// matches pattern (passed as -f to pkill). pkill exit code 1 (no match) is
+	// NOT treated as an error. Best-effort — callers should log, not fail.
+	KillContainerProcesses(ctx context.Context, sig, pattern string) error
+}
+
+// AliasFingerprintCache is a per-scan-cycle cache for incus image alias
+// fingerprint resolutions. All workspaces using the same image alias (the
+// default is "palmux-ws") share one `incus image list` call per scan cycle
+// rather than one per workspace. NOT safe for concurrent use — create one
+// instance per scan cycle; do not reuse across goroutines. (S52fc2c-7)
+type AliasFingerprintCache struct {
+	data map[string]string // alias → fingerprint ("" = alias absent, no update)
+	errs map[string]error  // alias → resolution error
+}
+
+// Resolve returns the cached fingerprint for alias, calling resolveFunc only
+// on the first call for each alias within this cache instance.
+func (c *AliasFingerprintCache) Resolve(alias string, resolveFunc func() (string, error)) (string, error) {
+	if c.data == nil {
+		c.data = map[string]string{}
+		c.errs = map[string]error{}
+	}
+	if _, ok := c.data[alias]; ok {
+		return c.data[alias], c.errs[alias]
+	}
+	fp, err := resolveFunc()
+	c.data[alias] = fp
+	c.errs[alias] = err
+	return fp, err
+}
+
+// CachedImageDriftChecker extends ImageDriftChecker with a per-scan-cycle
+// fingerprint cache. The store scan loop creates one AliasFingerprintCache per
+// cycle and passes it to every workspace, so the alias fingerprint is resolved
+// ONCE regardless of how many workspaces share the same image alias.
+// (S52fc2c-7) [AC-S52fc2c-7-1]
+type CachedImageDriftChecker interface {
+	ImageDriftChecker
+	// IsImageStaleWithCache is like IsImageStale but uses cache to avoid
+	// redundant `incus image list` calls across workspaces in the same cycle.
+	IsImageStaleWithCache(ctx context.Context, cache *AliasFingerprintCache) (bool, error)
+}

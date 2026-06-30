@@ -32,6 +32,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/creack/pty"
@@ -111,6 +112,10 @@ type incusRuntime struct {
 	// device. hostOpMapMu guards the map itself. (S4c591a review)
 	hostOpMapMu sync.Mutex
 	hostOpLocks map[int]*sync.Mutex
+
+	// hookBinMu guards hookBinInode (S52fc2c-5).
+	hookBinMu   sync.Mutex
+	hookBinInode uint64 // inode of the last-successfully-mounted palmux hook binary
 }
 
 // hostExposeState records a container port published on the host via an incus
@@ -130,11 +135,13 @@ type exposeState struct {
 // Compile-time assertions that incusRuntime implements the optional capability
 // interfaces the store type-asserts for image drift detection + regeneration.
 var (
-	_ runtime.Runtime              = (*incusRuntime)(nil)
-	_ runtime.ImageDriftChecker    = (*incusRuntime)(nil)
-	_ runtime.ContainerRegenerator = (*incusRuntime)(nil)
-	_ runtime.PTYCommander         = (*incusRuntime)(nil)
-	_ runtime.ExecCommander        = (*incusRuntime)(nil)
+	_ runtime.Runtime                 = (*incusRuntime)(nil)
+	_ runtime.ImageDriftChecker       = (*incusRuntime)(nil)
+	_ runtime.ContainerRegenerator    = (*incusRuntime)(nil)
+	_ runtime.PTYCommander            = (*incusRuntime)(nil)
+	_ runtime.ExecCommander           = (*incusRuntime)(nil)
+	_ runtime.ContainerProcessKiller  = (*incusRuntime)(nil)
+	_ runtime.CachedImageDriftChecker = (*incusRuntime)(nil)
 )
 
 // DefaultImageAlias is the incus image alias palmux containers are created from
@@ -604,22 +611,68 @@ func (r *incusRuntime) PTYCommand(ctx context.Context, argv []string, opts runti
 
 // ensureHookBinMount idempotently bind-mounts the running palmux binary at
 // /usr/local/bin/palmux inside the container (for in-container `palmux hook`).
-// Safe to call on an already-running container — incus hot-plugs the disk device
-// and "already exists" is tolerated. Best-effort: failures are logged, not
-// fatal. (S4d8b1c)
+// Safe to call on an already-running container.
+//
+// S52fc2c-5: detects inode staleness. On a palmux2 update (e.g. Nix/home-manager
+// replaces the binary at a new inode), the existing bind-mount device still
+// pins the OLD inode; the container runs stale hook code. We compare the binary's
+// current inode against the cached inode from the last successful mount. When they
+// differ, we remove the stale device and re-add it with the current binary path.
+//
+// Best-effort: failures are logged, not fatal. [AC-S52fc2c-5-1] [AC-S52fc2c-5-2]
 func (r *incusRuntime) ensureHookBinMount(ctx context.Context) {
 	palmuxBin, err := os.Executable()
 	if err != nil || palmuxBin == "" {
 		return
 	}
+
+	// Resolve any symlink so Stat returns the inode of the real binary
+	// (os.Executable on Linux resolves procfs, but Nix symlinks may need one
+	// extra evaluation through filepath.EvalSymlinks).
+	if resolved, rerr := filepath.EvalSymlinks(palmuxBin); rerr == nil {
+		palmuxBin = resolved
+	}
+
+	// S52fc2c-5: get the current binary's inode.
+	var currentInode uint64
+	if fi, statErr := os.Stat(palmuxBin); statErr == nil {
+		if sys, ok := fi.Sys().(*syscall.Stat_t); ok {
+			currentInode = sys.Ino
+		}
+	}
+
+	r.hookBinMu.Lock()
+	lastInode := r.hookBinInode
+	inodeChanged := currentInode != 0 && lastInode != 0 && currentInode != lastInode
+	r.hookBinMu.Unlock()
+
+	if inodeChanged {
+		// Remove the stale device before re-adding. "Not found" errors are
+		// harmless (the device was never added or was removed by Stop).
+		_, _, rmCode, _ := r.run(ctx, "config", "device", "remove", r.inst, "palmux-hook-bin")
+		r.log.Info("incus: hook bin mount stale — re-mounting",
+			"inst", r.inst, "oldInode", lastInode, "newInode", currentInode,
+			"rmCode", rmCode, "bin", palmuxBin)
+	}
+
 	_, stderr, code, runErr := r.run(ctx,
 		"config", "device", "add", r.inst,
 		"palmux-hook-bin", "disk",
 		"source="+palmuxBin,
 		"path=/usr/local/bin/palmux",
 	)
-	if runErr != nil || (code != 0 && !strings.Contains(stderr, "already exists")) {
-		r.log.Debug("incus: ensureHookBinMount (non-fatal)", "inst", r.inst, "code", code, "stderr", strings.TrimSpace(stderr))
+	alreadyExists := strings.Contains(stderr, "already exists")
+	if runErr != nil || (code != 0 && !alreadyExists) {
+		r.log.Debug("incus: ensureHookBinMount (non-fatal)",
+			"inst", r.inst, "code", code, "stderr", strings.TrimSpace(stderr))
+		return
+	}
+
+	// Record the successfully mounted inode so the next call can detect a change.
+	if currentInode != 0 {
+		r.hookBinMu.Lock()
+		r.hookBinInode = currentInode
+		r.hookBinMu.Unlock()
 	}
 }
 
@@ -755,6 +808,51 @@ func (r *incusRuntime) IsImageStale(ctx context.Context) (bool, error) {
 		return false, nil // unknown base → don't claim stale
 	}
 	return baseFP != aliasFP, nil
+}
+
+// IsImageStaleWithCache is like IsImageStale but uses the provided per-cycle
+// cache so a shared scan loop resolves the alias fingerprint only once across
+// all workspaces. [AC-S52fc2c-7-1] [AC-S52fc2c-7-2]
+func (r *incusRuntime) IsImageStaleWithCache(ctx context.Context, cache *runtime.AliasFingerprintCache) (bool, error) {
+	alias := r.imageAlias()
+	aliasFP, err := cache.Resolve(alias, func() (string, error) {
+		return r.aliasFingerprint(ctx)
+	})
+	if err != nil {
+		return false, err
+	}
+	if aliasFP == "" {
+		return false, nil // alias not present → nothing to update to
+	}
+	baseFP, err := r.containerBaseImage(ctx)
+	if err != nil {
+		return false, err
+	}
+	if baseFP == "" {
+		return false, nil // unknown base → don't claim stale
+	}
+	return baseFP != aliasFP, nil
+}
+
+// KillContainerProcesses sends sig to all processes inside the container whose
+// command-line matches pattern (pkill -f). Used to reap in-container claude
+// processes whose host-side `incus exec` wrapper was killed without reliably
+// propagating the signal. pkill exit code 1 (no match) is not an error.
+// [AC-S52fc2c-4-1] [AC-S52fc2c-4-2]
+func (r *incusRuntime) KillContainerProcesses(ctx context.Context, sig, pattern string) error {
+	// pkill -<sig> -f <pattern> — all in-container processes matching pattern
+	_, _, code, err := r.run(ctx, "exec", r.inst, "--", "pkill", "-"+sig, "-f", pattern)
+	if err != nil {
+		return fmt.Errorf("incus KillContainerProcesses: %w", err)
+	}
+	if code == 1 {
+		// pkill exits 1 when no processes match — not an error for our use case.
+		return nil
+	}
+	if code > 1 {
+		return fmt.Errorf("incus KillContainerProcesses: pkill exit %d", code)
+	}
+	return nil
 }
 
 // probeInstanceName derives a DNS-safe throwaway instance name used to verify
