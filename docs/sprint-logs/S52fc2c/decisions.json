@@ -16,9 +16,9 @@
     },
     {
       "id": "D3",
-      "topic": "Story2 persist.mount rc=1 — 機構変更(レビュー駆動)",
-      "decision": "当初の systemd drop-in X-StopOnReconfiguration=false を破棄し、palmux-rebuild.service の run_switch() wrapper に変更。rc!=0 を成功扱いするのは palmux2 active かつ失敗ユニットが persist.mount のみの時だけ。",
-      "rationale": "レビューが switch-to-configuration-ng(Rust)のソースを引用し、X-StopOnReconfiguration は .target にのみ作用し .mount restart を抑止しない(かつ drop-in 初回適用で逆に restart を誘発)と判明。nixos-rebuild 自体を rc=0 にするには s-t-c のパッチが必要で scope 外 → UX 層(exit-code)で吸収する option1 を採用。AC-2-3 を『UX が false 更新失敗を出さない』に再定義。"
+      "topic": "Story2 persist.mount rc=1 — NixOS-native root-cause fix (revised after user pushback)",
+      "decision": "最初は palmux-rebuild.service の run_switch() exit-code wrapper で妥協したが、ユーザ指摘『NixOS の仕組み自体で成功させる方法があるはず』を受け switch-to-configuration-ng(Rust)の現物ソース + 世代間 fstab を精査。真因は /persist が2ファイルで別々に宣言され不一致だったこと: image ビルドは nixos/modules/disko-layout.nix(disko → by-partlabel/disk-main-persist)、on-box は nixos/appliance-flake/hardware-base.nix(by-label/persist)。What=(device)が image→flake 初回 switch で変わり、switch-to-configuration-ng が変更 .mount を無条件 restart(/ と /nix のみ reload 例外、src/main.rs で確認)→ /persist busy → rc=1。FIX: hardware-base.nix の /persist を image と同じ by-partlabel に揃え persist.mount を世代間で byte 一致させ、restart 自体を消す。run_switch wrapper は撤去。",
+      "rationale": "wrapper は症状(exit-code)を隠すだけで根本を残す。device 参照を一致させれば switch-to-configuration が restart しない → nixos-rebuild switch が native に rc=0。両参照は同一 sda3(実機確認)なので純粋な id 安定化で挙動変化なし。実機実証: switch#1(by-label→by-partlabel)で rc=1+『Failed to restart persist.mount』でバグ再現、switch#2(安定 by-partlabel)で rc=0。fresh deploy は gen1(image,by-partlabel)→初回 on-box switch(by-partlabel)が無変化で初回から rc=0。image ビルドは image-hardware.nix を使い hardware-base.nix 非依存なので image 側リスクなし。"
     },
     {
       "id": "D4",

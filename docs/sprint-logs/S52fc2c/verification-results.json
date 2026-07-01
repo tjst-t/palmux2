@@ -1,34 +1,67 @@
 {
   "sprint": "S52fc2c",
-  "build": {"go_build": "pass", "go_vet": "pass", "go_test": "pass (full ./...)", "golangci_lint": "deferred-to-CI (v2 not on dev box)"},
+  "build": {
+    "go_build": "pass",
+    "go_vet": "pass",
+    "go_test": "pass (full ./...)",
+    "golangci_lint": "deferred-to-CI (v2 not on dev box)"
+  },
   "stories": {
-    "S52fc2c-1": {"status": "done", "ac": {
-      "AC-S52fc2c-1-1": "pass (force-arm lights badge at same version; prod no-op)",
-      "AC-S52fc2c-1-2": "pass (real unit+switch+reconnect→success toast)",
-      "AC-S52fc2c-1-3": "pass — E2E tests/e2e/sforce_selfupdate_force.py ALL PASS; s6ab0ed_reconnect_live + sa8e7d0_badge_honesty no regression; force_test.go green"}},
-    "S52fc2c-2": {"status": "done", "ac": {
-      "AC-S52fc2c-2-1": "pass (run_switch wrapper; X-StopOnReconfiguration drop-in dropped per review)",
-      "AC-S52fc2c-2-2": "pass (/persist stays mounted; verified appliance gen2 intact)",
-      "AC-S52fc2c-2-3": "pass (revised: UX no false 更新失敗) — appliance toplevel build OK + run_switch override logic synthetic-tested on real appliance shell: persist.mount-only→OVERRIDE 0, other unit/build error→PROPAGATE"}},
-    "S52fc2c-3": {"status": "done", "ac": {
-      "AC-S52fc2c-3-1": "pass (mkDefault /dev/sda restored; first-boot grub-install heals actual disk) — appliance toplevel build OK",
-      "AC-S52fc2c-3-2": "warn (gen1 rollback rc=1 accepted disko limit; forward gens OK; full qcow2 build on KVM builder = residual, low risk: revert restores known-good config)"}},
-    "S52fc2c-4": {"status": "done", "ac": {
-      "AC-S52fc2c-4-1": "pass — unit test + real-incus smoke: incus exec --user 1000 pkill -TERM -f <claude path> killed the proc, no orphan",
-      "AC-S52fc2c-4-2": "pass (reap fires before respawn; ordering unit-verified)",
-      "AC-S52fc2c-4-3": "pass — real-incus: after reap pgrep returns none; no-match pkill rc=1 handled as success"}},
-    "S52fc2c-5": {"status": "done", "ac": {
-      "AC-S52fc2c-5-1": "pass — real-incus smoke: config device remove+add on inode change swaps served binary (BIN_A→BIN_B); guard dropped so post-restart(lastInode=0) refreshes",
-      "AC-S52fc2c-5-2": "pass (idempotent — no churn when unchanged; unit test)",
-      "AC-S52fc2c-5-3": "pass — real-incus device remount confirmed; remove-missing rc=1 tolerated"}},
-    "S52fc2c-6": {"status": "done", "ac": {
-      "AC-S52fc2c-6-1": "pass (OnBranchRuntimeRestarted→Manager.Reset clears state/PIDs/cdpAddr; unit tests incl failed-regenerate-no-reset invariant)",
-      "AC-S52fc2c-6-2": "pass (re-resolution via uncached registry verified by inspection; reset half unit-tested)",
-      "AC-S52fc2c-6-3": "warn (full browser-in-container reconnect = real-incus full-stack residual; mechanism unit-verified + incus device/exec primitives smoke-passed)"}},
-    "S52fc2c-7": {"status": "done", "ac": {
-      "AC-S52fc2c-7-1": "pass — unit test: 1 image-list call for 3 workspaces per cycle (AliasFingerprintCache)",
-      "AC-S52fc2c-7-2": "pass (drift result parity; logic identical to original)",
-      "AC-S52fc2c-7-3": "pass (per-cycle cache freshness unit-tested)"}}
+    "S52fc2c-1": {
+      "status": "done",
+      "ac": {
+        "AC-S52fc2c-1-1": "pass (force-arm lights badge at same version; prod no-op)",
+        "AC-S52fc2c-1-2": "pass (real unit+switch+reconnect→success toast)",
+        "AC-S52fc2c-1-3": "pass — E2E tests/e2e/sforce_selfupdate_force.py ALL PASS; s6ab0ed_reconnect_live + sa8e7d0_badge_honesty no regression; force_test.go green"
+      }
+    },
+    "S52fc2c-2": {
+      "status": "done",
+      "ac": {
+        "AC-S52fc2c-2-1": "pass (NATIVE fix: hardware-base.nix /persist device pinned to by-partlabel = image's ref → persist.mount identical across gens → not restarted. run_switch wrapper removed)",
+        "AC-S52fc2c-2-2": "pass (/persist stays mounted through switch; verified real appliance)",
+        "AC-S52fc2c-2-3": "pass (nixos-rebuild switch returns rc=0 NATIVELY — original AC met, no exit-code wrapper needed). Real-appliance proof: switch#1 by-label→by-partlabel reproduced rc=1 + 'Failed to restart persist.mount'; switch#2 stable by-partlabel = rc=0"
+      }
+    },
+    "S52fc2c-3": {
+      "status": "done",
+      "ac": {
+        "AC-S52fc2c-3-1": "pass (mkDefault /dev/sda restored; first-boot grub-install heals actual disk) — appliance toplevel build OK",
+        "AC-S52fc2c-3-2": "warn (gen1 rollback rc=1 accepted disko limit; forward gens OK; full qcow2 build on KVM builder = residual, low risk: revert restores known-good config)"
+      }
+    },
+    "S52fc2c-4": {
+      "status": "done",
+      "ac": {
+        "AC-S52fc2c-4-1": "pass — unit test + real-incus smoke: incus exec --user 1000 pkill -TERM -f <claude path> killed the proc, no orphan",
+        "AC-S52fc2c-4-2": "pass (reap fires before respawn; ordering unit-verified)",
+        "AC-S52fc2c-4-3": "pass — real-incus: after reap pgrep returns none; no-match pkill rc=1 handled as success"
+      }
+    },
+    "S52fc2c-5": {
+      "status": "done",
+      "ac": {
+        "AC-S52fc2c-5-1": "pass — real-incus smoke: config device remove+add on inode change swaps served binary (BIN_A→BIN_B); guard dropped so post-restart(lastInode=0) refreshes",
+        "AC-S52fc2c-5-2": "pass (idempotent — no churn when unchanged; unit test)",
+        "AC-S52fc2c-5-3": "pass — real-incus device remount confirmed; remove-missing rc=1 tolerated"
+      }
+    },
+    "S52fc2c-6": {
+      "status": "done",
+      "ac": {
+        "AC-S52fc2c-6-1": "pass (OnBranchRuntimeRestarted→Manager.Reset clears state/PIDs/cdpAddr; unit tests incl failed-regenerate-no-reset invariant)",
+        "AC-S52fc2c-6-2": "pass (re-resolution via uncached registry verified by inspection; reset half unit-tested)",
+        "AC-S52fc2c-6-3": "warn (full browser-in-container reconnect = real-incus full-stack residual; mechanism unit-verified + incus device/exec primitives smoke-passed)"
+      }
+    },
+    "S52fc2c-7": {
+      "status": "done",
+      "ac": {
+        "AC-S52fc2c-7-1": "pass — unit test: 1 image-list call for 3 workspaces per cycle (AliasFingerprintCache)",
+        "AC-S52fc2c-7-2": "pass (drift result parity; logic identical to original)",
+        "AC-S52fc2c-7-3": "pass (per-cycle cache freshness unit-tested)"
+      }
+    }
   },
   "done_judgment": {
     "guard1_ac_coverage": "pass (every AC has a passing test or real-machine verification; 2 warns are documented residuals, not gaps)",

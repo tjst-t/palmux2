@@ -340,72 +340,23 @@ in
     script = ''
       set -eu
 
-      # ── S52fc2c-2: tolerate a persist.mount-only restart failure ─────────────
-      # On NixOS 25.05, switch-to-configuration-ng (the Rust switch implementation)
-      # UNCONDITIONALLY restarts any changed .mount unit (only `-.mount` = / and
-      # nix.mount are reload-only). When persist.mount's generated unit changes between
-      # generations — which happens on the FIRST image→flake switch, and on any
-      # disko-layout change — it tries to stop→start persist.mount. /persist is always
-      # busy (home, config, incus storage, the on-appliance flake itself live there),
-      # so the umount fails:
-      #   umount: /persist: target is busy   →   Failed to restart persist.mount
-      # and `nixos-rebuild switch` exits non-zero EVEN THOUGH the switch otherwise fully
-      # applied (new system profile activated, boot entry installed, palmux2 running the
-      # new closure). palmux2's POST /api/deploy/rebuild + the onboarding wizard
-      # handleRebuild poll this unit's exit code, so a non-zero rc shows a false
-      # "更新失敗". There is NO config flag that stops switch-to-configuration-ng from
-      # restarting a changed .mount (X-StopOnReconfiguration applies only to .target
-      # units), so we fix the UX at the exit-code layer here.
-      #
-      # run_switch runs the switch, and if it fails, overrides to SUCCESS *only* when
-      # the failure is provably limited to the persist.mount restart-busy case AND
-      # palmux2 is healthy. Any other failure (build error, a different unit failing,
-      # palmux2 down) propagates as a genuine non-zero exit.
-      #
-      # NOTE: routine binary-only updates do NOT change persist.mount's generated unit,
-      # so they never hit this path; the override only ever engages on the rare
-      # mount-definition-changing switch.
-      run_switch() {
-        local _log _rc _failed
-        _log=$(mktemp)
-        set +e
-        nixos-rebuild switch --flake .#appliance >"$_log" 2>&1
-        _rc=$?
-        set -e
-        cat "$_log"
-        if [ "$_rc" -eq 0 ]; then
-          rm -f "$_log"
-          return 0
-        fi
-        # rc != 0. Extract switch-to-configuration's "the following units failed: ..."
-        # summary and normalise the unit list to space-separated tokens. (Both the perl
-        # and the 25.05 Rust switch-to-configuration-ng print this exact phrase when one
-        # or more units fail to (re)start during activation.)
-        _failed=$(grep -iE 'units failed:' "$_log" | tail -n1 \
-                  | sed -E 's/^.*units failed:[[:space:]]*//' | tr ',' ' ')
-        _failed=$(echo $_failed)   # unquoted: collapse whitespace to single spaces
-        # Override to SUCCESS only when BOTH hold:
-        #   (a) palmux2.service is active  → the new closure is actually running, so the
-        #       switch's real work landed; and
-        #   (b) the set of failed units is EXACTLY "persist.mount"  → no other unit
-        #       failed (a genuine build/activation error lists other units or no
-        #       "units failed:" line at all → _failed != "persist.mount" → propagate).
-        # We do NOT additionally gate on a "target is busy" string: that detail is
-        # emitted to the journal by the mount unit, not always to nixos-rebuild's
-        # captured output, so requiring it would re-introduce the false "更新失敗". On a
-        # running appliance /persist is already mounted (it mounted cleanly at boot and
-        # its FS is valid), so a persist.mount *restart* can only fail because /persist
-        # is in use — exactly the harmless case we want to absorb.
-        if systemctl is-active --quiet palmux2.service \
-           && [ "$_failed" = "persist.mount" ]; then
-          echo "palmux-rebuild: NOTE — persist.mount could not be remounted while in use; this is expected and harmless. /persist stays mounted and the switch otherwise applied successfully (palmux2 is running the new closure). Treating the rebuild as SUCCESS (S52fc2c-2)." >&2
-          rm -f "$_log"
-          return 0
-        fi
-        rm -f "$_log"
-        return "$_rc"
-      }
-
+      # ── S52fc2c-2: persist.mount rc=1 is fixed at the ROOT CAUSE, not here ────
+      # switch-to-configuration-ng (NixOS 25.05, Rust) UNCONDITIONALLY *restarts* any
+      # changed .mount unit (only `-.mount`=/ and nix.mount are reload-only, hardcoded
+      # — verified in its src/main.rs). A restart stop→starts the mount; /persist is
+      # always in use, so the umount fails "target is busy" and `nixos-rebuild switch`
+      # exits non-zero even though the switch otherwise fully applied → the exit-code-
+      # driven update UX shows a false "更新失敗". The ROOT CAUSE is that persist.mount's
+      # What= (device) differed between generations because /persist is declared in TWO
+      # separate files that disagreed: the disko IMAGE build (disko-layout.nix) baked
+      # `by-partlabel/disk-main-persist`, while the ON-BOX system (appliance-flake/
+      # hardware-base.nix) declared `by-label/persist`. The FIRST image→flake switch thus
+      # saw a changed What= → restart. FIX (S52fc2c-2): hardware-base.nix now references
+      # /persist by the SAME by-partlabel id the image bakes, so persist.mount is IDENTICAL
+      # across generations → switch-to-configuration never restarts it → `nixos-rebuild
+      # switch` returns rc=0 NATIVELY. Verified on a real appliance (switch#1 by-label→
+      # by-partlabel reproduced rc=1; switch#2 stable by-partlabel returned rc=0). So this
+      # unit just runs a plain switch; a genuine failure still propagates under `set -eu`.
       cfg=${appCfgDir}/config.toml
       secrets=${appCfgDir}/secrets.env
       domain=""
@@ -434,7 +385,7 @@ in
         rm -f ${dropinDir}/10-public.nix
       fi
       cd ${flakeDir}
-      run_switch
+      nixos-rebuild switch --flake .#appliance
 
       # SAFETY NET: a domain switch closes :7683 and serves only via Caddy. If Caddy
       # can't come up (bad/expired token, DNS, config), the box is locked out — only
@@ -448,7 +399,7 @@ in
           echo "palmux-rebuild: Caddy failed to start under domain '$domain' — rolling back to keep the box reachable (:7683 LAN). Check the Cloudflare token / DNS, then retry." >&2
           rm -f ${dropinDir}/10-public.nix
           sed -i -E '/^[[:space:]]*domain[[:space:]]*=/ s/=.*/= ""/' "$cfg"
-          run_switch || true   # re-apply reachable no-domain config; report failure below
+          nixos-rebuild switch --flake .#appliance || true   # re-apply reachable no-domain config; report failure below
           exit 1
         fi
       fi
