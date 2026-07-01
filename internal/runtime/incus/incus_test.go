@@ -1688,7 +1688,6 @@ func TestEnsureHookBinMount_RefreshesAfterRestart(t *testing.T) {
 func TestIsImageStaleWithCache_OneCallPerCycle(t *testing.T) {
 	const alias = "palmux-ws"
 	const baseImg = "abc123def456"
-	const aliasImg = "abc123def456" // same → not stale
 
 	// We use a SINGLE fakeRunner shared by all 3 runtimes so we can count
 	// "image list" calls across all of them.

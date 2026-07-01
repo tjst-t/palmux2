@@ -114,7 +114,7 @@ type incusRuntime struct {
 	hostOpLocks map[int]*sync.Mutex
 
 	// hookBinMu guards hookBinInode (S52fc2c-5).
-	hookBinMu   sync.Mutex
+	hookBinMu    sync.Mutex
 	hookBinInode uint64 // inode of the last-successfully-mounted palmux hook binary
 }
 
