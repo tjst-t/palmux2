@@ -1,0 +1,69 @@
+# Code-quality CI for the Go backend + React frontend.
+#
+# Why this exists (S52fc2c): before this, the repo had NO workflow that ran
+# `go build/vet/test`, golangci-lint, or eslint on push/PR — only
+# appliance-no-baked-keys / build-workspace-image / release. So code could reach
+# `main` without the project's own linters ever running (and it did: S52fc2c
+# introduced a gofmt + an unused-const issue that no gate caught until run by hand).
+#
+# golangci-lint runs with only-new-issues: true because the repo carries a large
+# backlog of pre-existing findings (accumulated precisely because nothing ran the
+# linter). This gates NEW issues without forcing a repo-wide cleanup first; the
+# backlog can be paid down separately.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go (build · vet · test · lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # golangci-lint only-new-issues needs history to diff
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+          cache: true
+      # embed.go embeds frontend/dist; the committed .gitkeep placeholder is
+      # enough for `go build` without bundling the real frontend.
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
+      - name: golangci-lint (new issues only)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.1.6
+          only-new-issues: true
+
+  frontend:
+    name: Frontend (lint · typecheck · build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Lint (eslint)
+        run: npm run lint
+      - name: Typecheck (tsc)
+        run: npx tsc -b
+      - name: Build
+        run: npm run build
