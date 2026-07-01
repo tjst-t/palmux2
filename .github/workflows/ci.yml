@@ -44,6 +44,11 @@ jobs:
         uses: golangci/golangci-lint-action@v7 # v7+ required for golangci-lint v2
         with:
           version: v2.1.6
+          # Compile golangci-lint with the runner's Go (1.25) instead of the
+          # prebuilt binary, which is built with Go 1.24 and refuses to run against
+          # a go.mod targeting go 1.25.0 ("Go language version used to build … is
+          # lower than the targeted Go version").
+          install-mode: goinstall
           only-new-issues: true
 
   frontend:
