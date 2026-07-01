@@ -202,6 +202,11 @@ func (s *Store) scanPorts(ctx context.Context) {
 	}
 	s.mu.RUnlock()
 
+	// S52fc2c-7: per-cycle alias fingerprint cache. All workspaces using the
+	// same image alias share a single `incus image list` resolution.
+	// [AC-S52fc2c-7-1]
+	fpCache := &runtime.AliasFingerprintCache{}
+
 	for _, ws := range workspaces {
 		rt := s.deps.RuntimeRegistry.Get(ws.repoID, ws.branchID)
 		if rt == nil || rt.Kind() != runtime.KindIncusContainer {
@@ -214,8 +219,17 @@ func (s *Store) scanPorts(ctx context.Context) {
 		// container's base image against the current palmux-ws alias fingerprint
 		// and publishes a drift event only on transitions. Independent of the
 		// port scan below (a non-port-scanner runtime could still drift).
-		if dc, ok := rt.(runtime.ImageDriftChecker); ok {
-			stale, derr := dc.IsImageStale(ctx)
+		if _, ok := rt.(runtime.ImageDriftChecker); ok {
+			var stale bool
+			var derr error
+			// S52fc2c-7: use the per-cycle cache if available (incusRuntime always
+			// implements CachedImageDriftChecker); fall back to the plain interface
+			// for any future runtime that implements only ImageDriftChecker.
+			if cdc, ok2 := rt.(runtime.CachedImageDriftChecker); ok2 {
+				stale, derr = cdc.IsImageStaleWithCache(ctx, fpCache)
+			} else {
+				stale, derr = rt.(runtime.ImageDriftChecker).IsImageStale(ctx)
+			}
 			if derr != nil {
 				s.logger.Warn("store.scanPorts: image drift check failed",
 					"repoID", ws.repoID, "branchID", ws.branchID, "err", derr)

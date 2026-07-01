@@ -59,4 +59,13 @@
   # grows the ext4 FS to fill it. (boot.growPartition only handles root, so it's not
   # used here.)
   fileSystems."/persist".autoResize = true;
+
+  # S52fc2c-2 note: this module (disko-layout) is loaded ONLY in the IMAGE build
+  # (flake.nix appliance-qcow2), where disko generates
+  # `fileSystems."/persist".device = /dev/disk/by-partlabel/disk-main-persist`. The
+  # ON-BOX system does NOT load this file — it declares /persist in appliance-flake/
+  # hardware-base.nix instead. For persist.mount to be identical across the image and
+  # on-box generations (so `nixos-rebuild switch` never restarts the busy /persist →
+  # native rc=0), hardware-base.nix must reference /persist by the SAME by-partlabel
+  # id the image bakes. See the pin + rationale in appliance-flake/hardware-base.nix.
 }

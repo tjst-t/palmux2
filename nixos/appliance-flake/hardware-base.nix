@@ -21,8 +21,24 @@
   # /persist is the LAST partition and the ONLY one that grows. The palmux-grow-persist
   # oneshot (appliance.nix) enlarges the partition after a `qm resize`; autoResize
   # then grows the ext4 FS to fill it.
+  #
+  # S52fc2c-2: reference /persist by its PARTLABEL (disk-main-persist), NOT its fs
+  # LABEL, because that is exactly what the disko-built IMAGE bakes into gen1
+  # (`fileSystems."/persist".device = /dev/disk/by-partlabel/disk-main-persist`). This
+  # on-box file and the image's disko-layout.nix each declare /persist separately, so
+  # if they use DIFFERENT device ids the FIRST image→flake `nixos-rebuild switch` sees
+  # persist.mount's What= change → switch-to-configuration-ng UNCONDITIONALLY restarts
+  # the changed .mount (only / and /nix are reload-only, hardcoded in its src/main.rs)
+  # → but /persist is always in use, so the umount fails "target is busy" and the switch
+  # exits non-zero even though it fully applied → the update UX shows a false "更新失敗".
+  # Matching the image's by-partlabel id makes persist.mount byte-identical across
+  # generations, so switch-to-configuration never restarts it → `nixos-rebuild switch`
+  # returns rc=0 NATIVELY. by-partlabel/disk-main-persist and by-label/persist point at
+  # the same partition (verified on a real appliance: both → sda3), so this is a pure
+  # id-stabilization with no behavior change. (root `/` stays by-label: `-.mount` is
+  # reload-only so its image→flake ref change reloads harmlessly and never fails.)
   fileSystems."/persist" = {
-    device = "/dev/disk/by-label/persist";
+    device = "/dev/disk/by-partlabel/disk-main-persist";
     fsType = "ext4";
     autoResize = true;
   };

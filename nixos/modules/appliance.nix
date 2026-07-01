@@ -218,7 +218,7 @@ in
     before = [ "palmux2.service" "incus.service" ];
     requiredBy = [ "palmux2.service" ]; # palmux2 Requires + waits for this
     unitConfig.RequiresMountsFor = "/persist";
-    path = with pkgs; [ coreutils util-linux ];
+    path = with pkgs; [ coreutils util-linux grub2 ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
@@ -272,6 +272,24 @@ in
           else
             install -m 0644 ${../appliance-flake/grub-device.nix} ${flakeDir}/grub-device.nix
           fi
+          # S52fc2c-3 (bus-agnostic MBR heal): physically re-install GRUB to the
+          # DETECTED disk on first boot. gen1 (the sealed image closure) bakes
+          # boot.loader.grub.devices = ["/dev/vda"] — disko's make-disk-image.nix forces
+          # the build VM's disk (/dev/vda) into the closure and we cannot override it
+          # without breaking the image build (see image-hardware.nix S52fc2c-3 note). On
+          # a Proxmox virtio-scsi host the actual disk is /dev/sda, so the GRUB that the
+          # image build embedded points at the wrong device name. This first-boot
+          # grub-install plants a CORRECT MBR on the real disk regardless of bus type
+          # (sda or vda), and the grub-device.nix written just above pins that same disk
+          # for gen 2+ `nixos-rebuild switch`. After this, forward generations install
+          # GRUB correctly on any hardware. (The one residual case — a `--rollback` to
+          # gen1, whose sealed closure still calls grub-install /dev/vda — prints rc=1 on
+          # virtio-scsi but is harmless: this planted MBR stays valid and the box boots.)
+          # Non-fatal: a failure here just logs; gen2+ use the grub-device.nix disk.
+          if [ -b "$disk" ]; then
+            grub-install --no-floppy "$disk" 2>&1 \
+              || echo "palmux-state-init: grub-install $disk returned non-zero (non-fatal, gen2+ will use correct grub-device.nix)" >&2
+          fi
         fi
       '';
     };
@@ -321,6 +339,24 @@ in
     # root-owned flake dir), keeping palmux2's role to just `systemctl start`.
     script = ''
       set -eu
+
+      # ── S52fc2c-2: persist.mount rc=1 is fixed at the ROOT CAUSE, not here ────
+      # switch-to-configuration-ng (NixOS 25.05, Rust) UNCONDITIONALLY *restarts* any
+      # changed .mount unit (only `-.mount`=/ and nix.mount are reload-only, hardcoded
+      # — verified in its src/main.rs). A restart stop→starts the mount; /persist is
+      # always in use, so the umount fails "target is busy" and `nixos-rebuild switch`
+      # exits non-zero even though the switch otherwise fully applied → the exit-code-
+      # driven update UX shows a false "更新失敗". The ROOT CAUSE is that persist.mount's
+      # What= (device) differed between generations because /persist is declared in TWO
+      # separate files that disagreed: the disko IMAGE build (disko-layout.nix) baked
+      # `by-partlabel/disk-main-persist`, while the ON-BOX system (appliance-flake/
+      # hardware-base.nix) declared `by-label/persist`. The FIRST image→flake switch thus
+      # saw a changed What= → restart. FIX (S52fc2c-2): hardware-base.nix now references
+      # /persist by the SAME by-partlabel id the image bakes, so persist.mount is IDENTICAL
+      # across generations → switch-to-configuration never restarts it → `nixos-rebuild
+      # switch` returns rc=0 NATIVELY. Verified on a real appliance (switch#1 by-label→
+      # by-partlabel reproduced rc=1; switch#2 stable by-partlabel returned rc=0). So this
+      # unit just runs a plain switch; a genuine failure still propagates under `set -eu`.
       cfg=${appCfgDir}/config.toml
       secrets=${appCfgDir}/secrets.env
       domain=""
@@ -363,7 +399,7 @@ in
           echo "palmux-rebuild: Caddy failed to start under domain '$domain' — rolling back to keep the box reachable (:7683 LAN). Check the Cloudflare token / DNS, then retry." >&2
           rm -f ${dropinDir}/10-public.nix
           sed -i -E '/^[[:space:]]*domain[[:space:]]*=/ s/=.*/= ""/' "$cfg"
-          nixos-rebuild switch --flake .#appliance
+          nixos-rebuild switch --flake .#appliance || true   # re-apply reachable no-domain config; report failure below
           exit 1
         fi
       fi

@@ -32,6 +32,14 @@ type Service struct {
 	mu       sync.RWMutex
 	snapshot Snapshot
 	running  bool // an Update all execution is in flight (best-effort, single host)
+
+	// forceDir/forceBase wire the env-gated force-update test affordance
+	// (force.go). forceDir is the config dir holding the synthetic-counter state;
+	// forceBase returns the REAL version (no suffix). Both zero in CLI/test setups
+	// that don't enable force; the whole mechanism additionally requires
+	// PALMUX_SELFUPDATE_FORCE to be set, so leaving these unset is doubly safe.
+	forceDir  string
+	forceBase func() string
 }
 
 // NewService builds a Service. publish may be nil (no WS broadcast, e.g. CLI).
@@ -40,6 +48,22 @@ func NewService(m Manifest, probes InstalledProbes, publish Publisher, logger *s
 		logger = slog.Default()
 	}
 	return &Service{manifest: m, probes: probes, publish: publish, logger: logger}
+}
+
+// EnableForce wires the force-update test affordance to a config dir and a real-
+// version probe. Has no effect at runtime unless PALMUX_SELFUPDATE_FORCE is also
+// set (the env gate in force.go). dir == "" leaves force fully off.
+func (s *Service) EnableForce(dir string, base func() string) {
+	s.forceDir = dir
+	s.forceBase = base
+}
+
+// forceVersion returns the real version for force overlays, or "" if not wired.
+func (s *Service) forceVersion() string {
+	if s.forceBase == nil {
+		return ""
+	}
+	return s.forceBase()
 }
 
 // Current returns the last cached snapshot (zero-value until the first poll).
@@ -55,6 +79,10 @@ func (s *Service) Current() Snapshot {
 // (decisions PD-3).
 func (s *Service) Refresh(ctx context.Context) Snapshot {
 	snap := Detect(ctx, s.manifest, s.probes, s.nixManaged())
+	// Force-update test affordance: when armed (and PALMUX_SELFUPDATE_FORCE set),
+	// synthesize "update available" at the same real version so the full GUI
+	// update flow can be exercised without a real newer release. Inert otherwise.
+	overlayForce(s.forceDir, s.forceVersion(), &snap)
 
 	s.mu.Lock()
 	prev := s.snapshot
@@ -231,6 +259,18 @@ func (s *Service) RunUpdate(ctx context.Context) error {
 		s.mu.Unlock()
 	}
 
+	// Force-update test path: when armed, APPLY the synthetic version bump
+	// (Current++, disarm) BEFORE the restart so the post-restart /health reports
+	// the advanced "+force.N" suffix and the reconnect handshake sees a version
+	// change → success toast → badge clears. The real machinery still runs
+	// (honoring "real switch + independent-unit survival"); the only injected
+	// difference is the guaranteed version delta. Inert unless force mode is on.
+	if applyForce(s.forceDir) {
+		go s.runForcedUpdate(clearRunning)
+		s.logger.Info("selfupdate: started FORCED update (test affordance; synthetic version bump applied)")
+		return nil
+	}
+
 	if updateUnitAvailable() {
 		// Independent-unit path (Sa8e7d0-1). Reset any prior failed state, then
 		// `systemctl --user start --no-block`: enqueue the oneshot and return; the
@@ -296,6 +336,68 @@ func (s *Service) RunUpdate(ctx context.Context) error {
 	}()
 	s.logger.Info("selfupdate: launched ~/update-palmux2.sh detached (legacy fallback; palmux-update unit absent)", "log", logPath)
 	return nil
+}
+
+// palmuxUnitName is the main palmux2 systemd user unit. The forced test path
+// restarts it explicitly to guarantee the WS-drop → reconnect handshake fires
+// even when the (same-pin) home-manager switch is a no-op that would not restart
+// palmux2 on its own. A var so tests can stub it.
+var palmuxUnitName = "palmux2.service"
+
+// runForcedUpdate drives the REAL update machinery for the force test path, then
+// guarantees a palmux2 restart so the FE reconnect handshake completes.
+//
+// Sequence (background; this process is expected to die at the restart):
+//  1. Run the real ~/update-palmux2.sh via the independent palmux-update.service
+//     (--wait), exercising the real home-manager switch + the independent-unit
+//     survival mechanism. If that switch restarts palmux2, we die here — the
+//     handshake already has its version delta from the pre-applied counter.
+//  2. If we are still alive (the same-pin switch was a no-op and did NOT restart
+//     us), explicitly `systemctl --user restart palmux2.service` to produce the
+//     WS drop. Either way exactly one effective restart occurs.
+//
+// On installs predating the independent unit, fall back to running
+// ~/update-palmux2.sh directly before the guaranteed restart.
+func (s *Service) runForcedUpdate(clearRunning func()) {
+	if updateUnitAvailable() {
+		_ = exec.Command(systemctlUserBin, "--user", "reset-failed", updateUnitName).Run() //nolint:gosec,errcheck
+		// --wait blocks until the real switch completes (or until it restarts us).
+		wait := exec.Command(systemctlUserBin, "--user", "start", "--wait", updateUnitName) //nolint:gosec // fixed unit name
+		wait.Stdin = nil
+		if err := wait.Run(); err != nil {
+			s.logger.Warn("selfupdate: forced update unit returned non-zero; restarting palmux2 anyway", "err", err)
+		}
+	} else if p := updateScriptPath(); p != "" {
+		// Legacy fallback: run the helper directly (foreground here, in our own
+		// goroutine) before the guaranteed restart.
+		run := exec.Command("bash", p) //nolint:gosec // fixed ~/update-palmux2.sh path
+		if err := run.Run(); err != nil {
+			s.logger.Warn("selfupdate: forced legacy helper returned non-zero; restarting palmux2 anyway", "err", err)
+		}
+	}
+	// Guaranteed restart: this drops the events WS; the FE polls /health, reads
+	// the advanced +force.N suffix, reconnects, and shows the completion toast.
+	// This usually kills us, so clearRunning is a belt-and-suspenders no-op.
+	//
+	// E2E-rig seam: PALMUX_SELFUPDATE_RESTART_CMD overrides the restart with a
+	// shell command. The dev E2E runs palmux2 as a bare subprocess (no systemd
+	// user unit), so `systemctl --user restart palmux2.service` would fail; the
+	// test sets this to a no-op and performs the process restart itself (same
+	// config dir → the restarted process reads the advanced +force.N counter).
+	// Never set in production, where the real systemctl restart is used.
+	var restart *exec.Cmd
+	if seam := os.Getenv("PALMUX_SELFUPDATE_RESTART_CMD"); seam != "" {
+		restart = exec.Command("sh", "-c", seam) //nolint:gosec // E2E-rig-only seam
+	} else {
+		restart = exec.Command(systemctlUserBin, "--user", "restart", palmuxUnitName) //nolint:gosec // fixed unit name
+	}
+	restart.Stdin = nil
+	if err := restart.Run(); err != nil {
+		s.logger.Error("selfupdate: forced palmux2 restart failed; FE handshake will time out to 失敗", "err", err)
+		clearRunning()
+		return
+	}
+	clearRunning()
 }
 
 // watchUpdateUnit polls the palmux-update unit's ActiveState and clears the

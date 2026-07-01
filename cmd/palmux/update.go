@@ -18,13 +18,13 @@ import (
 // (binary) and installedImageVersion() (palmux-ws image). Single constructor so
 // the CLI and GUI never drift in which components they check (decisions PD-5).
 // (S6ab0ed)
-func newSelfUpdateService(st *store.Store) (*selfupdate.Service, error) {
+func newSelfUpdateService(st *store.Store, configDir string) (*selfupdate.Service, error) {
 	m, err := selfupdate.LoadManifest()
 	if err != nil {
 		return nil, err
 	}
 	probes := selfupdate.InstalledProbes{
-		BinVersion:   binVersionProbe,
+		BinVersion:   func() string { return binVersionProbe(configDir) },
 		ImageVersion: installedImageVersion,
 	}
 	var publish selfupdate.Publisher
@@ -33,7 +33,11 @@ func newSelfUpdateService(st *store.Store) (*selfupdate.Service, error) {
 			st.Hub().Publish(store.Event{Type: store.EventAppUpdateAvailable, Payload: snap})
 		}
 	}
-	return selfupdate.NewService(m, probes, publish, slog.Default()), nil
+	svc := selfupdate.NewService(m, probes, publish, slog.Default())
+	// Wire the env-gated force-update test affordance. resolveVersion() is the
+	// REAL (suffix-free) version; the force overlay appends its own "+force.N".
+	svc.EnableForce(configDir, resolveVersion)
+	return svc, nil
 }
 
 // binVersionProbe returns the running binary's version, with a test-only
@@ -42,11 +46,17 @@ func newSelfUpdateService(st *store.Store) (*selfupdate.Service, error) {
 // "update available" deterministically on a dev/dirty build (whose real version
 // would conservatively never show an update). This overrides ONLY the detection
 // INPUT — the GitHub poll itself stays real (Rule 7: production mode). (S6ab0ed)
-func binVersionProbe() string {
-	if v := os.Getenv("PALMUX_SELFUPDATE_FAKE_INSTALLED"); v != "" {
-		return v
+//
+// In force-update test mode it also appends the synthetic "+force.N" suffix
+// (ForceVersionSuffix → "" unless armed-and-applied) so the probed installed
+// version matches what /health reports — keeping the badge's "installed → latest"
+// math and the badge-clearing-after-apply consistent.
+func binVersionProbe(configDir string) string {
+	base := os.Getenv("PALMUX_SELFUPDATE_FAKE_INSTALLED")
+	if base == "" {
+		base = resolveVersion()
 	}
-	return resolveVersion()
+	return base + selfupdate.ForceVersionSuffix(configDir)
 }
 
 // runUpdate implements `palmux update [--check]`.
@@ -60,22 +70,51 @@ func binVersionProbe() string {
 // Shares internal/selfupdate with the GUI (decisions PD-5). Returns an exit code.
 func runUpdate(args []string) int {
 	check := false
-	for _, a := range args {
+	forceArm, forceDisarm, forceStatus := false, false, false
+	configDir := defaultConfigDir()
+	for i := 0; i < len(args); i++ {
+		a := args[i]
 		switch a {
 		case "--check":
 			check = true
+		case "--force-arm":
+			forceArm = true
+		case "--force-disarm":
+			forceDisarm = true
+		case "--force-status":
+			forceStatus = true
+		case "--config-dir":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "--config-dir requires a value")
+				return 1
+			}
+			i++
+			configDir = args[i]
 		case "-h", "--help":
-			fmt.Println("Usage: palmux update [--check]")
-			fmt.Println("  (no flags)  run the one-click update (flake re-pin → home-manager switch → restart)")
-			fmt.Println("  --check     detection only: print per-component current→latest")
+			fmt.Println("Usage: palmux update [--check | --force-arm | --force-disarm | --force-status] [--config-dir DIR]")
+			fmt.Println("  (no flags)      run the one-click update (flake re-pin → home-manager switch → restart)")
+			fmt.Println("  --check         detection only: print per-component current→latest")
+			fmt.Println()
+			fmt.Println("  Force-update test affordance (requires env PALMUX_SELFUPDATE_FORCE=1):")
+			fmt.Println("  --force-arm     arm a synthetic 'update available' at the SAME real version so")
+			fmt.Println("                  the full GUI update flow (badge → Update → real switch →")
+			fmt.Println("                  reconnect → 更新しました → badge clears) can be verified without")
+			fmt.Println("                  a real newer release. Then click 'すべてまとめて更新' in the GUI.")
+			fmt.Println("  --force-disarm  cancel an armed forced update")
+			fmt.Println("  --force-status  print the force-update counter / armed state")
+			fmt.Println("  --config-dir    config dir holding the force counter (default: the server's)")
 			return 0
 		default:
-			fmt.Fprintf(os.Stderr, "Unknown flag %q. Usage: palmux update [--check]\n", a)
+			fmt.Fprintf(os.Stderr, "Unknown flag %q. Usage: palmux update [--check | --force-arm | --force-disarm | --force-status]\n", a)
 			return 1
 		}
 	}
 
-	svc, err := newSelfUpdateService(nil)
+	if forceArm || forceDisarm || forceStatus {
+		return runForceCmd(configDir, forceArm, forceDisarm)
+	}
+
+	svc, err := newSelfUpdateService(nil, configDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
@@ -86,6 +125,42 @@ func runUpdate(args []string) int {
 		return runUpdateCheck(ctx, svc)
 	}
 	return runUpdateExec(ctx, svc)
+}
+
+// runForceCmd handles `palmux update --force-arm|--force-disarm|--force-status`.
+// All require PALMUX_SELFUPDATE_FORCE to be set (else the mechanism is inert and
+// we say so loudly, so the operator isn't left wondering why the badge never
+// appears).
+func runForceCmd(configDir string, arm, disarm bool) int {
+	if !selfupdate.ForceEnabled() {
+		fmt.Fprintf(os.Stderr,
+			"force-update mode is OFF. Set PALMUX_SELFUPDATE_FORCE=1 on the palmux2 process\n"+
+				"(and on this CLI) first. This is a deliberate test affordance; it is inert in production.\n")
+		return 1
+	}
+	switch {
+	case arm:
+		target, err := selfupdate.ArmForce(configDir, resolveVersion())
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "arm failed: %v\n", err)
+			return 1
+		}
+		fmt.Printf("armed forced update: %s → %s\n", resolveVersion()+selfupdate.ForceVersionSuffix(configDir), target)
+		fmt.Println("Now open the GUI: the '更新あり' badge should appear. Click 'すべてまとめて更新'.")
+		fmt.Println("The REAL update machinery runs and palmux2 restarts; the page reconnects and shows '更新しました'.")
+		return 0
+	case disarm:
+		if err := selfupdate.DisarmForce(configDir); err != nil {
+			fmt.Fprintf(os.Stderr, "disarm failed: %v\n", err)
+			return 1
+		}
+		fmt.Println("disarmed forced update.")
+		return 0
+	default: // status
+		fmt.Printf("force-update: enabled=true armed=%v version=%s\n",
+			selfupdate.ForceArmed(configDir), resolveVersion()+selfupdate.ForceVersionSuffix(configDir))
+		return 0
+	}
 }
 
 func runUpdateCheck(ctx context.Context, svc *selfupdate.Service) int {

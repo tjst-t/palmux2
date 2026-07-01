@@ -536,6 +536,18 @@ func (c *Client) Close() {
 		if c.cmd != nil && c.cmd.Process != nil {
 			_ = c.cmd.Process.Kill()
 		}
+		// S52fc2c-4: kill any lingering in-container claude process. The host-side
+		// incus exec being killed above does not guarantee the container child dies.
+		// [AC-S52fc2c-4-1]
+		if c.opts.ExecCommander != nil {
+			if kk, ok := c.opts.ExecCommander.(runtime.ContainerProcessKiller); ok {
+				kCtx, kCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				if err := kk.KillContainerProcesses(kCtx, "TERM", containerClaudeBin); err != nil {
+					c.logger.Debug("claudeagent: in-container claude TERM (non-fatal)", "err", err)
+				}
+				kCancel()
+			}
+		}
 		_ = c.stdin.Close()
 		<-c.doneCh
 	})

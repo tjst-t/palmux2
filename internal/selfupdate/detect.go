@@ -50,6 +50,11 @@ type Snapshot struct {
 	NixOSHost bool   `json:"nixOSHost"`
 	CheckedAt string `json:"checkedAt"` // RFC3339; "" if never checked
 	Degraded  bool   `json:"degraded"`  // GitHub unreachable / rate-limited this cycle
+	// Forced is true when this snapshot's "update available" was synthesized by
+	// the env-gated force-update test affordance (force.go) rather than a real
+	// newer release. Lets the GUI mark the badge/panel as a test run. Always false
+	// in production (PALMUX_SELFUPDATE_FORCE unset).
+	Forced bool `json:"forced"`
 }
 
 // nixosMarkers are the paths whose presence identifies a NixOS host. /etc/NIXOS
