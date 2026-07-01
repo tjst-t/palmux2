@@ -11357,6 +11357,18 @@
       "description": "(Sb14caa 由来) アプライアンスの「運用者が設定する部分」を /persist/palmux/config 束 (config/nixos=drop-in、config/app=config.toml、別: secrets.env / home データ) に切り分け、コア(Nixモジュール)と分離。土台 + first-boot LAN bind は Sb14caa で実装済 (services.palmux.configDir、domain=null 時に 0.0.0.0:7683 bind + firewall 7683 開放=無認証 LAN 公開、domain 設定で loopback+SSO に戻る)。後続 story: ① WebUI/CLI のデプロイ設定 (domain/CFトークン/SSO) を NixOS では config/nixos drop-in + secrets.env に書いて nixos-rebuild switch まで自動化 (Ubuntu reconcile-system の NixOS 版)、② onboarding/claim 認証ゲート (LAN 公開時に未設定だと無認証なので、claim するまで公開しない gate)、③ config 束の backup/GitHub restore 機能 (manifest.json + secrets は age/sops 暗号化、config/ は平文 git-ok)。秘密を平文で git に出さない 3層分離が肝。",
       "added_in": "Sb14caa",
       "reason": "ユーザ要望 (2026-06-22): 設定の簡単な backup・GitHub での設定 backup/restore を将来想定。コア設定と運用者設定をファイルとして切り分け注入できるようにする"
+    },
+    {
+      "title": "Story3 Part2 実走検証: フル qcow2 ビルド + 新規VM起動で first-boot grub-install を確認",
+      "description": "(S52fc2c-3 由来) first-boot の grub-install --no-floppy <detected disk> は fresh-image 初回起動時のみ走る path。controller(192.168.1.43, nix+KVM)で nix build .#appliance-qcow2 → 新規 Proxmox VM 起動 → 実ディスク(/dev/sda)へ grub が入り再起動後もブート正常を確認する。リスク低(revert で既知good設定+起動スクリプト追加のみ)。",
+      "added_in": "S52fc2c",
+      "reason": "実機 fresh-boot 検証が残。qcow2 ビルドは KVM builder 必須でこのセッションの箱では不可"
+    },
+    {
+      "title": "Story6 AC-6-3 実機通し: コンテナ再生成後に Browser タブが新コンテナへ再接続",
+      "description": "(S52fc2c-6 由来) 機構(RuntimeRestartHook→Manager.Reset + uncached registry 再解決)は unit+inspection 済、incus device/exec primitive も smoke 済。だが『Browser タブを開いた状態で update container → 新コンテナの chromium(CDP/VNC)へ繋ぎ直る』フルスタック E2E が未検証。live palmux+browser+incus で確認する。",
+      "added_in": "S52fc2c",
+      "reason": "live フルスタック検証が残"
     }
   ]
 }
