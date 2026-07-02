@@ -64,6 +64,37 @@ export function MainArea() {
     }
   }, [repos, rightTarget.repoId, rightTarget.branchId, setRightTarget])
 
+  // When split turns on with no right target yet, default the right panel to the
+  // SAME workspace shown on the left (repo/branch/tab) — so a fresh split shows the
+  // open workspace instead of an empty "Pick a repository…" panel. Defaults once per
+  // split session (rightDefaultedRef) so the user can still clear or repoint the
+  // right panel afterward; the ref resets when split is turned off. An existing
+  // right target (e.g. a ?right= link) is respected, never overridden.
+  const rightDefaultedRef = useRef(false)
+  useEffect(() => {
+    if (!showSplit) {
+      rightDefaultedRef.current = false
+      return
+    }
+    if (rightDefaultedRef.current) return
+    if (rightTarget.repoId) {
+      rightDefaultedRef.current = true // already targeting something — leave it
+      return
+    }
+    if (!leftTarget.repoId || !leftTarget.branchId) return
+    // Wait until `repos` is loaded and the left workspace actually exists — otherwise
+    // the "clear stale right target" effect above (which runs when a right repo isn't
+    // in `repos`) would immediately wipe the default we set during the initial load.
+    const repo = repos.find((r) => r.id === leftTarget.repoId)
+    if (!repo || !repo.openBranches.some((b) => b.id === leftTarget.branchId)) return
+    rightDefaultedRef.current = true
+    setRightTarget({
+      repoId: leftTarget.repoId,
+      branchId: leftTarget.branchId,
+      tabId: leftTarget.tabId,
+    })
+  }, [showSplit, rightTarget.repoId, leftTarget.repoId, leftTarget.branchId, leftTarget.tabId, repos, setRightTarget])
+
   // Clear notifications whenever a Claude tab is the active tab on either
   // panel — visiting the agent counts as "I read it".
   const clearBranchNotifications = usePalmuxStore((s) => s.clearBranchNotifications)
