@@ -531,8 +531,11 @@ function ClaudeTuiDesktop({
       const payload = data.slice(semi + 1)
       if (payload === '?') return true
       try {
-        const decoded = atob(payload)
-        void navigator.clipboard.writeText(decoded)
+        // OSC 52 base64 carries the selection's UTF-8 BYTES. atob() yields a
+        // per-byte binary string, so it must be decoded as UTF-8 before hitting
+        // the clipboard — otherwise multibyte text lands mojibaked (予測 → äºæ¸¬).
+        const bytes = Uint8Array.from(atob(payload), (c) => c.charCodeAt(0))
+        void navigator.clipboard.writeText(new TextDecoder().decode(bytes))
       } catch { /* ignore */ }
       return true
     })
