@@ -287,7 +287,14 @@ in
           # virtio-scsi but is harmless: this planted MBR stays valid and the box boots.)
           # Non-fatal: a failure here just logs; gen2+ use the grub-device.nix disk.
           if [ -b "$disk" ]; then
-            grub-install --no-floppy "$disk" 2>&1 \
+            # --target=i386-pc is REQUIRED: without it grub-install probes the host
+            # platform and (on this BIOS/GPT+EF02 appliance) mis-defaults to
+            # i386-ieee1275, failing with "…/i386-ieee1275/modinfo.sh doesn't exist".
+            # The appliance is always BIOS-boot (bios EF02 partition in disko-layout),
+            # so pin the PC target explicitly. Verified on a fresh appliance (S935ab8-1):
+            # `grub-install --no-floppy` → rc=1; `grub-install --target=i386-pc
+            # --no-floppy` → "Installation finished. No error reported." rc=0.
+            grub-install --target=i386-pc --no-floppy "$disk" 2>&1 \
               || echo "palmux-state-init: grub-install $disk returned non-zero (non-fatal, gen2+ will use correct grub-device.nix)" >&2
           fi
         fi

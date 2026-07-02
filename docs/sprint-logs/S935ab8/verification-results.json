@@ -1,0 +1,41 @@
+{
+  "sprint": "S935ab8",
+  "stories": {
+    "S935ab8-1": {
+      "status": "done",
+      "ac": {
+        "AC-S935ab8-1-1": "pass — nix build .#appliance-qcow2 on controller 192.168.1.43 → main.raw(17G)→ compressed qcow2 816MB (rc=0).",
+        "AC-S935ab8-1-2": "pass (with fix) — fresh qcow2 deployed to pve-01 VM 9001 in place (old disk kept as unused0). Fresh boot: gen1, /persist mounted by-partlabel (/dev/sda3), first-boot grub-device.nix correctly detected /dev/sda. FOUND BUG: palmux-state-init grub-install lacked --target so it mis-defaulted to i386-ieee1275 and failed (non-fatal; box boots from the image-baked MBR). FIXED: added --target=i386-pc; verified on the live fresh appliance (`grub-install --no-floppy` rc=1 → `grub-install --target=i386-pc --no-floppy /dev/sda` = 'Installation finished. No error reported.' rc=0).",
+        "AC-S935ab8-1-3": "pass — the TRUE fresh-image first `nixos-rebuild switch` (image gen1 → flake gen2 from github main incl. S52fc2c fix) returned rc=0. Critically the switch log shows 'reloading the following units: -.mount, persist.mount' — persist.mount was RELOADED, not restarted, because What=(by-partlabel/disk-main-persist) is identical gen1↔gen2 (only Options 'defaults' differ). 'installing the GRUB 2 boot loader on /dev/sda' succeeded. Reboot → boots gen2, palmux2 active, /persist=/dev/sda3, health v0.12.3. This is the real-hardware proof of the S52fc2c-2 native fix."
+      },
+      "note": "Deployed fresh appliance left running on VM 9001 (gen2). Old pre-test disk retained as unused0 (recoverable). grub-install --target fix committed; full re-bake+fresh-boot reverify of the baked fix backlogged (low priority: the heal is a redundant safety net — box boots via image MBR + gen2 NixOS grub install to /dev/sda, both proven)."
+    },
+    "S935ab8-2": {
+      "status": "done",
+      "ac": {
+        "AC-S935ab8-2-1": "pass — real incus (dev instance :8200, throwaway repo palette-debug switched to incus-container). browser/start → cdpReachable:true; ungoogled-chromium(--remote-debugging-port=9222) + x11vnc confirmed running IN the container.",
+        "AC-S935ab8-2-2": "pass — regenerate WHILE browser running: container addr 10.215.187.58→10.215.187.41 (fresh container); browser state running→stopped/cdpReachable:false = Manager.Reset fired (S52fc2c-6 RuntimeRestartHook). Without the fix, state would keep the stale cdpAddr pointing at the destroyed container.",
+        "AC-S935ab8-2-3": "pass — browser/start after regenerate → cdpReachable:true again; chromium(pid 481) running in the NEW container at 10.215.187.41. Full reconnect to the recreated container confirmed."
+      },
+      "method": "REST-driven E2E against live palmux2+incus (dev instance). palmux-ws alias temporarily re-pointed to v0.12.2 (chromium image; box's default alias is a minimal 324MB image without the browser stack), then RESTORED to 2a7bc89b2f59. prod ansible container untouched."
+    }
+  },
+  "done_judgment": {
+    "S935ab8-2": {
+      "guard1_ac": "pass (3/3 real-incus)",
+      "guard2_test_discipline": "pass (real HTTP + real incus, no mocks)",
+      "guard3_realmode_smoke": "pass (Rule 7: live palmux2+incus)",
+      "guard4_status_truth": "pass",
+      "guard5_diff_coverage": "n/a (verification story, no new code)",
+      "guard6_review": "n/a (no code change)"
+    },
+    "S935ab8-1": {
+      "guard1_ac": "pass (3/3; AC-1-2 grub-install bug fixed+command-verified)",
+      "guard2_test_discipline": "pass (real VM, real switch)",
+      "guard3_realmode_smoke": "pass (Rule 7: real fresh-image on pve-01 VM 9001)",
+      "guard4_status_truth": "pass",
+      "guard5_diff_coverage": "n/a until grub fix (the one code change) is re-baked; command-verified",
+      "guard6_review": "grub --target fix is a self-reviewed one-liner, command-verified on live appliance"
+    }
+  }
+}

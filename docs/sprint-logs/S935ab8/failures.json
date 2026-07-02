@@ -1,0 +1,12 @@
+{
+  "sprint": "S935ab8",
+  "blocked": [
+    {
+      "story": "S935ab8-1",
+      "status": "blocked",
+      "reason": "infra: qcow2 build host 192.168.1.43 (controller 'palmux-deploy-test2', Determinate Nix + /dev/kvm) went DOWN mid-run (was reachable at session start, then 100% ping loss / 'No route to host'; not a pve-01 VM, so cannot be powered on from here). appliance-qcow2 needs a KVM+nix builder; this session's box has neither nix nor /dev/kvm, and installing nix on the pve-01 production hypervisor is out of scope. Retried SSH 7×/ping over ~80s — still down.",
+      "tried": ["rsync tree to controller (conn closed)","ssh ubuntu@192.168.1.43 x7","ping x4","checked pve-01 qm list (controller is not a pve-01 VM)"],
+      "needs_human": "Power on / restore 192.168.1.43 (or provide another nix+KVM builder). Then Story 1 can build .#appliance-qcow2 → deploy to pve-01 VM 9001 (192.168.1.45, in-place fresh qcow2) → verify first-boot grub-install + first nixos-rebuild switch rc=0."
+    }
+  ]
+}

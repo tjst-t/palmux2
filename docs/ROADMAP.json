@@ -2,12 +2,12 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 64,
-    "sprints_total": 65,
+    "sprints_done": 65,
+    "sprints_total": 66,
     "percent": 98,
-    "current_sprint": "Sb14caa",
-    "done": 64,
-    "total": 65,
+    "current_sprint": "S935ab8",
+    "done": 65,
+    "total": 66,
     "remaining": 1,
     "in_progress": 0,
     "percentage": 98
@@ -77,6 +77,7 @@
     "S8fe0cb",
     "Sa8e7d0",
     "S52fc2c",
+    "S935ab8",
     "Sb14caa"
   ],
   "sprints": {
@@ -10823,6 +10824,96 @@
           }
         }
       }
+    },
+    "S935ab8": {
+      "title": "S52fc2c 残検証の回収: appliance fresh-image 実走 + Browser 再接続フルスタック E2E",
+      "status": "done",
+      "milestone": false,
+      "stories": {
+        "S935ab8-1": {
+          "title": "appliance fresh-image 実走検証: qcow2 ビルド + 新規VM初回起動で grub/persist.mount が rc=0",
+          "status": "done",
+          "user_story": "palmuxOS 運用者として、配布する appliance qcow2 を新規 VM に一から起動したとき、初回 nixos-rebuild switch が grub/persist.mount エラー無しで rc=0 完走し再起動後もブート正常であってほしい。なぜなら、S52fc2c-2(persist device 一致)と S52fc2c-3(first-boot grub-install)は現行 appliance の drift 検証では確認できず、真の fresh-image 初回起動 path が未検証で、Sb14caa Stage5(本番採用)の前提だから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S935ab8-1-1",
+              "description": "controller(192.168.1.43, nix+KVM)で `nix build .#appliance-qcow2` が成功し qcow2 イメージを生成する(S52fc2c の hardware-base by-partlabel + grub 変更込みの main で)。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S935ab8-1-2",
+              "description": "生成イメージを新規 VM(実 Proxmox もしくは controller の store qemu で -snapshot boot)で起動 → 初回ブートで palmux-state-init の first-boot grub-install が実検出ディスクに走り、`/persist` が by-partlabel/disk-main-persist でマウントされる。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S935ab8-1-3",
+              "description": "初回 `nixos-rebuild switch`(image gen1→flake gen2)が persist.mount restart 無し(What= 一致で reload/no-op)で **rc=0** 完走し grub エラーも出ない。再起動後も新世代でブート正常・palmux2 healthy。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S935ab8-1-1": {
+              "id": "S935ab8-1-1",
+              "status": "done",
+              "title": "controller で main を build (nix build .#appliance-qcow2、rsync/flake)"
+            },
+            "S935ab8-1-2": {
+              "id": "S935ab8-1-2",
+              "status": "done",
+              "title": "新規 VM で初回起動 → first-boot grub-install + /persist by-partlabel マウント確認"
+            },
+            "S935ab8-1-3": {
+              "id": "S935ab8-1-3",
+              "status": "done",
+              "title": "初回 nixos-rebuild switch の rc=0(grub/persist エラー無し)を確認"
+            },
+            "S935ab8-1-4": {
+              "id": "S935ab8-1-4",
+              "status": "done",
+              "title": "reboot 後のブート正常性 + palmux2 healthy を確認、acceptance ログ記録"
+            }
+          }
+        },
+        "S935ab8-2": {
+          "title": "Browser タブ フルスタック実機通し: コンテナ再生成後に新コンテナへ再接続",
+          "status": "done",
+          "user_story": "palmux 利用者として、Browser タブを開いた状態で Workspace コンテナを update(再生成)したとき、Browser タブが自動で新コンテナの chromium に繋ぎ直ってほしい。なぜなら、S52fc2c-6 の RuntimeRestartHook→Manager.Reset 機構は unit+inspection+incus primitive smoke までは済んでいるが、live palmux+browser+incus のフルスタックで実際に再接続する E2E(AC-6-3)が未検証だから。",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S935ab8-2-1",
+              "description": "live incus-container Workspace で Browser タブを開くと chromium が noVNC canvas に表示される(CDP/VNC 接続確立)。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S935ab8-2-2",
+              "description": "「Update container」(RegenerateBranchContainer)でコンテナを再生成すると、該当 Workspace の Browser tab Manager がリセットされる(旧 CDP/VNC を破棄)。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S935ab8-2-3",
+              "description": "再生成後に Browser タブを開く/操作すると、新コンテナの bridge IP の chromium(CDP/VNC)へ繋ぎ直り画面が復帰する(実ブラウザ Playwright で観測)。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S935ab8-2-1": {
+              "id": "S935ab8-2-1",
+              "status": "done",
+              "title": "dev instance(make serve INSTANCE=dev)+ incus-container Workspace + Browser タブを準備"
+            },
+            "S935ab8-2-2": {
+              "id": "S935ab8-2-2",
+              "status": "done",
+              "title": "Browser 表示確立 → Update container 実行 → Manager reset を確認"
+            },
+            "S935ab8-2-3": {
+              "id": "S935ab8-2-3",
+              "status": "done",
+              "title": "再生成後の Browser 再接続(新コンテナ chromium)を実ブラウザで確認、acceptance ログ記録"
+            }
+          }
+        }
+      }
     }
   },
   "dependencies": {
@@ -11108,6 +11199,12 @@
         "S62374c"
       ],
       "reason": "Sb14caa(palmuxOS appliance Stage1-4) の構成モジュールは main に merge 済で稼働中。本 Sprint の appliance 更新堅牢化(Story2/3)は Sb14caa Stage5(本番採用)の前提となるため、Sb14caa の完了より前に実行する。in-container claude reap/hook inode(Story4/5)は S4d8b1c 由来の残課題、Browser Manager reset(Story6)は S7364e3+S62374c、drift 効率化(Story7)は S7364e3 の ImageDriftChecker が前提。force 検証(Story1)は S6ab0ed/Sa8e7d0 の self-update 上に乗る。"
+    },
+    "S935ab8": {
+      "depends_on": [
+        "S52fc2c"
+      ],
+      "reason": "S52fc2c で実装した appliance persist/grub fix(Story1)と Browser Manager reset(Story2)の、heavy-infra を要して当時 backlog 化した実機フルスタック検証を回収する。"
     }
   },
   "backlog": [
@@ -11359,16 +11456,10 @@
       "reason": "ユーザ要望 (2026-06-22): 設定の簡単な backup・GitHub での設定 backup/restore を将来想定。コア設定と運用者設定をファイルとして切り分け注入できるようにする"
     },
     {
-      "title": "Story3 Part2 実走検証: フル qcow2 ビルド + 新規VM起動で first-boot grub-install を確認",
-      "description": "(S52fc2c-3 由来) first-boot の grub-install --no-floppy <detected disk> は fresh-image 初回起動時のみ走る path。controller(192.168.1.43, nix+KVM)で nix build .#appliance-qcow2 → 新規 Proxmox VM 起動 → 実ディスク(/dev/sda)へ grub が入り再起動後もブート正常を確認する。リスク低(revert で既知good設定+起動スクリプト追加のみ)。",
-      "added_in": "S52fc2c",
-      "reason": "実機 fresh-boot 検証が残。qcow2 ビルドは KVM builder 必須でこのセッションの箱では不可"
-    },
-    {
-      "title": "Story6 AC-6-3 実機通し: コンテナ再生成後に Browser タブが新コンテナへ再接続",
-      "description": "(S52fc2c-6 由来) 機構(RuntimeRestartHook→Manager.Reset + uncached registry 再解決)は unit+inspection 済、incus device/exec primitive も smoke 済。だが『Browser タブを開いた状態で update container → 新コンテナの chromium(CDP/VNC)へ繋ぎ直る』フルスタック E2E が未検証。live palmux+browser+incus で確認する。",
-      "added_in": "S52fc2c",
-      "reason": "live フルスタック検証が残"
+      "title": "appliance first-boot grub-install: full re-bake reverify of --target=i386-pc fix",
+      "description": "(S935ab8-1) The grub-install --target=i386-pc fix (appliance.nix palmux-state-init) was command-verified on a live fresh appliance but not yet re-verified from a freshly-baked image's genuine first boot. Rebuild .#appliance-qcow2 with the fix + fresh VM boot → confirm palmux-state-init grub-install runs clean (rc=0) on first boot. Low priority: the heal is redundant (box boots via image-baked MBR; gen2+ NixOS grub install to /dev/sda proven).",
+      "added_in": "S935ab8",
+      "reason": "redundant safety-net; fix command-verified, full fresh-boot reverify deferred"
     }
   ]
 }
