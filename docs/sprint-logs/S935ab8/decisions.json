@@ -1,0 +1,9 @@
+{
+  "sprint": "S935ab8",
+  "note": "sprint auto (deprecated alias; autopilot is the milestone-aware entry point). Both stories are real-machine VERIFICATION of already-merged S52fc2c code — no new production code; the 'implementation' is executing the live verification and recording evidence.",
+  "decisions": [
+    {"id":"D1","topic":"Story1 fresh Proxmox VM","decision":"Reuse pve-01 VM 9001 (192.168.1.45), replace its disk in place with the freshly-built appliance-qcow2 (user option 3). VM 109 does not exist; palmux-deploy-test2 is actually the controller 192.168.1.43.","rationale":"User confirmed 'use 9001 as-is, option 2 or 3 fine'. Option 3 gives a true fresh-image first boot on the existing .45 slot with minimal churn."},
+    {"id":"D2","topic":"Story1 qcow2 build host","decision":"Build `.#appliance-qcow2` on controller 192.168.1.43 (Determinate Nix + /dev/kvm) from an rsync'd copy of main (S52fc2c fix included); controller has no GitHub keys so github: flake fetch is not used.","rationale":"appliance-qcow2 needs a KVM builder (this session's box has neither nix nor /dev/kvm)."},
+    {"id":"D3","topic":"Story2 browser E2E host","decision":"Run on this box's live incus (make serve INSTANCE dev + an incus-container Workspace + Browser tab), regenerate, verify reconnect with real-browser Playwright.","rationale":"This box has incus; no Proxmox needed for Story2."}
+  ]
+}
