@@ -191,6 +191,41 @@ in {
           };
         }];
       };
+      # `incus admin init --preseed` is effectively FIRST-RUN-ONLY: against a daemon
+      # that is already initialised it silently skips objects that already exist and
+      # never backfills their sub-config. The appliance image bakes /var/lib/incus
+      # (on the immutable root) with an empty `default` profile at image-build time,
+      # and image regeneration (S7364e3) resets it the same way — so on first boot
+      # the preseed created the storage pool (was missing) but left the default
+      # profile with NO devices and never created incusbr0. Result: `incus init
+      # palmux-ws` fails "No root device could be found" and no workspace can launch
+      # (observed on the first palmuxOS appliance, Sb14caa-5). Reconcile the intended
+      # pool/network/profile idempotently on every boot (create-if-missing), so a
+      # fresh, image-baked, or regenerated daemon all converge to a launch-ready
+      # state. Self-heal, same philosophy as palmux's Caddy-route resync (See8bd4).
+      systemd.services.palmux-incus-reconcile = {
+        description = "Ensure incus default profile/network/pool can launch workspaces";
+        after = [ "incus.service" "incus-preseed.service" ];
+        requires = [ "incus.service" ];
+        wantedBy = [ "multi-user.target" ];
+        serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
+        path = [ config.virtualisation.incus.package ];
+        script = ''
+          set -eu
+          # dir storage pool — source on /persist so container/image blobs survive
+          # image swaps (the metadata DB on /var/lib/incus does not, hence reconcile).
+          incus storage show default >/dev/null 2>&1 \
+            || incus storage create default dir source=/persist/incus/storage
+          # bridge — static subnet MUST match the preseed above (idempotent on re-apply).
+          incus network show incusbr0 >/dev/null 2>&1 \
+            || incus network create incusbr0 ipv4.address=10.100.50.1/24 ipv4.nat=true ipv6.address=none
+          # default profile devices (root disk + nic) — the part preseed won't backfill.
+          incus profile device list default 2>/dev/null | grep -qx root \
+            || incus profile device add default root disk pool=default path=/
+          incus profile device list default 2>/dev/null | grep -qx eth0 \
+            || incus profile device add default eth0 nic network=incusbr0 name=eth0
+        '';
+      };
       # unprivileged + raw.idmap "both 1000 1000" needs a root:1000:1 sub{u,g}id
       # range. NixOS's incus module sets users.users.root.subUidRanges with mkForce
       # (to a huge 1000000:1000000000 range that does NOT include host uid 1000), so
