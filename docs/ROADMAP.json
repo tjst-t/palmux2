@@ -10512,12 +10512,14 @@
             {
               "id": "AC-Sb14caa-5-1",
               "description": "dev を NixOS アプライアンスで(新 VM に)再構築し、旧箱から ~/.claude(履歴/memory/projects)+ ~/ghq を /persist へ移行、palmux2 が同一パスで履歴を引き継ぐ。",
-              "status": "pending"
+              "status": "passing",
+              "note": "DONE 2026-07-03: green = pve-01 VM 9002 (192.168.1.46), palmuxOS appliance from nix build .#appliance-qcow2. Migrated ~/.claude(311M)+~/ghq(18G)+~/.local(claude bin)+auth dotfiles to /persist. Verified: SSO, host+incus workspace (isolation, migrated repo HEAD 505228a, claude 2.1.199 in-container, gh auth). Fixed incus preseed bug en route (commit d7a5dea→main 62f2a9d)."
             },
             {
               "id": "AC-Sb14caa-5-2",
               "description": "blue-green: 旧箱を生かしたまま新箱を検証 → DNS 切替 → 問題なければ撤去。install.sh 箱(ndev/deploy-test)は無影響。",
-              "status": "pending"
+              "status": "pending",
+              "note": "CUTOVER DONE 2026-07-03: CF DNS dev.tjstkm.net + *.dev flipped .40→.46, external-verified (302→SSO). blue (.40) kept live as rollback. REMAINING: multi-day stable window then decommission blue (stop VM 9002-old box, ansible cleanup) → then mark passing."
             }
           ],
           "tasks": {
