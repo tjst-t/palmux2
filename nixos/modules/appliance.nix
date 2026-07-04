@@ -71,6 +71,15 @@ in
   # state-init-generated SSO secret never shows in the GUI). Unify on configDir.
   services.palmux.secretsFile = lib.mkDefault "${appCfgDir}/secrets.env";
 
+  # Let generic (non-Nix) dynamically-linked ELF binaries run on the NixOS host —
+  # most importantly the user's ~/.local/bin/claude (the downloaded native/glibc
+  # Claude Code binary). Without a dynamic loader NixOS aborts these with "Could
+  # not start dynamically linked executable", which breaks a HOST-runtime Claude
+  # tab (the incus-runtime tab runs claude inside the Ubuntu container and is
+  # unaffected). nix-ld installs /lib64/ld-linux + a base library set so the host
+  # can run them too, restoring parity with the Ubuntu install path.
+  programs.nix-ld.enable = lib.mkDefault true;
+
   # /home/ubuntu (= services.palmux.stateDir above) is a bind-mount that
   # palmux-state-init sets up on the persistent backing dir; don't let the user
   # module try to create it as a plain directory on the OS root (it would race the
