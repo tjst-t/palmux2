@@ -80,9 +80,10 @@ in
   #       claude uses the in-container /home/ubuntu/.local/bin/claude already.)
   #   (b) interactive/login shells — so `claude` typed in a Bash tab / the Host
   #       terminal resolves too.
-  # Both then run via nix-ld (below). NB systemd.services.<n>.path accepts a bare
-  # dir string and merges with the module's package list.
-  systemd.services.palmux2.path = [ "/home/ubuntu/.local/bin" ];
+  # Both then run via nix-ld (below). NB systemd.services.<n>.path appends `/bin`
+  # (and `/sbin`) to each entry, so pass the PARENT (/home/ubuntu/.local) to get
+  # /home/ubuntu/.local/bin on PATH.
+  systemd.services.palmux2.path = [ "/home/ubuntu/.local" ];
   environment.loginShellInit = ''
     case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac
   '';
