@@ -471,7 +471,11 @@ func run(rc resolved) error {
 		return filepath.Join(root, repoID, branchID)
 	}
 	agentManager := claudeagent.NewManager(claudeagent.Config{
-		Binary:          "claude",
+		// Honour the resolved claude_bin (flag/env/config), same as the claude-tui
+		// manager below. Hardcoding "claude" made the Agent tab ignore claude_bin
+		// and fail LookPath on hosts where claude isn't on the process PATH (e.g.
+		// the palmuxOS appliance: claude lives at ~/.local/bin, Sb14caa-5).
+		Binary:          claudeBin,
 		AttachmentDirFn: attachmentDirFn,
 		// S4d8b1c: run the agent-mode claude INSIDE the workspace's incus
 		// container when supported (runtime.ExecCommander).
