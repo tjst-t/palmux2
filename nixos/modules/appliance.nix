@@ -71,6 +71,22 @@ in
   # state-init-generated SSO secret never shows in the GUI). Unify on configDir.
   services.palmux.secretsFile = lib.mkDefault "${appCfgDir}/secrets.env";
 
+  # The claude CLI is the user's migrated native install at ~/.local/bin/claude
+  # (= /home/ubuntu/.local/bin, per the home above). Put that dir on:
+  #   (a) the palmux2 SERVICE PATH — the Claude Agent tab preflights `claude` with
+  #       exec.LookPath on the palmux2 process PATH (claudeagent CheckAuth), and the
+  #       host-runtime agent/tui spawn resolves `claude` the same way; without this
+  #       the tab shows "Claude Code CLI (`claude`) is not on PATH". (Incus-runtime
+  #       claude uses the in-container /home/ubuntu/.local/bin/claude already.)
+  #   (b) interactive/login shells — so `claude` typed in a Bash tab / the Host
+  #       terminal resolves too.
+  # Both then run via nix-ld (below). NB systemd.services.<n>.path accepts a bare
+  # dir string and merges with the module's package list.
+  systemd.services.palmux2.path = [ "/home/ubuntu/.local/bin" ];
+  environment.loginShellInit = ''
+    case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac
+  '';
+
   # Let generic (non-Nix) dynamically-linked ELF binaries run on the NixOS host —
   # most importantly the user's ~/.local/bin/claude (the downloaded native/glibc
   # Claude Code binary). Without a dynamic loader NixOS aborts these with "Could
