@@ -51,7 +51,17 @@ in
 
   # ── palmux defaults suitable for an appliance ──────────────────────────────
   services.palmux.enable = lib.mkDefault true;
-  services.palmux.stateDir = lib.mkDefault "/persist/palmux/home";   # DATA
+  # The palmux $HOME is the conventional /home/ubuntu — NOT the /persist path. The
+  # incus workspace runtime and claude-in-container hardcode the container user's
+  # home (`/home/ubuntu`: wsHome + `/home/ubuntu/.local/bin/claude`), and same-path
+  # bind-mounts mean the host home path must equal it or in-container claude fails
+  # with "Command not found". Claude's project-history dir slugs are also derived
+  # from the absolute worktree path (~/.claude/projects/-home-ubuntu-ghq-…), so a
+  # non-/home/ubuntu home orphans that history too. The DATA still lives on the
+  # persist partition (/persist/palmux/home) and palmux-state-init bind-mounts it
+  # onto /home/ubuntu, so state survives image swaps. (See the state-init bind and
+  # createHome=false below.)
+  services.palmux.stateDir = lib.mkDefault "/home/ubuntu";          # $HOME (bind of /persist/palmux/home)
   services.palmux.configDir = lib.mkDefault appCfgDir;               # operator config bundle
   # The systemd EnvironmentFile MUST be the SAME secrets.env that palmux2's
   # --config-dir layer reads/writes (config.WriteSecrets → <configDir>/secrets.env,
@@ -60,6 +70,21 @@ in
   # other, so a GUI-set SSO secret / password never reaches the process env (and a
   # state-init-generated SSO secret never shows in the GUI). Unify on configDir.
   services.palmux.secretsFile = lib.mkDefault "${appCfgDir}/secrets.env";
+
+  # Let generic (non-Nix) dynamically-linked ELF binaries run on the NixOS host —
+  # most importantly the user's ~/.local/bin/claude (the downloaded native/glibc
+  # Claude Code binary). Without a dynamic loader NixOS aborts these with "Could
+  # not start dynamically linked executable", which breaks a HOST-runtime Claude
+  # tab (the incus-runtime tab runs claude inside the Ubuntu container and is
+  # unaffected). nix-ld installs /lib64/ld-linux + a base library set so the host
+  # can run them too, restoring parity with the Ubuntu install path.
+  programs.nix-ld.enable = lib.mkDefault true;
+
+  # /home/ubuntu (= services.palmux.stateDir above) is a bind-mount that
+  # palmux-state-init sets up on the persistent backing dir; don't let the user
+  # module try to create it as a plain directory on the OS root (it would race the
+  # mount and, if it won, hide the persistent home behind an empty root-fs dir).
+  users.users.${pUser}.createHome = lib.mkForce false;
 
   # Put the incus `dir` storage pool (container + image volumes — the part that
   # GROWS) on /persist, not its default under /var/lib/incus (the OS root). With
@@ -228,6 +253,13 @@ in
         install -d -m 0755 /persist/palmux
         install -d -m 0700 -o ${pUser} -g ${pGroup} /persist/palmux/home
         install -d -m 0750 -o ${pUser} -g ${pGroup} ${appCfgDir}
+        # Expose the palmux $HOME at the conventional /home/ubuntu (= stateDir) by
+        # bind-mounting the persistent backing dir there. Done here (not via
+        # fileSystems) because the backing dir is created just above and this unit
+        # is ordered after /persist is mounted and before palmux2 — a fileSystems
+        # bind would race the dir's creation on a fresh appliance. Idempotent.
+        install -d -m 0755 /home/ubuntu
+        mountpoint -q /home/ubuntu || mount --bind /persist/palmux/home /home/ubuntu
         # secrets.env is the SAME file palmux2's --config-dir layer reads/writes
         # (config.WriteSecrets → ${appCfgDir}/secrets.env) AND the systemd
         # EnvironmentFile (services.palmux.secretsFile, unified above). One file.
