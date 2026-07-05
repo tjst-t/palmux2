@@ -1,0 +1,20 @@
+{
+  "stopped_at": "milestone_Sd44947",
+  "compromises": [],
+  "blockers_encountered": [
+    {
+      "type": "sprint_agent_terminated_mid_finalization",
+      "severity": "medium",
+      "detail": "The sprint sub-agent completed implementation + verification (unit/tsc/gui-e2e/real-incus all pass, independent verifier ran) but terminated ~63 min before its final commit + roadmap update + merge. Its transcript went stale; the code was left uncommitted in the working tree and ROADMAP still showed 'pending'.",
+      "resolution": "autopilot took over finalization: independently re-ran the 6 done-guards (all pass), read verify-run.json (machine verdict overall=pass) and verification-report.json, committed the working tree on autopilot/main/Sd44947, merged to main (9f7ba43), deleted the branch, and swept 13 stale merged autopilot branches from prior runs."
+    }
+  ],
+  "scope_changes": [
+    {
+      "type": "coverage_gap_closed_during_finalization",
+      "severity": "low",
+      "detail": "The independent verifier flagged AC-Sd44947-2-5 as a WARN: the Loading + SaveError GUI states had no test, and decisions.json falsely claimed a passing mock test that had no backing file (the sprint agent had stripped those checks from the real-backend E2E — they cannot be forced against a live backend — intending to move them to a mock test, but died first).",
+      "resolution": "autopilot added tests/e2e/sd44947_shared_folders_mock.py (Playwright page.route: delayed GET → Loading spinner; 500 on apply → SaveError banner + value-retention; plus Empty + out-of-home). 8/8 checks PASS. Corrected the false decisions.json note to reference the real file, regenerated the stale gui-e2e log, and re-verified overall=pass (ac_warnings 1→0, overlooked 1→0). Per priority_rule 0 the gap was closed with real coverage rather than by softening the claim."
+    }
+  ]
+}
