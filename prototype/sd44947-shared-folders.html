@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ja" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sd44947 · 設定パネル — デプロイ · 共有フォルダ</title>
+<link rel="stylesheet" href="sa53137.css">
+<style>
+  /* Sd44947 — 共有フォルダ section. Extends the sa53137 deploy tab. */
+  .sf-list { display: flex; flex-direction: column; gap: 7px; margin: 4px 0 10px; }
+  .sf-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+  .sf-row .path { font-family: var(--font-mono); font-size: 12.5px; color: var(--fg); flex: 1; }
+  .sf-row .src { font-size: 11px; }
+  .sf-row .pending { color: var(--warning); font-weight: 600; }
+  .sf-row.gone { opacity: .4; text-decoration: line-through; }
+  .sf-remove { border: 1px solid var(--border); background: var(--elevated); color: var(--fg-muted);
+    width: 26px; height: 26px; border-radius: 7px; cursor: pointer; display: grid; place-items: center; font-size: 14px; }
+  .sf-remove:hover { color: var(--error); border-color: rgba(239,68,68,.4); }
+  .sf-add { display: flex; gap: 8px; align-items: flex-start; margin-top: 6px; }
+  .sf-add input { max-width: 320px; }
+  .sf-inline-error { color: var(--error); font-size: 12px; margin-top: 6px; display: flex; gap: 6px; align-items: center; }
+  .sf-empty { color: var(--fg-dim); font-size: 12.5px; padding: 12px 12px; border: 1px dashed var(--border);
+    border-radius: var(--radius-sm); background: var(--bg); }
+  .toast { position: fixed; bottom: 22px; right: 22px; background: var(--elevated);
+    border: 1px solid rgba(100,210,160,.4); color: var(--success); padding: 12px 16px;
+    border-radius: 10px; font-size: 13px; display: flex; gap: 9px; align-items: center; box-shadow: 0 8px 30px rgba(0,0,0,.45); }
+  .gallery { margin-top: 34px; }
+  .gallery h2 { font-size: 14px; color: var(--fg); border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  .gcards { display: grid; grid-template-columns: repeat(auto-fill,minmax(300px,1fr)); gap: 14px; margin-top: 12px; }
+  .gcard { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 15px; }
+  .gcard .st { font-family: var(--font-mono); font-size: 10.5px; color: var(--accent-light); text-transform: uppercase; letter-spacing: .06em; }
+  .gcard .gttl { font-weight: 600; margin: 4px 0 10px; font-size: 13px; }
+  .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span> palmux2 · 設定</div>
+    <div class="hdr-right">
+      <span class="crumbs">tjst-t/palmux2 · main · <span class="tag live" style="font-size:10px">runtime: incus</span></span>
+      <span class="icon-btn" title="Activity Inbox">🔔</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="tabs" data-testid="settings-tabs">
+      <a class="tab" href="#" data-testid="settings-tab-app">アプリ設定</a>
+      <a class="tab active" href="#" data-testid="settings-tab-deploy">デプロイ設定</a>
+    </div>
+    <div class="card-body" data-testid="settings-deploy-panel">
+
+      <p class="help" style="margin:8px 0 2px">サーバ/公開設定のマスター（<code>~/.config/palmux/config.toml</code>）。<span class="tag live">即時</span> <span class="tag restart">要再起動</span> <span class="tag root">要特権</span> のバッジで反映コストを示します。</p>
+
+      <!-- ▼ 既存の [server] / [public] / 秘密 セクションは省略（sa53137-settings-deploy.html 参照） -->
+      <div class="section-label" style="opacity:.55">[server] · [public] · 秘密 … （既存セクション、変更なし）</div>
+
+      <!-- ▼ Sd44947-2 で新規追加するセクション -->
+      <div class="section-label">[workspace] · 共有フォルダ <span class="tag live" style="text-transform:none">即時 (稼働中コンテナへ live 反映)</span></div>
+
+      <div class="banner warn bar" data-testid="shared-dirs-warning" style="margin-top:4px">
+        <span>⚠</span>
+        <span>ここに追加したフォルダは <b>全 Workspace コンテナに露出</b>します。<code>~/.claude</code> と同じく、認証情報を含むディレクトリは中の Claude / シェルから読み書き可能になります。信頼するパスだけを追加してください。</span>
+      </div>
+
+      <div class="field">
+        <div class="label">
+          <span class="name">共有フォルダ</span>
+          <span class="key">config.toml · [workspace] shared_dirs</span>
+          <span class="hint">incus profile <code>palmux-shared</code> の device として全コンテナへ bind-mount されます。source 不在のパスは自動 skip。</span>
+        </div>
+        <div class="control">
+          <div class="sf-list" data-testid="shared-dirs-list">
+            <div class="sf-row">
+              <span class="path">/home/ubuntu/.infisical</span>
+              <span class="src tag masked">追加済み</span>
+              <button class="sf-remove" data-testid="shared-dir-remove-0" title="削除">✕</button>
+            </div>
+            <div class="sf-row">
+              <span class="path">/home/ubuntu/.config/op</span>
+              <span class="src tag masked">追加済み</span>
+              <button class="sf-remove" data-testid="shared-dir-remove-1" title="削除">✕</button>
+            </div>
+          </div>
+
+          <div class="sf-add">
+            <input type="text" placeholder="~/.infisical のような $HOME 配下のパス" data-testid="shared-dir-input">
+            <button class="btn" data-testid="shared-dir-add">＋ 追加</button>
+          </div>
+          <span class="help">追加は一覧に <b>保留 (pending)</b> として入り、下部の <b>Apply</b> で profile へ書込 + 稼働中コンテナに反映されます。</span>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn primary" data-testid="apply-deploy">Apply（差分を反映）</button>
+        <button class="btn ghost" data-testid="reload-from-disk">ディスクから再読込</button>
+        <span class="help">共有フォルダの変更は <span class="tag live">即時</span> 分類。palmux2 の再起動なしで profile 書換 + device 伝播します。</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 状態ギャラリー（レビュー用・実画面では 1 状態のみ） ===================== -->
+  <div class="gallery">
+    <h2>状態ギャラリー — state diagram の各状態（レビュー用）</h2>
+    <div class="gcards">
+
+      <!-- Empty -->
+      <div class="gcard">
+        <div class="st">Empty</div>
+        <div class="gttl">共有フォルダ未登録</div>
+        <div class="sf-empty" data-testid="shared-dirs-list">
+          共有フォルダはまだありません。下の入力欄から <code>~/.infisical</code> のようなパスを追加できます。
+        </div>
+        <div class="sf-add" style="margin-top:10px">
+          <input type="text" placeholder="~/.infisical" data-testid="shared-dir-input" style="max-width:200px">
+          <button class="btn" data-testid="shared-dir-add">＋ 追加</button>
+        </div>
+      </div>
+
+      <!-- Adding (pending) -->
+      <div class="gcard">
+        <div class="st">Adding → Populated</div>
+        <div class="gttl">追加直後（保留）</div>
+        <div class="sf-list">
+          <div class="sf-row">
+            <span class="path">/home/ubuntu/.infisical</span>
+            <span class="src pending">● 保留</span>
+            <button class="sf-remove">✕</button>
+          </div>
+        </div>
+        <span class="help">Apply 前。一覧に入るが profile 未反映。</span>
+      </div>
+
+      <!-- InputError -->
+      <div class="gcard">
+        <div class="st">InputError</div>
+        <div class="gttl">$HOME 範囲外を拒否</div>
+        <div class="sf-add">
+          <input type="text" value="/etc/passwd" data-testid="shared-dir-input" style="max-width:200px;border-color:var(--error)">
+          <button class="btn" data-testid="shared-dir-add">＋ 追加</button>
+        </div>
+        <div class="sf-inline-error" data-testid="shared-dir-error">
+          <span>✕</span><span>パスは <code>$HOME</code>（/home/ubuntu）配下のみ許可されます</span>
+        </div>
+      </div>
+
+      <!-- Removing -->
+      <div class="gcard">
+        <div class="st">Removing</div>
+        <div class="gttl">削除（保留）</div>
+        <div class="sf-list">
+          <div class="sf-row gone">
+            <span class="path">/home/ubuntu/.infisical</span>
+            <span class="src">削除保留</span>
+            <button class="sf-remove">✕</button>
+          </div>
+        </div>
+        <span class="help">Apply でコンテナから device 除去。</span>
+      </div>
+
+      <!-- Saving -->
+      <div class="gcard">
+        <div class="st">Saving</div>
+        <div class="gttl">Apply 実行中</div>
+        <button class="btn primary" disabled style="opacity:.7">
+          <span class="spinner"></span>&nbsp; profile を書換中…
+        </button>
+        <span class="help" style="display:block;margin-top:8px">POST /api/deploy/apply → palmux-shared 書換 + 稼働コンテナ伝播。</span>
+      </div>
+
+      <!-- Saved -->
+      <div class="gcard">
+        <div class="st">Saved</div>
+        <div class="gttl">反映成功トースト</div>
+        <div class="toast" style="position:static;box-shadow:none" data-testid="apply-result">
+          <span>✓</span> 共有フォルダを更新しました — 2 個の稼働中コンテナに反映
+        </div>
+      </div>
+
+      <!-- SaveError -->
+      <div class="gcard">
+        <div class="st">SaveError</div>
+        <div class="gttl">反映失敗（値は保持）</div>
+        <div class="banner" style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:#f28b82" data-testid="apply-result">
+          <span>✕</span> profile 書換に失敗しました: incus が応答しません。入力値は保持されています。
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <p class="help" style="text-align:center;margin-top:28px"><a href="index.html">← prototype index</a></p>
+</div>
+
+<!-- 実画面での Saved トースト（fixed 表示イメージ） -->
+<div class="toast" data-testid="apply-result-toast">
+  <span>✓</span> 共有フォルダを更新しました — 2 個の稼働中コンテナに反映
+</div>
+</body>
+</html>

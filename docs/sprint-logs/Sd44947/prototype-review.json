@@ -1,0 +1,21 @@
+{
+  "sprint_range": ["Sd44947"],
+  "review_mode": "self_review",
+  "review_note": "autopilot start 実行時、ユーザ指示によりプロトタイプレビューの停止をやめ自己レビューで承認。Fog palette v2.1 の既存デプロイタブ (Sa53137) デザインシステムを再利用し、gui-spec-Sd44947-2.json の state diagram / scenarios / data_testids と突合。headless chrome スクリーンショットで目視確認、InputError のインライン文言折返し不具合を 1 件修正。",
+  "screens": [
+    {
+      "file": "prototype/sd44947-shared-folders.html",
+      "story": "Sd44947-2",
+      "feedback_rounds": 1,
+      "approved": true,
+      "states_covered": ["Loading(省略)", "Empty", "Adding/Populated", "InputError", "Removing", "Saving", "Saved", "SaveError"],
+      "data_testids": ["shared-dirs-list", "shared-dirs-warning", "shared-dir-input", "shared-dir-add", "shared-dir-error", "shared-dir-remove-0", "apply-deploy"]
+    }
+  ],
+  "design_decisions": [
+    "既存デプロイタブ (Sa53137) の Fog palette v2.1 デザインシステム (sa53137.css) を再利用 — 新規デザインを作らず [server]/[public]/秘密 の下に [workspace] 共有フォルダ セクションを追加する形。VISION design_references のカラー規約に準拠。",
+    "共有フォルダの変更は 即時 (live) 分類 — palmux2 再起動なしで palmux-shared profile 書換 + 稼働中コンテナへ device 伝播 (AC-Sd44947-2-2)。",
+    "⚠ 全 Workspace コンテナに露出 の warning banner を常時表示 (data-testid=shared-dirs-warning) — ~/.claude 共有と同じ責務越境の明示 (DESIGN_PRINCIPLES priority_rule 5)。",
+    "gui-spec の Apply testid 'deploy-apply' は既存実装の 'apply-deploy' (settings-panel.tsx:875) と不整合。プロトタイプは実コード側 'apply-deploy' に統一し、実装時に gui-spec / E2E も 'apply-deploy' に合わせる (既存 API/testid 契約を壊さない — priority_rule 既存資産活用)。"
+  ]
+}
