@@ -10921,7 +10921,7 @@
     "Sd44947": {
       "title": "共有フォルダの宣言化 (profile-as-mold) + 実行時反映",
       "description": "全 Workspace コンテナが従う共有 device 群を palmux の単一宣言 (incus profile 'palmux-shared') に集約し、毎 scan で冪等 reconcile する。さらにユーザが config/GUI から共有フォルダ (例 ~/.infisical) を追加でき、稼働中コンテナ含め live 反映される。設計原則 docs/palmux2-nixos-appliance-design.md §5-§8 の profile-as-mold と 2フェーズ適用+Reconcile を最小実装する。",
-      "milestone": false,
+      "milestone": true,
       "phase": "Phase 6 — palmuxOS",
       "status": "pending",
       "detail_level": "detailed",
