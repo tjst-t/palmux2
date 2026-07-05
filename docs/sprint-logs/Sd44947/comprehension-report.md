@@ -21,7 +21,7 @@ _Generated at milestone arrival. Read this before `autopilot review`._
 
 ## What to verify
 
-- **⚠ (推奨・belt-and-suspenders) deploy-test 192.168.1.43 の実 production での通し確認。** 実 incus smoke は **dev ボックスの実 incus**（新バイナリ + 使い捨て probe コンテナ + live dev インスタンスの reconcile）で PASS 済みだが、192.168.1.43 は **旧バイナリが稼働中** のため未実施。AC 自体は実モードで満たされている（skip ではない）が、本番相当ホストでの `profile show` / device 削除→復活 / 旧コンテナ移行 / `~/.infisical` の live add→remove を一度目視するのが安全。sprint の `review_reason`（priority_rule 9 の通常 real-mode smoke）に対応。
+- ~~**⚠ (推奨・belt-and-suspenders) deploy-test 192.168.1.43 の実 production での通し確認。**~~ **✅ 完了 (2026-07-05)。** deploy-test (192.168.1.43, incus 6.0.0) に新バイナリを隔離 throwaway instance で持ち込み `sd44947_shared_profile.py` を実行し **11/11 PASS**（profile 生成 / reconcile 自己修復 / 旧 device 移行 / live add→remove）。既存 3 コンテナ + managed palmux2 v0.11.4 は非干渉、`palmux-shared` profile 含め cleanup 済み（autopilot が独立再確認）。Nix 管理ホストの `/nix/store` symlink dotfile を正しく skip する mold パスも実地で確認。これで priority_rule 9 real-mode smoke は **dev ボックス + deploy-test の 2 独立実 incus ホスト**で満たされた。詳細は `deploy-test-smoke.json`。
 - **共有フォルダのセキュリティ・トレードオフ（設計上の既知事項）。** 追加したフォルダは全 Workspace コンテナの claude/シェルから読み書き可能になる。`~/.claude` 共有・S5818e8 の SSH 鍵/gh トークン共有と同じ「フル機能・再認証なし」前提。`~/.infisical` のような認証フォルダを足す = その秘密を全コンテナに露出する、という点をユーザが意図して使う想定。GUI の ⚠ 警告がそれを明示している。
 - **実際のブラウザでのデプロイタブ操作感**（refine で目視推奨）。承認済みプロトタイプ `prototype/sd44947-shared-folders.html` に一致させたが、実 UI の余白・トースト・エラー表示は人の目で。
 - （verifier の overlooked / fail 項目は残っていない: 最終 verification-report は overall=pass, ac_warnings 0, overlooked 0。）

@@ -1,0 +1,34 @@
+{
+  "sprint": "Sd44947",
+  "kind": "belt-and-suspenders real-incus production smoke on a SECOND host",
+  "host": "palmux-deploy-test.tjstkm.net (192.168.1.43, hostname palmux-deploy-test2)",
+  "incus_version": "6.0.0",
+  "binary": "freshly built Sd44947 binary at HEAD (commit 7153bde24a29; git-describe v0.12.4-0.20260705132829-7153bde24a29)",
+  "method": "isolated throwaway instance — separate --config-dir, --tmux-prefix _pmx_smoke_, port 8399, defaultRuntime incus-container; opened one throwaway workspace so the scan-loop ReconcileShared fired; ran tests/acceptance/sd44947_shared_profile.py against it. The 3 existing workspace containers and the managed palmux2 v0.11.4 service were never touched.",
+  "overall": "PASS",
+  "checks": [
+    {"ac": "-", "name": "apply shared dir via /api/deploy/apply (workspace class)", "status": "pass"},
+    {"ac": "AC-Sd44947-1-1", "name": "profile has core shared devices (ghq, dot-claude)", "status": "pass"},
+    {"ac": "AC-Sd44947-2-1", "name": "profile has the user shared dir device (sf-*)", "status": "pass"},
+    {"ac": "AC-Sd44947-1-1", "name": "probe profiles = [default, palmux-shared]", "status": "pass"},
+    {"ac": "AC-Sd44947-1-1", "name": "probe has 0 instance-local devices", "status": "pass"},
+    {"ac": "AC-Sd44947-1-1", "name": "shared mounts reachable inside probe (ghq + shared dir)", "status": "pass"},
+    {"ac": "AC-Sd44947-1-1", "name": "probe is isolated (hostname = container)", "status": "pass"},
+    {"ac": "AC-Sd44947-2-4", "name": "live remove: shared dir removed from profile + unmounts from running container", "status": "pass"},
+    {"ac": "AC-Sd44947-2-4", "name": "live add: shared dir remounts into running container", "status": "pass"},
+    {"ac": "AC-Sd44947-1-3", "name": "migration: legacy device stripped, mount survives via profile", "status": "pass"},
+    {"ac": "AC-Sd44947-1-2", "name": "reconcile self-heals a hand-stripped profile device", "status": "pass"}
+  ],
+  "notable": [
+    "Nix-managed host dotfiles: the profile correctly EXCLUDED .bashrc/.profile/.bash_profile (they symlink into /nix/store, outside $HOME) — a real-world exercise of the symlink-skip mold path that the dev box (real dotfiles) does not hit.",
+    "First incus container launch ~1-2 min to READY (consistent with a second real host).",
+    "ldflags version stamp did not apply (main.version was not the Makefile's var); binary confirmed genuine by commit hash + Sd44947 runtime behavior."
+  ],
+  "cleanup_verified": {
+    "existing_containers": "isc-projects-dhcp-*, local-cleantest-*, lxc-incus-* all still RUNNING (independently re-checked by autopilot)",
+    "palmux_shared_profile": "deleted (none) — no drift left for the old managed binary",
+    "managed_palmux2": "active (PID 810, v0.11.4, never touched)",
+    "temp_dirs_and_tmux": "all removed; no _pmx_smoke_ sessions"
+  },
+  "conclusion": "The Sd44947 review_reason's priority_rule 9 real-mode smoke is now satisfied on TWO independent real-incus hosts (dev box + deploy-test). The previously-deferred belt-and-suspenders check is DONE."
+}
