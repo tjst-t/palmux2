@@ -12,7 +12,7 @@
       "steps": [
         {"n":1,"action":"open Settings → デプロイ tab","expected":"共有フォルダ section renders; current list shown (data-testid=shared-dirs-list); a ⚠ warning about exposure to all containers is visible (data-testid=shared-dirs-warning)"},
         {"n":2,"action":"type ~/.infisical into the add input (data-testid=shared-dir-input) and click Add (data-testid=shared-dir-add)","expected":"a new row /home/ubuntu/.infisical appears in the list (pending, not yet applied)"},
-        {"n":3,"action":"click Apply (data-testid=deploy-apply)","expected":"success toast; a follow-up GET /api/deploy shows workspace.sharedDirs contains /home/ubuntu/.infisical"}
+        {"n":3,"action":"click Apply (data-testid=apply-deploy)","expected":"success toast; a follow-up GET /api/deploy shows workspace.sharedDirs contains /home/ubuntu/.infisical"}
       ]
     },
     {
@@ -66,5 +66,5 @@
     "e2e": "tests/e2e/sd44947-shared-folders.e2e.spec.ts",
     "mock": "tests/e2e/sd44947-shared-folders.mock.spec.ts"
   },
-  "data_testids": ["shared-dirs-list","shared-dirs-warning","shared-dir-input","shared-dir-add","shared-dir-error","shared-dir-remove-0","deploy-apply"]
+  "data_testids": ["shared-dirs-list","shared-dirs-warning","shared-dir-input","shared-dir-add","shared-dir-error","shared-dir-remove-0","apply-deploy"]
 }

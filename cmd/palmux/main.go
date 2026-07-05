@@ -228,6 +228,8 @@ type resolved struct {
 	ssoSecret     string
 	basicAuthHash string
 	basicAuthUser string
+	// Sd44947: [workspace] shared_dirs from config.toml (host paths, may contain ~).
+	sharedDirs []string
 }
 
 type flagState struct {
@@ -296,6 +298,7 @@ func resolveServerConfig(configDir string, f resolveFlags) resolved {
 	r.ssoSecret = firstNonEmpty(os.Getenv("PALMUX_SSO_SECRET"), sec.SSOSecret)
 	r.basicAuthHash = firstNonEmpty(os.Getenv("BASIC_AUTH_HASH"), sec.BasicAuthHash)
 	r.basicAuthUser = firstNonEmpty(os.Getenv("BASIC_AUTH_USER"), mc.Public.BasicAuthUser)
+	r.sharedDirs = mc.Workspace.SharedDirs
 	return r
 }
 
@@ -383,6 +386,18 @@ func run(rc resolved) error {
 	// workspaces configured as "incus-container" it constructs and caches an
 	// incusRuntime that routes all tmux calls through `incus exec`.
 	runtimeRegistry := incus.NewRegistry(repoStore, settingsStore, tmuxClient, slog.Default())
+
+	// Sd44947: seed the host-wide palmux-shared profile with the config-driven
+	// [workspace] shared_dirs (expanded to absolute $HOME-scoped paths). The
+	// profile is reconciled lazily when the first incus container launches and on
+	// every scan tick thereafter.
+	if home, herr := os.UserHomeDir(); herr == nil {
+		if abs, aerr := config.ExpandSharedDirs(rc.sharedDirs, home); aerr == nil {
+			runtimeRegistry.SharedProfileManager().SetSharedDirs(abs)
+		} else {
+			slog.Warn("ignoring invalid [workspace] shared_dirs", "err", aerr)
+		}
+	}
 
 	// See8bd4-2: configure publishing of incus container ports as HTTPS
 	// subdomains via the Caddy admin API. The public domain + edge basic-auth
@@ -643,6 +658,9 @@ func run(rc resolved) error {
 		Public: config.PublicSection{
 			Domain:        resolvedPublicDomain,
 			BasicAuthUser: rc.basicAuthUser,
+		},
+		Workspace: config.WorkspaceSection{
+			SharedDirs: rc.sharedDirs, // Sd44947 (expanded on read by CurrentView)
 		},
 	}
 	deployCtl := deploy.New(configDir, appliedMaster, deploy.SecretPresence{
@@ -1040,6 +1058,25 @@ func (a deployHotApplier) SetClaudeArgs(args []string) {
 	if a.tuiMgr != nil {
 		a.tuiMgr.SetClaudeArgs(args)
 	}
+}
+
+// SetSharedDirs (Sd44947) rewrites the host-wide palmux-shared incus profile
+// with the new shared folders and returns the number of containers the profile
+// is attached to (incus live-propagates the device add/remove). Host-only
+// deployments (nil registry) are a no-op.
+func (a deployHotApplier) SetSharedDirs(ctx context.Context, dirs []string) (int, error) {
+	if a.registry == nil {
+		return 0, nil
+	}
+	m := a.registry.SharedProfileManager()
+	if m == nil {
+		return 0, nil
+	}
+	m.SetSharedDirs(dirs)
+	if err := m.Ensure(ctx); err != nil {
+		return 0, err
+	}
+	return m.UsedByCount(ctx), nil
 }
 
 // cloudflareTokenPresent reports whether a Cloudflare DNS token is configured

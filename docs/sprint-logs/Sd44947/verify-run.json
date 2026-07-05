@@ -1,0 +1,49 @@
+{
+  "$machine_authored": true,
+  "$note": "run-verify.py hook not wired for this project (.claude/verify.json absent). Authored from real process exit codes captured during sprint auto; each verify-run-*.log carries a __VERIFY_EXIT_CODE__ trailer for tamper-evidence. [autopilot finalization 2026-07-05: sprint agent terminated before final commit; autopilot added tests/e2e/sd44947_shared_folders_mock.py (Loading+SaveError+Empty+out-of-home via page.route mock) to close the AC-2-5 coverage gap, re-ran the real-backend E2E to refresh its stale log, verified overall pass.]",
+  "sprint": "Sd44947",
+  "command_source": "fallback (make test + tsc + real-mode e2e/acceptance)",
+  "runs": [
+    {
+      "name": "unit",
+      "command": "go test ./...",
+      "exit_code": 0,
+      "log": "docs/sprint-logs/Sd44947/verify-run-unit.log",
+      "machine_status": "pass",
+      "junit": null
+    },
+    {
+      "name": "tsc",
+      "command": "cd frontend && npx tsc --noEmit",
+      "exit_code": 0,
+      "log": "docs/sprint-logs/Sd44947/verify-run-tsc.log",
+      "machine_status": "pass",
+      "junit": null
+    },
+    {
+      "name": "gui-e2e",
+      "command": "PALMUX2_DEV_PORT=8200 python3 tests/e2e/sd44947_shared_folders.py",
+      "exit_code": 0,
+      "log": "docs/sprint-logs/Sd44947/verify-run-gui-e2e.log",
+      "machine_status": "pass",
+      "junit": null
+    },
+    {
+      "name": "realincus-acceptance",
+      "command": "PALMUX2_DEV_PORT=8200 python3 tests/acceptance/sd44947_shared_profile.py",
+      "exit_code": 0,
+      "log": "docs/sprint-logs/Sd44947/verify-run-realincus.log",
+      "machine_status": "pass",
+      "junit": null
+    },
+    {
+      "name": "gui-mock",
+      "command": "PALMUX2_DEV_PORT=8200 python3 tests/e2e/sd44947_shared_folders_mock.py",
+      "exit_code": 0,
+      "log": "docs/sprint-logs/Sd44947/verify-run-gui-mock.log",
+      "machine_status": "pass",
+      "junit": null
+    }
+  ],
+  "overall_machine_status": "pass"
+}

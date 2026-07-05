@@ -413,6 +413,10 @@ interface DeployFormState {
   ssoSecret: string
   cloudflareToken: string
   showSsoInput: boolean
+  // Sd44947: [workspace] shared folders (absolute host paths, pending until Apply).
+  sharedDirs: string[]
+  newSharedDir: string
+  sharedDirError: string | null
 }
 
 function deriveDeployForm(d: DeployView): DeployFormState {
@@ -430,7 +434,29 @@ function deriveDeployForm(d: DeployView): DeployFormState {
     ssoSecret: '',
     cloudflareToken: '',
     showSsoInput: false,
+    sharedDirs: d.workspace?.sharedDirs ?? [],
+    newSharedDir: '',
+    sharedDirError: null,
   }
+}
+
+// validateSharedDir mirrors the server-side $HOME-scope rule (config.ExpandSharedDir)
+// so the GUI can reject an out-of-$HOME path inline before Apply. Returns the
+// expanded absolute path on success, or an error message.
+function validateSharedDir(raw: string, home: string): { path?: string; error?: string } {
+  const entry = raw.trim()
+  if (!entry) return { error: 'パスを入力してください' }
+  let abs = entry
+  if (entry === '~') abs = home
+  else if (entry.startsWith('~/')) abs = home.replace(/\/$/, '') + '/' + entry.slice(2)
+  else if (entry.startsWith('~')) return { error: '~/（自分のホーム）のみ指定できます' }
+  if (!abs.startsWith('/')) return { error: '絶対パスまたは ~/ で始まるパスを指定してください' }
+  // Collapse a trailing slash for the scope check.
+  const homeClean = home.replace(/\/$/, '')
+  if (abs !== homeClean && !abs.startsWith(homeClean + '/')) {
+    return { error: `パスは $HOME（${homeClean}）配下のみ許可されます` }
+  }
+  return { path: abs.replace(/\/$/, '') || '/' }
 }
 
 function DeployTab() {
@@ -518,6 +544,24 @@ function DeployTab() {
     setForm((prev) => prev ? { ...prev, [key]: value } : prev)
   }, [])
 
+  // Sd44947: add the typed path to the pending shared-folder list (with inline
+  // $HOME-scope validation), or remove one by index.
+  const addSharedDir = useCallback(() => {
+    setForm((prev) => {
+      if (!prev || !deployView) return prev
+      const { path, error } = validateSharedDir(prev.newSharedDir, deployView.workspace?.home ?? '')
+      if (error || !path) return { ...prev, sharedDirError: error ?? 'invalid path' }
+      if (prev.sharedDirs.includes(path)) {
+        return { ...prev, sharedDirError: '既に追加済みです', newSharedDir: '' }
+      }
+      return { ...prev, sharedDirs: [...prev.sharedDirs, path], newSharedDir: '', sharedDirError: null }
+    })
+  }, [deployView])
+
+  const removeSharedDir = useCallback((idx: number) => {
+    setForm((prev) => prev ? { ...prev, sharedDirs: prev.sharedDirs.filter((_, i) => i !== idx) } : prev)
+  }, [])
+
   // Compute whether any restart-class fields changed
   const hasRestartChanges = (() => {
     if (!deployView || !form) return false
@@ -563,6 +607,9 @@ function DeployTab() {
           domain: form.domain,
           basic_auth_user: form.basic_auth_user,
         },
+        workspace: {
+          sharedDirs: form.sharedDirs,
+        },
       })
       setApplyResult(result)
       // Reload the view to reflect server state
@@ -597,7 +644,7 @@ function DeployTab() {
   if (!form || !deployView) {
     return (
       <div data-testid="settings-deploy-panel" className={styles.panel}>
-        <p className={styles.loadingText}>読み込み中…</p>
+        <p className={styles.loadingText} data-testid="deploy-loading">読み込み中…</p>
       </div>
     )
   }
@@ -868,6 +915,83 @@ function DeployTab() {
         </div>
       </div>
 
+      <div className={styles.sectionLabel}>
+        [workspace] · 共有フォルダ <span className={styles.tagWorkspace}>即時 (稼働中コンテナへ live 反映)</span>
+      </div>
+
+      <div className={styles.bannerWarn} data-testid="shared-dirs-warning">
+        <span>⚠</span>
+        <span>
+          ここに追加したフォルダは <strong>全 Workspace コンテナに露出</strong>します。
+          <code>~/.claude</code> と同じく、認証情報を含むディレクトリは中の Claude / シェルから
+          読み書き可能になります。信頼するパスだけを追加してください。
+        </span>
+      </div>
+
+      <div className={styles.field}>
+        <div className={styles.fieldLabel}>
+          <span className={styles.fieldName}>
+            共有フォルダ <span className={styles.tagWorkspace}>即時</span>
+          </span>
+          <span className={styles.fieldKey}>config.toml · [workspace] shared_dirs</span>
+          <span className={styles.fieldHint}>
+            incus profile <code>palmux-shared</code> の device として全コンテナへ bind-mount されます。source 不在のパスは自動 skip。
+          </span>
+        </div>
+        <div className={styles.fieldControl}>
+          {form.sharedDirs.length === 0 ? (
+            <div className={styles.sfEmpty} data-testid="shared-dirs-list">
+              共有フォルダはまだありません。下の入力欄から <code>~/.infisical</code> のようなパスを追加できます。
+            </div>
+          ) : (
+            <div className={styles.sfList} data-testid="shared-dirs-list">
+              {form.sharedDirs.map((dir, i) => (
+                <div key={dir} className={styles.sfRow}>
+                  <span className={styles.sfPath}>{dir}</span>
+                  <button
+                    type="button"
+                    className={styles.sfRemove}
+                    data-testid={`shared-dir-remove-${i}`}
+                    title="削除"
+                    onClick={() => removeSharedDir(i)}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className={styles.sfAdd}>
+            <input
+              type="text"
+              className={styles.input}
+              placeholder="~/.infisical のような $HOME 配下のパス"
+              value={form.newSharedDir}
+              data-testid="shared-dir-input"
+              onChange={(e) => updateForm('newSharedDir', e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  addSharedDir()
+                }
+              }}
+            />
+            <button type="button" className={styles.btnGhost} data-testid="shared-dir-add" onClick={addSharedDir}>
+              ＋ 追加
+            </button>
+          </div>
+          {form.sharedDirError && (
+            <div className={styles.sfInlineError} data-testid="shared-dir-error">
+              <span>✕</span>
+              <span>{form.sharedDirError}</span>
+            </div>
+          )}
+          <span className={styles.help}>
+            追加は一覧に <strong>保留 (pending)</strong> として入り、下部の <strong>Apply</strong> で profile へ書込 + 稼働中コンテナに反映されます。
+          </span>
+        </div>
+      </div>
+
       <div className={styles.btnRow}>
         <button
           type="button"
@@ -888,7 +1012,7 @@ function DeployTab() {
           ディスクから再読込
         </button>
         {applyError && (
-          <span className={styles.saveError}>{applyError}</span>
+          <span className={styles.saveError} data-testid="deploy-apply-error">{applyError}</span>
         )}
       </div>
 
@@ -901,6 +1025,7 @@ function DeployTab() {
                 <div key={c.field} className={styles.changeItem}>
                   <code>{c.field}</code>
                   {c.class === 'hot' && <span className={styles.tagHot}>即時</span>}
+                  {c.class === 'workspace' && <span className={styles.tagWorkspace}>即時 (全コンテナ)</span>}
                   {c.class === 'restart' && <span className={styles.tagRestart}>要再起動</span>}
                   {c.class === 'root' && <span className={styles.tagRoot}>要特権</span>}
                 </div>

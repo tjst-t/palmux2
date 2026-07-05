@@ -150,6 +150,18 @@ func findExecCall(calls [][]string, inst string, after ...string) ([]string, boo
 	return nil, false
 }
 
+// newIncusRTWithShared builds an incusRuntime wired with a SharedProfileManager
+// (Sd44947) that shares the SAME fake runner, so profile operations
+// (profile create/show/device add, profile add <inst> palmux-shared) are
+// recorded like every other incus call. Use this in Start tests that assert the
+// shared bind-mounts now live in the palmux-shared profile rather than as
+// per-container device adds.
+func newIncusRTWithShared(cfg runtime.Config, inst string, fr *fakeRunner) *incusRuntime {
+	ir := New(cfg, inst, fr.asRunner(), nil).(*incusRuntime)
+	ir.SetSharedProfileManager(NewSharedProfileManager(fr.asRunner(), nil, nil))
+	return ir
+}
+
 func findCall(calls [][]string, prefix ...string) ([]string, bool) {
 	for _, c := range calls {
 		if len(c) < len(prefix) {
@@ -182,7 +194,7 @@ func TestStart_ArgSequence(t *testing.T) {
 	// list for containerIP: return a valid (empty) JSON array.
 	fr.setResult("list "+inst, fakeResult{stdout: "[]", code: 0})
 
-	rt := New(runtime.Config{Kind: runtime.KindIncusContainer, Image: "palmux-ws"}, inst, fr.asRunner(), nil)
+	rt := newIncusRTWithShared(runtime.Config{Kind: runtime.KindIncusContainer, Image: "palmux-ws"}, inst, fr)
 	ctx := context.Background()
 	if err := rt.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -190,9 +202,10 @@ func TestStart_ArgSequence(t *testing.T) {
 
 	calls := fr.recorded()
 
-	// 1. init palmux-ws <inst>  [AC-S8478ca-2-1]
-	if _, ok := findCall(calls, "init", "palmux-ws", inst); !ok {
-		t.Errorf("[AC-S8478ca-2-1] expected 'incus init palmux-ws %s', not found in %v", inst, calls)
+	// 1. init palmux-ws <inst> -p default -p palmux-shared  [AC-S8478ca-2-1]
+	// [AC-Sd44947-1-1] the container is launched referencing the shared profile.
+	if _, ok := findCall(calls, "init", "palmux-ws", inst, "-p", "default", "-p", SharedProfileName); !ok {
+		t.Errorf("[AC-Sd44947-1-1] expected 'incus init palmux-ws %s -p default -p %s', not found in %v", inst, SharedProfileName, calls)
 	}
 
 	// 2. config set <inst> raw.idmap "both 1000 1000"  [AC-S8478ca-2-2]
@@ -212,15 +225,14 @@ func TestStart_ArgSequence(t *testing.T) {
 		t.Errorf("expected 'incus config set %s raw.lxc lxc.apparmor.profile=unconfined' (nested docker run), not found in %v", inst, calls)
 	}
 
-	// 3. Five device-add calls for ~/ghq, ~/.claude, ~/.claude.json,
-	// ~/.local/share/claude, ~/.local/bin  [AC-S8478ca-2-2]
-	// [AC-S8478ca-refine-claude-bind-mount]
+	// 3. Shared bind-mounts (~/ghq, ~/.claude, ~/.claude.json, ~/.local/share/claude,
+	// ~/.local/bin) are now PROFILE devices on palmux-shared, NOT per-container
+	// device adds. [AC-S8478ca-2-2] [AC-Sd44947-1-1]
 	home, _ := os.UserHomeDir()
 	for _, m := range []struct{ name, src string }{
 		{"ghq", filepath.Join(home, "ghq")},
 		{"dot-claude", filepath.Join(home, ".claude")},
 		{"dot-claude-json", filepath.Join(home, ".claude.json")},
-		// claude native binary mounts (refine sprint, deliver#1)
 		{"dot-local-share-claude", filepath.Join(home, ".local", "share", "claude")},
 		{"dot-local-bin", filepath.Join(home, ".local", "bin")},
 	} {
@@ -229,13 +241,22 @@ func TestStart_ArgSequence(t *testing.T) {
 			continue
 		}
 		if _, ok := findCall(calls,
-			"config", "device", "add", inst,
+			"profile", "device", "add", SharedProfileName,
 			m.name, "disk",
 			"source="+m.src,
 			"path="+m.src,
 		); !ok {
-			t.Errorf("[AC-S8478ca-2-2] expected device add for %q, not found in %v", m.name, calls)
+			t.Errorf("[AC-Sd44947-1-1] expected PROFILE device add for %q on %s, not found in %v", m.name, SharedProfileName, calls)
 		}
+		// It MUST NOT be added as a per-container instance-local device anymore.
+		if _, ok := findCall(calls, "config", "device", "add", inst, m.name, "disk"); ok {
+			t.Errorf("[AC-Sd44947-1-1] shared device %q must NOT be a per-container device add, found in %v", m.name, calls)
+		}
+	}
+
+	// 3b. The instance references the shared profile. [AC-Sd44947-1-1]
+	if _, ok := findCall(calls, "profile", "add", inst, SharedProfileName); !ok {
+		t.Errorf("[AC-Sd44947-1-1] expected 'incus profile add %s %s', not found in %v", inst, SharedProfileName, calls)
 	}
 
 	// 4. start <inst>  [AC-S8478ca-2-1]
@@ -286,7 +307,7 @@ func TestStart_ClaudeBindMounts(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(tmpBase, ".claude.json"), []byte("{}"), 0o600)
 	defer os.Setenv("HOME", origHome)
 
-	rt := New(runtime.Config{Kind: runtime.KindIncusContainer, Image: "palmux-ws"}, inst, fr.asRunner(), nil)
+	rt := newIncusRTWithShared(runtime.Config{Kind: runtime.KindIncusContainer, Image: "palmux-ws"}, inst, fr)
 	ctx := context.Background()
 	if err := rt.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -294,24 +315,24 @@ func TestStart_ClaudeBindMounts(t *testing.T) {
 
 	calls := fr.recorded()
 
-	// Assert device-add for dot-local-share-claude
+	// Assert PROFILE device-add for dot-local-share-claude (Sd44947)
 	if _, ok := findCall(calls,
-		"config", "device", "add", inst,
+		"profile", "device", "add", SharedProfileName,
 		"dot-local-share-claude", "disk",
 		"source="+shareClaudeDir,
 		"path="+shareClaudeDir,
 	); !ok {
-		t.Errorf("[AC-S8478ca-refine-claude-bind-mount] expected device-add dot-local-share-claude %s, not found in %v", shareClaudeDir, calls)
+		t.Errorf("[AC-Sd44947-1-1] expected profile device-add dot-local-share-claude %s, not found in %v", shareClaudeDir, calls)
 	}
 
-	// Assert device-add for dot-local-bin
+	// Assert PROFILE device-add for dot-local-bin (Sd44947)
 	if _, ok := findCall(calls,
-		"config", "device", "add", inst,
+		"profile", "device", "add", SharedProfileName,
 		"dot-local-bin", "disk",
 		"source="+localBinDir,
 		"path="+localBinDir,
 	); !ok {
-		t.Errorf("[AC-S8478ca-refine-claude-bind-mount] expected device-add dot-local-bin %s, not found in %v", localBinDir, calls)
+		t.Errorf("[AC-Sd44947-1-1] expected profile device-add dot-local-bin %s, not found in %v", localBinDir, calls)
 	}
 }
 
@@ -335,7 +356,7 @@ func TestStart_ClaudeBindMounts_SkipsAbsentPaths(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(tmpBase, ".claude.json"), []byte("{}"), 0o600)
 	t.Setenv("HOME", tmpBase)
 
-	rt := New(runtime.Config{Kind: runtime.KindIncusContainer, Image: "palmux-ws"}, inst, fr.asRunner(), nil)
+	rt := newIncusRTWithShared(runtime.Config{Kind: runtime.KindIncusContainer, Image: "palmux-ws"}, inst, fr)
 	if err := rt.Start(context.Background()); err != nil {
 		t.Fatalf("Start (no .local paths): %v", err)
 	}
@@ -350,12 +371,12 @@ func TestStart_ClaudeBindMounts_SkipsAbsentPaths(t *testing.T) {
 		{"dot-local-bin", localBin},
 	} {
 		if _, ok := findCall(calls,
-			"config", "device", "add", inst,
+			"profile", "device", "add", SharedProfileName,
 			absent.name, "disk",
 			"source="+absent.src,
 			"path="+absent.src,
 		); ok {
-			t.Errorf("[AC-S8478ca-refine-claude-bind-mount] device-add for absent %q should be skipped, but was found in %v", absent.name, calls)
+			t.Errorf("[AC-Sd44947-1-1] profile device-add for absent %q should be skipped, but was found in %v", absent.name, calls)
 		}
 	}
 
@@ -1552,129 +1573,151 @@ func TestKillContainerProcesses(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// S52fc2c-5: ensureHookBinMount inode-staleness detection
+// S52fc2c-5 (ported to Sd44947 profile scope): the palmux hook binary is now a
+// device on the palmux-shared profile. Inode-staleness detection moved to
+// SharedProfileManager.Ensure — when the hook binary is replaced in place (same
+// source path, new inode) the profile device is force-replaced so incus
+// re-hotplugs the current binary to every container.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// TestEnsureHookBinMount_RefreshesOnInodeChange verifies that when hookBinInode
-// is set to a different value than the current binary's inode, ensureHookBinMount
-// issues a `config device remove` before the `config device add`.
-// [AC-S52fc2c-5-1] [AC-S52fc2c-5-2]
-func TestEnsureHookBinMount_RefreshesOnInodeChange(t *testing.T) {
-	inst := "ws-hook-inode-ccdd5678"
+// hookProfileShowYAML returns a fake `incus profile show palmux-shared` body in
+// which palmux-hook-bin is already present with the given source (matching the
+// current test binary), so Ensure sees it as present and can decide replace.
+func hookProfileShowYAML(source string) string {
+	return "name: " + SharedProfileName + "\n" +
+		"devices:\n" +
+		"  palmux-hook-bin:\n" +
+		"    type: disk\n" +
+		"    source: " + source + "\n" +
+		"    path: /usr/local/bin/palmux\n" +
+		"used_by: []\n"
+}
+
+// hookBinSource resolves the same source path Ensure derives for palmux-hook-bin.
+func hookBinSource(t *testing.T) string {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Skipf("os.Executable unavailable: %v", err)
+	}
+	if r, rerr := filepath.EvalSymlinks(exe); rerr == nil && r != "" {
+		exe = r
+	}
+	return exe
+}
+
+// TestSharedProfile_HookBinInodeChange_ForcesReplace verifies that when the
+// manager's cached hook inode differs from the current binary's inode and the
+// device is already present in the profile, Ensure issues a profile device
+// remove + add for palmux-hook-bin. [AC-S52fc2c-5-1] [AC-S52fc2c-5-2]
+func TestSharedProfile_HookBinInodeChange_ForcesReplace(t *testing.T) {
+	src := hookBinSource(t)
 	fr := newFakeRunner()
+	fr.setResult("profile show", fakeResult{stdout: hookProfileShowYAML(src), code: 0})
 
-	rt := New(runtime.Config{Kind: runtime.KindIncusContainer}, inst, fr.asRunner(), nil)
-	ir := rt.(*incusRuntime)
+	m := NewSharedProfileManager(fr.asRunner(), nil, nil)
+	// Force a "stale" cached inode different from the real binary's.
+	m.mu.Lock()
+	m.lastHookInode = 1
+	m.mu.Unlock()
 
-	// Simulate a stale inode: set hookBinInode to a non-zero "old" value.
-	// The real binary has a different inode, so ensureHookBinMount should detect
-	// the mismatch and issue a remove before the re-add.
-	ir.hookBinMu.Lock()
-	ir.hookBinInode = 1 // forced "old" inode — extremely unlikely to match the real binary
-	ir.hookBinMu.Unlock()
-
-	ctx := context.Background()
-	ir.ensureHookBinMount(ctx)
-
+	if err := m.Ensure(context.Background()); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
 	calls := fr.recorded()
 
-	// Expect a device remove call for "palmux-hook-bin".
-	foundRemove := false
+	foundRemove, foundAdd := false, false
 	for _, c := range calls {
-		if len(c) >= 5 && c[0] == "config" && c[1] == "device" && c[2] == "remove" && c[4] == "palmux-hook-bin" {
+		if len(c) >= 5 && c[0] == "profile" && c[1] == "device" && c[2] == "remove" && c[4] == "palmux-hook-bin" {
 			foundRemove = true
 		}
-	}
-	if !foundRemove {
-		t.Errorf("[AC-S52fc2c-5-1] expected 'config device remove ... palmux-hook-bin', got %v", calls)
-	}
-
-	// Expect a device add call after the remove.
-	foundAdd := false
-	for _, c := range calls {
-		if len(c) >= 5 && c[0] == "config" && c[1] == "device" && c[2] == "add" && c[4] == "palmux-hook-bin" {
+		if len(c) >= 5 && c[0] == "profile" && c[1] == "device" && c[2] == "add" && c[4] == "palmux-hook-bin" {
 			foundAdd = true
 		}
 	}
+	if !foundRemove {
+		t.Errorf("[AC-S52fc2c-5-1] expected 'profile device remove ... palmux-hook-bin' on inode change, got %v", calls)
+	}
 	if !foundAdd {
-		t.Errorf("[AC-S52fc2c-5-2] expected 'config device add ... palmux-hook-bin' after remove, got %v", calls)
+		t.Errorf("[AC-S52fc2c-5-2] expected 'profile device add ... palmux-hook-bin' after remove, got %v", calls)
 	}
-
-	// hookBinInode must be updated to the current (non-1) value after success.
-	ir.hookBinMu.Lock()
-	updatedInode := ir.hookBinInode
-	ir.hookBinMu.Unlock()
-	if updatedInode == 1 {
-		t.Errorf("[AC-S52fc2c-5-2] hookBinInode was not updated after re-mount (still 1)")
+	m.mu.Lock()
+	updated := m.lastHookInode
+	m.mu.Unlock()
+	if updated == 1 {
+		t.Errorf("[AC-S52fc2c-5-2] lastHookInode was not updated after replace (still 1)")
 	}
 }
 
-// TestEnsureHookBinMount_Idempotent verifies that when hookBinInode matches
-// the current binary inode, no remove is issued (idempotent). [AC-S52fc2c-5-2]
-func TestEnsureHookBinMount_Idempotent(t *testing.T) {
-	inst := "ws-hook-inode-idem-eeff"
+// TestSharedProfile_HookBinFreshStart_ForcesReplace verifies AC-S52fc2c-5-3
+// ported to profile scope: after a palmux restart the manager is fresh
+// (lastHookInode == 0) but a container launched before may pin the OLD binary.
+// The FIRST reconcile must still force-replace the palmux-hook-bin device so
+// incus re-hotplugs the current binary — the `lastInode != 0` guard would
+// (incorrectly) skip it. [AC-S52fc2c-5-1] [AC-S52fc2c-5-3]
+func TestSharedProfile_HookBinFreshStart_ForcesReplace(t *testing.T) {
+	src := hookBinSource(t)
 	fr := newFakeRunner()
+	fr.setResult("profile show", fakeResult{stdout: hookProfileShowYAML(src), code: 0})
 
-	rt := New(runtime.Config{Kind: runtime.KindIncusContainer}, inst, fr.asRunner(), nil)
-	ir := rt.(*incusRuntime)
-
-	ctx := context.Background()
-	// First call: mounts and records inode.
-	ir.ensureHookBinMount(ctx)
-	fr.mu.Lock()
-	fr.calls = nil // reset recorded calls
-	fr.mu.Unlock()
-
-	// Second call with the SAME inode: must NOT issue a remove.
-	ir.ensureHookBinMount(ctx)
-	calls := fr.recorded()
-	for _, c := range calls {
-		if len(c) >= 5 && c[0] == "config" && c[1] == "device" && c[2] == "remove" && c[4] == "palmux-hook-bin" {
-			t.Errorf("[AC-S52fc2c-5-2] unexpected remove on idempotent call (inode unchanged): %v", calls)
-		}
-	}
-}
-
-// TestEnsureHookBinMount_RefreshesAfterRestart verifies the AC-S52fc2c-5-3
-// scenario: after a palmux2 update + restart the incusRuntime struct is fresh
-// (hookBinInode == 0) but the container's mount still pins the OLD binary. The
-// first call on a fresh struct MUST still issue remove + re-add so the stale
-// mount is replaced — the `lastInode != 0` guard would (incorrectly) skip it.
-// [AC-S52fc2c-5-1] [AC-S52fc2c-5-3]
-func TestEnsureHookBinMount_RefreshesAfterRestart(t *testing.T) {
-	inst := "ws-hook-restart-99aabbcc"
-	fr := newFakeRunner()
-
-	rt := New(runtime.Config{Kind: runtime.KindIncusContainer}, inst, fr.asRunner(), nil)
-	ir := rt.(*incusRuntime)
-
-	// Fresh struct: hookBinInode is the zero value (0), exactly as after a
+	// Fresh manager: lastHookInode is the zero value (0), exactly as after a
 	// process restart. Do NOT pre-seed it.
-	ir.hookBinMu.Lock()
-	if ir.hookBinInode != 0 {
-		t.Fatalf("precondition: fresh struct should have hookBinInode==0, got %d", ir.hookBinInode)
+	m := NewSharedProfileManager(fr.asRunner(), nil, nil)
+	m.mu.Lock()
+	if m.lastHookInode != 0 {
+		t.Fatalf("precondition: fresh manager should have lastHookInode==0, got %d", m.lastHookInode)
 	}
-	ir.hookBinMu.Unlock()
+	m.mu.Unlock()
 
-	ir.ensureHookBinMount(context.Background())
-
+	if err := m.Ensure(context.Background()); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
 	calls := fr.recorded()
-	// A remove MUST be issued even though lastInode was 0 (stale container mount).
-	foundRemove := false
+	foundRemove, foundAdd := false, false
 	for _, c := range calls {
-		if len(c) >= 5 && c[0] == "config" && c[1] == "device" && c[2] == "remove" && c[4] == "palmux-hook-bin" {
+		if len(c) >= 5 && c[0] == "profile" && c[1] == "device" && c[2] == "remove" && c[4] == "palmux-hook-bin" {
 			foundRemove = true
 		}
+		if len(c) >= 5 && c[0] == "profile" && c[1] == "device" && c[2] == "add" && c[4] == "palmux-hook-bin" {
+			foundAdd = true
+		}
 	}
-	if !foundRemove {
-		t.Errorf("[AC-S52fc2c-5-3] post-restart (lastInode==0) must still remove the stale mount, got %v", calls)
+	if !foundRemove || !foundAdd {
+		t.Errorf("[AC-S52fc2c-5-3] fresh-start (lastHookInode==0) must force-replace palmux-hook-bin, got remove=%v add=%v in %v", foundRemove, foundAdd, calls)
 	}
-	// And the inode must now be recorded so the next call is idempotent.
-	ir.hookBinMu.Lock()
-	got := ir.hookBinInode
-	ir.hookBinMu.Unlock()
+	m.mu.Lock()
+	got := m.lastHookInode
+	m.mu.Unlock()
 	if got == 0 {
-		t.Errorf("[AC-S52fc2c-5-3] hookBinInode not recorded after first mount")
+		t.Errorf("[AC-S52fc2c-5-3] lastHookInode not recorded after fresh-start reconcile")
+	}
+}
+
+// TestSharedProfile_HookBinInodeUnchanged_NoReplace verifies that when the
+// cached inode matches the current binary and the device is already present with
+// the same source, Ensure does NOT remove palmux-hook-bin (idempotent).
+// [AC-S52fc2c-5-2]
+func TestSharedProfile_HookBinInodeUnchanged_NoReplace(t *testing.T) {
+	src := hookBinSource(t)
+	ino, ok := statInode(src)
+	if !ok {
+		t.Skipf("cannot stat inode of %s", src)
+	}
+	fr := newFakeRunner()
+	fr.setResult("profile show", fakeResult{stdout: hookProfileShowYAML(src), code: 0})
+
+	m := NewSharedProfileManager(fr.asRunner(), nil, nil)
+	m.mu.Lock()
+	m.lastHookInode = ino // same inode → no forced replace
+	m.mu.Unlock()
+
+	if err := m.Ensure(context.Background()); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	for _, c := range fr.recorded() {
+		if len(c) >= 5 && c[0] == "profile" && c[1] == "device" && c[2] == "remove" && c[4] == "palmux-hook-bin" {
+			t.Errorf("[AC-S52fc2c-5-2] unexpected remove of palmux-hook-bin on unchanged inode: %v", c)
+		}
 	}
 }
 

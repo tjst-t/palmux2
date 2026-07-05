@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 
 	"github.com/tjst-t/palmux2/internal/config"
@@ -29,6 +30,12 @@ type HotApplier interface {
 	// freshly-spawned claude tabs (hot — existing daemons keep their binary).
 	SetClaudeBin(bin string)
 	SetClaudeArgs(args []string)
+	// SetSharedDirs (Sd44947) pushes new [workspace] shared_dirs into the
+	// host-wide palmux-shared incus profile and live-propagates the device
+	// add/remove to running containers. Returns the number of running containers
+	// the profile is attached to (for the apply message). A nil/absent runtime
+	// returns (0, nil).
+	SetSharedDirs(ctx context.Context, dirs []string) (int, error)
 }
 
 // Controller is held by the server. It is the single source of truth for the
@@ -90,8 +97,15 @@ type SecretPresence struct {
 // View is the masked deploy state returned to the GUI. Secrets are reported as
 // presence booleans, never values.
 type View struct {
-	Server  config.ServerSection `json:"server"`
-	Public  config.PublicSection `json:"public"`
+	Server config.ServerSection `json:"server"`
+	Public config.PublicSection `json:"public"`
+	// Workspace carries [workspace] shared_dirs as ABSOLUTE host paths (~ expanded)
+	// so the GUI shows what actually gets bind-mounted, plus the host $HOME so the
+	// GUI can validate new entries inline (Sd44947 Story 2).
+	Workspace struct {
+		SharedDirs []string `json:"sharedDirs"`
+		Home       string   `json:"home"`
+	} `json:"workspace"`
 	Secrets struct {
 		HasSSOSecret       bool `json:"hasSsoSecret"`
 		HasBasicAuthHash   bool `json:"hasBasicAuthHash"`
@@ -120,10 +134,31 @@ func (c *Controller) CurrentView() View {
 	var v View
 	v.Server = c.applied.Server
 	v.Public = c.applied.Public
+	sharedDirs := c.applied.Workspace.SharedDirs
 	// Overlay the on-disk master so the GUI shows what the user last saved.
 	if mc, _, err := config.LoadServerConfig(c.configDir); err == nil {
 		overlayServer(&v.Server, mc.Server)
 		overlayPublic(&v.Public, mc.Public)
+		// On-disk [workspace] shared_dirs override the running snapshot only when
+		// present (mirrors overlayServer's non-empty rule so a fresh/empty config
+		// file doesn't clobber the applied value).
+		if len(mc.Workspace.SharedDirs) > 0 {
+			sharedDirs = mc.Workspace.SharedDirs
+		}
+	}
+	// Sd44947: return shared_dirs as absolute paths (~ expanded); drop any that
+	// fail $HOME-scope validation so a hand-edited bad entry never reaches the GUI.
+	if home, herr := os.UserHomeDir(); herr == nil {
+		v.Workspace.Home = home
+		abs := make([]string, 0, len(sharedDirs))
+		for _, d := range sharedDirs {
+			if p, e := config.ExpandSharedDir(d, home); e == nil {
+				abs = append(abs, p)
+			}
+		}
+		v.Workspace.SharedDirs = abs
+	} else {
+		v.Workspace.SharedDirs = sharedDirs
 	}
 	v.Secrets.HasSSOSecret = c.hasSSOSecret
 	v.Secrets.HasBasicAuthHash = c.hasBasicHash
@@ -189,7 +224,10 @@ type ApplyOutcome struct {
 	HotApplied    bool                 `json:"hotApplied"`
 	NeedRestart   bool                 `json:"needRestart"`
 	NeedPrivilege bool                 `json:"needPrivilege"`
-	Message       string               `json:"message"`
+	// WorkspaceApplied (Sd44947) is true when a workspace-class change (shared
+	// folders) was live-propagated to the palmux-shared profile.
+	WorkspaceApplied bool   `json:"workspaceApplied"`
+	Message          string `json:"message"`
 }
 
 // SaveAndClassify persists the new master to disk, classifies the diff against
@@ -216,6 +254,7 @@ func (c *Controller) SaveAndClassify(ctx context.Context, neu config.MasterConfi
 		}
 	}
 
+	workspaceContainers := 0
 	for _, ch := range changes {
 		switch ch.Class {
 		case config.ClassHot:
@@ -230,6 +269,22 @@ func (c *Controller) SaveAndClassify(ctx context.Context, neu config.MasterConfi
 				c.advanceAppliedFieldLocked(ch.Field, neu)
 			}
 			out.HotApplied = true
+		case config.ClassWorkspace:
+			// Sd44947: rewrite the palmux-shared profile in-process and
+			// live-propagate to running containers (no restart). The config is
+			// already persisted to config.toml above (WriteMaster), so a profile
+			// propagation failure (incus unavailable / host-only box) is NOT fatal —
+			// it is logged and the profile self-heals when incus is next used. The
+			// baseline advances to match what is on disk.
+			if !dryRun && c.hot != nil {
+				n, aerr := c.hot.SetSharedDirs(ctx, neu.Workspace.SharedDirs)
+				if aerr != nil {
+					c.logger.Warn("deploy: shared-folder profile propagation deferred (incus unavailable?)", "err", aerr)
+				}
+				workspaceContainers = n
+				c.applied.Workspace = neu.Workspace
+			}
+			out.WorkspaceApplied = true
 		case config.ClassRestart:
 			out.NeedRestart = true
 		case config.ClassRoot:
@@ -247,6 +302,8 @@ func (c *Controller) SaveAndClassify(ctx context.Context, neu config.MasterConfi
 		out.Message = "some changes require `sudo palmux reconcile-system` (public domain / TLS)"
 	case out.NeedRestart:
 		out.Message = "restart-class changes require `systemctl --user restart palmux2`"
+	case out.WorkspaceApplied:
+		out.Message = fmt.Sprintf("共有フォルダを更新しました — %d 個の稼働中コンテナに反映", workspaceContainers)
 	default:
 		out.Message = "applied in-process"
 	}

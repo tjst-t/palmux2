@@ -134,7 +134,7 @@ Palmux2 はコンテナを **動的に増減** させる。
 | 対象 | 扱い | 現状 |
 |---|---|---|
 | Incus デーモン・ネットワーク・ストレージプール・default プロファイル | `configuration.nix` (`virtualisation.incus` + `palmux-incus-reconcile`) | [実装済] |
-| 共有 device(bind mount)群 | 金型の一部 | 現状は palmux バイナリ内の mounts[] が per-container 注入。プロファイルへの宣言移行は **[提案]** |
+| 共有 device(bind mount)群 | 金型の一部 | **[実装済 Sd44947]** palmux が単一 incus profile `palmux-shared` を config.toml + mounts[] ロジックから射影(profile-as-mold)。コンテナは `default + palmux-shared` で launch し per-container device add を廃止、10s scan ループに相乗りした reconcile が profile を宣言へ収束させる(手で device を消しても次 scan で復活)。**金型の所有者は palmux**(NixOS/install.sh 両ホストで incus runtime を賄うため configuration.nix ではなく palmux が config.toml を正として射影。NixOS ネイティブ profile 宣言は将来形 **[提案]**、決定 decisions.json D1)。 |
 | コンテナのライフサイクル(launch/delete) | Palmux2(実行時・Nix 管理外) | [実装済] |
 | コンテナ内の開発者環境(dotfiles・ツール) | 全コンテナ共通の一枚 | 現状は palmux-ws image 焼き込み + host dotfiles bind。home.nix 化は **[提案]** |
 | コンテナ内のコード・実行状態 | Nix 管理外 | [実装済] |

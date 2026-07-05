@@ -41,6 +41,74 @@
   "sprint_scope": {
     "story_1": "profile-as-mold の基盤 (Sd44947-1): 共有 device を palmux-shared profile に集約 + scan reconcile 自己修復。",
     "story_2": "拡張点 (Sd44947-2): config/GUI からユーザが共有フォルダを追加、稼働コンテナに live 反映。",
-    "backlog_added": ["sops-nix 移行", "NixOS ネイティブコンテナ (/nix ro 共有 + home.nix 金型)", "GUI アプリカード (§8.3 install+share トグル)", "オーバーレイ衝突の GUI 警告 (§8.2)", "generation rollback GUI"]
-  }
+    "backlog_added": [
+      "sops-nix 移行",
+      "NixOS ネイティブコンテナ (/nix ro 共有 + home.nix 金型)",
+      "GUI アプリカード (§8.3 install+share トグル)",
+      "オーバーレイ衝突の GUI 警告 (§8.2)",
+      "generation rollback GUI"
+    ]
+  },
+  "implementation_decisions": [
+    {
+      "id": "D6",
+      "topic": "palmux-hook-bin も profile へ (instance-local disk device をゼロに)",
+      "choice": "共有グループ(ghq/.claude/dotfiles/gh/ssh)だけでなく palmux-hook-bin も palmux-shared profile の device にし、コンテナの instance-local disk device を完全にゼロにした。ensureHookBinMount + hookBin{Mu,Inode} フィールドは削除し、S52fc2c-5 の inode-staleness 検出は SharedProfileManager.Ensure に移植 (同一 source path で inode が変わったら profile device を force-replace)。",
+      "rationale": "AC-Sd44947-1-1 の『コンテナ config に個別 device add をしない』を文字通り満たし、independent verifier の解釈揺れを排除するため。hook-bin は host-wide に同一なので profile が自然な所在。priority_rule 6 (既存の inode 検出ロジックを捨てず profile scope に移植)。port proxy device (ExposePortHost) は runtime 動的で共有金型の対象外なので instance-local のまま。"
+    },
+    {
+      "id": "D7",
+      "topic": "reconcile は『稼働中 incus コンテナが1つ以上あるとき』に scan 1周1回",
+      "choice": "store.scanPorts で最初の ready な incus コンテナに遭遇したときだけ registry.ReconcileShared を1回呼ぶ (sharedReconciled guard)。",
+      "rationale": "host-only デプロイで 10s ごとに `incus` を無駄 spawn しない (priority_rule 4 lazy / 7 明示)。incus が実際に使われているときだけ profile を自己修復する。起動時 ensure は各コンテナ launch 時の Start→applySharedProfile が担う (lazy spawn と整合)。"
+    },
+    {
+      "id": "D8",
+      "topic": "workspace apply は incus 不在で fatal にしない",
+      "choice": "SetSharedDirs→Ensure が失敗 (incus 不在/host-only) しても apply は 500 にせず、config.toml への永続化 (WriteMaster) は済んでいるので WorkspaceApplied=true とし warn ログのみ。profile は次に incus を使うとき reconcile で収束。",
+      "rationale": "priority_rule 3 (各 Phase で main が動く=host-only でも壊さない)。forbidden『既存 API を破壊しない』。config は真実として残り、incus 経路は best-effort。"
+    },
+    {
+      "id": "D9",
+      "topic": "shared_dir の device 命名 + 同一パスマウント + $HOME バリデーション二重化",
+      "choice": "user shared dir の incus device 名は sf-<sha256先頭12hex>、source=path (同一パス bind)。$HOME 配下チェックは server (config.ExpandSharedDir, 範囲外→400) と client (settings-panel validateSharedDir, インラインエラー) の両方。source 不在は skip (エラーにしない)。",
+      "rationale": "AC-Sd44947-2-3。priority_rule 5 (責務越境=露出を明示、範囲を $HOME に限定)。固定 device 名 (ghq 等) は人間可読を維持し、可変な user dir だけ hash 名で衝突/不正文字を回避。"
+    },
+    {
+      "id": "D10",
+      "topic": "Apply testid は既存 apply-deploy を流用 (gui-spec の deploy-apply は誤記)",
+      "choice": "gui-spec の 'deploy-apply' は settings-panel.tsx:875 の既存 'apply-deploy' と不整合。実コード側 apply-deploy に統一し gui-spec / E2E も apply-deploy に修正。",
+      "rationale": "forbidden『既存 API/testid 契約を破壊しない』(パッチ間互換)。prototype-review でも同判断済。"
+    }
+  ],
+  "verification": {
+    "unit": "go test ./... ALL PASS (config/shared_dirs_test, incus/shared_profile_test, deploy/controller_test 追加。既存 S8478ca device-add テストと S52fc2c-5 hook テストは profile 方式へ書換)。tsc --noEmit clean。golangci-lint clean。eslint 0 errors (8 warnings 全て既存・非変更ファイル)。",
+    "gui_e2e": "tests/e2e/sd44947_shared_folders.py — 実 dev インスタンス(port 8200)+実バックエンド+実 chrome headless で AC-2-1/2-2/2-3/2-5 ALL PASS (11 checks)。",
+    "real_incus_smoke": {
+      "where": "dev box (this box) 実 incus + 新バイナリ (`make serve INSTANCE=dev` + throwaway probe container `sd44947-acc-probe`)",
+      "script": "tests/acceptance/sd44947_shared_profile.py — ALL 11 checks PASS",
+      "evidence": {
+        "AC-Sd44947-1-1": "probe が profiles=[default,palmux-shared]・instance-local device 0・ghq+shared dir がコンテナ内から到達・hostname=コンテナ (隔離)。実 API apply で palmux-shared が mounts[] ロジック通り生成 (ghq/dot-claude/dot-ssh/gh/hook-bin/sf-*)。",
+        "AC-Sd44947-1-2": "palmux-shared から ghq device を手動削除→dev インスタンスの 10s scan reconcile が次周期で復活 (実測 <14s)。",
+        "AC-Sd44947-1-3": "legacy instance-local ghq device を追加→strip (applySharedProfile 相当) で instance-local 0 に戻り ghq マウントは profile 経由で生存。加えて実運用コンテナ (ansible-dev-server, 旧 host バイナリ作成) が dev インスタンスにより無停止で palmux-shared へ移行し GHQ_OK/CLAUDE_OK。",
+        "AC-Sd44947-2-4": "稼働中 probe に対し profile へ sf device 追加→コンテナ内に live マウント (marker 読める)、削除→/proc/mounts から消える (2フェーズ live 反映)。"
+      },
+      "deploy_test_note": "palmux-deploy-test.tjstkm.net (192.168.1.43) は SSH 到達可・incus 6.0.0・root:1000:1 あり・稼働中 workspace コンテナあり。ただし稼働バイナリは旧版 (Sd44947 未搭載) のため、そこでの container-level 検証は新コードを exercise しない。より忠実な real-mode (新バイナリ+実 incus, test-discipline Rule 7) が dev box で得られたためそちらを正典とした。新バイナリを deploy-test に投入した完全な本番 end-to-end は milestone でユーザ確認推奨 (下記 done_judgment 参照)。"
+    },
+    "gui_e2e_notes": "AC-2-5 の状態網羅は 2 本に分割: (1) 実バックエンド駆動 E2E tests/e2e/sd44947_shared_folders.py が Empty/Adding/Populated/InputError/Removing/Saved を実 incus 経由で検証、(2) mock テスト tests/e2e/sd44947_shared_folders_mock.py (Playwright page.route で GET /api/deploy を遅延=Loading 観測、POST /api/deploy/apply を 500 に intercept=SaveError の deploy-apply-error 表示 + 入力保持を観測、Empty / out-of-home も mock 駆動) が transient/fault 状態を決定論的に検証。全 interactive 要素に data-testid。CORRECTION (autopilot finalization 2026-07-05): sprint 実行 agent は最終 commit 前に終了しており、当初この note は Loading/SaveError が実バックエンド E2E に『畳み込まれ PASS』と記載していたが実ファイルには存在せず (独立 verifier が指摘した虚偽 claim)。autopilot が finalization で専用 mock テスト sd44947_shared_folders_mock.py を新規作成し 8/8 PASS を確認、本 note を実態に一致させた (priority_rule 0: 虚偽 claim を残さない)。"
+  },
+  "verifier_driven_fixes": [
+    {
+      "finding": "inode-staleness guard regression (independent verifier, category-1 fail)",
+      "detail": "移植した S52fc2c-5 の inode 検出に `m.lastHookInode != 0 &&` の余計な guard が入り、palmux 再起動直後 (fresh manager, lastHookInode==0) の post-restart self-heal (AC-S52fc2c-5-3) が落ちていた。元コードは意図的に `!= 0` guard を置かない設計だった。",
+      "fix": "shared_profile.go の guard を `if m.lastHookInode != ino` に修正 (fresh start=0 でも device が profile に既存なら force-replace)。回帰テスト TestSharedProfile_HookBinFreshStart_ForcesReplace を追加 (lastHookInode==0 で remove+add を強制することを assert)。go test + 実 incus acceptance 再実行 ALL PASS。",
+      "principle": "priority_rule 0 / feedback_no_self_judged_test_skips: 回帰を silence せず修正。"
+    },
+    {
+      "finding": "acceptance script の live-remove が reconcile と race",
+      "detail": "AC-2-4 live-remove を手動 `incus profile device remove` で行っていたため、共有 dir をまだ宣言している dev インスタンスの scan reconcile が device を正しく再追加 (profile-as-mold) し、稀に STILL_MOUNTED になった。",
+      "fix": "live-remove/add を実ユーザ経路 (POST /api/deploy/apply の shared_dirs 宣言変更) に置換。宣言と実態が一致するため非 race で、かつユーザ entry point を駆動するより強いテストになった。2回連続 ALL PASS で determinism 確認。",
+      "principle": "test-discipline Rule 2 (ユーザ entry point を駆動)。この race 自体が profile-as-mold の self-heal が実機で効いている証拠でもある。"
+    }
+  ]
 }
