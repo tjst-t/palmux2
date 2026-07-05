@@ -563,9 +563,13 @@ func (r *incusRuntime) applySharedProfile(ctx context.Context) {
 	}
 	_, stderr, code, err := r.run(ctx, "profile", "add", r.inst, SharedProfileName)
 	low := strings.ToLower(stderr)
+	// incus reports an already-attached profile as either "... already ..." or
+	// "Duplicate profile found in request" (re-open of an already-migrated
+	// container). Both mean the desired state already holds — not a failure.
+	alreadyAttached := strings.Contains(low, "already") || strings.Contains(low, "duplicate")
 	if err != nil {
 		r.log.Warn("incus: profile add palmux-shared (non-fatal)", "inst", r.inst, "err", err)
-	} else if code != 0 && !strings.Contains(low, "already") {
+	} else if code != 0 && !alreadyAttached {
 		r.log.Warn("incus: profile add palmux-shared (non-fatal)", "inst", r.inst, "code", code, "stderr", strings.TrimSpace(stderr))
 	}
 	// Migrate: strip legacy instance-local shared devices so the profile owns them.
