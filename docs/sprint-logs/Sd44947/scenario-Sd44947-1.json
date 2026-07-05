@@ -1,0 +1,45 @@
+{
+  "story": "Sd44947-1",
+  "story_type": "api",
+  "user_role": "palmux operator verifying workspace container isolation invariants on a real incus host",
+  "entry_point": "PATCH /api/repos/{repoId}/branches/{branchId}/runtime (switch to incus-container) triggers container launch; observations made via `incus` CLI on the host + in-container exec",
+  "note": "Infrastructure invariant Story. The end-user trigger is the runtime switch (API, also driven by the Header runtime chip in GUI); the new observable behavior (a dedicated palmux-shared profile + reconcile self-heal) is inspected on the host with incus. Real-mode only — run against deploy-test (192.168.1.43) real incus, never a fake.",
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "linked_ac": ["AC-Sd44947-1-1"],
+      "description": "Switching a workspace to incus launches a container that references the palmux-shared profile instead of carrying per-container device adds",
+      "preconditions": ["deploy-test real incus reachable", "palmux-ws image installed", "a repo opened with a workspace on host runtime"],
+      "steps": [
+        {"n":1,"action":"PATCH .../runtime {\"kind\":\"incus-container\"}","expected":"200; runtime.state=ready; a container ...palmux2-... is RUNNING"},
+        {"n":2,"action":"host: `incus profile show palmux-shared`","expected":"profile exists; devices include ghq, dot-claude, dot-local-* etc (only sources that exist on host); no per-source Nix-store-symlink dotfile that points outside home"},
+        {"n":3,"action":"host: `incus config show <inst>` and `incus config device list <inst>`","expected":"instance.profiles = [default, palmux-shared]; the shared devices come from the profile, NOT from instance-local device entries"},
+        {"n":4,"action":"in-container: `incus exec <inst> --user 1000 --env HOME=/home/ubuntu -- /home/ubuntu/.local/bin/claude --version`","expected":"prints the claude version (shared ~/.local + ~/.claude reached via the profile)"}
+      ],
+      "cleanup": ["switch workspace back to host runtime"]
+    },
+    {
+      "id": "scenario-2",
+      "linked_ac": ["AC-Sd44947-1-2"],
+      "description": "Reconcile self-heals a stripped profile on the next scan tick",
+      "preconditions": ["a workspace on incus runtime (scenario-1 done)"],
+      "steps": [
+        {"n":1,"action":"host: `incus profile device remove palmux-shared ghq`","expected":"device removed; profile temporarily missing ghq"},
+        {"n":2,"action":"wait one scan interval (<=~12s)","expected":"palmux's reconcile re-adds ghq to palmux-shared (device restored, converged to declaration)"},
+        {"n":3,"action":"host: `incus profile device list palmux-shared`","expected":"ghq present again; full declared device set restored (idempotent convergence)"}
+      ],
+      "cleanup": []
+    },
+    {
+      "id": "scenario-3",
+      "linked_ac": ["AC-Sd44947-1-3"],
+      "description": "A pre-existing per-container-device container migrates to the profile without losing auth/isolation",
+      "preconditions": ["a container that was created by the OLD per-container device-add path (or simulate by adding an instance-local device set)"],
+      "steps": [
+        {"n":1,"action":"trigger a re-open / runtime re-attach so palmux applies the profile method","expected":"container ends up referencing palmux-shared; no duplicate/broken mounts; runtime.state=ready"},
+        {"n":2,"action":"in-container: check hostname (isolation) + `gh auth status` + git rev-parse in ~/ghq/.../palmux2","expected":"hostname = container (isolated); gh authenticated as tjst-t; repo HEAD readable — parity with pre-migration"}
+      ],
+      "cleanup": ["switch workspace back to host runtime"]
+    }
+  ]
+}

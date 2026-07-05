@@ -1,0 +1,46 @@
+{
+  "sprint": "Sd44947",
+  "phase": "plan",
+  "touched_adrs": [],
+  "note": "docs/DESIGN/ は無い。設計の拠り所は docs/palmux2-nixos-appliance-design.md (§5 金型, §7 拡張の型, §8.4-8.5 2フェーズ+Reconcile) と docs/nixos-appliance-design.md (Sb14caa 実装正典)。",
+  "decisions": [
+    {
+      "id": "D1",
+      "topic": "金型の所有者 = palmux (Nix ではない)",
+      "choice": "共有 device 群を incus profile 'palmux-shared' に集約するが、profile の生成/更新は palmux が config.toml を正として射影する。configuration.nix に profile を宣言しない。",
+      "rationale": "install.sh (Ubuntu) ホストでも incus runtime は動くため、Nix 宣言では host/incus 両経路を賄えない。設計 doc §5 表は 'profile=configuration.nix' と書くが、これは NixOS ネイティブコンテナ [提案] 前提。現状は palmux が唯一の incus オーケストレータなので palmux が金型を所有するのが一貫。§8.2 の構造化データ→一方向生成、§8.6 'GUI で変えたい=実行時可変' の帰結にも合致。",
+      "doc_followup": "palmux2-nixos-appliance-design.md §5 の該当行に『現状は palmux が profile を config.toml から射影 [実装済予定]、NixOS 宣言は将来形 [提案]』の注記を本スプリントの diff で追加する。"
+    },
+    {
+      "id": "D2",
+      "topic": "2フェーズ適用を incus profile 伝播に畳む",
+      "choice": "共有フォルダの ON/OFF は palmux-shared profile を rewrite し、profile を参照する稼働コンテナへ incus が device を live 伝播する形にする。per-container の N 台 device add/remove を明示ループしない。",
+      "rationale": "incus は profile の device 変更を参照インスタンスへ自動伝播する。これにより §8.4 の2フェーズが 'profile 1個の宣言更新' に縮退し、§8.5 の Reconcile も profile 1個 vs 宣言の突き合わせで済む。ドリフト面が最小化される。",
+      "adr_ref": "none"
+    },
+    {
+      "id": "D3",
+      "topic": "共有フォルダ変更の ChangeClass",
+      "choice": "config.classify に ClassWorkspace='workspace' を追加。palmux2 の再起動は不要 (in-process で profile rewrite + 伝播) だが、GUI に『全コンテナに適用・稼働中は live 更新』と明示するため hot と区別する。",
+      "rationale": "設計 doc §8.3 は folder-share を 'rebuild+dynamic' と重め表示する方針。palmux/incus 経路には nixos-rebuild が無いので実際は in-process だが、影響範囲 (全コンテナ露出) をユーザに正しく伝えるため専用クラスで警告表示する。§8.5『沈黙の後勝ち禁止=衝突を可視化』の精神。",
+      "adr_ref": "none"
+    },
+    {
+      "id": "D4",
+      "topic": "検証環境",
+      "choice": "実 incus acceptance は deploy-test (192.168.1.43) の実 incus で行う。green (192.168.1.46) は dev 本番化中のため実験台にしない。",
+      "rationale": "priority_rule 9 / test-discipline Rule 7 = 本番モード実機 smoke。profile live 伝播と reconcile は fake では検証不能。green を汚さない運用判断 (memory: green は本番採用予定)。"
+    },
+    {
+      "id": "D5",
+      "topic": "Story 1 の分類 = api (infrastructure invariant)",
+      "choice": "Story 1 は end-user 操作 (runtime chip=GUI / PATCH runtime=API) を trigger に、host 側 incus 状態 + in-container claude を observable とする実機 acceptance。gui-spec ではなく scenario (api) で扱う。",
+      "rationale": "新規挙動 (profile 存在・reconcile 自己修復) の観測点は `incus profile show` = host CLI。tests/acceptance/s4d8b1c_*.py と同型の実機テスト。GUI 面は Story 2 が担う。"
+    }
+  ],
+  "sprint_scope": {
+    "story_1": "profile-as-mold の基盤 (Sd44947-1): 共有 device を palmux-shared profile に集約 + scan reconcile 自己修復。",
+    "story_2": "拡張点 (Sd44947-2): config/GUI からユーザが共有フォルダを追加、稼働コンテナに live 反映。",
+    "backlog_added": ["sops-nix 移行", "NixOS ネイティブコンテナ (/nix ro 共有 + home.nix 金型)", "GUI アプリカード (§8.3 install+share トグル)", "オーバーレイ衝突の GUI 警告 (§8.2)", "generation rollback GUI"]
+  }
+}

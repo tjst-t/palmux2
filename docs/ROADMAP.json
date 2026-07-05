@@ -4,13 +4,13 @@
   "progress": {
     "sprints_done": 65,
     "sprints_total": 66,
-    "percent": 98,
+    "percent": 97,
     "current_sprint": "S935ab8",
     "done": 65,
-    "total": 66,
-    "remaining": 1,
+    "total": 67,
+    "remaining": 2,
     "in_progress": 0,
-    "percentage": 98
+    "percentage": 97
   },
   "execution_order": [
     "S001",
@@ -78,7 +78,8 @@
     "Sa8e7d0",
     "S52fc2c",
     "S935ab8",
-    "Sb14caa"
+    "Sb14caa",
+    "Sd44947"
   ],
   "sprints": {
     "S001": {
@@ -10916,6 +10917,115 @@
           }
         }
       }
+    },
+    "Sd44947": {
+      "title": "共有フォルダの宣言化 (profile-as-mold) + 実行時反映",
+      "description": "全 Workspace コンテナが従う共有 device 群を palmux の単一宣言 (incus profile 'palmux-shared') に集約し、毎 scan で冪等 reconcile する。さらにユーザが config/GUI から共有フォルダ (例 ~/.infisical) を追加でき、稼働中コンテナ含め live 反映される。設計原則 docs/palmux2-nixos-appliance-design.md §5-§8 の profile-as-mold と 2フェーズ適用+Reconcile を最小実装する。",
+      "milestone": false,
+      "phase": "Phase 6 — palmuxOS",
+      "status": "pending",
+      "detail_level": "detailed",
+      "review_reason": "incus profile の live device 伝播と reconcile は実 incus でしか検証できない。障害シナリオではないので priority_rule 9 の通常 real-mode smoke を deploy-test (192.168.1.43) の実 incus で行う。",
+      "stories": {
+        "Sd44947-1": {
+          "title": "共有 device 群を incus profile に集約し reconcile で自己修復",
+          "story": "palmux 運用者として、全 Workspace コンテナが従う共有 device 群 (ghq/.claude/dotfiles/認証) が単一の incus profile 'palmux-shared' に集約され、宣言と稼働状態のズレが毎 scan で自己修復されてほしい。なぜなら、現状は palmux が per-container で device add する方式で、宣言と実態のドリフトを検出も修復もできず、profile という自然な金型を使えていないから。",
+          "status": "pending",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sd44947-1-1",
+              "description": "palmux が起動時に incus profile 'palmux-shared' を宣言 (mounts[] を source が存在するものだけ、既存の Nix-store-symlink skip ロジック込みで device 化) から冪等生成/更新する。コンテナは default + palmux-shared の 2 profile で launch され、コンテナ config に個別 device add をしない (実 incus で profile show と instance の profiles= を確認)。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sd44947-1-2",
+              "description": "profile-as-mold: profile から device を手で削除しても、既存 10s scan ループに相乗りした reconcile が宣言内容へ収束させる (device 削除 → 次 scan で復活)。新規/既存/reconcile 後コンテナが同一 device 集合に収束する冪等性を実機で確認。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sd44947-1-3",
+              "description": "移行互換: 既に per-container device add された旧コンテナが palmux-shared profile 方式に無停止で移行し、in-container claude / ghq / gh 認証が従来通り動作する (実 incus、S4d8b1c 相当の隔離+認証確認)。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "Sd44947-1-1": {
+              "id": "Sd44947-1-1",
+              "title": "incus profile 'palmux-shared' の ensure/reconcile (create/edit, device 集合 = 現 mounts[] のロジック流用) を runtime/incus に実装",
+              "status": "pending"
+            },
+            "Sd44947-1-2": {
+              "id": "Sd44947-1-2",
+              "title": "container launch を default+palmux-shared profile 参照に変更 (per-container device add を廃止、idempotent 移行)",
+              "status": "pending"
+            },
+            "Sd44947-1-3": {
+              "id": "Sd44947-1-3",
+              "title": "10s scan ループに profile reconcile を相乗り (resyncExposedRoutes と同型の self-heal)",
+              "status": "pending"
+            },
+            "Sd44947-1-4": {
+              "id": "Sd44947-1-4",
+              "title": "deploy-test 実 incus で AC-1-1/2/3 の acceptance (profile show / device 削除→復活 / 隔離+認証)",
+              "status": "pending"
+            }
+          }
+        },
+        "Sd44947-2": {
+          "title": "共有フォルダをユーザが GUI/config から全コンテナに追加",
+          "story": "palmux ユーザとして、新しい CLI の認証フォルダ (例 ~/.infisical) を GUI/config から全 Workspace コンテナに共有したい。なぜなら、現状は ~/.claude と同じ性質の共有を足すのに palmux のコード変更とリリースが必要で、自分で経路を敷けないから。",
+          "status": "pending",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sd44947-2-1",
+              "description": "config.toml に [workspace] shared_dirs = [\"~/.infisical\", ...] を追加でき、GET /api/deploy が workspace.sharedDirs を絶対パスで返す。palmux が起動時にこれらを palmux-shared profile の device に含める。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sd44947-2-2",
+              "description": "設定 GUI (デプロイタブ) に「共有フォルダ」セクション: 現在の一覧表示・追加入力・削除ボタン・『⚠ 全 Workspace コンテナに露出』警告。保存すると POST /api/deploy/apply が profile を rewrite し、稼働中コンテナへ live 反映 (device add/remove 伝播) する。全 data-testid 付き。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sd44947-2-3",
+              "description": "バリデーション: $HOME 配下のパスのみ許可 (範囲外は 400)、same-path マウント、source 不在は skip (エラーにしない)。不正パスは GUI にインラインエラー表示。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sd44947-2-4",
+              "description": "実機 acceptance: deploy-test 実 incus で ~/.infisical を共有追加 → 稼働中コンテナ内から同パスが読み書き可能、削除 → コンテナから消える (2フェーズ live 反映)。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sd44947-2-5",
+              "description": "state diagram (Loading/Empty/Populated/Adding/InputError/Removing/Saving/Saved/SaveError) 確認済み。全 interactive 要素に data-testid。mock テスト (empty/loading/error/out-of-home) が pass、E2E テスト ([AC-*] タグ) が実サーバに対して pass。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "Sd44947-2-1": {
+              "id": "Sd44947-2-1",
+              "title": "config schema に WorkspaceSection{ SharedDirs []string } を追加、~ 展開 + $HOME 配下バリデーション",
+              "status": "pending"
+            },
+            "Sd44947-2-2": {
+              "id": "Sd44947-2-2",
+              "title": "GET /api/deploy に workspace.sharedDirs、POST /api/deploy/apply に workspace 変更の分類 (class=workspace: profile rewrite + 稼働コンテナ伝播)",
+              "status": "pending"
+            },
+            "Sd44947-2-3": {
+              "id": "Sd44947-2-3",
+              "title": "設定 GUI デプロイタブに共有フォルダセクション (一覧/追加/削除/警告/data-testid)",
+              "status": "pending"
+            },
+            "Sd44947-2-4": {
+              "id": "Sd44947-2-4",
+              "title": "E2E/mock test + deploy-test 実 incus acceptance (AC-2-4 live 反映)",
+              "status": "pending"
+            }
+          }
+        }
+      }
     }
   },
   "dependencies": {
@@ -11462,6 +11572,36 @@
       "description": "(S935ab8-1) The grub-install --target=i386-pc fix (appliance.nix palmux-state-init) was command-verified on a live fresh appliance but not yet re-verified from a freshly-baked image's genuine first boot. Rebuild .#appliance-qcow2 with the fix + fresh VM boot → confirm palmux-state-init grub-install runs clean (rc=0) on first boot. Low priority: the heal is redundant (box boots via image-baked MBR; gen2+ NixOS grub install to /dev/sda proven).",
       "added_in": "S935ab8",
       "reason": "redundant safety-net; fix command-verified, full fresh-boot reverify deferred"
+    },
+    {
+      "title": "sops-nix 移行 (secrets.env → 暗号文 git 管理)",
+      "reason": "設計 doc §2 秘密層の将来形",
+      "status": "pending",
+      "added_in": "Sd44947-plan"
+    },
+    {
+      "title": "NixOS ネイティブコンテナ (/nix ro 共有 + home-manager 金型)",
+      "reason": "設計 doc §6 将来形: image 焼き込み廃止",
+      "status": "pending",
+      "added_in": "Sd44947-plan"
+    },
+    {
+      "title": "GUI アプリカード (§8.3 install+folder-share 従属トグル)",
+      "reason": "設計 doc §8.3",
+      "status": "pending",
+      "added_in": "Sd44947-plan"
+    },
+    {
+      "title": "オーバーレイ衝突の GUI 警告 (§8.2 沈黙の後勝ち禁止)",
+      "reason": "設計 doc §8.2",
+      "status": "pending",
+      "added_in": "Sd44947-plan"
+    },
+    {
+      "title": "generation rollback GUI (nixos-rebuild --rollback 相当)",
+      "reason": "設計 doc §8.1",
+      "status": "pending",
+      "added_in": "Sd44947-plan"
     }
   ]
 }

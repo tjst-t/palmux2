@@ -1,0 +1,70 @@
+{
+  "story": "Sd44947-2",
+  "story_type": "gui",
+  "user_role": "palmux user who wants a new CLI's auth folder shared into every workspace container",
+  "entry_point": "Settings panel → デプロイ (deploy) tab → 共有フォルダ (Shared Folders) section",
+  "state_diagram": "stateDiagram-v2\n    [*] --> Loading: open deploy tab (GET /api/deploy)\n    Loading --> Empty: sharedDirs = []\n    Loading --> Populated: sharedDirs = [..]\n    Empty --> Adding: user types a path + clicks Add\n    Populated --> Adding: user types a path + clicks Add\n    Adding --> Populated: valid path -> list updates (pending)\n    Adding --> InputError: path outside $HOME -> inline error, list unchanged\n    InputError --> Adding: user edits path\n    Populated --> Removing: user clicks remove on a row\n    Removing --> Populated: row disappears (pending)\n    Populated --> Saving: user clicks Apply (POST /api/deploy/apply)\n    Empty --> Saving: user clicks Apply\n    Saving --> Saved: 200 -> success toast, profile rewritten + live-propagated\n    Saving --> SaveError: 4xx/5xx -> error banner, values retained",
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "linked_ac": ["AC-Sd44947-2-1","AC-Sd44947-2-2"],
+      "description": "User adds ~/.infisical as a shared folder and applies",
+      "steps": [
+        {"n":1,"action":"open Settings → デプロイ tab","expected":"共有フォルダ section renders; current list shown (data-testid=shared-dirs-list); a ⚠ warning about exposure to all containers is visible (data-testid=shared-dirs-warning)"},
+        {"n":2,"action":"type ~/.infisical into the add input (data-testid=shared-dir-input) and click Add (data-testid=shared-dir-add)","expected":"a new row /home/ubuntu/.infisical appears in the list (pending, not yet applied)"},
+        {"n":3,"action":"click Apply (data-testid=deploy-apply)","expected":"success toast; a follow-up GET /api/deploy shows workspace.sharedDirs contains /home/ubuntu/.infisical"}
+      ]
+    },
+    {
+      "id": "scenario-2",
+      "linked_ac": ["AC-Sd44947-2-3"],
+      "description": "Path outside $HOME is rejected inline",
+      "steps": [
+        {"n":1,"action":"type /etc/passwd into the add input and click Add","expected":"inline error (data-testid=shared-dir-error) 'パスは $HOME 配下のみ許可されます'; list unchanged; Apply not required"}
+      ]
+    },
+    {
+      "id": "scenario-3",
+      "linked_ac": ["AC-Sd44947-2-2"],
+      "description": "Remove a shared folder",
+      "steps": [
+        {"n":1,"action":"click remove on the /home/ubuntu/.infisical row (data-testid=shared-dir-remove-0)","expected":"row disappears from the list (pending)"},
+        {"n":2,"action":"click Apply","expected":"success toast; GET /api/deploy shows the entry gone"}
+      ]
+    }
+  ],
+  "endpoint_contracts": [
+    {
+      "method": "GET",
+      "path": "/api/deploy",
+      "response_fields": {
+        "server": "ServerSection (existing)",
+        "public": "PublicSection (existing)",
+        "workspace": "{ sharedDirs: string[] }  — NEW; absolute host paths (~ expanded)",
+        "dryRun": "bool (existing)"
+      },
+      "notes": "Read internal/deploy DeployView + config.MasterConfig; add WorkspaceSection{ SharedDirs []string `toml:\"shared_dirs\" json:\"sharedDirs\"` }."
+    },
+    {
+      "method": "POST",
+      "path": "/api/deploy/apply",
+      "request_fields": {
+        "server": "ServerSection|null",
+        "public": "PublicSection|null",
+        "workspace": "{ sharedDirs: string[] }|null  — NEW",
+        "dryRun": "bool"
+      },
+      "response_fields": {
+        "changes": "[{field, class}]  — shared_dirs change has class=\"workspace\"",
+        "hotApplied": "bool",
+        "message": "string  — e.g. 'shared folders updated; N running container(s) refreshed'"
+      },
+      "notes": "class=workspace applies in-process: rewrite palmux-shared profile + propagate device add/remove to running incus containers (no palmux2 restart). $HOME-scope validation → 400 with {error} for out-of-home paths."
+    }
+  ],
+  "test_files": {
+    "e2e": "tests/e2e/sd44947-shared-folders.e2e.spec.ts",
+    "mock": "tests/e2e/sd44947-shared-folders.mock.spec.ts"
+  },
+  "data_testids": ["shared-dirs-list","shared-dirs-warning","shared-dir-input","shared-dir-add","shared-dir-error","shared-dir-remove-0","deploy-apply"]
+}
