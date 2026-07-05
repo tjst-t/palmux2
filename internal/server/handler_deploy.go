@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"os"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -29,9 +30,10 @@ func (h *handlers) getDeploy(w http.ResponseWriter, _ *http.Request) {
 // full server/public sections; the CLI sends {dryRun:true|false} only and the
 // server diffs the on-disk master.
 type deployApplyRequest struct {
-	Server *config.ServerSection `json:"server"`
-	Public *config.PublicSection `json:"public"`
-	DryRun bool                  `json:"dryRun"`
+	Server    *config.ServerSection    `json:"server"`
+	Public    *config.PublicSection    `json:"public"`
+	Workspace *config.WorkspaceSection `json:"workspace"` // Sd44947: shared_dirs
+	DryRun    bool                     `json:"dryRun"`
 }
 
 func (h *handlers) postDeployApply(w http.ResponseWriter, r *http.Request) {
@@ -48,8 +50,12 @@ func (h *handlers) postDeployApply(w http.ResponseWriter, r *http.Request) {
 	// Build the target master. If the request omits sections (CLI apply), read
 	// the on-disk master so apply reflects a file edit.
 	target := h.deploy.CurrentView()
-	neu := config.MasterConfig{Server: target.Server, Public: target.Public}
-	if req.Server == nil && req.Public == nil {
+	neu := config.MasterConfig{
+		Server:    target.Server,
+		Public:    target.Public,
+		Workspace: config.WorkspaceSection{SharedDirs: target.Workspace.SharedDirs},
+	}
+	if req.Server == nil && req.Public == nil && req.Workspace == nil {
 		mc, _, err := config.LoadServerConfig(h.deployConfigDir)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
@@ -63,6 +69,21 @@ func (h *handlers) postDeployApply(w http.ResponseWriter, r *http.Request) {
 		if req.Public != nil {
 			neu.Public = *req.Public
 		}
+		if req.Workspace != nil {
+			neu.Workspace = *req.Workspace
+		}
+	}
+
+	// Sd44947: validate + expand shared_dirs to absolute $HOME-scoped paths. An
+	// out-of-$HOME entry is a 400 with a precise message (AC-Sd44947-2-3). We
+	// persist the expanded absolute paths so the profile device set is stable.
+	if home, herr := os.UserHomeDir(); herr == nil {
+		abs, verr := config.ExpandSharedDirs(neu.Workspace.SharedDirs, home)
+		if verr != nil {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: verr.Error()})
+			return
+		}
+		neu.Workspace.SharedDirs = abs
 	}
 
 	// Validate a public domain before persisting so the GUI gets a 400 with a
@@ -85,16 +106,18 @@ func (h *handlers) postDeployApply(w http.ResponseWriter, r *http.Request) {
 		Class string `json:"class"`
 	}
 	resp := struct {
-		Changes       []changeDTO `json:"changes"`
-		HotApplied    bool        `json:"hotApplied"`
-		NeedRestart   bool        `json:"needRestart"`
-		NeedPrivilege bool        `json:"needPrivilege"`
-		Message       string      `json:"message"`
+		Changes          []changeDTO `json:"changes"`
+		HotApplied       bool        `json:"hotApplied"`
+		NeedRestart      bool        `json:"needRestart"`
+		NeedPrivilege    bool        `json:"needPrivilege"`
+		WorkspaceApplied bool        `json:"workspaceApplied"`
+		Message          string      `json:"message"`
 	}{
-		HotApplied:    out.HotApplied,
-		NeedRestart:   out.NeedRestart,
-		NeedPrivilege: out.NeedPrivilege,
-		Message:       out.Message,
+		HotApplied:       out.HotApplied,
+		NeedRestart:      out.NeedRestart,
+		NeedPrivilege:    out.NeedPrivilege,
+		WorkspaceApplied: out.WorkspaceApplied,
+		Message:          out.Message,
 	}
 	for _, c := range out.Changes {
 		resp.Changes = append(resp.Changes, changeDTO{Field: c.Field, Class: string(c.Class)})

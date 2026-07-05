@@ -50,10 +50,20 @@ type PublicSection struct {
 	BasicAuthUser string `toml:"basic_auth_user" json:"basic_auth_user"`
 }
 
+// WorkspaceSection mirrors [workspace] in config.toml (Sd44947). SharedDirs are
+// host directories bind-mounted into EVERY incus-container Workspace via the
+// host-wide `palmux-shared` incus profile — the user-extensible counterpart of
+// the built-in ~/.claude / ~/.ssh shares. Entries may be written with a leading
+// `~` (expanded to $HOME at read time) and MUST resolve under $HOME.
+type WorkspaceSection struct {
+	SharedDirs []string `toml:"shared_dirs" json:"sharedDirs"`
+}
+
 // MasterConfig is the parsed config.toml.
 type MasterConfig struct {
-	Server ServerSection `toml:"server"`
-	Public PublicSection `toml:"public"`
+	Server    ServerSection    `toml:"server"`
+	Public    PublicSection    `toml:"public"`
+	Workspace WorkspaceSection `toml:"workspace"`
 }
 
 // Secrets holds the values from secrets.env (never serialised back to the

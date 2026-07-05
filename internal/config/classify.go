@@ -21,6 +21,12 @@ const (
 	// ClassRoot requires a privileged system operation (Story 4: reconcile /
 	// install.sh re-run): public domain / TLS / Cloudflare token.
 	ClassRoot ChangeClass = "root"
+	// ClassWorkspace (Sd44947) is applied in-process like hot, but affects every
+	// Workspace container (rewrites the palmux-shared incus profile → incus
+	// live-propagates the device add/remove to running containers). It is a
+	// distinct class from hot so the GUI can warn about the "exposed to all
+	// containers" blast radius (D3, priority_rule 5).
+	ClassWorkspace ChangeClass = "workspace"
 )
 
 // FieldChange records one differing field between two MasterConfig values.
@@ -42,6 +48,7 @@ var fieldClass = map[string]ChangeClass{
 	"server.claude_args":     ClassHot,
 	"public.domain":          ClassRoot,
 	"public.basic_auth_user": ClassRestart,
+	"workspace.shared_dirs":  ClassWorkspace,
 }
 
 // SecretFieldClass classifies secrets changes (they live in secrets.env, not
@@ -85,6 +92,7 @@ func DiffMaster(old, neu MasterConfig) []FieldChange {
 	cmp("server.claude_args", old.Server.ClaudeArgs, neu.Server.ClaudeArgs)
 	cmp("public.domain", old.Public.Domain, neu.Public.Domain)
 	cmp("public.basic_auth_user", old.Public.BasicAuthUser, neu.Public.BasicAuthUser)
+	cmp("workspace.shared_dirs", old.Workspace.SharedDirs, neu.Workspace.SharedDirs)
 	return changes
 }
 
@@ -92,7 +100,7 @@ func DiffMaster(old, neu MasterConfig) []FieldChange {
 // (root > restart > hot), or "" when there are none. Used to decide the
 // headline action of an apply.
 func HighestClass(changes []FieldChange) ChangeClass {
-	rank := map[ChangeClass]int{ClassHot: 1, ClassRestart: 2, ClassRoot: 3}
+	rank := map[ChangeClass]int{ClassHot: 1, ClassWorkspace: 1, ClassRestart: 2, ClassRoot: 3}
 	var best ChangeClass
 	for _, c := range changes {
 		if rank[c.Class] > rank[best] {

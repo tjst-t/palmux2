@@ -13,6 +13,7 @@
 package incus
 
 import (
+	"context"
 	"log/slog"
 	"sync"
 
@@ -35,6 +36,11 @@ type Registry struct {
 	cache map[cacheKey]runtime.Runtime // (repoID, branchID) → live Runtime
 
 	publish PublishDefaults // host-wide port-publishing config (See8bd4-2)
+
+	// shared is the host-wide palmux-shared profile manager (Sd44947). Created
+	// lazily on first use; a single instance is shared by every incus runtime and
+	// the scan-loop reconcile.
+	shared *SharedProfileManager
 }
 
 // PublishDefaults is the host-wide configuration for publishing container ports
@@ -92,7 +98,22 @@ func NewRegistry(
 		hostTmux:      hostTmux,
 		log:           log,
 		cache:         map[cacheKey]runtime.Runtime{},
+		shared:        NewSharedProfileManager(nil, log, nil),
 	}
+}
+
+// SharedProfileManager returns the host-wide palmux-shared profile manager. Used
+// by the deploy plane to push new [workspace] shared_dirs (Sd44947 Story 2).
+func (r *Registry) SharedProfileManager() *SharedProfileManager { return r.shared }
+
+// ReconcileShared converges the palmux-shared profile to palmux's declaration.
+// Implements runtime.SharedProfileReconciler — the store scan loop calls it once
+// per cycle so drift self-heals (AC-Sd44947-1-2).
+func (r *Registry) ReconcileShared(ctx context.Context) error {
+	if r.shared == nil {
+		return nil
+	}
+	return r.shared.Reconcile(ctx)
 }
 
 // Get returns the Runtime for the given workspace.  For host kind it always
@@ -135,6 +156,7 @@ func (r *Registry) Get(repoID, branchID string) runtime.Runtime {
 	rt = New(cfg, inst, nil /* defaultRunner */, r.log.With("inst", inst))
 	if ir, ok := rt.(*incusRuntime); ok {
 		ir.pub = r.buildPublish(repoID, branchID)
+		ir.SetSharedProfileManager(r.shared) // Sd44947: profile-as-mold
 	}
 	r.cache[k] = rt
 	r.log.Info("incus.Registry: created runtime", "repoID", repoID, "branchID", branchID, "inst", inst)

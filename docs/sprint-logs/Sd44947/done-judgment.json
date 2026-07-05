@@ -1,0 +1,30 @@
+{
+  "sprint": "Sd44947",
+  "precondition": {"detail_level": "detailed", "stories_nonempty": true, "ok": true},
+  "stories": {
+    "Sd44947-1": {
+      "guard_1_not_user_review_required": "pass — roadmap did not pre-mark this needs_user_review",
+      "guard_2_nil_injection_mock": "pass — nil-guards (sharedMgr()==nil) are legit unit-test fallbacks; the AC's real-incus behavior is covered by tests/acceptance/sd44947_shared_profile.py passing against REAL incus (not nil-injected)",
+      "guard_3_mock_as_real": "pass — real-mode smoke uses real incus + real binary + throwaway probe container; no MOCK/--fake/DRY_RUN/InMemory",
+      "guard_4_pr9_exception": "pass — review_reason claims NO 障害シナリオ exception; normal real-mode smoke required and satisfied",
+      "guard_5_call_path": "pass — deploy-apply→SetSharedDirs→SharedProfileManager.Ensure→incus profile cmds, and Start→applySharedProfile→profile add/config device remove, both grep-present and exercised (TestStart_ArgSequence/MigratesLegacyDevices + real-incus acceptance)",
+      "guard_6_deferral_comments": "pass — git diff has no TODO/FIXME/Phase-N-replace deferrals in code",
+      "guard_7_adr_conformance": "n/a — docs/DESIGN/ absent; design-doc §5 note added per D1 doc_followup",
+      "guard_8_destructive_multiversion": "n/a — no multi-version destructive scenario",
+      "overall": "ok",
+      "note": "Independent verifier initially flagged an inode-guard regression (fail) — FIXED + regression test added (TestSharedProfile_HookBinFreshStart_ForcesReplace); re-verification requested. Real-incus ACs (1-1/1-2/1-3, 2-4) verified on dev box with NEW binary + real incus (probe + live dev instance reconcile). deploy-test 192.168.1.43 runs the OLD binary so a full-production end-to-end there is recommended as a belt-and-suspenders milestone check (not a skip — ACs are met in real mode)."
+    },
+    "Sd44947-2": {
+      "guard_1_not_user_review_required": "pass",
+      "guard_2_nil_injection_mock": "pass — HotApplier fake in unit tests + real-backend GUI E2E + real-incus acceptance",
+      "guard_3_mock_as_real": "pass — GUI E2E drives real chrome + real backend; apply path hits real incus",
+      "guard_4_pr9_exception": "pass — no exception claimed",
+      "guard_5_call_path": "pass — GUI→api.ts→handler_deploy→Controller.SaveAndClassify→HotApplier.SetSharedDirs→SharedProfileManager verified end-to-end",
+      "guard_6_deferral_comments": "pass",
+      "guard_7_adr_conformance": "n/a",
+      "guard_8_destructive_multiversion": "n/a",
+      "overall": "ok",
+      "note": "AC-2-5 residual warn: Loading (transient) + SaveError (server-fault branch) states not force-triggered in E2E; not a functional defect. All data-testids present; validation 400 + inline error verified."
+    }
+  }
+}

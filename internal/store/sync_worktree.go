@@ -207,6 +207,12 @@ func (s *Store) scanPorts(ctx context.Context) {
 	// [AC-S52fc2c-7-1]
 	fpCache := &runtime.AliasFingerprintCache{}
 
+	// Sd44947: reconcile the host-wide palmux-shared profile once per cycle, but
+	// only when at least one incus container is actually running — this avoids
+	// spawning `incus` on pure-host deployments while still self-healing profile
+	// drift (profile-as-mold). Guarded so it runs at most once per scan tick.
+	sharedReconciled := false
+
 	for _, ws := range workspaces {
 		rt := s.deps.RuntimeRegistry.Get(ws.repoID, ws.branchID)
 		if rt == nil || rt.Kind() != runtime.KindIncusContainer {
@@ -214,6 +220,15 @@ func (s *Store) scanPorts(ctx context.Context) {
 		}
 		if rt.Status().State != runtime.StateReady {
 			continue
+		}
+		// [AC-Sd44947-1-2] self-heal the shared profile on the same cadence.
+		if !sharedReconciled {
+			if rec, ok := s.deps.RuntimeRegistry.(runtime.SharedProfileReconciler); ok {
+				if err := rec.ReconcileShared(ctx); err != nil {
+					s.logger.Warn("store.scanPorts: reconcile palmux-shared profile failed", "err", err)
+				}
+			}
+			sharedReconciled = true
 		}
 		// S7364e3: image-drift check on the same cadence. Compares the
 		// container's base image against the current palmux-ws alias fingerprint

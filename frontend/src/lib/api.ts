@@ -279,6 +279,12 @@ export interface DeployView {
     domain: string
     basic_auth_user: string
   }
+  /** Sd44947: [workspace] shared_dirs as absolute host paths (~ expanded) + the
+   * host $HOME so the GUI can validate new entries inline. */
+  workspace: {
+    sharedDirs: string[]
+    home: string
+  }
   secrets: {
     hasSsoSecret: boolean
     hasBasicAuthHash: boolean
@@ -301,10 +307,12 @@ export interface RebuildStatus {
 
 /** Response shape for POST /api/deploy/apply */
 export interface ApplyResult {
-  changes: Array<{ field: string; class: 'hot' | 'restart' | 'root' }>
+  changes: Array<{ field: string; class: 'hot' | 'restart' | 'root' | 'workspace' }>
   hotApplied: boolean
   needRestart: boolean
   needPrivilege: boolean
+  /** Sd44947: a workspace-class change (shared folders) was live-propagated. */
+  workspaceApplied?: boolean
   message: string
 }
 
@@ -387,6 +395,7 @@ export const deployApi = {
   apply: (body: {
     server?: Partial<DeployView['server']>
     public?: Partial<DeployView['public']>
+    workspace?: { sharedDirs: string[] }
     dryRun?: boolean
   }): Promise<ApplyResult> => api.post<ApplyResult>('/api/deploy/apply', body),
   rotateSecrets: (body: {

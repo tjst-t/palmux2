@@ -30,10 +30,11 @@ type applyResult struct {
 		Field string `json:"field"`
 		Class string `json:"class"`
 	} `json:"changes"`
-	HotApplied    bool   `json:"hotApplied"`
-	NeedRestart   bool   `json:"needRestart"`
-	NeedPrivilege bool   `json:"needPrivilege"`
-	Message       string `json:"message"`
+	HotApplied       bool   `json:"hotApplied"`
+	NeedRestart      bool   `json:"needRestart"`
+	NeedPrivilege    bool   `json:"needPrivilege"`
+	WorkspaceApplied bool   `json:"workspaceApplied"`
+	Message          string `json:"message"`
 }
 
 func runApply(args []string) int {
@@ -101,6 +102,11 @@ func runApply(args []string) int {
 	}
 	if res.HotApplied {
 		fmt.Println("apply: hot changes applied in-process.")
+	}
+	if res.WorkspaceApplied {
+		// Sd44947: shared-folder changes rewrite the palmux-shared incus profile
+		// in-process and incus live-propagates them to running containers.
+		fmt.Println("apply: " + res.Message)
 	}
 	if res.NeedPrivilege {
 		fmt.Println()

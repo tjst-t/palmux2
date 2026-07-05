@@ -32,7 +32,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/creack/pty"
@@ -113,9 +112,25 @@ type incusRuntime struct {
 	hostOpMapMu sync.Mutex
 	hostOpLocks map[int]*sync.Mutex
 
-	// hookBinMu guards hookBinInode (S52fc2c-5).
-	hookBinMu    sync.Mutex
-	hookBinInode uint64 // inode of the last-successfully-mounted palmux hook binary
+	// shared is the host-wide palmux-shared profile manager (Sd44947). Set by the
+	// Registry after construction. When non-nil, Start applies the profile to the
+	// instance and migrates away from per-container shared device adds; nil (unit
+	// tests without a manager) falls back to no profile wiring.
+	shared *SharedProfileManager
+}
+
+// SetSharedProfileManager wires the host-wide palmux-shared profile manager into
+// this runtime (Sd44947). Called once by the Registry after New.
+func (r *incusRuntime) SetSharedProfileManager(m *SharedProfileManager) {
+	r.mu.Lock()
+	r.shared = m
+	r.mu.Unlock()
+}
+
+func (r *incusRuntime) sharedMgr() *SharedProfileManager {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.shared
 }
 
 // hostExposeState records a container port published on the host via an incus
@@ -246,11 +261,12 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 	r.startMu.Lock()
 	defer r.startMu.Unlock()
 	if r.Status().State == runtime.StateReady {
-		// S4d8b1c: a container created before the palmux-hook-bin mount existed
-		// would otherwise never get it (the mounts loop below is skipped on this
-		// early return). Hot-plug it idempotently so in-container claude's
-		// `palmux hook` works without requiring a full container regenerate.
-		r.ensureHookBinMount(ctx)
+		// Sd44947: a container created before palmux-shared existed (or by the OLD
+		// per-container device path) would otherwise never adopt the profile on
+		// this early-return path. Apply + migrate idempotently so an already-running
+		// container converges to profile-as-mold without a full regenerate, and the
+		// in-container `palmux hook` / shared mounts stay current.
+		r.applySharedProfile(ctx)
 		// Keep the home-area bind-mount parent dirs writable by the workspace
 		// user on already-running containers too (browser/XDG fix — see
 		// ensureHomeXDGOwnership). Idempotent.
@@ -274,14 +290,25 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 		image = DefaultImageAlias
 	}
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("incus Start: get home dir: %w", err)
+	// Sd44947: ensure the host-wide palmux-shared profile exists + is converged
+	// BEFORE init so the container can be launched referencing it. Best-effort:
+	// if the manager is nil (unit test) or ensure fails, init still proceeds and
+	// applySharedProfile below retries.
+	initArgs := []string{"init", image, r.inst}
+	if m := r.sharedMgr(); m != nil {
+		if err := m.Ensure(ctx); err != nil {
+			r.log.Warn("incus: ensure palmux-shared profile before init (non-fatal)", "inst", r.inst, "err", err)
+		}
+		// Launch with default + palmux-shared (profile-as-mold) — no per-container
+		// shared device adds. [AC-Sd44947-1-1]
+		for _, p := range m.InstanceProfiles() {
+			initArgs = append(initArgs, "-p", p)
+		}
 	}
 
 	// 1. Init the instance (do not start yet).
 	// [AC-S8478ca-2-1]
-	if _, initStderr, code, initErr := r.run(ctx, "init", image, r.inst); initErr != nil {
+	if _, initStderr, code, initErr := r.run(ctx, initArgs...); initErr != nil {
 		r.setStatus(runtime.Status{State: runtime.StateError, Error: initErr.Error()})
 		return fmt.Errorf("incus init %s %s: %w", image, r.inst, initErr)
 	} else if code != 0 {
@@ -373,110 +400,14 @@ func (r *incusRuntime) Start(ctx context.Context) error {
 			"inst", r.inst, "detail", detail)
 	}
 
-	// 3. Bind-mount ~/ghq, ~/.claude, ~/.claude.json, ~/.local/share/claude,
-	// ~/.local/bin at same absolute paths.
-	// [AC-S8478ca-2-2]
-	//
-	// ~/.local/share/claude holds the versioned native claude ELF binaries
-	// (e.g. ~/.local/share/claude/versions/2.1.170).
-	// ~/.local/bin contains the `claude` symlink → versions/<v>.
-	//
-	// Together these two mounts make `~/.local/bin/claude` inside the container
-	// resolve to the host's native binary, always matching the host version.
-	// We do NOT mount /usr/local/bin/claude because that is a host-specific bash
-	// cgroup wrapper that is not portable into the container.
-	ghqPath := filepath.Join(home, "ghq")
-	claudeDir := filepath.Join(home, ".claude")
-	claudeJSON := filepath.Join(home, ".claude.json")
-	claudeShareDir := filepath.Join(home, ".local", "share", "claude")
-	claudeBinDir := filepath.Join(home, ".local", "bin")
-
-	// S4d8b1c: the running palmux binary (static linux amd64) is bind-mounted at
-	// /usr/local/bin/palmux so an in-container claude can run `palmux hook` for
-	// Claude Code notifications (the host hookBinPath does not exist in the
-	// container). Resolved via os.Executable(); skipped if it can't be resolved.
-	palmuxBin, palmuxBinErr := os.Executable()
-
-	// S5818e8: also share the host's dev environment so the container's
-	// interactive shell matches the host (shell dotfiles), and the Claude agent
-	// can do GitHub operations (gh token, git identity, SSH keys). Same
-	// philosophy as the ~/.claude mount: full capability, no re-auth. Each is
-	// skipped if absent (loop below os.Stat-guards every entry), so hosts
-	// without e.g. ~/.ssh still start cleanly.
-	mj := func(p ...string) string { return filepath.Join(append([]string{home}, p...)...) }
-
-	mounts := []struct {
-		name   string
-		source string
-		path   string
-	}{
-		{"ghq", ghqPath, ghqPath},
-		{"dot-claude", claudeDir, claudeDir},
-		{"dot-claude-json", claudeJSON, claudeJSON},
-		// claude native binary — bind-mount so in-container `~/.local/bin/claude`
-		// is always the same version as the host (no re-download, no re-auth).
-		{"dot-local-share-claude", claudeShareDir, claudeShareDir},
-		{"dot-local-bin", claudeBinDir, claudeBinDir},
-		// Shell dotfiles → the container shell matches the host (starship prompt,
-		// aliases, ~/.bashrc.d functions). The shell-UX tools they invoke are
-		// baked into the palmux-ws image (S5818e8-2).
-		{"dot-bashrc", mj(".bashrc"), mj(".bashrc")},
-		{"dot-profile", mj(".profile"), mj(".profile")},
-		{"dot-bash-profile", mj(".bash_profile"), mj(".bash_profile")},
-		{"dot-bashrc-d", mj(".bashrc.d"), mj(".bashrc.d")},
-		// GitHub: identity + gh token + SSH keys so the agent can git/gh push.
-		// Only ~/.config/gh is shared, NOT all of ~/.config (avoids chrome /
-		// pulse / systemd / incus host-specific dirs and their state).
-		{"dot-gitconfig", mj(".gitconfig"), mj(".gitconfig")},
-		{"dot-config-gh", mj(".config", "gh"), mj(".config", "gh")},
-		{"dot-ssh", mj(".ssh"), mj(".ssh")},
-	}
-	// S4d8b1c: palmux binary → /usr/local/bin/palmux (in-container `palmux hook`).
-	if palmuxBinErr == nil && palmuxBin != "" {
-		mounts = append(mounts, struct {
-			name   string
-			source string
-			path   string
-		}{"palmux-hook-bin", palmuxBin, "/usr/local/bin/palmux"})
-	}
-	for _, m := range mounts {
-		// Skip if source does not exist on host — silently omit to avoid
-		// failing on fresh machines where ~/.claude.json may not exist yet.
-		if _, statErr := os.Stat(m.source); os.IsNotExist(statErr) {
-			r.log.Warn("incus: bind-mount source not found, skipping", "source", m.source)
-			continue
-		}
-		// Skip dotfiles that symlink OUTSIDE the home dir (e.g. Nix/home-manager
-		// dotfiles → /nix/store). Bind-mounting such a symlink yields a broken
-		// link in the container (the target isn't mounted) and breaks the shell
-		// on login. On those hosts the container falls back to its image-default
-		// shell instead. Hosts with real dotfiles (the common case) are unaffected.
-		// ghq/.claude are intentionally exempt — they are real dirs we always want.
-		if m.name != "ghq" && m.name != "palmux-hook-bin" && !strings.HasPrefix(m.name, "dot-claude") && !strings.HasPrefix(m.name, "dot-local") {
-			if tgt, lerr := filepath.EvalSymlinks(m.source); lerr == nil {
-				if rel, rerr := filepath.Rel(home, tgt); rerr != nil || strings.HasPrefix(rel, "..") {
-					r.log.Info("incus: skipping dotfile that symlinks outside home (e.g. Nix store)",
-						"source", m.source, "target", tgt)
-					continue
-				}
-			}
-		}
-		_, stderr, code, err := r.run(ctx,
-			"config", "device", "add", r.inst,
-			m.name, "disk",
-			"source="+m.source,
-			"path="+m.path,
-		)
-		// "already exists" means a prior Start already added this device — the
-		// re-add is a no-op (idempotent re-open of a pre-existing container),
-		// not a failure. Without this, restarting palmux against a still-running
-		// container leaves the runtime stuck in StateError.
-		if err != nil || (code != 0 && !strings.Contains(stderr, "already exists")) {
-			msg := fmt.Sprintf("incus device add %s: code=%d stderr=%s", m.name, code, stderr)
-			r.setStatus(runtime.Status{State: runtime.StateError, Error: msg})
-			return fmt.Errorf("%s: %w", msg, err)
-		}
-	}
+	// 3. Shared bind-mounts (~/ghq, ~/.claude, ~/.claude.json, ~/.local/share/claude,
+	// ~/.local/bin, dotfiles, gh/ssh auth, the palmux hook binary, + user shared_dirs)
+	// come from the host-wide `palmux-shared` incus profile applied at init above —
+	// NO per-container device adds (profile-as-mold, Sd44947). applySharedProfile
+	// (idempotent) also converges the profile and migrates a pre-existing container
+	// off any legacy instance-local shared devices.
+	// [AC-S8478ca-2-2] [AC-Sd44947-1-1] [AC-Sd44947-1-3]
+	r.applySharedProfile(ctx)
 
 	// 4. Start the instance (unprivileged).
 	// [AC-S8478ca-2-1]
@@ -609,76 +540,41 @@ func (r *incusRuntime) PTYCommand(ctx context.Context, argv []string, opts runti
 	return cmd
 }
 
-// ensureHookBinMount idempotently bind-mounts the running palmux binary at
-// /usr/local/bin/palmux inside the container (for in-container `palmux hook`).
-// Safe to call on an already-running container.
+// applySharedProfile applies the host-wide palmux-shared profile to this
+// instance and migrates it off the OLD per-container shared device adds
+// (Sd44947). Steps, all idempotent:
+//  1. ensure the profile exists + is converged (reconcile);
+//  2. `incus profile add <inst> palmux-shared` (ignore already-applied);
+//  3. remove any legacy instance-local shared devices so the profile's copies
+//     become effective (a device with the same name shadows the profile one).
 //
-// S52fc2c-5: detects inode staleness. On a palmux2 update (e.g. Nix/home-manager
-// replaces the binary at a new inode), the existing bind-mount device still
-// pins the OLD inode; the container runs stale hook code. We compare the binary's
-// current inode against the cached inode from the last successful mount. When they
-// differ, we remove the stale device and re-add it with the current binary path.
-//
-// Best-effort: failures are logged, not fatal. [AC-S52fc2c-5-1] [AC-S52fc2c-5-2]
-func (r *incusRuntime) ensureHookBinMount(ctx context.Context) {
-	palmuxBin, err := os.Executable()
-	if err != nil || palmuxBin == "" {
+// Because both the legacy instance-local device and the profile device point at
+// the same source/path, removing the shadow is seamless — no unmount gap the
+// running container's shells/claude would notice (AC-Sd44947-1-3, 無停止移行).
+// Best-effort: failures are logged, not fatal, so a container still starts even
+// if the profile can't be applied on an odd host.
+func (r *incusRuntime) applySharedProfile(ctx context.Context) {
+	m := r.sharedMgr()
+	if m == nil {
 		return
 	}
-
-	// Resolve any symlink so Stat returns the inode of the real binary
-	// (os.Executable on Linux resolves procfs, but Nix symlinks may need one
-	// extra evaluation through filepath.EvalSymlinks).
-	if resolved, rerr := filepath.EvalSymlinks(palmuxBin); rerr == nil {
-		palmuxBin = resolved
+	if err := m.Ensure(ctx); err != nil {
+		r.log.Warn("incus: ensure palmux-shared profile (non-fatal)", "inst", r.inst, "err", err)
 	}
-
-	// S52fc2c-5: get the current binary's inode.
-	var currentInode uint64
-	if fi, statErr := os.Stat(palmuxBin); statErr == nil {
-		if sys, ok := fi.Sys().(*syscall.Stat_t); ok {
-			currentInode = sys.Ino
+	_, stderr, code, err := r.run(ctx, "profile", "add", r.inst, SharedProfileName)
+	low := strings.ToLower(stderr)
+	if err != nil {
+		r.log.Warn("incus: profile add palmux-shared (non-fatal)", "inst", r.inst, "err", err)
+	} else if code != 0 && !strings.Contains(low, "already") {
+		r.log.Warn("incus: profile add palmux-shared (non-fatal)", "inst", r.inst, "code", code, "stderr", strings.TrimSpace(stderr))
+	}
+	// Migrate: strip legacy instance-local shared devices so the profile owns them.
+	for _, name := range legacySharedDeviceNames {
+		_, rmStderr, rmCode, rmErr := r.run(ctx, "config", "device", "remove", r.inst, name)
+		rl := strings.ToLower(rmStderr)
+		if rmErr == nil && rmCode != 0 && !strings.Contains(rl, "not found") && !strings.Contains(rl, "doesn't have") && !strings.Contains(rl, "does not have") {
+			r.log.Debug("incus: legacy device migrate-remove (non-fatal)", "inst", r.inst, "device", name, "code", rmCode)
 		}
-	}
-
-	r.hookBinMu.Lock()
-	lastInode := r.hookBinInode
-	// S52fc2c-5: do NOT guard on lastInode != 0. After a palmux2 update + restart
-	// the incusRuntime struct is fresh (lastInode == 0) but the container's mount
-	// still pins the OLD binary inode; we MUST treat that as changed so the stale
-	// device is removed + re-added. A first-ever mount where the device does not
-	// yet exist harmlessly issues a remove ("not found", logged + ignored) then
-	// the add. This is exactly the AC-S52fc2c-5-3 restart-after-update path.
-	inodeChanged := currentInode != 0 && currentInode != lastInode
-	r.hookBinMu.Unlock()
-
-	if inodeChanged {
-		// Remove the stale device before re-adding. "Not found" errors are
-		// harmless (the device was never added or was removed by Stop).
-		_, _, rmCode, _ := r.run(ctx, "config", "device", "remove", r.inst, "palmux-hook-bin")
-		r.log.Info("incus: hook bin mount stale — re-mounting",
-			"inst", r.inst, "oldInode", lastInode, "newInode", currentInode,
-			"rmCode", rmCode, "bin", palmuxBin)
-	}
-
-	_, stderr, code, runErr := r.run(ctx,
-		"config", "device", "add", r.inst,
-		"palmux-hook-bin", "disk",
-		"source="+palmuxBin,
-		"path=/usr/local/bin/palmux",
-	)
-	alreadyExists := strings.Contains(stderr, "already exists")
-	if runErr != nil || (code != 0 && !alreadyExists) {
-		r.log.Debug("incus: ensureHookBinMount (non-fatal)",
-			"inst", r.inst, "code", code, "stderr", strings.TrimSpace(stderr))
-		return
-	}
-
-	// Record the successfully mounted inode so the next call can detect a change.
-	if currentInode != 0 {
-		r.hookBinMu.Lock()
-		r.hookBinInode = currentInode
-		r.hookBinMu.Unlock()
 	}
 }
 

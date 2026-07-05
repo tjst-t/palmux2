@@ -2,20 +2,28 @@ package deploy
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/tjst-t/palmux2/internal/config"
 )
 
 type fakeHot struct {
-	caddyAdmin string
-	claudeBin  string
+	caddyAdmin      string
+	claudeBin       string
+	sharedDirs      []string
+	sharedDirsCalls int
 }
 
 func (f *fakeHot) SetCaddyAdmin(a string)           { f.caddyAdmin = a }
 func (f *fakeHot) SetBasicAuthDefaults(u, h string) {}
 func (f *fakeHot) SetClaudeBin(b string)            { f.claudeBin = b }
 func (f *fakeHot) SetClaudeArgs(a []string)         {}
+func (f *fakeHot) SetSharedDirs(_ context.Context, dirs []string) (int, error) {
+	f.sharedDirs = dirs
+	f.sharedDirsCalls++
+	return len(dirs), nil
+}
 
 func TestCurrentView_MasksSecrets(t *testing.T) {
 	dir := t.TempDir()
@@ -67,6 +75,63 @@ func TestSaveAndClassify_HotApplied(t *testing.T) {
 	// master persisted on disk
 	if !config.MasterExists(dir) {
 		t.Error("master should be written on apply")
+	}
+}
+
+// [AC-Sd44947-2-2] A shared_dirs change is applied in-process (workspace class):
+// SetSharedDirs is called, the baseline advances, and no restart/privilege is
+// required.
+func TestSaveAndClassify_WorkspaceSharedDirs(t *testing.T) {
+	dir := t.TempDir()
+	applied := config.MasterConfig{}
+	hot := &fakeHot{}
+	c := New(dir, applied, SecretPresence{}, hot, nil)
+
+	neu := applied
+	neu.Workspace.SharedDirs = []string{"/home/ubuntu/.infisical"}
+
+	out, err := c.SaveAndClassify(context.Background(), neu, false)
+	if err != nil {
+		t.Fatalf("SaveAndClassify: %v", err)
+	}
+	if !out.WorkspaceApplied {
+		t.Errorf("expected WorkspaceApplied, got %+v", out)
+	}
+	if out.NeedRestart || out.NeedPrivilege {
+		t.Errorf("shared_dirs change must not need restart/privilege, got %+v", out)
+	}
+	if hot.sharedDirsCalls != 1 || len(hot.sharedDirs) != 1 || hot.sharedDirs[0] != "/home/ubuntu/.infisical" {
+		t.Errorf("SetSharedDirs not called with the new dirs: calls=%d dirs=%v", hot.sharedDirsCalls, hot.sharedDirs)
+	}
+	// message reflects container count (fakeHot returns len(dirs)=1).
+	if want := "共有フォルダを更新しました — 1 個の稼働中コンテナに反映"; out.Message != want {
+		t.Errorf("message = %q, want %q", out.Message, want)
+	}
+	// Baseline advanced: a second identical apply is a no-op.
+	out2, err := c.SaveAndClassify(context.Background(), neu, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out2.Changes) != 0 {
+		t.Errorf("second apply should be a no-op, got changes %v", out2.Changes)
+	}
+}
+
+// [AC-Sd44947-2-1] CurrentView returns shared_dirs and drops the ~/-expanded
+// path presentation to absolute (dropping any out-of-$HOME junk).
+func TestCurrentView_WorkspaceSharedDirs(t *testing.T) {
+	dir := t.TempDir()
+	home, _ := os.UserHomeDir()
+	applied := config.MasterConfig{Workspace: config.WorkspaceSection{
+		SharedDirs: []string{"~/.infisical", "/etc/passwd" /* dropped */},
+	}}
+	c := New(dir, applied, SecretPresence{}, &fakeHot{}, nil)
+	v := c.CurrentView()
+	if len(v.Workspace.SharedDirs) != 1 {
+		t.Fatalf("expected 1 valid shared dir (out-of-home dropped), got %v", v.Workspace.SharedDirs)
+	}
+	if want := home + "/.infisical"; v.Workspace.SharedDirs[0] != want {
+		t.Errorf("shared dir = %q, want %q (~ expanded to absolute)", v.Workspace.SharedDirs[0], want)
 	}
 }
 
