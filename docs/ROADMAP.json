@@ -11166,7 +11166,7 @@
     "S41bdf2": {
       "title": "§8.3 GUI アプリカードモデル（1アプリ=1カード: install + フォルダ共有 従属トグル）",
       "description": "設計ドキュメント docs/palmux2-nixos-appliance-design.md §8.3 [提案] を実装する。頻度の高い操作（アプリ導入・フォルダ共有）を UI の中心に据え、1アプリ=1カードで見せる。裏では複数レイヤー（§7 パッケージ集合 = home.packages + Sd44947 共有 device 金型）に書き込むが、ユーザには1枚のカード。install トグル（home.packages 追加→ nixos-rebuild、軽）+ フォルダ共有トグル（Sd44947 の shared_dirs 金型、hot）。共有は install に従属（未 install はグレーアウト）、両トグルとも全コンテナ一律（金型=単一プロファイル維持）。§8.2 の『構造化データを正とし .nix を一方向生成』に乗せる。あわせて Sd44947 で folder-share が hot 化された実態を設計ドキュメント（§7/§8.3/§8.4 の陳腐化した [提案]/『重』マーカー）に反映する。",
-      "milestone": true,
+      "milestone": false,
       "phase": "Phase 6 — palmuxOS",
       "status": "pending",
       "detail_level": "detailed",
@@ -11294,7 +11294,7 @@
     "Se173ef": {
       "title": "Sprint タブを現行 skill artifact に追随（verification/done-judgment/compromises/comprehension/prototype/gui-spec 表示 + 旧 reader 置換 + IA 刷新）",
       "description": "Sprint タブ (internal/tab/sprint + frontend/src/tabs/sprint) は 2026-05〜06 時点の sprint/autopilot skill 向けに作られており、以降 skill が正典化した artifact 群に追随していない。現状タブが読むのは decisions.json / acceptance-matrix.json / e2e-results.json / refine.json / failures.json だが、現行 skill (Sd44947 の sprint-log dir が実態) が書くのは verify-run.json(機械判定) / verification-report.json(独立 verifier) / done-judgment.json(6-guard) / compromises.json / comprehension-report.md / prototype-review.json / reopen.json / gui-spec-*.json / scenario-*.json / verify-run-*.log。結果、acceptance-matrix.json / e2e-results.json は現行スプリントで生成されず**タブの該当セクションが空**で、trust source である verification/done-judgment/compromises/comprehension が**一切表示されない**。本スプリントで (1) 表示情報の抜け漏れを塞ぎ、(2) trust-source を前面に出す情報設計へ刷新する。skill の SPRINT_LOGS_SCHEMA.json も実態に合わせて更新し、再ドリフトを防ぐ。",
-      "milestone": false,
+      "milestone": true,
       "phase": "Phase 6 — palmuxOS",
       "status": "pending",
       "detail_level": "detailed",
@@ -11804,8 +11804,10 @@
       "reason": "install の適用に S673a42 の GUI キック nixos-rebuild を流用し、共有トグルは Sd44947 の shared_dirs 金型を再利用するため、両者の後。"
     },
     "Se173ef": {
-      "depends_on": [],
-      "reason": "独立したツール改善。既存の docs/sprint-logs を読むだけで他スプリントの成果物に依存しない（いつでも実行可）。"
+      "depends_on": [
+        "S41bdf2"
+      ],
+      "reason": "コード依存ではなくバッチ順序の指定（ユーザ指示）: S673a42→S41bdf2→Se173ef の 3 本を 1 マイルストーンとして連続実行し、レビュー停止は 3 本完了後（Se173ef）に置く。autopilot の依存境界ヒューリスティックで途中停止しないよう Se173ef を S41bdf2 の後に固定。"
     }
   },
   "backlog": [
