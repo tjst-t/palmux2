@@ -92,12 +92,16 @@ Se173ef  (独立)</div>
       <span class="chip">Sprint 化済み (1)</span>
       <span class="help2" style="margin:0 0 0 auto">✓ 既定は未昇格のみ</span>
     </div>
-    <div class="cr-item">Full Branch → Workspace rename across Go types, TS types, URL path segments</div>
-    <div class="cr-item">Commit-diff endpoint + Monaco diff in log detail pane</div>
-    <div class="cr-item">Cherry-pick / merge conflict WS event</div>
-    <div class="cr-item">Blame view の Monaco gutter 統合</div>
-    <div class="cr-item" style="border:none">… 他 42 件 <a href="#" style="font-size:11px">すべて表示</a></div>
-    <p class="help2">既定は<b>未昇格のみ</b>（Sprint 化済みは畳む）。「Sprint 化済み」で昇格先リンク付き一覧。Option C ではこれを独立 <b>Backlog</b> タブに。</p>
+    <!-- expanded item (実データの詳細ドリルダウン) -->
+    <div class="cr-item" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:11px 13px;margin-bottom:6px">
+      <div style="display:flex;align-items:center;gap:8px"><span style="color:var(--fg-dim)">▾</span> <b style="font-size:12.5px">Full Branch → Workspace rename across Go types, TS types, URL path segments</b> <span class="dep-pill" style="margin-left:auto">added_in: S1e8d02</span></div>
+      <div class="ac-evi" style="margin-top:7px;line-height:1.6">(S1e8d02 由来) <code>domain.Branch</code>→<code>domain.Workspace</code>、BranchID→WorkspaceID、frontend TS 型 + Zustand store キー、ログ key、Provider interface を一括 rename。URL path segment は外向き互換のため要検討。ファイル数 ~70、mechanical churn だがレビュー負荷大。</div>
+      <div class="ac-evi" style="margin-top:6px;color:var(--fg-muted)"><b style="color:var(--fg-dim)">reason:</b> S1e8d02 決定ログ D1 — 機能修正と rename を切り離し blast radius を抑える</div>
+    </div>
+    <div class="cr-item" style="display:flex;gap:8px;align-items:center"><span style="color:var(--fg-faint)">▸</span> Commit-diff endpoint + Monaco diff in log detail pane <span class="dep-pill" style="margin-left:auto">size: M</span></div>
+    <div class="cr-item" style="display:flex;gap:8px;align-items:center"><span style="color:var(--fg-faint)">▸</span> Cherry-pick / merge conflict WS event <span class="dep-pill" style="margin-left:auto">size: S</span></div>
+    <div class="cr-item" style="border:none;display:flex;gap:8px;align-items:center"><span style="color:var(--fg-faint)">▸</span> Blame view の Monaco gutter 統合 <span style="margin-left:auto"><a href="#" style="font-size:11px">… 他 42 件</a></span></div>
+    <p class="help2">各項目クリックで <b>▾ 展開</b> → description / reason / added_in / サイズ を表示（元データはリッチ）。既定は<b>未昇格のみ</b>。「Sprint 化済み」で昇格先リンク付き。Option C ではこれを独立 <b>Backlog</b> タブに。</p>
   </div></div>
 
   <p class="help" style="text-align:center;margin-top:20px"><a href="se173ef-index.html">← 構成比較 A/B/C</a></p>

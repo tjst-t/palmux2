@@ -11368,6 +11368,11 @@
               "id": "AC-Se173ef-2-3",
               "description": "dependencies の reason（依存理由）を dependency graph レスポンスに含める。",
               "status": "pending"
+            },
+            {
+              "id": "AC-Se173ef-2-4",
+              "description": "backlog を API で公開: 各項目の全フィールド（title / description / reason / added_in / priority / status/source）を返す（元データは object でリッチ、title 1 行に潰さない）。昇格済み判定（title/内容が既存スプリントに取り込まれたか）も付与し、昇格先 SprintID を返す。",
+              "status": "pending"
             }
           ],
           "tasks": {
@@ -11421,6 +11426,11 @@
             {
               "id": "AC-Se173ef-3-7",
               "description": "確定 IA = Option A（比較プロトタイプで承認）: 5 タブ Overview / Sprint Detail / Review / Milestones / Decisions。Dependencies と Backlog は Overview 内に畳む（roll-up から展開）、Refine は削除。既定フィルタ 2 点: (1) Sprint timeline は既定で done を隠し『未完了(pending/in_progress)のみ』表示（スプリント増加時に現在地へ即到達、『すべて』で全件）、(2) Backlog は既定で『未昇格のみ』表示（Sprint 化済みは畳む、フィルタで昇格先リンク付き一覧）。フィルタ状態は pushState でなく UI state。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Se173ef-3-8",
+              "description": "Backlog（Option A では Overview 内包）: 各項目はクリックで展開し description / reason / added_in / priority / サイズ を表示（元データのリッチな内容をドリルダウン）。既定フィルタ=未昇格のみ、昇格済みは昇格先スプリントへリンク。展開状態は UI state。",
               "status": "pending"
             }
           ],
