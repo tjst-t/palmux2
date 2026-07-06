@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="ja" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>S41bdf2 · 設定パネル — デプロイ · アプリ（1アプリ=1カード）</title>
+<link rel="stylesheet" href="sa53137.css">
+<style>
+  /* S41bdf2 — 「アプリ」section. Extends the sa53137 deploy tab. 1アプリ=1カード. */
+  .apps-intro { margin: 8px 0 16px; }
+  .apps-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(360px,1fr)); gap: 14px; }
+
+  .appcard { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 15px 16px 6px; display: flex; flex-direction: column; gap: 11px; position: relative; }
+  .appcard.installed { border-color: rgba(100,210,160,.32); }
+  .appcard.error { border-color: rgba(239,68,68,.4); }
+
+  .appcard .ac-head { display: flex; align-items: center; gap: 11px; }
+  .app-ico { width: 38px; height: 38px; border-radius: 9px; background: var(--elevated);
+    border: 1px solid var(--border); display: grid; place-items: center; font-size: 18px; flex: none; }
+  .appcard.installed .app-ico { border-color: rgba(100,210,160,.35); }
+  .ac-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .ac-title .nm { font-weight: 600; font-size: 14.5px; }
+  .ac-title .id { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-faint); }
+
+  .ac-desc { color: var(--fg-dim); font-size: 12px; line-height: 1.5; margin: -2px 0 2px; }
+
+  /* toggle rows — each row = one action, with an explicit "適用先" (reach) line */
+  .ac-row { display: flex; align-items: center; gap: 14px; padding: 11px 0; border-top: 1px solid var(--border); }
+  .ac-row .rlabel { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+  .ac-row .rlabel .rt { font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .ac-row .rlabel .rp { font-family: var(--font-mono); font-size: 11px; color: var(--fg-muted); }
+  .ac-row .rlabel .reach { font-size: 11.5px; color: var(--fg-dim); }
+  .ac-row .rlabel .reach b { color: var(--fg-muted); font-weight: 600; }
+  .ac-row.disabled { opacity: .42; }
+
+  /* switch */
+  .sw { --w: 44px; --h: 25px; position: relative; width: var(--w); height: var(--h); flex: none; cursor: pointer;
+    border-radius: 999px; background: var(--elevated); border: 1px solid var(--border); transition: background .15s, border-color .15s; }
+  .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 19px; height: 19px; border-radius: 50%;
+    background: var(--fg-dim); transition: transform .15s, background .15s; }
+  .sw.on { background: rgba(124,138,255,.28); border-color: var(--accent); }
+  .sw.on::after { transform: translateX(19px); background: var(--accent-light); }
+  .sw.on.hot { background: rgba(100,210,160,.24); border-color: var(--success); }
+  .sw.on.hot::after { background: var(--success); }
+  .sw.busy { pointer-events: none; }
+  .sw[aria-disabled="true"] { pointer-events: none; cursor: not-allowed; }
+
+  /* rebuild-boundary chips */
+  .chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; font-size: 10px; font-weight: 600; }
+  .chip.rebuild { background: rgba(245,158,11,.14); color: var(--warning); border: 1px solid rgba(245,158,11,.3); }
+  .chip.hot { background: rgba(100,210,160,.14); color: var(--success); border: 1px solid rgba(100,210,160,.3); }
+
+  .ac-progress { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--accent-light); }
+  .ac-err { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: #f6a4a4;
+    background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.25); border-radius: var(--radius-sm); padding: 8px 10px; margin-bottom: 4px; }
+  .ac-err .rollback { color: var(--accent-light); text-decoration: underline; cursor: pointer; white-space: nowrap; }
+
+  .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* add (single row) */
+  .app-add { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; margin-top: 6px; }
+  .add-field { display: flex; flex-direction: column; gap: 5px; }
+  .app-add input { max-width: 240px; }
+  .pkg-validity { font-size: 11px; display: inline-flex; align-items: center; gap: 5px; min-height: 15px; }
+  .pkg-validity.ok { color: var(--success); }
+  .pkg-validity.bad { color: #f6a4a4; }
+  input[aria-invalid="true"] { border-color: rgba(239,68,68,.5); }
+  .catalog-note { font-size: 11.5px; color: var(--fg-dim); margin-top: 12px; line-height: 1.6; }
+  .toast { position: fixed; bottom: 22px; right: 22px; background: var(--elevated);
+    border: 1px solid rgba(100,210,160,.4); color: var(--success); padding: 12px 16px;
+    border-radius: 10px; font-size: 13px; display: flex; gap: 9px; align-items: center; box-shadow: 0 8px 30px rgba(0,0,0,.45); }
+  @media (max-width: 720px) { .apps-grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span> palmux2 · 設定</div>
+    <div class="hdr-right">
+      <span class="crumbs">tjst-t/palmux2 · main · <span class="tag live" style="font-size:10px">runtime: incus</span> · <span class="tag root" style="font-size:10px">palmuxOS</span></span>
+      <span class="icon-btn" title="Activity Inbox">🔔</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="tabs" data-testid="settings-tabs">
+      <a class="tab" href="#" data-testid="settings-tab-app">アプリ設定</a>
+      <a class="tab active" href="#" data-testid="settings-tab-deploy">デプロイ設定</a>
+    </div>
+    <div class="card-body" data-testid="settings-deploy-panel">
+
+      <!-- existing deploy sections collapsed for focus -->
+      <div class="section-label" style="opacity:.5; margin-top:10px">[server] · [public] · 秘密 · 共有フォルダ … （既存セクション、変更なし）</div>
+
+      <!-- ▼▼▼ NEW: アプリ section (S41bdf2) ▼▼▼ -->
+      <div class="section-label" style="margin-top:22px">アプリ</div>
+      <div class="apps-intro">
+        <p class="help" style="margin:0">
+          1アプリ = 1枚のカード。各カードに <b>2つのトグル</b>だけ。行ごとに「適用先」と反映コストを明記します。
+          <br><span style="color:var(--fg-muted)">インストール</span>は<b>ホストと全コンテナに同時に</b>行き渡ります（別々ではありません）。裏では
+          <code>home.packages</code> に足して共有 <code>/nix/store</code> 経由で全コンテナへ届けています。
+        </p>
+      </div>
+
+      <div class="apps-grid" data-testid="apps-grid">
+
+        <!-- 1) Infisical — installed + shared -->
+        <div class="appcard installed" data-testid="app-card-infisical" data-state="shared">
+          <div class="ac-head">
+            <div class="app-ico">🔐</div>
+            <div class="ac-title"><span class="nm">Infisical</span><span class="id">infisical</span></div>
+          </div>
+          <div class="ac-desc">シークレット管理 CLI。<code>infisical run</code> で env を注入。</div>
+
+          <div class="ac-row">
+            <div class="rlabel">
+              <span class="rt">インストール <span class="chip rebuild">要 rebuild（軽・即）</span></span>
+              <span class="reach">適用先: <b>ホスト + 全コンテナ</b>（共有 /nix/store 経由）</span>
+            </div>
+            <div class="sw on" role="switch" aria-checked="true" data-testid="install-toggle-infisical" aria-label="Infisical をインストール"></div>
+          </div>
+
+          <div class="ac-row">
+            <div class="rlabel">
+              <span class="rt">認証フォルダを共有 <span class="chip hot">即時反映（hot）</span></span>
+              <span class="rp">~/.infisical</span>
+              <span class="reach">適用先: <b>全コンテナ</b>（稼働中コンテナへ即反映・汎用「共有フォルダ」と同一 source）</span>
+            </div>
+            <div class="sw on hot" role="switch" aria-checked="true" data-testid="share-toggle-infisical" aria-label="Infisical の認証フォルダを共有"></div>
+          </div>
+        </div>
+
+        <!-- 2) 1Password CLI — installed, share off -->
+        <div class="appcard installed" data-testid="app-card-1password-cli" data-state="installed">
+          <div class="ac-head">
+            <div class="app-ico">🔑</div>
+            <div class="ac-title"><span class="nm">1Password CLI</span><span class="id">1password-cli</span></div>
+          </div>
+          <div class="ac-desc">1Password の <code>op</code> CLI。ボールト参照を env に展開。</div>
+
+          <div class="ac-row">
+            <div class="rlabel">
+              <span class="rt">インストール <span class="chip rebuild">要 rebuild（軽・即）</span></span>
+              <span class="reach">適用先: <b>ホスト + 全コンテナ</b>（共有 /nix/store 経由）</span>
+            </div>
+            <div class="sw on" role="switch" aria-checked="true" data-testid="install-toggle-1password-cli" aria-label="1Password CLI をインストール"></div>
+          </div>
+
+          <div class="ac-row">
+            <div class="rlabel">
+              <span class="rt">認証フォルダを共有 <span class="chip hot">即時反映（hot）</span></span>
+              <span class="rp">~/.config/op</span>
+              <span class="reach">適用先: <b>全コンテナ</b> — 現在 OFF。ON で稼働中コンテナへ即共有。</span>
+            </div>
+            <div class="sw hot" role="switch" aria-checked="false" data-testid="share-toggle-1password-cli" aria-label="1Password CLI の認証フォルダを共有"></div>
+          </div>
+        </div>
+
+        <!-- 3) GitHub CLI — NOT installed → share grayed (dependent) -->
+        <div class="appcard" data-testid="app-card-gh" data-state="available">
+          <div class="ac-head">
+            <div class="app-ico">🐙</div>
+            <div class="ac-title"><span class="nm">GitHub CLI</span><span class="id">gh</span></div>
+          </div>
+          <div class="ac-desc">GitHub の <code>gh</code> CLI。PR・issue 操作。<span style="color:var(--fg-faint)">未インストール</span></div>
+
+          <div class="ac-row">
+            <div class="rlabel">
+              <span class="rt">インストール <span class="chip rebuild">要 rebuild（軽・即）</span></span>
+              <span class="reach">適用先: <b>ホスト + 全コンテナ</b>。ON にすると nixos-rebuild が走ります。</span>
+            </div>
+            <div class="sw" role="switch" aria-checked="false" data-testid="install-toggle-gh" aria-label="GitHub CLI をインストール"></div>
+          </div>
+
+          <div class="ac-row disabled" title="先にインストールしてください">
+            <div class="rlabel">
+              <span class="rt">認証フォルダを共有 <span class="chip hot">即時反映（hot）</span></span>
+              <span class="rp">~/.config/gh</span>
+              <span class="reach">インストール後に有効化されます（共有はインストールに<b>従属</b>）。</span>
+            </div>
+            <div class="sw hot" role="switch" aria-checked="false" aria-disabled="true" data-testid="share-toggle-gh" aria-label="GitHub CLI の認証フォルダを共有（未インストールのため無効）"></div>
+          </div>
+        </div>
+
+        <!-- 4) Installing (rebuild in progress) -->
+        <div class="appcard" data-testid="app-card-awscli" data-state="installing">
+          <div class="ac-head">
+            <div class="app-ico">☁️</div>
+            <div class="ac-title"><span class="nm">AWS CLI</span><span class="id">awscli2</span></div>
+          </div>
+          <div class="ac-desc">AWS の <code>aws</code> CLI v2。</div>
+
+          <div class="ac-row">
+            <div class="rlabel">
+              <span class="rt">インストール <span class="chip rebuild">要 rebuild（軽・即）</span></span>
+              <div class="ac-progress"><span class="spinner"></span> nixos-rebuild switch を実行中… (activating) — ホスト + 全コンテナへ反映されます</div>
+            </div>
+            <div class="sw on busy" role="switch" aria-checked="true" data-testid="install-toggle-awscli" aria-label="AWS CLI をインストール（実行中）"></div>
+          </div>
+
+          <div class="ac-row disabled">
+            <div class="rlabel">
+              <span class="rt">認証フォルダを共有 <span class="chip hot">即時反映（hot）</span></span>
+              <span class="rp">~/.aws</span>
+              <span class="reach">インストール完了後に有効化されます。</span>
+            </div>
+            <div class="sw hot" role="switch" aria-checked="false" aria-disabled="true" data-testid="share-toggle-awscli" aria-label="AWS CLI の認証フォルダを共有（インストール中のため無効）"></div>
+          </div>
+        </div>
+
+        <!-- 5) Error (rebuild failed) -->
+        <div class="appcard error" data-testid="app-card-terraform" data-state="error">
+          <div class="ac-head">
+            <div class="app-ico">🏗️</div>
+            <div class="ac-title"><span class="nm">Terraform</span><span class="id">terraform</span></div>
+          </div>
+          <div class="ac-err" data-testid="app-error-terraform">
+            <span>⚠</span>
+            <div>nixos-rebuild switch が失敗しました（<b>旧世代を維持</b>）。ログ: <code>journalctl -u palmux-rebuild</code>。
+              <span class="rollback" data-testid="app-rollback-terraform">旧世代へロールバック</span>
+            </div>
+          </div>
+          <div class="ac-row">
+            <div class="rlabel">
+              <span class="rt">インストール <span class="chip rebuild">要 rebuild（軽・即）</span></span>
+              <span class="reach">適用先: <b>ホスト + 全コンテナ</b>。再試行できます。</span>
+            </div>
+            <div class="sw" role="switch" aria-checked="false" data-testid="install-toggle-terraform" aria-label="Terraform をインストール（再試行）"></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- user-defined add (single row, inline validation) -->
+      <div class="section-label" style="margin-top:22px">ユーザ定義アプリを追加</div>
+      <p class="help" style="margin:0 0 8px">
+        カタログに無い nixpkgs パッケージを追加します。追加前に <code>nix eval nixpkgs#&lt;name&gt;</code> で存在を検証し、
+        <b>見つからなければ ⚠ を表示して「追加」を無効化</b>します（rebuild は走りません）。
+      </p>
+      <div class="app-add">
+        <div class="add-field">
+          <input type="text" placeholder="nixpkgs パッケージ名（例 ripgrep, jq）" value="ripgrep" data-testid="app-add-input" aria-describedby="pkg-validity">
+          <span id="pkg-validity" class="pkg-validity ok" data-testid="app-add-validity" data-state="valid">✓ nixpkgs#ripgrep 解決 OK</span>
+        </div>
+        <div class="add-field">
+          <input type="text" placeholder="認証フォルダ（任意, 例 ~/.config/foo）" data-testid="app-add-share-input">
+          <span class="pkg-validity" style="color:var(--fg-faint)">$HOME スコープ内のみ</span>
+        </div>
+        <button class="btn primary" data-testid="app-add-btn" style="margin-top:0">＋ 追加</button>
+      </div>
+      <p class="catalog-note">
+        既知アプリのカタログ: <code>infisical</code> / <code>1password-cli</code> / <code>gh</code> / <code>awscli2</code> …（認証フォルダのパスはカタログが保持）。
+        入力が不正な例では <span class="pkg-validity bad" style="display:inline-flex">⚠ nixpkgs に見つかりません</span> と表示され「追加」は押せません。
+      </p>
+
+    </div>
+  </div>
+</div>
+
+<div class="toast" data-testid="toast">✓ Infisical をインストールしました（ホスト + 全コンテナに反映）</div>
+</body>
+</html>

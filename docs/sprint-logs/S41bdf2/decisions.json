@@ -7,5 +7,12 @@
     "従属ルール（未 install→共有グレーアウト）+ 全コンテナ一律（金型=単一プロファイル維持）を §8.3 のルール通り実装。",
     "§8.3 の当初想定『フォルダ共有=要 rebuild（重）』は Sd44947 で hot 化されたので実態（hot）で表示し、設計ドキュメント §7/§8.3/§8.4 の陳腐化マーカー（[提案]→[実装済]、/etc/palmux→/persist）も本スプリントで是正（ドキュメントと実装の乖離を残さない）。",
     "マイルストーン扱い（§8.3 全体の実現、ユーザ可視の大きな機能でレビュー境界が妥当）。実機検証は green（priority_rule 9）。"
+  ],
+  "prototype_review_decisions": [
+    "実現性レビュー(ユーザ質問): コード確認で AC-S41bdf2-1-1『共有 /nix 経由で全コンテナ+ホストに反映』の前提が現状 FALSE と判明。コンテナは Ubuntu 24.04 + apt でツールは palmux-ws image 焼き込み(images/workspace-default/build.sh)、/nix も ~/.nix-profile も無い(incus.go:1079 が明言)。palmux-shared プロファイルは ~/ghq/.claude/.local/bin/dotfiles/gh/ssh のみで /nix/store を共有していない。",
+    "決定(ユーザ選択): install スコープ = /nix/store 共有を実装(AC 忠実)。palmux-shared 金型に /nix/store(read-only)+ Nix profile bin を追加マウントし container PATH に載せる。Nix バイナリは patchelf 済みで自前 /nix/store 依存を持つため Ubuntu コンテナでもそのまま動く。→ install=home.packages 追加→nixos-rebuild→共有 /nix/store 経由で真に『1回で全コンテナ+ホスト』。これは既存タスクに無かった実装作業なので S41bdf2-1 にタスク追加(AC は据え置き、AC が常に含意していた container 到達を満たすための欠落タスク補完)。",
+    "決定(ユーザ選択): install パッケージ入力 = カタログ + 検証付きユーザ入力。既知アプリ(infisical/gh/awscli2/1password-cli)はキュレート済みカタログ。ユーザ定義は適用前に `nix eval nixpkgs#<name>` で attr 解決を検証し、無ければ rebuild を走らせずインラインエラー(GET/POST /api/apps の validate 経路)。",
+    "Q2(config↔app 紐付け)の答え: Sd44947 shared_dirs は今はパス平坦リストのみでアプリ紐付け無し。カタログ(app id→{package, authConfigPath})を新設し、共有トグルは同一 shared_dirs(単一 source)へ該当パスを書く(カードと汎用共有フォルダリストが一致=AC-2-1)。紐付けは我々のキュレート規約であり Nix/アプリの self-declare ではない旨をユーザに明示済み。エクスポーズ自体は Sd44947 機構の再利用で現行実現可能(bind-mount, Nix 非依存)。",
+    "priority_rule 6 遵守: /nix/store 共有も Sd44947 の palmux-shared 金型(ReconcileShared)に device として足す(新機構を作らない)。read-only + 冪等 reconcile。"
   ]
 }

@@ -1,0 +1,19 @@
+{
+  "sprint_range": ["S41bdf2"],
+  "screens": [
+    {
+      "file": "prototype/s41bdf2-app-cards.html",
+      "story": "S41bdf2-3",
+      "feedback_rounds": 2,
+      "approved": true
+    }
+  ],
+  "design_decisions": [
+    "1アプリ=1カード。各カードに install + 認証フォルダ共有の2トグルのみ。sa53137.css の Fog palette v2.1 を継承（priority_rule 6）。",
+    "rebuild 境界を chip で区別: install = 要 rebuild（軽・即）、共有 = 即時反映（hot）。§8.3 の当初『共有=重』は Sd44947 で hot 化されたので実態（hot）で表示。",
+    "従属ルールを視覚化: 未インストールのアプリは共有トグルをグレーアウト + aria-disabled。",
+    "レビュー指摘1で修正: 冗長な『導入済み』バッジが host-vs-container の誤解を生んだため削除。install はホスト+全コンテナに同時反映（別々ではない）ので、各トグル行に『適用先: ホスト+全コンテナ / 全コンテナ』を明示。",
+    "レビュー指摘2で修正: valid/invalid の2行複製で『追加』ボタンが2つあり混乱 → 単一 add 行 + インライン検証表示に統合。",
+    "install の到達先=ホスト+全コンテナは /nix/store 共有（S41bdf2-1-4 で新規実装）が前提。ユーザ定義 nixpkgs 名は nix eval で検証（S41bdf2-1-5）。"
+  ]
+}

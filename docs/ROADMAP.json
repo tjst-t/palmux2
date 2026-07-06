@@ -11208,6 +11208,16 @@
               "id": "S41bdf2-1-3",
               "title": "GET /api/apps + install/uninstall エンドポイント（rebuild は S673a42 経路流用）",
               "status": "pending"
+            },
+            "S41bdf2-1-4": {
+              "id": "S41bdf2-1-4",
+              "title": "/nix/store(ro) + Nix profile bin を palmux-shared 金型へ追加共有 + container PATH 配線（install が全コンテナに到達する前提を成立させる）",
+              "status": "pending"
+            },
+            "S41bdf2-1-5": {
+              "id": "S41bdf2-1-5",
+              "title": "nixpkgs 名の検証（nix eval nixpkgs#<name>）— 未解決なら rebuild せずインラインエラー（validate 経路）",
+              "status": "pending"
             }
           }
         },
