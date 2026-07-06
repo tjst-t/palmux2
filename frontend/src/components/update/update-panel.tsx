@@ -13,6 +13,10 @@ export function UpdatePanel() {
   const inProgress = usePalmuxStore((s) => s.updateInProgress)
   const updateFailed = usePalmuxStore((s) => s.updateFailed)
   const runSelfUpdate = usePalmuxStore((s) => s.runSelfUpdate)
+  const runNixosRebuildUpdate = usePalmuxStore((s) => s.runNixosRebuildUpdate)
+  const runImageInstall = usePalmuxStore((s) => s.runImageInstall)
+  const imageInstallInProgress = usePalmuxStore((s) => s.imageInstallInProgress)
+  const imageInstallError = usePalmuxStore((s) => s.imageInstallError)
   const [open, setOpen] = useState(false)
   const [runError, setRunError] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
@@ -79,6 +83,23 @@ export function UpdatePanel() {
     }
   }
 
+  // S673a42-2: appliance host update button. Kicks the verb-limited
+  // palmux-rebuild-update unit; the panel switches to the progress/reconnect state
+  // (updateInProgress) on the next render, same as onUpdateAll.
+  const onNixosUpdate = async () => {
+    setRunError(null)
+    try {
+      await runNixosRebuildUpdate()
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  // S673a42-3: palmux-ws image fetch button (appliance only).
+  const onImageInstall = () => {
+    void runImageInstall()
+  }
+
   return (
     <div ref={ref} className={styles.wrap}>
       <button
@@ -122,7 +143,24 @@ export function UpdatePanel() {
                   )}
                 </div>
               </div>
-              {c.available ? (
+              {c.available && snap?.nixOSHost && c.name === 'image' ? (
+                // S673a42-3: on the appliance the image is a separate axis from the
+                // host nixos-rebuild — offer a direct fetch button on its row.
+                <button
+                  className={styles.rowBtn}
+                  data-testid="update-image-fetch-btn"
+                  onClick={onImageInstall}
+                  disabled={imageInstallInProgress}
+                >
+                  {imageInstallInProgress ? (
+                    <>
+                      <span className={styles.spin} /> 取得中…
+                    </>
+                  ) : (
+                    'image を取得'
+                  )}
+                </button>
+              ) : c.available ? (
                 <span className={styles.uptag}>更新あり</span>
               ) : c.fetchable ? (
                 <span className={styles.curtag}>最新</span>
@@ -133,15 +171,41 @@ export function UpdatePanel() {
               )}
             </div>
           ))}
+          {imageInstallError && (
+            <div className={styles.errBox} data-testid="update-image-error">
+              ⚠ palmux-ws image の取得に失敗しました: {imageInstallError}
+            </div>
+          )}
 
           <div className={styles.foot}>
             {snap?.nixOSHost ? (
-              <div className={styles.manualNote} data-testid="update-nixos-note">
-                このホストは NixOS（palmuxOS アプライアンス）です。更新は端末から{' '}
-                <code>sudo nixos-rebuild switch --flake /etc/palmux#appliance</code>{' '}
-                で行ってください（世代切替＝アトミック、<code>nixos-rebuild switch --rollback</code>{' '}
-                または旧世代 boot で確実に戻せます）。本体更新後、この画面は数秒で再接続します。
-              </div>
+              <>
+                {/* S673a42-2: GUI-kick the host update on the appliance. Only when a
+                    newer palmux binary is available; otherwise no button (最新). */}
+                {snap.components.some((c) => c.name === 'palmux' && c.available) ? (
+                  <button
+                    className={styles.primaryBtn}
+                    data-testid="update-nixos-rebuild-btn"
+                    onClick={onNixosUpdate}
+                  >
+                    本体を更新 (nixos-rebuild)
+                  </button>
+                ) : (
+                  <div className={styles.restartNote} data-testid="update-nixos-uptodate">
+                    本体 (palmux) は最新です。
+                  </div>
+                )}
+                <div className={styles.manualNote} data-testid="update-nixos-note">
+                  このホストは NixOS（palmuxOS アプライアンス）です。ボタンで{' '}
+                  <code>
+                    nix flake update palmux && sudo nixos-rebuild switch --flake{' '}
+                    {snap.applianceFlakeTarget || 'nixos'}
+                  </code>{' '}
+                  をキックします（世代切替＝アトミック、失敗時は旧世代が残り{' '}
+                  <code>nixos-rebuild switch --flake {snap.applianceFlakeTarget || 'nixos'} --rollback</code>{' '}
+                  または旧世代 boot で戻せます）。本体更新後 palmux2 は再起動し、この画面は数秒で再接続します。
+                </div>
+              </>
             ) : snap?.nixManaged ? (
               <>
                 <button

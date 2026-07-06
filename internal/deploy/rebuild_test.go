@@ -79,6 +79,50 @@ func TestQueryRebuild_ParsesShow(t *testing.T) {
 	}
 }
 
+// [AC-S673a42-2-1] The version-update path starts the DISTINCT verb-limited
+// update unit (palmux-rebuild-update.service), not the domain unit — so the
+// privileged switch that runs `nix flake update palmux` is a separate fixed unit
+// (no arbitrary command reaches root).
+func TestTriggerRebuildUpdate_StartsUpdateUnit(t *testing.T) {
+	logPath := fakeSystemctl(t, "")
+	if err := TriggerRebuildUpdate(context.Background()); err != nil {
+		t.Fatalf("TriggerRebuildUpdate: %v", err)
+	}
+	got := readFile(t, logPath)
+	if !strings.Contains(got, "reset-failed "+rebuildUpdateUnit) {
+		t.Errorf("expected reset-failed of update unit, got:\n%s", got)
+	}
+	if !strings.Contains(got, "start --no-block "+rebuildUpdateUnit) {
+		t.Errorf("expected `start --no-block %s`, got:\n%s", rebuildUpdateUnit, got)
+	}
+	// It must NOT start the domain unit.
+	if strings.Contains(got, "start --no-block "+rebuildUnit) {
+		t.Errorf("update path must not start the domain unit %s, got:\n%s", rebuildUnit, got)
+	}
+}
+
+// [AC-S673a42-2-2] The update unit's state is queryable (the FE polls it to catch
+// a failure that never restarts palmux2).
+func TestQueryRebuildUpdate_ParsesShow(t *testing.T) {
+	logPath := fakeSystemctl(t, "ActiveState=failed\\nResult=exit-code\\n")
+	st, err := QueryRebuildUpdate(context.Background())
+	if err != nil {
+		t.Fatalf("QueryRebuildUpdate: %v", err)
+	}
+	if st.Active != "failed" || st.Result != "exit-code" || st.Running {
+		t.Errorf("QueryRebuildUpdate = %+v; want failed/exit-code/not-running", st)
+	}
+	if got := readFile(t, logPath); !strings.Contains(got, "show -p ActiveState -p Result "+rebuildUpdateUnit) {
+		t.Errorf("expected show of update unit, got:\n%s", got)
+	}
+}
+
+func readFile(t *testing.T, p string) string {
+	t.Helper()
+	b, _ := os.ReadFile(p)
+	return string(b)
+}
+
 // [AC] On a NixOS host, a domain change's apply message points at nixos-rebuild,
 // not `palmux reconcile-system`.
 func TestSaveAndClassify_NixOSMessage(t *testing.T) {

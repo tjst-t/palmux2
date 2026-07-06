@@ -1,11 +1,11 @@
 {
-  # This is the flake that ships at /etc/palmux on the appliance's PERSISTENT
+  # This is the flake that ships at /persist/palmux/nixos on the appliance's PERSISTENT
   # volume. It is how an operator extends a deployed appliance:
   #
   #   1. drop a declarative fragment:
-  #        sudo $EDITOR /etc/palmux/local/my-extras.nix
+  #        sudo $EDITOR /persist/palmux/nixos/local/my-extras.nix
   #   2. apply it:
-  #        sudo nixos-rebuild switch --flake /etc/palmux#appliance
+  #        sudo nixos-rebuild switch --flake /persist/palmux/nixos#appliance
   #
   # Everything under ./local is imported with the FULL NixOS option surface and
   # merged over palmux's mkDefaults. ./local is a symlink to the drop-in slice of

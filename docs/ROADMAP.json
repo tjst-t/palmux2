@@ -11035,129 +11035,129 @@
       "description": "palmuxOS アプライアンスで『更新』を再び GUI からキックできるようにする。現状 update-panel は NixOS host で案内文のみ（Sb14caa の operator-driven 抑止）で、ユーザは SSH で `nix flake update palmux && nixos-rebuild switch` を手打ちする必要がある。既存の GUI キック nixos-rebuild 機構（`palmux-rebuild.service` / `POST /api/deploy/rebuild`、domain/TLS 用）を版数更新にも使えるよう拡張し、update-panel に更新ボタンを出す。あわせて案内文の flake パスバグ（`/etc/palmux#appliance` → 実パス `/persist/palmux/nixos#appliance`）を修正し、palmux-ws image の更新（release asset 取得 + S7364e3 regenerate）も appliance で GUI キック可能にする。",
       "milestone": false,
       "phase": "Phase 6 — palmuxOS",
-      "status": "pending",
+      "status": "done",
       "detail_level": "detailed",
       "review_reason": "実 NixOS アプライアンスでしか GUI→nixos-rebuild キック→版数 bump→palmux2 再起動→再接続の一連は検証できない。障害シナリオではないので priority_rule 9 の通常 real-mode smoke を green.tjstkm.net (192.168.1.46) の実アプライアンスで行う。",
       "stories": {
         "S673a42-1": {
           "title": "案内文/README の flake パスバグ修正（backend 由来の単一 source 化）",
           "story": "palmuxOS 運用者として、更新パネルや README に表示される nixos-rebuild コマンドが実際に動く正しい flake パスであってほしい。なぜなら、現在の案内文は `/etc/palmux#appliance` を指すが実パスは `/persist/palmux/nixos#appliance` で、コピペしても失敗し、手動更新の唯一の導線が壊れているから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S673a42-1-1",
               "description": "update-panel.tsx の nixOSHost 案内文と nixos/README.md の nixos-rebuild コマンドが実 flake パス `/persist/palmux/nixos#appliance` に一致する。理想は backend（`/api/selfupdate` snapshot か `/api/deploy`）が appliance flake target 文字列を返し、フロントがハードコードせずそれを表示（`internal/deploy/rebuild.go` / `appliance.nix flakeDir` と drift しない単一 source）。",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S673a42-1-2",
               "description": "表示されたコマンドを green の実アプライアンスで手打ちして成功することを確認（コピペ即通）。",
-              "status": "pending"
+              "status": "done"
             }
           ],
           "tasks": {
             "S673a42-1-1": {
               "id": "S673a42-1-1",
               "title": "appliance flake target を backend snapshot に公開（selfupdate.Snapshot に applianceFlakeTarget 追加、detectNixOSHost と同源）",
-              "status": "pending"
+              "status": "done"
             },
             "S673a42-1-2": {
               "id": "S673a42-1-2",
               "title": "update-panel.tsx / nixos/README.md のパスを backend 値 or 実パスに修正",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
         "S673a42-2": {
           "title": "GUI から本体更新（flake update palmux + nixos-rebuild switch）をキック",
           "story": "palmuxOS 運用者として、本体の新バージョンが出たとき GUI のボタン一つで更新をキックしたい。なぜなら、現状 NixOS では案内文だけで、毎回 SSH して `nix flake update palmux && nixos-rebuild switch` を手打ちする必要があり、Ubuntu 版にあった『まとめて更新』体験を失っているから。",
-          "status": "pending",
+          "status": "needs_user_review",
           "acceptance_criteria": [
             {
               "id": "AC-S673a42-2-1",
               "description": "版数更新用の rebuild 経路が `nix flake update palmux`（pin を最新 main へ bump）を先に実行してから `nixos-rebuild switch --flake /persist/palmux/nixos#appliance` する。既存の domain/TLS 用 drop-in-only rebuild（pin 据え置き）と区別され、root 権限境界は既存の verb 限定 system-bus 経路（palmux-rebuild.service）を流用（任意コマンド注入不可）。",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S673a42-2-2",
               "description": "update-panel の nixOSHost 分岐が案内文だけでなく更新キックボタン（data-testid=update-nixos-rebuild-btn）を出す。押すと POST で更新経路をキックし、既存 progress polling（activating→active/failed）+ S6ab0ed の WS drop→/health version polling→再接続トーストのハンドシェイクで完了表示。最新（更新不要）ならボタンは非活性/非表示。",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S673a42-2-3",
               "description": "権限境界を越えない: root nixos-rebuild は既存の verb 限定経路のみ、flake update は on-appliance flake dir（/persist/palmux/nixos）限定。失敗時は旧世代維持（アトミック）で、GUI に rollback 導線（旧世代 boot / `--rollback`）を案内。",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S673a42-2-4",
               "description": "実機 smoke: green.tjstkm.net (192.168.1.46) 実アプライアンスで、実ブラウザ SSO ログイン→更新ボタン→キック→世代切替→palmux2 再起動→自動再接続→完了トースト、を確認。旧世代が rollback 用に残ることも確認。",
-              "status": "pending"
+              "status": "needs_user_review"
             },
             {
               "id": "AC-S673a42-2-5",
               "description": "state diagram（Idle/UpdateAvailable/Kicking/Rebuilding/Reconnecting/Done/Failed）確認済み。全 interactive 要素に data-testid。mock テスト（各状態）が pass、E2E（[AC-*] タグ）が実サーバに対して pass。",
-              "status": "pending"
+              "status": "done"
             }
           ],
           "tasks": {
             "S673a42-2-1": {
               "id": "S673a42-2-1",
               "title": "deploy.TriggerRebuild を版数更新モード（flake update palmux 前置）対応に拡張 or 新 verb 追加（palmux-rebuild.service の ExecStart 分岐）",
-              "status": "pending"
+              "status": "done"
             },
             "S673a42-2-2": {
               "id": "S673a42-2-2",
               "title": "POST /api/selfupdate/rebuild（or /api/deploy/rebuild?mode=update）+ progress 既存経路流用",
-              "status": "pending"
+              "status": "done"
             },
             "S673a42-2-3": {
               "id": "S673a42-2-3",
               "title": "update-panel.tsx nixOSHost 分岐にボタン + 進行/再接続ハンドシェイク（S6ab0ed 流用）",
-              "status": "pending"
+              "status": "done"
             },
             "S673a42-2-4": {
               "id": "S673a42-2-4",
               "title": "mock/E2E + green 実機 smoke（AC-2-4）",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
         "S673a42-3": {
           "title": "palmux-ws image 更新も appliance で GUI キック可能に",
           "story": "palmuxOS 運用者として、palmux-ws image に新版が出たとき（更新パネルに『v0.12.3 → v0.13.0 更新あり』と出る）GUI から image 取得 + コンテナ再生成をキックしたい。なぜなら、host 本体は nixos-rebuild で更新できても image は別軸で、現状 appliance では image 更新の GUI 導線が無く手動になるから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S673a42-3-1",
               "description": "更新パネルの palmux-ws image『更新あり』行から GUI で最新 image を取得（`palmux runtime install` 相当、release asset を incus に import + re-alias）できる。取得後は既存 S7364e3 の drift 検出→『Update container』regenerate 導線に接続（image 取得と container 再生成の 2 段が GUI で完結）。",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S673a42-3-2",
               "description": "権限/隔離: image 取得は palmux user の incus 権限内、走行中コンテナを勝手に落とさない（regenerate は既存 S7364e3 のユーザ起点・トランザクショナル方針を踏襲）。",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S673a42-3-3",
               "description": "実機 smoke: green で image を v0.12.3→最新へ GUI 取得→drift badge 消滅→（任意で）1 コンテナ regenerate、を確認。",
-              "status": "pending"
+              "status": "done"
             }
           ],
           "tasks": {
             "S673a42-3-1": {
               "id": "S673a42-3-1",
               "title": "GUI から `palmux runtime install`（image 取得）をキックする API + ボタン（更新パネル image 行）",
-              "status": "pending"
+              "status": "done"
             },
             "S673a42-3-2": {
               "id": "S673a42-3-2",
               "title": "取得後に既存 drift 検出 / regenerate 導線へ接続",
-              "status": "pending"
+              "status": "done"
             },
             "S673a42-3-3": {
               "id": "S673a42-3-3",
               "title": "green 実機 smoke（AC-3-3）",
-              "status": "pending"
+              "status": "done"
             }
           }
         }

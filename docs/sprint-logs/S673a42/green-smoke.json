@@ -1,0 +1,61 @@
+{
+  "sprint": "S673a42",
+  "appliance": "green.tjstkm.net (192.168.1.46), NixOS 25.05, palmuxos-dev, x86_64",
+  "mode": "production (no MOCK/--fake/DRY_RUN); branch-built binary v0.13.0-10-gd6c9740-dirty run against green's real /persist config + secrets",
+  "date": "2026-07-06",
+  "preconditions_observed": {
+    "managed_palmux2_version": "v0.13.0 (== latest main release)",
+    "installed_image_version_before": "v0.12.3",
+    "latest_image": "v0.13.0",
+    "palmux_component_available": false,
+    "note": "green's palmux binary is already latest-main, so a production-mode version-delta HOST update (and its completion toast) is release-gated — the same S6ab0ed MS-1 / Sa8e7d0 gating (needs a release strictly newer than the running binary). The image, by contrast, WAS genuinely behind (v0.12.3), so the image AC ran fully real."
+  },
+  "results": [
+    {
+      "ac": "AC-S673a42-1-1",
+      "status": "PASS (real appliance)",
+      "evidence": "GET localhost:7699/api/selfupdate from the branch binary on green returned nixOSHost:true, applianceFlakeTarget:\"/persist/palmux/nixos#appliance\" (the real on-appliance flake dir, NOT the buggy /etc/palmux). Backend-sourced single value."
+    },
+    {
+      "ac": "AC-S673a42-1-2",
+      "status": "PASS (real appliance)",
+      "evidence": "Ran the exact displayed command on green: `cd /persist/palmux/nixos && nix flake update palmux && nixos-rebuild switch --flake /persist/palmux/nixos#appliance` → SWITCH_EXIT=0 (copy-paste-correct). No-op switch (palmux already latest) but rc=0; gens 9+10 present (rollback available)."
+    },
+    {
+      "ac": "AC-S673a42-2-1",
+      "status": "PASS (real kick chain)",
+      "evidence": "Branch binary on green: POST /api/selfupdate/rebuild → HTTP 202. deploy.TriggerRebuildUpdate started palmux-rebuild-update.service (journal: 'Starting palmux-rebuild-update…' + 'S673A42-UNIT-RAN'), which ran `nix flake update palmux` + `nixos-rebuild switch` to Result=success ExecMainStatus=0. The unit was installed transiently in /run/systemd/system (NixOS /etc is read-only; the declarative form is in nixos/modules/appliance.nix). The endpoint targets a DISTINCT verb-limited unit (not the domain unit)."
+    },
+    {
+      "ac": "AC-S673a42-2-2",
+      "status": "PARTIAL (mechanism real; button-render + delta-toast release-gated)",
+      "evidence": "Endpoint kick + progress/reconnect machinery verified via real green endpoint→unit→switch and the mock E2E (real WS drop → /health delta → 更新しました toast). The host-update BUTTON itself only renders when palmux is `available`, which on green it is not (dirty binary vs same latest release) — the release-gated part."
+    },
+    {
+      "ac": "AC-S673a42-2-3",
+      "status": "PASS (real)",
+      "evidence": "Failure-before-restart path: unit-tested (QueryRebuildUpdate parses failed) + mock E2E (pre-restart failed → 更新失敗, old gen kept). On green: atomic generation model confirmed — gens 9+10 both present, `nixos-rebuild switch --rollback` available; the FE note renders the real rollback command with applianceFlakeTarget."
+    },
+    {
+      "ac": "AC-S673a42-2-4",
+      "status": "PARTIAL — release-gated (needs_user_review at milestone)",
+      "evidence": "REAL on green: nixOSHost detection, applianceFlakeTarget, SSO layer live (/ → 302 /auth/login, /auth/login → 200, API SSO-protected), endpoint→palmux-rebuild-update unit→real `nix flake update palmux`+`nixos-rebuild switch` rc=0, rollback generation retained. NOT performable in production mode now: real-browser click of the host-update button → version-delta completion toast, because no release is strictly newer than the running v0.13.0 binary (identical to the documented S6ab0ed MS-1 / Sa8e7d0 deferral). Covered by mock (real WS-drop reconnect + real version delta). Recommend a post-release live confirm."
+    },
+    {
+      "ac": "AC-S673a42-3-1",
+      "status": "PASS (fully real, production mode)",
+      "evidence": "Branch binary on green: POST /api/selfupdate/image-install → 202; job ran REAL `palmux runtime install` (GitHub asset fetch + incus import + palmux-ws re-alias) to done:true error:\"\" installed:v0.13.0. incus image alias palmux-ws re-imported (upload 2026/07/06 07:30 UTC). A concurrent POST returned 409 (in-flight guard)."
+    },
+    {
+      "ac": "AC-S673a42-3-2",
+      "status": "PASS (real)",
+      "evidence": "In-flight guard (409) exercised on green + dev E2E. Regenerate stays operator-driven/transactional (S7364e3 unchanged); no running container was regenerated (see 3-3)."
+    },
+    {
+      "ac": "AC-S673a42-3-3",
+      "status": "PASS (fully real, production mode)",
+      "evidence": "Image installed v0.12.3 → v0.13.0 via the GUI-kick endpoint; GET /api/selfupdate image row flipped to installed:v0.13.0 available:false (badge cleared). Container regenerate INTENTIONALLY skipped (AC says 'optionally'): green has a live workspace container (clinical-hishow-…) and regenerating it would disrupt a running workspace (DESIGN_PRINCIPLES rule 5); the regenerate path is S7364e3-covered."
+    }
+  ],
+  "restore": "Transient /run/systemd/system/palmux-rebuild-update.service + polkit test file removed, daemon-reload; branch binaries removed; managed palmux2.service active (v0.13.0) + caddy active; flake.lock left at latest (nix flake update was a no-op re-pin); backups at green:/root/s673a42-backup/. No new generation created (all switches were no-ops). green left healthy."
+}

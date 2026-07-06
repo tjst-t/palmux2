@@ -24,7 +24,17 @@ import (
 var systemctlBin = "systemctl"
 
 // rebuildUnit is the fixed system oneshot defined by nixos/modules/appliance.nix.
+// It applies the CURRENT flake pin (domain/TLS drop-in projection + switch) —
+// used by the deploy panel's "apply public domain/TLS" button.
 const rebuildUnit = "palmux-rebuild.service"
+
+// rebuildUpdateUnit is the SIBLING fixed oneshot (also nixos/modules/appliance.nix)
+// used for VERSION updates: it runs `nix flake update palmux` (bump the pin to
+// latest main) BEFORE the same switch logic. It is a distinct fixed unit — not an
+// argument to rebuildUnit — so the polkit authorization stays verb-limited (the
+// palmux user may only `start` these two named units; no arbitrary command reaches
+// root). S673a42-2.
+const rebuildUpdateUnit = "palmux-rebuild-update.service"
 
 // RebuildStatus is the live state of the palmux-rebuild oneshot, parsed from
 // `systemctl show`. Running is a convenience = ActiveState in {activating,reloading}.
@@ -37,12 +47,20 @@ type RebuildStatus struct {
 // TriggerRebuild starts palmux-rebuild.service WITHOUT blocking (the switch can
 // take minutes and restarts palmux2 mid-way). It first clears any prior failed
 // state so a re-trigger after a failed run is not refused by systemd.
-func TriggerRebuild(ctx context.Context) error {
+func TriggerRebuild(ctx context.Context) error { return startUnit(ctx, rebuildUnit) }
+
+// TriggerRebuildUpdate starts the VERSION-update oneshot (rebuildUpdateUnit),
+// which bumps the palmux pin (`nix flake update palmux`) before switching. Same
+// no-block + reset-failed semantics as TriggerRebuild. S673a42-2.
+func TriggerRebuildUpdate(ctx context.Context) error { return startUnit(ctx, rebuildUpdateUnit) }
+
+// startUnit resets any prior failed state and starts a fixed unit --no-block.
+func startUnit(ctx context.Context, unit string) error {
 	// Best-effort reset of a prior failed run; ignore its error (unit may be clean).
-	_ = exec.CommandContext(ctx, systemctlBin, "reset-failed", rebuildUnit).Run()                           //nolint:errcheck // best-effort
-	out, err := exec.CommandContext(ctx, systemctlBin, "start", "--no-block", rebuildUnit).CombinedOutput() //nolint:gosec // fixed unit name
+	_ = exec.CommandContext(ctx, systemctlBin, "reset-failed", unit).Run()                           //nolint:errcheck // best-effort
+	out, err := exec.CommandContext(ctx, systemctlBin, "start", "--no-block", unit).CombinedOutput() //nolint:gosec // fixed unit name
 	if err != nil {
-		return fmt.Errorf("start %s: %w: %s", rebuildUnit, err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("start %s: %w: %s", unit, err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
@@ -51,10 +69,20 @@ func TriggerRebuild(ctx context.Context) error {
 // switch is running the GUI polls this; when palmux2 itself is restarted by the
 // switch the existing reconnect handshake (WS drop → /health → reconnect) covers
 // the gap and the next poll lands on the post-switch palmux2.
-func QueryRebuild(ctx context.Context) (RebuildStatus, error) {
-	out, err := exec.CommandContext(ctx, systemctlBin, "show", "-p", "ActiveState", "-p", "Result", rebuildUnit).Output() //nolint:gosec // fixed unit name
+func QueryRebuild(ctx context.Context) (RebuildStatus, error) { return queryUnit(ctx, rebuildUnit) }
+
+// QueryRebuildUpdate reports the state of the version-update oneshot. The GUI
+// polls this to catch a failure that does NOT restart palmux2 (e.g. a `nix flake
+// update` / eval error aborts before the switch), which the WS-drop reconnect
+// handshake alone could only surface via timeout. S673a42-2.
+func QueryRebuildUpdate(ctx context.Context) (RebuildStatus, error) {
+	return queryUnit(ctx, rebuildUpdateUnit)
+}
+
+func queryUnit(ctx context.Context, unit string) (RebuildStatus, error) {
+	out, err := exec.CommandContext(ctx, systemctlBin, "show", "-p", "ActiveState", "-p", "Result", unit).Output() //nolint:gosec // fixed unit name
 	if err != nil {
-		return RebuildStatus{}, fmt.Errorf("show %s: %w", rebuildUnit, err)
+		return RebuildStatus{}, fmt.Errorf("show %s: %w", unit, err)
 	}
 	return parseRebuildShow(string(out)), nil
 }

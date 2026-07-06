@@ -367,6 +367,20 @@ interface PalmuxStoreState {
   /** Trigger the one-click "Update all". Throws (ApiError) on 409 (Nix-unmanaged)
    *  so the caller can show manual-update guidance. */
   runSelfUpdate: () => Promise<void>
+  /** S673a42-2: kick the appliance HOST update (nix flake update palmux +
+   *  nixos-rebuild switch) on a NixOS appliance. Reuses the same updateInProgress
+   *  reconnect handshake as runSelfUpdate (the switch restarts palmux2 onto the new
+   *  version) and additionally polls the rebuild-unit state to catch a pre-restart
+   *  failure. Throws on 409 (not a NixOS host). */
+  runNixosRebuildUpdate: () => Promise<void>
+  /** S673a42-3: true while a GUI-kicked palmux-ws image fetch is running. */
+  imageInstallInProgress: boolean
+  /** S673a42-3: last image-fetch error (null = none). */
+  imageInstallError: string | null
+  /** S673a42-3: kick a palmux-ws image fetch (POST /api/selfupdate/image-install)
+   *  and poll until done; on success reload the snapshot (badge clears) and repos
+   *  (so the per-branch "Update container" drift affordance refreshes). */
+  runImageInstall: () => Promise<void>
   /** Clear the completion toast after it's been shown. */
   clearUpdateToast: () => void
 
@@ -409,6 +423,8 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
   updateBaselineVersion: null,
   updateToast: null,
   updateFailed: false,
+  imageInstallInProgress: false,
+  imageInstallError: null,
   incusGroup: null,
   incusGroupFixInProgress: false,
 
@@ -1227,6 +1243,99 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
       set({ updateInProgress: false })
       throw err
     }
+  },
+
+  // S673a42-2: appliance host update (nixos-rebuild). Mirrors runSelfUpdate's
+  // updateInProgress handshake so the SAME progress panel + WS-drop → /health
+  // reconnect toast machinery (use-event-stream) applies unchanged. Adds a
+  // rebuild-unit poll to detect a failure that never restarts palmux2 (a flake
+  // update / eval error aborts before the switch → no WS drop → the version
+  // handshake would only time out after ~60s; the poll surfaces it fast).
+  runNixosRebuildUpdate: async () => {
+    if (get().updateInProgress) {
+      throw new Error('別の更新/復旧が実行中です。完了を待ってください。')
+    }
+    const baseline = get().serverInfo.version ?? null
+    set({ updateInProgress: true, updateBaselineVersion: baseline, updateFailed: false })
+    try {
+      const resp = await selfUpdateApi.rebuildKick()
+      if (!resp.ok) {
+        set({ updateInProgress: false })
+        throw new Error('更新を開始できませんでした。')
+      }
+    } catch (err) {
+      set({ updateInProgress: false })
+      throw err
+    }
+    // Failure-detection poll: if the update unit reports failed BEFORE palmux2
+    // restarts, mark it failed now (old generation kept — atomic). Success is
+    // observed by the reconnect handshake, which clears updateInProgress; the poll
+    // stops as soon as it sees updateInProgress cleared, so the two never conflict.
+    const started = Date.now()
+    const poll = async (): Promise<void> => {
+      if (!get().updateInProgress) return // handshake already completed/cleared
+      if (Date.now() - started > 20 * 60 * 1000) {
+        set({ updateInProgress: false, updateFailed: true })
+        return
+      }
+      try {
+        const st = await selfUpdateApi.rebuildStatus()
+        if (st.active === 'failed' || (st.result && st.result !== 'success' && !st.running)) {
+          set({ updateInProgress: false, updateFailed: true })
+          return
+        }
+      } catch {
+        // transient — palmux2 likely restarting from the switch; the reconnect
+        // handshake will take over. Keep polling in case it comes back failed.
+      }
+      setTimeout(() => void poll(), 3000)
+    }
+    setTimeout(() => void poll(), 3000)
+  },
+
+  // S673a42-3: palmux-ws image fetch. Does NOT restart palmux2, so it uses its own
+  // in-progress flag (not the updateInProgress reconnect handshake).
+  runImageInstall: async () => {
+    if (get().imageInstallInProgress) return
+    set({ imageInstallInProgress: true, imageInstallError: null })
+    try {
+      const resp = await selfUpdateApi.imageInstall()
+      if (!resp.ok) {
+        set({ imageInstallInProgress: false, imageInstallError: '取得を開始できませんでした。' })
+        return
+      }
+    } catch (err) {
+      set({
+        imageInstallInProgress: false,
+        imageInstallError: err instanceof Error ? err.message : String(err),
+      })
+      return
+    }
+    const started = Date.now()
+    const poll = async (): Promise<void> => {
+      if (Date.now() - started > 30 * 60 * 1000) {
+        set({ imageInstallInProgress: false, imageInstallError: 'image 取得がタイムアウトしました。' })
+        return
+      }
+      try {
+        const st = await selfUpdateApi.imageInstallStatus()
+        if (!st.running) {
+          if (st.error) {
+            set({ imageInstallInProgress: false, imageInstallError: st.error })
+          } else {
+            set({ imageInstallInProgress: false, imageInstallError: null })
+            // Badge clears + per-branch drift/regenerate refreshes.
+            void get().loadSelfUpdate()
+            void get().reloadRepos()
+          }
+          return
+        }
+      } catch {
+        // transient — keep polling.
+      }
+      setTimeout(() => void poll(), 3000)
+    }
+    setTimeout(() => void poll(), 3000)
   },
 
   clearUpdateToast: () => set({ updateToast: null }),

@@ -111,6 +111,11 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 	// S6ab0ed: self-update detection snapshot + one-click "Update all".
 	mux.HandleFunc("GET /api/selfupdate", h.getSelfUpdate)
 	mux.HandleFunc("POST /api/selfupdate/run", h.postSelfUpdateRun)
+	// S673a42: appliance host update (nixos-rebuild) + palmux-ws image fetch kicks.
+	mux.HandleFunc("POST /api/selfupdate/rebuild", h.postSelfUpdateRebuild)
+	mux.HandleFunc("GET /api/selfupdate/rebuild", h.getSelfUpdateRebuild)
+	mux.HandleFunc("POST /api/selfupdate/image-install", h.postSelfUpdateImageInstall)
+	mux.HandleFunc("GET /api/selfupdate/image-install", h.getSelfUpdateImageInstall)
 
 	mux.HandleFunc("GET /api/runtimes", h.getRuntimes) // S8478ca-5: capability probe
 	// Sfef725: incus-admin stale-group detection + GUI click-recover.

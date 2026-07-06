@@ -45,6 +45,82 @@ let
   appCfgDir = "/persist/palmux/config"; # palmux2 --config-dir (config.toml + settings.json)
   appFlakeNix = ../appliance-flake/flake.nix;
   appHwBase = ../appliance-flake/hardware-base.nix;
+
+  # Shared `nixos-rebuild switch` body: project the GUI-saved public domain into a
+  # drop-in, switch, then a Caddy safety-net that reverts a domain that bricks
+  # reachability. Used verbatim by palmux-rebuild.service (apply domain/TLS — pin
+  # unchanged) AND, with a `nix flake update palmux` prepended, by
+  # palmux-rebuild-update.service (version update — S673a42-2). Factoring keeps the
+  # two privileged units in lock-step (the Caddy safety net protects BOTH paths)
+  # while staying a single fixed script (no argument reaches root → the polkit
+  # authorization remains verb-limited).
+  applianceSwitchBody = ''
+    set -eu
+
+    # ── S52fc2c-2: persist.mount rc=1 is fixed at the ROOT CAUSE, not here ────
+    # switch-to-configuration-ng (NixOS 25.05, Rust) UNCONDITIONALLY *restarts* any
+    # changed .mount unit (only `-.mount`=/ and nix.mount are reload-only, hardcoded
+    # — verified in its src/main.rs). A restart stop→starts the mount; /persist is
+    # always in use, so the umount fails "target is busy" and `nixos-rebuild switch`
+    # exits non-zero even though the switch otherwise fully applied → the exit-code-
+    # driven update UX shows a false "更新失敗". The ROOT CAUSE is that persist.mount's
+    # What= (device) differed between generations because /persist is declared in TWO
+    # separate files that disagreed: the disko IMAGE build (disko-layout.nix) baked
+    # `by-partlabel/disk-main-persist`, while the ON-BOX system (appliance-flake/
+    # hardware-base.nix) declared `by-label/persist`. The FIRST image→flake switch thus
+    # saw a changed What= → restart. FIX (S52fc2c-2): hardware-base.nix now references
+    # /persist by the SAME by-partlabel id the image bakes, so persist.mount is IDENTICAL
+    # across generations → switch-to-configuration never restarts it → `nixos-rebuild
+    # switch` returns rc=0 NATIVELY. Verified on a real appliance (switch#1 by-label→
+    # by-partlabel reproduced rc=1; switch#2 stable by-partlabel returned rc=0). So this
+    # unit just runs a plain switch; a genuine failure still propagates under `set -eu`.
+    cfg=${appCfgDir}/config.toml
+    secrets=${appCfgDir}/secrets.env
+    domain=""
+    if [ -f "$cfg" ]; then
+      # Extract `domain = "..."` from the [public] section of palmux's own writer.
+      domain=$(sed -n '/^\[public\]/,/^\[/p' "$cfg" \
+        | grep -E '^[[:space:]]*domain[[:space:]]*=' \
+        | head -n1 | sed -E 's/^[^=]*=[[:space:]]*"?//; s/"[[:space:]]*$//; s/[[:space:]]*$//')
+    fi
+    mkdir -p ${dropinDir}
+    if [ -n "$domain" ]; then
+      # Defense-in-depth: only a hostname charset may reach the generated .nix.
+      case "$domain" in
+        *[!a-zA-Z0-9.-]*) echo "palmux-rebuild: refusing invalid domain '$domain'" >&2; exit 1 ;;
+      esac
+      # PRE-FLIGHT: enabling a domain firewalls off :7683 and routes ONLY through
+      # Caddy, which needs a Cloudflare token for its DNS-01 wildcard cert. With an
+      # empty token Caddy can't even start → the box would be unreachable. Refuse
+      # BEFORE switching (cheap, no lockout) rather than discover it after.
+      if ! grep -qE '^CLOUDFLARE_API_TOKEN=.+' "$secrets" 2>/dev/null; then
+        echo "palmux-rebuild: refusing to enable domain '$domain' — CLOUDFLARE_API_TOKEN is empty. Set the Cloudflare API token in deploy settings first (Caddy needs it for the *.$domain cert)." >&2
+        exit 1
+      fi
+      printf '{ ... }: {\n  # Generated from config.toml [public].domain by palmux-rebuild.service.\n  services.palmux.domain = "%s";\n}\n' "$domain" > ${dropinDir}/10-public.nix
+    else
+      rm -f ${dropinDir}/10-public.nix
+    fi
+    cd ${flakeDir}
+    nixos-rebuild switch --flake .#appliance
+
+    # SAFETY NET: a domain switch closes :7683 and serves only via Caddy. If Caddy
+    # can't come up (bad/expired token, DNS, config), the box is locked out — only
+    # SSH/console can recover it. Verify Caddy is healthy; if not, undo the domain
+    # everywhere and re-switch to the reachable no-domain config, then fail. This
+    # keeps a botched domain apply from ever bricking GUI/LAN access (S7364e3
+    # transactional-regenerate philosophy, applied to the public-domain flip).
+    if [ -n "$domain" ]; then
+      sleep 6
+      if ! systemctl is-active --quiet caddy; then
+        echo "palmux-rebuild: Caddy failed to start under domain '$domain' — rolling back to keep the box reachable (:7683 LAN). Check the Cloudflare token / DNS, then retry." >&2
+        rm -f ${dropinDir}/10-public.nix
+        sed -i -E '/^[[:space:]]*domain[[:space:]]*=/ s/=.*/= ""/' "$cfg"
+        nixos-rebuild switch --flake .#appliance || true   # re-apply reachable no-domain config; report failure below
+        exit 1
+      fi
+    fi
+  '';
 in
 {
   imports = [ ./palmux.nix ];
@@ -393,84 +469,50 @@ in
     # SSO + *.domain). Empty domain → remove the drop-in (revert to local mode).
     # The drop-in is written by THIS root unit (the palmux user can't write the
     # root-owned flake dir), keeping palmux2's role to just `systemctl start`.
-    script = ''
-      set -eu
-
-      # ── S52fc2c-2: persist.mount rc=1 is fixed at the ROOT CAUSE, not here ────
-      # switch-to-configuration-ng (NixOS 25.05, Rust) UNCONDITIONALLY *restarts* any
-      # changed .mount unit (only `-.mount`=/ and nix.mount are reload-only, hardcoded
-      # — verified in its src/main.rs). A restart stop→starts the mount; /persist is
-      # always in use, so the umount fails "target is busy" and `nixos-rebuild switch`
-      # exits non-zero even though the switch otherwise fully applied → the exit-code-
-      # driven update UX shows a false "更新失敗". The ROOT CAUSE is that persist.mount's
-      # What= (device) differed between generations because /persist is declared in TWO
-      # separate files that disagreed: the disko IMAGE build (disko-layout.nix) baked
-      # `by-partlabel/disk-main-persist`, while the ON-BOX system (appliance-flake/
-      # hardware-base.nix) declared `by-label/persist`. The FIRST image→flake switch thus
-      # saw a changed What= → restart. FIX (S52fc2c-2): hardware-base.nix now references
-      # /persist by the SAME by-partlabel id the image bakes, so persist.mount is IDENTICAL
-      # across generations → switch-to-configuration never restarts it → `nixos-rebuild
-      # switch` returns rc=0 NATIVELY. Verified on a real appliance (switch#1 by-label→
-      # by-partlabel reproduced rc=1; switch#2 stable by-partlabel returned rc=0). So this
-      # unit just runs a plain switch; a genuine failure still propagates under `set -eu`.
-      cfg=${appCfgDir}/config.toml
-      secrets=${appCfgDir}/secrets.env
-      domain=""
-      if [ -f "$cfg" ]; then
-        # Extract `domain = "..."` from the [public] section of palmux's own writer.
-        domain=$(sed -n '/^\[public\]/,/^\[/p' "$cfg" \
-          | grep -E '^[[:space:]]*domain[[:space:]]*=' \
-          | head -n1 | sed -E 's/^[^=]*=[[:space:]]*"?//; s/"[[:space:]]*$//; s/[[:space:]]*$//')
-      fi
-      mkdir -p ${dropinDir}
-      if [ -n "$domain" ]; then
-        # Defense-in-depth: only a hostname charset may reach the generated .nix.
-        case "$domain" in
-          *[!a-zA-Z0-9.-]*) echo "palmux-rebuild: refusing invalid domain '$domain'" >&2; exit 1 ;;
-        esac
-        # PRE-FLIGHT: enabling a domain firewalls off :7683 and routes ONLY through
-        # Caddy, which needs a Cloudflare token for its DNS-01 wildcard cert. With an
-        # empty token Caddy can't even start → the box would be unreachable. Refuse
-        # BEFORE switching (cheap, no lockout) rather than discover it after.
-        if ! grep -qE '^CLOUDFLARE_API_TOKEN=.+' "$secrets" 2>/dev/null; then
-          echo "palmux-rebuild: refusing to enable domain '$domain' — CLOUDFLARE_API_TOKEN is empty. Set the Cloudflare API token in deploy settings first (Caddy needs it for the *.$domain cert)." >&2
-          exit 1
-        fi
-        printf '{ ... }: {\n  # Generated from config.toml [public].domain by palmux-rebuild.service.\n  services.palmux.domain = "%s";\n}\n' "$domain" > ${dropinDir}/10-public.nix
-      else
-        rm -f ${dropinDir}/10-public.nix
-      fi
-      cd ${flakeDir}
-      nixos-rebuild switch --flake .#appliance
-
-      # SAFETY NET: a domain switch closes :7683 and serves only via Caddy. If Caddy
-      # can't come up (bad/expired token, DNS, config), the box is locked out — only
-      # SSH/console can recover it. Verify Caddy is healthy; if not, undo the domain
-      # everywhere and re-switch to the reachable no-domain config, then fail. This
-      # keeps a botched domain apply from ever bricking GUI/LAN access (S7364e3
-      # transactional-regenerate philosophy, applied to the public-domain flip).
-      if [ -n "$domain" ]; then
-        sleep 6
-        if ! systemctl is-active --quiet caddy; then
-          echo "palmux-rebuild: Caddy failed to start under domain '$domain' — rolling back to keep the box reachable (:7683 LAN). Check the Cloudflare token / DNS, then retry." >&2
-          rm -f ${dropinDir}/10-public.nix
-          sed -i -E '/^[[:space:]]*domain[[:space:]]*=/ s/=.*/= ""/' "$cfg"
-          nixos-rebuild switch --flake .#appliance || true   # re-apply reachable no-domain config; report failure below
-          exit 1
-        fi
-      fi
-    '';
+    script = applianceSwitchBody;
   };
 
-  # Authorize ONLY `${pUser}` to start ONLY palmux-rebuild.service over the system
-  # bus (no password, no wheel). Scoped to that single unit + action so it grants
-  # nothing else. polkit is the NixOS-idiomatic equivalent of reconcile-system's
-  # single verb-limited sudoers entry.
+  # ── GUI-kicked VERSION update (S673a42-2): sibling of palmux-rebuild ──────────
+  # palmux-rebuild.service (above) applies the CURRENT flake pin (domain/TLS). This
+  # sibling bumps the pin FIRST — `nix flake update palmux` rewrites flake.lock's
+  # palmux input to latest main — then runs the identical switch body. It is a
+  # SEPARATE fixed unit (not an argument to palmux-rebuild) so the polkit rule that
+  # lets the non-root palmux user `start` it stays verb-limited: the palmux user can
+  # only start these two named units and cannot inject any command into root. The
+  # switch restarts palmux2 onto the new binary/version, which the FE observes via
+  # the S6ab0ed WS-drop → /health reconnect handshake. A failure BEFORE the switch
+  # (e.g. a flake-update/eval error) leaves the old generation intact (atomic), and
+  # the FE catches it by polling this unit's state (GET /api/selfupdate/rebuild).
+  systemd.services.palmux-rebuild-update = {
+    description = "Update palmux to latest (nix flake update palmux + nixos-rebuild switch) (GUI-triggered)";
+    restartIfChanged = false;
+    path = [ config.system.build.nixos-rebuild pkgs.nix pkgs.git pkgs.coreutils pkgs.gnugrep pkgs.gnused pkgs.systemd ];
+    serviceConfig = {
+      Type = "oneshot";
+      Environment = "HOME=/root"; # nix + nixos-rebuild write caches under $HOME
+    };
+    script = ''
+      set -eu
+      cd ${flakeDir}
+      echo "palmux-rebuild-update: bumping palmux pin (nix flake update palmux)…"
+      # Bump ONLY the palmux input (not the whole lock) to latest main. nixpkgs et al
+      # stay pinned so a version update doesn't drag in an unrelated world rebuild.
+      nix flake update palmux
+    '' + applianceSwitchBody;
+  };
+
+  # Authorize ONLY `${pUser}` to start ONLY the two fixed palmux-rebuild units over
+  # the system bus (no password, no wheel). Scoped to those units + start/restart so
+  # it grants nothing else. polkit is the NixOS-idiomatic equivalent of
+  # reconcile-system's single verb-limited sudoers entry. Both units run a FIXED
+  # script (no argument reaches root), so this stays a pure verb-limited grant even
+  # though it now covers the version-update sibling (S673a42-2).
   security.polkit.enable = lib.mkDefault true;
   security.polkit.extraConfig = lib.mkAfter ''
     polkit.addRule(function(action, subject) {
       if (action.id == "org.freedesktop.systemd1.manage-units" &&
-          action.lookup("unit") == "palmux-rebuild.service" &&
+          (action.lookup("unit") == "palmux-rebuild.service" ||
+           action.lookup("unit") == "palmux-rebuild-update.service") &&
           (action.lookup("verb") == "start" || action.lookup("verb") == "restart") &&
           subject.user == "${pUser}") {
         return polkit.Result.YES;

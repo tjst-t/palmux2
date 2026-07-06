@@ -33,6 +33,9 @@ type Service struct {
 	snapshot Snapshot
 	running  bool // an Update all execution is in flight (best-effort, single host)
 
+	// img holds the GUI-kicked palmux-ws image-fetch job state (S673a42-3).
+	img imageInstallState
+
 	// forceDir/forceBase wire the env-gated force-update test affordance
 	// (force.go). forceDir is the config dir holding the synthetic-counter state;
 	// forceBase returns the REAL version (no suffix). Both zero in CLI/test setups
@@ -95,6 +98,7 @@ func (s *Service) Refresh(ctx context.Context) Snapshot {
 		kept.Degraded = true
 		kept.NixManaged = snap.NixManaged
 		kept.NixOSHost = snap.NixOSHost
+		kept.ApplianceFlakeTarget = snap.ApplianceFlakeTarget
 		s.snapshot = kept
 		s.mu.Unlock()
 		s.logger.Warn("selfupdate: GitHub unreachable this cycle; keeping prior state")

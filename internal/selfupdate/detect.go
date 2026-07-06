@@ -42,20 +42,40 @@ type Snapshot struct {
 	Available  bool              `json:"available"`  // any component has an update
 	NixManaged bool              `json:"nixManaged"` // ~/update-palmux2.sh present (one-click possible)
 	// NixOSHost is true when palmux2 runs on a NixOS system (the palmuxOS
-	// appliance, Sb14caa). On NixOS the in-app one-click update does NOT apply —
-	// updates are operator-driven `nixos-rebuild switch` (atomic generation swap +
-	// free rollback), deliberately out-of-band so a running claude/tmux is not
-	// killed by the host that is hosting it (S7364e3 principle). The GUI maps the
-	// "update available" badge to nixos-rebuild guidance instead of a button.
-	NixOSHost bool   `json:"nixOSHost"`
-	CheckedAt string `json:"checkedAt"` // RFC3339; "" if never checked
-	Degraded  bool   `json:"degraded"`  // GitHub unreachable / rate-limited this cycle
+	// appliance, Sb14caa). On NixOS the in-app one-click "Update all" does NOT
+	// apply — the host is updated by `nixos-rebuild switch` (atomic generation
+	// swap + free rollback). S673a42 wires a GUI-kicked version of that switch, so
+	// the badge now maps to an update BUTTON on the appliance too (not just
+	// guidance).
+	NixOSHost bool `json:"nixOSHost"`
+	// ApplianceFlakeTarget is the exact `nixos-rebuild --flake <target>` argument
+	// for THIS appliance (e.g. "/persist/palmux/nixos#appliance"). Non-empty only
+	// on a NixOS host. The GUI/README display this instead of hardcoding the path
+	// (S673a42-1): a single backend-sourced value that cannot drift from the real
+	// on-appliance flake dir. MUST stay in sync with nixos/modules/appliance.nix
+	// `flakeDir` (see ApplianceFlakeDir below).
+	ApplianceFlakeTarget string `json:"applianceFlakeTarget"`
+	CheckedAt            string `json:"checkedAt"` // RFC3339; "" if never checked
+	Degraded             bool   `json:"degraded"`  // GitHub unreachable / rate-limited this cycle
 	// Forced is true when this snapshot's "update available" was synthesized by
 	// the env-gated force-update test affordance (force.go) rather than a real
 	// newer release. Lets the GUI mark the badge/panel as a test run. Always false
 	// in production (PALMUX_SELFUPDATE_FORCE unset).
 	Forced bool `json:"forced"`
 }
+
+// ApplianceFlakeDir is the on-appliance flake directory the palmuxOS box updates
+// itself from: `cd <dir> && nixos-rebuild switch --flake .#appliance`. It is the
+// single source of truth the GUI/README render (via Snapshot.ApplianceFlakeTarget)
+// so the displayed command is always copy-paste-correct. This constant MUST equal
+// `flakeDir` in nixos/modules/appliance.nix (which actually runs the switch); the
+// two live in different languages (Go vs Nix) so they cannot be one literal, but
+// a change to one without the other is a bug. The historical hardcoded FE string
+// was the wrong `/etc/palmux#appliance` — the exact drift this const removes.
+const (
+	ApplianceFlakeDir    = "/persist/palmux/nixos"
+	ApplianceFlakeTarget = ApplianceFlakeDir + "#appliance"
+)
 
 // nixosMarkers are the paths whose presence identifies a NixOS host. /etc/NIXOS
 // is the canonical NixOS marker (also what nixos-rebuild itself checks);
@@ -158,6 +178,11 @@ func Detect(ctx context.Context, m Manifest, probes InstalledProbes, nixManaged 
 		NixManaged: nixManaged,
 		NixOSHost:  detectNixOSHost(),
 		CheckedAt:  time.Now().UTC().Format(time.RFC3339),
+	}
+	// Surface the exact appliance flake target for the GUI/README to render
+	// (S673a42-1), but only on a NixOS host — off-appliance it is meaningless.
+	if snap.NixOSHost {
+		snap.ApplianceFlakeTarget = ApplianceFlakeTarget
 	}
 	// Probe installed versions + resolve each component's latest tag. The
 	// GitHub fetches are independent and I/O-bound, so fan them out — one slow

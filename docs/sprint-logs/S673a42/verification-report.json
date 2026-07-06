@@ -1,0 +1,104 @@
+{
+  "sprint": "S673a42",
+  "verified_at": "2026-07-06T08:15:00Z",
+  "verifier_model": "claude (read-only, separate session)",
+  "overall": "warn",
+  "findings": [
+    {
+      "category": "acceptance_criteria",
+      "story": "S673a42-1",
+      "ac": "AC-S673a42-1-1",
+      "verdict": "pass",
+      "detail": "Backend-sourced, single-source flake target is real. internal/selfupdate/detect.go:74-76 defines const ApplianceFlakeDir=\"/persist/palmux/nixos\" + ApplianceFlakeTarget=ApplianceFlakeDir+\"#appliance\"; Detect() (detect.go:182-186) populates Snapshot.ApplianceFlakeTarget ONLY when NixOSHost, and Service.Refresh preserves it across degraded cycles (service.go:101). FE renders snap.applianceFlakeTarget (update-panel.tsx:198-204) with a 'nixos' fallback, never a hardcoded path. grep for '/etc/palmux' over frontend/src and nixos/README.md returns ZERO hits — the buggy string is fully removed; nixos/README.md now shows /persist/palmux/nixos#appliance in both the extend and update sections. Const carries a cross-reference comment to appliance.nix flakeDir (which literally is '/persist/palmux/nixos', appliance.nix cd ${flakeDir}). green-smoke confirms GET /api/selfupdate on the real appliance returned applianceFlakeTarget=\"/persist/palmux/nixos#appliance\", and the exact displayed command was copy-paste-run to SWITCH_EXIT=0 (AC-1-2).",
+      "overlooked_by_autopilot": false,
+      "recommended_action": null
+    },
+    {
+      "category": "acceptance_criteria",
+      "story": "S673a42-2",
+      "ac": "AC-S673a42-2-1",
+      "verdict": "pass",
+      "detail": "The version-update path is a DISTINCT verb-limited unit, not an argument to the domain unit. deploy/rebuild.go:34 const rebuildUpdateUnit=\"palmux-rebuild-update.service\"; TriggerRebuildUpdate/QueryRebuildUpdate call startUnit/queryUnit with that name (rebuild.go:57,77). appliance.nix adds systemd.services.palmux-rebuild-update whose script runs `nix flake update palmux` then + applianceSwitchBody (the shared body factored out of the domain unit VERBATIM — the domain unit's behavior, incl. the Caddy safety-net + CLOUDFLARE_API_TOKEN pre-flight, is byte-identical to before, just relocated to the applianceSwitchBody let-binding). polkit rule extended to authorize BOTH units for start|restart by the palmux user only (appliance.nix polkit block); both units run a FIXED script so no argument reaches root — injection-proof. rebuild_test.go:86-102 asserts the update path starts the update unit and does NOT start the domain unit. green-smoke AC-2-1: POST /api/selfupdate/rebuild → 202, journal shows palmux-rebuild-update ran real `nix flake update palmux`+switch to Result=success.",
+      "overlooked_by_autopilot": false,
+      "recommended_action": null
+    },
+    {
+      "category": "acceptance_criteria",
+      "story": "S673a42-2",
+      "ac": "AC-S673a42-2-2 / AC-S673a42-2-5",
+      "verdict": "pass",
+      "detail": "update-panel.tsx nixOSHost branch renders update-nixos-rebuild-btn ONLY when snap.components.some(c=>c.name==='palmux' && c.available) (update-panel.tsx:181-183), else the update-nixos-uptodate note. Store runNixosRebuildUpdate (palmux-store.ts) sets updateInProgress+baseline (reusing the S6ab0ed WS-drop→/health reconnect handshake in use-event-stream.ts) AND spins a rebuildStatus poll that flips updateFailed on active==='failed'/non-success result before restart, stopping once updateInProgress clears (no conflict with the handshake). Endpoints POST+GET /api/selfupdate/rebuild wired in server.go:114-115, gated to NixOS (409 elsewhere, handler_selfupdate.go). All interactive elements carry data-testids; referenced testids (update-progress-badge, update-failed-note, update-complete-toast) all exist. Mock E2E drives the REAL store + REAL component + a REAL WS drop/reconnect (only JSON bodies routed) and asserts the button-state matrix, the pre-restart failure surface, and the version-delta success toast.",
+      "overlooked_by_autopilot": false,
+      "recommended_action": null
+    },
+    {
+      "category": "acceptance_criteria",
+      "story": "S673a42-2",
+      "ac": "AC-S673a42-2-3",
+      "verdict": "pass",
+      "detail": "Atomicity is real: the unit runs `nixos-rebuild switch --flake .#appliance`, whose generation swap is atomic (old generation retained). green-smoke AC-2-3 confirms gens 9+10 both present + `nixos-rebuild switch --rollback` available. The FE renders the rollback command using the backend flake target (update-panel.tsx:201-203: `nixos-rebuild switch --flake {snap.applianceFlakeTarget} --rollback`). Privilege boundary held: root switch only via the two fixed units; `nix flake update palmux` runs in the on-appliance flakeDir only. Pre-restart failure surfaced via QueryRebuildUpdate poll (verified rebuild_test.go:106-118 parses failed).",
+      "overlooked_by_autopilot": false,
+      "recommended_action": null
+    },
+    {
+      "category": "acceptance_criteria",
+      "story": "S673a42-2",
+      "ac": "AC-S673a42-2-4",
+      "verdict": "warn",
+      "detail": "The full real-browser click→version-delta completion toast on green was NOT executed in production mode. This is a LEGITIMATE release-gate, not a cop-out: green's managed palmux is already v0.13.0 == latest main release, so no release is strictly newer to bump to — the host-update BUTTON only renders when palmux is `available`, which it is not on green (identical to the documented S6ab0ed MS-1 / Sa8e7d0 deferral). Maximal achievable real smoke WAS done (green-smoke.json): real SSO layer live (/→302 /auth/login, API SSO-protected), real endpoint→palmux-rebuild-update unit→real `nix flake update palmux`+`nixos-rebuild switch` rc=0, real rollback generation retained. The remaining gap (button render + delta toast) is covered by the mock (real WS-drop reconnect + real version delta v0.12.0→v0.13.0). Outstanding: a post-release live confirm with a binary strictly older than a published release. The implementer flagged this as needs_user_review at milestone, so it is not overlooked — but it is an open item the user must sign off.",
+      "overlooked_by_autopilot": false,
+      "recommended_action": "At milestone, have the user perform a post-release live confirm on green (a real release newer than the running binary), or accept the release-gate as with S6ab0ed MS-1."
+    },
+    {
+      "category": "acceptance_criteria",
+      "story": "S673a42-3",
+      "ac": "AC-S673a42-3-1 / AC-S673a42-3-2",
+      "verdict": "pass",
+      "detail": "imageinstall.go implements RunImageInstall (in-flight guard via s.img.status.Running → ErrImageInstallInFlight, imageinstall.go:90-95) + ImageInstallStatus; the real command re-execs os.Executable() `runtime install` (imageinstall.go:59-65), does NOT restart palmux2 and does NOT auto-regenerate containers (rule 5, documented in the file header). POST/GET /api/selfupdate/image-install wired (server.go:116-117); on success it Refreshes the snapshot to clear the badge (imageinstall.go:133-136). FE shows update-image-fetch-btn only for nixOSHost + image row available (update-panel.tsx:146-162); store runImageInstall polls to done then loadSelfUpdate()+reloadRepos() to refresh the drift/Update-container affordance. s673a42_test.go proves success/in-flight-guard/failure paths. green-smoke AC-3-1/3-2 ran FULLY REAL in production mode: POST→202, real `palmux runtime install` fetched+imported+re-aliased palmux-ws to installed:v0.13.0, concurrent POST→409.",
+      "overlooked_by_autopilot": false,
+      "recommended_action": null
+    },
+    {
+      "category": "acceptance_criteria",
+      "story": "S673a42-3",
+      "ac": "AC-S673a42-3-3",
+      "verdict": "pass",
+      "detail": "Fully real on green: image v0.12.3→v0.13.0 via the GUI-kick endpoint; GET /api/selfupdate image row flipped to installed:v0.13.0 available:false (badge cleared). The live-container regenerate was INTENTIONALLY skipped — the AC text itself says '（任意で）1 コンテナ regenerate' (optional), green has a live workspace container that regenerating would disrupt (rule 5), and the regenerate path is S7364e3-covered/unchanged. This is a legitimate intentional skip within the AC's own 'optionally' wording, not a silenced requirement.",
+      "overlooked_by_autopilot": false,
+      "recommended_action": null
+    },
+    {
+      "category": "forbidden_categories",
+      "story": "S673a42-3",
+      "ac": null,
+      "verdict": "pass",
+      "detail": "Forbidden-category scan over the S673a42 diff (only the sprint's own files) is clean. No new t.Skip/it.skip/xit, no weakened assertions (tests assert on observable state: parsed status, Installed version, rendered testids, toast, badge clearing), no error-swallowing that hides a failure (the two catch{} blocks in the store polls are transient-retry-with-comment, the loop continues and still surfaces terminal failure/timeout). No new `as any`/`: any`. ROADMAP.json acceptance_criteria text is UNCHANGED vs base d6c9740 (grep confirms no AC edits). The nolint comments are verbatim mirrors of pre-existing patterns (gosec on fixed unit / fixed subcommand names, errcheck on best-effort reset-failed) and hide nothing. The PALMUX_IMAGE_INSTALL_CMD env seam (imageinstall.go:54-58) is clearly rig-only (mirrors PALMUX_SELFUPDATE_RESTART_CMD), inert in production (green ran the real re-exec, proving the seam was unset), and does not bypass auth (the endpoint stays behind the normal middleware; setting env already requires operator access) — an acceptable test seam, not a production backdoor.",
+      "overlooked_by_autopilot": false,
+      "recommended_action": null
+    },
+    {
+      "category": "adr_conformance",
+      "story": "S673a42-2",
+      "ac": null,
+      "verdict": "pass",
+      "detail": "Conforms to DESIGN_PRINCIPLES priority_rules. rule 6 (既存資産活用): reuses palmux-rebuild.service verb-limited path, the S6ab0ed reconnect handshake, and the S7364e3 operator-driven regenerate rather than reinventing. rule 7 (明示的): single backend-sourced flake target eliminates FE/README drift; no magic path. rule 5 (責務越境最小): image install neither restarts palmux2 nor auto-regenerates running containers. priority_rule 0 (no silent skips): AC-2-4's release-gate and AC-3-3's optional-regenerate skip are both recorded in decisions.json/green-smoke.json and flagged for milestone review — not silently marked done. No accepted-ADR Decision is contradicted.",
+      "overlooked_by_autopilot": false,
+      "recommended_action": null
+    },
+    {
+      "category": "acceptance_criteria",
+      "story": "S673a42-3",
+      "ac": "AC-S673a42-3-1",
+      "verdict": "warn",
+      "detail": "Minor asymmetry (not a defect): POST/GET /api/selfupdate/image-install are NOT gated to NixOS host (unlike /api/selfupdate/rebuild which 409s off-appliance), so the image-install job is reachable on any host. This is arguably correct — `palmux runtime install` is a valid operation on the Ubuntu install path too, and the button is FE-gated to nixOSHost — so it is not a security or correctness issue, but the gating asymmetry is worth a note. Auth middleware still protects the endpoint.",
+      "overlooked_by_autopilot": true,
+      "recommended_action": "Optional: if image-install should be appliance-only, add an IsNixOSHost 409 gate to match the rebuild endpoints; otherwise document that it is intentionally host-agnostic."
+    }
+  ],
+  "summary": {
+    "ac_failures": 0,
+    "forbidden_warnings": 0,
+    "adr_conflicts": 0,
+    "overlooked_count": 1
+  }
+}

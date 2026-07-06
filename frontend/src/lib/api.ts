@@ -335,9 +335,14 @@ export interface SelfUpdateSnapshot {
   components: SelfUpdateComponent[]
   available: boolean
   nixManaged: boolean
-  /** Running on a NixOS host (palmuxOS appliance) → updates are operator-driven
-   * `nixos-rebuild switch`, not the in-app one-click. */
+  /** Running on a NixOS host (palmuxOS appliance) → the host update is a
+   * GUI-kicked `nixos-rebuild switch` (S673a42), not the Ubuntu-style one-click. */
   nixOSHost?: boolean
+  /** S673a42-1: exact `nixos-rebuild --flake <target>` argument for THIS
+   * appliance (e.g. "/persist/palmux/nixos#appliance"). Backend-sourced so the
+   * GUI/README never hardcode (and never drift from) the on-appliance flake dir.
+   * Non-empty only on a NixOS host. */
+  applianceFlakeTarget?: string
   checkedAt: string
   degraded: boolean
   /** This "update available" was synthesized by the env-gated force-update test
@@ -354,10 +359,36 @@ export interface SelfUpdateRunResult {
   error?: string
 }
 
+/** S673a42-3: status of the GUI-kicked palmux-ws image fetch job. */
+export interface ImageInstallStatus {
+  running: boolean
+  /** true once a run has finished successfully (badge should clear). */
+  done: boolean
+  /** non-empty when the last run failed. */
+  error: string
+  /** installed image version after the last successful run (informational). */
+  installed: string
+}
+
 export const selfUpdateApi = {
   get: (): Promise<SelfUpdateSnapshot> => api.get<SelfUpdateSnapshot>('/api/selfupdate'),
   run: (): Promise<SelfUpdateRunResult> => api.post<SelfUpdateRunResult>('/api/selfupdate/run'),
   health: (): Promise<{ version?: string }> => api.get<{ version?: string }>('/api/health'),
+  // S673a42-2: kick the appliance host update (`nix flake update palmux` +
+  // `nixos-rebuild switch`) via the verb-limited palmux-rebuild-update unit.
+  // NixOS-appliance only; 409 elsewhere.
+  rebuildKick: (): Promise<{ ok: boolean; status: string; message: string }> =>
+    api.post('/api/selfupdate/rebuild', {}),
+  // Reuses the RebuildStatus shape (systemd ActiveState/Result of the update unit)
+  // so the FE can detect a pre-restart failure (flake eval error never restarts
+  // palmux2, so the WS-drop handshake alone would only time out).
+  rebuildStatus: (): Promise<RebuildStatus> => api.get<RebuildStatus>('/api/selfupdate/rebuild'),
+  // S673a42-3: fetch + import the latest palmux-ws image (`palmux runtime
+  // install`) on the appliance, then poll its status.
+  imageInstall: (): Promise<{ ok: boolean; status: string; message: string }> =>
+    api.post('/api/selfupdate/image-install', {}),
+  imageInstallStatus: (): Promise<ImageInstallStatus> =>
+    api.get<ImageInstallStatus>('/api/selfupdate/image-install'),
 }
 
 // Sfef725: incus-admin stale-group detection + GUI click-recover.

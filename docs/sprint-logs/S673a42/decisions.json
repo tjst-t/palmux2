@@ -1,10 +1,75 @@
 {
   "sprint": "S673a42",
+  "title": "GUI からの更新キック復活（NixOS アプライアンス）",
   "planning_decisions": [
-    "GUI キック nixos-rebuild は新規実装せず既存の palmux-rebuild.service / POST /api/deploy/rebuild（Sb14caa の domain/TLS 用）を版数更新モードに拡張して流用（DESIGN_PRINCIPLES priority_rule 6 既存資産活用）。ゆえに Sb14caa に依存。",
-    "案内文の flake パス `/etc/palmux#appliance` はバグ（実パスは appliance.nix flakeDir=/persist/palmux/nixos + rebuild.go）。フロントのハードコードをやめ backend snapshot 由来の単一 source にして drift を構造的に排除（priority_rule 7 明示的）。",
+    "GUI キック nixos-rebuild は既存の palmux-rebuild.service / systemd polkit verb 限定経路（Sb14caa の domain/TLS 用）を版数更新にも使える様に拡張して流用（DESIGN_PRINCIPLES priority_rule 6 既存資産活用）。Sb14caa に依存。",
+    "案内文の flake パス /etc/palmux#appliance はバグ（実パスは appliance.nix flakeDir=/persist/palmux/nixos）。フロントのハードコードをやめ backend snapshot 由来の単一 source にして drift を構造的に排除（priority_rule 7 明示的）。",
     "再接続は S6ab0ed の WS drop→/health version polling→トースト機構をトリガ非依存で流用。",
-    "image 更新（palmux-ws）は host nixos-rebuild と別軸。GUI から `palmux runtime install` 相当で取得し既存 S7364e3 regenerate 導線へ接続（自動再生成はしない=operator-driven 踏襲）。",
-    "実機検証は green.tjstkm.net (192.168.1.46) 実アプライアンス（priority_rule 9 real-mode smoke）。障害シナリオではないので通常 smoke。"
-  ]
+    "image 更新（palmux-ws）は host nixos-rebuild と別軸。GUI から palmux runtime install 相当で取得し既存 S7364e3 regenerate 導線へ接続（自動再生成はしない=operator-driven 踏襲）。",
+    "実機検証は green.tjstkm.net (192.168.1.46) 実アプライアンス（priority_rule 9 real-mode smoke）。障害シナリオではないので通常 smoke。",
+    "PD-1: Sprint は detailed で 3 Story 完備。GUI Story は既存 update-panel の nixOSHost 分岐を in-place 拡張するのみで新規 IA なし → sprint prototype はスキップ（既存 UI 拡張、rule 6）。"
+  ],
+  "implementation_decisions": [
+    {
+      "id": "ID-1",
+      "story": "S673a42-1",
+      "topic": "flake path 単一 source",
+      "decision": "selfupdate パッケージに const ApplianceFlakeDir='/persist/palmux/nixos' + ApplianceFlakeTarget を定義し Snapshot.ApplianceFlakeTarget (nixOSHost 時のみ非空) として /api/selfupdate で公開。FE は snap.applianceFlakeTarget を表示しハードコードしない。appliance.nix flakeDir と drift しない様 const に相互参照コメント。",
+      "rationale": "AC-S673a42-1-1『backend が appliance flake target を返しフロントがハードコード無し』。priority_rule 7 / 6。"
+    },
+    {
+      "id": "ID-2",
+      "story": "S673a42-2",
+      "topic": "版数更新の privileged 経路",
+      "decision": "固定名の第2ユニット palmux-rebuild-update.service を appliance.nix に追加。`nix flake update palmux` 後に共通 switch スクリプト (pkgs.writeShellScript に factor) を実行。polkit を両ユニット start 許可に拡張。palmux2 は POST /api/selfupdate/rebuild で第2ユニットを systemctl start するだけ。",
+      "rationale": "AC-S673a42-2-1『任意コマンド注入不可』の verb 限定経路流用。marker 注入案より systemd-idiomatic。rule 5。"
+    },
+    {
+      "id": "ID-3",
+      "story": "S673a42-2",
+      "topic": "完了/失敗検出",
+      "decision": "完了は S6ab0ed の updateInProgress→WS drop→/health version poll→トーストを再利用。加えて flake update/eval 失敗は palmux2 を再起動しない=WS drop しないため store action が GET /api/selfupdate/rebuild(update ユニット status) を能動 poll し active=failed を早期 updateFailed 化。",
+      "rationale": "AC-S673a42-2-2。再起動しない失敗を handshake timeout だけに頼らない。rule 6。"
+    },
+    {
+      "id": "ID-4",
+      "story": "S673a42-3",
+      "topic": "image 取得 GUI キック",
+      "decision": "selfupdate.Service に image-install ジョブ(RunImageInstall/ImageInstallStatus)。os.Executable() を `runtime install` で goroutine 起動(in-process 状態、palmux2 は非再起動)。POST/GET /api/selfupdate/image-install。FE は nixOSHost かつ image 行 available 時に取得ボタン。完了後 snapshot reload で badge 消滅、再生成は既存 S7364e3 drift→Update container 流用。ボタンは nixOSHost 限定(Ubuntu は一括更新が image 内包)。",
+      "rationale": "AC-S673a42-3-1『image 取得+既存 regenerate 接続』。rule 6 / rule 5。"
+    }
+  ],
+  "verifier_note_response": {
+    "note": "Independent verifier flagged that POST /api/selfupdate/image-install is NOT NixOS-gated (unlike the rebuild endpoints, which 409 off-appliance).",
+    "resolution": "Intentional — left un-gated. `palmux runtime install` is host-agnostic (valid on any incus host, Ubuntu included). The APPLIANCE-only surfacing is done at the FE (the image fetch button renders only for nixOSHost, because the Ubuntu one-click bulk update already covers the image via PALMUX_REQUIRE_IMAGE). Gating the endpoint to NixOS would reduce generality for no security benefit (auth still applies; on a non-incus host the job simply fails harmlessly). The rebuild endpoints ARE gated because nixos-rebuild is meaningless off-NixOS. DESIGN_PRINCIPLES rule 6/7."
+  },
+  "done_judgment": {
+    "S673a42-1": {
+      "guard1_user_scenario": "pass — README/GUI show a copy-paste-correct flake command",
+      "guard2_entry_point": "pass — real backend field + real browser render (mock) + real green /api/selfupdate",
+      "guard3_no_silent_skip": "pass",
+      "guard4_real_smoke": "pass — AC-1-1 real on green (applianceFlakeTarget), AC-1-2 exact command rc=0 on green",
+      "guard5_status_truth": "pass",
+      "guard6_diff_coverage": "pass — s673a42_test.go + mock + api-e2e cover the field/render",
+      "verdict": "done"
+    },
+    "S673a42-2": {
+      "guard1_user_scenario": "pass",
+      "guard2_entry_point": "pass — endpoint+unit real on green; button render + reconnect via mock (real WS drop)",
+      "guard3_no_silent_skip": "pass",
+      "guard4_real_smoke": "PARTIAL — endpoint→palmux-rebuild-update unit→real `nix flake update palmux`+`nixos-rebuild switch` rc=0 on green + real SSO layer + rollback gen retained ARE real; the real-BROWSER button-click→version-delta completion toast is RELEASE-GATED (no release newer than the running v0.13.0 binary exists; identical to documented S6ab0ed MS-1 / Sa8e7d0 deferral) and is mock-covered. Not a disaster scenario, so priority_rule 9 exception does not apply — flagged for a post-release live confirm.",
+      "guard5_status_truth": "pass — reported honestly as needs_user_review for AC-2-4",
+      "guard6_diff_coverage": "pass — rebuild_test.go + mock (fail+done states) + api-e2e (409 gating)",
+      "verdict": "needs_user_review (AC-2-4 release-gated live confirm)"
+    },
+    "S673a42-3": {
+      "guard1_user_scenario": "pass",
+      "guard2_entry_point": "pass — real GUI-kick endpoint on green",
+      "guard3_no_silent_skip": "pass",
+      "guard4_real_smoke": "pass — FULLY real on green (production mode): image v0.12.3→v0.13.0 via POST /api/selfupdate/image-install, badge cleared. Live-container regenerate intentionally skipped (AC says 'optionally'; would disrupt green's live workspace — rule 5; S7364e3-covered).",
+      "guard5_status_truth": "pass",
+      "guard6_diff_coverage": "pass — s673a42_test.go (success/failure/in-flight) + mock + api-e2e (real job lifecycle via seam)",
+      "verdict": "done"
+    }
+  }
 }

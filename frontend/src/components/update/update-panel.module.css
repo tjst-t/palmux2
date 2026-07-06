@@ -155,6 +155,28 @@
   border-radius: 999px;
   font-size: 10.5px;
 }
+/* S673a42-3: inline per-row action button (palmux-ws image fetch). */
+.rowBtn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background-color: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  color: var(--color-accent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 34%, transparent);
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rowBtn:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+.rowBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 
 .foot {
   padding: 14px 16px;

@@ -1,9 +1,9 @@
-# /etc/palmux/local/example.nix
+# /persist/palmux/nixos/local/example.nix
 #
 # Example operator drop-in. Copy/rename and edit. Anything NixOS supports is
 # available here; palmux's own settings are mkDefault so a plain assignment wins.
 #
-# Apply with:  sudo nixos-rebuild switch --flake /etc/palmux#appliance
+# Apply with:  sudo nixos-rebuild switch --flake /persist/palmux/nixos#appliance
 { pkgs, ... }:
 {
   # ── your palmux settings (override palmux mkDefaults) ──────────────────────
