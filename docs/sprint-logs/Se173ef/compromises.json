@@ -1,0 +1,25 @@
+{
+  "milestone_summary": {
+    "stopped_at": "milestone_Se173ef",
+    "batch_sprints": ["S673a42", "S41bdf2", "Se173ef"],
+    "trust_source": "Per-sprint verification-report.json (independent verifier). All three verified: 0 forbidden-degradation hits (no test_skipped / test_assertion_weakened / error_swallowed / type_safety_relaxed / acceptance_criteria_modified) across the batch.",
+    "compromises": [],
+    "blockers_encountered": [
+      {
+        "sprint": "S41bdf2",
+        "severity": "medium",
+        "title": "appliance.nix state-init chown of <flakeDir>/local は release+rebuild で初めて green に効く",
+        "detail": "アプリ install は palmux2 (Go) が <flakeDir>/local/20-apps.nix を書き、既存 S673a42 の palmux-rebuild.service を kick する。palmux2 がそのファイルを書けるよう、appliance.nix state-init で <flakeDir>/local を palmux ユーザ所有に chown する必要がある。この Nix-module 変更は本 batch の merge に含まれる (nixos/modules/appliance.nix +8) が、green は fetchurl-pin された released module で動くため、release + nixos-rebuild を経るまで green 上では有効化されない。green 実機 smoke では、この dir 所有権だけを手で用意 (chown palmux) して load-bearing な Go ロジック (drop-in 生成 → rebuild kick → /nix reconcile → in-container 実行) を実際に走らせた (green-smoke.json に全手順記録)。",
+        "recommended_action": "次リリースで appliance.nix の chown 変更を green に反映 (nix flake update palmux + nixos-rebuild switch --flake .#appliance) してから、手動準備なしの install→rebuild→在コンテナ実行を再確認する。",
+        "overlooked_by_autopilot": false
+      }
+    ],
+    "scope_changes": [
+      {
+        "sprint": "S41bdf2",
+        "title": "prototype レビューで install の到達範囲を明確化し、2 タスクを追加 (AC 据え置き)",
+        "detail": "ユーザの実現性レビューで、AC-S41bdf2-1-1『共有 /nix 経由で全コンテナ+ホストに反映』の前提が現状 FALSE (コンテナは Ubuntu/apt で /nix 非共有) と判明。AC は据え置いたまま、含意されていた実装として S41bdf2-1-4 (/nix/store(ro)+profile bin を palmux-shared 金型へ共有 + container PATH) と S41bdf2-1-5 (nix eval nixpkgs#<name> 検証) を追加。これにより install が真に host+全コンテナへ 1 回で届く。green で `incus exec <ctr> -- infisical --version → 0.41.1` を確認済み。"
+      }
+    ]
+  }
+}
