@@ -2,15 +2,15 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 68,
+    "sprints_done": 69,
     "sprints_total": 70,
-    "done": 68,
+    "done": 69,
     "total": 70,
-    "remaining": 2,
-    "in_progress": 1,
-    "percent": 97,
-    "percentage": 97,
-    "current_sprint": "S41bdf2"
+    "remaining": 1,
+    "in_progress": 0,
+    "percent": 99,
+    "percentage": 99,
+    "current_sprint": "Sb14caa"
   },
   "execution_order": [
     "S001",
