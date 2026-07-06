@@ -1,0 +1,11 @@
+{
+  "sprint": "Se173ef",
+  "planning_decisions": [
+    "調査で確定: Sprint タブは旧 artifact(acceptance-matrix.json/e2e-results.json/refine.json)を読み、現行 skill が書く verify-run/verification-report/done-judgment/compromises/comprehension-report/prototype-review/reopen/gui-spec を1つも読まない(grep 確認)。acceptance-matrix/e2e-results は現行スプリントで生成されずセクションが空。",
+    "skill の SPRINT_LOGS_SCHEMA.json 自体が古く廃止 artifact を列挙しており、これがタブ実装をミスリードした → Story 4 でスキーマを実態に合わせ artifact 契約を単一化(再ドリフト防止)。",
+    "『抜け漏れ』=Story 1/2(新 artifact + 新 ROADMAP フィールドを全収集、後方互換)、『より良い表示』=Story 3(trust-source-first IA: 機械判定+verifier findings を最上段、6-guard grid、compromises severity 別、comprehension Markdown、gui-spec state_diagram mermaid)。",
+    "純 GUI/REST 機能で実 VM/incus 不要。dev インスタンス E2E で全経路検証(priority_rule 9 real-VM smoke 対象外、review_reason 明記)。",
+    "非マイルストーン(内部ツール改善)。他スプリント成果物に依存せず独立実行可。",
+    "ユーザ要望により plan 段階で Prototype を先行作成しレビューを取る(sprint prototype の前倒し)。"
+  ]
+}
