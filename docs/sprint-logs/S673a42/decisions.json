@@ -1,0 +1,10 @@
+{
+  "sprint": "S673a42",
+  "planning_decisions": [
+    "GUI キック nixos-rebuild は新規実装せず既存の palmux-rebuild.service / POST /api/deploy/rebuild（Sb14caa の domain/TLS 用）を版数更新モードに拡張して流用（DESIGN_PRINCIPLES priority_rule 6 既存資産活用）。ゆえに Sb14caa に依存。",
+    "案内文の flake パス `/etc/palmux#appliance` はバグ（実パスは appliance.nix flakeDir=/persist/palmux/nixos + rebuild.go）。フロントのハードコードをやめ backend snapshot 由来の単一 source にして drift を構造的に排除（priority_rule 7 明示的）。",
+    "再接続は S6ab0ed の WS drop→/health version polling→トースト機構をトリガ非依存で流用。",
+    "image 更新（palmux-ws）は host nixos-rebuild と別軸。GUI から `palmux runtime install` 相当で取得し既存 S7364e3 regenerate 導線へ接続（自動再生成はしない=operator-driven 踏襲）。",
+    "実機検証は green.tjstkm.net (192.168.1.46) 実アプライアンス（priority_rule 9 real-mode smoke）。障害シナリオではないので通常 smoke。"
+  ]
+}
