@@ -37,11 +37,50 @@ import (
 // bind-mounts. Do not rename — operators inspect it with `incus profile show`.
 const SharedProfileName = "palmux-shared"
 
+// S41bdf2-1-4: shared /nix/store + Nix system bin dir. On a NixOS appliance an
+// app installed via the GUI lands in the host's Nix profile (systemPackages →
+// /run/current-system/sw/bin, backed by /nix/store). To make that binary run
+// INSIDE the Ubuntu Workspace containers WITHOUT re-installing it there, we
+// bind-mount the host /nix/store (read-only) plus the resolved system bin dir into
+// every container and prepend that bin dir to the container PATH. Nix binaries are
+// patchelf'd with an absolute interpreter + RPATH into their own /nix/store
+// closure, so a read-only /nix/store share is enough for them to run under the
+// container's Ubuntu userland. These devices are added ONLY when /nix/store exists
+// (i.e. on the NixOS appliance) — on Ubuntu hosts (dev / deploy-test) they are
+// absent and container behaviour is unchanged.
+const (
+	// nixStoreDevice mounts the immutable, content-addressed host store read-only.
+	nixStoreDevice = "nix-store"
+	// nixSysbinDevice mounts the RESOLVED /run/current-system/sw/bin (a generation-
+	// specific store path) so a post-rebuild generation change flips the device
+	// source string → the existing reconcile source-diff replaces the device →
+	// new packages hotplug into running containers (the §8.4 2-phase self-heal).
+	nixSysbinDevice = "nix-sysbin"
+	// nixBinContainerPath is where the system bin dir is mounted inside containers.
+	// A dedicated path (not /run, which is the container's tmpfs) avoids clobbering
+	// container-managed runtime dirs. The symlinks it contains point into
+	// /nix/store (absolute), resolved via the read-only store mount above.
+	nixBinContainerPath = "/opt/palmux-nix-bin"
+	// nixContainerPATH is the profile-level PATH prepended with the Nix bin dir so
+	// `incus exec` (and shells it starts) resolve GUI-installed apps. The design
+	// doc §6 future form prescribes exactly this `environment.PATH` approach.
+	nixContainerPATH = nixBinContainerPath + ":/home/ubuntu/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+)
+
+// nixStorePath / nixSysbinSource are the host paths shared into every container.
+// They are vars (not consts) only so tests can point them at a fixture; production
+// always uses the fixed /nix/store + /run/current-system/sw/bin.
+var (
+	nixStorePath    = "/nix/store"
+	nixSysbinSource = "/run/current-system/sw/bin"
+)
+
 // deviceSpec is one disk device (bind-mount) in the shared profile.
 type deviceSpec struct {
-	name   string
-	source string // host path
-	path   string // in-container path (always == source for our mounts)
+	name     string
+	source   string // host path
+	path     string // in-container path (== source for most of our mounts)
+	readonly bool   // S41bdf2-1-4: read-only bind (the shared /nix/store + sys bin)
 }
 
 // legacySharedDeviceNames are the fixed instance-local device names the OLD
@@ -116,18 +155,18 @@ func (m *SharedProfileManager) declaredDevices() []deviceSpec {
 	mj := func(p ...string) string { return filepath.Join(append([]string{home}, p...)...) }
 
 	candidates := []deviceSpec{
-		{"ghq", mj("ghq"), mj("ghq")},
-		{"dot-claude", mj(".claude"), mj(".claude")},
-		{"dot-claude-json", mj(".claude.json"), mj(".claude.json")},
-		{"dot-local-share-claude", mj(".local", "share", "claude"), mj(".local", "share", "claude")},
-		{"dot-local-bin", mj(".local", "bin"), mj(".local", "bin")},
-		{"dot-bashrc", mj(".bashrc"), mj(".bashrc")},
-		{"dot-profile", mj(".profile"), mj(".profile")},
-		{"dot-bash-profile", mj(".bash_profile"), mj(".bash_profile")},
-		{"dot-bashrc-d", mj(".bashrc.d"), mj(".bashrc.d")},
-		{"dot-gitconfig", mj(".gitconfig"), mj(".gitconfig")},
-		{"dot-config-gh", mj(".config", "gh"), mj(".config", "gh")},
-		{"dot-ssh", mj(".ssh"), mj(".ssh")},
+		{name: "ghq", source: mj("ghq"), path: mj("ghq")},
+		{name: "dot-claude", source: mj(".claude"), path: mj(".claude")},
+		{name: "dot-claude-json", source: mj(".claude.json"), path: mj(".claude.json")},
+		{name: "dot-local-share-claude", source: mj(".local", "share", "claude"), path: mj(".local", "share", "claude")},
+		{name: "dot-local-bin", source: mj(".local", "bin"), path: mj(".local", "bin")},
+		{name: "dot-bashrc", source: mj(".bashrc"), path: mj(".bashrc")},
+		{name: "dot-profile", source: mj(".profile"), path: mj(".profile")},
+		{name: "dot-bash-profile", source: mj(".bash_profile"), path: mj(".bash_profile")},
+		{name: "dot-bashrc-d", source: mj(".bashrc.d"), path: mj(".bashrc.d")},
+		{name: "dot-gitconfig", source: mj(".gitconfig"), path: mj(".gitconfig")},
+		{name: "dot-config-gh", source: mj(".config", "gh"), path: mj(".config", "gh")},
+		{name: "dot-ssh", source: mj(".ssh"), path: mj(".ssh")},
 	}
 
 	// palmux hook binary → /usr/local/bin/palmux (in-container `palmux hook`).
@@ -138,7 +177,20 @@ func (m *SharedProfileManager) declaredDevices() []deviceSpec {
 		if resolved, rerr := filepath.EvalSymlinks(palmuxBin); rerr == nil && resolved != "" {
 			palmuxBin = resolved
 		}
-		candidates = append(candidates, deviceSpec{"palmux-hook-bin", palmuxBin, "/usr/local/bin/palmux"})
+		candidates = append(candidates, deviceSpec{name: "palmux-hook-bin", source: palmuxBin, path: "/usr/local/bin/palmux"})
+	}
+
+	// S41bdf2-1-4: shared /nix/store + system bin (NixOS appliance only). Gated on
+	// /nix/store existing so Ubuntu hosts are unaffected. The sysbin source is the
+	// RESOLVED store path (generation-specific) so a rebuild's generation change
+	// replaces the device via the source-diff reconcile.
+	if _, statErr := os.Stat(nixStorePath); statErr == nil {
+		candidates = append(candidates, deviceSpec{nixStoreDevice, nixStorePath, nixStorePath, true})
+		sysbin := nixSysbinSource
+		if resolved, rerr := filepath.EvalSymlinks(nixSysbinSource); rerr == nil && resolved != "" {
+			sysbin = resolved
+		}
+		candidates = append(candidates, deviceSpec{nixSysbinDevice, sysbin, nixBinContainerPath, true})
 	}
 
 	// Config-driven shared folders (Story 2). Same-path mount; skipped if absent.
@@ -153,7 +205,7 @@ func (m *SharedProfileManager) declaredDevices() []deviceSpec {
 			m.log.Warn("incus shared profile: skipping invalid shared dir", "dir", d, "err", verr)
 			continue
 		}
-		candidates = append(candidates, deviceSpec{sharedDirDeviceName(abs), abs, abs})
+		candidates = append(candidates, deviceSpec{name: sharedDirDeviceName(abs), source: abs, path: abs})
 	}
 
 	out := make([]deviceSpec, 0, len(candidates))
@@ -182,6 +234,11 @@ func (m *SharedProfileManager) declaredDevices() []deviceSpec {
 // are never symlink-skipped.
 func isSkippableSymlinkDotfile(name string) bool {
 	if name == "ghq" || name == "palmux-hook-bin" {
+		return false
+	}
+	// S41bdf2-1-4: the shared /nix devices intentionally live OUTSIDE $HOME (host
+	// /nix/store, /run/current-system). They must never be symlink-skipped.
+	if name == nixStoreDevice || name == nixSysbinDevice {
 		return false
 	}
 	if strings.HasPrefix(name, "dot-claude") || strings.HasPrefix(name, "dot-local") || strings.HasPrefix(name, "sf-") {
@@ -282,10 +339,61 @@ func (m *SharedProfileManager) Ensure(ctx context.Context) error {
 			m.log.Warn("incus shared profile: device add failed", "device", d.name, "err", aerr)
 		}
 	}
+	// S41bdf2-1-4: converge the profile-level PATH so `incus exec` (and shells it
+	// starts) resolve GUI-installed Nix apps from the shared system bin dir. Only
+	// on a NixOS appliance (/nix/store present); Ubuntu hosts keep the default PATH.
+	if _, statErr := os.Stat(nixStorePath); statErr == nil {
+		m.setEnvPath(ctx, nixContainerPATH)
+	} else {
+		m.setEnvPath(ctx, "") // unset (idempotent) on non-Nix hosts
+	}
+
 	m.mu.Lock()
 	m.ensuredOnce = true
 	m.mu.Unlock()
 	return nil
+}
+
+// setEnvPath converges the profile's `environment.PATH` config key to want
+// (empty = unset). It reads the current value first and only writes on a diff so
+// running containers aren't churned every scan tick. Best-effort (logged).
+func (m *SharedProfileManager) setEnvPath(ctx context.Context, want string) {
+	cur, _ := m.currentEnvPath(ctx)
+	if cur == want {
+		return
+	}
+	if want == "" {
+		if _, stderr, code, err := m.run(ctx, "profile", "unset", SharedProfileName, "environment.PATH"); err != nil || (code != 0 && !strings.Contains(strings.ToLower(stderr), "not")) {
+			m.log.Warn("incus shared profile: environment.PATH unset failed", "code", code, "err", err)
+		}
+		return
+	}
+	if _, stderr, code, err := m.run(ctx, "profile", "set", SharedProfileName, "environment.PATH="+want); err != nil || code != 0 {
+		m.log.Warn("incus shared profile: environment.PATH set failed", "code", code, "stderr", strings.TrimSpace(stderr), "err", err)
+	}
+}
+
+// currentEnvPath reads config.environment.PATH from `incus profile show`.
+func (m *SharedProfileManager) currentEnvPath(ctx context.Context) (string, bool) {
+	stdout, _, code, err := m.run(ctx, "profile", "show", SharedProfileName)
+	if err != nil || code != 0 {
+		return "", false
+	}
+	inConfig := false
+	for _, ln := range strings.Split(stdout, "\n") {
+		if !strings.HasPrefix(ln, " ") && strings.TrimRight(ln, " \t\r") != "" {
+			inConfig = strings.HasPrefix(strings.TrimRight(ln, " \t\r"), "config:")
+			continue
+		}
+		if !inConfig {
+			continue
+		}
+		content := strings.TrimSpace(ln)
+		if v, ok := strings.CutPrefix(content, "environment.PATH:"); ok {
+			return strings.TrimSpace(v), true
+		}
+	}
+	return "", false
 }
 
 // Reconcile is the scan-loop entry point (self-heal). Same as Ensure; named
@@ -431,12 +539,16 @@ func statInode(path string) (uint64, bool) {
 }
 
 func (m *SharedProfileManager) profileDeviceAdd(ctx context.Context, d deviceSpec) error {
-	_, stderr, code, err := m.run(ctx,
+	args := []string{
 		"profile", "device", "add", SharedProfileName,
 		d.name, "disk",
-		"source="+d.source,
-		"path="+d.path,
-	)
+		"source=" + d.source,
+		"path=" + d.path,
+	}
+	if d.readonly {
+		args = append(args, "readonly=true")
+	}
+	_, stderr, code, err := m.run(ctx, args...)
 	if err != nil {
 		return fmt.Errorf("profile device add %s: %w", d.name, err)
 	}

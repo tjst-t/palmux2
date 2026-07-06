@@ -1,0 +1,29 @@
+{
+  "sprint": "S41bdf2",
+  "ac": "AC-S41bdf2-3-3",
+  "target": "green.tjstkm.net (192.168.1.46) — real palmuxOS appliance, NixOS 25.05, incus-container workspaces",
+  "date": "2026-07-06",
+  "result": "PASS",
+  "method": "non-destructive branch-binary smoke (S673a42 pattern): green runs the fetchurl-pinned released palmux2 (no /api/apps, no /nix-share logic), so the branch binary was staged and run against the REAL /persist config-dir + real incus while the managed palmux2.service was runtime-masked + stopped. The Go logic (drop-in write, S673a42 rebuild kick, /nix reconcile, share↔shared_dirs) ran for real; only the flake local/ dir ownership was hand-prepared (chown palmux) to simulate the appliance.nix state-init change that ships next release.",
+  "environment_facts": {
+    "managed_execstart": "/nix/store/9zzplgskdiyhnkrssz6637m3kk8ybjnb-palmux2-0.13.0/bin/palmux2 serve --addr=127.0.0.1:7683 --config-dir=/persist/palmux/config (User=palmux)",
+    "localhost_api_open": "GET /api/deploy 200 without auth (SSO is Caddy-facing; localhost bypasses it)",
+    "running_container": "clinical-hishow-mirante-demo-406f-mirante-demo-fca6-7b107a9e (profiles: default + palmux-shared) — the in-container verification target",
+    "generation_before": "j9aj474wasb9dhqyp5dyy38agay589dk-nixos-system-nixos-25.05"
+  },
+  "steps": [
+    {"step": "backup", "cmd": "incus profile show palmux-shared > /root/s41bdf2-backup/palmux-shared.yaml; cp config.toml; readlink /run/current-system", "result": "ok"},
+    {"step": "prep", "cmd": "systemctl stop palmux2; ln -sf /dev/null /run/systemd/system/palmux2.service (runtime mask, store-symlink unit can't be masked normally); chown -R palmux:users /persist/palmux/nixos/local; mkdir ~/.infisical", "result": "ok"},
+    {"step": "launch branch binary", "cmd": "runuser -u palmux -- env HOME=/home/ubuntu PATH=<managed unit PATH>:/run/current-system/sw/bin setsid /home/ubuntu/s41bdf2-branch serve --addr=127.0.0.1:7683 --config-dir=/persist/palmux/config", "result": "health 200, /api/apps nixOSHost=true (managed binary returns 404 for /api/apps, confirming the endpoint is new)"},
+    {"step": "PRE-INSTALL /nix-share mechanism check (isolates the load-bearing risk from the rebuild)", "cmd": "incus exec <ctr> -- /opt/palmux-nix-bin/coreutils --version", "result": "PASS — 'coreutils (GNU coreutils) 9.7' RUNS inside the Ubuntu container from the host /nix/store (read-only share). /nix/store visible, /opt/palmux-nix-bin has 798 entries."},
+    {"step": "install infisical", "cmd": "POST /api/apps/install {id:infisical}", "result": "rebuildKicked:true; /persist/palmux/nixos/local/20-apps.nix generated = 'environment.systemPackages = [ pkgs.infisical ];'; palmux-rebuild.service activating"},
+    {"step": "rebuild completes", "cmd": "poll systemctl is-active palmux-rebuild.service", "result": "Result=success ExecMainStatus=0; new generation brj3wigp...; /run/current-system/sw/bin/infisical --version = 'infisical version 0.41.1' (HOST reach)"},
+    {"step": "*** LOAD-BEARING: infisical RUNS inside the container ***", "cmd": "incus exec <ctr> -- /opt/palmux-nix-bin/infisical --version  AND  incus exec <ctr> -- sh -lc 'infisical --version'", "result": "PASS — BOTH return 'infisical version 0.41.1'. The GUI-installed tool runs inside the container via the shared /nix/store, resolved by absolute path AND by the profile environment.PATH. /api/apps infisical state=installed."},
+    {"step": "share ON (hot)", "cmd": "POST /api/apps/share {id:infisical, on:true}", "result": "PASS — {containers:1, shared:true}; ~/.infisical device added to palmux-shared; incus exec <ctr> -- cat ~/.infisical/testmarker = 'marker' (hot-reflected to the RUNNING container, no restart); GET /api/deploy sharedDirs=['/home/ubuntu/.infisical'] (single source agrees)"},
+    {"step": "share OFF", "cmd": "POST /api/apps/share {id:infisical, on:false}", "result": "PASS — container no longer sees ~/.infisical; GET /api/deploy sharedDirs=[]"},
+    {"step": "uninstall (restore)", "cmd": "POST /api/apps/uninstall {id:infisical}", "result": "20-apps.nix → 'environment.systemPackages = [ ];'; rebuild Result=success; infisical removed from host"},
+    {"step": "RESTORE green", "cmd": "pkill -x s41bdf2-branch; incus profile edit palmux-shared < backup.yaml; rm 20-apps.nix; chown root:root local/; rm apps.json ~/s41bdf2-branch ~/.infisical /run/systemd/system/palmux2.service; systemctl daemon-reload; systemctl start palmux2", "result": "palmux2 active; health 200; /api/apps=404 (released binary back); palmux-shared restored to 10 disk devices + nix_refs=0 + palmux-hook-bin source=managed store path; local/ root:root; apps.json gone; container RUNNING + exec OK; incus active"}
+  ],
+  "load_bearing_risk_resolution": "The /nix/store-sharing (S41bdf2-1-4) DOES make an installed tool run inside a container. Proven twice: (1) pre-install, host Nix coreutils 9.7 ran in the container; (2) post-install, GUI-installed infisical 0.41.1 ran in the container by both absolute path and PATH. No NSS/locale/CA-cert/store-path-escape edge case blocked either — the read-only /nix/store closure share was sufficient under the Ubuntu userland.",
+  "restore_confirmed": "green left healthy: managed palmux2 active + healthy, incus active, mirante-demo container RUNNING and exec-responsive, palmux-shared profile byte-restored, no leftover test units/binaries/files. Backup kept at green:/root/s41bdf2-backup/ (S673a42 pattern)."
+}

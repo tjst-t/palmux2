@@ -1,0 +1,44 @@
+{
+  "sprint": "S41bdf2",
+  "base_sha": "5ae6397",
+  "summary": {"pass": 24, "fail": 0, "skip": 0},
+  "machine_verdict": "pass (verify-run.json overall_machine_status=pass)",
+  "tests": [
+    {"story": "S41bdf2-1", "acceptance_criteria": ["AC-S41bdf2-1-1"], "test": "TestInstallCatalogAppNixOS + acceptance AC-S41bdf2-1-1 (apps.json persist + 20-apps.nix drop-in) + green-smoke (real nixos-rebuild → infisical in container)", "status": "pass", "evidence": "unit exit=0; acceptance 'apps.json persists install intent' PASS; green 20-apps.nix generated + infisical 0.41.1 runs in container"},
+    {"story": "S41bdf2-1", "acceptance_criteria": ["AC-S41bdf2-1-2"], "test": "TestListCatalogMeta + acceptance AC-S41bdf2-1-2", "status": "pass", "evidence": "GET /api/apps returns catalog with installReach/shareBoundary/installBoundary; fresh app state=available"},
+    {"story": "S41bdf2-1", "acceptance_criteria": ["AC-S41bdf2-1-3"], "test": "TestInstallNonNixOS + acceptance AC-S41bdf2-1-3 + green-smoke (S673a42 palmux-rebuild.service reused)", "status": "pass", "evidence": "install returns needsRebuild without rebuildKicked on non-NixOS; green reused palmux-rebuild.service (Result=success)"},
+    {"story": "S41bdf2-1", "acceptance_criteria": ["AC-S41bdf2-1-4 (S41bdf2-1-4 task)"], "test": "TestNixDevicesDeclaredWhenStorePresent + TestNixDevicesAbsentWithoutStore + TestEnsureSetsEnvPathOnNix + green-smoke", "status": "pass", "evidence": "nix-store(ro)+nix-sysbin(ro resolved) devices + environment.PATH set only when /nix/store present; green: host Nix coreutils 9.7 AND installed infisical 0.41.1 both RUN inside the Ubuntu container via shared /nix/store"},
+    {"story": "S41bdf2-1", "acceptance_criteria": ["AC-S41bdf2-1-5 (task)"], "test": "TestValidatePackageCharset + TestValidPackageAttr + acceptance AC-S41bdf2-1-5 + mock AC-S41bdf2-1-5", "status": "pass", "evidence": "validate rejects bad charset + unresolved names, never passes an unresolved name; injection cannot reach the drop-in; mock shows ✓/⚠ inline + add enable/disable"},
+    {"story": "S41bdf2-2", "acceptance_criteria": ["AC-S41bdf2-2-1"], "test": "TestShareDependsOnInstall + acceptance AC-S41bdf2-2-1 + e2e AC-S41bdf2-2-1 + green-smoke", "status": "pass", "evidence": "share writes auth path to the SAME [workspace].shared_dirs (visible via GET /api/deploy); green: share ON hot-reflected to running container, OFF removed"},
+    {"story": "S41bdf2-2", "acceptance_criteria": ["AC-S41bdf2-2-2"], "test": "TestShareDependsOnInstall (refusal) + e2e/mock greyed + acceptance AC-S41bdf2-2-2", "status": "pass", "evidence": "sharing a not-installed app → 400; share toggle aria-disabled until installed, enabled after"},
+    {"story": "S41bdf2-2", "acceptance_criteria": ["AC-S41bdf2-2-3"], "test": "shared_profile single-profile mold (no per-container) + $HOME-scope reuse (config.ExpandSharedDir) + green containers:1", "status": "pass", "evidence": "all containers via single palmux-shared profile; Share() reuses config.ExpandSharedDir $HOME validation; green share applied to 1 container uniformly"},
+    {"story": "S41bdf2-3", "acceptance_criteria": ["AC-S41bdf2-3-1"], "test": "s41bdf2_app_cards.py AC-S41bdf2-3-1 (real browser)", "status": "pass", "evidence": "アプリ section renders 1アプリ=1カード with install+share toggles; every interactive element has data-testid"},
+    {"story": "S41bdf2-3", "acceptance_criteria": ["AC-S41bdf2-3-2"], "test": "s41bdf2_app_cards.py + _mock.py AC-S41bdf2-3-2 + design doc §7/§8.3/§8.4 corrections", "status": "pass", "evidence": "install=要rebuild chip / 共有=hot chip shown; design doc stale [提案]/『重』 markers corrected to [実装済]/hot"},
+    {"story": "S41bdf2-3", "acceptance_criteria": ["AC-S41bdf2-3-3"], "test": "green-smoke.json (real palmuxOS appliance green.tjstkm.net)", "status": "pass", "evidence": "real browser-equivalent API+incus flow: install infisical→nixos-rebuild→infisical runs in ALL containers (incus exec infisical --version=0.41.1)→share ON hot→share OFF→uninstall; green restored healthy"},
+    {"story": "S41bdf2-3", "acceptance_criteria": ["AC-S41bdf2-3-4"], "test": "s41bdf2_app_cards_mock.py (all states + greyed) + s41bdf2_app_cards.py (real)", "status": "pass", "evidence": "mock covers Populated/Installing/Error/Shared/未install-greyed + add validation; e2e drives available→installed→shared on real backend"}
+  ],
+  "diff_coverage": {
+    "api_routes_added": [
+      {"route": "GET /api/apps", "test": "s41bdf2_apps_backend.py + s41bdf2_app_cards.py"},
+      {"route": "POST /api/apps/install", "test": "s41bdf2_apps_backend.py + s41bdf2_app_cards.py + green-smoke"},
+      {"route": "POST /api/apps/uninstall", "test": "s41bdf2_apps_backend.py (cleanup) + green-smoke"},
+      {"route": "POST /api/apps/share", "test": "s41bdf2_apps_backend.py + s41bdf2_app_cards.py + green-smoke"},
+      {"route": "POST /api/apps/validate", "test": "s41bdf2_apps_backend.py + s41bdf2_app_cards_mock.py"}
+    ],
+    "gui_components_added": [
+      {"component": "AppsSection / AppCard / AddAppRow (apps-section.tsx)", "test": "s41bdf2_app_cards.py (real) + s41bdf2_app_cards_mock.py"}
+    ],
+    "go_exports_added": [
+      {"symbol": "apps.Controller (List/Install/Uninstall/Share/Validate)", "test": "internal/apps/apps_test.go"},
+      {"symbol": "apps.GenerateDropin/WriteDropin/LoadApps/WriteApps/ValidatePackage/Catalog", "test": "internal/apps/apps_test.go"},
+      {"symbol": "deploy.Controller.CurrentSharedDirs/ApplySharedDirs", "test": "sd44947 regression + s41bdf2 acceptance (share single source)"},
+      {"symbol": "incus shared_profile nix-store/nix-sysbin devices + env.PATH", "test": "shared_profile_nix_test.go + green-smoke"}
+    ],
+    "unresolved": []
+  },
+  "done_judgment": [
+    {"story_id": "S41bdf2-1", "guard1_user_review_required_not_done": "pass", "guard2_nil_injection_mock": "pass", "guard3_mock_mode_not_real_smoke": "pass", "guard4_priority_rule_9_exception_valid": "n/a", "guard5_call_path_grep": "pass", "guard6_deferred_comment_clean": "pass", "overall": "ok"},
+    {"story_id": "S41bdf2-2", "guard1_user_review_required_not_done": "pass", "guard2_nil_injection_mock": "pass", "guard3_mock_mode_not_real_smoke": "pass", "guard4_priority_rule_9_exception_valid": "n/a", "guard5_call_path_grep": "pass", "guard6_deferred_comment_clean": "pass", "overall": "ok"},
+    {"story_id": "S41bdf2-3", "guard1_user_review_required_not_done": "pass", "guard2_nil_injection_mock": "pass", "guard3_mock_mode_not_real_smoke": "pass", "guard4_priority_rule_9_exception_valid": "n/a", "guard5_call_path_grep": "pass", "guard6_deferred_comment_clean": "pass", "overall": "ok"}
+  ]
+}

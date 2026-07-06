@@ -421,6 +421,62 @@ export const incusGroupApi = {
   fix: (): Promise<IncusGroupFixResult> => api.post<IncusGroupFixResult>('/api/incus-group/fix'),
 }
 
+// S41bdf2: app card model (1アプリ=1カード: install + auth-folder share) ────────
+
+/** One app card in GET /api/apps. */
+export interface AppView {
+  id: string
+  display: string
+  description: string
+  icon: string
+  package: string
+  authPath: string
+  installed: boolean
+  shared: boolean
+  custom: boolean
+  /** available | installing | installed | shared | error */
+  state: 'available' | 'installing' | 'installed' | 'shared' | 'error'
+  error?: string
+  installBoundary: string // "rebuild"
+  installReach: string // "host+containers"
+  shareBoundary: string // "hot"
+  shareReach: string // "containers"
+}
+
+export interface AppsListView {
+  apps: AppView[]
+  nixOSHost: boolean
+  rebuildRunning: boolean
+  home: string
+}
+
+export interface AppInstallResult {
+  ok: boolean
+  installed: boolean
+  rebuildKicked: boolean
+  needsRebuild: boolean
+  message: string
+}
+
+export interface AppValidateResult {
+  package: string
+  valid: boolean
+  unavailable: boolean
+  message: string
+}
+
+export const appsApi = {
+  list: (): Promise<AppsListView> => api.get<AppsListView>('/api/apps'),
+  install: (body: { id: string; package?: string; authPath?: string }): Promise<AppInstallResult> =>
+    api.post<AppInstallResult>('/api/apps/install', body),
+  uninstall: (id: string): Promise<AppInstallResult> =>
+    api.post<AppInstallResult>('/api/apps/uninstall', { id }),
+  share: (id: string, on: boolean): Promise<{ ok: boolean; shared: boolean; containers: number }> =>
+    api.post('/api/apps/share', { id, on }),
+  validate: (pkg: string): Promise<AppValidateResult> =>
+    api.post<AppValidateResult>('/api/apps/validate', { package: pkg }),
+}
+
 export const deployApi = {
   get: (): Promise<DeployView> => api.get<DeployView>('/api/deploy'),
   apply: (body: {

@@ -380,7 +380,13 @@ in
         # SEED-ONLY: only write these if absent, so an operator who edits flake.nix
         # (e.g. bumps the palmux pin) or whose `nix flake update` rewrote flake.lock
         # isn't silently reverted on the next reboot.
-        install -d -m 0755 ${flakeDir} ${dropinDir}
+        install -d -m 0755 ${flakeDir}
+        # S41bdf2: the drop-in dir is palmux-owned so palmux2 (the non-root ${pUser})
+        # can write the GUI-generated app package drop-in (local/20-apps.nix) itself,
+        # then kick the root palmux-rebuild unit. root (palmux-rebuild.service) still
+        # writes local/10-public.nix here too — writing into a user-owned dir as root
+        # is fine. The rest of the flake (flake.nix, hardware) stays root-owned.
+        install -d -m 0755 -o ${pUser} -g ${pGroup} ${dropinDir}
         [ -e ${flakeDir}/flake.nix ]        || install -m 0644 ${appFlakeNix} ${flakeDir}/flake.nix
         [ -e ${flakeDir}/hardware-base.nix ] || install -m 0644 ${appHwBase} ${flakeDir}/hardware-base.nix
         # generate grub-device.nix with THIS VM's actual bootsector disk (the parent

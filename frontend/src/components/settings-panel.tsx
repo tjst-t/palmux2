@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { api, deployApi, type DeployView, type ApplyResult } from '../lib/api'
 import { usePalmuxStore, type GlobalSettings } from '../stores/palmux-store'
+import { AppsSection } from './apps-section'
 import { Modal } from './modal'
 import { UserCommandsModal } from './user-commands-modal'
 
@@ -991,6 +992,10 @@ function DeployTab() {
           </span>
         </div>
       </div>
+
+      {/* S41bdf2: 1アプリ=1カード（install + auth-folder 共有 従属トグル）。
+          Self-contained (own GET/POST /api/apps); not part of the deploy Apply. */}
+      <AppsSection />
 
       <div className={styles.btnRow}>
         <button

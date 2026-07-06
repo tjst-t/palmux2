@@ -172,20 +172,27 @@ palmux-ws image(Ubuntu ベース、ツール焼き込み)+ 以下の bind(存在
 | palmux 自身 → `/usr/local/bin/palmux` | in-container hook |
 | `raw.idmap "both 1000 1000"` | UID/GID 整合(全ての前提) |
 
-### 将来形: NixOS ネイティブコンテナ [提案]
+### /nix 読み取り専用共有 [実装済 S41bdf2 — install 経路]
 
-image 焼き込みをやめ、`/nix` を読み取り専用共有して home-manager プロファイルを金型に載せる:
+image 焼き込みに加え、`/nix/store` を読み取り専用共有して Nix プロファイルの
+バイナリを金型に載せる。GUI アプリ install(§8.3)の「ホスト + 全コンテナに 1 回で
+反映」を成立させる土台。`internal/runtime/incus/shared_profile.go` が palmux-shared
+金型に以下を **/nix/store 存在時(= NixOS アプライアンス)のみ**追加:
 
 ```
-incus profile device add palmux-dev nixstore  disk source=/nix path=/nix readonly=true
-incus profile device add palmux-dev shprofile disk source=/home/ubuntu/.nix-profile path=/home/ubuntu/.nix-profile readonly=true
-incus profile set palmux-dev environment.PATH "/home/ubuntu/.nix-profile/bin:/usr/local/bin:/usr/bin:/bin"
+incus profile device add palmux-shared nix-store  disk source=/nix/store path=/nix/store readonly=true
+incus profile device add palmux-shared nix-sysbin disk source=<resolved /run/current-system/sw/bin> path=/opt/palmux-nix-bin readonly=true
+incus profile set palmux-shared environment.PATH "/opt/palmux-nix-bin:/home/ubuntu/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ```
 
-home-manager 管理ファイルは `/nix/store/...` へのシンボリックリンクなので、
-リンクだけマウントしてもリンク先が無ければ dangling になる。
-**`/nix` (ro) の共有が全ての前提**。これが通れば「image 再ビルド → 再生成」が
-「`home-manager switch` 一発で全コンテナ反映」に変わる。
+Nix バイナリは patchelf 済み(絶対 interpreter + RPATH が自前 /nix/store 閉包を指す)
+なので、read-only `/nix/store` 共有だけで Ubuntu コンテナ上でもそのまま動く。
+`nix-sysbin` の source は **解決済みの世代固有ストアパス**を使うので、`nixos-rebuild`
+で世代が変わると source 文字列が変わり、既存の source-diff reconcile が device を
+差し替える(§8.4 の2フェーズ self-heal で新パッケージが稼働中コンテナに hotplug)。
+home-manager `home.packages` + `~/.nix-profile` 共有によるコンテナ内ユーザ環境の
+完全な home.nix 化は引き続き将来形 **[提案]**(現状は install=`environment.systemPackages`
+の一方向生成 + /nix/store 共有)。
 
 ## 7. ユーザがアプリ/認証を追加する仕組み
 
@@ -201,15 +208,20 @@ home-manager 管理ファイルは `/nix/store/...` へのシンボリックリ�
 - **現状 [実装済]**: `~/.local/bin` が全コンテナ+ホストに共有済みなので、そこに
   置いたバイナリは即全域で使える(claude 自身がこの経路)。image 常備にしたい
   ものは `images/workspace-default/build.sh` に足して再ビルド + 再生成。
-- **将来形 [提案]**: `home.packages = [ pkgs.infisical ];` → `home-manager switch`
-  だけで、共有 `/nix` 経由で全コンテナから即見える。ユーザは経路を敷かず、
-  パッケージ集合に足すだけ。
+- **[実装済 S41bdf2]**: GUI アプリカードの install トグル → 構造化データ(apps.json)から
+  一方向で `environment.systemPackages`(= `home.packages` 相当)の drop-in
+  (`local/20-apps.nix`)を生成 → S673a42 の `palmux-rebuild.service` を流用して
+  `nixos-rebuild switch` → 共有 `/nix/store`(上記)経由でホスト + 全コンテナから即見える。
+  ユーザは経路を敷かず、パッケージ集合(カタログ + 検証付きユーザ入力)に足すだけ。
+  home-manager `home.packages` そのものへの移行は将来形 **[提案]**。
 
 ### 認証状態の追加(例: `~/.infisical`)
 
 CLI の認証トークンは `~/.claude` と同じ実行時可変状態。全コンテナで共有したいなら
-共有 device を1本足す(現状はコード側 mounts[] への追加 = リリース要 **[現状]**、
-将来はプロファイル device + GUI トグル **[提案]**)。
+共有 device を1本足す(**[実装済 Sd44947 + S41bdf2]**: アプリカードの「認証フォルダを共有」
+トグル or generic「共有フォルダ」リスト → `[workspace].shared_dirs` 単一 source →
+palmux-shared profile device を hot 適用。当初の「コード側 mounts[] 追加 = リリース要」は
+不要になった)。
 
 注意:
 1. **UID/GID 整合** — `raw.idmap` が効いている前提。
@@ -266,27 +278,41 @@ GUI とテキスト編集を両立させると「どちらが正か」問題が�
 - 理由: 黙って勝たせると、上級者ほど「GUI で変えたのに効かない」という最悪の
   デバッグ体験に陥る。勝敗ルールは後勝ちのまま、衝突の存在だけは可視化する。
 
-### 8.3 GUI のモデル: 「アプリ」を第一級の単位にする [提案]
+### 8.3 GUI のモデル: 「アプリ」を第一級の単位にする [実装済 S41bdf2]
 
 頻度が相対的に高い操作(アプリ導入・フォルダ共有)を UI の中心に据える。
 1アプリ = 1カード。裏で複数レイヤーに書き込むが、ユーザには1枚に見せる。
+設定 GUI「デプロイ」タブの「アプリ」セクション(`frontend/src/components/apps-section.tsx` +
+`internal/apps/`)が実装。
 
 ```
 [Infisical]
-  ├ インストール              → パッケージ集合(§7)            [要 rebuild(軽)]
+  ├ インストール              → パッケージ集合(§7)            [要 rebuild(軽・即)]
+  │                            構造化データ(apps.json)→ 一方向で local/20-apps.nix
+  │                            (environment.systemPackages)生成 → S673a42 の
+  │                            palmux-rebuild.service を流用 → 共有 /nix/store 経由で
+  │                            ホスト+全コンテナに反映
   └ 認証フォルダを共有(~/.infisical)
-                             → 金型に disk device 追加        [要 rebuild + 動的適用]
+                             → 金型(palmux-shared profile)に disk device 追加  [即時反映(hot)]
+                             Sd44947 の shared_dirs 単一 source に該当パスを書く
+                             (稼働中コンテナへ live 反映・generic「共有フォルダ」と同一 source)
 ```
 
 ルール:
 - 両トグルとも**全コンテナ一律**(個別出し分けはしない → 金型=単一プロファイルを維持)。
-- 「フォルダ共有」は「インストール」に**従属**。未インストールなら共有トグルはグレーアウト。
-- **rebuild 境界を区別表示**: インストールのみ = 軽・即。
-  フォルダ共有 = システム rebuild + 既存コンテナへの反映が要る(重)。
+- 「フォルダ共有」は「インストール」に**従属**。未インストールなら共有トグルはグレーアウト
+  (`aria-disabled`)。サーバ側でも未 install の共有 API は 400 で拒否。
+- **rebuild 境界を区別表示**: インストール = 要 rebuild(軽・即)。
+  フォルダ共有 = **即時反映(hot)**。
+  ※ 当初の §8.3 想定「フォルダ共有 = 要 rebuild(重)」は **Sd44947 で hot 化された**
+  (稼働中コンテナへ `incus config device add`/`remove` を live 適用)。実態は hot なので
+  GUI も hot で表示する。
 
-### 8.4 公開/非公開の動的適用: 2フェーズ
+### 8.4 公開/非公開の動的適用: 2フェーズ [実装済 Sd44947 + S41bdf2]
 
 フォルダ共有・アプリ公開の ON/OFF は、宣言更新と稼働コンテナへの反映を分けて2フェーズで行う。
+Sd44947 で実装済み(palmux-shared profile を宣言、10s scan の `ReconcileShared` が収束、
+deploy-apply / アプリカードの共有トグルが live 適用)。
 
 - **ON** = 宣言に追加 → 全稼働コンテナへ `incus config device add`
 - **OFF** = 宣言から削除 → 全稼働コンテナから `incus config device remove`

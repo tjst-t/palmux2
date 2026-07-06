@@ -11168,134 +11168,134 @@
       "description": "設計ドキュメント docs/palmux2-nixos-appliance-design.md §8.3 [提案] を実装する。頻度の高い操作（アプリ導入・フォルダ共有）を UI の中心に据え、1アプリ=1カードで見せる。裏では複数レイヤー（§7 パッケージ集合 = home.packages + Sd44947 共有 device 金型）に書き込むが、ユーザには1枚のカード。install トグル（home.packages 追加→ nixos-rebuild、軽）+ フォルダ共有トグル（Sd44947 の shared_dirs 金型、hot）。共有は install に従属（未 install はグレーアウト）、両トグルとも全コンテナ一律（金型=単一プロファイル維持）。§8.2 の『構造化データを正とし .nix を一方向生成』に乗せる。あわせて Sd44947 で folder-share が hot 化された実態を設計ドキュメント（§7/§8.3/§8.4 の陳腐化した [提案]/『重』マーカー）に反映する。",
       "milestone": false,
       "phase": "Phase 6 — palmuxOS",
-      "status": "pending",
+      "status": "done",
       "detail_level": "detailed",
       "review_reason": "install（home.packages 生成→nixos-rebuild→共有 /nix 経由で全コンテナ反映）と共有トグルの hot 反映は実 NixOS アプライアンスでしか検証できない。priority_rule 9 の real-mode smoke を green.tjstkm.net (192.168.1.46) で行う。",
       "stories": {
         "S41bdf2-1": {
           "title": "アプリ定義の構造化データ + パッケージ集合（home.packages 生成）",
           "story": "palmuxOS 運用者として、GUI からアプリ（例 infisical）を『インストール』でき、それが全コンテナ+ホストで即使えるようにしたい。なぜなら、現状アプリ追加は `~/.local/bin` 手置きか image 再ビルドが必要で、宣言的でも GUI からでもないから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S41bdf2-1-1",
               "description": "アプリ install 状態が構造化データ（config.toml の [apps] か専用ストア）に永続化される。§8.2 に従い、そこから一方向で local/ drop-in の `home.packages`（or 相当の宣言）を生成し、nixos-rebuild で共有 /nix 経由で全コンテナ+ホストに反映（手書き .nix の双方向パースはしない）。",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S41bdf2-1-2",
               "description": "GET /api/apps がアプリ一覧を返す（各アプリ: id/表示名/install 状態/共有パス候補/共有状態/rebuild 境界ラベル）。既知アプリのカタログ（infisical, 1password-cli 等）+ ユーザ定義を許容。",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S41bdf2-1-3",
               "description": "install の適用（nixos-rebuild）は S673a42 の GUI キック rebuild 経路を流用（重複実装しない）。install は『軽（rebuild 要・即』ラベルで区別表示のためのメタを返す。",
-              "status": "pending"
+              "status": "done"
             }
           ],
           "tasks": {
             "S41bdf2-1-1": {
               "id": "S41bdf2-1-1",
               "title": "アプリ構造化データ + カタログ（config schema）",
-              "status": "pending"
+              "status": "done"
             },
             "S41bdf2-1-2": {
               "id": "S41bdf2-1-2",
               "title": "構造化データ→ home.packages drop-in 生成（§8.2 一方向）",
-              "status": "pending"
+              "status": "done"
             },
             "S41bdf2-1-3": {
               "id": "S41bdf2-1-3",
               "title": "GET /api/apps + install/uninstall エンドポイント（rebuild は S673a42 経路流用）",
-              "status": "pending"
+              "status": "done"
             },
             "S41bdf2-1-4": {
               "id": "S41bdf2-1-4",
               "title": "/nix/store(ro) + Nix profile bin を palmux-shared 金型へ追加共有 + container PATH 配線（install が全コンテナに到達する前提を成立させる）",
-              "status": "pending"
+              "status": "done"
             },
             "S41bdf2-1-5": {
               "id": "S41bdf2-1-5",
               "title": "nixpkgs 名の検証（nix eval nixpkgs#<name>）— 未解決なら rebuild せずインラインエラー（validate 経路）",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
         "S41bdf2-2": {
           "title": "フォルダ共有を install に従属させ Sd44947 shared_dirs 金型と統合",
           "story": "palmuxOS 運用者として、アプリカードの『認証フォルダを共有』トグルで、そのアプリの認証フォルダ（例 ~/.infisical）を全コンテナに共有したい。なぜなら、共有は install したアプリに紐づく操作で、Sd44947 の汎用 shared_dirs リストとは別に『アプリに従属した共有』として見せたいから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S41bdf2-2-1",
               "description": "アプリカードの共有トグル ON が Sd44947 の shared_dirs（palmux-shared profile）へ該当パスを add、OFF が remove する（hot 反映、Sd44947 の機構を再利用し重複実装しない）。汎用 shared_dirs リストとカードの共有状態が同一 source を指し矛盾しない。",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S41bdf2-2-2",
               "description": "従属ルール: 未 install のアプリは共有トグルがグレーアウト（操作不可）。install→共有の順序が UI で強制される。",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S41bdf2-2-3",
               "description": "全コンテナ一律（個別出し分けなし=金型=単一プロファイル維持）。$HOME スコープ検証は Sd44947 のものを流用。",
-              "status": "pending"
+              "status": "done"
             }
           ],
           "tasks": {
             "S41bdf2-2-1": {
               "id": "S41bdf2-2-1",
               "title": "アプリ共有トグル ↔ Sd44947 shared_dirs のバインド（同一 source）",
-              "status": "pending"
+              "status": "done"
             },
             "S41bdf2-2-2": {
               "id": "S41bdf2-2-2",
               "title": "従属ロジック（未 install→共有不可）",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
         "S41bdf2-3": {
           "title": "1アプリ=1カードの GUI（install+共有 従属トグル + rebuild 境界表示）",
           "story": "palmuxOS 運用者として、設定画面でアプリごとに1枚のカードを見て、install と共有をトグルで操作したい。なぜなら、裏の複数レイヤー（パッケージ + 共有 device）を意識せず、1枚のカードで完結させたいから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S41bdf2-3-1",
               "description": "設定 GUI に『アプリ』セクション: 1アプリ=1カード（install トグル + 共有トグル）。共有トグルは未 install でグレーアウト（従属）。カタログ + ユーザ追加。全 interactive 要素に data-testid。",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S41bdf2-3-2",
               "description": "rebuild 境界の区別表示: install = 『要 rebuild（軽・即）』。共有 = 『即時反映（hot）』— ※ §8.3 の当初想定『共有=要 rebuild（重）』は Sd44947 で hot 化されたので実態（hot）で表示する。設計ドキュメント §7/§8.3/§8.4 の陳腐化マーカー（[提案]→[実装済]、共有の『重』→hot、/etc/palmux→/persist）も本 Story で是正する。",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S41bdf2-3-3",
               "description": "実機 acceptance: green で infisical カードを install（nixos-rebuild→全コンテナで infisical が見える）→共有 ON（~/.infisical が稼働中コンテナに hot 反映）→共有 OFF/uninstall の一連を実ブラウザで確認。",
-              "status": "pending"
+              "status": "done"
             },
             {
               "id": "AC-S41bdf2-3-4",
               "description": "state diagram（Loading/Empty/Populated/Installing/Installed/Sharing/Shared/Uninstalling/Error）確認済み。mock テスト（各状態 + 未install グレーアウト）が pass、E2E（[AC-*] タグ）が実サーバに対して pass。",
-              "status": "pending"
+              "status": "done"
             }
           ],
           "tasks": {
             "S41bdf2-3-1": {
               "id": "S41bdf2-3-1",
               "title": "アプリカード UI（install+共有従属トグル、data-testid、グレーアウト）",
-              "status": "pending"
+              "status": "done"
             },
             "S41bdf2-3-2": {
               "id": "S41bdf2-3-2",
               "title": "rebuild 境界表示 + 設計ドキュメント §7/§8.3/§8.4 の実態反映",
-              "status": "pending"
+              "status": "done"
             },
             "S41bdf2-3-3": {
               "id": "S41bdf2-3-3",
               "title": "mock/E2E + green 実機 acceptance（AC-3-3）",
-              "status": "pending"
+              "status": "done"
             }
           }
         }

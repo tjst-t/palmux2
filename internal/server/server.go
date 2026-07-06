@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/tjst-t/palmux2/internal/apps"
 	"github.com/tjst-t/palmux2/internal/auth"
 	"github.com/tjst-t/palmux2/internal/commands"
 	"github.com/tjst-t/palmux2/internal/deploy"
@@ -32,6 +33,7 @@ type Deps struct {
 	Notify          *notify.Hub
 	Deploy          *deploy.Controller  // Sa53137: unified-config deploy plane (nil = endpoints 503)
 	DeployConfigDir string              // config dir holding config.toml (for CLI-driven file-edit apply)
+	Apps            *apps.Controller    // S41bdf2: app card model (install + folder share) (nil = endpoints 503)
 	SelfUpdate      *selfupdate.Service // S6ab0ed: self-update service (nil = endpoints 503)
 	FrontendFS      fs.FS               // embedded SPA bundle
 	StaticFS        fs.FS               // embedded third-party assets (e.g. drawio webapp); served at /static/* (S010)
@@ -103,6 +105,7 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 		notify:          deps.Notify,
 		deploy:          deps.Deploy,
 		deployConfigDir: deps.DeployConfigDir,
+		apps:            deps.Apps,
 		selfupdate:      deps.SelfUpdate,
 	}
 
@@ -189,6 +192,13 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("POST /api/deploy/rebuild", h.postDeployRebuild)
 	mux.HandleFunc("GET /api/deploy/rebuild", h.getDeployRebuild)
 
+	// S41bdf2: app card model (1アプリ=1カード: install + auth-folder share).
+	mux.HandleFunc("GET /api/apps", h.getApps)
+	mux.HandleFunc("POST /api/apps/install", h.postAppInstall)
+	mux.HandleFunc("POST /api/apps/uninstall", h.postAppUninstall)
+	mux.HandleFunc("POST /api/apps/share", h.postAppShare)
+	mux.HandleFunc("POST /api/apps/validate", h.postAppValidate)
+
 	mux.HandleFunc("GET /api/connections", h.connections)
 	mux.HandleFunc("GET /api/orphan-sessions", h.orphanSessions)
 
@@ -216,6 +226,7 @@ type handlers struct {
 	notify          *notify.Hub
 	deploy          *deploy.Controller // Sa53137 (nil → deploy endpoints 503)
 	deployConfigDir string
+	apps            *apps.Controller    // S41bdf2 (nil → apps endpoints 503)
 	selfupdate      *selfupdate.Service // S6ab0ed (nil → selfupdate endpoints 503)
 }
 

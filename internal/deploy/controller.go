@@ -169,6 +169,56 @@ func (c *Controller) CurrentView() View {
 	return v
 }
 
+// CurrentSharedDirs returns the currently-applied [workspace] shared_dirs as
+// absolute host paths (~ expanded). It is the single source the apps share toggle
+// reads (S41bdf2 — the app card and the generic 共有フォルダ list agree). Mirrors
+// CurrentView's expansion so both surfaces show identical paths.
+func (c *Controller) CurrentSharedDirs() []string {
+	return c.CurrentView().Workspace.SharedDirs
+}
+
+// ApplySharedDirs persists a new [workspace] shared_dirs set to the master and
+// live-propagates it to the palmux-shared incus profile (hot), returning the
+// number of running containers refreshed. It is the focused reuse method the apps
+// share toggle calls so app-driven and generic shared-folder edits go through the
+// SAME persist + propagate path (no divergence, no duplicate plumbing —
+// priority_rule 6). Entries are $HOME-scope validated + expanded; an out-of-$HOME
+// entry is rejected. The on-disk master's other sections are preserved.
+func (c *Controller) ApplySharedDirs(ctx context.Context, dirs []string) (int, error) {
+	home, herr := os.UserHomeDir()
+	if herr != nil {
+		return 0, fmt.Errorf("deploy: resolve home: %w", herr)
+	}
+	abs, verr := config.ExpandSharedDirs(dirs, home)
+	if verr != nil {
+		return 0, verr
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Load the on-disk master so we preserve every section we don't manage here.
+	mc, _, lerr := config.LoadServerConfig(c.configDir)
+	if lerr != nil {
+		return 0, fmt.Errorf("deploy: load master: %w", lerr)
+	}
+	mc.Workspace.SharedDirs = abs
+	if err := config.WriteMaster(c.configDir, mc); err != nil {
+		return 0, fmt.Errorf("deploy: persist shared dirs: %w", err)
+	}
+	c.applied.Workspace.SharedDirs = abs
+
+	n := 0
+	if c.hot != nil {
+		var aerr error
+		if n, aerr = c.hot.SetSharedDirs(ctx, abs); aerr != nil {
+			// Persisted; propagation self-heals on the next scan (incus unavailable).
+			c.logger.Warn("deploy: shared-folder propagation deferred", "err", aerr)
+		}
+	}
+	return n, nil
+}
+
 // overlayServer copies non-empty fields from file over dst (the file is the
 // editable source of truth; empty file fields keep the running snapshot value).
 func overlayServer(dst *config.ServerSection, file config.ServerSection) {

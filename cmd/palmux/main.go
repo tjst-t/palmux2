@@ -21,6 +21,7 @@ import (
 	"github.com/spf13/pflag"
 
 	palmux2 "github.com/tjst-t/palmux2"
+	"github.com/tjst-t/palmux2/internal/apps"
 	"github.com/tjst-t/palmux2/internal/attachment"
 	"github.com/tjst-t/palmux2/internal/auth"
 	"github.com/tjst-t/palmux2/internal/commands"
@@ -677,6 +678,18 @@ func run(rc resolved) error {
 	// (GUI-kickable via palmux-rebuild.service), not `palmux reconcile-system`.
 	deployCtl.SetNixOSHost(selfupdate.IsNixOSHost())
 
+	// S41bdf2: app card model. Install writes a generated home.packages/systemPackages
+	// drop-in into the on-appliance flake's local/ dir and kicks the SAME S673a42
+	// rebuild unit (deployRebuildPort). Share reuses the deploy controller's
+	// shared_dirs single source (SharedDirsPort). The flake dir is the appliance
+	// convention, overridable via env (priority_rule 7, no hardcode-only).
+	nixosFlakeDir := os.Getenv("PALMUX_NIXOS_FLAKE_DIR")
+	if nixosFlakeDir == "" {
+		nixosFlakeDir = "/persist/palmux/nixos"
+	}
+	appsCtl := apps.New(configDir, filepath.Join(nixosFlakeDir, "local"),
+		deployCtl, deployRebuildPort{nixOS: selfupdate.IsNixOSHost()}, slog.Default())
+
 	// S6ab0ed: self-update service. Polls GitHub for new releases of the
 	// managed components (palmux binary + palmux-ws image + declared tools) and
 	// broadcasts an app.updateAvailable WS event on a state transition. The GUI
@@ -698,6 +711,7 @@ func run(rc resolved) error {
 		Notify:          notifyHub,
 		Deploy:          deployCtl,
 		DeployConfigDir: configDir,
+		Apps:            appsCtl,
 		SelfUpdate:      selfUpdateSvc,
 		FrontendFS:      frontendFS,
 		// S010: serve bundled drawio webapp from internal/static via /static/*.
@@ -1077,6 +1091,26 @@ func (a deployHotApplier) SetSharedDirs(ctx context.Context, dirs []string) (int
 		return 0, err
 	}
 	return m.UsedByCount(ctx), nil
+}
+
+// deployRebuildPort adapts the S673a42 rebuild plumbing to apps.RebuildPort so
+// the app card's install/uninstall reuses the SAME GUI-kick nixos-rebuild unit
+// (priority_rule 6 — no duplicate rebuild plumbing). NixOS-only; on other hosts
+// NixOSHost()==false so Install/Uninstall persist intent without rebuilding.
+type deployRebuildPort struct{ nixOS bool }
+
+func (p deployRebuildPort) NixOSHost() bool { return p.nixOS }
+
+func (p deployRebuildPort) TriggerRebuild(ctx context.Context) error {
+	return deploy.TriggerRebuild(ctx)
+}
+
+func (p deployRebuildPort) RebuildStatus(ctx context.Context) (running, failed bool, err error) {
+	st, qerr := deploy.QueryRebuild(ctx)
+	if qerr != nil {
+		return false, false, qerr
+	}
+	return st.Running, st.Result == "exit-code" || st.Active == "failed", nil
 }
 
 // cloudflareTokenPresent reports whether a Cloudflare DNS token is configured
