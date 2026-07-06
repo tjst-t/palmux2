@@ -39,7 +39,7 @@
       <div class="kv" style="justify-content:space-around">
         <div style="text-align:center"><div class="v zero">0</div><div class="k">要対応 (needs_user_review)</div></div>
         <div style="text-align:center"><div class="v" style="color:var(--accent-light)">S41bdf2</div><div class="k">次マイルストーン</div></div>
-        <div style="text-align:center"><div class="v" style="color:var(--fg)">47</div><div class="k">backlog</div></div>
+        <div style="text-align:center"><div class="v" style="color:var(--accent-light);cursor:pointer;text-decoration:underline">47</div><div class="k">backlog ▾ (下に展開)</div></div>
       </div>
       <p class="help2" style="text-align:center">※ 要対応 &gt; 0 なら Review タブへ誘導（バッジ点灯）。現状は全 done。</p>
     </div></div>
@@ -78,6 +78,21 @@
 Sd44947 ──────────────▶ S41bdf2 ★
 Se173ef  (独立)</div>
     <p class="help2">Option B / C ではこれを独立 <b>Dependencies</b> タブとして展開（フル pan/zoom mermaid）。</p>
+  </div></div>
+
+  <!-- folded backlog (Option A) -->
+  <div class="panel"><div class="ph"><h2>Backlog <span class="help" style="font-weight:400">· 47 件</span></h2><span class="tag2">Option A: Backlog をここに内包（roll-up の「47」から展開）</span></div><div class="pb">
+    <div class="filter-chips">
+      <span class="chip on">All (47)</span>
+      <span class="chip">未昇格</span>
+      <span class="chip">Sprint 化済み</span>
+    </div>
+    <div class="cr-item"><span class="b done" style="font-size:10px">→ S41bdf2</span> GUI アプリカード (§8.3 install+folder-share 従属トグル) <span class="help2">— Sprint 化済み</span></div>
+    <div class="cr-item">Full Branch → Workspace rename across Go types, TS types, URL path segments</div>
+    <div class="cr-item">Commit-diff endpoint + Monaco diff in log detail pane</div>
+    <div class="cr-item">Cherry-pick / merge conflict WS event</div>
+    <div class="cr-item" style="border:none">… 他 43 件 <a href="#" style="font-size:11px">すべて表示</a></div>
+    <p class="help2">Option C ではこれを独立 <b>Backlog</b> タブに。Sprint 化済み項目は昇格先スプリントへリンク（重複昇格防止）。</p>
   </div></div>
 
   <p class="help" style="text-align:center;margin-top:20px"><a href="se173ef-index.html">← 構成比較 A/B/C</a></p>
