@@ -1,0 +1,69 @@
+{
+  "$machine_authored": true,
+  "sprint": "S41bdf2",
+  "cycle": "fix (reopen: Story S41bdf2-4)",
+  "verified_at": "2026-07-06T13:40:00Z",
+  "verifier_model": "claude-opus-4-8",
+  "base_sha": "e496a6e",
+  "sprint_head": "d343d09",
+  "overall": "pass",
+  "execution_log_reconciliation": {
+    "verify_run_overall": "pass",
+    "backed_by_real_exit_codes": true,
+    "detail": "verify-run.json lists 11 runs all machine_status=pass with exit_code=0. Independently grepped every docs/sprint-logs/S41bdf2/fix-verify-*.log: each carries a __VERIFY_EXIT_CODE__:<name>:0 trailer (unit, gofull, tsc, eslint, acceptance, gui-app-cards[+mock], gui-authpath-edit[+mock], regression-sd44947[+mock]). No claimed pass is contradicted by a nonzero exit. Runs were against an isolated INSTANCE=dev on portman-assigned port 8205 with --config-dir ./tmp (no hardcoded port, host untouched). AC-4-1's live-appliance leg is deferred to a separate real-mode smoke (green-smoke.json) and is not required for the host-agnostic fallback logic proven by unit test; this is an honest, disclosed compromise, not a masked failure.",
+    "reproduced": "Re-ran `go test ./internal/apps/... -run 'TestResolveNixFallback|TestSetAuthPath' -v` locally: PASS (TestResolveNixFallback, TestSetAuthPath, TestSetAuthPathNotShared)."
+  },
+  "findings": [
+    {
+      "category": "ac-behavior",
+      "story": "S41bdf2-4",
+      "ac": "AC-S41bdf2-4-1",
+      "verdict": "pass",
+      "detail": "resolveNixBin() in internal/apps/nixvalidate.go independently confirmed to (a) LookPath(bin) first, (b) when bin defaults to \"nix\" and is not on PATH, iterate absolute candidates /run/current-system/sw/bin/nix, /nix/var/nix/profiles/default/bin/nix, $HOME/.nix-profile/bin/nix and return the first that exists via os.Stat (with !IsDir guard), (c) return \"\" when none resolve, (d) honour a non-\"nix\" PALMUX_NIX_BIN override EXACTLY with NO fallback. ValidatePackage() calls resolveNixBin(), returns Unavailable (never a silent Valid) on \"\", and passes the RESOLVED ABSOLUTE path to exec.CommandContext. The ValidPackageAttr charset guard still runs before any shell-out and is unchanged/not weakened (TestValidPackageAttr, TestValidatePackageCharset intact). TestResolveNixFallback genuinely asserts fallback->stubbed-absolute-candidate, none->\"\"->Unavailable, and explicit-unresolved-override->\"\" (no fallback) — it does not merely name-check. nixos/modules/palmux.nix service `path` now appends config.nix.package (belt-and-braces with the absolute fallback). Ran the Go test: PASS.",
+      "overlooked_by_autopilot": false,
+      "recommended_action": "none"
+    },
+    {
+      "category": "ac-behavior",
+      "story": "S41bdf2-4",
+      "ac": "AC-S41bdf2-4-2",
+      "verdict": "pass",
+      "detail": "The $HOME validation CANNOT be bypassed: SetAuthPath (controller.go) validates via config.ExpandSharedDir(authPath, home) before any persistence; ExpandSharedDir (internal/config/shared_dirs.go) rejects empty, ~otheruser, non-absolute, and any path whose filepath.Rel(home, abs) escapes home (\"..\"/absolute) — so /etc/secret, ~/../etc, ~/.config/../../etc all error. postAppAuthPath (handler_apps.go) maps that error to HTTP 400. The override persists to apps.json (WriteApps) and List() returns the EFFECTIVE (override-or-catalog) authPath (v.AuthPath now computed from installedByID override, GET reflects it). Editing a not-installed app is refused (rec==nil -> error -> 400; TestSetAuthPath + acceptance both assert). When the old path was shared, the share MOVES within the SAME shared_dirs single source via c.shared.ApplySharedDirs (old dropped, new added). Route registered POST /api/apps/{id}/auth-path in server.go. Response shape is additive only: new endpoint + AppView.authPath now reflects override; no fields removed/renamed. Ran TestSetAuthPath + TestSetAuthPathNotShared: PASS.",
+      "overlooked_by_autopilot": false,
+      "recommended_action": "none"
+    },
+    {
+      "category": "test-integrity",
+      "story": "S41bdf2-4",
+      "ac": "AC-S41bdf2-4-3",
+      "verdict": "pass",
+      "detail": "tests/e2e/s41bdf2_authpath_edit.py carries [AC-S41bdf2-4-2] tags and asserts on user-observable results through the REAL backend: it edits via the real inline control, then reads GET /api/apps for the effective authPath, asserts the card inner_text shows the corrected path, and that out-of-$HOME disables save with a scope error, plus a cancel-does-not-persist path. The mock (s41bdf2_authpath_edit_mock.py) exercises the input-state machine (edit affordance present-when-installed/absent-when-not, unchanged-draft disables save, ~otheruser/out-of-$HOME disable save + inline error, valid draft enables save, cancel restores). The acceptance suite (s41bdf2_apps_backend.py) appends server-side reject checks: /etc/secret -> 400, in-$HOME override -> 200 + GET effective, not-installed gh edit -> 400. Assertions read (not just names); they check real observable state.",
+      "overlooked_by_autopilot": false,
+      "recommended_action": "none"
+    },
+    {
+      "category": "forbidden-scan",
+      "story": "S41bdf2-4",
+      "ac": null,
+      "verdict": "pass",
+      "detail": "git diff e496a6e..HEAD added lines contain no t.Skip/it.skip/.skip(/xfail/pytest.mark.skip, no @ts-ignore/#noqa, no empty/swallowed catch, no new `: any`/`as any` casts (apps-section.tsx clean). ROADMAP.json changes are the expected AC status pending->pass and story/task pending->done plus rollup 69->70/98%->100%; AC *description text* is byte-for-byte preserved (not loosened). No AC text removed.",
+      "overlooked_by_autopilot": false,
+      "recommended_action": "none"
+    },
+    {
+      "category": "adr-conformance",
+      "story": "S41bdf2-4",
+      "ac": null,
+      "verdict": "pass",
+      "detail": "No port hardcoding — E2E/acceptance read PALMUX2_DEV_PORT (portman/INSTANCE=dev), verify-run ran on assigned port 8205. Sd44947 shared_dirs is reused as the single source (SetAuthPath routes the share move through SharedDirsPort.ApplySharedDirs / CurrentSharedDirs, not a reinvented store). $HOME scope is enforced server-side in SetAuthPath via config.ExpandSharedDir (client hint is secondary; server is authoritative and returns 400).",
+      "overlooked_by_autopilot": false,
+      "recommended_action": "none"
+    }
+  ],
+  "summary": {
+    "ac_failures": 0,
+    "forbidden_warnings": 0,
+    "adr_conflicts": 0,
+    "overlooked_count": 0
+  }
+}
