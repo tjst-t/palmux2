@@ -11417,6 +11417,11 @@
               "id": "AC-Se173ef-3-6",
               "description": "state diagram（Loading/Empty(旧スプリント)/Populated/PartialArtifacts/ParseError）確認済み。全 interactive 要素に data-testid。mock テスト（新旧混在・欠損 artifact・破損 JSON）が pass、E2E（[AC-*] タグ、docs/sprint-logs の実データ or fixture に対して）が dev インスタンスに対して pass。",
               "status": "pending"
+            },
+            {
+              "id": "AC-Se173ef-3-7",
+              "description": "確定 IA = Option A（比較プロトタイプで承認）: 5 タブ Overview / Sprint Detail / Review / Milestones / Decisions。Dependencies と Backlog は Overview 内に畳む（roll-up から展開）、Refine は削除。既定フィルタ 2 点: (1) Sprint timeline は既定で done を隠し『未完了(pending/in_progress)のみ』表示（スプリント増加時に現在地へ即到達、『すべて』で全件）、(2) Backlog は既定で『未昇格のみ』表示（Sprint 化済みは畳む、フィルタで昇格先リンク付き一覧）。フィルタ状態は pushState でなく UI state。",
+              "status": "pending"
             }
           ],
           "tasks": {
@@ -11481,7 +11486,8 @@
             }
           }
         }
-      }
+      },
+      "confirmed_ia": "Option A (5 タブ): Overview[Dependencies + Backlog を内包] / Sprint Detail / Review(NEW) / Milestones(NEW) / Decisions。Refine 削除。プロトタイプ prototype/se173ef-*.html が視覚的 source of truth。"
     }
   },
   "dependencies": {

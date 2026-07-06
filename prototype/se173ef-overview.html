@@ -60,16 +60,20 @@
 
   <!-- timeline table -->
   <div class="panel"><div class="ph"><h2>Sprint timeline</h2><span class="tag2">status / milestone / detail_level バッジ付き</span></div><div class="pb">
+    <div class="filter-chips" style="align-items:center">
+      <span class="chip on">未完了のみ</span>
+      <span class="chip">すべて (66 done 含む)</span>
+      <span class="help2" style="margin:0 0 0 auto">✓ 完了 66 件を非表示（既定）</span>
+    </div>
     <table class="tl">
       <thead><tr><th>Sprint</th><th>Title</th><th>Status</th><th>Depends on</th><th>Meta</th></tr></thead>
       <tbody>
-        <tr><td class="sid">Sd44947</td><td class="stt">共有フォルダの宣言化 (profile-as-mold)</td><td><span class="b done">✓ done</span></td><td class="dep-pill">—</td><td><span class="b ms">★</span> <span class="b meta">detailed</span></td></tr>
         <tr><td class="sid">S673a42</td><td class="stt">GUI からの更新キック復活</td><td><span class="b pending">pending</span></td><td><span class="dep-pill">Sb14caa</span></td><td><span class="b meta">detailed</span></td></tr>
         <tr><td class="sid">S41bdf2</td><td class="stt">§8.3 GUI アプリカードモデル</td><td><span class="b pending">pending</span></td><td><span class="dep-pill">S673a42</span> <span class="dep-pill">Sd44947</span></td><td><span class="b ms">★</span> <span class="b meta">detailed</span></td></tr>
         <tr><td class="sid">Se173ef</td><td class="stt">Sprint タブを現行 skill artifact に追随</td><td><span class="b pending">pending</span></td><td class="dep-pill">—</td><td><span class="b meta">detailed</span></td></tr>
       </tbody>
     </table>
-    <p class="help2">行クリックで Sprint Detail へ。coarse スプリントは <span class="b coarse">coarse</span> で「未詳細化」を区別。</p>
+    <p class="help2">既定は<b>未完了（pending / in_progress）のみ</b>表示 — スプリントが増えても「今やっている所」にすぐ着ける。「すべて」で done 含む全件。行クリックで Sprint Detail へ、coarse は <span class="b coarse">coarse</span> で区別。</p>
   </div></div>
 
   <!-- folded dependency mini-graph (Option A) -->
@@ -82,17 +86,18 @@ Se173ef  (独立)</div>
 
   <!-- folded backlog (Option A) -->
   <div class="panel"><div class="ph"><h2>Backlog <span class="help" style="font-weight:400">· 47 件</span></h2><span class="tag2">Option A: Backlog をここに内包（roll-up の「47」から展開）</span></div><div class="pb">
-    <div class="filter-chips">
-      <span class="chip on">All (47)</span>
-      <span class="chip">未昇格</span>
-      <span class="chip">Sprint 化済み</span>
+    <div class="filter-chips" style="align-items:center">
+      <span class="chip">All (47)</span>
+      <span class="chip on">未昇格 (46)</span>
+      <span class="chip">Sprint 化済み (1)</span>
+      <span class="help2" style="margin:0 0 0 auto">✓ 既定は未昇格のみ</span>
     </div>
-    <div class="cr-item"><span class="b done" style="font-size:10px">→ S41bdf2</span> GUI アプリカード (§8.3 install+folder-share 従属トグル) <span class="help2">— Sprint 化済み</span></div>
     <div class="cr-item">Full Branch → Workspace rename across Go types, TS types, URL path segments</div>
     <div class="cr-item">Commit-diff endpoint + Monaco diff in log detail pane</div>
     <div class="cr-item">Cherry-pick / merge conflict WS event</div>
-    <div class="cr-item" style="border:none">… 他 43 件 <a href="#" style="font-size:11px">すべて表示</a></div>
-    <p class="help2">Option C ではこれを独立 <b>Backlog</b> タブに。Sprint 化済み項目は昇格先スプリントへリンク（重複昇格防止）。</p>
+    <div class="cr-item">Blame view の Monaco gutter 統合</div>
+    <div class="cr-item" style="border:none">… 他 42 件 <a href="#" style="font-size:11px">すべて表示</a></div>
+    <p class="help2">既定は<b>未昇格のみ</b>（Sprint 化済みは畳む）。「Sprint 化済み」で昇格先リンク付き一覧。Option C ではこれを独立 <b>Backlog</b> タブに。</p>
   </div></div>
 
   <p class="help" style="text-align:center;margin-top:20px"><a href="se173ef-index.html">← 構成比較 A/B/C</a></p>
