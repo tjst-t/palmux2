@@ -7,5 +7,12 @@
     "純 GUI/REST 機能で実 VM/incus 不要。dev インスタンス E2E で全経路検証(priority_rule 9 real-VM smoke 対象外、review_reason 明記)。",
     "非マイルストーン(内部ツール改善)。他スプリント成果物に依存せず独立実行可。",
     "ユーザ要望により plan 段階で Prototype を先行作成しレビューを取る(sprint prototype の前倒し)。"
+  ],
+  "fixup_decisions": [
+    "BUG1(SEVERE path-traversal / handler_review.go:sprintLog): r.PathValue(\"sprintId\") が生で filepath.Join に入り %2f エンコード wildcard で worktree を脱出できた。isCleanSegment(スラッシュ/バックスラッシュ/'..' 拒否 + filepath.Base 一致)で単一セグメント検証し、さらに sprintDetail と同じ roadmapHasSprint ゲート(実 ROADMAP sprint 一致→でなければ 404、fail-closed)を追加。sprintDetail 側も etag が logDir を stat する前に isCleanSegment を前置(defense-in-depth)。他の PathValue→FS パス経路は grep で sprintLog/sprintDetail の2箇所のみと確認済(repoId/branchId は store lookup で FS パス化しない)。",
+    "BUG2(promotion 誤検知 / parser/roadmap.go:detectPromotion): 共有 CJK run>=6 だけで無関係 sprint と一致し backlog を誤って Promoted 化(BacklogUnpromoted から脱落し promoted フィルタに隠れる)問題。CJK run アンカーを『タイトル全 CJK 文字数の >= 0.7(cjkAnchorMinFraction, near-full-title containment)』に厳格化。§/ADR セクション参照アンカーは据え置き。実 ROADMAP の唯一の真の昇格(『GUI アプリカード (§8.3…)』→S41bdf2)は §8.3 アンカーで捕捉され不変であることを確認。",
+    "回帰テスト2件を追加し、いずれも fix 前で FAIL(BUG1 は out-of-tree SECRET.log を漏洩、BUG2 は S_SEARCH を返す)・fix 後で PASS を git stash で実証: internal/tab/sprint/handler_test.go TestSprintLog_RejectsPathTraversal、internal/tab/sprint/parser/roadmap_test.go TestDetectPromotion_NoFalsePositiveOnSharedCJKPhrase。",
+    "MANDATORY independent verifier(killed run では未実行)を別セッションの read-only sub-agent として実行。overall=pass / overlooked=0、両 bugfix の closure を独立確認し docs/sprint-logs/Se173ef/verification-report.json を出力。compromises.json は不在=妥協ゼロで honest と確認。",
+    "Story 4: SPRINT_LOGS_SCHEMA.json(~/.claude/skills/sprint/references/、REPO 外)は killed run が既に現行 artifact 全9種(verify-run/verification-report/done-judgment/compromises/comprehension-report/prototype-review/reopen/gui-spec/scenario)を反映済で追編集不要。このファイルは repo ブランチ外の編集のため branch diff には現れない — 親 autopilot が milestone で surface すること。"
   ]
 }

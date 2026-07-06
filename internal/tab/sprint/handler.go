@@ -423,6 +423,14 @@ func (h *handler) sprintDetail(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "sprintId required"})
 		return
 	}
+	// Path safety: reject traversal in sprintID before it is joined into any
+	// filesystem path (defense-in-depth; the found==nil→404 below already
+	// prevents reads, but the etag stats logDir first). See handler_review.go
+	// isCleanSegment / sprintLog for the SEVERE traversal this class guards.
+	if !isCleanSegment(sprintID) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid sprintId"})
+		return
+	}
 	roadmapPath := filepath.Join(root, "docs", "ROADMAP.json")
 	logDir := filepath.Join(root, "docs", "sprint-logs", sprintID)
 	tag := `"` + shortHash(fileTag(roadmapPath)+":"+fileTagDir(logDir)) + `"`

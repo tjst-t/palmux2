@@ -252,3 +252,131 @@ func TestOverviewTimeline_MilestoneAndDependsOn(t *testing.T) {
 		t.Errorf("did not find S_B in serialised timeline")
 	}
 }
+
+// newSprintFixture builds a real git worktree under a fake ghq root with the
+// given ROADMAP.json, registers it in a real store, and returns the sprint
+// handler plus the ids the route handlers read via r.PathValue and the
+// worktree dir (so a test can plant files on disk).
+func newSprintFixture(t *testing.T, roadmapJSON string) (h *handler, repoID, branchID, worktreeDir string) {
+	t.Helper()
+	ghqRoot := t.TempDir()
+	ghqPath := "github.com/tjst-t/fixture"
+	worktreeDir = filepath.Join(ghqRoot, ghqPath)
+	if err := os.MkdirAll(filepath.Join(worktreeDir, "docs"), 0o755); err != nil {
+		t.Fatalf("mkdir worktree: %v", err)
+	}
+	gitInit(t, worktreeDir)
+	if err := os.WriteFile(filepath.Join(worktreeDir, "docs", "ROADMAP.json"), []byte(roadmapJSON), 0o644); err != nil {
+		t.Fatalf("write ROADMAP.json: %v", err)
+	}
+	cfgDir := t.TempDir()
+	repoStore, err := config.NewRepoStore(cfgDir)
+	if err != nil {
+		t.Fatalf("NewRepoStore: %v", err)
+	}
+	settings, err := config.NewSettingsStore(cfgDir)
+	if err != nil {
+		t.Fatalf("NewSettingsStore: %v", err)
+	}
+	registry := tab.NewRegistry()
+	st, err := store.New(store.Deps{
+		Tmux:      tmux.NewMockClient(),
+		RepoStore: repoStore,
+		Settings:  settings,
+		Registry:  registry,
+		GHQRoot:   ghqRoot,
+	})
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	repo, err := st.OpenRepo(context.Background(), ghqPath)
+	if err != nil {
+		t.Fatalf("OpenRepo: %v", err)
+	}
+	if len(repo.OpenBranches) == 0 {
+		t.Fatalf("expected at least one open branch after OpenRepo")
+	}
+	return newHandler(st), repo.ID, repo.OpenBranches[0].ID, worktreeDir
+}
+
+// TestSprintLog_RejectsPathTraversal is a SECURITY regression test for the
+// SEVERE path-traversal in sprintLog (Se173ef fixup BUG 1). Go 1.22 ServeMux
+// binds a percent-encoded wildcard to a SINGLE path segment without
+// redirecting, so a caller could pass sprintId="../../.." and, combined with
+// a base .log name, read any host .log file outside docs/sprint-logs —
+// unauthenticated in open-access mode. The handler must reject such a
+// sprintId (400/404) and never return the escaped file's contents.
+func TestSprintLog_RejectsPathTraversal(t *testing.T) {
+	const secret = "TOP-SECRET-HOST-LOG-CONTENTS"
+	roadmapJSON := `{
+		"project": "Test",
+		"description": "test",
+		"progress": {"total": 1, "done": 0, "in_progress": 0, "remaining": 1, "percentage": 0},
+		"execution_order": ["S_A"],
+		"sprints": {"S_A": {"title": "Alpha", "status": "pending", "description": "", "stories": {}}},
+		"dependencies": {},
+		"backlog": []
+	}`
+	h, repoID, branchID, worktreeDir := newSprintFixture(t, roadmapJSON)
+
+	// Plant a secret .log at the worktree ROOT — one level above
+	// docs/sprint-logs. filepath.Join(root,"docs","sprint-logs","../..","SECRET.log")
+	// cleans to root/SECRET.log, so the traversal would reach it absent the guard.
+	if err := os.WriteFile(filepath.Join(worktreeDir, "SECRET.log"), []byte(secret), 0o644); err != nil {
+		t.Fatalf("write SECRET.log: %v", err)
+	}
+
+	// Traversal variants that must all be refused. The first escapes to the
+	// worktree root; the others escape further / use different separators.
+	for _, sprintID := range []string{"../..", "../../../../var/log", `..\..`, "..", "S_A/../.."} {
+		req := httptest.NewRequest("GET", "/sprint-log?file=SECRET.log", nil)
+		req.SetPathValue("repoId", repoID)
+		req.SetPathValue("branchId", branchID)
+		req.SetPathValue("sprintId", sprintID)
+		rec := httptest.NewRecorder()
+		h.sprintLog(rec, req)
+
+		if rec.Code == 200 {
+			t.Errorf("sprintId=%q: expected rejection, got 200 with body: %q", sprintID, rec.Body.String())
+		}
+		if rec.Code != 400 && rec.Code != 404 {
+			t.Errorf("sprintId=%q: expected 400/404, got %d", sprintID, rec.Code)
+		}
+		if strings.Contains(rec.Body.String(), secret) {
+			t.Errorf("SECURITY: sprintId=%q leaked out-of-tree file contents: %q", sprintID, rec.Body.String())
+		}
+	}
+
+	// A well-formed sprintId that is not a real ROADMAP sprint is a 404
+	// (mirrors sprintDetail's found-or-404 gate) — proves the ROADMAP gate.
+	req := httptest.NewRequest("GET", "/sprint-log?file=x.log", nil)
+	req.SetPathValue("repoId", repoID)
+	req.SetPathValue("branchId", branchID)
+	req.SetPathValue("sprintId", "S_NOPE")
+	rec := httptest.NewRecorder()
+	h.sprintLog(rec, req)
+	if rec.Code != 404 {
+		t.Errorf("unknown-but-clean sprintId: expected 404, got %d", rec.Code)
+	}
+
+	// Happy path: a real sprint + a real .log under its dir is served 200.
+	logDir := filepath.Join(worktreeDir, "docs", "sprint-logs", "S_A")
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		t.Fatalf("mkdir logDir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(logDir, "verify-run-1.log"), []byte("ok-log-body"), 0o644); err != nil {
+		t.Fatalf("write verify log: %v", err)
+	}
+	req = httptest.NewRequest("GET", "/sprint-log?file=verify-run-1.log", nil)
+	req.SetPathValue("repoId", repoID)
+	req.SetPathValue("branchId", branchID)
+	req.SetPathValue("sprintId", "S_A")
+	rec = httptest.NewRecorder()
+	h.sprintLog(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("happy path: expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "ok-log-body") {
+		t.Errorf("happy path: expected log body, got %q", rec.Body.String())
+	}
+}

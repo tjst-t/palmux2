@@ -1,18 +1,18 @@
 {
   "$machine_authored": true,
-  "$note": "run-verify.py hook is not wired in this environment (.claude/verify.json absent). Authored from real process exit codes captured during sprint auto; each verify-run-{name}.log carries a __VERIFY_EXIT_CODE__:{name}:{code} trailer for tamper-evidence. Same convention as Sd44947/verify-run.json.",
+  "$note": "Se173ef FIXUP re-run. run-verify.py hook is not wired in this environment (.claude/verify.json absent). Authored from real process exit codes captured during the fixup re-verification; each verify-run-{name}.log carries a __VERIFY_EXIT_CODE__:{name}:{code} trailer for tamper-evidence. Same convention as Sd44947/verify-run.json. The 'unit' run now also covers the two new bugfix regression tests: TestSprintLog_RejectsPathTraversal (BUG1 path-traversal, proven to fail pre-fix by leaking an out-of-tree SECRET.log) and TestDetectPromotion_NoFalsePositiveOnSharedCJKPhrase (BUG2 promotion false-positive, proven to fail pre-fix returning S_SEARCH).",
   "sprint": "Se173ef",
-  "command_source": "fallback (go test + tsc + eslint + real-mode dev2 e2e/mock/acceptance)",
+  "command_source": "fallback (go test + tsc + eslint + real-mode dev e2e/mock/acceptance on INSTANCE=dev port 8203)",
   "runs": [
     {"name": "unit", "command": "go test ./internal/tab/sprint/...", "exit_code": 0, "log": "docs/sprint-logs/Se173ef/verify-run-unit.log", "machine_status": "pass", "junit": null},
     {"name": "gofull", "command": "go test ./...", "exit_code": 0, "log": "docs/sprint-logs/Se173ef/verify-run-gofull.log", "machine_status": "pass", "junit": null},
     {"name": "tsc", "command": "cd frontend && npx tsc -b", "exit_code": 0, "log": "docs/sprint-logs/Se173ef/verify-run-tsc.log", "machine_status": "pass", "junit": null},
     {"name": "eslint", "command": "cd frontend && npx eslint src/tabs/sprint", "exit_code": 0, "log": "docs/sprint-logs/Se173ef/verify-run-eslint.log", "machine_status": "pass", "junit": null},
-    {"name": "gui-e2e", "command": "PALMUX2_DEV_PORT=8202 python3 tests/e2e/se173ef_sprint_tab.py", "exit_code": 0, "log": "docs/sprint-logs/Se173ef/verify-run-gui-e2e.log", "machine_status": "pass", "junit": null},
-    {"name": "gui-mock", "command": "PALMUX2_DEV_PORT=8202 python3 tests/e2e/se173ef_sprint_tab_mock.py", "exit_code": 0, "log": "docs/sprint-logs/Se173ef/verify-run-gui-mock.log", "machine_status": "pass", "junit": null},
+    {"name": "gui-e2e", "command": "PALMUX2_DEV_PORT=8203 python3 tests/e2e/se173ef_sprint_tab.py", "exit_code": 0, "log": "docs/sprint-logs/Se173ef/verify-run-gui-e2e.log", "machine_status": "pass", "junit": null},
+    {"name": "gui-mock", "command": "PALMUX2_DEV_PORT=8203 python3 tests/e2e/se173ef_sprint_tab_mock.py", "exit_code": 0, "log": "docs/sprint-logs/Se173ef/verify-run-gui-mock.log", "machine_status": "pass", "junit": null},
     {"name": "acceptance-schema", "command": "python3 tests/acceptance/se173ef_schema_contract.py", "exit_code": 0, "log": "docs/sprint-logs/Se173ef/verify-run-acceptance-schema.log", "machine_status": "pass", "junit": null},
-    {"name": "regression-s028", "command": "PALMUX2_DEV_PORT=8202 python3 tests/e2e/s028_sprint_json.py", "exit_code": 0, "log": "docs/sprint-logs/Se173ef/verify-run-regression-s028.log", "machine_status": "pass", "junit": null},
-    {"name": "regression-s67cb0e", "command": "PALMUX2_DEV_PORT=8202 python3 tests/e2e/s67cb0e_sprint_tab_polish.py", "exit_code": 0, "log": "docs/sprint-logs/Se173ef/verify-run-regression-s67cb0e.log", "machine_status": "pass", "junit": null}
+    {"name": "regression-s028", "command": "PALMUX2_DEV_PORT=8203 python3 tests/e2e/s028_sprint_json.py", "exit_code": 0, "log": "docs/sprint-logs/Se173ef/verify-run-regression-s028.log", "machine_status": "pass", "junit": null},
+    {"name": "regression-s67cb0e", "command": "PALMUX2_DEV_PORT=8203 python3 tests/e2e/s67cb0e_sprint_tab_polish.py", "exit_code": 0, "log": "docs/sprint-logs/Se173ef/verify-run-regression-s67cb0e.log", "machine_status": "pass", "junit": null}
   ],
   "overall_machine_status": "pass"
 }

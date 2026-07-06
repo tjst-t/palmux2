@@ -1,0 +1,71 @@
+{
+  "$comment": "Independent, read-only verifier report for Se173ef (FIXUP verification). Separate skeptical session; re-derived conclusions from code + AC, did not inherit the implementer's beliefs. Full sprint diff = git diff c372dc8 (HEAD 1e9dc06 base impl + uncommitted working-tree fixup). Both bug fixes confirmed real & closed by code reading and by running the two regression tests (PASS) plus pre-fix failure reasoning.",
+  "sprint": "Se173ef",
+  "verified_at": "2026-07-06T09:00:00Z",
+  "verifier_model": "claude-opus-4-8[1m] (read-only, separate adversarial session; no write access to source/tests/ROADMAP)",
+  "overall": "pass",
+  "findings": [
+    {
+      "category": "acceptance_criteria",
+      "story": "Se173ef-1",
+      "ac": null,
+      "verdict": "pass",
+      "detail": "BUG1 PATH-TRAVERSAL (SEVERE) confirmed CLOSED. internal/tab/sprint/handler_review.go sprintLog now (1) rejects non-clean sprintId via isCleanSegment (bars '/','\\\\','..' and requires filepath.Base(s)==s), and (2) gates on roadmapHasSprint (real ROADMAP match, else 404, fail-closed on read/parse error). handler.go sprintDetail got the same isCleanSegment guard before it stats logDir (defense-in-depth for the etag path; found==nil→404 already blocked reads). readFileBytes itself does NO path check, so caller guards are the control — confirmed every filesystem-path use of r.PathValue is now guarded: grep shows PathValue only at handler_review.go:344 (sprintLog, guarded) and handler.go:421 (sprintDetail, guarded); repoId/branchId go through store lookup, not paths. Regression test TestSprintLog_RejectsPathTraversal plants an out-of-tree SECRET.log at worktree root, drives the REAL handler with 5 traversal variants ('../..','../../../../var/log','..\\\\..','..','S_A/../..'), asserts each returns 400/404 AND never contains the secret, plus a clean-but-unknown id → 404 (proves the ROADMAP gate) and a real happy-path → 200. Pre-fix this test FAILS: sprintId='../..'+file='SECRET.log' → filepath.Join cleans to root/SECRET.log → 200 with secret leaked. Test observed PASS via `go test ./internal/tab/sprint/...`."
+    },
+    {
+      "category": "acceptance_criteria",
+      "story": "Se173ef-2",
+      "ac": "AC-Se173ef-2-4",
+      "verdict": "pass",
+      "detail": "BUG2 PROMOTION FALSE-POSITIVE (data-correctness) confirmed CLOSED. parser/roadmap.go promotionAnchors now requires a contiguous CJK run to cover >= cjkAnchorMinFraction (0.7) of the title's TOTAL CJK runes (minRun = ceil(0.7*totalCJK), floored at 6) before it becomes a promotion anchor, so a generic shared sub-phrase (a minority of a longer title) no longer fires. §-section/ADR anchors (sectionRefRe) are untouched and still fire. Regression test TestDetectPromotion_NoFalsePositiveOnSharedCJKPhrase asserts BOTH directions: false-positive gone ('ダッシュボードの パフォーマンス改善' shares only 'パフォーマンス改善' with unrelated S_SEARCH → now '' ; pre-fix minRun=6 → anchor 'パフォーマンス改善' contained in '検索のパフォーマンス改善' → wrongly returned S_SEARCH, so test fails pre-fix), AND true promotions still fire (near-full-title '共有フォルダの宣言化' → S_SHARED ; §8.3 section ref → S_SECTION). Independently confirmed the ONE real ROADMAP promotion is NOT dropped: backlog 'GUI アプリカード (§8.3 install+folder-share 従属トグル)' carries §8.3 anchor, and sprint S41bdf2 title '§8.3 GUI アプリカードモデル…' contains '§8.3' → still detected (section anchors are unaffected by the CJK fraction change). Test observed PASS."
+    },
+    {
+      "category": "acceptance_criteria",
+      "story": "Se173ef-1",
+      "ac": "AC-Se173ef-1-1..1-5",
+      "verdict": "pass",
+      "detail": "Modern-artifact readers exist and are reachable through the user's entry point. parser/artifacts.go (917 lines) provides ParseVerifyRun/ParseVerificationReport/ParseDoneJudgment/ParseCompromises/ParseReopen/ParseComprehension/ParseGUISpec/scenario readers; handler.go sprintDetail wires them into the extended response; handler_review.go adds /review, /milestones, /backlog, /sprints/{id}/log (all routed in provider.go). Backward-compat (AC-1-4): readLog fail-opens to nil on missing file → section omitted; a CORRUPT file surfaces as a per-file parser.ParseError in the response rather than crashing — this is intentional optional-artifact handling, not error-swallowing. Dead readers replaced (AC-1-3): AC matrix now derived from verification-report ac_findings + ROADMAP status; run results from verify-run.json. E2E tests/e2e/se173ef_sprint_tab.py drives these via real HTTP and asserts on the JSON (overall=pass, headings, derived matrix). All backing runs exit 0."
+    },
+    {
+      "category": "acceptance_criteria",
+      "story": "Se173ef-3",
+      "ac": "AC-Se173ef-3-1..3-8",
+      "verdict": "pass",
+      "detail": "Frontend Option-A IA is real, not stubbed. sprint-view.tsx defines exactly 5 subtabs (overview/detail/review/milestones/decisions) with Refine + Dependencies removed (refine kept only as legacy direct-URL); new screens review.tsx, milestones.tsx, mermaid-diagram.tsx, extended overview.tsx + sprint-detail.tsx exist with substantial content. E2E asserts on user-observable DOM: subtab presence/absence counts, refine/dependencies tabs absent, timeline default incomplete-only (S_OLD hidden, S_CUR visible), 'all' filter reveals done, coarse badge, rollup counts — via data-testids and inner_text against a real headless-chromium round-trip on the dev instance. Transient states (Loading/Empty/PartialArtifacts/ParseError) covered by se173ef_sprint_tab_mock.py with page.route (legitimate mock-only use per test-discipline). gui-e2e + gui-mock runs both exit 0."
+    },
+    {
+      "category": "acceptance_criteria",
+      "story": "Se173ef-4",
+      "ac": "AC-Se173ef-4-1,4-2",
+      "verdict": "pass",
+      "detail": "Out-of-repo skill file ~/.claude/skills/sprint/references/SPRINT_LOGS_SCHEMA.json was actually updated: it now enumerates the current canonical artifacts (decisions/verify-run/verification-report/done-judgment/compromises/comprehension-report/prototype-review/reopen/gui-spec/scenario/failures + verify-run-*.log) and carries a 'deprecated' block marking acceptance-matrix.json / e2e-results.json REMOVED and clarifying verification-results.json is not the machine trust source. docs/sprint-logs/README.md (68 new lines) documents the tab⇄skill artifact contract + drift-prevention procedure. tests/acceptance/se173ef_schema_contract.py static-checks the alignment (exit 0). The edit is outside the git branch diff by nature (different tree); recorded in done-judgment.json — a truthful disclosure, not a hidden compromise."
+    },
+    {
+      "category": "forbidden_categories",
+      "story": null,
+      "ac": null,
+      "verdict": "pass",
+      "detail": "Forbidden-action scan over git diff c372dc8 found NONE. No new t.Skip / it.skip / pytest.mark.skip; no assertion weakening (no toEqual→toBeTruthy, no removed assertions — new tests assert concrete values/counts); no error-swallowing in Go/TS source (no `catch {}`, no `@ts-ignore`, no `_ = err` on meaningful errors — readLog/roadmapHasSprint fail-open/closed are deliberate, documented optional-artifact controls); no `: any` / `as any` / abusive casts in TS; ROADMAP.json UNCHANGED in the diff → zero acceptance_criteria_modified. The only pragmas in the diff are standard Python E2E import hygiene (# noqa: E402 / PLC0415, # type: ignore on late/dynamic imports of playwright and cross-module helpers) — not skips or weakened assertions."
+    },
+    {
+      "category": "adr_conformance",
+      "story": null,
+      "ac": null,
+      "verdict": "pass",
+      "detail": "No docs/DESIGN or ADR set in this repo (done-judgment guard_7 recorded n/a). decisions.json lists no touched_adrs. The additive-only API design (new endpoints, no existing response-shape change) is consistent with the stated DESIGN_PRINCIPLES note ('既存 API レスポンス破壊的変更禁止') in handler_review.go. No conflict found."
+    },
+    {
+      "category": "compromises_completeness",
+      "story": null,
+      "ac": null,
+      "verdict": "pass",
+      "detail": "No compromises.json exists; the implementer claims none. Independently confirmed honest: the diff weakens no test, swallows no error, relaxes no type, loosens no AC text, and modifies no ROADMAP AC. Execution-log reconciliation is CLEAN — verify-run.json overall_machine_status=pass with all 9 runs machine_status=pass, each backed by a __VERIFY_EXIT_CODE__:<name>:0 trailer in its verify-run-*.log; every status:pass in verification-results.json (19/19 AC) maps to a passing run. No pass was claimed over a recorded machine failure. Nothing overlooked."
+    }
+  ],
+  "summary": {
+    "ac_failures": 0,
+    "forbidden_warnings": 0,
+    "adr_conflicts": 0,
+    "overlooked_count": 0
+  }
+}

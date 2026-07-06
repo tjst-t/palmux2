@@ -11306,39 +11306,39 @@
       "description": "Sprint タブ (internal/tab/sprint + frontend/src/tabs/sprint) は 2026-05〜06 時点の sprint/autopilot skill 向けに作られており、以降 skill が正典化した artifact 群に追随していない。現状タブが読むのは decisions.json / acceptance-matrix.json / e2e-results.json / refine.json / failures.json だが、現行 skill (Sd44947 の sprint-log dir が実態) が書くのは verify-run.json(機械判定) / verification-report.json(独立 verifier) / done-judgment.json(6-guard) / compromises.json / comprehension-report.md / prototype-review.json / reopen.json / gui-spec-*.json / scenario-*.json / verify-run-*.log。結果、acceptance-matrix.json / e2e-results.json は現行スプリントで生成されず**タブの該当セクションが空**で、trust source である verification/done-judgment/compromises/comprehension が**一切表示されない**。本スプリントで (1) 表示情報の抜け漏れを塞ぎ、(2) trust-source を前面に出す情報設計へ刷新する。skill の SPRINT_LOGS_SCHEMA.json も実態に合わせて更新し、再ドリフトを防ぐ。",
       "milestone": true,
       "phase": "Phase 6 — palmuxOS",
-      "status": "pending",
+      "status": "done",
       "detail_level": "detailed",
       "review_reason": "Sprint タブはローカル docs/sprint-logs を読む純 GUI/REST 機能で、dev インスタンスの E2E で全経路検証できる。実 VM / 実 incus は不要（priority_rule 9 の real-VM smoke 対象外）。",
       "stories": {
         "Se173ef-1": {
           "title": "backend: 現行 artifact セットをパース・公開（旧 reader 置換 + schema 整合 + 後方互換）",
           "story": "Sprint タブ利用者として、現行 skill が書く全 artifact（機械判定・独立 verifier・6-guard・妥協・理解レポート・prototype・gui-spec・reopen）がタブの API から取れてほしい。なぜなら、今は生成されない旧 artifact（acceptance-matrix.json/e2e-results.json）を読んでいて、実際の検証結果や trust source が API に一切出てこないから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-Se173ef-1-1",
               "description": "sprint detail API が現行 artifact をパースして返す: verifyRun(verify-run.json: runs[] の name/exit_code/machine_status/log + overall_machine_status)、verification(verification-report.json: overall + summary + stories[].ac_findings/forbidden_category_findings/overlooked_by_autopilot)、doneJudgment(done-judgment.json: story ごとの guard_1..6 + overall)、compromises(compromises.json: severity 別 + blockers + scope_changes)、prototypeReview(prototype-review.json)、reopens(reopen.json)、guiSpecs(gui-spec-*.json: state_diagram/scenarios/endpoint_contracts/data_testids)、scenarios(scenario-*.json / story-scenarios.md)。各 parser は skill の対応スキーマ（VERIFY_RUN_SCHEMA/VERIFICATION_REPORT_SCHEMA/COMPROMISES_SCHEMA/REOPEN_SCHEMA/ROADMAP_SCHEMA）に整合。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Se173ef-1-2",
               "description": "comprehension-report.md を API で返す（生 Markdown + セクション見出し抽出）。milestone スプリントで存在。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Se173ef-1-3",
               "description": "死んだ reader の置換: AC pass/fail マトリクスは defunct な acceptance-matrix.json ではなく verification-report.json の ac_findings + ROADMAP の AC status から導出。E2E/テスト結果は e2e-results.json ではなく verify-run.json（機械判定 + 各 verify-run-*.log 参照）から。旧ファイルが在れば読むが、無くても新経路で成立。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Se173ef-1-4",
               "description": "後方互換（§2.9）: 旧スプリント（decisions.json のみ、新 artifact 不在）でもエラーにならず、欠損 artifact は省略。ParseError は既存機構で個別報告し、1 ファイルの破損が画面全体を落とさない。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Se173ef-1-5",
               "description": "任意の実機 smoke ログ（例 deploy-test-smoke.json のような追加 *.json）を『追加検証ログ』として汎用収集し一覧化（ファイル名 + overall/PASS 判定のヒューリスティック）。将来 artifact の silent 抜け落ちを避ける。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
@@ -11362,27 +11362,27 @@
         "Se173ef-2": {
           "title": "backend: 新 ROADMAP フィールドの公開（detail_level/phase/review_reason/milestone/added_in_review/reopened_at/story 状態）",
           "story": "Sprint タブ利用者として、ロードマップの新しいメタ（coarse/detailed、phase、review_reason、後付け追加、再オープン、story の needs_user_review/blocked 等）が見えてほしい。なぜなら、rolling-wave 化や Review Mode 以降タブがこれらを解釈せず、スプリントの実状態が読み取れないから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-Se173ef-2-1",
               "description": "parser.Sprint / Timeline が detail_level(coarse/detailed)・phase・review_reason・milestone・added_in_review・reopened_at を保持し API に出す。coarse スプリントは『未詳細化(placeholder)』として区別表示できる。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Se173ef-2-2",
               "description": "story/AC レベルの新状態（needs_user_review / blocked / needs_human / reopened_at / depends_on）をパースして返す。done と needs_user_review を区別できる。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Se173ef-2-3",
               "description": "dependencies の reason（依存理由）を dependency graph レスポンスに含める。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Se173ef-2-4",
               "description": "backlog を API で公開: 各項目の全フィールド（title / description / reason / added_in / priority / status/source）を返す（元データは object でリッチ、title 1 行に潰さない）。昇格済み判定（title/内容が既存スプリントに取り込まれたか）も付与し、昇格先 SprintID を返す。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
@@ -11401,47 +11401,47 @@
         "Se173ef-3": {
           "title": "frontend: 新 artifact の表示 + trust-source-first の IA 刷新（より良い表示）",
           "story": "Sprint タブ利用者として、スプリントを開いたら『本当に done か（機械判定 + 6-guard + verifier）』『何を妥協したか』『何が変わったか(理解レポート)』が一目で分かってほしい。なぜなら、今は空の旧セクションばかりで、検証の真実源が全く見えず、スプリントの健全性を判断できないから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-Se173ef-3-1",
               "description": "検証ビュー: verify-run.json の機械判定（run ごとの pass/fail + 折りたたみログ、overall_machine_status を大きく）+ verification-report.json の verifier verdict（overall + per-AC findings、overlooked_by_autopilot と forbidden_category_findings を強調表示）。これを detail の最上段（trust-source-first）に置く。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Se173ef-3-2",
               "description": "done-judgment ビュー: story ごとに 6(〜8) guard を grid 表示（pass/needs_user_review、guard 名 + 一言）。needs_user_review の story を明示バッジ。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Se173ef-3-3",
               "description": "milestone ビュー: compromises を severity 別（high 先頭）に + comprehension-report.md を Markdown レンダリング（既存 Markdown レンダラ流用）。milestone スプリントで最前面。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Se173ef-3-4",
               "description": "prototype / gui-spec ビュー: prototype-review.json（screens/承認/design decisions + prototype HTML リンク）と gui-spec の state_diagram（mermaid レンダリング、既存 dependency mermaid 機構流用）・scenarios・data_testids・endpoint_contracts。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Se173ef-3-5",
               "description": "新 ROADMAP メタのバッジ表示: detail_level(coarse=placeholder)、phase、review_reason(ツールチップ)、added_in_review、reopened、story の needs_user_review/blocked。reopen 履歴の表示。旧 refine ビューは refine.json が来れば表示（後方互換）。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Se173ef-3-6",
               "description": "state diagram（Loading/Empty(旧スプリント)/Populated/PartialArtifacts/ParseError）確認済み。全 interactive 要素に data-testid。mock テスト（新旧混在・欠損 artifact・破損 JSON）が pass、E2E（[AC-*] タグ、docs/sprint-logs の実データ or fixture に対して）が dev インスタンスに対して pass。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Se173ef-3-7",
               "description": "確定 IA = Option A（比較プロトタイプで承認）: 5 タブ Overview / Sprint Detail / Review / Milestones / Decisions。Dependencies と Backlog は Overview 内に畳む（roll-up から展開）、Refine は削除。既定フィルタ 2 点: (1) Sprint timeline は既定で done を隠し『未完了(pending/in_progress)のみ』表示（スプリント増加時に現在地へ即到達、『すべて』で全件）、(2) Backlog は既定で『未昇格のみ』表示（Sprint 化済みは畳む、フィルタで昇格先リンク付き一覧）。フィルタ状態は pushState でなく UI state。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Se173ef-3-8",
               "description": "Backlog（Option A では Overview 内包）: 各項目はクリックで展開し description / reason / added_in / priority / サイズ を表示（元データのリッチな内容をドリルダウン）。既定フィルタ=未昇格のみ、昇格済みは昇格先スプリントへリンク。展開状態は UI state。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
@@ -11480,17 +11480,17 @@
         "Se173ef-4": {
           "title": "skill の SPRINT_LOGS_SCHEMA.json を実態に更新（再ドリフト防止）",
           "story": "将来の Sprint タブ保守者として、skill の SPRINT_LOGS_SCHEMA.json が実際に生成される artifact 集合と一致していてほしい。なぜなら、現行スキーマは acceptance-matrix.json/e2e-results.json/verification-results.json という生成されないファイルを列挙し、これがタブ実装をミスリードしてドリフトの元になったから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-Se173ef-4-1",
               "description": "~/.claude/skills/sprint/references/SPRINT_LOGS_SCHEMA.json を現行の正典 artifact 集合（decisions/verify-run/verification-report/done-judgment/compromises/comprehension-report/prototype-review/reopen/gui-spec/scenario/failures + verify-run-*.log）に更新し、廃止 artifact（acceptance-matrix/e2e-results/verification-results）を deprecated 明記 or 削除。タブ backend が参照する artifact 名と一致。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Se173ef-4-2",
               "description": "この整合を docs/sprint-logs の README か本スプリントの decisions.json に記録し、タブ⇄skill の artifact 契約を単一化（次に artifact が増えたらスキーマ更新→タブ追随の手順を明文化）。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {

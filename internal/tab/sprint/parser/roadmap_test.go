@@ -380,3 +380,43 @@ func findRepoRoot(t *testing.T) string {
 		dir = parent
 	}
 }
+
+// TestDetectPromotion_NoFalsePositiveOnSharedCJKPhrase is a data-correctness
+// regression for Se173ef fixup BUG 2. A shared *generic* contiguous CJK
+// sub-phrase (≥6 runes) between a backlog item and an UNRELATED sprint must
+// NOT flag the backlog item as promoted — doing so drops it from the
+// unpromoted count and hides it behind the "promoted" filter though it was
+// never scheduled. A genuine promotion (near-full-title containment or a
+// distinctive §-section reference) MUST still be detected.
+func TestDetectPromotion_NoFalsePositiveOnSharedCJKPhrase(t *testing.T) {
+	sprints := []Sprint{
+		{ID: "S_SEARCH", Title: "検索のパフォーマンス改善"},
+		{ID: "S_SHARED", Title: "共有フォルダの宣言化 (profile-as-mold) + 実行時反映"},
+		{ID: "S_SECTION", Title: "§8.3 GUI アプリカードモデル"},
+	}
+
+	// FALSE-POSITIVE guard: backlog title shares only the generic phrase
+	// "パフォーマンス改善" with the unrelated S_SEARCH sprint (a minority of
+	// the title). The old ≥6-rune heuristic returned S_SEARCH here.
+	if got := detectPromotion("ダッシュボードの パフォーマンス改善", sprints); got != "" {
+		t.Errorf("shared generic CJK phrase wrongly flagged promotion -> %q (want \"\")", got)
+	}
+	// A second collision on a common domain phrase must also not fire when it
+	// is only part of a longer, distinct title.
+	if got := detectPromotion("Ports タブの セルフアップデート連携の調査 (Phase 5 候補)", []Sprint{
+		{ID: "S_SELF", Title: "セルフアップデート堅牢化: 更新が自分を殺さない"},
+	}); got != "" {
+		t.Errorf("partial shared phrase wrongly flagged promotion -> %q (want \"\")", got)
+	}
+
+	// TRUE-POSITIVE 1: the backlog title is *wholly* contained in a sprint
+	// title (near-full-title containment) — must still be detected.
+	if got := detectPromotion("共有フォルダの宣言化", sprints); got != "S_SHARED" {
+		t.Errorf("near-full-title containment should promote -> want S_SHARED, got %q", got)
+	}
+	// TRUE-POSITIVE 2: a distinctive §-section reference remains a strong
+	// anchor regardless of CJK length.
+	if got := detectPromotion("GUI アプリカード (§8.3 install+folder-share 従属トグル)", sprints); got != "S_SECTION" {
+		t.Errorf("§-section anchor should promote -> want S_SECTION, got %q", got)
+	}
+}

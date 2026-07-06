@@ -342,10 +342,19 @@ var sectionRefRe = regexp.MustCompile(`§\s*\d+(?:\.\d+)*|ADR-\d+`)
 
 // detectPromotion is a conservative heuristic (AC-Se173ef-2-4): a backlog
 // item counts as "promoted" only when it shares a *distinctive* anchor with
-// an existing Sprint title — a §-section / ADR reference, or a contiguous
-// CJK run of length ≥ 6. Generic word overlap is deliberately NOT used to
-// avoid false links across unrelated items. Returns the promoting SprintID
-// or "".
+// an existing Sprint title — a §-section / ADR reference, or a CJK run that
+// makes up *nearly the whole* backlog title (near-full-title containment).
+//
+// Bug fix (Se173ef fixup): a bare shared contiguous CJK run of length ≥ 6 is
+// NOT distinctive enough on its own. Common domain phrases like
+// "パフォーマンス改善" / "共有フォルダ" / "セルフアップデート" recur across
+// unrelated backlog items and sprint titles, and a shared generic sub-phrase
+// used to wrongly flag an item Promoted — dropping it from the unpromoted
+// count and hiding it behind the "promoted" filter though it was never
+// scheduled. We now require the CJK anchor to cover a *dominant* fraction of
+// the backlog title's total CJK content, so only a title that is essentially
+// wholly present in a sprint title matches. Generic word overlap is still
+// deliberately NOT used. Returns the promoting SprintID or "".
 func detectPromotion(title string, sprints []Sprint) string {
 	anchors := promotionAnchors(title)
 	if len(anchors) == 0 {
@@ -362,17 +371,39 @@ func detectPromotion(title string, sprints []Sprint) string {
 	return ""
 }
 
-// promotionAnchors extracts distinctive anchors from a backlog title.
+// cjkAnchorMinFraction is the share of a backlog title's total CJK runes that
+// a single contiguous CJK run must cover before it is treated as a distinctive
+// promotion anchor. A generic sub-phrase (a minority of the title) falls below
+// this bar; only a run that is essentially the whole title qualifies.
+const cjkAnchorMinFraction = 0.7
+
+// promotionAnchors extracts distinctive anchors from a backlog title:
+//   - §-section / ADR references (always distinctive), and
+//   - a contiguous CJK run of length ≥ 6 that ALSO covers ≥ cjkAnchorMinFraction
+//     of the title's total CJK runes (near-full-title containment). A shared
+//     generic phrase that is only part of a longer title is intentionally
+//     rejected — see detectPromotion.
 func promotionAnchors(title string) []string {
 	anchors := []string{}
 	for _, m := range sectionRefRe.FindAllString(title, -1) {
 		anchors = append(anchors, strings.ReplaceAll(m, " ", ""))
 		anchors = append(anchors, m)
 	}
-	// Long contiguous CJK runs (≥ 6 runes) are distinctive enough.
+	// Total CJK runes across the whole title (the denominator for the
+	// near-full-title containment test).
+	totalCJK := 0
+	for _, r := range title {
+		if isCJK(r) {
+			totalCJK++
+		}
+	}
+	minRun := int(cjkAnchorMinFraction*float64(totalCJK) + 0.999999) // ceil
+	if minRun < 6 {
+		minRun = 6
+	}
 	var run []rune
 	flush := func() {
-		if len(run) >= 6 {
+		if len(run) >= minRun {
 			anchors = append(anchors, string(run))
 		}
 		run = run[:0]

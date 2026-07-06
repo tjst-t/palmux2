@@ -347,6 +347,22 @@ func (h *handler) sprintLog(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "sprintId and file required"})
 		return
 	}
+	// Path safety for sprintID (SEVERE path-traversal fix): Go 1.22 ServeMux
+	// binds a percent-encoded wildcard (e.g. `..%2f..%2f`) to a single path
+	// segment WITHOUT redirecting, so `sprintId` can carry `..`/slashes and
+	// filepath.Join would escape the worktree (readable host .log files in
+	// open-access mode). Reject anything that is not a clean single segment,
+	// then additionally gate on a real ROADMAP sprint-ID match — the same
+	// guard that makes sprintDetail safe (real IDs never contain `..`/slashes;
+	// a miss is a 404).
+	if !isCleanSegment(sprintID) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid sprintId"})
+		return
+	}
+	if !h.roadmapHasSprint(root, sprintID) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "sprint not found", "sprintId": sprintID})
+		return
+	}
 	// Path safety: base name only, must be a .log under the sprint-log dir.
 	base := filepath.Base(file)
 	if base != file || !strings.HasSuffix(strings.ToLower(base), ".log") || strings.Contains(base, "..") {
@@ -406,6 +422,36 @@ func (h *handler) readLog(root, sprintID, name string) []byte {
 		return nil
 	}
 	return b
+}
+
+// isCleanSegment reports whether s is a single, clean path segment safe to
+// use as a directory name under docs/sprint-logs — no slashes (either kind),
+// no "..", and equal to its own filepath.Base. Empty is rejected.
+func isCleanSegment(s string) bool {
+	if s == "" {
+		return false
+	}
+	if strings.ContainsAny(s, `/\`) || strings.Contains(s, "..") {
+		return false
+	}
+	return filepath.Base(s) == s
+}
+
+// roadmapHasSprint reports whether sprintID is a real sprint in the worktree's
+// ROADMAP.json (case-insensitive), mirroring sprintDetail's found-or-404 gate.
+// Returns false on any read/parse failure (fail-closed).
+func (h *handler) roadmapHasSprint(root, sprintID string) bool {
+	src, err := readFileBytes(root, "docs/ROADMAP.json")
+	if err != nil {
+		return false
+	}
+	rm := parser.ParseRoadmap(src)
+	for i := range rm.Sprints {
+		if strings.EqualFold(rm.Sprints[i].ID, sprintID) {
+			return true
+		}
+	}
+	return false
 }
 
 func firstNonEmpty(vals ...string) string {
