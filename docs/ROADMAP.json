@@ -2,14 +2,14 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 69,
+    "sprints_done": 70,
     "sprints_total": 70,
-    "done": 68,
+    "done": 69,
     "total": 70,
-    "remaining": 2,
+    "remaining": 1,
     "in_progress": 0,
-    "percent": 98,
-    "percentage": 98,
+    "percent": 100,
+    "percentage": 100,
     "current_sprint": "Sb14caa"
   },
   "execution_order": [
@@ -11168,7 +11168,7 @@
       "description": "設計ドキュメント docs/palmux2-nixos-appliance-design.md §8.3 [提案] を実装する。頻度の高い操作（アプリ導入・フォルダ共有）を UI の中心に据え、1アプリ=1カードで見せる。裏では複数レイヤー（§7 パッケージ集合 = home.packages + Sd44947 共有 device 金型）に書き込むが、ユーザには1枚のカード。install トグル（home.packages 追加→ nixos-rebuild、軽）+ フォルダ共有トグル（Sd44947 の shared_dirs 金型、hot）。共有は install に従属（未 install はグレーアウト）、両トグルとも全コンテナ一律（金型=単一プロファイル維持）。§8.2 の『構造化データを正とし .nix を一方向生成』に乗せる。あわせて Sd44947 で folder-share が hot 化された実態を設計ドキュメント（§7/§8.3/§8.4 の陳腐化した [提案]/『重』マーカー）に反映する。",
       "milestone": false,
       "phase": "Phase 6 — palmuxOS",
-      "status": "in_progress",
+      "status": "done",
       "detail_level": "detailed",
       "review_reason": "install（home.packages 生成→nixos-rebuild→共有 /nix 経由で全コンテナ反映）と共有トグルの hot 反映は実 NixOS アプライアンスでしか検証できない。priority_rule 9 の real-mode smoke を green.tjstkm.net (192.168.1.46) で行う。",
       "stories": {
@@ -11302,40 +11302,40 @@
         "S41bdf2-4": {
           "title": "authPath 後編集 + nix 検証を実アプライアンス service で成立 (milestone review 由来)",
           "story": "palmuxOS 運用者として、アプリの認証フォルダ(authPath)を追加後に編集し、タイポを直したい。また nixpkgs 名検証が実アプライアンスの systemd service (制限 PATH) 上でも効いてほしい。",
-          "status": "pending",
+          "status": "done",
           "added_in_review": "milestone_Se173ef",
           "acceptance_criteria": [
             {
               "id": "AC-S41bdf2-4-1",
               "description": "nix 検証が palmux2 の systemd service (PATH に nix 非包含) 上でも動く: nixvalidate が /run/current-system/sw/bin/nix 等の絶対パスにフォールバックし、かつ palmux.nix の service path に nix を追加。実アプライアンス (.44/green) で ripgrep が『解決 OK』になる。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S41bdf2-4-2",
               "description": "アプリの authPath を GUI で後から編集でき (カタログ/カスタム両方)、apps.json に override 永続化。$HOME スコープ検証 (範囲外 400)。共有 ON 中に変更したら shared_dirs も追従。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S41bdf2-4-3",
               "description": "mock/E2E: nix フォールバック解決の unit test + authPath 編集の UI E2E ([AC-*] タグ) が dev インスタンスに対して pass。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S41bdf2-4-1": {
               "id": "S41bdf2-4-1",
               "title": "nixvalidate PATH 非依存化 (絶対パスフォールバック) + palmux.nix service path に nix",
-              "status": "pending"
+              "status": "done"
             },
             "S41bdf2-4-2": {
               "id": "S41bdf2-4-2",
               "title": "authPath 後編集 API + apps.json override + $HOME 検証 + 共有追従",
-              "status": "pending"
+              "status": "done"
             },
             "S41bdf2-4-3": {
               "id": "S41bdf2-4-3",
               "title": "カード共有行の authPath 編集 UI (data-testid) + テスト",
-              "status": "pending"
+              "status": "done"
             }
           }
         }

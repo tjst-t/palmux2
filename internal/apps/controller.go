@@ -144,15 +144,23 @@ func (c *Controller) List(ctx context.Context) (ListView, error) {
 
 	var out []AppView
 	emit := func(e CatalogEntry, custom bool) {
+		// The effective auth path is the stored override (apps.json) if present,
+		// otherwise the catalog default — so an authPath edit shadows the catalog
+		// (AC-S41bdf2-4-2). GET /api/apps always returns the effective value.
+		inst, installed := installedByID[e.ID]
+		authPath := e.AuthPath
+		if installed && strings.TrimSpace(inst.AuthPath) != "" {
+			authPath = inst.AuthPath
+		}
 		v := AppView{
 			ID: e.ID, Display: e.Display, Description: e.Description, Icon: e.Icon,
-			Package: e.Package, AuthPath: e.AuthPath, Custom: custom,
+			Package: e.Package, AuthPath: authPath, Custom: custom,
 			InstallBoundary: "rebuild", InstallReach: "host+containers",
 			ShareBoundary: "hot", ShareReach: "containers",
 		}
-		_, v.Installed = installedByID[e.ID]
+		v.Installed = installed
 		if v.AuthPath != "" && home != "" {
-			if abs, e2 := config.ExpandSharedDir(e.AuthPath, home); e2 == nil {
+			if abs, e2 := config.ExpandSharedDir(v.AuthPath, home); e2 == nil {
 				v.Shared = sharedSet[abs]
 			}
 		}
@@ -422,6 +430,103 @@ func (c *Controller) Share(ctx context.Context, id string, on bool) (int, error)
 		next = append(next, abs)
 	}
 	return c.shared.ApplySharedDirs(ctx, next)
+}
+
+// SetAuthPath updates an installed app's auth folder path, persisting it as an
+// override in apps.json (AC-S41bdf2-4-2). For a catalog app the override shadows the
+// catalog default; for a custom app it just replaces the stored value. The path is
+// $HOME-scope validated on the server (reuse Sd44947's config.ExpandSharedDir — any
+// path outside $HOME is rejected, priority_rule 5/6). If the app's OLD auth folder is
+// currently shared, the share follows the edit: the old path's share is removed and
+// the new path's share is added in the SAME shared_dirs single source so the card and
+// the generic 共有フォルダ list never diverge (priority_rule 6). Returns the number of
+// running containers refreshed (0 when the app was not shared). Editing is dependent
+// on install (mirrors Share's 従属 rule): an un-installed app has no override record.
+func (c *Controller) SetAuthPath(ctx context.Context, id, authPath string) (string, int, error) {
+	if !ValidAppID(id) {
+		return "", 0, fmt.Errorf("apps: invalid app id %q", id)
+	}
+	authPath = strings.TrimSpace(authPath)
+	if authPath == "" {
+		return "", 0, fmt.Errorf("apps: 認証フォルダのパスが空です")
+	}
+	home, herr := os.UserHomeDir()
+	if herr != nil {
+		return "", 0, fmt.Errorf("apps: resolve home: %w", herr)
+	}
+	// $HOME-scope validate (out-of-$HOME → error → 400 at the handler).
+	newAbs, verr := config.ExpandSharedDir(authPath, home)
+	if verr != nil {
+		return "", 0, fmt.Errorf("apps: %w", verr)
+	}
+
+	af, err := LoadApps(c.configDir)
+	if err != nil {
+		return "", 0, err
+	}
+	var rec *InstalledApp
+	for i := range af.Installed {
+		if af.Installed[i].ID == id {
+			rec = &af.Installed[i]
+			break
+		}
+	}
+	if rec == nil {
+		return "", 0, fmt.Errorf("apps: %q はインストールされていません — 認証フォルダの編集はインストール後に可能です", id)
+	}
+
+	// Resolve the OLD effective auth path (override or catalog) and whether it is
+	// currently shared, so we can move the share to the new path.
+	oldEff := rec.AuthPath
+	if strings.TrimSpace(oldEff) == "" {
+		if e, ok := catalogByID(id); ok {
+			oldEff = e.AuthPath
+		}
+	}
+	wasShared := false
+	var oldAbs string
+	if strings.TrimSpace(oldEff) != "" {
+		if a, e := config.ExpandSharedDir(oldEff, home); e == nil {
+			oldAbs = a
+			for _, d := range c.shared.CurrentSharedDirs() {
+				if d == oldAbs {
+					wasShared = true
+					break
+				}
+			}
+		}
+	}
+
+	// Persist the override.
+	rec.AuthPath = authPath
+	if err := WriteApps(c.configDir, af); err != nil {
+		return "", 0, err
+	}
+
+	// Follow the share to the new path when the old one was shared.
+	if wasShared {
+		cur := c.shared.CurrentSharedDirs()
+		next := make([]string, 0, len(cur)+1)
+		hasNew := false
+		for _, d := range cur {
+			if d == oldAbs {
+				continue // drop the old share
+			}
+			if d == newAbs {
+				hasNew = true
+			}
+			next = append(next, d)
+		}
+		if !hasNew {
+			next = append(next, newAbs)
+		}
+		n, aerr := c.shared.ApplySharedDirs(ctx, next)
+		if aerr != nil {
+			return "", 0, fmt.Errorf("apps: move share to new auth path: %w", aerr)
+		}
+		return authPath, n, nil
+	}
+	return authPath, 0, nil
 }
 
 // Validate checks a user-defined nixpkgs package name (S41bdf2-1-5, no rebuild).

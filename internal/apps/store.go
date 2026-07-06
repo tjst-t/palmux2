@@ -129,11 +129,26 @@ const DropinFileName = "20-apps.nix"
 // the appliance state-init (which chowns local/ to the palmux user, S41bdf2).
 func WriteDropin(dropinDir string, af AppsFile) error {
 	if err := os.MkdirAll(dropinDir, 0o755); err != nil {
+		if os.IsPermission(err) {
+			// A production appliance's palmux-state-init (appliance.nix) creates and
+			// chowns <flakeDir>/local to the palmux user; a permission error here means
+			// that bootstrap has not run (e.g. a controller-built box without the merged
+			// appliance module). Surface that instead of a bare mkdir errno.
+			return fmt.Errorf("apps: cannot create the drop-in dir %s (permission denied) — "+
+				"the appliance state-init must own it (appliance.nix palmux-state-init chowns "+
+				"<flakeDir>/local to the palmux user); rebuild/redeploy the appliance so it runs: %w",
+				dropinDir, err)
+		}
 		return fmt.Errorf("apps: mkdir %s: %w", dropinDir, err)
 	}
 	dst := filepath.Join(dropinDir, DropinFileName)
 	tmp := dst + ".tmp"
 	if err := os.WriteFile(tmp, []byte(GenerateDropin(af)), 0o644); err != nil {
+		if os.IsPermission(err) {
+			return fmt.Errorf("apps: cannot write %s (permission denied) — the appliance "+
+				"state-init must chown <flakeDir>/local to the palmux user (appliance.nix "+
+				"palmux-state-init); rebuild/redeploy the appliance: %w", tmp, err)
+		}
 		return fmt.Errorf("apps: write %s: %w", tmp, err)
 	}
 	return os.Rename(tmp, dst)

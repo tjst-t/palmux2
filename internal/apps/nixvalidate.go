@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -18,13 +19,54 @@ type ValidateResult struct {
 	Message     string `json:"message"`
 }
 
-// nixBin returns the nix binary path, honouring PALMUX_NIX_BIN so a dev box
-// (no real nix) can inject a fake for E2E (priority_rule 7). Default "nix".
+// nixBin returns the configured nix binary candidate, honouring PALMUX_NIX_BIN so a
+// dev box (no real nix) can inject a fake for E2E (priority_rule 7). Default "nix".
 func nixBin() string {
 	if v := strings.TrimSpace(os.Getenv("PALMUX_NIX_BIN")); v != "" {
 		return v
 	}
 	return "nix"
+}
+
+// nixFallbackPaths are well-known absolute nix locations tried when the default
+// "nix" is NOT on PATH (AC-S41bdf2-4-1). On a real NixOS appliance palmux2 runs as a
+// systemd service whose PATH is restricted (tmux/git/ghq/gwq/incus — palmux.nix), so
+// a plain LookPath("nix") fails even though nix exists at the system profile; without
+// this fallback every nixpkgs validation would wrongly report "Unavailable". It is a
+// package var so a unit test can inject a stubbed candidate (priority_rule 7).
+var nixFallbackPaths = defaultNixFallbackPaths
+
+func defaultNixFallbackPaths() []string {
+	paths := []string{
+		"/run/current-system/sw/bin/nix",        // NixOS system profile
+		"/nix/var/nix/profiles/default/bin/nix", // multi-user default profile
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		paths = append(paths, filepath.Join(home, ".nix-profile", "bin", "nix"))
+	}
+	return paths
+}
+
+// resolveNixBin returns an absolute, runnable nix binary path, or "" if none is
+// found. The configured candidate (default "nix", or PALMUX_NIX_BIN) is resolved via
+// PATH first; when it is the default "nix" and not on PATH, the well-known absolute
+// locations are tried in order (the restricted systemd-service PATH case). A
+// non-default override is honoured exactly — no fallback — so an E2E fake is never
+// shadowed by a real system nix (priority_rule 7).
+func resolveNixBin() string {
+	bin := nixBin()
+	if p, err := exec.LookPath(bin); err == nil {
+		return p
+	}
+	if bin != "nix" {
+		return "" // explicit override that did not resolve — do not second-guess it
+	}
+	for _, cand := range nixFallbackPaths() {
+		if fi, err := os.Stat(cand); err == nil && !fi.IsDir() {
+			return cand
+		}
+	}
+	return ""
 }
 
 // ValidatePackage checks that `pkgs.<name>` resolves in nixpkgs by evaluating its
@@ -43,8 +85,8 @@ func ValidatePackage(ctx context.Context, name string) ValidateResult {
 		res.Message = "パッケージ名に使えない文字が含まれています（[A-Za-z0-9._-] のみ）"
 		return res
 	}
-	bin := nixBin()
-	if _, err := exec.LookPath(bin); err != nil {
+	bin := resolveNixBin()
+	if bin == "" {
 		res.Unavailable = true
 		res.Message = "nix が見つからないため検証できません（NixOS アプライアンス上でのみ検証されます）"
 		return res

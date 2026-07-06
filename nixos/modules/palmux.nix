@@ -134,7 +134,12 @@ in {
         # = incus-lts), not pkgs.incus — otherwise palmux2's CLI pulls a second,
         # different incus build into the closure (~217MB of pure duplication) and
         # talks to the daemon with a mismatched client version.
-        path = with pkgs; [ tmux gitMinimal openssh ghq gwq ]
+        # config.nix.package puts `nix` on the service PATH so the app-card nixpkgs
+        # validation (S41bdf2 `nix eval`) resolves natively even under this restricted
+        # service PATH (AC-S41bdf2-4-1). Belt-and-braces: the binary also falls back to
+        # /run/current-system/sw/bin/nix so older/unrebuilt hosts still validate.
+        path = (with pkgs; [ tmux gitMinimal openssh ghq gwq ])
+          ++ [ config.nix.package ]
           ++ lib.optional cfg.incus.enable config.virtualisation.incus.package;
         serviceConfig = {
           User = lib.mkDefault cfg.user;

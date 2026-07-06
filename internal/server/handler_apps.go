@@ -10,6 +10,7 @@ import (
 //	POST /api/apps/install    — mark installed → generate drop-in → kick rebuild
 //	POST /api/apps/uninstall  — remove → regenerate drop-in → kick rebuild
 //	POST /api/apps/share      — toggle the auth folder in shared_dirs (hot)
+//	POST /api/apps/{id}/auth-path — edit an installed app's auth folder path (override)
 //	POST /api/apps/validate   — `nix eval` a user-defined nixpkgs name (no rebuild)
 //
 // Install state lives in a dedicated store (apps.json); share state is DERIVED
@@ -101,6 +102,35 @@ func (h *handlers) postAppShare(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":         true,
 		"shared":     req.On,
+		"containers": n,
+	})
+}
+
+// appAuthPathRequest updates an installed app's auth folder path (AC-S41bdf2-4-2).
+// The path is $HOME-scope validated on the server; out-of-$HOME → 400.
+type appAuthPathRequest struct {
+	AuthPath string `json:"authPath"`
+}
+
+func (h *handlers) postAppAuthPath(w http.ResponseWriter, r *http.Request) {
+	if h.apps == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "apps plane unavailable"})
+		return
+	}
+	id := r.PathValue("id")
+	var req appAuthPathRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, err)
+		return
+	}
+	saved, n, err := h.apps.SetAuthPath(r.Context(), id, req.AuthPath)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":         true,
+		"authPath":   saved,
 		"containers": n,
 	})
 }

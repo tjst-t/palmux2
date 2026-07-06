@@ -197,6 +197,7 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("POST /api/apps/install", h.postAppInstall)
 	mux.HandleFunc("POST /api/apps/uninstall", h.postAppUninstall)
 	mux.HandleFunc("POST /api/apps/share", h.postAppShare)
+	mux.HandleFunc("POST /api/apps/{id}/auth-path", h.postAppAuthPath)
 	mux.HandleFunc("POST /api/apps/validate", h.postAppValidate)
 
 	mux.HandleFunc("GET /api/connections", h.connections)

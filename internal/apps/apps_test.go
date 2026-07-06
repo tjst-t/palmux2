@@ -327,3 +327,143 @@ func TestValidatePackageCharset(t *testing.T) {
 		t.Fatalf("charset-bad package must not be valid: %+v", r)
 	}
 }
+
+// [AC-S41bdf2-4-1] on the restricted systemd-service PATH `nix` is not found via
+// LookPath; resolveNixBin must fall back to a well-known absolute candidate. With no
+// candidate present it resolves to "" → Unavailable (never a silent valid).
+func TestResolveNixFallback(t *testing.T) {
+	// Ensure the default candidate ("nix") is used and is NOT on PATH.
+	t.Setenv("PALMUX_NIX_BIN", "")
+	t.Setenv("PATH", "")
+
+	// A stubbed absolute candidate exists → resolveNixBin returns it.
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "nix")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orig := nixFallbackPaths
+	t.Cleanup(func() { nixFallbackPaths = orig })
+
+	nixFallbackPaths = func() []string { return []string{"/nonexistent/a/nix", fake} }
+	if got := resolveNixBin(); got != fake {
+		t.Fatalf("want fallback to stubbed absolute candidate %q, got %q", fake, got)
+	}
+
+	// No candidate present → "" (Unavailable), never a silent pass.
+	nixFallbackPaths = func() []string { return []string{"/nonexistent/a/nix", "/nonexistent/b/nix"} }
+	if got := resolveNixBin(); got != "" {
+		t.Fatalf("want empty (Unavailable) when no candidate exists, got %q", got)
+	}
+	// ValidatePackage surfaces that as Unavailable (not Valid).
+	r := ValidatePackage(context.Background(), "ripgrep")
+	if r.Valid || !r.Unavailable {
+		t.Fatalf("with no nix resolvable, want Unavailable/not-valid, got %+v", r)
+	}
+
+	// An explicit override that does not resolve is honoured exactly (no fallback):
+	// even though a real fallback candidate exists, the override wins → "".
+	t.Setenv("PALMUX_NIX_BIN", "/definitely/not/here/mynix")
+	nixFallbackPaths = func() []string { return []string{fake} }
+	if got := resolveNixBin(); got != "" {
+		t.Fatalf("explicit unresolved override must not fall back, got %q", got)
+	}
+}
+
+// [AC-S41bdf2-4-2] editing an installed app's auth path persists an override, rejects
+// out-of-$HOME, and moves the share to the new path when the old one was shared.
+func TestSetAuthPath(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	sh := &fakeShared{count: 3}
+	rb := &fakeRebuild{nixOS: true}
+	c, _ := newCtl(t, sh, rb)
+
+	// Editing before install is refused (dependent on install).
+	if _, _, err := c.SetAuthPath(context.Background(), "infisical", "~/.config/new"); err == nil {
+		t.Fatal("expected auth-path edit before install to be refused")
+	}
+
+	// Install + share the catalog app (writes ~/.infisical to shared_dirs).
+	if _, err := c.Install(context.Background(), "infisical", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	rb.running = true
+	_, _ = c.List(context.Background())
+	rb.running = false
+	_, _ = c.List(context.Background())
+	if _, err := c.Share(context.Background(), "infisical", true); err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, ".infisical"); len(sh.dirs) != 1 || sh.dirs[0] != want {
+		t.Fatalf("precondition: share not written: %+v", sh.dirs)
+	}
+
+	// Out-of-$HOME path → rejected, no state change.
+	if _, _, err := c.SetAuthPath(context.Background(), "infisical", "/etc/secret"); err == nil {
+		t.Fatal("out-of-$HOME auth path must be rejected")
+	}
+	af, _ := LoadApps(c.configDir)
+	if af.Installed[0].AuthPath != "" && af.Installed[0].AuthPath != "~/.infisical" {
+		t.Fatalf("rejected edit must not persist: %+v", af.Installed)
+	}
+
+	// Valid in-$HOME edit → override persisted + share MOVED to the new path.
+	saved, n, err := c.SetAuthPath(context.Background(), "infisical", "~/.config/infisical-new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved != "~/.config/infisical-new" {
+		t.Fatalf("returned saved path wrong: %q", saved)
+	}
+	if n != 3 {
+		t.Fatalf("want 3 containers refreshed, got %d", n)
+	}
+	newAbs := filepath.Join(home, ".config", "infisical-new")
+	oldAbs := filepath.Join(home, ".infisical")
+	if len(sh.dirs) != 1 || sh.dirs[0] != newAbs {
+		t.Fatalf("share did not follow the edit to new path: %+v", sh.dirs)
+	}
+	for _, d := range sh.dirs {
+		if d == oldAbs {
+			t.Fatalf("old shared path must be dropped: %+v", sh.dirs)
+		}
+	}
+
+	// GET reflects the effective (override) auth path + still shared.
+	lv, _ := c.List(context.Background())
+	a := findApp(lv, "infisical")
+	if a == nil || a.AuthPath != "~/.config/infisical-new" || !a.Shared || a.State != "shared" {
+		t.Fatalf("list did not reflect override/shared: %+v", a)
+	}
+
+	// apps.json persisted the override.
+	af, _ = LoadApps(c.configDir)
+	if af.Installed[0].AuthPath != "~/.config/infisical-new" {
+		t.Fatalf("override not persisted in apps.json: %+v", af.Installed)
+	}
+}
+
+// [AC-S41bdf2-4-2] editing an installed-but-not-shared app persists the override
+// without touching shared_dirs (no spurious share).
+func TestSetAuthPathNotShared(t *testing.T) {
+	sh := &fakeShared{}
+	rb := &fakeRebuild{nixOS: true}
+	c, _ := newCtl(t, sh, rb)
+	if _, err := c.Install(context.Background(), "gh", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	saved, n, err := c.SetAuthPath(context.Background(), "gh", "~/.config/gh-corrected")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved != "~/.config/gh-corrected" || n != 0 {
+		t.Fatalf("unshared edit should touch no containers: saved=%q n=%d", saved, n)
+	}
+	if len(sh.applied) != 0 {
+		t.Fatalf("unshared edit must not call ApplySharedDirs: %+v", sh.applied)
+	}
+	lv, _ := c.List(context.Background())
+	if a := findApp(lv, "gh"); a == nil || a.AuthPath != "~/.config/gh-corrected" {
+		t.Fatalf("override not reflected: %+v", a)
+	}
+}

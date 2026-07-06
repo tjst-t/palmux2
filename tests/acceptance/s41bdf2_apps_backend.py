@@ -123,6 +123,24 @@ def main() -> int:
     check("AC-S41bdf2-2-1 share OFF removes from shared_dirs",
           want not in dv.get("workspace", {}).get("sharedDirs", []))
 
+    # --- authPath edit: server-enforced $HOME scope + override (AC-S41bdf2-4-2) -
+    # infisical is still installed here (share was toggled OFF, not uninstalled).
+    st, r = _api("POST", "/api/apps/infisical/auth-path", {"authPath": "/etc/secret"})
+    check("AC-S41bdf2-4-2 out-of-$HOME auth path rejected server-side (400)", st == 400, extra=f"{st} {r}")
+    st, r = _api("POST", "/api/apps/infisical/auth-path", {"authPath": "~/.config/infisical-edited"})
+    check("AC-S41bdf2-4-2 in-$HOME auth path override accepted",
+          st == 200 and r.get("authPath") == "~/.config/infisical-edited", extra=f"{st} {r}")
+    st, lv = _api("GET", "/api/apps")
+    apps = {a["id"]: a for a in lv.get("apps", [])}
+    check("AC-S41bdf2-4-2 GET returns the effective (override) authPath",
+          apps.get("infisical", {}).get("authPath") == "~/.config/infisical-edited",
+          extra=str(apps.get("infisical", {}).get("authPath")))
+    # Editing a not-installed app is refused (dependent on install).
+    st, r = _api("POST", "/api/apps/gh/auth-path", {"authPath": "~/.config/gh2"})
+    check("AC-S41bdf2-4-2 editing a not-installed app refused (400)", st == 400, extra=f"{st} {r}")
+    # Restore catalog default for a clean re-run.
+    _api("POST", "/api/apps/infisical/auth-path", {"authPath": "~/.infisical"})
+
     # --- validate: charset reject + bad-name reject ---------------------------
     st, r = _api("POST", "/api/apps/validate", {"package": "foo; rm -rf /"})
     check("AC-S41bdf2-1-5 validate rejects bad charset", st == 200 and not r.get("valid"), extra=str(r))

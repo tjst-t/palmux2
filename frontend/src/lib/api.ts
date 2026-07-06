@@ -473,6 +473,8 @@ export const appsApi = {
     api.post<AppInstallResult>('/api/apps/uninstall', { id }),
   share: (id: string, on: boolean): Promise<{ ok: boolean; shared: boolean; containers: number }> =>
     api.post('/api/apps/share', { id, on }),
+  setAuthPath: (id: string, authPath: string): Promise<{ ok: boolean; authPath: string; containers: number }> =>
+    api.post(`/api/apps/${encodeURIComponent(id)}/auth-path`, { authPath }),
   validate: (pkg: string): Promise<AppValidateResult> =>
     api.post<AppValidateResult>('/api/apps/validate', { package: pkg }),
 }

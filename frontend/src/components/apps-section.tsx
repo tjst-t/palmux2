@@ -105,6 +105,18 @@ export function AppsSection() {
     }
   }, [refresh, showToast])
 
+  // Edit an installed app's auth folder path (AC-S41bdf2-4-2). The server persists an
+  // override in apps.json and, when the app is currently shared, moves the share to the
+  // new path in the same shared_dirs single source. Throws on error so the card can
+  // surface a specific inline message (DESIGN_PRINCIPLES 具体的なエラー文言).
+  const onEditAuthPath = useCallback(async (app: AppView, newPath: string) => {
+    const r = await appsApi.setAuthPath(app.id, newPath)
+    showToast(r.containers > 0
+      ? `${app.display} の認証フォルダを ${r.authPath} に変更（${r.containers} 個の稼働中コンテナに反映）`
+      : `${app.display} の認証フォルダを ${r.authPath} に変更`)
+    await refresh()
+  }, [refresh, showToast])
+
   const onShareToggle = useCallback(async (app: AppView) => {
     if (!app.installed) return // 従属: dependent on install
     setBusy(app.id, true)
@@ -158,10 +170,12 @@ export function AppsSection() {
           <AppCard
             key={app.id}
             app={app}
+            home={view.home}
             busy={!!busyIds[app.id]}
             onInstall={() => void onInstallToggle(app)}
             onShare={() => void onShareToggle(app)}
             onRetry={() => void onInstallToggle(app)}
+            onEditAuthPath={(newPath) => onEditAuthPath(app, newPath)}
           />
         ))}
       </div>
@@ -179,16 +193,51 @@ export function AppsSection() {
 }
 
 function AppCard({
-  app, busy, onInstall, onShare, onRetry,
+  app, home, busy, onInstall, onShare, onRetry, onEditAuthPath,
 }: {
   app: AppView
+  home: string
   busy: boolean
   onInstall: () => void
   onShare: () => void
   onRetry: () => void
+  onEditAuthPath: (newPath: string) => Promise<void>
 }) {
   const installing = app.state === 'installing'
   const shareDisabled = !app.installed || installing
+
+  // Auth-folder path editing (AC-S41bdf2-4-2). Only offered once installed (editing
+  // is dependent on install, mirroring the share 従属 rule the server enforces).
+  const [editing, setEditing] = useState(false)
+  const [pathDraft, setPathDraft] = useState(app.authPath)
+  const [pathErr, setPathErr] = useState<string | null>(null)
+  const [savingPath, setSavingPath] = useState(false)
+  const draftScopeErr = shareScopeError(pathDraft, home)
+  const draftUnchanged = pathDraft.trim() === app.authPath.trim()
+  const canSavePath = !savingPath && !draftScopeErr && pathDraft.trim() !== '' && !draftUnchanged
+
+  const beginEdit = () => {
+    setPathDraft(app.authPath)
+    setPathErr(null)
+    setEditing(true)
+  }
+  const cancelEdit = () => {
+    setEditing(false)
+    setPathErr(null)
+  }
+  const saveEdit = async () => {
+    if (!canSavePath) return
+    setSavingPath(true)
+    setPathErr(null)
+    try {
+      await onEditAuthPath(pathDraft.trim())
+      setEditing(false)
+    } catch (err: unknown) {
+      setPathErr(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSavingPath(false)
+    }
+  }
   const cardClass = [styles.card, app.installed ? styles.installed : '', app.state === 'error' ? styles.errorCard : ''].filter(Boolean).join(' ')
 
   return (
@@ -245,7 +294,59 @@ function AppCard({
             <span className={styles.rt}>
               認証フォルダを共有 <span className={`${styles.chip} ${styles.chipHot}`}>即時反映（hot）</span>
             </span>
-            <span className={styles.rp}>{app.authPath}</span>
+            {editing ? (
+              <span className={styles.pathEdit}>
+                <input
+                  type="text"
+                  className={styles.pathInput}
+                  value={pathDraft}
+                  aria-invalid={!!draftScopeErr}
+                  data-testid={`share-path-input-${app.id}`}
+                  disabled={savingPath}
+                  onChange={(e) => setPathDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && canSavePath) void saveEdit()
+                    if (e.key === 'Escape') cancelEdit()
+                  }}
+                />
+                <button
+                  type="button"
+                  className={styles.pathBtn}
+                  data-testid={`share-path-save-${app.id}`}
+                  disabled={!canSavePath}
+                  onClick={() => void saveEdit()}
+                >{savingPath ? '保存中…' : '保存'}</button>
+                <button
+                  type="button"
+                  className={styles.pathBtnGhost}
+                  data-testid={`share-path-cancel-${app.id}`}
+                  disabled={savingPath}
+                  onClick={cancelEdit}
+                >取消</button>
+              </span>
+            ) : (
+              <span className={styles.pathRow}>
+                <span className={styles.rp}>{app.authPath}</span>
+                {app.installed && (
+                  <button
+                    type="button"
+                    className={styles.pathEditBtn}
+                    aria-label={`${app.display} の認証フォルダパスを編集`}
+                    title="認証フォルダのパスを編集"
+                    data-testid={`share-path-edit-${app.id}`}
+                    onClick={beginEdit}
+                  >✎ 編集</button>
+                )}
+              </span>
+            )}
+            {editing && (draftScopeErr || pathErr) && (
+              <span className={styles.pathErr} data-testid={`share-path-error-${app.id}`}>
+                ⚠ {pathErr || draftScopeErr}
+              </span>
+            )}
+            {editing && !draftScopeErr && !pathErr && (
+              <span className={styles.pathHint} data-testid={`share-path-hint-${app.id}`}>$HOME スコープ内のみ</span>
+            )}
             <span className={styles.reach}>
               {app.installed
                 ? <>適用先: <b>全コンテナ</b>（稼働中コンテナへ即反映・汎用「共有フォルダ」と同一 source）</>

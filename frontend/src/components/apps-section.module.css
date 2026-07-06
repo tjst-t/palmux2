@@ -135,6 +135,87 @@
   font-size: 11.5px;
   color: var(--color-fg-dim);
 }
+
+/* auth-folder path row + inline edit (AC-S41bdf2-4-2) */
+.pathRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.pathEditBtn {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-fg-muted);
+  font-size: 10.5px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  cursor: pointer;
+  flex: none;
+  transition: border-color 0.15s, color 0.15s;
+}
+.pathEditBtn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent-light);
+}
+.pathEdit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.pathInput {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-fg);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 5px 8px;
+  max-width: 220px;
+}
+.pathInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+.pathInput[aria-invalid='true'] {
+  border-color: rgba(239, 68, 68, 0.5);
+}
+.pathBtn {
+  background: var(--color-accent);
+  border: 1px solid var(--color-accent);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 5px 11px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.pathBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.pathBtnGhost {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-fg-muted);
+  font-size: 11.5px;
+  padding: 5px 10px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.pathBtnGhost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.pathErr {
+  font-size: 11px;
+  color: #f6a4a4;
+}
+.pathHint {
+  font-size: 11px;
+  color: var(--color-fg-faint);
+}
 .reach b {
   color: var(--color-fg-muted);
   font-weight: 600;
