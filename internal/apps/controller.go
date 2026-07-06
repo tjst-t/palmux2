@@ -8,9 +8,20 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/tjst-t/palmux2/internal/config"
 )
+
+// settleGrace bounds how long an install stays "installing" without ever having
+// observed the rebuild unit report running. `systemctl start --no-block` returns
+// BEFORE systemd flips the unit to ActiveState=activating, so the very first poll
+// after Install can sample rebuildRunning=false while the rebuild is in fact about
+// to start. We must not settle (and read the PRIOR run's terminal Result) in that
+// window. A real `nixos-rebuild switch` runs far longer than this grace, so we
+// virtually always observe running=true first; the grace only stops a pathological
+// "never observed" case from pinning the card on "installing" forever.
+const settleGrace = 30 * time.Second
 
 // SharedDirsPort is the single-source binding to Sd44947 shared_dirs. The share
 // toggle reads/writes the SAME [workspace].shared_dirs the generic 共有フォルダ
@@ -44,7 +55,9 @@ type Controller struct {
 	logger    *slog.Logger
 
 	mu          sync.Mutex
-	pendingID   string // app id whose install kicked the current rebuild
+	pendingID   string    // app id whose install kicked the current rebuild
+	pendingAt   time.Time // when the pending rebuild was kicked (async-start race guard)
+	pendingSeen bool      // whether we have observed the pending rebuild actually running
 	lastErrByID map[string]string
 }
 
@@ -147,7 +160,10 @@ func (c *Controller) List(ctx context.Context) (ListView, error) {
 		case errs[e.ID] != "":
 			v.State = "error"
 			v.Error = errs[e.ID]
-		case rebuildRunning && pending == e.ID:
+		case pending == e.ID:
+			// A pending marker (set until settlePending clears it) means the install
+			// rebuild is in flight — show "installing" even if THIS poll transiently
+			// sampled rebuildRunning=false (the async-start race, see settlePending).
 			v.State = "installing"
 		case v.Installed && v.Shared:
 			v.State = "shared"
@@ -181,25 +197,47 @@ func (c *Controller) List(ctx context.Context) (ListView, error) {
 
 func (c *Controller) rebuildNixOS() bool { return c.rebuild != nil && c.rebuild.NixOSHost() }
 
-// settlePending clears an install pending-marker once the rebuild is no longer
-// running, recording a failure against the app if the run failed.
+// settlePending resolves the pending install once its rebuild has genuinely
+// finished, recording a failure if the run failed. It closes the async-start race
+// (`systemctl start --no-block` returns before the unit is `activating`): while a
+// pending install has NOT yet been observed running AND we are still within the
+// grace window, we do NOT settle — otherwise the first post-Install poll would
+// sample rebuildRunning=false and read the PRIOR run's terminal Result (clearing
+// pending prematurely, or recording a spurious failure). Once we have observed the
+// unit running at least once, a later rebuildRunning=false is a genuine finish.
 func (c *Controller) settlePending(ctx context.Context, rebuildRunning bool) {
-	if rebuildRunning || c.rebuild == nil {
+	if c.rebuild == nil {
 		return
 	}
 	c.mu.Lock()
 	pending := c.pendingID
-	c.mu.Unlock()
 	if pending == "" {
+		c.mu.Unlock()
 		return
 	}
+	if rebuildRunning {
+		// Observed running → any later stop is a real finish. Don't settle yet.
+		c.pendingSeen = true
+		c.mu.Unlock()
+		return
+	}
+	// rebuildRunning == false here. Hold "installing" if we have never seen the
+	// unit run and the kick is still fresh (the start hasn't flipped state yet).
+	if !c.pendingSeen && time.Since(c.pendingAt) < settleGrace {
+		c.mu.Unlock()
+		return
+	}
+	c.mu.Unlock()
+
+	// Settle against the CURRENT run's terminal result.
 	_, failed, err := c.rebuild.RebuildStatus(ctx)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.pendingID != pending { // changed under us
+	if c.pendingID != pending { // changed under us (new install / uninstall)
 		return
 	}
 	c.pendingID = ""
+	c.pendingSeen = false
 	if err == nil && failed {
 		c.lastErrByID[pending] = "nixos-rebuild switch が失敗しました（旧世代を維持）。ログ: journalctl -u palmux-rebuild"
 	}
@@ -295,6 +333,7 @@ func (c *Controller) Uninstall(ctx context.Context, id string) (InstallResult, e
 	delete(c.lastErrByID, id)
 	if c.pendingID == id {
 		c.pendingID = ""
+		c.pendingSeen = false
 	}
 	c.mu.Unlock()
 	return c.regenAndRebuild(ctx, af, id, false)
@@ -318,6 +357,8 @@ func (c *Controller) regenAndRebuild(ctx context.Context, af AppsFile, id string
 	if installing {
 		c.mu.Lock()
 		c.pendingID = id
+		c.pendingAt = time.Now()
+		c.pendingSeen = false
 		c.mu.Unlock()
 	}
 	res.RebuildKicked = true

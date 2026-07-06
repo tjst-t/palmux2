@@ -40,6 +40,9 @@ export function AppsSection() {
     toastTimer.current = window.setTimeout(() => setToast(null), 4000)
   }, [])
 
+  // Clear the toast timer on unmount so its callback never setState()s a gone component.
+  useEffect(() => () => window.clearTimeout(toastTimer.current), [])
+
   const refresh = useCallback(async () => {
     try {
       const v = await appsApi.list()
@@ -282,6 +285,9 @@ function AddAppRow({
   const debounce = useRef<number | undefined>(undefined)
 
   const shareErr = shareScopeError(sharePath, home)
+
+  // Clear the debounce timer on unmount so its callback never setState()s a gone component.
+  useEffect(() => () => window.clearTimeout(debounce.current), [])
 
   // Validation is triggered from the input's onChange (an event handler, not an
   // effect) so there is no synchronous setState-in-effect. Debounced so we only

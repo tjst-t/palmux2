@@ -1,19 +1,89 @@
 {
   "$machine_authored": true,
-  "$note": "run-verify.py hook is not wired in this environment (.claude/verify.json absent). Authored from real process exit codes captured during verification; each verify-run-{name}.log carries a __VERIFY_EXIT_CODE__:{name}:{code} trailer for tamper-evidence (same convention as Sd44947/Se173ef). Python GUI/acceptance runs executed against an ISOLATED dev instance on port 8204 with its own --config-dir (scratchpad/s41-config) + PALMUX_NIXOS_FLAKE_DIR, so the operator's config was never touched. The green real-appliance smoke (AC-S41bdf2-3-3) is recorded separately in green-smoke.json (real nixos-rebuild + in-container infisical run).",
+  "$note": "run-verify.py hook is not wired in this environment (.claude/verify.json absent). Authored from real process exit codes captured during verification; each verify-run-{name}.log carries a __VERIFY_EXIT_CODE__:{name}:{code} trailer for tamper-evidence (same convention as Sd44947/Se173ef). Python GUI/acceptance runs executed against an ISOLATED dev instance on port 8204 with its own --config-dir (scratchpad/s41-config) + PALMUX_NIXOS_FLAKE_DIR, so the operator's config was never touched. The green real-appliance smoke (AC-S41bdf2-3-3) is recorded separately in green-smoke.json (real nixos-rebuild + in-container infisical run). RE-RUN after applying the 3 code-review fixes (settlePending race guard, appIDRe underscore, FE timer cleanup): all runs still exit 0 (go full, tsc, eslint, gui-e2e, gui-mock, acceptance).",
   "sprint": "S41bdf2",
   "command_source": "fallback (go test + tsc + eslint + real-mode dev e2e/mock/acceptance on isolated INSTANCE port 8204 + real green appliance smoke)",
   "runs": [
-    {"name": "unit", "command": "go test ./internal/apps/... ./internal/runtime/incus/... ./internal/deploy/... ./internal/config/...", "exit_code": 0, "log": "docs/sprint-logs/S41bdf2/verify-run-unit.log", "machine_status": "pass", "junit": null},
-    {"name": "gofull", "command": "go test ./...", "exit_code": 0, "log": "docs/sprint-logs/S41bdf2/verify-run-gofull.log", "machine_status": "pass", "junit": null},
-    {"name": "tsc", "command": "cd frontend && npx tsc -b", "exit_code": 0, "log": "docs/sprint-logs/S41bdf2/verify-run-tsc.log", "machine_status": "pass", "junit": null},
-    {"name": "eslint", "command": "cd frontend && npx eslint src/components/apps-section.tsx src/lib/api.ts src/components/settings-panel.tsx", "exit_code": 0, "log": "docs/sprint-logs/S41bdf2/verify-run-eslint.log", "machine_status": "pass", "junit": null},
-    {"name": "gui-e2e", "command": "PALMUX2_DEV_PORT=8204 python3 tests/e2e/s41bdf2_app_cards.py", "exit_code": 0, "log": "docs/sprint-logs/S41bdf2/verify-run-gui-e2e.log", "machine_status": "pass", "junit": null},
-    {"name": "gui-mock", "command": "PALMUX2_DEV_PORT=8204 python3 tests/e2e/s41bdf2_app_cards_mock.py", "exit_code": 0, "log": "docs/sprint-logs/S41bdf2/verify-run-gui-mock.log", "machine_status": "pass", "junit": null},
-    {"name": "acceptance", "command": "PALMUX2_DEV_PORT=8204 PALMUX2_DEV_CONFIG_DIR=<scratch>/s41-config PALMUX_NIXOS_FLAKE_DIR=<scratch>/s41-flake python3 tests/acceptance/s41bdf2_apps_backend.py", "exit_code": 0, "log": "docs/sprint-logs/S41bdf2/verify-run-acceptance.log", "machine_status": "pass", "junit": null},
-    {"name": "regression-sd44947-mock", "command": "PALMUX2_DEV_PORT=8204 python3 tests/e2e/sd44947_shared_folders_mock.py", "exit_code": 0, "log": "docs/sprint-logs/S41bdf2/verify-run-regression-sd44947-mock.log", "machine_status": "pass", "junit": null},
-    {"name": "regression-sd44947", "command": "PALMUX2_DEV_PORT=8204 python3 tests/e2e/sd44947_shared_folders.py", "exit_code": 0, "log": "docs/sprint-logs/S41bdf2/verify-run-regression-sd44947.log", "machine_status": "pass", "junit": null},
-    {"name": "green-smoke", "command": "manual real-appliance smoke on green.tjstkm.net (see green-smoke.json): install→nixos-rebuild→infisical runs in container / share ON/OFF hot / uninstall / restore", "exit_code": 0, "log": "docs/sprint-logs/S41bdf2/green-smoke.json", "machine_status": "pass", "junit": null}
+    {
+      "name": "unit",
+      "command": "go test ./internal/apps/... ./internal/runtime/incus/... ./internal/deploy/... ./internal/config/...",
+      "exit_code": 0,
+      "log": "docs/sprint-logs/S41bdf2/verify-run-unit.log",
+      "machine_status": "pass",
+      "junit": null
+    },
+    {
+      "name": "gofull",
+      "command": "go test ./...",
+      "exit_code": 0,
+      "log": "docs/sprint-logs/S41bdf2/verify-run-gofull.log",
+      "machine_status": "pass",
+      "junit": null
+    },
+    {
+      "name": "tsc",
+      "command": "cd frontend && npx tsc -b",
+      "exit_code": 0,
+      "log": "docs/sprint-logs/S41bdf2/verify-run-tsc.log",
+      "machine_status": "pass",
+      "junit": null
+    },
+    {
+      "name": "eslint",
+      "command": "cd frontend && npx eslint src/components/apps-section.tsx src/lib/api.ts src/components/settings-panel.tsx",
+      "exit_code": 0,
+      "log": "docs/sprint-logs/S41bdf2/verify-run-eslint.log",
+      "machine_status": "pass",
+      "junit": null
+    },
+    {
+      "name": "gui-e2e",
+      "command": "PALMUX2_DEV_PORT=8204 python3 tests/e2e/s41bdf2_app_cards.py",
+      "exit_code": 0,
+      "log": "docs/sprint-logs/S41bdf2/verify-run-gui-e2e.log",
+      "machine_status": "pass",
+      "junit": null
+    },
+    {
+      "name": "gui-mock",
+      "command": "PALMUX2_DEV_PORT=8204 python3 tests/e2e/s41bdf2_app_cards_mock.py",
+      "exit_code": 0,
+      "log": "docs/sprint-logs/S41bdf2/verify-run-gui-mock.log",
+      "machine_status": "pass",
+      "junit": null
+    },
+    {
+      "name": "acceptance",
+      "command": "PALMUX2_DEV_PORT=8204 PALMUX2_DEV_CONFIG_DIR=<scratch>/s41-config PALMUX_NIXOS_FLAKE_DIR=<scratch>/s41-flake python3 tests/acceptance/s41bdf2_apps_backend.py",
+      "exit_code": 0,
+      "log": "docs/sprint-logs/S41bdf2/verify-run-acceptance.log",
+      "machine_status": "pass",
+      "junit": null
+    },
+    {
+      "name": "regression-sd44947-mock",
+      "command": "PALMUX2_DEV_PORT=8204 python3 tests/e2e/sd44947_shared_folders_mock.py",
+      "exit_code": 0,
+      "log": "docs/sprint-logs/S41bdf2/verify-run-regression-sd44947-mock.log",
+      "machine_status": "pass",
+      "junit": null
+    },
+    {
+      "name": "regression-sd44947",
+      "command": "PALMUX2_DEV_PORT=8204 python3 tests/e2e/sd44947_shared_folders.py",
+      "exit_code": 0,
+      "log": "docs/sprint-logs/S41bdf2/verify-run-regression-sd44947.log",
+      "machine_status": "pass",
+      "junit": null
+    },
+    {
+      "name": "green-smoke",
+      "command": "manual real-appliance smoke on green.tjstkm.net (see green-smoke.json): install→nixos-rebuild→infisical runs in container / share ON/OFF hot / uninstall / restore",
+      "exit_code": 0,
+      "log": "docs/sprint-logs/S41bdf2/green-smoke.json",
+      "machine_status": "pass",
+      "junit": null
+    }
   ],
   "overall_machine_status": "pass"
 }

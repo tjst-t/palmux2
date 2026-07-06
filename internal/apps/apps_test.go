@@ -140,13 +140,22 @@ func TestInstallCatalogAppNixOS(t *testing.T) {
 	if err != nil || !strings.Contains(string(b), "pkgs.infisical") {
 		t.Fatalf("drop-in missing infisical: %s err=%v", b, err)
 	}
-	// GET reflects installed (rebuild not running → installed state).
+	// While the kicked rebuild has not yet been observed running, the card holds
+	// "installing" (async-start race guard) — it must NOT prematurely settle to
+	// installed by reading a stale rebuild result.
+	if lv, _ := c.List(context.Background()); findApp(lv, "infisical").State != "installing" {
+		t.Fatalf("expected installing while rebuild in flight, got %+v", findApp(lv, "infisical"))
+	}
+	// Drive the real rebuild lifecycle: observe running, then finish (success).
+	rb.running = true
+	_, _ = c.List(context.Background()) // observes running → pendingSeen
+	rb.running = false
 	lv, err := c.List(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if a := findApp(lv, "infisical"); a == nil || !a.Installed || a.State != "installed" {
-		t.Fatalf("infisical not installed: %+v", a)
+		t.Fatalf("infisical not installed after rebuild finished: %+v", a)
 	}
 }
 
@@ -186,6 +195,12 @@ func TestShareDependsOnInstall(t *testing.T) {
 	if _, err := c.Install(context.Background(), "infisical", "", ""); err != nil {
 		t.Fatal(err)
 	}
+	// Settle the install rebuild (observe running → finish) so the card leaves the
+	// "installing" state before we assert on the share state.
+	rb.running = true
+	_, _ = c.List(context.Background())
+	rb.running = false
+	_, _ = c.List(context.Background())
 	n, err := c.Share(context.Background(), "infisical", true)
 	if err != nil {
 		t.Fatal(err)
@@ -251,6 +266,47 @@ func TestListCatalogMeta(t *testing.T) {
 	}
 	if a.State != "available" {
 		t.Fatalf("fresh app should be available: %+v", a)
+	}
+}
+
+// Regression (review finding #1): a PRIOR run's terminal state must not settle a
+// freshly-kicked install before the new rebuild is observed running (async-start
+// race). rb.failed=true models a prior failed run; the just-kicked install must
+// show "installing" (held by grace), NOT a spurious "error".
+func TestInstallDoesNotSettleOnPriorResult(t *testing.T) {
+	sh := &fakeShared{}
+	rb := &fakeRebuild{nixOS: true, running: false, failed: true} // prior run failed, not running yet
+	c, _ := newCtl(t, sh, rb)
+	if _, err := c.Install(context.Background(), "infisical", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	lv, _ := c.List(context.Background())
+	if a := findApp(lv, "infisical"); a == nil || a.State != "installing" || a.Error != "" {
+		t.Fatalf("prior failed result must not settle the new install; want installing/no-error, got %+v", a)
+	}
+	// Once the new rebuild is observed running and then finishes failed, it settles to error.
+	rb.running = true
+	_, _ = c.List(context.Background())
+	rb.running = false
+	lv, _ = c.List(context.Background())
+	if a := findApp(lv, "infisical"); a == nil || a.State != "error" {
+		t.Fatalf("want error after observed-running rebuild failed, got %+v", a)
+	}
+}
+
+// Regression (review finding #2): a custom app whose validated nixpkgs attr starts
+// with "_" must be installable (ValidAppID must accept a leading underscore).
+func TestCustomUnderscorePackageInstallable(t *testing.T) {
+	if !ValidAppID("_1password-cli") {
+		t.Fatal("ValidAppID must accept a leading underscore")
+	}
+	c, _ := newCtl(t, &fakeShared{}, &fakeRebuild{nixOS: true})
+	if _, err := c.Install(context.Background(), "_mypkg", "_mypkg", ""); err != nil {
+		t.Fatalf("underscore-prefixed custom app should install, got %v", err)
+	}
+	lv, _ := c.List(context.Background())
+	if a := findApp(lv, "_mypkg"); a == nil || !a.Installed {
+		t.Fatalf("_mypkg not installed: %+v", a)
 	}
 }
 

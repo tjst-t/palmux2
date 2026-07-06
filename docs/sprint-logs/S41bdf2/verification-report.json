@@ -1,0 +1,86 @@
+{
+  "$comment": "Independent read-only verifier report for Sprint S41bdf2. Produced by a separate skeptical session. Trust source for compromises.json where it disagrees with the implementer's self-report.",
+  "sprint": "S41bdf2",
+  "verified_at": "2026-07-06T09:30:00Z",
+  "verifier_model": "claude-opus-4-8[1m] (read-only, separate session)",
+  "base_sha": "5ae6397",
+  "sprint_head": "1c5b091",
+  "overall": "pass",
+  "execution_log_reconciliation": {
+    "verdict": "pass",
+    "detail": "verify-run.json overall_machine_status=pass with 10 runs all exit 0. Each verify-run-*.log carries a matching __VERIFY_EXIT_CODE__:<name>:0 trailer (unit, gofull, tsc, eslint, gui-e2e, gui-mock, acceptance, regression-sd44947, regression-sd44947-mock). gofull log shows `ok internal/apps` and full-tree pass (no FAIL). Every 'pass' in verification-results.json (24/24) is backed by a machine run exit 0, EXCEPT AC-S41bdf2-3-3 whose sole evidence is green-smoke.json (a manually-attested real-appliance smoke, command 'manual real-appliance smoke', not a captured log with exit trailer) — expected for a priority_rule 9 real-mode smoke, flagged below as operator-attested."
+  },
+  "findings": [
+    {
+      "category": "acceptance_criteria",
+      "story": "S41bdf2-1",
+      "ac": "AC-S41bdf2-1-1 / 1-2 / 1-3 / 1-4 / 1-5",
+      "verdict": "pass",
+      "detail": "Real code reachable through /api/apps. Install (controller.go:221 Install → regenAndRebuild:304) persists intent to apps.json (store.go WriteApps) and writes a ONE-WAY drop-in local/20-apps.nix (store.go GenerateDropin:95 → `environment.systemPackages = [ pkgs.<x> ];`, no reverse parse), then kicks the EXISTING S673a42 unit via deployRebuildPort.TriggerRebuild → deploy.TriggerRebuild (rebuild.go:50, rebuildUnit='palmux-rebuild.service', pre-existing, NOT in the diff → no duplicate rebuild plumbing, priority_rule 6 honored). GET /api/apps (handler_apps.go:19 → controller List:97) returns catalog∪custom cards with installReach/shareBoundary/installBoundary/shareReach meta (AC-1-2). AC-1-4: shared_profile.go:190 adds nix-store(ro)+nix-sysbin(ro, EvalSymlinks-resolved) devices and setEnvPath(nixContainerPATH) at Ensure:342 — all gated on os.Stat('/nix/store')==nil so Ubuntu hosts are untouched (TestNixDevicesAbsentWithoutStore). AC-1-5: nixvalidate.go ValidatePackage charset-guards then `nix eval --raw nixpkgs#<n>.name`; nix-missing → Unavailable (never silent valid); non-zero → Invalid, no rebuild. flakeDir is env-overridable (PALMUX_NIXOS_FLAKE_DIR, default /persist/palmux/nixos), no hardcode-only.",
+      "overlooked_by_autopilot": false,
+      "recommended_action": null
+    },
+    {
+      "category": "acceptance_criteria",
+      "story": "S41bdf2-2",
+      "ac": "AC-S41bdf2-2-1 / 2-2 / 2-3",
+      "verdict": "pass",
+      "detail": "Single-source binding confirmed by call path: apps.Controller.Share (controller.go:333) → c.shared.ApplySharedDirs → deploy.Controller.ApplySharedDirs (deploy/controller.go:184) → config.WriteMaster [workspace].shared_dirs + hot.SetSharedDirs (same persist+propagate path as the generic 共有フォルダ list; other master sections preserved). The e2e (s41bdf2_app_cards.py:131) and acceptance (s41bdf2_apps_backend.py:115) BOTH read GET /api/deploy sharedDirs back and assert the auth path appears — the app card and generic list provably point at one source (AC-2-1). AC-2-2 従属 is enforced server-side: Share() returns error 'is not installed — install before sharing' (controller.go:350) → handler 400 (handler_apps.go:98); test asserts st==400 for a not-installed app (backend:107). UI mirrors with aria-disabled + disabled + rowDisabled (apps-section.tsx:188,256,259). AC-2-3: single palmux-shared mold (no per-container), $HOME-scope reuse via config.ExpandSharedDir (controller.go:361).",
+      "overlooked_by_autopilot": false,
+      "recommended_action": null
+    },
+    {
+      "category": "acceptance_criteria",
+      "story": "S41bdf2-3",
+      "ac": "AC-S41bdf2-3-1 / 3-2 / 3-4",
+      "verdict": "pass",
+      "detail": "AppsSection rendered inside the Deploy settings tab (settings-panel.tsx:996 <AppsSection/>) → reachable through the GUI. 1アプリ=1カード with install+share toggles, every interactive element data-testid'd (apps-section.tsx). Install chip '要 rebuild（軽・即）' (line 216), share chip '即時反映（hot）' (line 243). Design doc §7/§8.3/§8.4 stale markers corrected ([提案]→[実装済], 共有『重』→hot, in the diff). Mock (all states + greyed) and real-browser e2e (drives available→installed→shared against real backend on isolated dev port 8204) both pass with exit 0.",
+      "overlooked_by_autopilot": false,
+      "recommended_action": null
+    },
+    {
+      "category": "acceptance_criteria",
+      "story": "S41bdf2-3",
+      "ac": "AC-S41bdf2-3-3",
+      "verdict": "warn",
+      "detail": "green-smoke.json credibly demonstrates a REAL nixos-rebuild + infisical RUNNING inside a container on the real appliance: specific store paths (palmux2-0.13.0), real container name (clinical-hishow-mirante-demo-...), generation hashes before/after (j9aj474... → brj3wigp...), and the load-bearing check done TWICE — pre-install `incus exec <ctr> -- /opt/palmux-nix-bin/coreutils --version`=9.7 and post-install `incus exec <ctr> -- infisical --version`=0.41.1 by both absolute path and profile PATH. This is internally consistent and detailed in a way fabricated/mock logs usually are not; I judge it a genuine real-appliance run. TWO honest caveats, both DISCLOSED (not hidden): (1) the appliance.nix state-init chown of local/ to the palmux user (in the diff, appliance.nix:388) CANNOT ship mid-sprint, so green hand-prepared `chown -R palmux:users /persist/palmux/nixos/local` — disclosed in green-smoke.json method + steps.prep AND decisions.json implementation_decisions[2]/[green]. (2) The AC text says '一連を実ブラウザで確認' but on green the flow was driven by API+incus exec ('real browser-equivalent API+incus flow'), not a literal browser; the literal real-BROWSER run was on the non-NixOS dev instance (which does not actually rebuild). Neither single run is 'real browser + real appliance' simultaneously. The decomposition is defensible (the browser UI is the same code proven on dev; the load-bearing 'installed tool runs in container' risk is not browser-dependent and IS proven on green) and honestly disclosed, but the literal AC wording was not met exactly and the AC-3-3 evidence is operator-attested JSON, not a machine-captured transcript.",
+      "overlooked_by_autopilot": false,
+      "recommended_action": "Accept as-is (real risk resolved + honestly disclosed). Optional follow-up: once appliance.nix state-init ships, re-run the green flow through a literal real browser end-to-end to close the wording gap."
+    },
+    {
+      "category": "forbidden_categories",
+      "story": null,
+      "ac": null,
+      "verdict": "pass",
+      "detail": "Scanned git diff 5ae6397..HEAD over *.go/*.ts/*.tsx/*.py: no t.Skip/Skip(, no test-assertion weakening, no error-swallowing catch{}/nolint/# noqa, no new `any`/`as any`/type relaxation. The one bare `catch {}` (apps-section.tsx:303) sets an explicit invalid ValidateResult, not a silence. ROADMAP.json diff changes ONLY status fields (pending→done) for S41bdf2 stories/ACs/tasks — every AC description string is byte-identical to base (verified in the full diff). No acceptance_criteria_modified. (Sole non-status ROADMAP change: a trailing-newline removal at EOF — cosmetic, non-AC.)",
+      "overlooked_by_autopilot": false,
+      "recommended_action": null
+    },
+    {
+      "category": "adr_conformance",
+      "story": null,
+      "ac": null,
+      "verdict": "pass",
+      "detail": "priority_rule 6 (reuse Sd44947 mold + S673a42 rebuild): confirmed — no new rebuild mechanism invented (deploy.TriggerRebuild/QueryRebuild pre-exist, not in diff; the /nix devices are added inside the existing palmux-shared ReconcileShared mold, not a new device manager; share reuses deploy shared_dirs). priority_rule 7 (explicit single source / no hardcode-only): flakeDir + nix bin overridable via env, package attr charset-guarded, no port hardcoded (grep found none; nixContainerPATH's /home/ubuntu path matches the repo-wide uid-1000 convention, not a port).",
+      "overlooked_by_autopilot": false,
+      "recommended_action": null
+    },
+    {
+      "category": "compromises_completeness",
+      "story": null,
+      "ac": null,
+      "verdict": "pass",
+      "detail": "No compromises.json exists for this sprint. The two material caveats (green chown hand-prep for the unreleasable appliance.nix state-init change; green flow driven by API/incus rather than a literal browser) are BOTH disclosed in decisions.json + green-smoke.json — not hidden. I found no additional undisclosed compromise. Minor observation (not a compromise): Uninstall intentionally does NOT unshare an app's auth folder (controller.go:277-278 documents this as a distinct valid intent) — reasonable and documented.",
+      "overlooked_by_autopilot": false,
+      "recommended_action": null
+    }
+  ],
+  "summary": {
+    "ac_failures": 0,
+    "ac_warnings": 1,
+    "forbidden_warnings": 0,
+    "adr_conflicts": 0,
+    "overlooked_count": 0,
+    "story_verdicts": {"S41bdf2-1": "pass", "S41bdf2-2": "pass", "S41bdf2-3": "pass"}
+  }
+}

@@ -41,8 +41,10 @@ var packageAttrRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9._-]*$`)
 func ValidPackageAttr(s string) bool { return packageAttrRe.MatchString(s) }
 
 // appIDRe restricts a card id to a slug charset (also used as a data-testid
-// suffix). Derived from the package for custom apps.
-var appIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+// suffix). Derived from the package for custom apps, so it must accept every
+// char a valid nixpkgs attr can start with — including a leading underscore
+// (e.g. `_1password-cli`, which exists because attrs cannot begin with a digit).
+var appIDRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]*$`)
 
 // ValidAppID reports whether s is a valid card id.
 func ValidAppID(s string) bool { return appIDRe.MatchString(s) }
