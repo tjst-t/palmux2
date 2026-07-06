@@ -1,0 +1,21 @@
+{
+  "story": "Se173ef-4",
+  "story_type": "library",
+  "user_role": "将来の Sprint タブ保守者",
+  "entry_point": "~/.claude/skills/sprint/references/SPRINT_LOGS_SCHEMA.json (repo 外の正典スキーマ) + docs/sprint-logs README",
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "linked_ac": ["AC-Se173ef-4-1", "AC-Se173ef-4-2"],
+      "description": "正典スキーマが実際に生成される artifact 集合と一致し、廃止 artifact が deprecated 明記される",
+      "preconditions": ["SPRINT_LOGS_SCHEMA.json が repo 外に存在"],
+      "steps": [
+        {"n": 1, "action": "SPRINT_LOGS_SCHEMA.json を JSON パースし top-level キーを列挙", "expected": "verify_run / verification_report / done_judgment / compromises / comprehension_report / prototype_review / reopen / gui_spec / scenario / decisions / failures が全て存在"},
+        {"n": 2, "action": "廃止 artifact キーを検査", "expected": "acceptance_matrix / e2e_results / verification_results が deprecated 明記 (削除 or $deprecated マーク)"},
+        {"n": 3, "action": "tab backend が参照する artifact ファイル名と突き合わせ", "expected": "スキーマの $file 名が backend の read 経路 (handler.go) と一致"},
+        {"n": 4, "action": "docs/sprint-logs/README.md を読む", "expected": "タブ⇄skill の artifact 契約と『artifact 追加時のスキーマ更新→タブ追随』手順が明文化されている"}
+      ],
+      "cleanup": []
+    }
+  ]
+}

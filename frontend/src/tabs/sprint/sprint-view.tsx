@@ -1,26 +1,17 @@
-// SprintView — the top-level Sprint Dashboard tab. Controls subtab
-// selection (Overview / Sprint Detail / Dependencies / Decisions / Refine)
-// via React Router search params so the URL stays shareable across
-// devices, e.g.
+// SprintView — the top-level Sprint Dashboard tab. Se173ef reworks the IA
+// to the approved Option A (5 tabs): Overview / Sprint Detail / Review /
+// Milestones / Decisions. Dependencies + Backlog are folded into Overview
+// and Refine is removed from the tab bar. The old `?view=dependencies` and
+// `?view=refine` URLs still render their legacy screens (backward compat)
+// but are no longer surfaced as tabs.
 //
-//   /<repo>/<branch>/sprint?view=detail&sprintId=S016
-//   /<repo>/<branch>/sprint?view=dependencies
-//   /<repo>/<branch>/sprint?view=decisions&filter=needs_human
+// Subtab selection is driven by React Router search params so the URL stays
+// shareable and browser back/forward navigate (priority_rule 8 — navigation
+// is pushState, transient UI state like filters is component state):
 //
-// The body itself is dispatched to one of the five screen components
-// below. Each screen owns its own data hook (use-sprint-data.ts) and a
-// Refresh / offline indicator in its header.
-//
-// S67cb0e-2: setViewAndUrl now pushes history for user-initiated
-// navigations (replace: false) so browser back/forward work. Only the
-// initial URL normalization uses replace: true.
-// The `view` state is derived from searchParams so that browser
-// back/forward (which only updates searchParams) re-renders the correct
-// view without needing a separate useState sync.
-//
-// We don't use nested <Routes> here because the surrounding TabContent
-// already renders SprintView for the `/sprint` URL; the Tab system
-// doesn't currently support nested route segments per tab.
+//   /<repo>/<branch>/sprint?view=detail&sprintId=Sd44947
+//   /<repo>/<branch>/sprint?view=review
+//   /<repo>/<branch>/sprint?view=milestones
 
 import { useCallback, useEffect, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -29,38 +20,53 @@ import type { TabViewProps } from '../../lib/tab-registry'
 
 import { DecisionTimelineView } from './screens/decision-timeline'
 import { DependencyGraphView } from './screens/dependency-graph'
+import { MilestonesView } from './screens/milestones'
 import { OverviewView } from './screens/overview'
 import { RefineHistoryView } from './screens/refine-history'
+import { ReviewView } from './screens/review'
 import { SprintDetailView } from './screens/sprint-detail'
 import styles from './sprint-view.module.css'
 
-type View = 'overview' | 'detail' | 'dependencies' | 'decisions' | 'refine'
+type View =
+  | 'overview'
+  | 'detail'
+  | 'review'
+  | 'milestones'
+  | 'decisions'
+  | 'dependencies' // legacy — direct-URL only
+  | 'refine' // legacy — direct-URL only
 
-const VIEW_LABELS: Array<{ id: View; label: string }> = [
+// Tabs shown in the bar (Option A). `new` marks the Se173ef additions.
+const VIEW_LABELS: Array<{ id: View; label: string; isNew?: boolean }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'detail', label: 'Sprint Detail' },
-  { id: 'dependencies', label: 'Dependencies' },
+  { id: 'review', label: 'Review', isNew: true },
+  { id: 'milestones', label: 'Milestones', isNew: true },
   { id: 'decisions', label: 'Decisions' },
-  { id: 'refine', label: 'Refine' },
+]
+
+const ALL_VIEWS: View[] = [
+  'overview',
+  'detail',
+  'review',
+  'milestones',
+  'decisions',
+  'dependencies',
+  'refine',
 ]
 
 function isView(v: string | null): v is View {
-  return v === 'overview' || v === 'detail' || v === 'dependencies' || v === 'decisions' || v === 'refine'
+  return v !== null && (ALL_VIEWS as string[]).includes(v)
 }
 
 export function SprintView({ repoId, branchId }: TabViewProps) {
   const [searchParams, setSearchParams] = useSearchParams()
 
-  // S67cb0e-2: derive view from searchParams as single source of truth.
-  // This ensures browser back/forward (which changes searchParams without
-  // a React state transition) automatically re-renders the correct view.
   const rawView = searchParams.get('view')
   const view: View = isView(rawView) ? rawView : 'overview'
 
-  // Normalize an invalid (present-but-unrecognised) ?view= to overview.
-  // We render Overview immediately (view already falls back above), then
-  // rewrite the URL in a useEffect with replace:true so no extra history
-  // entry is added. Option A — never call setSearchParams during render.
+  // Normalize an invalid (present-but-unrecognised) ?view= to overview via
+  // replace (no extra history entry). Never call setSearchParams in render.
   useEffect(() => {
     if (rawView !== null && !isView(rawView)) {
       const sp = new URLSearchParams(searchParams)
@@ -80,9 +86,6 @@ export function SprintView({ repoId, branchId }: TabViewProps) {
         if (v === null || v === undefined || v === '') sp.delete(k)
         else sp.set(k, v)
       }
-      // When leaving the detail view, drop the sprintId from the URL so
-      // navigating back to detail without an explicit sprint shows the
-      // current one again.
       if (next !== 'detail') sp.delete('sprintId')
       if (next !== 'decisions') sp.delete('filter')
       setSearchParams(sp, { replace })
@@ -92,17 +95,11 @@ export function SprintView({ repoId, branchId }: TabViewProps) {
 
   const navigateToSprintDetail = useCallback(
     (id: string) => {
-      // User-initiated navigation — push history (replace: false).
       setViewAndUrl('detail', { sprintId: id }, false)
     },
     [setViewAndUrl],
   )
 
-  // Used when Sprint Detail is opened without a sprintId (e.g. the user
-  // clicked the "Sprint Detail" subtab directly). The detail screen resolves
-  // a default sprint from the timeline and calls this to put it in the URL
-  // via replace — so no junk `?view=detail` (no sprintId) history entry is
-  // left behind to bounce back to.
   const resolveDefaultSprint = useCallback(
     (id: string) => {
       setViewAndUrl('detail', { sprintId: id }, true)
@@ -112,7 +109,6 @@ export function SprintView({ repoId, branchId }: TabViewProps) {
 
   const setDecisionFilter = useCallback(
     (f: string) => {
-      // Filter changes push history so the user can back out of a filter.
       setViewAndUrl('decisions', { filter: f || null }, false)
     },
     [setViewAndUrl],
@@ -126,10 +122,10 @@ export function SprintView({ repoId, branchId }: TabViewProps) {
           type="button"
           className={`${styles.subtab} ${view === v.id ? styles.subtabActive : ''}`}
           data-testid={`sprint-subtab-${v.id}`}
-          // Subtab clicks push history so the user can navigate back.
           onClick={() => setViewAndUrl(v.id, {}, false)}
         >
           {v.label}
+          {v.isNew && <span className={styles.subtabNew}>NEW</span>}
         </button>
       )),
     [view, setViewAndUrl],
@@ -142,11 +138,7 @@ export function SprintView({ repoId, branchId }: TabViewProps) {
       </nav>
       <div className={styles.body}>
         {view === 'overview' && (
-          <OverviewView
-            repoId={repoId}
-            branchId={branchId}
-            onOpenSprint={navigateToSprintDetail}
-          />
+          <OverviewView repoId={repoId} branchId={branchId} onOpenSprint={navigateToSprintDetail} />
         )}
         {view === 'detail' && (
           <SprintDetailView
@@ -157,8 +149,11 @@ export function SprintView({ repoId, branchId }: TabViewProps) {
             onResolveDefaultSprint={resolveDefaultSprint}
           />
         )}
-        {view === 'dependencies' && (
-          <DependencyGraphView
+        {view === 'review' && (
+          <ReviewView repoId={repoId} branchId={branchId} onOpenSprint={navigateToSprintDetail} />
+        )}
+        {view === 'milestones' && (
+          <MilestonesView
             repoId={repoId}
             branchId={branchId}
             onOpenSprint={navigateToSprintDetail}
@@ -170,6 +165,14 @@ export function SprintView({ repoId, branchId }: TabViewProps) {
             branchId={branchId}
             filter={filter}
             onFilterChange={setDecisionFilter}
+            onOpenSprint={navigateToSprintDetail}
+          />
+        )}
+        {/* Legacy direct-URL screens (no longer in the tab bar). */}
+        {view === 'dependencies' && (
+          <DependencyGraphView
+            repoId={repoId}
+            branchId={branchId}
             onOpenSprint={navigateToSprintDetail}
           />
         )}

@@ -1,0 +1,46 @@
+{
+  "sprint": "Se173ef",
+  "run_at": "2026-07-06T00:00:00Z",
+  "server_command": "make serve INSTANCE=dev2 (port 8202)",
+  "summary": {"total": 19, "pass": 19, "fail": 0, "skip": 0},
+  "$note": "status values copied from the machine verdict in verify-run.json (overall_machine_status=pass). Each AC is exercised by a real-browser Playwright (headless chromium) check or a real-HTTP-client API check against the dev2 instance, tagged [AC-Se173ef-*]. Story 1/2 are api (real HTTP), Story 3 is gui (real browser), Story 4 is a static contract check.",
+  "tests": [
+    {"name": "[AC-Se173ef-1-1] verify-run/verification-report/done-judgment/compromises parsed", "file": "tests/e2e/se173ef_sprint_tab.py", "story": "Se173ef-1", "acceptance_criteria": ["AC-Se173ef-1-1"], "status": "pass", "error": null},
+    {"name": "[AC-Se173ef-1-2] comprehension-report.md returned with headings", "file": "tests/e2e/se173ef_sprint_tab.py", "story": "Se173ef-1", "acceptance_criteria": ["AC-Se173ef-1-2"], "status": "pass", "error": null},
+    {"name": "[AC-Se173ef-1-3] AC matrix derived from verification-report + ROADMAP", "file": "tests/e2e/se173ef_sprint_tab.py", "story": "Se173ef-1", "acceptance_criteria": ["AC-Se173ef-1-3"], "status": "pass", "error": null},
+    {"name": "[AC-Se173ef-1-4] old sprint (no modern artifacts) returns 200, sections omitted", "file": "tests/e2e/se173ef_sprint_tab.py", "story": "Se173ef-1", "acceptance_criteria": ["AC-Se173ef-1-4"], "status": "pass", "error": null},
+    {"name": "[AC-Se173ef-1-5] generic additional smoke log collected", "file": "tests/e2e/se173ef_sprint_tab.py", "story": "Se173ef-1", "acceptance_criteria": ["AC-Se173ef-1-5"], "status": "pass", "error": null},
+    {"name": "[AC-Se173ef-2-1] sprint detailLevel/phase/reviewReason/milestone + coarse exposed", "file": "tests/e2e/se173ef_sprint_tab.py", "story": "Se173ef-2", "acceptance_criteria": ["AC-Se173ef-2-1"], "status": "pass", "error": null},
+    {"name": "[AC-Se173ef-2-2] story needs_user_review distinguished + new state exposed", "file": "tests/e2e/se173ef_sprint_tab.py", "story": "Se173ef-2", "acceptance_criteria": ["AC-Se173ef-2-2"], "status": "pass", "error": null},
+    {"name": "[AC-Se173ef-2-3] dependency reason included in graph response", "file": "tests/e2e/se173ef_sprint_tab.py", "story": "Se173ef-2", "acceptance_criteria": ["AC-Se173ef-2-3"], "status": "pass", "error": null},
+    {"name": "[AC-Se173ef-2-4] backlog exposes full fields + promotion", "file": "tests/e2e/se173ef_sprint_tab.py", "story": "Se173ef-2", "acceptance_criteria": ["AC-Se173ef-2-4"], "status": "pass", "error": null},
+    {"name": "[AC-Se173ef-3-1] verification view: machine + verifier verdict at top", "file": "tests/e2e/se173ef_sprint_tab.py", "story": "Se173ef-3", "acceptance_criteria": ["AC-Se173ef-3-1"], "status": "pass", "error": null},
+    {"name": "[AC-Se173ef-3-2] done-judgment guard grid + story verdict", "file": "tests/e2e/se173ef_sprint_tab.py", "story": "Se173ef-3", "acceptance_criteria": ["AC-Se173ef-3-2"], "status": "pass", "error": null},
+    {"name": "[AC-Se173ef-3-3] milestone view: compromises severity + comprehension Markdown", "file": "tests/e2e/se173ef_sprint_tab.py", "story": "Se173ef-3", "acceptance_criteria": ["AC-Se173ef-3-3"], "status": "pass", "error": null},
+    {"name": "[AC-Se173ef-3-4] prototype-review + gui-spec state_diagram rendered", "file": "tests/e2e/se173ef_sprint_tab.py", "story": "Se173ef-3", "acceptance_criteria": ["AC-Se173ef-3-4"], "status": "pass", "error": null},
+    {"name": "[AC-Se173ef-3-5] ROADMAP meta badges + additional logs + reopen", "file": "tests/e2e/se173ef_sprint_tab.py", "story": "Se173ef-3", "acceptance_criteria": ["AC-Se173ef-3-5"], "status": "pass", "error": null},
+    {"name": "[AC-Se173ef-3-6] state diagram: Loading/Empty/PartialArtifacts/ParseError (mock) + backward-compat empty (e2e)", "file": "tests/e2e/se173ef_sprint_tab_mock.py", "story": "Se173ef-3", "acceptance_criteria": ["AC-Se173ef-3-6"], "status": "pass", "error": null},
+    {"name": "[AC-Se173ef-3-7] Option A IA (5 tabs), timeline default incomplete, Review aggregation", "file": "tests/e2e/se173ef_sprint_tab.py", "story": "Se173ef-3", "acceptance_criteria": ["AC-Se173ef-3-7"], "status": "pass", "error": null},
+    {"name": "[AC-Se173ef-3-8] backlog folded in Overview, default unpromoted, item drill-down expand", "file": "tests/e2e/se173ef_sprint_tab.py", "story": "Se173ef-3", "acceptance_criteria": ["AC-Se173ef-3-8"], "status": "pass", "error": null},
+    {"name": "[AC-Se173ef-4-1] SPRINT_LOGS_SCHEMA.json realigned to current artifacts + deprecations, matches tab readers", "file": "tests/acceptance/se173ef_schema_contract.py", "story": "Se173ef-4", "acceptance_criteria": ["AC-Se173ef-4-1"], "status": "pass", "error": null},
+    {"name": "[AC-Se173ef-4-2] docs/sprint-logs/README.md documents tab⇄skill contract + drift-prevention", "file": "tests/acceptance/se173ef_schema_contract.py", "story": "Se173ef-4", "acceptance_criteria": ["AC-Se173ef-4-2"], "status": "pass", "error": null}
+  ],
+  "diff_coverage": {
+    "$comment": "Rule 6 — user-observable surfaces added by this Sprint's diff and their test coverage.",
+    "surfaces": [
+      {"type": "api", "identifier": "GET .../sprint/sprints/{id} extended (verifyRun/verification/doneJudgment/compromises/comprehension/prototypeReview/reopens/guiSpecs/scenarios/acFindings/additionalLogs)", "introduced_in_files": ["internal/tab/sprint/handler.go", "internal/tab/sprint/parser/artifacts.go"], "resolution": "covered", "test": "[AC-Se173ef-1-1]..[AC-Se173ef-1-5]"},
+      {"type": "api", "identifier": "GET .../sprint/review", "introduced_in_files": ["internal/tab/sprint/handler_review.go"], "resolution": "covered", "test": "[AC-Se173ef-3-7]"},
+      {"type": "api", "identifier": "GET .../sprint/milestones", "introduced_in_files": ["internal/tab/sprint/handler_review.go"], "resolution": "covered", "test": "[AC-Se173ef-3-3]"},
+      {"type": "api", "identifier": "GET .../sprint/backlog", "introduced_in_files": ["internal/tab/sprint/handler_review.go"], "resolution": "covered", "test": "[AC-Se173ef-2-4]"},
+      {"type": "api", "identifier": "GET .../sprint/sprints/{id}/log?file=", "introduced_in_files": ["internal/tab/sprint/handler_review.go"], "resolution": "covered", "test": "RunChip log fetch exercised via [AC-Se173ef-3-1] run chips (unit test TestParseVerifyRun for log path)"},
+      {"type": "api", "identifier": "GET .../sprint/overview extended (dependencies/backlog/rollup/phases + timeline detailLevel/phase/coarse)", "introduced_in_files": ["internal/tab/sprint/handler.go"], "resolution": "covered", "test": "[AC-Se173ef-2-1]/[AC-Se173ef-3-7]/[AC-Se173ef-3-8]"},
+      {"type": "gui", "identifier": "5-tab IA (Overview/Detail/Review/Milestones/Decisions), Review + Milestones screens, trust-source-first Detail, folded backlog/deps in Overview", "introduced_in_files": ["frontend/src/tabs/sprint/*"], "resolution": "covered", "test": "[AC-Se173ef-3-1]..[AC-Se173ef-3-8]"}
+    ]
+  },
+  "done_judgment": [
+    {"story_id": "Se173ef-1", "guard1_user_review_required_not_done": "pass", "guard2_nil_injection_mock": "pass", "guard3_mock_mode_not_real_smoke": "pass", "guard4_priority_rule_9_exception_valid": "n/a", "guard5_call_path_grep": "pass", "guard6_deferred_comment_clean": "pass", "guard7_adr_conformance": "n/a", "guard8_destructive_multi_version_test": "n/a", "overall": "ok"},
+    {"story_id": "Se173ef-2", "guard1_user_review_required_not_done": "pass", "guard2_nil_injection_mock": "pass", "guard3_mock_mode_not_real_smoke": "pass", "guard4_priority_rule_9_exception_valid": "n/a", "guard5_call_path_grep": "pass", "guard6_deferred_comment_clean": "pass", "guard7_adr_conformance": "n/a", "guard8_destructive_multi_version_test": "n/a", "overall": "ok"},
+    {"story_id": "Se173ef-3", "guard1_user_review_required_not_done": "pass", "guard2_nil_injection_mock": "pass", "guard3_mock_mode_not_real_smoke": "pass", "guard4_priority_rule_9_exception_valid": "n/a", "guard5_call_path_grep": "pass", "guard6_deferred_comment_clean": "pass", "guard7_adr_conformance": "n/a", "guard8_destructive_multi_version_test": "n/a", "overall": "ok"},
+    {"story_id": "Se173ef-4", "guard1_user_review_required_not_done": "pass", "guard2_nil_injection_mock": "pass", "guard3_mock_mode_not_real_smoke": "pass", "guard4_priority_rule_9_exception_valid": "n/a", "guard5_call_path_grep": "pass", "guard6_deferred_comment_clean": "pass", "guard7_adr_conformance": "n/a", "guard8_destructive_multi_version_test": "n/a", "overall": "ok"}
+  ]
+}

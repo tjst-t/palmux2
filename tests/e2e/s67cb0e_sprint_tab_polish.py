@@ -297,6 +297,11 @@ def test_playwright_stories(repo_id: str, branch_id: str) -> None:
             page.goto(overview_url, wait_until="networkidle")
             page.wait_for_selector("[data-testid='sprint-view']", timeout=10000)
             page.wait_for_selector("[data-testid='sprint-timeline-table']", timeout=10000)
+            # Se173ef: the Overview timeline now defaults to "未完了のみ", which
+            # hides done sprints (S_A). Reveal all so the done-sprint rows this
+            # suite exercises are present. (Same ACs, just a new default filter.)
+            page.locator("[data-testid='sprint-timeline-filter-all']").click()
+            page.wait_for_selector("[data-testid='sprint-timeline-S_A']", timeout=8000)
 
             # [AC-S67cb0e-1-1] Table renders with the 5 expected column headers.
             table = page.locator("[data-testid='sprint-timeline-table']")
@@ -346,6 +351,11 @@ def test_playwright_stories(repo_id: str, branch_id: str) -> None:
             # Return to overview for the remaining Story 1 checks.
             page.goto(overview_url, wait_until="networkidle")
             page.wait_for_selector("[data-testid='sprint-timeline-table']", timeout=10000)
+            # Se173ef: the Overview timeline now defaults to "未完了のみ", which
+            # hides done sprints (S_A). Reveal all so the done-sprint rows this
+            # suite exercises are present. (Same ACs, just a new default filter.)
+            page.locator("[data-testid='sprint-timeline-filter-all']").click()
+            page.wait_for_selector("[data-testid='sprint-timeline-S_A']", timeout=8000)
 
             # [AC-S67cb0e-1-4] Milestone ★ present for S_B, absent for non-milestone S_A.
             row_b = page.locator("[data-testid='sprint-timeline-S_B']")
@@ -366,6 +376,9 @@ def test_playwright_stories(repo_id: str, branch_id: str) -> None:
             # back to overview
             page.go_back()
             page.wait_for_selector("[data-testid='sprint-timeline-table']", timeout=8000)
+            # Se173ef: filter resets to "未完了のみ" on remount — reveal done again.
+            page.locator("[data-testid='sprint-timeline-filter-all']").click()
+            page.wait_for_selector("[data-testid='sprint-timeline-S_A']", timeout=8000)
             # -- Space --
             row_a = page.locator("[data-testid='sprint-timeline-S_A']")
             row_a.focus()
@@ -394,6 +407,11 @@ def test_playwright_stories(repo_id: str, branch_id: str) -> None:
             #   (If it were replace, Back would not return here.)
             page.goto(overview_url, wait_until="networkidle")
             page.wait_for_selector("[data-testid='sprint-timeline-table']", timeout=10000)
+            # Se173ef: the Overview timeline now defaults to "未完了のみ", which
+            # hides done sprints (S_A). Reveal all so the done-sprint rows this
+            # suite exercises are present. (Same ACs, just a new default filter.)
+            page.locator("[data-testid='sprint-timeline-filter-all']").click()
+            page.wait_for_selector("[data-testid='sprint-timeline-S_A']", timeout=8000)
             page.locator("[data-testid='sprint-timeline-S_A']").click()
             page.wait_for_selector("[data-testid='sprint-detail-header']", timeout=8000)
             page.wait_for_function("() => location.search.includes('sprintId=S_A')", timeout=8000)
@@ -431,6 +449,11 @@ def test_playwright_stories(repo_id: str, branch_id: str) -> None:
             # [AC-S67cb0e-2-3] Overview→Detail→Back→Overview, then Forward→Detail.
             page.goto(overview_url, wait_until="networkidle")
             page.wait_for_selector("[data-testid='sprint-timeline-table']", timeout=10000)
+            # Se173ef: the Overview timeline now defaults to "未完了のみ", which
+            # hides done sprints (S_A). Reveal all so the done-sprint rows this
+            # suite exercises are present. (Same ACs, just a new default filter.)
+            page.locator("[data-testid='sprint-timeline-filter-all']").click()
+            page.wait_for_selector("[data-testid='sprint-timeline-S_A']", timeout=8000)
             page.locator("[data-testid='sprint-timeline-S_A']").click()
             page.wait_for_selector("[data-testid='sprint-detail-header']", timeout=8000)
             page.wait_for_function("() => location.search.includes('sprintId=S_A')", timeout=8000)

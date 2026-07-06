@@ -1,0 +1,33 @@
+{
+  "story": "Se173ef-1",
+  "story_type": "api",
+  "user_role": "Sprint タブを開く palmux2 利用者 (実体は FE、経路は REST)",
+  "entry_point": "GET /api/repos/{repoId}/branches/{branchId}/sprint/sprints/{sprintId}",
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "linked_ac": ["AC-Se173ef-1-1", "AC-Se173ef-1-2", "AC-Se173ef-1-3", "AC-Se173ef-1-5"],
+      "description": "現行 artifact フルセットを持つ Sprint(Sd44947) の detail を取得すると、新 artifact が全てパースされて返る",
+      "preconditions": ["docs/sprint-logs/Sd44947 に verify-run/verification-report/done-judgment/compromises/comprehension-report/deploy-test-smoke が存在"],
+      "steps": [
+        {"n": 1, "action": "GET .../sprint/sprints/Sd44947 を実 HTTP クライアントで叩く", "expected": "200; body.verifyRun.overallMachineStatus == 'pass'; runs[] に unit/tsc/gui-e2e が含まれ各 log パス付き"},
+        {"n": 2, "action": "同レスポンスの verification を検査", "expected": "verification.overall == 'pass'; summary.acFailures==0; stories[].acFindings が非空"},
+        {"n": 3, "action": "doneJudgment を検査", "expected": "stories['Sd44947-1'].overall=='ok'; guard1..8 の評価文が入っている"},
+        {"n": 4, "action": "compromises と comprehension を検査", "expected": "compromises.blockers 非空; comprehension.markdown が非空 + comprehension.headings に 'What changed' を含む"},
+        {"n": 5, "action": "acceptanceMatrix を検査 (旧 acceptance-matrix.json 無しで)", "expected": "verification-report.ac_findings + ROADMAP status 由来の行が返る (旧 reader 非依存)"},
+        {"n": 6, "action": "additionalLogs を検査", "expected": "deploy-test-smoke.json が name+overall='pass' で汎用収集されている"}
+      ],
+      "cleanup": []
+    },
+    {
+      "id": "scenario-2",
+      "linked_ac": ["AC-Se173ef-1-4"],
+      "description": "旧スプリント(decisions.json のみ、新 artifact 不在)でもエラーにならず欠損 artifact は省略される",
+      "preconditions": ["新 artifact を持たない旧 Sprint が存在 (例 S001)"],
+      "steps": [
+        {"n": 1, "action": "GET .../sprint/sprints/S001", "expected": "200; verifyRun.overallMachineStatus=='' (未実行); verification==null 相当; doneJudgment==null 相当; parseErrors に致命エラーなし"}
+      ],
+      "cleanup": []
+    }
+  ]
+}

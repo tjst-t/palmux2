@@ -1,0 +1,51 @@
+{
+  "sprint": "Se173ef",
+  "precondition": {"detail_level": "detailed", "stories_nonempty": true, "ok": true},
+  "stories": {
+    "Se173ef-1": {
+      "guard_1_not_user_review_required": "pass — roadmap did not pre-mark this needs_user_review",
+      "guard_2_nil_injection_mock": "pass — the nil checks in parser/artifacts.go (r.Junit/doc.Summary/doc.ADRConformance/doc.Precondition) are optional-JSON-field guards on unmarshaled sub-docs, NOT the external-dependency skip anti-pattern; the story declares no external dependency (pure local-file REST reader)",
+      "guard_3_mock_as_real": "pass — Story 1 is `api`; verified with a real HTTP client against the dev2 instance reading real seeded artifacts; no MOCK/--fake/DRY_RUN/InMemory",
+      "guard_4_pr9_exception": "n/a — no priority_rule 9 exception claimed; review_reason explicitly scopes this out of real-VM smoke (pure GUI/REST, dev-instance E2E)",
+      "guard_5_call_path": "pass — sprintDetail→ParseVerifyRun/ParseVerificationReport/ParseDoneJudgment/ParseCompromises/BuildACFindings all grep-present in handler.go and exercised end-to-end by [AC-Se173ef-1-1]",
+      "guard_6_deferral_comments": "pass — git diff has no TODO/Phase-N/Sprint-N deferral comments",
+      "guard_7_adr_conformance": "n/a — docs/DESIGN absent (no ADRs)",
+      "guard_8_destructive_multiversion": "n/a — internal/tab/sprint is not a data-path dir; no destructive multi-version scenario",
+      "overall": "ok"
+    },
+    "Se173ef-2": {
+      "guard_1_not_user_review_required": "pass",
+      "guard_2_nil_injection_mock": "pass — roadmap.go projections have no external-dependency nil-guards",
+      "guard_3_mock_as_real": "pass — real HTTP client against dev2, real ROADMAP fields",
+      "guard_4_pr9_exception": "n/a",
+      "guard_5_call_path": "pass — projectSprint/projectStory/projectDependencies/projectBacklog+detectPromotion grep-present and exercised by [AC-Se173ef-2-1..2-4]",
+      "guard_6_deferral_comments": "pass",
+      "guard_7_adr_conformance": "n/a",
+      "guard_8_destructive_multiversion": "n/a",
+      "overall": "ok"
+    },
+    "Se173ef-3": {
+      "guard_1_not_user_review_required": "pass",
+      "guard_2_nil_injection_mock": "pass",
+      "guard_3_mock_as_real": "pass — Story 3 is `gui`; authoritative checks drive a real headless chromium against the real dev2 backend + real seeded artifacts (no page.route on the E2E network path); the separate *_mock.py uses page.route only for the transient Loading/Error/ParseError/Partial states test-discipline expects mock coverage for",
+      "guard_4_pr9_exception": "n/a",
+      "guard_5_call_path": "pass — FE screens → api.ts → the sprint REST endpoints, verified through the browser round-trip by [AC-Se173ef-3-1..3-8]",
+      "guard_6_deferral_comments": "pass",
+      "guard_7_adr_conformance": "n/a",
+      "guard_8_destructive_multiversion": "n/a",
+      "overall": "ok"
+    },
+    "Se173ef-4": {
+      "guard_1_not_user_review_required": "pass",
+      "guard_2_nil_injection_mock": "pass — no production code path (schema/doc update)",
+      "guard_3_mock_as_real": "pass — static contract check, no mock mode",
+      "guard_4_pr9_exception": "n/a",
+      "guard_5_call_path": "pass — schema $file names cross-checked against the tab's real read paths by [AC-Se173ef-4-1]",
+      "guard_6_deferral_comments": "pass",
+      "guard_7_adr_conformance": "n/a",
+      "guard_8_destructive_multiversion": "n/a — meta Sprint (skill schema + README); no production code path (guard8_rationale: n/a)",
+      "overall": "ok",
+      "note": "SPRINT_LOGS_SCHEMA.json edit is OUTSIDE the repo (~/.claude/skills/sprint/references/); intentionally absent from the branch diff. Recorded in decisions.json so the parent autopilot surfaces it at the milestone."
+    }
+  }
+}

@@ -1,7 +1,11 @@
 // Package parser turns the JSON files emitted by the claude-skills
-// `sprint` skill (ROADMAP.json + sprint-logs/{S}/{decisions,e2e-results,
-// acceptance-matrix,refine,failures,gui-spec-*}.json) into typed Go
-// structs the Sprint Dashboard handler can serve back over REST.
+// `sprint` / `autopilot` skills (ROADMAP.json + sprint-logs/{S}/{decisions,
+// verify-run,verification-report,done-judgment,compromises,comprehension-
+// report,prototype-review,reopen,gui-spec-*,scenario-*,failures}.json) into
+// typed Go structs the Sprint Dashboard handler can serve back over REST.
+// The current-artifact readers live in artifacts.go (Se173ef); the legacy
+// e2e-results/acceptance-matrix readers remain in results.go for backward
+// compatibility with older sprints.
 //
 // History: until S028 the dashboard parsed the original Markdown files
 // (`docs/ROADMAP.md` + `decisions.md` etc.) with hand-rolled regular
@@ -18,6 +22,8 @@
 // then projected onto the FE-facing structs (`Roadmap`, `Sprint`,
 // `Story`, `DecisionEntry`, ...) which the handler returns as JSON.
 package parser
+
+import "encoding/json"
 
 // ---------------------------------------------------------------------------
 // FE-facing wire types (kept stable so the React dashboard didn't need to
@@ -57,6 +63,14 @@ type Sprint struct {
 	Milestone   bool    `json:"milestone,omitempty"`
 	Stories     []Story `json:"stories"`
 	ParseError  string  `json:"parseError,omitempty"`
+	// Se173ef: rolling-wave / Review Mode metadata. DetailLevel is
+	// "detailed" (default) or "coarse" (placeholder past the horizon);
+	// Phase groups sprints into project phases; ReviewReason explains
+	// the priority_rule-9 real-mode-smoke posture.
+	DetailLevel  string `json:"detailLevel,omitempty"`
+	Phase        string `json:"phase,omitempty"`
+	ReviewReason string `json:"reviewReason,omitempty"`
+	Coarse       bool   `json:"coarse,omitempty"`
 	// LineRange is preserved for FE compatibility — JSON has no notion
 	// of source-line ranges, so we always emit [0,0]. Keeping the field
 	// avoids a breaking change in the wire protocol.
@@ -73,6 +87,14 @@ type Story struct {
 	BlockedReason      string       `json:"blockedReason,omitempty"`
 	AcceptanceCriteria []Acceptance `json:"acceptanceCriteria"`
 	Tasks              []Task       `json:"tasks"`
+	// Se173ef: new story-level state so done vs needs_user_review are
+	// distinguishable and Review Mode history is visible.
+	ReviewReason       string   `json:"reviewReason,omitempty"`
+	UserReviewRequired bool     `json:"userReviewRequired,omitempty"`
+	AddedInReview      string   `json:"addedInReview,omitempty"`
+	ReopenedAt         string   `json:"reopenedAt,omitempty"`
+	NeedsHuman         string   `json:"needsHuman,omitempty"`
+	DependsOn          []string `json:"dependsOn,omitempty"`
 }
 
 // Acceptance is one acceptance_criteria[] entry. Status mirrors the
@@ -88,6 +110,9 @@ type Acceptance struct {
 	// Text is a synthesized "id: description" string so the existing FE
 	// (which renders {ac.text}) needs no changes.
 	Text string `json:"text"`
+	// ReopenedAt (Se173ef): set when a pass AC was flipped back to fail on
+	// Sprint re-open (Review Mode ①).
+	ReopenedAt string `json:"reopenedAt,omitempty"`
 }
 
 // Task is one entry under tasks{} for a Story.
@@ -108,6 +133,9 @@ type Dependency struct {
 	From string   `json:"from"`
 	Refs []string `json:"refs"`
 	Text string   `json:"text"`
+	// Reason (Se173ef): the raw dependency reason, exposed separately so
+	// the FE can render it without re-parsing Text.
+	Reason string `json:"reason,omitempty"`
 }
 
 // BacklogEntry mirrors backlog[] in ROADMAP.json.
@@ -123,6 +151,13 @@ type BacklogEntry struct {
 	// Text is a synthesized "title — description" string for FE display.
 	Text   string `json:"text"`
 	Source string `json:"source,omitempty"`
+	// Se173ef: full backlog fields + promotion tracking so the tab shows
+	// the rich object, not a 1-line title, and can fold already-promoted
+	// items behind a filter with a link to the promoting Sprint.
+	Priority   string `json:"priority,omitempty"`
+	Status     string `json:"status,omitempty"`
+	Promoted   bool   `json:"promoted,omitempty"`
+	PromotedTo string `json:"promotedTo,omitempty"`
 }
 
 // ParseError records a problem the parser ran into. Always section-
@@ -273,11 +308,14 @@ type roadmapProgressDoc struct {
 }
 
 type roadmapSprintDoc struct {
-	Title       string                     `json:"title"`
-	Status      string                     `json:"status"`
-	Description string                     `json:"description"`
-	Milestone   bool                       `json:"milestone"`
-	Stories     map[string]roadmapStoryDoc `json:"stories"`
+	Title        string                     `json:"title"`
+	Status       string                     `json:"status"`
+	Description  string                     `json:"description"`
+	Milestone    bool                       `json:"milestone"`
+	DetailLevel  string                     `json:"detail_level"`
+	Phase        string                     `json:"phase"`
+	ReviewReason string                     `json:"review_reason"`
+	Stories      map[string]roadmapStoryDoc `json:"stories"`
 }
 
 type roadmapStoryDoc struct {
@@ -285,6 +323,12 @@ type roadmapStoryDoc struct {
 	Status             string                    `json:"status"`
 	UserStory          string                    `json:"user_story"`
 	BlockedReason      string                    `json:"blocked_reason"`
+	ReviewReason       string                    `json:"review_reason"`
+	UserReviewRequired bool                      `json:"user_review_required"`
+	AddedInReview      string                    `json:"added_in_review"`
+	ReopenedAt         string                    `json:"reopened_at"`
+	NeedsHuman         string                    `json:"needs_human"`
+	DependsOn          json.RawMessage           `json:"depends_on"`
 	AcceptanceCriteria []roadmapACDoc            `json:"acceptance_criteria"`
 	Tasks              map[string]roadmapTaskDoc `json:"tasks"`
 }
@@ -294,6 +338,7 @@ type roadmapACDoc struct {
 	Description string `json:"description"`
 	Test        string `json:"test"`
 	Status      string `json:"status"`
+	ReopenedAt  string `json:"reopened_at"`
 }
 
 type roadmapTaskDoc struct {
@@ -312,6 +357,9 @@ type roadmapBacklogDoc struct {
 	Description string `json:"description"`
 	AddedIn     string `json:"added_in"`
 	Reason      string `json:"reason"`
+	Priority    string `json:"priority"`
+	Status      string `json:"status"`
+	Source      string `json:"source"`
 }
 
 // decisionsDoc mirrors docs/sprint-logs/{S}/decisions.json.

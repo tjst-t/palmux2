@@ -153,9 +153,14 @@ func (p *Provider) RegisterRoutes(mux *http.ServeMux, prefix string) {
 	h := newHandler(p.st)
 	mux.HandleFunc("GET "+prefix+"/overview", h.overview)
 	mux.HandleFunc("GET "+prefix+"/sprints/{sprintId}", h.sprintDetail)
+	mux.HandleFunc("GET "+prefix+"/sprints/{sprintId}/log", h.sprintLog)
 	mux.HandleFunc("GET "+prefix+"/dependencies", h.dependencies)
 	mux.HandleFunc("GET "+prefix+"/decisions", h.decisions)
 	mux.HandleFunc("GET "+prefix+"/refine", h.refine)
+	// Se173ef additive endpoints (Option A Review / Milestones / Backlog).
+	mux.HandleFunc("GET "+prefix+"/review", h.review)
+	mux.HandleFunc("GET "+prefix+"/milestones", h.milestones)
+	mux.HandleFunc("GET "+prefix+"/backlog", h.backlog)
 }
 
 // Close releases the shared watcher. Called from main.go shutdown.
@@ -225,6 +230,9 @@ func scopesFromEvents(events []worktreewatch.Event) []string {
 			seen["overview"] = struct{}{}
 			seen["dependencies"] = struct{}{}
 			seen["sprintDetail"] = struct{}{}
+			seen["review"] = struct{}{}
+			seen["milestones"] = struct{}{}
+			seen["backlog"] = struct{}{}
 		case strings.Contains(ev.Path, "/docs/sprint-logs/"):
 			base := filepath.Base(ev.Path)
 			switch {
@@ -233,9 +241,17 @@ func scopesFromEvents(events []worktreewatch.Event) []string {
 				seen["sprintDetail"] = struct{}{}
 			case base == "refine.json":
 				seen["refine"] = struct{}{}
+			case base == "verify-run.json", base == "verification-report.json",
+				base == "done-judgment.json", base == "compromises.json",
+				base == "reopen.json", base == "comprehension-report.md",
+				base == "prototype-review.json":
+				// Current artifact set feeds Detail + Review + Milestones.
+				seen["sprintDetail"] = struct{}{}
+				seen["review"] = struct{}{}
+				seen["milestones"] = struct{}{}
 			case strings.HasPrefix(base, "acceptance"), strings.HasPrefix(base, "e2e"):
 				seen["sprintDetail"] = struct{}{}
-			case strings.HasPrefix(base, "gui-spec-"):
+			case strings.HasPrefix(base, "gui-spec-"), strings.HasPrefix(base, "scenario-"):
 				seen["sprintDetail"] = struct{}{}
 			case base == "failures.json":
 				seen["sprintDetail"] = struct{}{}

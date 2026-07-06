@@ -520,7 +520,9 @@ def test_l_playwright_smoke(repo_id: str, branch_id: str) -> None:
             page = ctx.new_page()
             page.goto(url, wait_until="networkidle")
             page.wait_for_selector("[data-testid='sprint-view']", timeout=10000)
-            for tab in ("overview", "detail", "dependencies", "decisions", "refine"):
+            # Se173ef: IA reworked to Option A (Dependencies+Backlog folded into
+            # Overview, Refine removed, Review+Milestones added).
+            for tab in ("overview", "detail", "review", "milestones", "decisions"):
                 page.click(f"[data-testid='sprint-subtab-{tab}']")
                 # The detail screen needs a sprintId param; without it
                 # it shows a hint instead of fetching, which is fine.

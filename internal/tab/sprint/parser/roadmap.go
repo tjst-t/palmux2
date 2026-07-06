@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -90,7 +91,7 @@ func ParseRoadmap(src []byte) Roadmap {
 	// with the existing Mermaid edge derivation (handler reads d.Refs[0]
 	// as `from` and d.Refs[1:] as prerequisites).
 	rm.Dependencies = projectDependencies(doc.Dependencies)
-	rm.Backlog = projectBacklog(doc.Backlog)
+	rm.Backlog = projectBacklog(doc.Backlog, rm.Sprints)
 
 	return rm
 }
@@ -133,14 +134,23 @@ func orderedSprintIDs(doc roadmapDoc) []string {
 }
 
 func projectSprint(id string, sd roadmapSprintDoc) Sprint {
+	detail := strings.ToLower(strings.TrimSpace(sd.DetailLevel))
+	if detail == "" {
+		// Absent ⇒ "detailed" (back-compat, pre-rolling-wave roadmaps).
+		detail = "detailed"
+	}
 	sp := Sprint{
-		ID:          id,
-		Title:       sd.Title,
-		Status:      sd.Status,
-		StatusKind:  classifySprintStatus(sd.Status),
-		Description: sd.Description,
-		Milestone:   sd.Milestone,
-		Stories:     []Story{},
+		ID:           id,
+		Title:        sd.Title,
+		Status:       sd.Status,
+		StatusKind:   classifySprintStatus(sd.Status),
+		Description:  sd.Description,
+		Milestone:    sd.Milestone,
+		DetailLevel:  detail,
+		Phase:        sd.Phase,
+		ReviewReason: sd.ReviewReason,
+		Coarse:       detail == "coarse",
+		Stories:      []Story{},
 	}
 	// Order stories by story ID (S001-1, S001-2, ...). Map iteration is
 	// random in Go so we sort deterministically.
@@ -164,6 +174,12 @@ func projectStory(id string, st roadmapStoryDoc) Story {
 		StatusKind:         classifyStoryStatus(st.Status),
 		UserStory:          st.UserStory,
 		BlockedReason:      st.BlockedReason,
+		ReviewReason:       st.ReviewReason,
+		UserReviewRequired: st.UserReviewRequired,
+		AddedInReview:      st.AddedInReview,
+		ReopenedAt:         st.ReopenedAt,
+		NeedsHuman:         st.NeedsHuman,
+		DependsOn:          parseStringOrArray(st.DependsOn),
 		AcceptanceCriteria: []Acceptance{},
 		Tasks:              []Task{},
 	}
@@ -179,6 +195,7 @@ func projectStory(id string, st roadmapStoryDoc) Story {
 			Status:      ac.Status,
 			Done:        ac.Status == "pass",
 			Text:        text,
+			ReopenedAt:  ac.ReopenedAt,
 		})
 	}
 	keys := make([]string, 0, len(st.Tasks))
@@ -198,6 +215,36 @@ func projectStory(id string, st roadmapStoryDoc) Story {
 		})
 	}
 	return story
+}
+
+// parseStringOrArray decodes a JSON field that may be either a string (a
+// dependency note) or an array of strings (prerequisite story/sprint IDs).
+// Story-level depends_on is written both ways in the wild.
+func parseStringOrArray(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var arr []string
+	if err := json.Unmarshal(raw, &arr); err == nil {
+		out := arr[:0]
+		for _, s := range arr {
+			if strings.TrimSpace(s) != "" {
+				out = append(out, s)
+			}
+		}
+		if len(out) == 0 {
+			return nil
+		}
+		return out
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		if strings.TrimSpace(s) == "" {
+			return nil
+		}
+		return []string{s}
+	}
+	return nil
 }
 
 func joinIfNonempty(parts ...string) string {
@@ -235,15 +282,16 @@ func projectDependencies(deps map[string]roadmapDepDoc) []Dependency {
 			text += ": " + d.Reason
 		}
 		out = append(out, Dependency{
-			From: from,
-			Refs: refs,
-			Text: text,
+			From:   from,
+			Refs:   refs,
+			Text:   text,
+			Reason: d.Reason,
 		})
 	}
 	return out
 }
 
-func projectBacklog(items []roadmapBacklogDoc) []BacklogEntry {
+func projectBacklog(items []roadmapBacklogDoc, sprints []Sprint) []BacklogEntry {
 	out := []BacklogEntry{}
 	for _, b := range items {
 		text := b.Title
@@ -254,7 +302,10 @@ func projectBacklog(items []roadmapBacklogDoc) []BacklogEntry {
 				text = b.Description
 			}
 		}
-		source := b.AddedIn
+		source := b.Source
+		if source == "" {
+			source = b.AddedIn
+		}
 		if source == "" && strings.Contains(b.Description, "由来)") {
 			// Pre-migration backlog items folded the source into the
 			// description as "(Sxxx 由来)". Keep extracting it so older
@@ -265,7 +316,7 @@ func projectBacklog(items []roadmapBacklogDoc) []BacklogEntry {
 				}
 			}
 		}
-		out = append(out, BacklogEntry{
+		entry := BacklogEntry{
 			Title:       b.Title,
 			Description: b.Description,
 			AddedIn:     b.AddedIn,
@@ -273,9 +324,73 @@ func projectBacklog(items []roadmapBacklogDoc) []BacklogEntry {
 			Done:        false,
 			Text:        text,
 			Source:      source,
-		})
+			Priority:    b.Priority,
+			Status:      b.Status,
+		}
+		if to := detectPromotion(b.Title, sprints); to != "" {
+			entry.Promoted = true
+			entry.PromotedTo = to
+		}
+		out = append(out, entry)
 	}
 	return out
+}
+
+// sectionRefRe matches "§8.3", "§ 8", "ADR-0014" style anchors that make a
+// strong, low-false-positive promotion signal.
+var sectionRefRe = regexp.MustCompile(`§\s*\d+(?:\.\d+)*|ADR-\d+`)
+
+// detectPromotion is a conservative heuristic (AC-Se173ef-2-4): a backlog
+// item counts as "promoted" only when it shares a *distinctive* anchor with
+// an existing Sprint title — a §-section / ADR reference, or a contiguous
+// CJK run of length ≥ 6. Generic word overlap is deliberately NOT used to
+// avoid false links across unrelated items. Returns the promoting SprintID
+// or "".
+func detectPromotion(title string, sprints []Sprint) string {
+	anchors := promotionAnchors(title)
+	if len(anchors) == 0 {
+		return ""
+	}
+	for _, sp := range sprints {
+		st := sp.Title
+		for _, a := range anchors {
+			if strings.Contains(st, a) {
+				return sp.ID
+			}
+		}
+	}
+	return ""
+}
+
+// promotionAnchors extracts distinctive anchors from a backlog title.
+func promotionAnchors(title string) []string {
+	anchors := []string{}
+	for _, m := range sectionRefRe.FindAllString(title, -1) {
+		anchors = append(anchors, strings.ReplaceAll(m, " ", ""))
+		anchors = append(anchors, m)
+	}
+	// Long contiguous CJK runs (≥ 6 runes) are distinctive enough.
+	var run []rune
+	flush := func() {
+		if len(run) >= 6 {
+			anchors = append(anchors, string(run))
+		}
+		run = run[:0]
+	}
+	for _, r := range title {
+		if isCJK(r) {
+			run = append(run, r)
+		} else {
+			flush()
+		}
+	}
+	flush()
+	return anchors
+}
+
+func isCJK(r rune) bool {
+	return (r >= 0x3040 && r <= 0x30ff) || // hiragana + katakana
+		(r >= 0x4e00 && r <= 0x9fff) // CJK unified ideographs
 }
 
 // jsonSyntaxError converts a json.Unmarshal error into a ParseError with
@@ -347,6 +462,8 @@ func classifyStoryStatus(raw string) string {
 		return "blocked"
 	case "needs_human", "needs-human":
 		return "needs-human"
+	case "needs_user_review", "needs-user-review":
+		return "needs-user-review"
 	case "in_progress", "in-progress":
 		return "in-progress"
 	case "pending", "":

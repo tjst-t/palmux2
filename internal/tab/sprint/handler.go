@@ -119,14 +119,30 @@ func readFileBytes(root, rel string) ([]byte, error) {
 
 // OverviewResponse mirrors the Overview screen contract.
 type OverviewResponse struct {
-	Project         string              `json:"project"`
-	Vision          string              `json:"vision,omitempty"`
-	Progress        parser.Progress     `json:"progress"`
-	CurrentSprint   *parser.Sprint      `json:"currentSprint,omitempty"`
-	NextMilestone   string              `json:"nextMilestone,omitempty"`
-	ActiveAutopilot []ActiveAutopilot   `json:"activeAutopilot"`
-	Timeline        []TimelineEntry     `json:"timeline"`
-	ParseErrors     []parser.ParseError `json:"parseErrors,omitempty"`
+	Project         string            `json:"project"`
+	Vision          string            `json:"vision,omitempty"`
+	Progress        parser.Progress   `json:"progress"`
+	CurrentSprint   *parser.Sprint    `json:"currentSprint,omitempty"`
+	NextMilestone   string            `json:"nextMilestone,omitempty"`
+	ActiveAutopilot []ActiveAutopilot `json:"activeAutopilot"`
+	Timeline        []TimelineEntry   `json:"timeline"`
+	// Se173ef (Option A): Dependencies + Backlog are folded into Overview,
+	// plus a roll-up strip. Kept additive so the dedicated /dependencies
+	// and /backlog endpoints stay usable by Option B/C or tests.
+	Dependencies []parser.Dependency   `json:"dependencies"`
+	Backlog      []parser.BacklogEntry `json:"backlog"`
+	Rollup       OverviewRollup        `json:"rollup"`
+	Phases       []PhaseGroup          `json:"phases"`
+	ParseErrors  []parser.ParseError   `json:"parseErrors,omitempty"`
+}
+
+// PhaseGroup is a phase → sprint-id list projection for the Overview
+// "Phase 別進捗" panel (driven by the new ROADMAP phase field).
+type PhaseGroup struct {
+	Phase   string   `json:"phase"`
+	Sprints []string `json:"sprints"`
+	Done    int      `json:"done"`
+	Total   int      `json:"total"`
 }
 
 // ActiveAutopilot is one .claude/autopilot-*.lock detected in the worktree.
@@ -145,6 +161,22 @@ type TimelineEntry struct {
 	StatusKind string   `json:"statusKind"`
 	Milestone  bool     `json:"milestone"`
 	DependsOn  []string `json:"dependsOn"`
+	// Se173ef: rolling-wave metadata so the timeline can badge coarse
+	// placeholders + group by phase without a second round-trip.
+	DetailLevel string `json:"detailLevel,omitempty"`
+	Phase       string `json:"phase,omitempty"`
+	Coarse      bool   `json:"coarse,omitempty"`
+}
+
+// OverviewRollup is the Option-A "roll-up strip" summarising cross-sprint
+// state so the Overview can fold Dependencies + Backlog + the Review queue
+// count into a single screen.
+type OverviewRollup struct {
+	NeedsUserReview   int    `json:"needsUserReview"`
+	Blocked           int    `json:"blocked"`
+	NextMilestone     string `json:"nextMilestone,omitempty"`
+	BacklogTotal      int    `json:"backlogTotal"`
+	BacklogUnpromoted int    `json:"backlogUnpromoted"`
 }
 
 func (h *handler) overview(w http.ResponseWriter, r *http.Request) {
@@ -226,14 +258,82 @@ func (h *handler) overview(w http.ResponseWriter, r *http.Request) {
 			dependsOn = []string{}
 		}
 		resp.Timeline = append(resp.Timeline, TimelineEntry{
-			ID:         s.ID,
-			Title:      s.Title,
-			StatusKind: s.StatusKind,
-			Milestone:  s.Milestone,
-			DependsOn:  dependsOn,
+			ID:          s.ID,
+			Title:       s.Title,
+			StatusKind:  s.StatusKind,
+			Milestone:   s.Milestone,
+			DependsOn:   dependsOn,
+			DetailLevel: s.DetailLevel,
+			Phase:       s.Phase,
+			Coarse:      s.Coarse,
 		})
 	}
+
+	// Option A: fold Dependencies + Backlog into Overview.
+	resp.Dependencies = rm.Dependencies
+	resp.Backlog = rm.Backlog
+
+	// Roll-up strip: needs_user_review + blocked counts, next milestone,
+	// backlog totals.
+	nur, blocked := 0, 0
+	for _, s := range rm.Sprints {
+		for _, st := range s.Stories {
+			switch st.StatusKind {
+			case "needs-user-review":
+				nur++
+			case "blocked":
+				blocked++
+			}
+		}
+	}
+	nextMilestone := ""
+	for _, s := range rm.Sprints {
+		if s.Milestone && s.StatusKind != "done" {
+			nextMilestone = s.ID
+			break
+		}
+	}
+	unpromoted := 0
+	for _, b := range rm.Backlog {
+		if !b.Promoted {
+			unpromoted++
+		}
+	}
+	resp.Rollup = OverviewRollup{
+		NeedsUserReview:   nur,
+		Blocked:           blocked,
+		NextMilestone:     nextMilestone,
+		BacklogTotal:      len(rm.Backlog),
+		BacklogUnpromoted: unpromoted,
+	}
+	resp.NextMilestone = nextMilestone
+	resp.Phases = buildPhaseGroups(rm.Sprints)
+
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// buildPhaseGroups groups sprints by their ROADMAP phase field, preserving
+// first-seen order (execution order). Sprints without a phase are skipped.
+func buildPhaseGroups(sprints []parser.Sprint) []PhaseGroup {
+	idx := map[string]int{}
+	groups := []PhaseGroup{}
+	for _, s := range sprints {
+		if s.Phase == "" {
+			continue
+		}
+		i, ok := idx[s.Phase]
+		if !ok {
+			i = len(groups)
+			idx[s.Phase] = i
+			groups = append(groups, PhaseGroup{Phase: s.Phase, Sprints: []string{}})
+		}
+		groups[i].Sprints = append(groups[i].Sprints, s.ID)
+		groups[i].Total++
+		if s.StatusKind == "done" {
+			groups[i].Done++
+		}
+	}
+	return groups
 }
 
 // visionFromJSON pulls a sensible vision string out of VISION.json. The
@@ -262,13 +362,54 @@ func visionFromJSON(src []byte) string {
 // ----------------------------------------------------------------------
 
 // SprintDetailResponse is the per-sprint detail payload.
+//
+// Se173ef: extended with the CURRENT skill artifact set. The old fields
+// (AcceptanceMatrix / E2EResults) are retained for backward compatibility
+// (older Sprints that still carry those files) but the FE now renders the
+// trust-source fields below. AcFindings replaces the defunct
+// acceptance-matrix.json path (derived from verification-report + ROADMAP).
 type SprintDetailResponse struct {
-	Sprint           parser.Sprint                `json:"sprint"`
-	Decisions        []parser.DecisionEntry       `json:"decisions"`
+	Sprint parser.Sprint `json:"sprint"`
+
+	// Current artifact set (nil/empty ⇒ omitted, back-compat §2.9).
+	VerifyRun       *parser.VerifyRun          `json:"verifyRun,omitempty"`
+	Verification    *parser.VerificationReport `json:"verification,omitempty"`
+	DoneJudgment    *parser.DoneJudgment       `json:"doneJudgment,omitempty"`
+	Compromises     *parser.Compromises        `json:"compromises,omitempty"`
+	Comprehension   *parser.Comprehension      `json:"comprehension,omitempty"`
+	PrototypeReview *parser.PrototypeReview    `json:"prototypeReview,omitempty"`
+	Reopens         []parser.Reopen            `json:"reopens"`
+	GUISpecs        []parser.GUISpec           `json:"guiSpecs"`
+	Scenarios       []parser.ScenarioDoc       `json:"scenarios"`
+	AcFindings      []parser.ACFindingRow      `json:"acFindings"`
+	AdditionalLogs  []parser.SmokeLog          `json:"additionalLogs"`
+
+	Decisions []parser.DecisionEntry `json:"decisions"`
+
+	// Legacy / back-compat sections (empty on current Sprints).
 	AcceptanceMatrix []parser.AcceptanceMatrixRow `json:"acceptanceMatrix"`
 	E2EResults       parser.E2EResults            `json:"e2eResults"`
 	Failures         []parser.FailureEntry        `json:"failures,omitempty"`
-	ParseErrors      []parser.ParseError          `json:"parseErrors,omitempty"`
+
+	ParseErrors []parser.ParseError `json:"parseErrors,omitempty"`
+}
+
+// knownSprintLogFiles are the artifacts read explicitly; every OTHER *.json
+// in the sprint-log dir is collected generically as an "additional log"
+// (AC-Se173ef-1-5) so future artifacts never silently vanish.
+var knownSprintLogFiles = map[string]bool{
+	"decisions.json":            true,
+	"verify-run.json":           true,
+	"verification-report.json":  true,
+	"done-judgment.json":        true,
+	"compromises.json":          true,
+	"prototype-review.json":     true,
+	"reopen.json":               true,
+	"acceptance-matrix.json":    true,
+	"e2e-results.json":          true,
+	"refine.json":               true,
+	"failures.json":             true,
+	"verification-results.json": true,
 }
 
 func (h *handler) sprintDetail(w http.ResponseWriter, r *http.Request) {
@@ -312,20 +453,82 @@ func (h *handler) sprintDetail(w http.ResponseWriter, r *http.Request) {
 		AcceptanceMatrix: []parser.AcceptanceMatrixRow{},
 		Decisions:        []parser.DecisionEntry{},
 		E2EResults:       parser.E2EResults{SprintID: sprintID},
+		Reopens:          []parser.Reopen{},
+		GUISpecs:         []parser.GUISpec{},
+		Scenarios:        []parser.ScenarioDoc{},
+		AcFindings:       []parser.ACFindingRow{},
+		AdditionalLogs:   []parser.SmokeLog{},
 	}
 
-	if dec, err := readFileBytes(root, "docs/sprint-logs/"+sprintID+"/decisions.json"); err == nil {
+	logRel := func(name string) string { return "docs/sprint-logs/" + sprintID + "/" + name }
+	// Each read is independent + fail-open: a corrupt or missing file
+	// reports a section-scoped ParseError (or is simply omitted) and never
+	// takes the whole response down (AC-Se173ef-1-4).
+	readLog := func(name string) []byte {
+		b, err := readFileBytes(root, logRel(name))
+		if err != nil {
+			return nil
+		}
+		return b
+	}
+
+	if dec := readLog("decisions.json"); dec != nil {
 		log := parser.ParseDecisions(sprintID, dec)
 		resp.Decisions = log.Entries
 		resp.ParseErrors = append(resp.ParseErrors, log.ParseErrors...)
 	}
-	if am, err := readFileBytes(root, "docs/sprint-logs/"+sprintID+"/acceptance-matrix.json"); err == nil {
+
+	// ---- current artifact set --------------------------------------------
+	resp.VerifyRun = parser.ParseVerifyRun(readLog("verify-run.json"))
+	resp.Verification = parser.ParseVerificationReport(readLog("verification-report.json"))
+	resp.DoneJudgment = parser.ParseDoneJudgment(readLog("done-judgment.json"))
+	resp.Compromises = parser.ParseCompromises(readLog("compromises.json"))
+	resp.Comprehension = parser.ParseComprehension(readLog("comprehension-report.md"))
+	resp.PrototypeReview = parser.ParsePrototypeReview(readLog("prototype-review.json"))
+	if rp := parser.ParseReopen(readLog("reopen.json")); rp != nil {
+		resp.Reopens = append(resp.Reopens, *rp)
+	}
+
+	// AC findings: verifier + ROADMAP, replacing the defunct matrix.
+	resp.AcFindings = parser.BuildACFindings(*found, resp.Verification)
+
+	// gui-spec-*.json + scenario-*.json across the sprint-log dir.
+	logDirAbs := filepath.Join(root, "docs", "sprint-logs", sprintID)
+	if entries, err := os.ReadDir(logDirAbs); err == nil {
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			if !e.IsDir() {
+				names = append(names, e.Name())
+			}
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			lower := strings.ToLower(name)
+			switch {
+			case strings.HasPrefix(name, "gui-spec-") && strings.HasSuffix(lower, ".json"):
+				if gs := parser.ParseGUISpec(sprintID, "", readLog(name)); gs.StateDiagram != "" || len(gs.EndpointContracts) > 0 || gs.Scenarios != nil {
+					resp.GUISpecs = append(resp.GUISpecs, gs)
+				}
+			case strings.HasPrefix(name, "scenario-") && strings.HasSuffix(lower, ".json"):
+				if sc := parser.ParseScenario(readLog(name)); sc != nil {
+					resp.Scenarios = append(resp.Scenarios, *sc)
+				}
+			case strings.HasSuffix(lower, ".json") && !knownSprintLogFiles[name] &&
+				!strings.HasPrefix(name, "gui-spec-") && !strings.HasPrefix(name, "scenario-"):
+				// Generic additional smoke/verification log (AC-1-5).
+				resp.AdditionalLogs = append(resp.AdditionalLogs, parser.ClassifySmokeLog(name, readLog(name)))
+			}
+		}
+	}
+
+	// ---- legacy / back-compat sections -----------------------------------
+	if am := readLog("acceptance-matrix.json"); am != nil {
 		resp.AcceptanceMatrix = parser.ParseAcceptanceMatrix(sprintID, am).Rows
 	}
-	if e2e, err := readFileBytes(root, "docs/sprint-logs/"+sprintID+"/e2e-results.json"); err == nil {
+	if e2e := readLog("e2e-results.json"); e2e != nil {
 		resp.E2EResults = parser.ParseE2EResults(sprintID, e2e)
 	}
-	if fl, err := readFileBytes(root, "docs/sprint-logs/"+sprintID+"/failures.json"); err == nil {
+	if fl := readLog("failures.json"); fl != nil {
 		resp.Failures = parser.ParseFailures(sprintID, fl)
 	}
 	writeJSON(w, http.StatusOK, resp)

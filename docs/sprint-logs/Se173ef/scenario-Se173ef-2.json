@@ -1,0 +1,31 @@
+{
+  "story": "Se173ef-2",
+  "story_type": "api",
+  "user_role": "Sprint タブ利用者 (REST 経由)",
+  "entry_point": "GET /api/repos/{repoId}/branches/{branchId}/sprint/{overview,dependencies,sprints/{id}}",
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "linked_ac": ["AC-Se173ef-2-1", "AC-Se173ef-2-2"],
+      "description": "新 ROADMAP メタ (detail_level/phase/review_reason/milestone) と story 新状態が API に出る",
+      "preconditions": ["ROADMAP.json に phase/detail_level/review_reason を持つ sprint と needs_user_review の story が存在"],
+      "steps": [
+        {"n": 1, "action": "GET .../sprint/sprints/Se173ef", "expected": "sprint.detailLevel=='detailed'; sprint.phase 非空; sprint.reviewReason 非空; sprint.milestone==true"},
+        {"n": 2, "action": "needs_user_review の story を持つ sprint detail を GET", "expected": "story.statusKind=='needs-user-review' と done が区別できる; blocked/needsHuman/reopenedAt/dependsOn/userReviewRequired が保持される"},
+        {"n": 3, "action": "GET .../sprint/overview の timeline を検査", "expected": "各 timeline エントリに detailLevel/phase/milestone が付与され coarse を placeholder 判定できる"}
+      ],
+      "cleanup": []
+    },
+    {
+      "id": "scenario-2",
+      "linked_ac": ["AC-Se173ef-2-3", "AC-Se173ef-2-4"],
+      "description": "dependency graph が reason を含み、backlog が全フィールド + 昇格判定付きで返る",
+      "preconditions": ["dependencies に reason 付きエントリ、backlog に added_in/priority/status/source を持つ項目が存在"],
+      "steps": [
+        {"n": 1, "action": "GET .../sprint/dependencies", "expected": "dependencies[].reason が各エッジに含まれる"},
+        {"n": 2, "action": "GET .../sprint/backlog", "expected": "各 item に title/description/reason/addedIn/priority/status/source; promoted と promotedTo(SprintID) が付与され、既存 sprint に取り込まれた項目は promoted==true"}
+      ],
+      "cleanup": []
+    }
+  ]
+}

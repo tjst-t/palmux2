@@ -7,10 +7,13 @@
 // credentials/error semantics, so behaviour stays consistent.
 
 import type {
+  BacklogResponse,
   DecisionsResponse,
   DependencyGraphResponse,
+  MilestonesResponse,
   OverviewResponse,
   RefineResponse,
+  ReviewResponse,
   SprintDetailResponse,
 } from './types'
 
@@ -71,4 +74,13 @@ export const sprintApi = {
     ),
   refine: (repoId: string, branchId: string, prevETag: string | null) =>
     cachedJSON<RefineResponse>(`${base(repoId, branchId)}/refine`, prevETag),
+  // Se173ef additive endpoints.
+  review: (repoId: string, branchId: string, prevETag: string | null) =>
+    cachedJSON<ReviewResponse>(`${base(repoId, branchId)}/review`, prevETag),
+  milestones: (repoId: string, branchId: string, prevETag: string | null) =>
+    cachedJSON<MilestonesResponse>(`${base(repoId, branchId)}/milestones`, prevETag),
+  backlog: (repoId: string, branchId: string, prevETag: string | null) =>
+    cachedJSON<BacklogResponse>(`${base(repoId, branchId)}/backlog`, prevETag),
+  logUrl: (repoId: string, branchId: string, sprintId: string, file: string) =>
+    `${base(repoId, branchId)}/sprints/${encodeURIComponent(sprintId)}/log?file=${encodeURIComponent(file)}`,
 }

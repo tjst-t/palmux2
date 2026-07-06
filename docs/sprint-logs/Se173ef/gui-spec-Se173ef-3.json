@@ -1,0 +1,42 @@
+{
+  "sprint": "Se173ef",
+  "story": "Se173ef-3",
+  "state_diagram": "stateDiagram-v2\n    [*] --> Loading: view mount (REST GET)\n    Loading --> Populated: 現行 artifact フルセット (Sd44947)\n    Loading --> Empty: 旧スプリント (decisions のみ / 新 artifact 不在)\n    Loading --> PartialArtifacts: 一部 artifact のみ存在\n    Loading --> ParseError: 破損 JSON (1ファイル)\n    Populated --> Populated: サブタブ切替 (overview/detail/review/milestones/decisions)\n    ParseError --> Populated: 他セクションは描画継続 (banner のみ)\n    Empty --> Populated: 別 sprint を選択",
+  "scenarios": {
+    "entry_point": "Sprint タブ URL /<repo>/<branch>/sprint?view=detail&sprintId=Sd44947 を直接開く、または Overview timeline 行クリック",
+    "happy_path": "Sprint Detail を開くと最上段に『検証 (trust source)』パネル(機械判定 + verifier verdict)、続いて 6-guard grid、Stories&AC、Milestone 成果物(compromises + comprehension Markdown)、Prototype/gui-spec(state_diagram mermaid)、Decisions が並ぶ",
+    "data_states": {
+      "loading": "各画面ヘッダに Loading 表示",
+      "empty": "旧スプリントは trust-source/6-guard/milestone セクションを『過去 Sprint で記録対象外』の empty-note に置換、ROADMAP 由来の Story/AC のみ表示",
+      "partial": "存在する artifact のみ描画、不在は省略",
+      "error": "ParseErrorsBanner を表示しつつ他セクションは描画継続"
+    },
+    "edge_cases": ["破損 done-judgment.json は banner に出し他は描画", "milestone でない sprint では Milestone セクション非表示", "timeline 既定=未完了のみ / backlog 既定=未昇格のみ (UI state)"],
+    "success_feedback": "trust-source panel の overall_machine_status を大きく (PASS/FAIL 色)、verifier overlooked/forbidden を強調",
+    "failure_feedback": "needs_user_review の story を Review タブ + Overview roll-up バッジで点灯"
+  },
+  "endpoint_contracts": [
+    {"path": "/api/repos/{repoId}/branches/{branchId}/sprint/overview", "method": "GET", "registered": true, "request_fields": null, "response_fields": {"project": "string", "progress": "Progress", "timeline": "TimelineEntry[] (detailLevel/phase/milestone/dependsOn 付き)", "dependencies": "Dependency[] (reason 付き, Option A で内包)", "backlog": "BacklogEntry[] (Option A で内包)", "rollup": "{needsUserReview:int, nextMilestone:string, backlogTotal:int, backlogUnpromoted:int}"}},
+    {"path": "/api/repos/{repoId}/branches/{branchId}/sprint/sprints/{sprintId}", "method": "GET", "registered": true, "request_fields": null, "response_fields": {"sprint": "Sprint (detailLevel/phase/reviewReason/milestone 付き)", "verifyRun": "VerifyRun|null", "verification": "VerificationReport|null", "doneJudgment": "DoneJudgment|null", "compromises": "Compromises|null", "comprehension": "{markdown, headings[]}|null", "prototypeReview": "PrototypeReview|null", "reopens": "Reopen[]", "guiSpecs": "GUISpec[]", "scenarios": "ScenarioDoc[]", "acFindings": "ACFinding[] (verification+ROADMAP 由来)", "additionalLogs": "SmokeLog[]", "decisions": "DecisionEntry[]", "parseErrors": "ParseError[]"}},
+    {"path": "/api/repos/{repoId}/branches/{branchId}/sprint/review", "method": "GET", "registered": true, "request_fields": null, "response_fields": {"needsUserReview": "StoryRef[]", "blocked": "StoryRef[]", "highCompromises": "CompromiseRef[]", "overlooked": "FindingRef[]", "reopens": "ReopenRef[]", "counts": "{...}"}},
+    {"path": "/api/repos/{repoId}/branches/{branchId}/sprint/milestones", "method": "GET", "registered": true, "request_fields": null, "response_fields": {"milestones": "MilestoneEntry[] (comprehension + compromises + verdict)"}},
+    {"path": "/api/repos/{repoId}/branches/{branchId}/sprint/backlog", "method": "GET", "registered": true, "request_fields": null, "response_fields": {"items": "BacklogEntry[] (promoted/promotedTo 付き)"}}
+  ],
+  "data_testids": [
+    "sprint-view",
+    "sprint-subtab-overview", "sprint-subtab-detail", "sprint-subtab-review", "sprint-subtab-milestones", "sprint-subtab-decisions",
+    "sprint-overview", "sprint-overview-progress", "sprint-rollup-needsreview", "sprint-rollup-milestone", "sprint-rollup-backlog",
+    "sprint-timeline-table", "sprint-timeline-filter-incomplete", "sprint-timeline-filter-all", "sprint-overview-depgraph",
+    "sprint-backlog-panel", "sprint-backlog-filter-unpromoted", "sprint-backlog-filter-all", "sprint-backlog-filter-promoted", "sprint-backlog-item",
+    "sprint-detail", "sprint-detail-trust", "sprint-detail-machine-verdict", "sprint-detail-verifier-verdict", "sprint-detail-run-chip",
+    "sprint-detail-guards", "sprint-detail-guard-row", "sprint-detail-story-verdict", "sprint-detail-ac-row", "sprint-detail-overlooked",
+    "sprint-detail-milestone", "sprint-detail-compromises", "sprint-detail-comprehension", "sprint-detail-prototype", "sprint-detail-statediagram", "sprint-detail-decisions", "sprint-detail-additional-logs",
+    "sprint-detail-badge-detaillevel", "sprint-detail-badge-phase", "sprint-detail-badge-reviewreason", "sprint-detail-badge-milestone", "sprint-detail-badge-reopened",
+    "sprint-review", "sprint-review-counts", "sprint-review-needsreview", "sprint-review-compromises", "sprint-review-overlooked", "sprint-review-reopen",
+    "sprint-milestones", "sprint-milestone-entry", "sprint-milestone-comprehension", "sprint-milestone-compromises"
+  ],
+  "test_files": {
+    "e2e": "tests/e2e/se173ef_sprint_tab.e2e.spec.ts",
+    "mock": "tests/e2e/se173ef_sprint_tab.mock.spec.ts"
+  }
+}

@@ -28,8 +28,43 @@ export function statusPillClass(kind: string): string {
     case 'in-progress':
       return `${base} ${styles.pillInProgress}`
     case 'blocked':
+    case 'needs-human':
       return `${base} ${styles.pillBlocked}`
+    case 'needs-user-review':
+      return `${base} ${styles.pillNeedsReview}`
     default:
       return `${base} ${styles.pillPending}`
+  }
+}
+
+/** CSS class for a pass/fail/warn verdict word. */
+export function verdictClass(status: string): string {
+  switch (String(status).toLowerCase()) {
+    case 'pass':
+    case 'ok':
+    case 'passed':
+      return styles.verdictPass
+    case 'fail':
+    case 'failed':
+      return styles.verdictFail
+    case 'warn':
+    case 'needs_user_review':
+    case 'needs-user-review':
+      return styles.verdictWarn
+    default:
+      return styles.verdictNa
+  }
+}
+
+/** CSS class for a severity chip (high / medium / low). */
+export function severityClass(sev: string): string {
+  switch (String(sev).toLowerCase()) {
+    case 'high':
+      return `${styles.sev} ${styles.sevHigh}`
+    case 'medium':
+    case 'med':
+      return `${styles.sev} ${styles.sevMed}`
+    default:
+      return `${styles.sev} ${styles.sevLow}`
   }
 }
