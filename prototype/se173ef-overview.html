@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Se173ef · Overview</title>
+<link rel="stylesheet" href="sa53137.css">
+<link rel="stylesheet" href="se173ef.css">
+</head>
+<body>
+<div class="sprint-shell">
+  <div class="topbar"><div class="brand"><span class="dot"></span> palmux2 · Sprint</div>
+    <span class="crumbs"><a href="se173ef-index.html">← 構成比較 A/B/C</a></span></div>
+  <div class="viewtabs">
+    <a class="viewtab active" href="se173ef-overview.html">Overview</a>
+    <a class="viewtab" href="se173ef-sprint-tab.html">Sprint Detail</a>
+    <a class="viewtab new" href="se173ef-review.html">Review</a>
+    <a class="viewtab new" href="se173ef-milestones.html">Milestones</a>
+    <a class="viewtab" href="se173ef-decisions.html">Decisions</a>
+    <a class="viewtab" href="se173ef-dependencies.html">Dependencies</a>
+    <a class="viewtab" href="se173ef-backlog.html">Backlog</a>
+  </div>
+
+  <h1 class="view-h">Overview</h1>
+
+  <!-- progress + roll-ups -->
+  <div class="panel">
+    <div class="pb">
+      <div style="font-weight:600;font-size:14px">Palmux v2</div>
+      <p class="help" style="margin:4px 0 0;line-height:1.5">ブラウザから tmux と複数の Claude Code エージェントを並行運用できる Web ターミナルクライアント。</p>
+      <div class="progress-track"><div class="progress-fill" style="width:94%"></div></div>
+      <div class="progress-meta">66 / 70 sprints (94%) · 0 in progress · 3 pending</div>
+    </div>
+  </div>
+
+  <!-- NEW: roll-up strip -->
+  <div class="two">
+    <div class="panel"><div class="pb">
+      <div class="kv" style="justify-content:space-around">
+        <div style="text-align:center"><div class="v zero">0</div><div class="k">要対応 (needs_user_review)</div></div>
+        <div style="text-align:center"><div class="v" style="color:var(--accent-light)">S41bdf2</div><div class="k">次マイルストーン</div></div>
+        <div style="text-align:center"><div class="v" style="color:var(--fg)">47</div><div class="k">backlog</div></div>
+      </div>
+      <p class="help2" style="text-align:center">※ 要対応 &gt; 0 なら Review タブへ誘導（バッジ点灯）。現状は全 done。</p>
+    </div></div>
+    <div class="panel"><div class="ph"><h2>Active autopilot</h2></div><div class="pb">
+      <p class="help" style="margin:0">このブランチに autopilot ロックは検出されていません。</p>
+      <p class="help2">実行中は SprintID / PID / 開始時刻 / 進行フェーズを表示（<code>.claude/autopilot-*.lock</code> 由来）。</p>
+    </div></div>
+  </div>
+
+  <!-- phase breakdown (NEW) -->
+  <div class="panel"><div class="ph"><h2>Phase 別進捗</h2><span class="tag2">NEW: phase フィールド由来</span></div><div class="pb">
+    <div style="font-size:12.5px;line-height:2">
+      <div>Phase 0–4 コア + 磨き込み <span class="dep-pill">S001–S033 完了</span></div>
+      <div>Phase 5 palmuxOS <span class="dep-pill">S8478ca–Sa8e7d0 完了</span></div>
+      <div>Phase 6 palmuxOS <b>進行中</b> <span class="b done" style="font-size:10px">Sd44947 ✓</span> <span class="b pending" style="font-size:10px">S673a42</span> <span class="b ms" style="font-size:10px">★ S41bdf2</span> <span class="b pending" style="font-size:10px">Se173ef</span></div>
+    </div>
+  </div></div>
+
+  <!-- timeline table -->
+  <div class="panel"><div class="ph"><h2>Sprint timeline</h2><span class="tag2">status / milestone / detail_level バッジ付き</span></div><div class="pb">
+    <table class="tl">
+      <thead><tr><th>Sprint</th><th>Title</th><th>Status</th><th>Depends on</th><th>Meta</th></tr></thead>
+      <tbody>
+        <tr><td class="sid">Sd44947</td><td class="stt">共有フォルダの宣言化 (profile-as-mold)</td><td><span class="b done">✓ done</span></td><td class="dep-pill">—</td><td><span class="b ms">★</span> <span class="b meta">detailed</span></td></tr>
+        <tr><td class="sid">S673a42</td><td class="stt">GUI からの更新キック復活</td><td><span class="b pending">pending</span></td><td><span class="dep-pill">Sb14caa</span></td><td><span class="b meta">detailed</span></td></tr>
+        <tr><td class="sid">S41bdf2</td><td class="stt">§8.3 GUI アプリカードモデル</td><td><span class="b pending">pending</span></td><td><span class="dep-pill">S673a42</span> <span class="dep-pill">Sd44947</span></td><td><span class="b ms">★</span> <span class="b meta">detailed</span></td></tr>
+        <tr><td class="sid">Se173ef</td><td class="stt">Sprint タブを現行 skill artifact に追随</td><td><span class="b pending">pending</span></td><td class="dep-pill">—</td><td><span class="b meta">detailed</span></td></tr>
+      </tbody>
+    </table>
+    <p class="help2">行クリックで Sprint Detail へ。coarse スプリントは <span class="b coarse">coarse</span> で「未詳細化」を区別。</p>
+  </div></div>
+
+  <!-- folded dependency mini-graph (Option A) -->
+  <div class="panel"><div class="ph"><h2>依存ミニグラフ</h2><span class="tag2">Option A: Dependencies をここに内包</span></div><div class="pb">
+    <div class="mermaid-box">Sb14caa ──▶ S673a42 ──▶ S41bdf2 ★
+Sd44947 ──────────────▶ S41bdf2 ★
+Se173ef  (独立)</div>
+    <p class="help2">Option B / C ではこれを独立 <b>Dependencies</b> タブとして展開（フル pan/zoom mermaid）。</p>
+  </div></div>
+
+  <p class="help" style="text-align:center;margin-top:20px"><a href="se173ef-index.html">← 構成比較 A/B/C</a></p>
+</div>
+</body>
+</html>

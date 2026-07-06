@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ja" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Se173ef · Sprint タブ構成比較 A/B/C</title>
+<link rel="stylesheet" href="sa53137.css">
+<link rel="stylesheet" href="se173ef.css">
+<style>
+  .cmp { max-width: 1000px; margin: 0 auto; padding: 26px 22px 70px; }
+  .opt-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin-bottom: 18px; }
+  .opt-card.rec { border-color: rgba(124,138,255,.4); box-shadow: 0 0 0 1px rgba(124,138,255,.1); }
+  .opt-card h2 { margin: 0 0 4px; font-size: 15px; }
+  .opt-card .lead { color: var(--fg-muted); font-size: 12.5px; margin: 0 0 12px; line-height: 1.5; }
+  .rec-badge { font-size: 10px; color: var(--accent-light); border: 1px solid var(--accent-dark); border-radius: 5px; padding: 1px 6px; margin-left: 8px; vertical-align: middle; }
+  .barwrap { background: var(--bg); border: 1px solid var(--border); border-radius: 9px; padding: 4px 8px; margin-bottom: 10px; }
+  .barwrap .viewtabs { border-bottom: none; margin: 0; }
+  .delta { font-size: 11.5px; color: var(--fg-dim); line-height: 1.7; }
+  .delta .add { color: var(--success); } .delta .rm { color: #f0a0a0; } .delta .fold { color: var(--accent-light); }
+</style>
+</head>
+<body>
+<div class="cmp">
+  <div class="topbar"><div class="brand"><span class="dot"></span> palmux2 · Sprint タブ構成比較</div><span class="crumbs">Se173ef prototype</span></div>
+
+  <p class="help" style="font-size:12.5px;line-height:1.6;margin-bottom:20px">
+    3 つの情報設計案。<b>タブ（下線リンク）をクリックすると各コンテンツのモックが開きます</b>（コンテンツは 3 案で共有、違いは<b>タブ集合＝ナビゲーション IA</b>）。
+    現状は <code>Overview / Sprint Detail / Dependencies / Decisions / Refine</code>（Refine は常に空）。
+  </p>
+
+  <!-- Option A -->
+  <div class="opt-card rec">
+    <h2>A: アクション志向（5 タブ）<span class="rec-badge">推奨</span></h2>
+    <p class="lead">「今、自分が見るべきもの」を <b>Review</b> に集約する行動起点の構成。Dependencies は Overview 内にグラフとして畳み、Refine は削除。</p>
+    <div class="barwrap"><div class="viewtabs">
+      <a class="viewtab active" href="se173ef-overview.html">Overview</a>
+      <a class="viewtab" href="se173ef-sprint-tab.html">Sprint Detail</a>
+      <a class="viewtab new" href="se173ef-review.html">Review</a>
+      <a class="viewtab new" href="se173ef-milestones.html">Milestones</a>
+      <a class="viewtab" href="se173ef-decisions.html">Decisions</a>
+    </div></div>
+    <div class="delta">
+      <span class="add">+ Review</span>（needs_user_review / blocked / high compromises / overlooked / reopen を横断集約 → <code>autopilot review</code> 導線）<br>
+      <span class="add">+ Milestones</span>（comprehension + compromises）　<span class="fold">△ Dependencies → Overview に内包</span>　<span class="rm">− Refine 削除</span>
+    </div>
+  </div>
+
+  <!-- Option B -->
+  <div class="opt-card">
+    <h2>B: 保守的（5 タブ）</h2>
+    <p class="lead">既存の構造を極力保ち、空の Refine を Milestones に置き換えるだけ。Dependencies は単独タブのまま。Review 集約は作らない。</p>
+    <div class="barwrap"><div class="viewtabs">
+      <a class="viewtab active" href="se173ef-overview.html">Overview</a>
+      <a class="viewtab" href="se173ef-sprint-tab.html">Sprint Detail</a>
+      <a class="viewtab" href="se173ef-dependencies.html">Dependencies</a>
+      <a class="viewtab" href="se173ef-decisions.html">Decisions</a>
+      <a class="viewtab new" href="se173ef-milestones.html">Milestones</a>
+    </div></div>
+    <div class="delta">
+      <span class="add">+ Milestones</span>　<span class="rm">− Refine 削除</span>　既存タブ維持（Review 集約なし、要対応は Overview の軽い roll-up のみ）
+    </div>
+  </div>
+
+  <!-- Option C -->
+  <div class="opt-card">
+    <h2>C: 網羅（7 タブ）</h2>
+    <p class="lead">情報量最大。Review・Milestones・Backlog を全て独立タブに。Dependencies も単独維持。タブは多いが全部に到達しやすい。</p>
+    <div class="barwrap" style="overflow-x:auto"><div class="viewtabs" style="flex-wrap:nowrap;width:max-content">
+      <a class="viewtab active" href="se173ef-overview.html">Overview</a>
+      <a class="viewtab" href="se173ef-sprint-tab.html">Sprint Detail</a>
+      <a class="viewtab new" href="se173ef-review.html">Review</a>
+      <a class="viewtab new" href="se173ef-milestones.html">Milestones</a>
+      <a class="viewtab" href="se173ef-decisions.html">Decisions</a>
+      <a class="viewtab" href="se173ef-dependencies.html">Dependencies</a>
+      <a class="viewtab new" href="se173ef-backlog.html">Backlog</a>
+    </div></div>
+    <div class="delta">
+      <span class="add">+ Review + Milestones + Backlog</span>（47 件の backlog も可視化）　<span class="rm">− Refine 削除</span>　Dependencies 単独維持
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:22px">
+    <div class="ph"><h2>全コンテンツページ（3 案共有）</h2></div>
+    <div class="pb" style="display:flex;gap:8px;flex-wrap:wrap">
+      <a class="btn small" href="se173ef-overview.html">Overview</a>
+      <a class="btn small" href="se173ef-sprint-tab.html">Sprint Detail</a>
+      <a class="btn small" href="se173ef-review.html">Review (NEW)</a>
+      <a class="btn small" href="se173ef-milestones.html">Milestones (NEW)</a>
+      <a class="btn small" href="se173ef-decisions.html">Decisions</a>
+      <a class="btn small" href="se173ef-dependencies.html">Dependencies</a>
+      <a class="btn small" href="se173ef-backlog.html">Backlog (NEW)</a>
+    </div>
+  </div>
+
+  <p class="help" style="text-align:center;margin-top:20px"><a href="index.html">← prototype index</a></p>
+</div>
+</body>
+</html>

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ja" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Se173ef · Milestones</title>
+<link rel="stylesheet" href="sa53137.css">
+<link rel="stylesheet" href="se173ef.css">
+</head>
+<body>
+<div class="sprint-shell">
+  <div class="topbar"><div class="brand"><span class="dot"></span> palmux2 · Sprint</div>
+    <span class="crumbs"><a href="se173ef-index.html">← 構成比較 A/B/C</a></span></div>
+  <div class="viewtabs">
+    <a class="viewtab" href="se173ef-overview.html">Overview</a>
+    <a class="viewtab" href="se173ef-sprint-tab.html">Sprint Detail</a>
+    <a class="viewtab new" href="se173ef-review.html">Review</a>
+    <a class="viewtab new active" href="se173ef-milestones.html">Milestones</a>
+    <a class="viewtab" href="se173ef-decisions.html">Decisions</a>
+    <a class="viewtab" href="se173ef-dependencies.html">Dependencies</a>
+    <a class="viewtab" href="se173ef-backlog.html">Backlog</a>
+  </div>
+
+  <h1 class="view-h">Milestones</h1>
+  <p class="help" style="margin:-8px 0 16px;line-height:1.5">レビュー境界ごとに「何が変わったか（comprehension-report）」と「何を妥協したか（compromises）」を辿る。★ マイルストーンスプリント単位。</p>
+
+  <!-- Sd44947 milestone -->
+  <div class="panel"><div class="ph"><h2>★ Sd44947 — 共有フォルダの宣言化 (profile-as-mold)</h2><span class="tag2">2026-07-05 · done</span></div>
+    <div class="pb two">
+      <div class="comprehension">
+        <div style="font-size:11px;color:var(--fg-dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Comprehension Report</div>
+        <h3>What changed</h3>
+        <ul><li>共有 device が単一 incus profile <code>palmux-shared</code> の宣言に。10s scan で自己修復（profile-as-mold）。</li><li>GUI/config から共有フォルダを追加、稼働中コンテナへ hot 反映。</li></ul>
+        <h3>Why this way</h3>
+        <ul><li>incus native profile 活用（priority_rule 6）。共有 Apply を hot 分類（再起動なし）。</li></ul>
+        <h3>What to verify</h3>
+        <ul><li>✅ deploy-test 実機 smoke 11/11 PASS（2 独立ホスト）。</li><li>共有フォルダの露出トレードオフ（全コンテナに認証が見える）。</li></ul>
+        <h3>What was assumed</h3>
+        <ul><li>palmux-shared profile 名を単一 palmux が占有。全コンテナ一律共有。</li></ul>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--fg-dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Compromises</div>
+        <div class="cr-item"><span class="sev low">妥協 0</span>surviving compromise なし</div>
+        <div class="cr-item"><span class="sev med">blocker</span>sprint agent が finalization 前に終了 → autopilot 代行</div>
+        <div class="cr-item" style="border:none"><span class="sev low">scope</span>AC-2-5 mock テストを finalization で追加（虚偽 claim 是正）</div>
+        <div style="margin-top:12px;font-size:11px;color:var(--fg-dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">検証</div>
+        <div class="runchips"><span class="runchip pass"><span class="dot2"></span>機械判定 PASS</span><span class="runchip pass"><span class="dot2"></span>verifier PASS</span></div>
+        <p class="help2">→ Sprint Detail で全 artifact を展開</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sb14caa milestone -->
+  <div class="panel"><div class="ph"><h2>★ Sb14caa — palmuxOS NixOS アプライアンス化</h2><span class="tag2">v0.12.0 · partial</span></div>
+    <div class="pb">
+      <div class="comprehension">
+        <h3 style="margin-top:2px">What changed</h3>
+        <ul><li>palmux ホストを NixOS 宣言設定だけで立てる（disko 2 パーティション、/persist に可変 state、nixos-rebuild で無償ロールバック）。</li></ul>
+      </div>
+      <p class="empty-note" style="margin-top:8px">この時点の comprehension-report.md は未生成（旧スプリント）。§2.9 後方互換で「過去 Sprint は記録対象外」と表示。<b>partial</b> の残課題は Review タブへ。</p>
+    </div>
+  </div>
+
+  <p class="help" style="text-align:center;margin-top:20px"><a href="se173ef-index.html">← 構成比較 A/B/C</a></p>
+</div>
+</body>
+</html>

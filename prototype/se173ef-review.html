@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ja" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Se173ef · Review (要対応)</title>
+<link rel="stylesheet" href="sa53137.css">
+<link rel="stylesheet" href="se173ef.css">
+</head>
+<body>
+<div class="sprint-shell">
+  <div class="topbar"><div class="brand"><span class="dot"></span> palmux2 · Sprint</div>
+    <span class="crumbs"><a href="se173ef-index.html">← 構成比較 A/B/C</a></span></div>
+  <div class="viewtabs">
+    <a class="viewtab" href="se173ef-overview.html">Overview</a>
+    <a class="viewtab" href="se173ef-sprint-tab.html">Sprint Detail</a>
+    <a class="viewtab new active" href="se173ef-review.html">Review</a>
+    <a class="viewtab new" href="se173ef-milestones.html">Milestones</a>
+    <a class="viewtab" href="se173ef-decisions.html">Decisions</a>
+    <a class="viewtab" href="se173ef-dependencies.html">Dependencies</a>
+    <a class="viewtab" href="se173ef-backlog.html">Backlog</a>
+  </div>
+
+  <h1 class="view-h">Review — 要対応キュー</h1>
+  <p class="help" style="margin:-8px 0 16px;line-height:1.5">全スプリント横断で「人間の判断が要るもの」を集約。<code>autopilot review</code> の入力。現状は概ねクリーンなので、実データ 0 件の項目は <b>［例］</b> でこのタブの価値を提示。</p>
+
+  <!-- summary counts -->
+  <div class="panel"><div class="pb">
+    <div class="kv" style="justify-content:space-around">
+      <div style="text-align:center"><div class="v zero">0</div><div class="k">needs_user_review</div></div>
+      <div style="text-align:center"><div class="v zero">0</div><div class="k">blocked</div></div>
+      <div style="text-align:center"><div class="v zero">0</div><div class="k">high compromise</div></div>
+      <div style="text-align:center"><div class="v zero">0</div><div class="k">overlooked</div></div>
+      <div style="text-align:center"><div class="v zero">0</div><div class="k">reopen 候補</div></div>
+    </div>
+  </div></div>
+
+  <!-- needs_user_review -->
+  <div class="panel"><div class="ph"><h2>needs_user_review の Story</h2><span class="tag2">done-judgment guard fail → done にせず差し戻し</span></div><div class="pb">
+    <div class="cr-item"><span class="b nur">［例］needs_user_review</span> <b style="font-family:var(--font-mono);font-size:12px">Sxxxxxx-2</b> — Guard 5 (call-path) fail: API と Workflow trigger の結合がコードに存在しない。<div class="ac-evi">→ ① AC 違反候補。Sprint Detail へ / 再オープンして修正</div></div>
+    <p class="help2">現状は 0 件（全 Story done）。1 件でも出れば Overview のバッジが点灯し、ここに並ぶ。</p>
+  </div></div>
+
+  <!-- high-severity compromises + overlooked -->
+  <div class="two">
+    <div class="panel"><div class="ph"><h2>high severity 妥協</h2><span class="tag2">compromises.json</span></div><div class="pb">
+      <div class="cr-item"><span class="sev high">［例］high</span>test_assertion_weakened — OAuth mock 回避でトークン検証を緩めた（別 Story で厳密化）</div>
+      <div class="cr-item" style="border:none"><span class="sev med">med</span><b>Sd44947</b>: sprint agent が finalization 前に終了 → autopilot 代行（実データ・解決済み）</div>
+    </div></div>
+    <div class="panel"><div class="ph"><h2>overlooked_by_autopilot</h2><span class="tag2">verification-report</span></div><div class="pb">
+      <div class="cr-item" style="border:none"><span class="b nur">［例］overlooked</span><b>Sxxxxxx</b> AC-x-5: テストは pass だが localStorage 保存が実コードに無い（verifier が拾い、autopilot は見落とし）</div>
+      <p class="help2">verifier が autopilot の自己申告と食い違った項目。信頼の最終源。</p>
+    </div></div>
+  </div>
+
+  <!-- reopen candidates -->
+  <div class="panel"><div class="ph"><h2>reopen 候補 / 履歴</h2><span class="tag2">reopen.json</span></div><div class="pb">
+    <p class="empty-note">再オープンされたスプリントはありません（reopen.json なし）。milestone review で AC 違反が見つかると、ここに triggered_by 付きで履歴が並ぶ。</p>
+  </div></div>
+
+  <p class="help" style="text-align:center;margin-top:20px"><a href="se173ef-index.html">← 構成比較 A/B/C</a></p>
+</div>
+</body>
+</html>

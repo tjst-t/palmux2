@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Se173ef · Decisions</title>
+<link rel="stylesheet" href="sa53137.css">
+<link rel="stylesheet" href="se173ef.css">
+</head>
+<body>
+<div class="sprint-shell">
+  <div class="topbar"><div class="brand"><span class="dot"></span> palmux2 · Sprint</div>
+    <span class="crumbs"><a href="se173ef-index.html">← 構成比較 A/B/C</a></span></div>
+  <div class="viewtabs">
+    <a class="viewtab" href="se173ef-overview.html">Overview</a>
+    <a class="viewtab" href="se173ef-sprint-tab.html">Sprint Detail</a>
+    <a class="viewtab new" href="se173ef-review.html">Review</a>
+    <a class="viewtab new" href="se173ef-milestones.html">Milestones</a>
+    <a class="viewtab active" href="se173ef-decisions.html">Decisions</a>
+    <a class="viewtab" href="se173ef-dependencies.html">Dependencies</a>
+    <a class="viewtab" href="se173ef-backlog.html">Backlog</a>
+  </div>
+
+  <h1 class="view-h">Decisions</h1>
+  <p class="help" style="margin:-8px 0 14px">全スプリント横断の decision feed。「なぜこの決定か」を辿る。category フィルタ + <span class="b nur" style="font-size:10px">NEEDS_HUMAN</span> 専用チップ。</p>
+
+  <div class="filter-chips">
+    <span class="chip on">All</span>
+    <span class="chip">Planning</span>
+    <span class="chip">Implementation</span>
+    <span class="chip">Review</span>
+    <span class="chip warn">⚠ NEEDS_HUMAN</span>
+  </div>
+
+  <div class="panel"><div class="pb">
+    <div class="dfeed">
+      <div class="dentry"><div class="dmeta">Sd44947 <span class="dcat">implementation</span></div><div class="dtext"><b>profile-as-mold 採用</b> — 却下: per-container device 継続。incus native profile を活用（priority_rule 6）。宣言と稼働のドリフトを reconcile で収束。</div></div>
+      <div class="dentry"><div class="dmeta">Sd44947 <span class="dcat">review</span></div><div class="dtext"><b>Apply testid 統一</b> — gui-spec の deploy-apply は typo。既存 apply-deploy に統一（API 契約非破壊）。</div></div>
+      <div class="dentry human"><div class="dmeta">Sd44947 <span class="dcat">blocker</span></div><div class="dtext"><b>⚠ finalization 代行</b> — sprint agent 終了で autopilot が 6-guard 再評価 + merge を代行。AC-2-5 mock を追加し虚偽 claim を是正。</div></div>
+      <div class="dentry"><div class="dmeta">S41bdf2 <span class="dcat">planning</span></div><div class="dtext"><b>§8.3 実装で install=S673a42 rebuild / 共有=Sd44947 shared_dirs を流用</b>（重複実装回避、priority_rule 6）。</div></div>
+      <div class="dentry"><div class="dmeta">S673a42 <span class="dcat">planning</span></div><div class="dtext"><b>案内文の flake パスバグ</b> /etc/palmux → /persist/palmux/nixos。backend 由来の単一 source 化で drift 排除。</div></div>
+      <div class="dentry"><div class="dmeta">Se173ef <span class="dcat">planning</span></div><div class="dtext"><b>SPRINT_LOGS_SCHEMA を実態化</b> — タブ⇄skill の artifact 契約を単一化し再ドリフト防止。</div></div>
+    </div>
+    <p class="help2">エントリクリックで該当 Sprint Detail の decisions.json へ。無限スクロールで過去スプリントへ遡る。</p>
+  </div></div>
+
+  <p class="help" style="text-align:center;margin-top:20px"><a href="se173ef-index.html">← 構成比較 A/B/C</a></p>
+</div>
+</body>
+</html>
