@@ -3,7 +3,12 @@
   "triggered_by": "milestone_review",
   "reopened_at": "2026-07-06T12:59:56+00:00",
   "reason": "Milestone review (実 .44 アプライアンスでの実機テスト) で判明: (1) 実バグ — nixvalidate が exec.LookPath(\"nix\") 依存で、palmux2 の systemd service PATH に nix が無い (palmux.nix:137) ため実アプライアンス service 上で AC-S41bdf2-1-5 (nixpkgs 検証) が常に失敗。green smoke はバイナリを対話 PATH で起動したので見逃した。(2) ユーザ要望 — authPath を後から編集可能に。",
-  "affected_ac": ["AC-S41bdf2-1-5"],
-  "added_stories": ["S41bdf2-4"],
-  "notes": ".44 の install mkdir permission / rebuild 不発は .44 が controller-build で state-init/flake/palmux-rebuild.service を持たない env gap であり、production appliance (merged appliance.nix の palmux-state-init line389 で local/ を chown) では非該当。コード修正対象は nix-PATH のみ。"
+  "affected_ac": [
+    "task S41bdf2-1-5 (nixpkgs validation) — no dedicated AC existed; fix tracked as new AC-S41bdf2-4-1"
+  ],
+  "added_stories": [
+    "S41bdf2-4"
+  ],
+  "notes": ".44 の install mkdir permission / rebuild 不発は .44 が controller-build で state-init/flake/palmux-rebuild.service を持たない env gap であり、production appliance (merged appliance.nix の palmux-state-init line389 で local/ を chown) では非該当。コード修正対象は nix-PATH のみ。",
+  "note_ac": "AC-S41bdf2-1-5 は存在しない (検証は task S41bdf2-1-5 だった)。修正は review-added Story S41bdf2-4 で追跡。"
 }
