@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -189,9 +190,6 @@ type caddyMatch struct {
 // route is a plain reverse_proxy (Public=true ports). It first deletes any
 // existing route with the same @id, then front-inserts the fresh route.
 func (c *caddyAdminClient) upsertRoute(ctx context.Context, id, host, upstream, palmuxUpstream string, requireAuth bool) error {
-	// Delete any prior route with this @id (ignore not-found).
-	_ = c.deleteRoute(ctx, id)
-
 	backend := fmt.Sprintf(`{"handler":"reverse_proxy","upstreams":[{"dial":%q}]}`, upstream)
 
 	var handlers []json.RawMessage
@@ -221,6 +219,22 @@ func (c *caddyAdminClient) upsertRoute(ctx context.Context, id, host, upstream, 
 	if err != nil {
 		return fmt.Errorf("caddy admin: marshal route: %w", err)
 	}
+
+	// Idempotency guard. The scan loop calls this for every exposed port every
+	// ~10s to self-heal routes dropped by a Caddy reload. But a delete+PUT
+	// ALWAYS makes Caddy reload its whole HTTP app, which tears down every
+	// in-flight reverse_proxy WebSocket (incl. Vite HMR `/@vite/client`), so an
+	// unconditional re-inject caused a 10s full-reload cycle across ALL published
+	// apps (docs/loamium-hmr-10s-reload-investigation.md). If Caddy already holds
+	// this exact route under our stable @id, skip the delete+PUT entirely — no
+	// reload. A missing route (Caddy restarted/dropped it) or a changed route
+	// still falls through to delete+PUT, preserving self-heal.
+	if cur, ok, gerr := c.getRoute(ctx, id); gerr == nil && ok && jsonSemanticEqual(cur, body) {
+		return nil
+	}
+
+	// Delete any prior route with this @id (ignore not-found), then front-insert.
+	_ = c.deleteRoute(ctx, id)
 
 	srv := c.serverName(ctx)
 	// Insert at index 0 (PUT to .../routes/0) so our specific per-port host
@@ -511,6 +525,46 @@ func (r *incusRuntime) bindAddrFor(port int) string {
 }
 
 // deleteRoute removes a route by @id. A 404/missing id is not an error.
+// getRoute fetches the config object stored under @id via GET /id/<id>. Returns
+// (body, true, nil) when Caddy holds it (200); (nil, false, nil) when it does
+// not (any non-200) so the caller re-injects (self-heal). A read-only GET does
+// NOT reload Caddy, so it is safe to call every scan tick.
+func (c *caddyAdminClient) getRoute(ctx context.Context, id string) ([]byte, bool, error) {
+	url := fmt.Sprintf("%s/id/%s", c.base, id)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, false, fmt.Errorf("caddy admin: GET route: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 2048)) //nolint:errcheck
+		return nil, false, nil
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, false, fmt.Errorf("caddy admin: read route: %w", err)
+	}
+	return b, true, nil
+}
+
+// jsonSemanticEqual reports whether two JSON documents are equal ignoring object
+// key order (Caddy may return a stored route with keys in a different order than
+// palmux marshaled them). Used to detect a no-op route re-PUT and skip it.
+func jsonSemanticEqual(a, b []byte) bool {
+	var ai, bi interface{}
+	if err := json.Unmarshal(a, &ai); err != nil {
+		return false
+	}
+	if err := json.Unmarshal(b, &bi); err != nil {
+		return false
+	}
+	return reflect.DeepEqual(ai, bi)
+}
+
 func (c *caddyAdminClient) deleteRoute(ctx context.Context, id string) error {
 	url := fmt.Sprintf("%s/id/%s", c.base, id)
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
