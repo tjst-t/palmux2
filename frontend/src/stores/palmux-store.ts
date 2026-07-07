@@ -1295,6 +1295,11 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
 
   // S673a42-3: palmux-ws image fetch. Does NOT restart palmux2, so it uses its own
   // in-progress flag (not the updateInProgress reconnect handshake).
+  // runImageInstall kicks the palmux-ws image fetch and RESOLVES when it finishes
+  // (success or failure), so callers can `await` it — e.g. the host-update button
+  // fetches the image first, then kicks the rebuild. On failure it sets
+  // imageInstallError; the promise still resolves (never rejects) so a chained
+  // host update is not blocked by an image hiccup.
   runImageInstall: async () => {
     if (get().imageInstallInProgress) return
     set({ imageInstallInProgress: true, imageInstallError: null })
@@ -1312,30 +1317,34 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
       return
     }
     const started = Date.now()
-    const poll = async (): Promise<void> => {
-      if (Date.now() - started > 30 * 60 * 1000) {
-        set({ imageInstallInProgress: false, imageInstallError: 'image 取得がタイムアウトしました。' })
-        return
-      }
-      try {
-        const st = await selfUpdateApi.imageInstallStatus()
-        if (!st.running) {
-          if (st.error) {
-            set({ imageInstallInProgress: false, imageInstallError: st.error })
-          } else {
-            set({ imageInstallInProgress: false, imageInstallError: null })
-            // Badge clears + per-branch drift/regenerate refreshes.
-            void get().loadSelfUpdate()
-            void get().reloadRepos()
-          }
+    await new Promise<void>((resolve) => {
+      const poll = async (): Promise<void> => {
+        if (Date.now() - started > 30 * 60 * 1000) {
+          set({ imageInstallInProgress: false, imageInstallError: 'image 取得がタイムアウトしました。' })
+          resolve()
           return
         }
-      } catch {
-        // transient — keep polling.
+        try {
+          const st = await selfUpdateApi.imageInstallStatus()
+          if (!st.running) {
+            if (st.error) {
+              set({ imageInstallInProgress: false, imageInstallError: st.error })
+            } else {
+              set({ imageInstallInProgress: false, imageInstallError: null })
+              // Badge clears + per-branch drift/regenerate refreshes.
+              void get().loadSelfUpdate()
+              void get().reloadRepos()
+            }
+            resolve()
+            return
+          }
+        } catch {
+          // transient — keep polling.
+        }
+        setTimeout(() => void poll(), 3000)
       }
       setTimeout(() => void poll(), 3000)
-    }
-    setTimeout(() => void poll(), 3000)
+    })
   },
 
   clearUpdateToast: () => set({ updateToast: null }),

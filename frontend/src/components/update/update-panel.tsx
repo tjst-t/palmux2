@@ -83,12 +83,22 @@ export function UpdatePanel() {
     }
   }
 
-  // S673a42-2: appliance host update button. Kicks the verb-limited
-  // palmux-rebuild-update unit; the panel switches to the progress/reconnect state
-  // (updateInProgress) on the next render, same as onUpdateAll.
+  // S673a42-2: appliance host update button. If the palmux-ws image is ALSO out
+  // of date, fetch it FIRST (in-process, while palmux2 is still up so the ~810 MB
+  // download survives), THEN kick the host rebuild — one click updates both, which
+  // is what the operator expects. The image fetch is best-effort: a failure is
+  // surfaced (imageInstallError) but does not block the host update. After the
+  // rebuild kick the panel switches to the progress/reconnect state
+  // (updateInProgress) on the next render, same as onUpdateAll. The container
+  // itself still picks up the new image via the operator-driven "Update container"
+  // (drift badge) — we deliberately don't restart a running claude here.
   const onNixosUpdate = async () => {
     setRunError(null)
     try {
+      const imageStale = snap?.components.some((c) => c.name === 'image' && c.available)
+      if (imageStale) {
+        await runImageInstall() // resolves on completion; sets imageInstallError on failure
+      }
       await runNixosRebuildUpdate()
     } catch (err) {
       setRunError(err instanceof Error ? err.message : String(err))
@@ -205,8 +215,13 @@ export function UpdatePanel() {
                     className={styles.primaryBtn}
                     data-testid="update-nixos-rebuild-btn"
                     onClick={onNixosUpdate}
+                    disabled={imageInstallInProgress}
                   >
-                    本体を更新 (nixos-rebuild)
+                    {imageInstallInProgress
+                      ? 'palmux-ws image を取得中…'
+                      : snap.components.some((c) => c.name === 'image' && c.available)
+                        ? '本体 + image を更新 (nixos-rebuild)'
+                        : '本体を更新 (nixos-rebuild)'}
                   </button>
                 )}
                 <div className={styles.manualNote} data-testid="update-nixos-note">

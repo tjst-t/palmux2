@@ -171,13 +171,22 @@ type Daemon struct {
 	daemonCtx    context.Context
 	daemonCancel context.CancelFunc
 
-	// stateMu guards proc, ptmx, sessionID, and exited.
+	// stateMu guards proc, ptmx, sessionID, exited, and lastCols/lastRows.
 	stateMu sync.Mutex
 	state   atomic.Int32 // holds State; read without lock for lightweight polling
 
 	proc      *os.Process
 	ptmx      *os.File // master side of PTY pair
 	sessionID string   // set by SetSessionID; used by respawnLoop for --resume
+
+	// lastCols/lastRows are the most recent client-requested terminal size,
+	// recorded by Resize even if it arrives before a subprocess exists. Every
+	// spawn (initial, crash respawn, or container-regenerate respawn) re-applies
+	// them so a fresh PTY does not fall back to the 80x24 default while the client
+	// — whose own dimensions are unchanged — sends no new resize. Without this,
+	// claude re-renders its TUI at 80 cols ("narrow width" after Update container).
+	// 0 means "never resized" → keep the spawn default. Guarded by stateMu.
+	lastCols, lastRows uint16
 
 	// exited is written by the spawn goroutine after cmd.Wait() returns and
 	// replaced on each re-spawn.  respawnLoop reads the current value under
@@ -272,27 +281,27 @@ func NewDaemon(cfg DaemonConfig) *Daemon {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	d := &Daemon{
-		claudeBin:      cfg.ClaudeBin,
-		claudeArgs:     cfg.ClaudeArgs,
-		worktree:       cfg.Worktree,
-		resumeOnDeath:  cfg.ResumeOnDeath,
-		ring:           NewRing(cfg.RingSize),
-		emulator:       NewEmulator(80, 24, cfg.NotifyHub, cfg.RepoID, cfg.BranchID),
-		logger:         cfg.Logger,
-		notifyHub:      cfg.NotifyHub,
-		repoID:         cfg.RepoID,
-		branchID:       cfg.BranchID,
-		tabID:          cfg.TabID,
+		claudeBin:            cfg.ClaudeBin,
+		claudeArgs:           cfg.ClaudeArgs,
+		worktree:             cfg.Worktree,
+		resumeOnDeath:        cfg.ResumeOnDeath,
+		ring:                 NewRing(cfg.RingSize),
+		emulator:             NewEmulator(80, 24, cfg.NotifyHub, cfg.RepoID, cfg.BranchID),
+		logger:               cfg.Logger,
+		notifyHub:            cfg.NotifyHub,
+		repoID:               cfg.RepoID,
+		branchID:             cfg.BranchID,
+		tabID:                cfg.TabID,
 		notifyURL:            cfg.NotifyURL,
 		notifyToken:          cfg.NotifyToken,
 		hookBinPath:          cfg.HookBinPath,
 		runtimeResolver:      cfg.RuntimeResolver,
 		notifyURLInContainer: cfg.NotifyURLInContainer,
 		daemonCtx:            ctx,
-		daemonCancel:   cancel,
-		sessionIDReady: make(chan struct{}),
-		shutdownCh:     make(chan struct{}),
-		roles:          newRoleCoordinator(cfg.Logger),
+		daemonCancel:         cancel,
+		sessionIDReady:       make(chan struct{}),
+		shutdownCh:           make(chan struct{}),
+		roles:                newRoleCoordinator(cfg.Logger),
 	}
 	d.state.Store(int32(StateIdle))
 	return d
@@ -454,7 +463,22 @@ func (d *Daemon) spawnWithArgs(args []string) error {
 	d.proc = cmd.Process
 	d.exited = exited
 	d.state.Store(int32(StateRunning))
+	// Snapshot the last client-requested size under the same lock so a resize
+	// that raced this spawn is not lost. Applied below, outside the lock.
+	cols, rows := d.lastCols, d.lastRows
 	d.stateMu.Unlock()
+
+	// Re-apply the last known client size to the freshly-created PTY so a respawn
+	// (crash recovery, or container regenerate) does not drop back to the 80x24
+	// spawn default. 0 means "never resized" → leave the default. Fixes the
+	// "narrow width after Update container" symptom.
+	if cols > 0 && rows > 0 {
+		if err := creackpty.Setsize(ptmx, &creackpty.Winsize{Rows: rows, Cols: cols}); err != nil {
+			d.logger.Warn("claudetui: re-apply size on spawn failed", "err", err)
+		} else {
+			d.emulator.Resize(int(cols), int(rows))
+		}
+	}
 
 	d.logger.Info("claudetui: subprocess spawned",
 		"bin", d.claudeBin,
@@ -811,11 +835,19 @@ func (d *Daemon) WriteInput(ctx context.Context, p []byte) error {
 // and keeps the headless [Emulator] grid in sync.
 // Fully wired to the frontend in Story 3 via FitAddon events.
 func (d *Daemon) Resize(cols, rows uint16) error {
+	// Record the requested size under the same lock that guards ptmx, so it is
+	// never lost to a race with spawnWithArgs: whichever runs second sees the
+	// other's effect. If a subprocess exists, apply now; otherwise the pending
+	// spawn will pick lastCols/lastRows up (fixes the "narrow width after Update
+	// container" race where the client's reconnect POST /resize arrives before the
+	// lazy EnsureStarted spawn has created the PTY).
 	d.stateMu.Lock()
+	d.lastCols, d.lastRows = cols, rows
 	ptmx := d.ptmx
 	d.stateMu.Unlock()
 	if ptmx == nil {
-		return fmt.Errorf("claudetui daemon: subprocess not started")
+		// Not started yet — size is remembered and applied on the next spawn.
+		return nil
 	}
 	if err := creackpty.Setsize(ptmx, &creackpty.Winsize{
 		Rows: rows,

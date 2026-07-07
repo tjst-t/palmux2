@@ -298,13 +298,15 @@ func TestSetSessionID(t *testing.T) {
 	}
 }
 
-// TestResize verifies that Resize returns an error before start and succeeds
-// after the subprocess is running.
+// TestResize verifies that Resize before start records the size (no error) and
+// that size is applied to the PTY/emulator on the subsequent spawn — the fix for
+// "narrow width after Update container", where the client's reconnect resize
+// races the lazy spawn.
 func TestResize(t *testing.T) {
 	d := newTestDaemon(t)
-	// Before start: should error.
-	if err := d.Resize(80, 24); err == nil {
-		t.Fatal("Resize before start should return error")
+	// Before start: records the size for the pending spawn (no error).
+	if err := d.Resize(133, 42); err != nil {
+		t.Fatalf("Resize before start should record size, got error: %v", err)
 	}
 
 	if err := d.EnsureStarted(context.Background()); err != nil {
@@ -312,8 +314,16 @@ func TestResize(t *testing.T) {
 	}
 	waitForState(t, d, StateRunning, 5*time.Second)
 
+	// The pre-start size must have been applied to the emulator on spawn.
+	if g := d.GridSnapshot(); g.Cols != 133 || g.Rows != 42 {
+		t.Fatalf("pre-start Resize not applied on spawn: emulator = %dx%d, want 133x42", g.Cols, g.Rows)
+	}
+
 	if err := d.Resize(120, 40); err != nil {
 		t.Fatalf("Resize after start: %v", err)
+	}
+	if g := d.GridSnapshot(); g.Cols != 120 || g.Rows != 40 {
+		t.Fatalf("post-start Resize not applied: emulator = %dx%d, want 120x40", g.Cols, g.Rows)
 	}
 }
 
