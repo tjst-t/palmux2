@@ -79,6 +79,27 @@ func TestQueryRebuild_ParsesShow(t *testing.T) {
 	}
 }
 
+// The bootstrap-gap pre-flight: RebuildUpdateLoaded/RebuildLoaded report LoadState
+// so the handler can surface guidance instead of an opaque polkit "Access denied"
+// when the running generation predates the unit.
+func TestRebuildLoaded_ReportsLoadState(t *testing.T) {
+	t.Run("loaded", func(t *testing.T) {
+		fakeSystemctl(t, "LoadState=loaded\\n")
+		if loaded, err := RebuildUpdateLoaded(context.Background()); err != nil || !loaded {
+			t.Errorf("RebuildUpdateLoaded = %v,%v; want true,nil", loaded, err)
+		}
+		if loaded, err := RebuildLoaded(context.Background()); err != nil || !loaded {
+			t.Errorf("RebuildLoaded = %v,%v; want true,nil", loaded, err)
+		}
+	})
+	t.Run("not-found", func(t *testing.T) {
+		fakeSystemctl(t, "LoadState=not-found\\n")
+		if loaded, err := RebuildUpdateLoaded(context.Background()); err != nil || loaded {
+			t.Errorf("RebuildUpdateLoaded = %v,%v; want false,nil", loaded, err)
+		}
+	})
+}
+
 // [AC-S673a42-2-1] The version-update path starts the DISTINCT verb-limited
 // update unit (palmux-rebuild-update.service), not the domain unit — so the
 // privileged switch that runs `nix flake update palmux` is a separate fixed unit

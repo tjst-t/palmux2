@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/tjst-t/palmux2/internal/deploy"
 )
 
 // ComponentStatus is the per-component detection result surfaced to the GUI
@@ -55,8 +57,16 @@ type Snapshot struct {
 	// on-appliance flake dir. MUST stay in sync with nixos/modules/appliance.nix
 	// `flakeDir` (see ApplianceFlakeDir below).
 	ApplianceFlakeTarget string `json:"applianceFlakeTarget"`
-	CheckedAt            string `json:"checkedAt"` // RFC3339; "" if never checked
-	Degraded             bool   `json:"degraded"`  // GitHub unreachable / rate-limited this cycle
+	// RebuildUpdaterReady is true when the GUI version-update unit
+	// (palmux-rebuild-update.service) is defined in the running NixOS generation, so
+	// the "本体を更新 (nixos-rebuild)" button can actually kick it. It is false on the
+	// bootstrap gap — a newer palmux binary running on an OLDER generation that
+	// predates S673a42 (no unit, no polkit grant) — where the button would fail with
+	// an opaque polkit "Access denied". The GUI shows manual guidance instead when
+	// this is false. Only meaningful on a NixOS host (false elsewhere). S673a42-2.
+	RebuildUpdaterReady bool   `json:"rebuildUpdaterReady"`
+	CheckedAt           string `json:"checkedAt"` // RFC3339; "" if never checked
+	Degraded            bool   `json:"degraded"`  // GitHub unreachable / rate-limited this cycle
 	// Forced is true when this snapshot's "update available" was synthesized by
 	// the env-gated force-update test affordance (force.go) rather than a real
 	// newer release. Lets the GUI mark the badge/panel as a test run. Always false
@@ -164,6 +174,17 @@ func toolVersion(bin string, args []string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// rebuildUpdaterReadyFn probes whether the appliance's GUI version-update unit
+// (palmux-rebuild-update.service) is defined in the running NixOS generation. A
+// var so tests can stub it without shelling out to systemctl. It is only invoked
+// on a NixOS host (guarded in Detect). Defaults to the deploy-backed probe; a
+// read error is treated conservatively as "not ready" so a broken probe never
+// lights a button that would fail with a polkit "Access denied".
+var rebuildUpdaterReadyFn = func(ctx context.Context) bool {
+	loaded, err := deploy.RebuildUpdateLoaded(ctx)
+	return err == nil && loaded
+}
+
 // latestTagFn resolves a repo's latest release tag. It is a var so tests can
 // inject deterministic results (no live GitHub dependency, which is rate-limited
 // for unauthenticated callers and would make classification tests flaky).
@@ -183,6 +204,7 @@ func Detect(ctx context.Context, m Manifest, probes InstalledProbes, nixManaged 
 	// (S673a42-1), but only on a NixOS host — off-appliance it is meaningless.
 	if snap.NixOSHost {
 		snap.ApplianceFlakeTarget = ApplianceFlakeTarget
+		snap.RebuildUpdaterReady = rebuildUpdaterReadyFn(ctx)
 	}
 	// Probe installed versions + resolve each component's latest tag. The
 	// GitHub fetches are independent and I/O-bound, so fan them out — one slow

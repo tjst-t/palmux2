@@ -179,6 +179,13 @@ func (h *handlers) postDeployRebuild(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, errorResponse{Error: "nixos-rebuild trigger is for the NixOS appliance only; on this host apply via `sudo palmux reconcile-system`"})
 		return
 	}
+	// Same bootstrap-gap pre-flight as the version update (see postSelfUpdateRebuild):
+	// a pre-S673a42 generation defines neither palmux-rebuild.service nor its polkit
+	// grant, so the start would fail with an opaque polkit "Access denied".
+	if loaded, err := deploy.RebuildLoaded(r.Context()); err == nil && !loaded {
+		writeJSON(w, http.StatusConflict, errorResponse{Error: rebuildUnitAbsentMsg()})
+		return
+	}
 	if err := deploy.TriggerRebuild(r.Context()); err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()})
 		return

@@ -54,6 +54,36 @@ func TriggerRebuild(ctx context.Context) error { return startUnit(ctx, rebuildUn
 // no-block + reset-failed semantics as TriggerRebuild. S673a42-2.
 func TriggerRebuildUpdate(ctx context.Context) error { return startUnit(ctx, rebuildUpdateUnit) }
 
+// RebuildUpdateLoaded reports whether palmux-rebuild-update.service (the GUI
+// version-update oneshot) is defined in the running NixOS generation. It is false
+// on the "bootstrap gap": when the running palmux binary is NEWER than the
+// deployed generation, that generation predates S673a42 and defines neither this
+// unit nor the polkit rule that lets the non-root palmux user start it — so a
+// `systemctl start` would fail with an opaque polkit "Access denied". The GUI /
+// handler pre-flight this so they can surface actionable guidance (do one manual
+// `nixos-rebuild switch` first) instead of the raw denial. A non-nil error means
+// the LoadState could not be read (e.g. no systemd) — callers treat that as
+// "unknown" and do NOT block on it.
+func RebuildUpdateLoaded(ctx context.Context) (bool, error) {
+	return unitLoaded(ctx, rebuildUpdateUnit)
+}
+
+// RebuildLoaded is the RebuildUpdateLoaded counterpart for palmux-rebuild.service
+// (the domain/TLS apply oneshot). Same bootstrap-gap semantics.
+func RebuildLoaded(ctx context.Context) (bool, error) { return unitLoaded(ctx, rebuildUnit) }
+
+// unitLoaded reads `systemctl show -p LoadState <unit>` and reports whether the
+// unit is present (LoadState=loaded). A "not-found" LoadState → false, no error;
+// only a systemctl exec failure returns an error.
+func unitLoaded(ctx context.Context, unit string) (bool, error) {
+	out, err := exec.CommandContext(ctx, systemctlBin, "show", "-p", "LoadState", unit).Output() //nolint:gosec // fixed unit name
+	if err != nil {
+		return false, fmt.Errorf("show %s LoadState: %w", unit, err)
+	}
+	_, v, _ := strings.Cut(strings.TrimSpace(string(out)), "=")
+	return v == "loaded", nil
+}
+
 // startUnit resets any prior failed state and starts a fixed unit --no-block.
 func startUnit(ctx context.Context, unit string) error {
 	// Best-effort reset of a prior failed run; ignore its error (unit may be clean).

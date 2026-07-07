@@ -182,7 +182,25 @@ export function UpdatePanel() {
               <>
                 {/* S673a42-2: GUI-kick the host update on the appliance. Only when a
                     newer palmux binary is available; otherwise no button (最新). */}
-                {snap.components.some((c) => c.name === 'palmux' && c.available) ? (
+                {!snap.components.some((c) => c.name === 'palmux' && c.available) ? (
+                  <div className={styles.restartNote} data-testid="update-nixos-uptodate">
+                    本体 (palmux) は最新です。
+                  </div>
+                ) : snap.rebuildUpdaterReady === false ? (
+                  // Bootstrap gap: the running palmux binary is newer than the
+                  // deployed NixOS generation, which predates the GUI update unit
+                  // (palmux-rebuild-update.service) + its polkit grant. The button
+                  // would fail with a polkit "Access denied", so show the one-time
+                  // manual crossing instead.
+                  <div className={styles.errBox} data-testid="update-nixos-bootstrap-gap">
+                    ⚠ この NixOS 世代には GUI 更新ユニットがありません（稼働中の palmux が世代より新しい状態）。
+                    一度だけ端末で手動更新してください:
+                    <br />
+                    <code>sudo nixos-rebuild switch --flake {snap.applianceFlakeTarget || 'nixos'}</code>
+                    <br />
+                    以降は GUI ボタンで更新できます。
+                  </div>
+                ) : (
                   <button
                     className={styles.primaryBtn}
                     data-testid="update-nixos-rebuild-btn"
@@ -190,10 +208,6 @@ export function UpdatePanel() {
                   >
                     本体を更新 (nixos-rebuild)
                   </button>
-                ) : (
-                  <div className={styles.restartNote} data-testid="update-nixos-uptodate">
-                    本体 (palmux) は最新です。
-                  </div>
                 )}
                 <div className={styles.manualNote} data-testid="update-nixos-note">
                   このホストは NixOS（palmuxOS アプライアンス）です。ボタンで{' '}

@@ -2,11 +2,28 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/tjst-t/palmux2/internal/deploy"
 	"github.com/tjst-t/palmux2/internal/selfupdate"
 )
+
+// rebuildUnitAbsentMsg is the actionable guidance returned when the GUI tries to
+// kick a palmux-rebuild(-update) unit that the running NixOS generation does not
+// define (the bootstrap gap: a newer palmux binary on an older generation). The
+// only way across is one manual `nixos-rebuild switch` from a source that has the
+// units; thereafter the GUI button works. It renders the backend-sourced flake
+// target so the shown command is always copy-paste-correct.
+func rebuildUnitAbsentMsg() string {
+	return fmt.Sprintf(
+		"この NixOS 世代には GUI 更新ユニット (palmux-rebuild-update.service) がありません。"+
+			"稼働中の palmux が現在の世代より新しいため、GUI からの更新はこの世代では使えません。"+
+			"一度だけ端末で手動更新してください:\n"+
+			"  sudo nixos-rebuild switch --flake %s\n"+
+			"以降は GUI ボタンで更新できます。",
+		selfupdate.ApplianceFlakeTarget)
+}
 
 // S6ab0ed: self-update HTTP surface.
 //
@@ -88,6 +105,18 @@ func (h *handlers) postSelfUpdateRebuild(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusConflict, map[string]any{
 			"ok":    false,
 			"error": "GUI からの nixos-rebuild 更新は NixOS アプライアンス専用です。この形態では『すべてまとめて更新』を使ってください。",
+		})
+		return
+	}
+	// Bootstrap-gap pre-flight: if the running generation predates S673a42 it does
+	// not define palmux-rebuild-update.service (nor the polkit rule authorizing the
+	// palmux user to start it), so the start below would fail with an opaque polkit
+	// "Access denied". Detect that up-front and return actionable guidance instead.
+	if loaded, err := deploy.RebuildUpdateLoaded(r.Context()); err == nil && !loaded {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"ok":     false,
+			"reason": "rebuild-unit-absent",
+			"error":  rebuildUnitAbsentMsg(),
 		})
 		return
 	}

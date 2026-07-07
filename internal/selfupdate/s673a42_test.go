@@ -14,7 +14,13 @@ import (
 // Off-appliance it is empty.
 func TestDetect_ApplianceFlakeTarget(t *testing.T) {
 	saveMarker, saveOS, saveTag := nixosMarkerPath, osReleasePath, latestTagFn
-	defer func() { nixosMarkerPath, osReleasePath, latestTagFn = saveMarker, saveOS, saveTag }()
+	saveReady := rebuildUpdaterReadyFn
+	defer func() {
+		nixosMarkerPath, osReleasePath, latestTagFn = saveMarker, saveOS, saveTag
+		rebuildUpdaterReadyFn = saveReady
+	}()
+	// Hermetic: don't shell out to systemctl for the rebuild-unit probe.
+	rebuildUpdaterReadyFn = func(context.Context) bool { return true }
 	// Hermetic: no GitHub. Report "no releases" so nothing is Available/Degraded.
 	latestTagFn = func(context.Context, string) (string, error) {
 		return "", &NoReleasesError{Repo: "x"}
@@ -45,6 +51,50 @@ func TestDetect_ApplianceFlakeTarget(t *testing.T) {
 	snap = Detect(context.Background(), m, probes, false)
 	if snap.ApplianceFlakeTarget != "" {
 		t.Errorf("non-NixOS host: ApplianceFlakeTarget = %q; want empty", snap.ApplianceFlakeTarget)
+	}
+}
+
+// On a NixOS host the snapshot reports whether the GUI version-update unit is
+// actually defined in the running generation (RebuildUpdaterReady). On the
+// bootstrap gap (newer palmux binary on an older generation, unit absent) it is
+// false so the GUI shows manual guidance instead of a button that would fail with
+// a polkit "Access denied". Off-appliance the probe is never consulted (false).
+func TestDetect_RebuildUpdaterReady(t *testing.T) {
+	saveMarker, saveOS, saveTag := nixosMarkerPath, osReleasePath, latestTagFn
+	saveReady := rebuildUpdaterReadyFn
+	defer func() {
+		nixosMarkerPath, osReleasePath, latestTagFn = saveMarker, saveOS, saveTag
+		rebuildUpdaterReadyFn = saveReady
+	}()
+	latestTagFn = func(context.Context, string) (string, error) { return "", &NoReleasesError{Repo: "x"} }
+	m := Manifest{Components: []Component{{Name: "palmux", Kind: KindCoreBinary, GithubRepo: "tjst-t/palmux2"}}}
+	probes := InstalledProbes{BinVersion: func() string { return "v0.12.0" }}
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "NIXOS")
+	if err := os.WriteFile(marker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// NixOS host, unit present → ready true.
+	nixosMarkerPath = marker
+	osReleasePath = filepath.Join(dir, "os-release-absent")
+	rebuildUpdaterReadyFn = func(context.Context) bool { return true }
+	if snap := Detect(context.Background(), m, probes, false); !snap.RebuildUpdaterReady {
+		t.Errorf("unit present → RebuildUpdaterReady = false; want true")
+	}
+
+	// NixOS host, unit absent (bootstrap gap) → ready false.
+	rebuildUpdaterReadyFn = func(context.Context) bool { return false }
+	if snap := Detect(context.Background(), m, probes, false); snap.RebuildUpdaterReady {
+		t.Errorf("unit absent → RebuildUpdaterReady = true; want false")
+	}
+
+	// Non-NixOS host → probe not consulted, stays false even if it would return true.
+	nixosMarkerPath = filepath.Join(dir, "NIXOS-absent")
+	osReleasePath = filepath.Join(dir, "os-release-gone")
+	rebuildUpdaterReadyFn = func(context.Context) bool { return true }
+	if snap := Detect(context.Background(), m, probes, false); snap.RebuildUpdaterReady {
+		t.Errorf("non-NixOS host → RebuildUpdaterReady = true; want false (probe must not be consulted)")
 	}
 }
 

@@ -343,6 +343,13 @@ export interface SelfUpdateSnapshot {
    * GUI/README never hardcode (and never drift from) the on-appliance flake dir.
    * Non-empty only on a NixOS host. */
   applianceFlakeTarget?: string
+  /** S673a42-2: the GUI version-update unit (palmux-rebuild-update.service) is
+   * defined in the running NixOS generation, so the update button can actually
+   * kick it. False on the bootstrap gap — a newer palmux binary on an OLDER
+   * generation (unit + polkit grant absent) — where the button would fail with a
+   * polkit "Access denied"; the panel then shows manual guidance instead. Only
+   * meaningful on a NixOS host. */
+  rebuildUpdaterReady?: boolean
   checkedAt: string
   degraded: boolean
   /** This "update available" was synthesized by the env-gated force-update test
