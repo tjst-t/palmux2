@@ -718,11 +718,13 @@ function ClaudeTuiDesktop({
           aria-hidden="true"
         />
       )}
-      <div
-        ref={containerRef}
-        className={styles.term}
-        data-testid="claude-tui-terminal"
-      />
+      <div className={styles.termPad}>
+        <div
+          ref={containerRef}
+          className={styles.term}
+          data-testid="claude-tui-terminal"
+        />
+      </div>
       {isDragOver && (
         <div
           data-testid="claude-tui-paste-zone"

@@ -5,10 +5,19 @@
   background-color: var(--color-terminal-bg);
 }
 
-.term {
+/* Padding lives on the wrapper, not on the element xterm opens into: padding on
+ * the fit host makes FitAddon over-compute rows (up to a full row), clipping the
+ * terminal's last row. Keeping .term padding-free makes the fit exact. */
+.termPad {
   position: absolute;
   inset: 0;
   padding: var(--space-2);
+  overflow: hidden;
+}
+
+.term {
+  width: 100%;
+  height: 100%;
 }
 
 .overlay {

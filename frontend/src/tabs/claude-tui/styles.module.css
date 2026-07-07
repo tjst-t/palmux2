@@ -56,11 +56,22 @@
   color: #0c0e14;
 }
 
-.term {
+/* Padded wrapper. The padding lives HERE, not on the element xterm opens into:
+ * FitAddon computes rows from the host element's box, and padding on that host
+ * makes it over-compute by ~the padding (up to a full row), so the terminal's
+ * last row overflows and is clipped by overflow:hidden ("claude-tui bottom cut
+ * off"). Keeping the host (.term) padding-free makes the fit exact. */
+.termPad {
   flex: 1;
   position: relative;
   overflow: hidden;
   padding: var(--space-2);
+  min-height: 0;
+}
+
+.term {
+  width: 100%;
+  height: 100%;
 }
 
 .overlay {

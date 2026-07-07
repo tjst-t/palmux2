@@ -360,7 +360,9 @@ export function TerminalView({
 
   return (
     <div className={styles.wrap} data-testid="terminal-view">
-      <div ref={containerRef} className={styles.term} />
+      <div className={styles.termPad}>
+        <div ref={containerRef} className={styles.term} />
+      </div>
       {connState !== 'open' && (
         <div className={styles.overlay}>
           <span className={styles.spinner} />
