@@ -142,7 +142,7 @@ def test_flake_target_backend_sourced():
             browser = p.chromium.launch(headless=True)
             try:
                 ctx = browser.new_context(viewport={"width": 1280, "height": 900})
-                ctx.add_init_script("window.sessionStorage.setItem('palmux:onboarding-skipped','1')")
+                ctx.add_init_script("window.sessionStorage.setItem('palmux:onboarding-skipped','1'); window.__PALMUX_NO_RELOAD__ = true")
                 page = ctx.new_page()
                 page.route("**/api/selfupdate", lambda r: _fulfill(
                     r, _snap(palmux_available=True, image_available=False, flake_target=sentinel)))
@@ -173,7 +173,7 @@ def test_update_button_states():
             try:
                 # available → button present.
                 ctx = browser.new_context(viewport={"width": 1280, "height": 900})
-                ctx.add_init_script("window.sessionStorage.setItem('palmux:onboarding-skipped','1')")
+                ctx.add_init_script("window.sessionStorage.setItem('palmux:onboarding-skipped','1'); window.__PALMUX_NO_RELOAD__ = true")
                 page = ctx.new_page()
                 page.route("**/api/selfupdate", lambda r: _fulfill(
                     r, _snap(palmux_available=True, image_available=False, flake_target=ft)))
@@ -185,7 +185,7 @@ def test_update_button_states():
 
                 # up-to-date (image available only, palmux not) → no host-update button.
                 ctx2 = browser.new_context(viewport={"width": 1280, "height": 900})
-                ctx2.add_init_script("window.sessionStorage.setItem('palmux:onboarding-skipped','1')")
+                ctx2.add_init_script("window.sessionStorage.setItem('palmux:onboarding-skipped','1'); window.__PALMUX_NO_RELOAD__ = true")
                 page2 = ctx2.new_page()
                 page2.route("**/api/selfupdate", lambda r: _fulfill(
                     r, _snap(palmux_available=False, image_available=True, flake_target=ft)))
@@ -214,7 +214,7 @@ def test_kick_failure_state():
             browser = p.chromium.launch(headless=True)
             try:
                 ctx = browser.new_context(viewport={"width": 1280, "height": 900})
-                ctx.add_init_script("window.sessionStorage.setItem('palmux:onboarding-skipped','1')")
+                ctx.add_init_script("window.sessionStorage.setItem('palmux:onboarding-skipped','1'); window.__PALMUX_NO_RELOAD__ = true")
                 page = ctx.new_page()
                 page.route("**/api/selfupdate", lambda r: _fulfill(
                     r, _snap(palmux_available=True, image_available=False, flake_target=ft)))
@@ -248,7 +248,7 @@ def test_kick_reconnect_done():
             browser = p.chromium.launch(headless=True)
             try:
                 ctx = browser.new_context(viewport={"width": 1280, "height": 900})
-                ctx.add_init_script("window.sessionStorage.setItem('palmux:onboarding-skipped','1')")
+                ctx.add_init_script("window.sessionStorage.setItem('palmux:onboarding-skipped','1'); window.__PALMUX_NO_RELOAD__ = true")
                 ctx.add_init_script("window.__PALMUX_UPDATE_TIMEOUT_MS__ = 12000")
                 page = ctx.new_page()
                 page.route("**/api/selfupdate", lambda r: _fulfill(
@@ -290,7 +290,7 @@ def test_image_fetch_flow():
             browser = p.chromium.launch(headless=True)
             try:
                 ctx = browser.new_context(viewport={"width": 1280, "height": 900})
-                ctx.add_init_script("window.sessionStorage.setItem('palmux:onboarding-skipped','1')")
+                ctx.add_init_script("window.sessionStorage.setItem('palmux:onboarding-skipped','1'); window.__PALMUX_NO_RELOAD__ = true")
                 page = ctx.new_page()
 
                 def route_selfupdate(r):

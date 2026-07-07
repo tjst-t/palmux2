@@ -97,7 +97,7 @@ def main() -> int:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             ctx = browser.new_context()
-            ctx.add_init_script("window.localStorage.setItem('palmux:onboarding-seen','1'); window.sessionStorage.setItem('palmux:onboarding-skipped','1')")
+            ctx.add_init_script("window.localStorage.setItem('palmux:onboarding-seen','1'); window.sessionStorage.setItem('palmux:onboarding-skipped','1'); window.__PALMUX_NO_RELOAD__ = true")
             page = ctx.new_page()
             page.goto(BASE, wait_until="domcontentloaded", timeout=20000)
             page.wait_for_timeout(1500)
@@ -136,7 +136,7 @@ def main() -> int:
             _stop(srv2)
             srv_fail = _start("v0.20.0")  # page below will baseline on v0.20.0
             ctx2 = browser.new_context()
-            ctx2.add_init_script("window.localStorage.setItem('palmux:onboarding-seen','1'); window.sessionStorage.setItem('palmux:onboarding-skipped','1')")
+            ctx2.add_init_script("window.localStorage.setItem('palmux:onboarding-seen','1'); window.sessionStorage.setItem('palmux:onboarding-skipped','1'); window.__PALMUX_NO_RELOAD__ = true")
             ctx2.add_init_script("window.__PALMUX_UPDATE_TIMEOUT_MS__ = 6000")
             page2 = ctx2.new_page()
             page2.goto(BASE, wait_until="domcontentloaded", timeout=20000)

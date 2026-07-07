@@ -70,7 +70,7 @@ def _snap(available, nix_managed, palmux_avail=True):
 
 def _wire_base(page, snap, health_version="v0.10.0"):
     """Minimal bootstrap stubs so the SPA renders the header."""
-    page.add_init_script("window.localStorage.setItem('palmux:onboarding-seen','1')")
+    page.add_init_script("window.localStorage.setItem('palmux:onboarding-seen','1'); window.__PALMUX_NO_RELOAD__ = true")
     page.route("**/api/repos", lambda r: _fulfill(r, []))
     page.route("**/api/settings", lambda r: _fulfill(r, {}))
     page.route("**/api/notifications", lambda r: _fulfill(r, {}))
@@ -116,7 +116,7 @@ def test_update_all_progress(page) -> None:
     the handshake logic — a mock cannot drop the real events WS honestly.)
     """
     snap = _snap(available=True, nix_managed=True)
-    page.add_init_script("window.localStorage.setItem('palmux:onboarding-seen','1')")
+    page.add_init_script("window.localStorage.setItem('palmux:onboarding-seen','1'); window.__PALMUX_NO_RELOAD__ = true")
     page.route("**/api/repos", lambda r: _fulfill(r, []))
     page.route("**/api/settings", lambda r: _fulfill(r, {}))
     page.route("**/api/notifications", lambda r: _fulfill(r, {}))

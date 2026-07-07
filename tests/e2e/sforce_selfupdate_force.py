@@ -133,7 +133,7 @@ def main() -> int:
             # Skip the first-launch onboarding wizard (unconfigured isolated cfg
             # dir → it would overlay and intercept clicks). Gate is sessionStorage
             # 'palmux:onboarding-skipped' (onboarding-wizard.tsx).
-            ctx.add_init_script("window.sessionStorage.setItem('palmux:onboarding-skipped','1')")
+            ctx.add_init_script("window.sessionStorage.setItem('palmux:onboarding-skipped','1'); window.__PALMUX_NO_RELOAD__ = true")
             page = ctx.new_page()
             page.goto(BASE, wait_until="domcontentloaded", timeout=20000)
             page.wait_for_timeout(1500)

@@ -100,6 +100,18 @@ async function maybeFinishSelfUpdate(): Promise<void> {
       // restarted server reports a stale state, refresh it so the recover
       // surface (Story 2) appears and routes the user to the fix.
       void usePalmuxStore.getState().loadIncusGroup()
+      // A version change means the server now serves a NEW frontend bundle, but
+      // this reconnect handshake only re-attaches the WS — the browser is still
+      // running the OLD bundle, so frontend-side changes in the update would not
+      // take effect until a manual reload (they'd look "not fixed"). Reload to
+      // load the new FE. Delayed so the "更新しました" toast is briefly visible;
+      // terminal state is server-side (tmux/daemon) so it survives the reload.
+      // Suppressible for E2E via window.__PALMUX_NO_RELOAD__ so the reconnect
+      // test can still assert the toast without navigating away.
+      const wr = window as unknown as { __PALMUX_NO_RELOAD__?: boolean }
+      if (!wr.__PALMUX_NO_RELOAD__) {
+        setTimeout(() => window.location.reload(), 1500)
+      }
     },
     onFailure: () => usePalmuxStore.setState({ updateInProgress: false, updateFailed: true }),
   })
