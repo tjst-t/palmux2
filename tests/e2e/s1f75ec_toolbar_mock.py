@@ -33,6 +33,25 @@ _PREBUILT_BIN = REPO_ROOT / "bin" / "palmux"
 _USE_PREBUILT = _PREBUILT_BIN.is_file()
 
 
+# The key-assist Toolbar is now touch-only (see use-coarse-pointer.ts). Force
+# `(pointer: coarse)` via a matchMedia override on a desktop context so the
+# toolbar renders while normal clicks still work (avoids mobile-emulation quirks).
+_COARSE_POINTER_INIT = (
+    "const _o = window.matchMedia.bind(window);"
+    "window.matchMedia = (q) => (q && q.includes('pointer: coarse'))"
+    " ? {matches:true, media:q, onchange:null, addEventListener(){},"
+    " removeEventListener(){}, addListener(){}, removeListener(){},"
+    " dispatchEvent(){return false;}} : _o(q);"
+)
+
+
+def _coarse_pointer_page(browser):
+    ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    ctx.add_init_script(_COARSE_POINTER_INIT)
+    ctx.add_init_script("window.sessionStorage.setItem('palmux:onboarding-skipped','1')")
+    return ctx.new_page()
+
+
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
 def fail(msg: str) -> None:
@@ -188,7 +207,9 @@ def test_mock_toolbar_auto_switches_on_tab_focus(port: int) -> None:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             try:
-                page = browser.new_page()
+                # Touch context: the key-assist Toolbar is now touch-only (hidden
+                # on desktop / fine pointer), so emulate a coarse pointer.
+                page = _coarse_pointer_page(browser)
 
                 # Start on Claude tab.
                 page.goto(url_claude, timeout=PLAYWRIGHT_TIMEOUT, wait_until="load")
@@ -255,6 +276,9 @@ def test_mock_esc_esc_btn_wired_on_tui(port: int) -> None:
             browser = p.chromium.launch(headless=True)
             try:
                 context = browser.new_context()
+                # Toolbar is touch-only now: force coarse pointer + skip onboarding.
+                context.add_init_script(_COARSE_POINTER_INIT)
+                context.add_init_script("window.sessionStorage.setItem('palmux:onboarding-skipped','1')")
                 page = context.new_page()
 
                 # Mock GET /settings to return tui.
@@ -315,6 +339,9 @@ def test_mock_esc_esc_btn_disabled_on_agent(port: int) -> None:
             browser = p.chromium.launch(headless=True)
             try:
                 context = browser.new_context()
+                # Toolbar is touch-only now: force coarse pointer + skip onboarding.
+                context.add_init_script(_COARSE_POINTER_INIT)
+                context.add_init_script("window.sessionStorage.setItem('palmux:onboarding-skipped','1')")
                 page = context.new_page()
 
                 # Mock GET /settings to return agent.

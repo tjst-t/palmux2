@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
+import { useCoarsePointer } from '../hooks/use-coarse-pointer'
 import { useViewport } from '../hooks/use-viewport'
 import { HOST_REPO_ID, selectBranchById, usePalmuxStore } from '../stores/palmux-store'
 
@@ -26,6 +27,7 @@ export function MainLayout() {
   const reloadRepo = usePalmuxStore((s) => s.reloadRepo)
   const viewport = useViewport()
   const mobile = viewport === 'mobile'
+  const coarsePointer = useCoarsePointer()
 
   // If the URL points at something that doesn't exist (e.g. branch was
   // closed externally), bounce back to /.
@@ -102,7 +104,11 @@ export function MainLayout() {
   )
   const isBashTab = activeTabType === 'bash'
   const isClaudeTab = activeTabType === 'claude'
-  const showToolbar = isBashTab || isClaudeTab
+  // The bottom key-assist Toolbar is a touch affordance (tap Esc / slash-commands
+  // / arrows). On a desktop browser the physical keyboard makes it redundant and
+  // it only eats terminal height, so show it only on touch devices (coarse
+  // pointer). This also removes it from over the Claude-tui terminal on desktop.
+  const showToolbar = (isBashTab || isClaudeTab) && coarsePointer
 
   return (
     <div className={styles.shell}>

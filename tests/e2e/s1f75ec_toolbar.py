@@ -40,6 +40,30 @@ _PREBUILT_BIN = REPO_ROOT / "bin" / "palmux"
 _USE_PREBUILT = _PREBUILT_BIN.is_file()
 
 
+# The key-assist Toolbar is now a touch affordance, shown only when the primary
+# pointer is coarse (see frontend/src/hooks/use-coarse-pointer.ts). Rather than
+# emulate a mobile device (whose DPR/layout quirks make buttons un-clickable), we
+# force `(pointer: coarse)` to match via a matchMedia override on an ordinary
+# DESKTOP context — the toolbar renders and normal mouse clicks work.
+_COARSE_POINTER_INIT = (
+    "const _o = window.matchMedia.bind(window);"
+    "window.matchMedia = (q) => (q && q.includes('pointer: coarse'))"
+    " ? {matches:true, media:q, onchange:null, addEventListener(){},"
+    " removeEventListener(){}, addListener(){}, removeListener(){},"
+    " dispatchEvent(){return false;}} : _o(q);"
+)
+
+
+def _coarse_pointer_page(browser):
+    """A desktop page that reports a coarse (touch) primary pointer, so the
+    touch-only Toolbar renders while normal clicks still work. Also suppresses the
+    Sa53137 onboarding wizard overlay, which otherwise intercepts toolbar clicks."""
+    ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    ctx.add_init_script(_COARSE_POINTER_INIT)
+    ctx.add_init_script("window.sessionStorage.setItem('palmux:onboarding-skipped','1')")
+    return ctx.new_page()
+
+
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
 def fail(msg: str) -> None:
@@ -182,7 +206,10 @@ def test_ac_3_1_claude_tab_sets_toolbar_claude(port: int) -> None:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             try:
-                page = browser.new_page()
+                # The key-assist Toolbar is now a touch affordance (hidden on
+                # desktop / fine pointer). Use a touch context so `(pointer:
+                # coarse)` matches and the toolbar renders.
+                page = _coarse_pointer_page(browser)
                 page.goto(url, timeout=PLAYWRIGHT_TIMEOUT, wait_until="load")
                 page.wait_for_function(
                     "document.getElementById('root').innerHTML.length > 100",
@@ -201,6 +228,54 @@ def test_ac_3_1_claude_tab_sets_toolbar_claude(port: int) -> None:
             finally:
                 browser.close()
     passed("[AC-S1f75ec-3-1] Claude tab → toolbar-mode-claude active, toolbar-mode-normal absent")
+
+
+def test_toolbar_hidden_on_desktop(port: int) -> None:
+    """The key-assist Toolbar is a touch affordance: on a desktop browser (fine
+    pointer) it must NOT render, so it never eats terminal height / overlaps the
+    claude-tui. Uses a plain desktop context (no coarse-pointer override)."""
+    if not _USE_PREBUILT:
+        print("SKIP: test_toolbar_hidden_on_desktop (no embedded frontend)")
+        return
+    sync_playwright = _get_playwright()
+    fx = _get_fixture_module(port)
+    with fx.palmux2_test_fixture("s1f75ec-tb-desktop") as fixture:
+        branch_id = fixture.primary_branch_id(timeout_s=10.0)
+        url = (
+            f"http://localhost:{port}"
+            f"/{urllib.parse.quote(fixture.repo_id, safe='')}"
+            f"/{urllib.parse.quote(branch_id, safe='')}"
+            f"/claude"
+        )
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            try:
+                # Plain desktop: default fine pointer, onboarding suppressed so its
+                # overlay isn't mistaken for the tab having mounted.
+                ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+                ctx.add_init_script("window.sessionStorage.setItem('palmux:onboarding-skipped','1')")
+                page = ctx.new_page()
+                page.goto(url, timeout=PLAYWRIGHT_TIMEOUT, wait_until="load")
+                page.wait_for_function(
+                    "document.getElementById('root').innerHTML.length > 100",
+                    timeout=PLAYWRIGHT_TIMEOUT,
+                )
+                # Confirm the Claude tab actually mounted (mode-agnostic), so a
+                # missing toolbar is a real hide and not just "not rendered yet".
+                page.wait_for_selector(
+                    "[data-testid='claude-tui-status'], [data-testid='claude-topbar'],"
+                    " [data-testid='claude-conversation']",
+                    timeout=PLAYWRIGHT_TIMEOUT,
+                )
+                claude_count = page.locator("[data-testid='toolbar-mode-claude']").count()
+                normal_count = page.locator("[data-testid='toolbar-mode-normal']").count()
+                assert claude_count == 0 and normal_count == 0, (
+                    "[toolbar-desktop-hide] Toolbar must be absent on desktop "
+                    f"(fine pointer), got claude={claude_count} normal={normal_count}"
+                )
+            finally:
+                browser.close()
+    passed("[toolbar-desktop-hide] Toolbar hidden on desktop (fine pointer)")
 
 
 def test_ac_3_2_bash_tab_sets_toolbar_normal(port: int) -> None:
@@ -223,7 +298,8 @@ def test_ac_3_2_bash_tab_sets_toolbar_normal(port: int) -> None:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             try:
-                page = browser.new_page()
+                # Touch context so the (now touch-only) Toolbar renders.
+                page = _coarse_pointer_page(browser)
                 page.goto(url, timeout=PLAYWRIGHT_TIMEOUT, wait_until="load")
                 page.wait_for_function(
                     "document.getElementById('root').innerHTML.length > 100",
@@ -269,7 +345,8 @@ def test_ac_3_4_data_testid_selectors_exist(port: int) -> None:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             try:
-                page = browser.new_page()
+                # Touch context: the Toolbar is now touch-only (hidden on desktop).
+                page = _coarse_pointer_page(browser)
                 # Verify toolbar-mode-claude on Claude tab.
                 page.goto(url_claude, timeout=PLAYWRIGHT_TIMEOUT, wait_until="load")
                 page.wait_for_function(
@@ -327,7 +404,8 @@ def test_ac_3_5_agent_mode_esc_esc_disabled(port: int) -> None:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             try:
-                page = browser.new_page()
+                # Touch context: the Toolbar is now touch-only (hidden on desktop).
+                page = _coarse_pointer_page(browser)
                 page.goto(url, timeout=PLAYWRIGHT_TIMEOUT, wait_until="load")
                 page.wait_for_function(
                     "document.getElementById('root').innerHTML.length > 100",
@@ -371,7 +449,8 @@ def test_ac_3_3_tui_mode_esc_esc_enabled(port: int) -> None:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             try:
-                page = browser.new_page()
+                # Touch context: the Toolbar is now touch-only (hidden on desktop).
+                page = _coarse_pointer_page(browser)
                 page.goto(url, timeout=PLAYWRIGHT_TIMEOUT, wait_until="load")
                 page.wait_for_function(
                     "document.getElementById('root').innerHTML.length > 100",
@@ -437,6 +516,8 @@ def main() -> None:
         if has_frontend:
             _run("test_ac_3_1_claude_tab_sets_toolbar_claude",
                  lambda: test_ac_3_1_claude_tab_sets_toolbar_claude(port))
+            _run("test_toolbar_hidden_on_desktop",
+                 lambda: test_toolbar_hidden_on_desktop(port))
             _run("test_ac_3_2_bash_tab_sets_toolbar_normal",
                  lambda: test_ac_3_2_bash_tab_sets_toolbar_normal(port))
             _run("test_ac_3_3_tui_mode_esc_esc_enabled",
