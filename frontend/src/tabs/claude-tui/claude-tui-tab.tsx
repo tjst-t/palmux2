@@ -188,6 +188,20 @@ function ClaudeTuiDesktop({
     setReconnectSeq((n) => n + 1)
   }, [])
 
+  // Reconnect when the workspace runtime is switched (host↔incus) or the container
+  // is regenerated — the server publishes branch.restarted, which the store turns
+  // into a per-branch signal. claude-tui owns its WS (terminalManager only covers
+  // xterm bash/agent tabs), so without this the tab stays bound to the dead
+  // daemon/container until a manual page reload.
+  const restartSignal = usePalmuxStore((s) => s.branchRestartSignal[`${repoId}/${branchId}`] ?? 0)
+  const prevRestartRef = useRef(restartSignal)
+  useEffect(() => {
+    if (restartSignal !== prevRestartRef.current) {
+      prevRestartRef.current = restartSignal
+      handleReconnect()
+    }
+  }, [restartSignal, handleReconnect])
+
   // sendRaw sends a string as raw UTF-8 bytes over the WS (no JSON framing).
   const sendRaw = useCallback((data: string) => {
     if (!wsRef.current) return

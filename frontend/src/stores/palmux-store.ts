@@ -253,6 +253,10 @@ interface PalmuxStoreState {
   /** Non-null requests the settings panel open on this tab; command-palette
    * consumes it and resets to null. Set by the header gear button. */
   settingsRequestTab: string | null
+  /** Per-branch counter bumped on branch.restarted (runtime switch / container
+   * regenerate). claude-tui tabs watch their key and reconnect their own WS —
+   * terminalManager only covers xterm (bash/agent) tabs, not the tui daemon WS. */
+  branchRestartSignal: Record<string, number>
 
   notifications: Record<string, BranchNotificationState>
   /** Per-branch ("{repoId}/{branchId}") Claude-tab state. */
@@ -420,6 +424,7 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
   focusedPanel: 'left',
   mobileDrawerOpen: false,
   settingsRequestTab: null,
+  branchRestartSignal: {},
   notifications: {},
   agents: {},
   runtimeCaps: null,
@@ -701,6 +706,11 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
     // terminal tabs to reconnect — the old tmux session is gone.
     if (ev.type === 'branch.restarted' && ev.repoId && ev.branchId) {
       _triggerBranchTerminalReconnect(ev.repoId, ev.branchId, get().repos)
+      // claude-tui tabs own their WS (not terminalManager); bump a per-branch
+      // signal they subscribe to so they reconnect to the new runtime without a
+      // manual page reload.
+      const rk = `${ev.repoId}/${ev.branchId}`
+      set((s) => ({ branchRestartSignal: { ...s.branchRestartSignal, [rk]: (s.branchRestartSignal[rk] ?? 0) + 1 } }))
     }
 
     // S6ab0ed: the self-update poller detected a change in the set of
