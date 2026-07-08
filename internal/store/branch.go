@@ -631,19 +631,14 @@ func (s *Store) RestartBranchRuntime(ctx context.Context, repoID, branchID strin
 		return false, fmt.Errorf("RestartBranchRuntime ensureSession: %w", sessErr)
 	}
 
-	// ── 7. Recompute tabs + publish events ───────────────────────────────────
-	s.mu.Lock()
-	r2, ok3 := s.repos[repoID]
-	if ok3 {
-		for _, b := range r2.OpenBranches {
-			if b.ID == branchID {
-				s.recomputeTabs(ctx, b)
-				break
-			}
-		}
-	}
-	s.mu.Unlock()
-
+	// ── 7. Publish events ─────────────────────────────────────────────────────
+	// NOTE: we deliberately do NOT recompute the TabSet here. The sole caller
+	// (handler_runtime.patchWorkspaceRuntime) calls RecomputeBranchTabs right
+	// after us, which recomputes AND diffs prev→next to emit tab.added /
+	// tab.removed. Recomputing here first would silently mutate the TabSet so
+	// that later diff sees no change → the conditional Browser/Ports tabs would
+	// never appear/disappear in the UI on a host↔incus switch without a reload.
+	//
 	// S7364e3: the runtime kind changed (host↔incus) — any cached drift result
 	// for the old container is meaningless now. Drop it (host is never stale; a
 	// new incus container's drift is recomputed by the next scan).
