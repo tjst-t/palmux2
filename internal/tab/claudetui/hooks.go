@@ -26,13 +26,37 @@ import (
 // project's .claude directory.
 const palmuxSkillDir = "/usr/local/share/palmux"
 
-// buildHookSettings returns the JSON string for `claude --settings` that wires
-// the Notification / Stop / UserPromptSubmit lifecycle hooks to the palmux hook
-// handler. hookBinPath is the absolute path to the palmux binary.
-//
+// buildClaudeSettings returns the JSON string for `claude --settings`, injected
+// into every claude-tui subprocess. It ALWAYS sets `disableRemoteControl: true`
+// so a palmux-spawned session can never be steered by Claude's Remote Control
+// feature (the session is local-only). When withHooks is true it also wires the
+// Notification / Stop / UserPromptSubmit lifecycle hooks to the palmux hook
+// handler. Passing settings per-process via --settings means the user's global
+// ~/.claude/settings.json and the repo's .claude/ are left untouched.
+func buildClaudeSettings(hookBinPath string, withHooks bool) (string, error) {
+	settings := map[string]any{
+		"disableRemoteControl": true,
+	}
+	if withHooks {
+		settings["hooks"] = hookEntries(hookBinPath)
+	}
+	b, err := json.Marshal(settings)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+// buildHookSettings is the withHooks=true form (kept for tests / callers that
+// specifically want the hook wiring). Always includes disableRemoteControl.
+func buildHookSettings(hookBinPath string) (string, error) {
+	return buildClaudeSettings(hookBinPath, true)
+}
+
+// hookEntries builds the Notification/Stop/UserPromptSubmit → `palmux hook` map.
 // The hook command reads the event name from the JSON Claude Code writes to the
 // command's stdin, so a single `palmux hook` command serves all three events.
-func buildHookSettings(hookBinPath string) (string, error) {
+func hookEntries(hookBinPath string) map[string]any {
 	command := shellQuote(hookBinPath) + " hook"
 	entry := []any{
 		map[string]any{
@@ -45,18 +69,11 @@ func buildHookSettings(hookBinPath string) (string, error) {
 			},
 		},
 	}
-	settings := map[string]any{
-		"hooks": map[string]any{
-			"Notification":     entry,
-			"Stop":             entry,
-			"UserPromptSubmit": entry,
-		},
+	return map[string]any{
+		"Notification":     entry,
+		"Stop":             entry,
+		"UserPromptSubmit": entry,
 	}
-	b, err := json.Marshal(settings)
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
 }
 
 // hookEnv returns the PALMUX_* environment variables the hook command reads to

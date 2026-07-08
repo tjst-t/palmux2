@@ -27,6 +27,7 @@ export function Header() {
   const splitEnabled = usePalmuxStore((s) => s.deviceSettings.splitEnabled)
   const theme = usePalmuxStore((s) => s.deviceSettings.theme)
   const setDeviceSetting = usePalmuxStore((s) => s.setDeviceSetting)
+  const requestSettings = usePalmuxStore((s) => s.requestSettings)
   const mobileDrawerOpen = usePalmuxStore((s) => s.mobileDrawerOpen)
   const setMobileDrawerOpen = usePalmuxStore((s) => s.setMobileDrawerOpen)
   const runtimeCaps = usePalmuxStore((s) => s.runtimeCaps)
@@ -329,6 +330,15 @@ export function Header() {
           aria-label="Command palette"
         >
           ⌘
+        </button>
+        <button
+          className={styles.iconBtn}
+          onClick={() => requestSettings('app')}
+          title="設定 (Settings)"
+          aria-label="Settings"
+          data-testid="header-settings-btn"
+        >
+          ⚙
         </button>
         <button
           className={styles.iconBtn}

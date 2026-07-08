@@ -33,6 +33,7 @@ interface AppFormState {
   maxClaudeTabsPerBranch: number
   maxBashTabsPerBranch: number
   claudeDefaultMode: 'agent' | 'tui'
+  claudePermissionMode: 'default' | 'auto' | 'plan' | 'acceptEdits' | 'bypassPermissions'
   defaultRuntimeKind: 'host' | 'incus-container'
   previewMaxBytes: number
   readPreviewLineCount: number
@@ -42,12 +43,22 @@ interface AppFormState {
   subagentStaleAfterDays: number
 }
 
+const PERM_MODES = ['default', 'auto', 'plan', 'acceptEdits', 'bypassPermissions'] as const
+function normalizePermMode(v: string | undefined): AppFormState['claudePermissionMode'] {
+  return (PERM_MODES as readonly string[]).includes(v ?? '')
+    ? (v as AppFormState['claudePermissionMode'])
+    : 'auto'
+}
+
 function deriveAppForm(gs: GlobalSettings): AppFormState {
   return {
     branchSortOrder: gs.branchSortOrder ?? 'name',
     maxClaudeTabsPerBranch: gs.maxClaudeTabsPerBranch ?? 3,
     maxBashTabsPerBranch: gs.maxBashTabsPerBranch ?? 5,
     claudeDefaultMode: (gs as GlobalSettings & { claude?: { default_mode?: string } }).claude?.default_mode === 'tui' ? 'tui' : 'agent',
+    claudePermissionMode: normalizePermMode(
+      (gs as GlobalSettings & { claude?: { permission_mode?: string } }).claude?.permission_mode,
+    ),
     defaultRuntimeKind: (gs as GlobalSettings & { defaultRuntime?: { kind?: string } }).defaultRuntime?.kind === 'incus-container' ? 'incus-container' : 'host',
     previewMaxBytes: gs.previewMaxBytes ?? 10485760,
     readPreviewLineCount: gs.readPreviewLineCount ?? 50,
@@ -109,7 +120,7 @@ function AppTab({ onManageUserCommands }: { onManageUserCommands: () => void }) 
         attachmentTtlDays: form.attachmentTtlDays,
         autoWorktreePathPatterns: patterns,
         subagentStaleAfterDays: form.subagentStaleAfterDays,
-        claude: { default_mode: form.claudeDefaultMode },
+        claude: { default_mode: form.claudeDefaultMode, permission_mode: form.claudePermissionMode },
         defaultRuntime: { kind: form.defaultRuntimeKind },
       }
       const updated = await api.patch<GlobalSettings>('/api/settings', body)
@@ -217,6 +228,31 @@ function AppTab({ onManageUserCommands }: { onManageUserCommands: () => void }) 
             >
               tui
             </button>
+          </div>
+        </div>
+      </div>
+
+      <div className={styles.field}>
+        <div className={styles.fieldLabel}>
+          <span className={styles.fieldName}>Claude 権限モード</span>
+          <span className={styles.fieldKey}>claude.permission_mode</span>
+        </div>
+        <div className={styles.fieldControl}>
+          <div className={styles.seg} data-testid="field-claudePermissionMode">
+            {PERM_MODES.map((pm) => (
+              <button
+                key={pm}
+                type="button"
+                className={`${styles.segBtn} ${form.claudePermissionMode === pm ? styles.segBtnActive : ''}`}
+                onClick={() => update('claudePermissionMode', pm)}
+              >
+                {pm === 'bypassPermissions' ? 'bypass' : pm}
+              </button>
+            ))}
+          </div>
+          <div className={styles.fieldHint}>
+            claude 起動時の <code>--permission-mode</code>。既定 <code>auto</code>。<code>bypass</code>
+            （=bypassPermissions）は確認を全てスキップ（コンテナ/非 root で有効）。変更は次回 claude 再起動から適用。
           </div>
         </div>
       </div>

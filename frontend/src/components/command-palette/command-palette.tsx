@@ -152,6 +152,19 @@ export function CommandPalette() {
     setSettingsPanelOpen(true)
   }, [hide])
 
+  // Header gear (or any caller) requests the settings panel via the store; open
+  // it here and reset the request so a repeated click re-triggers. Uses an
+  // imperative subscription (not a render-effect) so setState is not called
+  // synchronously in an effect body.
+  useEffect(() => {
+    return usePalmuxStore.subscribe((s, prev) => {
+      if (s.settingsRequestTab != null && s.settingsRequestTab !== prev.settingsRequestTab) {
+        openSettings(s.settingsRequestTab as SettingsTab)
+        usePalmuxStore.setState({ settingsRequestTab: null })
+      }
+    })
+  }, [openSettings])
+
   return (
     <>
       {open && (

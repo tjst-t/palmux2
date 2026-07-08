@@ -134,6 +134,8 @@ export interface GlobalSettings {
   /** S1f75ec-2: global claude tab settings (default mode for new branches). */
   claude?: {
     default_mode?: 'agent' | 'tui'
+    /** claude --permission-mode for launched sessions. Default "auto". */
+    permission_mode?: 'default' | 'auto' | 'plan' | 'acceptEdits' | 'bypassPermissions'
   }
   /** S8478ca-3: global default runtime applied when no per-WS/per-repo override. */
   defaultRuntime?: {
@@ -248,6 +250,9 @@ interface PalmuxStoreState {
 
   focusedPanel: FocusedPanel
   mobileDrawerOpen: boolean
+  /** Non-null requests the settings panel open on this tab; command-palette
+   * consumes it and resets to null. Set by the header gear button. */
+  settingsRequestTab: string | null
 
   notifications: Record<string, BranchNotificationState>
   /** Per-branch ("{repoId}/{branchId}") Claude-tab state. */
@@ -281,6 +286,7 @@ interface PalmuxStoreState {
   setConnectionStatus: (status: ConnectionStatus) => void
   setFocusedPanel: (panel: FocusedPanel) => void
   setMobileDrawerOpen: (open: boolean) => void
+  requestSettings: (tab?: string) => void
   clearBranchNotifications: (repoId: string, branchId: string) => Promise<void>
 
   setDeviceSetting: <K extends keyof DeviceSettings>(key: K, value: DeviceSettings[K]) => void
@@ -413,6 +419,7 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
   connectionStatus: 'connecting',
   focusedPanel: 'left',
   mobileDrawerOpen: false,
+  settingsRequestTab: null,
   notifications: {},
   agents: {},
   runtimeCaps: null,
@@ -803,6 +810,7 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
   setConnectionStatus: (status) => set({ connectionStatus: status }),
   setFocusedPanel: (panel) => set({ focusedPanel: panel }),
   setMobileDrawerOpen: (open) => set({ mobileDrawerOpen: open }),
+  requestSettings: (tab = 'app') => set({ settingsRequestTab: tab }),
 
   clearBranchNotifications: async (repoId, branchId) => {
     const key = `${repoId}/${branchId}`

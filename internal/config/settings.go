@@ -164,6 +164,30 @@ type ClaudeGlobalSettings struct {
 	// DefaultMode is the mode assigned to newly-opened branches. Valid values
 	// are "agent" and "tui". Absent / empty defaults to "tui".
 	DefaultMode string `json:"default_mode,omitempty"`
+	// PermissionMode is the claude --permission-mode launched sessions start in.
+	// Valid: default, auto, plan, acceptEdits, dontAsk, bypassPermissions, manual.
+	// Absent / empty resolves to "auto" (see ClaudePermissionMode). bypassPermissions
+	// disables all prompts — fine for the sandboxed container / non-root user.
+	PermissionMode string `json:"permission_mode,omitempty"`
+}
+
+// validClaudePermissionModes is the set accepted for claude.permission_mode
+// (mirrors Claude Code's --permission-mode values).
+var validClaudePermissionModes = map[string]bool{
+	"default": true, "auto": true, "plan": true, "acceptEdits": true,
+	"dontAsk": true, "bypassPermissions": true, "manual": true,
+}
+
+// DefaultClaudePermissionMode is the value used when unset.
+const DefaultClaudePermissionMode = "auto"
+
+// ClaudePermissionMode resolves the effective claude --permission-mode, applying
+// the "auto" default when unset.
+func (s Settings) ClaudePermissionMode() string {
+	if s.Claude != nil && s.Claude.PermissionMode != "" {
+		return s.Claude.PermissionMode
+	}
+	return DefaultClaudePermissionMode
 }
 
 // DefaultAttachmentUploadDir is the fallback when the user has not
@@ -385,10 +409,21 @@ func (s *SettingsStore) Patch(update Settings) (Settings, error) {
 		if m != "" && m != "agent" && m != "tui" {
 			return Settings{}, fmt.Errorf("config: patch: invalid claude.default_mode %q (must be agent or tui)", m)
 		}
+		pm := update.Claude.PermissionMode
+		if pm != "" && !validClaudePermissionModes[pm] {
+			return Settings{}, fmt.Errorf("config: patch: invalid claude.permission_mode %q", pm)
+		}
 		if s.settings.Claude == nil {
 			s.settings.Claude = &ClaudeGlobalSettings{}
 		}
-		s.settings.Claude.DefaultMode = m
+		// Field-wise merge: an empty field leaves the existing value alone so a
+		// patch of one field never clobbers the other.
+		if m != "" {
+			s.settings.Claude.DefaultMode = m
+		}
+		if pm != "" {
+			s.settings.Claude.PermissionMode = pm
+		}
 	}
 	// S8478ca-3: defaultRuntime — a non-nil pointer triggers validation.
 	// An explicit {kind:""} clears the field (nil-vs-empty: nil = leave

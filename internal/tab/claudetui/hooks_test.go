@@ -382,6 +382,44 @@ func TestDaemonInContainerInjectsPluginDir(t *testing.T) {
 // TestDaemonNoHookInjectionWithoutConfig verifies that omitting NotifyURL /
 // HookBinPath leaves the spawn untouched (no --settings) — the path tests and
 // fake_claude rely on.
+// TestPermissionModeInjection verifies the daemon passes --permission-mode from
+// PermissionModeFn (the global "claude permission mode" setting).
+func TestPermissionModeInjection(t *testing.T) {
+	bin := fakeBin(t)
+	dump := filepath.Join(t.TempDir(), "invocation.json")
+	d := NewDaemon(DaemonConfig{
+		ClaudeBin:        bin,
+		ClaudeArgs:       []string{"--dump-invocation", dump},
+		PermissionModeFn: func() string { return "bypassPermissions" },
+		RingSize:         1 << 16,
+		ResumeOnDeath:    false,
+		RepoID:           "repo1", BranchID: "branch1", TabID: "claude",
+	})
+	t.Cleanup(func() { d.Shutdown() })
+	if err := d.EnsureStarted(context.Background()); err != nil {
+		t.Fatalf("EnsureStarted: %v", err)
+	}
+	waitForState(t, d, StateRunning, 5*time.Second)
+
+	var raw []byte
+	deadline := time.After(5 * time.Second)
+	for {
+		if b, err := os.ReadFile(dump); err == nil && len(b) > 0 {
+			raw = b
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for invocation dump")
+		default:
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	if !strings.Contains(string(raw), "--permission-mode") || !strings.Contains(string(raw), "bypassPermissions") {
+		t.Errorf("--permission-mode bypassPermissions not injected: %s", raw)
+	}
+}
+
 func TestDaemonNoHookInjectionWithoutConfig(t *testing.T) {
 	bin := fakeBin(t)
 	dump := filepath.Join(t.TempDir(), "invocation.json")
@@ -417,7 +455,16 @@ func TestDaemonNoHookInjectionWithoutConfig(t *testing.T) {
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
-	if strings.Contains(string(raw), "--settings") {
-		t.Errorf("--settings should not be injected without hook config: %s", raw)
+	// --settings IS always injected now (disableRemoteControl is unconditional),
+	// but WITHOUT hook config it must NOT contain the "hooks" wiring.
+	s := string(raw)
+	if !strings.Contains(s, "--settings") {
+		t.Errorf("--settings should always be injected (disableRemoteControl): %s", raw)
+	}
+	if !strings.Contains(s, "disableRemoteControl") {
+		t.Errorf("--settings must set disableRemoteControl: %s", raw)
+	}
+	if strings.Contains(s, "\"hooks\"") || strings.Contains(s, "Notification") {
+		t.Errorf("hooks should not be injected without hook config: %s", raw)
 	}
 }

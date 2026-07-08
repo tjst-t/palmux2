@@ -118,13 +118,17 @@ type Stats struct {
 //     input flips the active role to the sender ("last-typed-wins" — Story 3).
 type Daemon struct {
 	// configuration (immutable after NewDaemon)
-	claudeBin     string
-	claudeArgs    []string
-	worktree      string
-	resumeOnDeath bool
-	ring          *Ring
-	emulator      *Emulator
-	logger        *slog.Logger
+	claudeBin  string
+	claudeArgs []string
+	// permissionMode returns the current claude --permission-mode value (a global
+	// setting, default "auto"). A func (not a snapshot) so a settings change is
+	// picked up on the next respawn. Never nil after NewDaemon.
+	permissionMode func() string
+	worktree       string
+	resumeOnDeath  bool
+	ring           *Ring
+	emulator       *Emulator
+	logger         *slog.Logger
 
 	// notifyHub is the process-wide hub used to publish Activity Inbox events.
 	// claude-tui notifications now arrive via Claude Code hooks (see hooks.go +
@@ -222,6 +226,10 @@ type DaemonConfig struct {
 	ClaudeBin string
 	// ClaudeArgs are additional arguments passed to claude on every spawn.
 	ClaudeArgs []string
+	// PermissionModeFn returns the current claude --permission-mode value (global
+	// setting, default "auto"). Read on each spawn so a settings change applies on
+	// the next respawn. Nil → no --permission-mode flag is passed.
+	PermissionModeFn func() string
 	// Worktree is the absolute path the subprocess is spawned in (cmd.Dir).
 	// When empty, the subprocess inherits the palmux2 server's cwd — which is
 	// almost never the right answer for a per-branch tab. Provider /
@@ -280,9 +288,13 @@ func NewDaemon(cfg DaemonConfig) *Daemon {
 		cfg.Logger = slog.Default()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	if cfg.PermissionModeFn == nil {
+		cfg.PermissionModeFn = func() string { return "" }
+	}
 	d := &Daemon{
 		claudeBin:            cfg.ClaudeBin,
 		claudeArgs:           cfg.ClaudeArgs,
+		permissionMode:       cfg.PermissionModeFn,
 		worktree:             cfg.Worktree,
 		resumeOnDeath:        cfg.ResumeOnDeath,
 		ring:                 NewRing(cfg.RingSize),
@@ -407,18 +419,26 @@ func (d *Daemon) spawnWithArgs(args []string) error {
 	// palmux-browser CLI inside the container). containerEnv carries the same
 	// KEY=VALUE pairs for the incus --env path.
 	var containerEnv []string
-	if hookBin != "" && notifyURL != "" {
-		settings, err := buildHookSettings(hookBin)
-		if err != nil {
-			d.logger.Warn("claudetui: failed to build hook settings; "+
-				"notifications disabled for this spawn", "err", err)
-		} else {
-			args = append([]string{"--settings", settings}, args...)
-			for _, kv := range hookEnv(notifyURL, d.notifyToken, d.repoID, d.branchID, d.tabID) {
-				env = appendOrReplace(env, kv) // host path
-				containerEnv = append(containerEnv, kv)
-			}
+	hooksAvailable := hookBin != "" && notifyURL != ""
+	// Always inject session-scoped settings via --settings: disableRemoteControl
+	// is unconditional (no remote steering of a palmux-spawned session), and the
+	// notification hooks are added when a notify endpoint is available. This never
+	// touches the user's ~/.claude or the repo's .claude.
+	if settings, err := buildClaudeSettings(hookBin, hooksAvailable); err != nil {
+		d.logger.Warn("claudetui: failed to build claude settings", "err", err)
+	} else {
+		args = append([]string{"--settings", settings}, args...)
+	}
+	if hooksAvailable {
+		for _, kv := range hookEnv(notifyURL, d.notifyToken, d.repoID, d.branchID, d.tabID) {
+			env = appendOrReplace(env, kv) // host path
+			containerEnv = append(containerEnv, kv)
 		}
+	}
+	// Permission mode (global setting, default "auto"). The --permission-mode flag
+	// overrides any defaultMode from settings files, so this is authoritative.
+	if pm := d.permissionMode(); pm != "" {
+		args = append([]string{"--permission-mode", pm}, args...)
 	}
 
 	// Build the command. daemonCtx (not a request ctx) so Shutdown can cancel

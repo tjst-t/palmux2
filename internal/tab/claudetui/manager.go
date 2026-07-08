@@ -16,6 +16,9 @@ type ManagerConfig struct {
 	ClaudeBin string
 	// ClaudeArgs are additional arguments appended to every daemon spawn.
 	ClaudeArgs []string
+	// PermissionMode is the claude --permission-mode value (global setting,
+	// default "auto"). Hot-swappable via SetPermissionMode; read on each spawn.
+	PermissionMode string
 	// RingSize is the per-daemon ring buffer capacity in bytes (0 → DefaultRingSize).
 	RingSize int
 	// ResumeOnDeath controls whether daemons re-spawn with --resume on
@@ -83,6 +86,24 @@ func (m *Manager) SetClaudeArgs(args []string) {
 	m.mu.Unlock()
 }
 
+// SetPermissionMode hot-swaps the claude --permission-mode value. Existing
+// daemons pick it up on their next respawn (the value is read via a getter).
+func (m *Manager) SetPermissionMode(mode string) {
+	m.mu.Lock()
+	m.cfg.PermissionMode = mode
+	m.mu.Unlock()
+}
+
+// permissionModeGetter returns a closure the daemon calls at spawn time to read
+// the current permission mode under the manager lock.
+func (m *Manager) permissionModeGetter() func() string {
+	return func() string {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		return m.cfg.PermissionMode
+	}
+}
+
 // NewManager creates a Manager.  cfg.ClaudeBin defaults to "claude".
 func NewManager(cfg ManagerConfig) *Manager {
 	if cfg.ClaudeBin == "" {
@@ -148,16 +169,17 @@ func (m *Manager) EnsureDaemon(ctx context.Context, repoID, branchID, tabID, wor
 	}
 
 	d := NewDaemon(DaemonConfig{
-		ClaudeBin:     m.cfg.ClaudeBin,
-		ClaudeArgs:    m.cfg.ClaudeArgs,
-		Worktree:      worktree,
-		RingSize:      m.cfg.RingSize,
-		ResumeOnDeath: m.cfg.ResumeOnDeath,
-		Logger:        m.cfg.Logger.With("repo", repoID, "branch", branchID, "tab", tabID),
-		NotifyHub:     m.cfg.NotifyHub,
-		RepoID:        repoID,
-		BranchID:      branchID,
-		TabID:         tabID,
+		ClaudeBin:            m.cfg.ClaudeBin,
+		ClaudeArgs:           m.cfg.ClaudeArgs,
+		PermissionModeFn:     m.permissionModeGetter(),
+		Worktree:             worktree,
+		RingSize:             m.cfg.RingSize,
+		ResumeOnDeath:        m.cfg.ResumeOnDeath,
+		Logger:               m.cfg.Logger.With("repo", repoID, "branch", branchID, "tab", tabID),
+		NotifyHub:            m.cfg.NotifyHub,
+		RepoID:               repoID,
+		BranchID:             branchID,
+		TabID:                tabID,
 		NotifyURL:            m.cfg.NotifyURL,
 		NotifyToken:          m.cfg.NotifyToken,
 		HookBinPath:          m.cfg.HookBinPath,

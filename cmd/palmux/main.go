@@ -501,8 +501,9 @@ func run(rc resolved) error {
 			}
 			return nil
 		},
-		NotifyURLInContainer: bridgeNotifyURL(addr, basePath),
-		NotifyToken:          token,
+		NotifyURLInContainer:  bridgeNotifyURL(addr, basePath),
+		NotifyToken:           token,
+		DefaultPermissionMode: settingsStore.Get().ClaudePermissionMode(), // global setting, default "auto"
 	},
 		agentStore,
 		branchResolver{store: st},
@@ -539,12 +540,13 @@ func run(rc resolved) error {
 		hookBinPath = os.Args[0]
 	}
 	claudetuiMgr := claudetui.NewManager(claudetui.ManagerConfig{
-		ClaudeBin:     claudeBin,
-		ClaudeArgs:    claudeArgs,
-		RingSize:      1 << 20, // 1 MiB ring buffer per branch
-		ResumeOnDeath: true,    // Story 4: always resume on crash
-		Store:         tuiStore,
-		NotifyHub:     notifyHub, // S0fd64b-1: forward OSC 52 clipboard events
+		ClaudeBin:      claudeBin,
+		ClaudeArgs:     claudeArgs,
+		PermissionMode: settingsStore.Get().ClaudePermissionMode(), // global setting, default "auto"
+		RingSize:       1 << 20,                                    // 1 MiB ring buffer per branch
+		ResumeOnDeath:  true,                                       // Story 4: always resume on crash
+		Store:          tuiStore,
+		NotifyHub:      notifyHub, // S0fd64b-1: forward OSC 52 clipboard events
 		// Claude Code notification hooks injected per claude-tui subprocess.
 		NotifyURL:   localNotifyURL(addr, basePath),
 		NotifyToken: token,
@@ -631,6 +633,9 @@ func run(rc resolved) error {
 	// serves and GUI PATCH still works.
 	if sw, werr := settingsStore.WatchFile(func(updated config.Settings) {
 		slog.Info("settings.json changed on disk; reloaded")
+		// Hot-apply the claude permission mode so a GUI/file change takes effect on
+		// the next claude respawn without a server restart.
+		claudetuiMgr.SetPermissionMode(updated.ClaudePermissionMode())
 		st.Hub().Publish(store.Event{Type: store.EventSettings, Payload: updated})
 	}, slog.Default()); werr != nil {
 		slog.Warn("settings file watch disabled", "err", werr)

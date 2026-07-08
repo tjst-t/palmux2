@@ -120,6 +120,10 @@ func NewClient(ctx context.Context, opts ClientOptions, onMessage MessageHandler
 		"--verbose",
 		"--setting-sources", "project,user",
 	}
+	// Always disable Claude Remote Control for palmux-spawned sessions: they are
+	// local-only and must not be steerable remotely. Session-scoped via --settings
+	// so the user's ~/.claude and the repo's .claude are untouched.
+	args = append(args, "--settings", `{"disableRemoteControl":true}`)
 	if permission != nil {
 		// Tell the CLI which tool to ask for permission. The SDK server
 		// itself is declared via `sdkMcpServers` inside the `initialize`
