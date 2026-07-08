@@ -90,6 +90,14 @@ func NewMux(deps Deps) *http.ServeMux {
 	if deps.StaticFS != nil {
 		root.Handle("/static/", staticHandler(deps.StaticFS))
 	}
+	// Serve /sw.js with the running version injected into its cache key, so a new
+	// release changes the worker's bytes → the browser reinstalls it → the new
+	// worker claims clients → the page reloads onto the new bundle. Without this
+	// the service worker (frontend/public/sw.js) pins the app shell across updates
+	// and the FE never refreshes. Registered before the SPA catch-all.
+	if swVer := swVersion(deps.HealthDetail); swVer != "" {
+		root.Handle("GET /sw.js", swHandler(deps.FrontendFS, swVer))
+	}
 	root.Handle("/", spaHandler(deps.FrontendFS, deps.BasePath))
 	return root
 }
@@ -368,6 +376,38 @@ func staticHandler(staticFS fs.FS) http.Handler {
 			r2.URL.Path = "/"
 		}
 		fileServer.ServeHTTP(w, r2)
+	})
+}
+
+// swVersion extracts the running version string from the /health detail map so
+// it can be baked into the service worker's cache key. Empty → the sw.js handler
+// is not registered and the static (placeholder) worker is served as-is.
+func swVersion(healthDetail map[string]any) string {
+	if healthDetail == nil {
+		return ""
+	}
+	if v, ok := healthDetail["version"].(string); ok {
+		return v
+	}
+	return ""
+}
+
+// swHandler serves /sw.js with the __PALMUX_SW_VERSION__ placeholder replaced by
+// the running version, so the worker's bytes change every release (browsers
+// re-install it → claim clients → reload onto the new bundle). no-cache +
+// updateViaCache:'none' (registration side) guarantee the check hits the network.
+func swHandler(frontendFS fs.FS, version string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		data, err := fs.ReadFile(frontendFS, "sw.js")
+		if err != nil {
+			http.Error(w, "sw.js not found", http.StatusNotFound)
+			return
+		}
+		body := strings.ReplaceAll(string(data), "__PALMUX_SW_VERSION__", version)
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Service-Worker-Allowed", "/")
+		_, _ = w.Write([]byte(body))
 	})
 }
 

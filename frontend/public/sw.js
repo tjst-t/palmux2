@@ -2,12 +2,15 @@
 // instantly on subsequent loads. Anything under /api/ or /auth always goes
 // to the network — those are live state.
 //
-// VERSION must change every time we want browsers to drop the previous
-// cache. We bake the bundle's content hash from the Vite build into it via
-// the build pipeline; if the JS changes, this string changes, the browser
-// detects sw.js as different, and reinstalls.
+// VERSION must change every time we want browsers to drop the previous cache.
+// The Go server injects the running binary's version here at serve time (see
+// server.go swHandler), replacing the __PALMUX_SW_VERSION__ placeholder. So each
+// release changes sw.js's bytes → the browser detects it as new → reinstalls +
+// activates the new worker, which claims clients → the page reloads onto the new
+// bundle (see main.tsx controllerchange handler). In dev (served statically /
+// unreplaced) the literal placeholder is used, which is fine.
 
-const VERSION = 'palmux-shell-v3'
+const VERSION = 'palmux-shell-__PALMUX_SW_VERSION__'
 const APP_SHELL = ['/favicon.svg', '/manifest.webmanifest']
 
 self.addEventListener('install', (event) => {
