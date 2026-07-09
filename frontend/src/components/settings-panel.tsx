@@ -81,6 +81,24 @@ function AppTab({ onManageUserCommands }: { onManageUserCommands: () => void }) 
     (s) => s.globalSettings.palette?.userCommands ?? EMPTY_USER_COMMANDS,
   )
 
+  // Update-check affordance (bypasses the 6h poll).
+  const selfUpdate = usePalmuxStore((s) => s.selfUpdate)
+  const refreshSelfUpdate = usePalmuxStore((s) => s.refreshSelfUpdate)
+  const [checking, setChecking] = useState(false)
+  const [checkError, setCheckError] = useState<string | null>(null)
+  const onCheckUpdates = useCallback(async () => {
+    setChecking(true)
+    setCheckError(null)
+    try {
+      await refreshSelfUpdate()
+    } catch (err) {
+      setCheckError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setChecking(false)
+    }
+  }, [refreshSelfUpdate])
+  const palmuxComp = selfUpdate?.components?.find((c) => c.name === 'palmux')
+
   const [form, setForm] = useState<AppFormState>(() => deriveAppForm(globalSettings))
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -143,6 +161,36 @@ function AppTab({ onManageUserCommands }: { onManageUserCommands: () => void }) 
       <p className={styles.help}>
         全デバイス共有のグローバル設定（<code>~/.config/palmux/settings.json</code>）。保存で即時反映され、再起動は不要です。
       </p>
+
+      <div className={styles.sectionLabel}>アップデート</div>
+
+      <div className={styles.field}>
+        <div className={styles.fieldLabel}>
+          <span className={styles.fieldName}>更新を確認</span>
+          <span className={styles.fieldKey}>self-update</span>
+        </div>
+        <div className={styles.fieldControl}>
+          <button
+            type="button"
+            className={styles.segBtn}
+            onClick={onCheckUpdates}
+            disabled={checking}
+            data-testid="settings-check-updates-btn"
+          >
+            {checking ? '確認中…' : '今すぐ更新を確認'}
+          </button>
+          <div className={styles.fieldHint} data-testid="settings-update-status">
+            {palmuxComp
+              ? palmuxComp.available
+                ? `更新あり: ${palmuxComp.installed || '?'} → ${palmuxComp.latest}（右上バッジから更新）`
+                : `最新: ${palmuxComp.installed || '?'}`
+              : '未確認'}
+            {checkError && <span> · ⚠ {checkError}</span>}
+            <br />
+            自動チェックは palmux2 起動時 + 6 時間ごと。ここで即時に確認できます。
+          </div>
+        </div>
+      </div>
 
       <div className={styles.sectionLabel}>タブ / 表示</div>
 

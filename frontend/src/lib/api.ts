@@ -379,6 +379,8 @@ export interface ImageInstallStatus {
 
 export const selfUpdateApi = {
   get: (): Promise<SelfUpdateSnapshot> => api.get<SelfUpdateSnapshot>('/api/selfupdate'),
+  /** Force a fresh detection cycle now (bypasses the 6h poll) and return it. */
+  refresh: (): Promise<SelfUpdateSnapshot> => api.post<SelfUpdateSnapshot>('/api/selfupdate/refresh'),
   run: (): Promise<SelfUpdateRunResult> => api.post<SelfUpdateRunResult>('/api/selfupdate/run'),
   health: (): Promise<{ version?: string }> => api.get<{ version?: string }>('/api/health'),
   // S673a42-2: kick the appliance host update (`nix flake update palmux` +

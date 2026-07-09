@@ -374,6 +374,7 @@ interface PalmuxStoreState {
   updateFailed: boolean
   /** Fetch (or refresh) the self-update snapshot. */
   loadSelfUpdate: () => Promise<void>
+  refreshSelfUpdate: () => Promise<void>
   /** Trigger the one-click "Update all". Throws (ApiError) on 409 (Nix-unmanaged)
    *  so the caller can show manual-update guidance. */
   runSelfUpdate: () => Promise<void>
@@ -1234,6 +1235,14 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
     } catch {
       // best-effort; the WS event will refresh it later.
     }
+  },
+
+  refreshSelfUpdate: async () => {
+    // Force a server-side detection cycle NOW (bypasses the 6h poll) so the badge
+    // reflects the latest release without restarting palmux2. Throws on failure so
+    // the caller can surface it.
+    const snap = await selfUpdateApi.refresh()
+    set({ selfUpdate: snap })
   },
 
   runSelfUpdate: async () => {

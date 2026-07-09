@@ -43,6 +43,18 @@ func (h *handlers) getSelfUpdate(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, h.selfupdate.Current())
 }
 
+// postSelfUpdateRefresh runs a synchronous detection cycle NOW (bypassing the 6h
+// poll) and returns the fresh snapshot. Backs the GUI "更新チェック" button so the
+// user doesn't have to restart palmux2 to notice a new release. Refresh also
+// publishes app.updateAvailable on a change, so other tabs update live too.
+func (h *handlers) postSelfUpdateRefresh(w http.ResponseWriter, r *http.Request) {
+	if h.selfupdate == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "self-update unavailable"})
+		return
+	}
+	writeJSON(w, http.StatusOK, h.selfupdate.Refresh(r.Context()))
+}
+
 func (h *handlers) postSelfUpdateRun(w http.ResponseWriter, r *http.Request) {
 	if h.selfupdate == nil {
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "self-update unavailable"})

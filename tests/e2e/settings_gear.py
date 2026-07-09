@@ -66,6 +66,19 @@ def main() -> None:
                     print("FAIL: bypass option not present in claude permission mode control"); failed += 1
                 else:
                     print("PASS: gear opens settings + claude permission mode field (with bypass) present")
+                # Update-check button + status present, and clicking it resolves to a
+                # concrete status (最新/更新あり — not the pre-check "未確認").
+                pg.wait_for_selector("[data-testid='settings-check-updates-btn']", timeout=TO)
+                pg.click("[data-testid='settings-check-updates-btn']")
+                try:
+                    pg.wait_for_function(
+                        "!document.querySelector(\"[data-testid='settings-update-status']\")"
+                        ".textContent.includes('未確認')",
+                        timeout=TO,
+                    )
+                    print("PASS: update-check button refreshes status")
+                except Exception:
+                    print("FAIL: update-check button did not update status"); failed += 1
                 b.close()
     finally:
         if proc.poll() is None:
