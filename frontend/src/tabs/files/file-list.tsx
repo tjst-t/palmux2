@@ -4,13 +4,75 @@
 // - S033-3: multi-select (tinted bg + accent left border, no checkboxes)
 // - S033-3: touch long-press → select mode
 
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useLongPress } from '../../hooks/use-long-press'
 import styles from './file-list.module.css'
 import type { Entry } from './types'
 
 type CreateKind = 'file' | 'folder'
+
+// S4323c8-1: sort control — key + direction, persisted device-locally.
+type SortKey = 'name' | 'modTime' | 'size'
+type SortDir = 'asc' | 'desc'
+
+interface SortPref {
+  key: SortKey
+  dir: SortDir
+}
+
+const SORT_PREF_KEY = 'palmux:files:sort'
+const DEFAULT_SORT_PREF: SortPref = { key: 'name', dir: 'asc' }
+
+function readSortPref(): SortPref {
+  try {
+    const raw = window.localStorage.getItem(SORT_PREF_KEY)
+    if (!raw) return DEFAULT_SORT_PREF
+    const parsed = JSON.parse(raw) as Partial<SortPref>
+    const key: SortKey = parsed.key === 'modTime' || parsed.key === 'size' ? parsed.key : 'name'
+    const dir: SortDir = parsed.dir === 'desc' ? 'desc' : 'asc'
+    return { key, dir }
+  } catch {
+    return DEFAULT_SORT_PREF
+  }
+}
+
+function writeSortPref(pref: SortPref): void {
+  try {
+    window.localStorage.setItem(SORT_PREF_KEY, JSON.stringify(pref))
+  } catch {
+    // ignore — localStorage may be disabled in private mode
+  }
+}
+
+function compareEntries(a: Entry, b: Entry, key: SortKey, dir: SortDir): number {
+  let cmp: number
+  switch (key) {
+    case 'modTime': {
+      const at = +new Date(a.modTime)
+      const bt = +new Date(b.modTime)
+      cmp = (Number.isNaN(at) ? 0 : at) - (Number.isNaN(bt) ? 0 : bt)
+      break
+    }
+    case 'size':
+      cmp = a.size - b.size
+      break
+    default:
+      cmp = a.name.localeCompare(b.name)
+      break
+  }
+  if (cmp === 0) cmp = a.name.localeCompare(b.name)
+  return dir === 'desc' ? -cmp : cmp
+}
+
+/** Folders stay grouped above files; the chosen sort applies within each group. */
+function sortEntries(entries: Entry[], key: SortKey, dir: SortDir): Entry[] {
+  const dirs = entries.filter((e) => e.isDir)
+  const files = entries.filter((e) => !e.isDir)
+  dirs.sort((a, b) => compareEntries(a, b, key, dir))
+  files.sort((a, b) => compareEntries(a, b, key, dir))
+  return [...dirs, ...files]
+}
 
 interface Props {
   entries: Entry[]
@@ -333,6 +395,32 @@ export function FileList({
   const anchorPathRef = useRef<string | null>(null)
   const createInputRef = useRef<HTMLInputElement>(null)
 
+  // S4323c8-1: sort control — key + direction, persisted to localStorage
+  // (`palmux:` prefix, device-local like the git-view sidebar width pref)
+  // and restored on mount so a reload keeps the user's chosen order.
+  const [sortPref, setSortPref] = useState<SortPref>(() => readSortPref())
+  const setSortKey = useCallback((key: SortKey) => {
+    setSortPref((prev) => {
+      const next = { ...prev, key }
+      writeSortPref(next)
+      return next
+    })
+  }, [])
+  const toggleSortDir = useCallback(() => {
+    setSortPref((prev) => {
+      const next: SortPref = { ...prev, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+      writeSortPref(next)
+      return next
+    })
+  }, [])
+
+  // [AC-S4323c8-1-2] folders stay grouped above files; the chosen sort
+  // key/direction only reorders within each group.
+  const sortedEntries = useMemo(
+    () => sortEntries(entries, sortPref.key, sortPref.dir),
+    [entries, sortPref.key, sortPref.dir],
+  )
+
   // Auto-focus the create row input when it mounts.
   useEffect(() => {
     if (createKind && createInputRef.current) {
@@ -340,15 +428,44 @@ export function FileList({
     }
   }, [createKind])
 
-  const isEmpty = entries.length === 0 && !createKind
+  const isEmpty = sortedEntries.length === 0 && !createKind
 
   return (
     <div className={styles.container}>
+      {/* [AC-S4323c8-1-1] sort control — key (name/modTime/size) + direction */}
+      <div className={styles.sortBar} data-testid="files-sort-bar">
+        <label className={styles.sortLabel} htmlFor="files-sort-key-select">
+          Sort
+        </label>
+        <select
+          id="files-sort-key-select"
+          className={styles.sortSelect}
+          value={sortPref.key}
+          onChange={(e) => setSortKey(e.target.value as SortKey)}
+          data-testid="files-sort-key"
+        >
+          <option value="name">Name</option>
+          <option value="modTime">Modified</option>
+          <option value="size">Size</option>
+        </select>
+        <button
+          type="button"
+          className={styles.sortDirBtn}
+          onClick={toggleSortDir}
+          aria-label={sortPref.dir === 'asc' ? 'Sort ascending' : 'Sort descending'}
+          title={sortPref.dir === 'asc' ? 'Ascending' : 'Descending'}
+          data-testid="files-sort-dir"
+          data-dir={sortPref.dir}
+        >
+          {sortPref.dir === 'asc' ? '↑' : '↓'}
+        </button>
+      </div>
+
       {isEmpty && <p className={styles.empty}>(empty directory)</p>}
 
       {!isEmpty && (
         <ul className={styles.list} data-testid="files-list">
-          {entries.map((e) => (
+          {sortedEntries.map((e) => (
             <FileRow
               key={e.path}
               entry={e}
@@ -359,7 +476,7 @@ export function FileList({
               dirty={!e.isDir && dirtySet.has(e.path)}
               touchSelectMode={touchSelectMode}
               anchorPathRef={anchorPathRef}
-              allEntries={entries}
+              allEntries={sortedEntries}
               selectedPaths={selectedPaths}
               onPick={onPick}
               onSelectionChange={onSelectionChange}
