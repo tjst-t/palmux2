@@ -37,6 +37,18 @@
   align-items: center;
 }
 
+/* S4323c8-4: VS Code-style flat tabs, no border-radius. Inactive tabs
+   are transparent (they show the darker `.bar` surface strip behind
+   them = "sunken"). The active tab takes the elevated surface color so
+   it reads as continuous with the panel content below it: the shared
+   `border-bottom: 2px solid transparent` (kept transparent even when
+   active) combined with the *opaque* active background — which paints
+   border-box-wide, i.e. under its own transparent border too — masks
+   the `.bar`'s 1px separator line for exactly the width of the active
+   tab, so there is no visible seam between it and the panel below.
+   The accent indicator uses `border-top` (not `box-shadow`, which is
+   already used by the S020 drag-over indicators below and would
+   otherwise be clobbered when the active tab is also a drop target). */
 .tab {
   display: inline-flex;
   align-items: center;
@@ -45,7 +57,10 @@
   padding: 0 var(--space-3);
   font-size: 12px;
   color: var(--color-fg-muted);
+  background-color: transparent;
+  border-top: 2px solid transparent;
   border-bottom: 2px solid transparent;
+  border-right: 1px solid var(--color-border);
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -56,7 +71,12 @@
 
 .tabActive {
   color: var(--color-fg);
-  border-bottom-color: var(--color-accent);
+  background-color: var(--color-elevated);
+  border-top-color: var(--color-accent);
+  border-right-color: transparent;
+}
+.tabActive:hover {
+  background-color: var(--color-elevated);
 }
 
 .tabIcon {
