@@ -2,14 +2,14 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 69,
-    "sprints_total": 70,
-    "done": 69,
-    "total": 70,
+    "sprints_done": 70,
+    "sprints_total": 71,
+    "done": 70,
+    "total": 71,
     "remaining": 1,
     "in_progress": 0,
-    "percent": 98,
-    "percentage": 98,
+    "percent": 99,
+    "percentage": 99,
     "current_sprint": "Sb14caa"
   },
   "execution_order": [
@@ -82,7 +82,8 @@
     "Sd44947",
     "S673a42",
     "S41bdf2",
-    "Se173ef"
+    "Se173ef",
+    "S4323c8"
   ],
   "sprints": {
     "S001": {
@@ -11548,6 +11549,155 @@
         }
       },
       "confirmed_ia": "Option A (5 タブ): Overview[Dependencies + Backlog を内包] / Sprint Detail / Review(NEW) / Milestones(NEW) / Decisions。Refine 削除。プロトタイプ prototype/se173ef-*.html が視覚的 source of truth。"
+    },
+    "S4323c8": {
+      "title": "UI 磨き込み (Files 並び替え / ブランチ作成導線 / Files 履歴 / タブUI)",
+      "goal": "既存 UI の細かい使い勝手を4点まとめて改善する（Files 並び替え・ブランチピッカーからの新規作成・Files リンク遷移の履歴・タブ意匠の一般化）。",
+      "status": "done",
+      "milestone": false,
+      "detail_level": "detailed",
+      "stories": {
+        "S4323c8-1": {
+          "id": "S4323c8-1",
+          "title": "Files 一覧の並び替え（名前/更新/作成 × 昇順降順）",
+          "user_story": "ユーザとして、Files タブのファイル一覧を名前順・更新日時順・作成日時順で並び替えたい。なぜなら、目的のファイルを素早く見つけたいから。",
+          "status": "done",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S4323c8-1-1",
+              "description": "Files 一覧に並び替えコントロールを表示する（キー: 名前 / 更新日時 / サイズ、方向: 昇順 / 降順）。作成日時は Linux が birth time を portable に返さないため対象外（更新日時=mtime とサイズで代替）。",
+              "status": "done"
+            },
+            {
+              "id": "AC-S4323c8-1-2",
+              "description": "選択したキー・方向で一覧が即座に並ぶ。フォルダをファイルより上に置く従来のフォルダ優先は維持する。",
+              "status": "done"
+            },
+            {
+              "id": "AC-S4323c8-1-3",
+              "description": "選択（キー・方向）は localStorage に保持され、再訪・再読込後も復元される。",
+              "status": "done"
+            }
+          ],
+          "tasks": {
+            "S4323c8-1-1": {
+              "id": "S4323c8-1-1",
+              "title": "Files API/型が更新日時(mtime)+サイズを一覧に含むか確認（既に modTime/size あり — FE 型に載せる）",
+              "status": "done"
+            },
+            "S4323c8-1-2": {
+              "id": "S4323c8-1-2",
+              "title": "file-list に並び替えコントロール + ソート適用（フォルダ優先維持）",
+              "status": "done"
+            },
+            "S4323c8-1-3": {
+              "id": "S4323c8-1-3",
+              "title": "選択を localStorage に永続化・復元",
+              "status": "done"
+            }
+          }
+        },
+        "S4323c8-2": {
+          "id": "S4323c8-2",
+          "title": "ブランチピッカーの絞り込みから新規ブランチ作成",
+          "user_story": "ユーザとして、リポジトリの＋（ブランチピッカー）の絞り込み欄に新しいブランチ名を入力し、ボタンで新規ブランチ(worktree)を作って開きたい。なぜなら、既存を開くのと同じ導線で新規作成もしたいから。",
+          "status": "done",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S4323c8-2-1",
+              "description": "絞り込み入力が既存ブランチに一致しないとき『\"<name>\" を作成』エントリ/ボタンを表示する。",
+              "status": "done"
+            },
+            {
+              "id": "AC-S4323c8-2-2",
+              "description": "押下で gwq add により新 worktree が作成され、そのワークスペースが開く（URL 遷移する）。",
+              "status": "done"
+            },
+            {
+              "id": "AC-S4323c8-2-3",
+              "description": "無効名/既存衝突はインラインエラー表示。既存名に一致する場合は従来どおり開くだけ（新規作成しない）。",
+              "status": "done"
+            }
+          ],
+          "tasks": {
+            "S4323c8-2-1": {
+              "id": "S4323c8-2-1",
+              "title": "新規ブランチ作成エンドポイント（gwq add 経由・既存が無ければ追加、命名検証）",
+              "status": "done"
+            },
+            "S4323c8-2-2": {
+              "id": "S4323c8-2-2",
+              "title": "branch-picker: フィルタ非一致時の作成アフォーダンス + 作成→open 導線 + エラー表示",
+              "status": "done"
+            }
+          }
+        },
+        "S4323c8-3": {
+          "id": "S4323c8-3",
+          "title": "Files のリンク遷移を history に積む（戻る/進む修正）",
+          "user_story": "ユーザとして、Files で開いたファイルのリンクから別ファイルへ飛んだとき、ブラウザの戻る/進むで前後のファイルを行き来したい。なぜなら、リンク遷移が pushState されず履歴が壊れているから。",
+          "status": "done",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S4323c8-3-1",
+              "description": "Files 内のリンク遷移で history.pushState され、URL が /…/files/<path> に更新される。",
+              "status": "done"
+            },
+            {
+              "id": "AC-S4323c8-3-2",
+              "description": "ブラウザの戻る/進むで前後のファイルへ正しく移動できる。",
+              "status": "done"
+            },
+            {
+              "id": "AC-S4323c8-3-3",
+              "description": "一覧からの直接クリック遷移の従来 pushState 挙動は回帰しない。",
+              "status": "done"
+            }
+          ],
+          "tasks": {
+            "S4323c8-3-1": {
+              "id": "S4323c8-3-1",
+              "title": "Files 内リンク遷移を navigate/pushState 経由に統一（popstate 復元含む）",
+              "status": "done"
+            }
+          }
+        },
+        "S4323c8-4": {
+          "id": "S4323c8-4",
+          "title": "タブバーを一般的なタブUIに（VS Code 風）",
+          "user_story": "ユーザとして、タブバーをより一般的なタブらしい見た目にしたい。なぜなら、現状タブと認識しづらいから。",
+          "status": "done",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S4323c8-4-1",
+              "description": "アクティブタブが本文と地続きに見える一般的なタブ意匠（VS Code 風・角丸なし・境界/形状でタブと分かる）にする。",
+              "status": "done"
+            },
+            {
+              "id": "AC-S4323c8-4-2",
+              "description": "アクティブ/非アクティブが明確に区別できる。",
+              "status": "done"
+            },
+            {
+              "id": "AC-S4323c8-4-3",
+              "description": "既存機能（＋追加・リネーム・DnD 並べ替え・閉じる・通知/AGENT バッジ・保護タブ）は全て維持（回帰なし）。",
+              "status": "done"
+            }
+          ],
+          "tasks": {
+            "S4323c8-4-1": {
+              "id": "S4323c8-4-1",
+              "title": "tab-bar.module.css の意匠を VS Code 風に刷新（アクティブ地続き）",
+              "status": "done"
+            },
+            "S4323c8-4-2": {
+              "id": "S4323c8-4-2",
+              "title": "既存タブ機能の回帰確認（＋/rename/DnD/close/badge/protected）",
+              "status": "done"
+            }
+          }
+        }
+      }
     }
   },
   "dependencies": {
@@ -12143,6 +12293,12 @@
       "reason": "設計 doc §8.1",
       "status": "pending",
       "added_in": "Sd44947-plan"
+    },
+    {
+      "id": "BL-files-split-nav",
+      "title": "Split ビュー右パネル内の Files リンククリックが右パネルではなくメインルートを navigate する（MarkdownView が panel 非対応）",
+      "source": "S4323c8-3 調査で発見（通常ビューは正常、split のみ）",
+      "detail": "frontend/src/tabs/files/viewers/markdown-view.tsx が top-level useNavigate を使うため ?right= パネルに追従しない。panel context を Files→FilePreview→MarkdownView に通し、右パネル時は ?right= 更新へ分岐する要あり。ユーザ確認待ち。"
     }
   ]
 }
