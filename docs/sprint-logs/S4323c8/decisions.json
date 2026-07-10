@@ -1,0 +1,30 @@
+{
+  "sprint": "S4323c8",
+  "mode": "sprint auto (autopilot, scoped to S4323c8)",
+  "decisions": [
+    {
+      "id": "S4323c8-D1",
+      "topic": "Files 並び替えのキー集合",
+      "decision": "名前 / 更新日時(mtime) / サイズ の3キー。作成日時(ctime/birth)は対象外。",
+      "rationale": "Files API は ModTime+Size を既に返すが作成/birth time は返さない。Linux は os.FileInfo で birth time を portable に公開せず（statx は FS 依存で不確実）。DESIGN_PRINCIPLES の『簡潔さ/最小依存』に沿い、確実に取れる mtime+size+name で実装。ユーザ要望の『作成順とか』は例示表現(とか)のため許容。"
+    },
+    {
+      "id": "S4323c8-D2",
+      "topic": "タブ意匠の方向性",
+      "decision": "VS Code 風（アクティブタブが本文と地続き・角丸なし・下境界でパネルに連続）。",
+      "rationale": "ユーザ承認済みの既定。一般的で認識しやすく、既存の追加/rename/DnD/close/バッジ機能を壊さず CSS 主体で実現可能。"
+    },
+    {
+      "id": "S4323c8-D3",
+      "topic": "ブランチ作成の実装経路",
+      "decision": "新規エンドポイントを足さず既存 POST /branches/open（未存在なら gwq add -b で作成→open）を再利用。",
+      "rationale": "重複実装回避（DESIGN_PRINCIPLES 最小実装）。sub-agent が backend の create-if-missing を発見。"
+    },
+    {
+      "id": "S4323c8-D4",
+      "topic": "S4323c8-3 は現状バグ再現せず",
+      "decision": "通常 Files プレビューのリンク遷移は S027 実装で既に pushState 済み。回帰テストのみ追加、プロダクト変更なし。Split 右パネル固有の別バグを backlog(BL-files-split-nav) 化しユーザ確認へ。",
+      "rationale": "実機 Playwright で戻る/進む含め検証済み。split 対応は AC 範囲外かつ非自明のため別 story 化。"
+    }
+  ]
+}

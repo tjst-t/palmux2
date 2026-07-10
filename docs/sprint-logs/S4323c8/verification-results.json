@@ -1,0 +1,12 @@
+{
+  "sprint": "S4323c8",
+  "verified_at": "2026-07-10",
+  "build": "make build OK; tsc --noEmit clean; eslint clean",
+  "e2e": [
+    {"test": "tests/e2e/s4323c8_files_sort.py", "acs": ["AC-S4323c8-1-1","AC-S4323c8-1-2","AC-S4323c8-1-3"], "status": "pass"},
+    {"test": "tests/e2e/s4323c8_branch_create.py", "acs": ["AC-S4323c8-2-1","AC-S4323c8-2-2","AC-S4323c8-2-3"], "status": "pass"},
+    {"test": "tests/e2e/s4323c8_files_history.py", "acs": ["AC-S4323c8-3-1","AC-S4323c8-3-2","AC-S4323c8-3-3"], "status": "pass"},
+    {"test": "tests/e2e/s4323c8_tab_ui.py", "acs": ["AC-S4323c8-4-1","AC-S4323c8-4-2","AC-S4323c8-4-3"], "status": "pass"}
+  ],
+  "done_judgment": {"overall": "done", "notes": "全 Story の AC を実機 Playwright E2E で検証・PASS。S4323c8-3 は現状バグ再現せず（回帰テストのみ）、split 右パネル固有の別事象を backlog 化。禁止アクション（test skip/assert 弱化/error 握り潰し）なし。"}
+}
