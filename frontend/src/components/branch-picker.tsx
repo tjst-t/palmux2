@@ -26,7 +26,6 @@ export function BranchPicker({ open, repoId, onClose }: Props) {
   const [filter, setFilter] = useState('')
   const [pending, setPending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [draftName, setDraftName] = useState('')
 
   // S13b16a-4: Track previous (open, repoId) tuple so we can reset
   // `error` inline when the modal is opened (or re-targeted to a
@@ -61,6 +60,17 @@ export function BranchPicker({ open, repoId, onClose }: Props) {
     return out
   }, [filtered])
 
+  // [AC-S4323c8-2-1] The filter box doubles as the "new branch name" field:
+  // if the trimmed filter doesn't exactly match any known branch, offer to
+  // create it. Matched against `entries` (not `filtered`) so an exact match
+  // always suppresses the affordance regardless of substring filtering.
+  const trimmedFilter = filter.trim()
+  const hasExactMatch = useMemo(
+    () => entries.some((e) => e.name === trimmedFilter),
+    [entries, trimmedFilter],
+  )
+  const showCreate = trimmedFilter.length > 0 && !hasExactMatch
+
   const select = async (name: string) => {
     setPending(name)
     setError(null)
@@ -75,9 +85,13 @@ export function BranchPicker({ open, repoId, onClose }: Props) {
     }
   }
 
+  // [AC-S4323c8-2-2] Creation goes through the same `openBranch` path as
+  // opening an existing entry — the backend (`Store.OpenBranch` →
+  // `ensureWorktree`) already creates the worktree via `gwq add -b <name>`
+  // when no worktree/branch with that name exists yet, then opens it.
   const createNew = async () => {
-    if (!draftName.trim()) return
-    await select(draftName.trim())
+    if (!showCreate || pending !== null) return
+    await select(trimmedFilter)
   }
 
   return (
@@ -85,11 +99,35 @@ export function BranchPicker({ open, repoId, onClose }: Props) {
       <input
         autoFocus
         className={styles.input}
-        placeholder="Filter branches…"
+        placeholder="Filter or type a new branch name…"
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
+        onKeyDown={(e) => {
+          // [AC-S4323c8-2-1/2] Enter creates only when the typed name has no
+          // exact match — otherwise Enter does nothing here (there's no
+          // single "top" entry to disambiguate to; the user clicks a row).
+          if (e.key === 'Enter' && showCreate) void createNew()
+        }}
       />
-      {error && <p className={styles.error}>{error}</p>}
+      {error && (
+        <p className={styles.error} data-testid="branch-picker-error">
+          {error}
+        </p>
+      )}
+      {showCreate && (
+        <button
+          type="button"
+          className={styles.createRow}
+          disabled={pending !== null}
+          onClick={() => void createNew()}
+          data-testid="branch-picker-create-btn"
+        >
+          <span className={styles.createIcon}>＋</span>
+          <span>
+            &ldquo;{trimmedFilter}&rdquo; を作成
+          </span>
+        </button>
+      )}
       {grouped.open.length > 0 && (
         <Section title="Open" entries={grouped.open} onPick={select} pending={pending} />
       )}
@@ -99,20 +137,6 @@ export function BranchPicker({ open, repoId, onClose }: Props) {
       {grouped.remote.length > 0 && (
         <Section title="Remote" entries={grouped.remote} onPick={select} pending={pending} />
       )}
-      <div className={styles.newBranch}>
-        <input
-          className={styles.input}
-          placeholder="Create new branch…"
-          value={draftName}
-          onChange={(e) => setDraftName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') void createNew()
-          }}
-        />
-        <button className={styles.btn} disabled={!draftName.trim() || pending !== null} onClick={createNew}>
-          Create
-        </button>
-      </div>
     </Modal>
   )
 }

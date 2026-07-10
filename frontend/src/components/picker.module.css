@@ -85,28 +85,28 @@
   font-size: 12px;
 }
 
-.newBranch {
-  margin-top: var(--space-3);
+.createRow {
+  width: 100%;
   display: flex;
+  align-items: center;
   gap: var(--space-2);
-}
-
-.newBranch .input {
-  flex: 1;
-}
-
-.btn {
+  margin: var(--space-2) 0;
   padding: var(--space-2) var(--space-3);
+  text-align: left;
   font-size: 13px;
-  font-weight: 500;
-  color: var(--color-bg);
-  background-color: var(--color-accent);
+  color: var(--color-accent);
+  background-color: var(--color-bg);
+  border: 1px dashed var(--color-accent);
   border-radius: var(--radius-md);
 }
-.btn:hover {
-  background-color: var(--color-accent-light);
+.createRow:hover {
+  background-color: var(--color-elevated);
 }
-.btn:disabled {
-  background-color: var(--color-fg-faint);
-  cursor: not-allowed;
+.createRow:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+.createIcon {
+  font-weight: 600;
 }
