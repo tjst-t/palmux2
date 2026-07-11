@@ -1,0 +1,45 @@
+{
+  "id": "ADR-0001",
+  "title": "agent 生存機構は per-tab detached ptyhost プロセス",
+  "status": "accepted",
+  "date": "2026-07-11",
+  "context": "claude (tui / agent 両モード) は palmux2 の直接の子プロセスとして実装されている (claudetui.Daemon の exec.CommandContext + creack/pty、claudeagent.Client の stdio パイプ)。そのため palmux2 の再起動 — self-update、systemctl restart、make serve の入れ直し — の度に SIGTERM で確実に死に、kill -9 で親が落ちた場合も PTY master クローズの SIGHUP で死ぬ。sessions.json + `claude --resume` で会話履歴は復元されるが、実行中のターン・走っている Bash ツール・長時間の autonomous 作業は殺される。Bash タブは tmux の中にいるため palmux2 と独立に生き残っており、claude タブだけが非対称。Track B (S1d2278〜) で claude-tui が tmux を出たのは emulator による綺麗な replay・multi-client role・hook 注入のためで、その資産は維持したい。",
+  "alternatives": [
+    {
+      "name": "tmux 回帰 (claude を tmux window に戻す)",
+      "tradeoff": "最小工数だが agent モードの stdio パイプ (stream-json) を tmux に入れられず要件の半分しか満たせない。Track B が捨てた tmux の癖 (最小クライアント resize、repaint ノイズ、sync ループとの絡み) も再導入になる"
+    },
+    {
+      "name": "単一 agentd デーモン (全タブを 1 プロセスで収容)",
+      "tradeoff": "socket が 1 本で管理は楽だが、agentd 自身のバイナリ更新で全 agent が死ぬ本末転倒。単一障害点にもなる"
+    },
+    {
+      "name": "incus コンテナ内 detach (dtach 等)",
+      "tradeoff": "コンテナは既に palmux2 と独立だが host runtime が対象外。ptyhost 方式なら incus は `incus exec` wrapper を ptyhost が持つだけで自然にカバーされる"
+    },
+    {
+      "name": "現状維持 (--resume のみ)",
+      "tradeoff": "実行中ターンの損失という問題そのものが残る"
+    }
+  ],
+  "decision": "タブごとに detach された `palmux ptyhost` サブコマンドプロセスが claude プロセスを所有し、palmux2 とは unix socket で attach/再接続する (palmux 単一バイナリのサブコマンドとして実装)。",
+  "consequences": [
+    "+ palmux2 の再起動・self-update・クラッシュで agent (実行中ターン含む) が死なない",
+    "+ tui (PTY) と agent (stdio pipe) の両モードを同一機構で救える",
+    "+ 単一バイナリ配布は変わらない (サブコマンド追加のみ)",
+    "- プロセス数がタブ数ぶん増える",
+    "- orphan GC と起動時発見 (socket dir 走査 → 再接続) の sync 機構が必要 (tmux zombie kill と同型)",
+    "ホスト再起動では ptyhost も死ぬ (tmux と同等)。その場合は従来通り sessions.json からの --resume 復元",
+    "INSTANCE=dev 並走は --tmux-prefix と同じ要領で socket dir を instance 名で分離する"
+  ],
+  "reversibility_cost": "medium",
+  "affects": [
+    "internal/tab/claudetui",
+    "internal/tab/claudeagent",
+    "cmd/palmux (ptyhost サブコマンド)",
+    "internal/store (sync ループ / orphan GC)"
+  ],
+  "supersedes": null,
+  "superseded_by": null,
+  "notes": "設計詳細は docs/no-halt-agent-design.md。palmux2 が systemd user unit として動く場合の cgroup 道連れ対策は ADR-0003。"
+}

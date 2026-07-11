@@ -1,0 +1,34 @@
+{
+  "id": "ADR-0004",
+  "title": "agent (stream-json) は pipe モード + offset-ack replay、tui 先行の 2 段構え",
+  "status": "accepted",
+  "date": "2026-07-11",
+  "context": "claude-agent タブ (stream-json) は stdout のイベント列が transcript・permstate・MCP 権限サーバ (control_request/mcp_message) の source of truth であり、1 行の取りこぼしが状態破損 (欠けた transcript、宙に浮いた permission 要求) になる。palmux2 再起動を跨いで agent を生かすには、単に stdio を保持するだけでなく『palmux2 が読めなかった間のイベントを漏れなく再配送する』機構が必要。一方 tui タブは emulator replay で復元でき要件が軽い。日常の再起動ペイン (self-update、make serve 入れ直し) の大半は tui タブで発生している。",
+  "alternatives": [
+    {
+      "name": "agent モードは --resume のまま (対象外)",
+      "tradeoff": "実装最小だが『Agent が死ぬのをやめたい』という要件の半分しか満たさない"
+    },
+    {
+      "name": "tui + agent 一括実装",
+      "tradeoff": "検証が重くリリースが遠い。基盤 (ptyhost/GC/protocol) の設計不備が agent 側の手戻りまで巻き込む"
+    }
+  ],
+  "decision": "ptyhost を pipe モード (PTY なし、stdin/stdout/stderr パイプ — S4d8b1c の ExecCommander と同じ binary-clean 性) で流用し、stdout を絶対 offset 付きの行 ring に貯める。palmux2 は処理済み offset を ack し、再接続時は last-ack 以降を replay して transcript/permstate/MCP 状態を再構成する。実装は tui 先行 (Sprint 1: ptyhost 基盤 + tui 生存) → agent 追従 (Sprint 2: pipe モード + offset replay) の 2 段とする。",
+  "consequences": [
+    "+ palmux2 停止中に発生した permission 要求 (control_request) も replay で UI に届く",
+    "+ stdin は palmux2 だけが書くため、palmux2 停止中の入力ロスは構造上存在しない",
+    "+ Sprint 1 完了時点で日常の再起動ペインの大半が解消される",
+    "- MCP control_request への応答を claude CLI がどれだけ待つか (タイムアウトの有無) は未検証。palmux2 の再起動時間 (数秒〜十数秒) を跨いだ permission 応答が通ることを Sprint 2 冒頭の spike で最初に検証する",
+    "- 行 ring の容量を超える長時間切断では replay が欠落する。ring 溢れを検出したら『ロスレス復元不能』として明示的に新規セッション扱いにする (黙って欠けた transcript を出さない)",
+    "ack 済み offset は palmux2 側で永続化し (sessions.json 相当)、palmux2 のクラッシュでも二重処理・取りこぼしがないようにする"
+  ],
+  "reversibility_cost": "medium",
+  "affects": [
+    "internal/tab/claudeagent",
+    "cmd/palmux (ptyhost pipe モード)"
+  ],
+  "supersedes": null,
+  "superseded_by": null,
+  "notes": "revisit 条件: spike で control_request の応答期限が再起動時間より短いことが判明した場合、replay 設計 (pending 要求の再送を claude 側に頼む / 要求を ptyhost が自動 deny せず保留する方式) を見直す。"
+}

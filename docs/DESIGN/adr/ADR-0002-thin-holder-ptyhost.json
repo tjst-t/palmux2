@@ -1,0 +1,31 @@
+{
+  "id": "ADR-0002",
+  "title": "ptyhost は thin holder — orchestration は palmux2 に残す",
+  "status": "accepted",
+  "date": "2026-07-11",
+  "context": "claude セッションは数週間生きるため、ptyhost はその間 self-update を何度も跨いで古いバイナリのまま走り続ける。ptyhost に載せたロジックは『直しても動いている agent には当たらない』状態が常態化する。今の claudetui.Daemon は Ring + Emulator + roleCoordinator + respawnLoop + hook 生成 + incus gating を 1 構造体に持っており、どこまでを ptyhost に引っ越すかが B 案の最重要分岐。version skew の露出面を最小にすることが、長期運用での品質を決める。",
+  "alternatives": [
+    {
+      "name": "fat host (Daemon 丸ごと ptyhost へ)",
+      "tradeoff": "再接続時の画面復元は emulator snapshot で正確だが、emulator/respawn のバグ修正が古い ptyhost に永遠に当たらず、socket protocol も太って互換性維持が重くなる"
+    }
+  ],
+  "decision": "ptyhost は『1 つの claude プロセスインスタンス + PTY または stdio pipe + 絶対 offset 付き raw ring + unix socket』のみを持ち、respawn・--resume・hook 設定生成・引数組み立て・incus regenerate ゲート・Emulator・roleCoordinator・session 検知はすべて palmux2 側に残す。respawn は『新しい ptyhost を spawn する』ことで行う (ptyhost は 1 プロセスインスタンスと運命を共にする使い捨て)。",
+  "consequences": [
+    "+ バグ修正・機能追加が palmux2 の更新で即座に全タブへ反映される",
+    "+ socket protocol を最小で凍結でき、version skew の互換問題が構造的に小さい",
+    "+ claude 終了 = ptyhost 終了なので lifecycle が単純 (exit status を socket/ファイルに残して終了)",
+    "- palmux2 停止中に claude が死んでも respawn されない。次回 palmux2 起動時に sessions.json から --resume で新規 spawn (現状と同等の挙動なので退行なし)",
+    "- palmux2 再起動後の再接続では Emulator をゼロから再構築する。ring は途中からのバイト列なので、replay 投入 + SIGWINCH ジグル (rows±1→戻す) で claude に全再描画させて収束させる。ここは受入テストで固める (docs/no-halt-agent-design.md §5)",
+    "forbidden: ptyhost に機能を足す前に『palmux2 側で実装できないか』を必ず検討する。protocol の肥大はこの ADR への違反シグナル"
+  ],
+  "reversibility_cost": "medium",
+  "affects": [
+    "cmd/palmux (ptyhost サブコマンド)",
+    "internal/tab/claudetui",
+    "internal/tab/claudeagent"
+  ],
+  "supersedes": null,
+  "superseded_by": null,
+  "notes": "thin→fat は後から機能を ptyhost 側へ段階移行できる (中コスト)。fat→thin は protocol 互換を切るため高コスト。SIGWINCH ジグルで画面が収束しない TUI 状態が受入テストで見つかった場合に revisit。"
+}

@@ -1,0 +1,37 @@
+{
+  "id": "ADR-0003",
+  "title": "cgroup 脱出は systemd-run transient scope + setsid fallback",
+  "status": "accepted",
+  "date": "2026-07-11",
+  "context": "本番の palmux2 は systemd user unit (palmux2.service — Ubuntu/home-manager と NixOS アプライアンスの両方) として動く。systemd は unit の stop/restart 時に control group 内の全プロセスを kill するため、palmux2 の子として fork/setsid しただけの ptyhost は `systemctl --user restart palmux2` で道連れになる。これは Sa8e7d0 (self-update ヘルパーが home-manager switch の瞬間に cgroup kill で道連れ) で実際に踏んだ罠と同型で、ptyhost を palmux2 とは別の cgroup に置くことが生存の必要条件。一方 dev 環境 (`make serve` / `make dev`) は systemd unit ではないので cgroup kill 自体が来ない。",
+  "alternatives": [
+    {
+      "name": "palmux2.service に KillMode=process を設定",
+      "tradeoff": "unit 設定への依存で fragile。NixOS module と home-manager module の両方に変更が要り、restart 時に ptyhost 以外の子 (更新ヘルパー等) まで残る副作用がある"
+    },
+    {
+      "name": "setsid + double-fork のみ",
+      "tradeoff": "systemd 配下ではセッション分離しても cgroup は変わらず kill される。非 systemd 環境でしか有効でない"
+    },
+    {
+      "name": "ptyhost を恒久 systemd user unit (テンプレート unit) として定義",
+      "tradeoff": "unit ファイルの配布・NixOS/hm module 変更が要る。transient scope なら palmux2 の実行時 API 呼び出しだけで完結する"
+    }
+  ],
+  "decision": "ptyhost の起動は `systemd-run --user --scope --collect --unit palmux-agent-<instancePrefix>-<hash>` 相当の transient scope を試み、失敗時 (非 systemd 環境 / D-Bus user session 不在) は setsid + double-fork detach に fallback するランタイム検出とする。",
+  "consequences": [
+    "+ NixOS module / home-manager module は無改造 (palmux2 プロセス内で完結)",
+    "+ `make serve` の dev rig でも fallback 経路で動く",
+    "+ --collect により異常終了した scope が failed 状態で堆積しない",
+    "- D-Bus user session が前提 (Ubuntu/hm・NixOS アプライアンス両本番環境に存在することは確認済み)",
+    "scope 名に instancePrefix を含めるため INSTANCE=dev 並走と名前衝突しない",
+    "採用可否はテストで固定する: 実 systemd 環境で `systemctl --user restart palmux2` を跨いだ ptyhost 生存を受入基準にする (Sa8e7d0 の SURVIVAL_PASS と同型)"
+  ],
+  "reversibility_cost": "low",
+  "affects": [
+    "cmd/palmux (ptyhost spawn 経路)"
+  ],
+  "supersedes": null,
+  "superseded_by": null,
+  "notes": "systemd-run が使えるかの検出は『試して失敗したら fallback』の実行時判定とし、環境フラグでの静的分岐はしない。"
+}
