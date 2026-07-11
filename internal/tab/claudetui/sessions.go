@@ -37,6 +37,22 @@ func TranscriptDir(worktree string) (string, error) {
 	return filepath.Join(home, ".claude", "projects", slug), nil
 }
 
+// transcriptExists reports whether the .jsonl transcript for sessionID still
+// exists under the worktree's transcript dir. Used to gate first-spawn --resume
+// so we never `claude --resume <gone-id>`. Any resolution error → false (treat as
+// absent; the caller falls back to a fresh session).
+func transcriptExists(worktree, sessionID string) bool {
+	if sessionID == "" {
+		return false
+	}
+	dir, err := TranscriptDir(worktree)
+	if err != nil {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(dir, sessionID+".jsonl"))
+	return err == nil && !info.IsDir()
+}
+
 // looksLikeSessionID guards against random non-uuid files in the projects dir.
 // Claude Code session IDs are RFC4122 UUIDs.
 func looksLikeSessionID(s string) bool {
