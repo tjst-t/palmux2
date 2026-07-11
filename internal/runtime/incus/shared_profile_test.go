@@ -137,6 +137,52 @@ func TestSharedProfile_SharedDirsIncluded(t *testing.T) {
 	}
 }
 
+// SetAttachmentDir makes declaredDevices include the attachment upload root as a
+// same-path bind-mount, so Ctrl+V-pasted images (saved on the host) are readable
+// by in-container Claude at the exact absolute path the composer injects. The root
+// lives OUTSIDE $HOME (default /tmp/palmux-uploads), so this also guards that it
+// is exempt from the outside-$HOME symlink-skip (regression: without the exemption
+// declaredDevices would drop it).
+func TestSharedProfile_AttachmentDirIncluded(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	// A dir outside HOME, mirroring the /tmp/palmux-uploads default.
+	attach := filepath.Join(t.TempDir(), "palmux-uploads")
+	if err := os.MkdirAll(attach, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewSharedProfileManager(newFakeRunner().asRunner(), nil, nil)
+	m.SetAttachmentDir(attach + "/") // trailing slash must be trimmed
+	found := false
+	for _, d := range m.declaredDevices() {
+		if d.name == attachmentDevice {
+			found = true
+			if d.source != attach || d.path != attach {
+				t.Errorf("attachment device source/path = %s/%s, want %s (same path, no trailing slash)", d.source, d.path, attach)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected attachment device %q (outside-$HOME dir must survive the symlink-skip)", attachmentDevice)
+	}
+
+	// Absent root is skipped (not an error); empty disables the mount entirely.
+	m2 := NewSharedProfileManager(newFakeRunner().asRunner(), nil, nil)
+	m2.SetAttachmentDir(filepath.Join(t.TempDir(), "does-not-exist"))
+	for _, d := range m2.declaredDevices() {
+		if d.name == attachmentDevice {
+			t.Errorf("absent attachment root should be skipped, got %v", d)
+		}
+	}
+	m3 := NewSharedProfileManager(newFakeRunner().asRunner(), nil, nil)
+	for _, d := range m3.declaredDevices() {
+		if d.name == attachmentDevice {
+			t.Errorf("empty attachment root should add no device, got %v", d)
+		}
+	}
+}
+
 // parseProfileDevices extracts name/source/path triples and ignores non-disk
 // keys and the used_by block.
 func TestParseProfileDevices(t *testing.T) {
