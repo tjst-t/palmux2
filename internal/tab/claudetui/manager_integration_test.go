@@ -3,6 +3,7 @@ package claudetui
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -172,6 +173,143 @@ func TestSessionPersistenceAcrossDaemonRestart(t *testing.T) {
 			return
 		}
 		time.Sleep(30 * time.Millisecond)
+	}
+}
+
+// TestFirstSpawnResumesPersistedSession verifies that when a session ID is
+// persisted AND its transcript still exists on disk, the FIRST spawn (no crash
+// needed) resumes it — so a palmux restart re-attaches to the prior conversation
+// instead of starting blank. Confirmed by the ring containing "resume: <id>"
+// without ever triggering a death/respawn.
+func TestFirstSpawnResumesPersistedSession(t *testing.T) {
+	bin := fakeBin(t)
+	ctx := context.Background()
+	configDir := t.TempDir()
+	worktree := t.TempDir()
+
+	const (
+		repoID    = "resume-repo"
+		branchID  = "resume-branch"
+		tabID     = "claude:claude"
+		sessionID = "aaaabbbb-cccc-dddd-eeee-ffff00001111"
+	)
+
+	// Pre-create the transcript so transcriptExists() gates the resume true.
+	transcriptDir, err := TranscriptDir(worktree)
+	if err != nil {
+		t.Fatalf("TranscriptDir: %v", err)
+	}
+	if err := os.MkdirAll(transcriptDir, 0o755); err != nil {
+		t.Fatalf("mkdir transcript: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(transcriptDir, sessionID+".jsonl"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(transcriptDir) })
+
+	store, err := NewSessionStore(configDir)
+	if err != nil {
+		t.Fatalf("NewSessionStore: %v", err)
+	}
+	if err := store.SetActive(repoID, branchID, tabID, sessionID); err != nil {
+		t.Fatalf("SetActive: %v", err)
+	}
+
+	mgr := NewManager(ManagerConfig{ClaudeBin: bin, RingSize: 1 << 16, ResumeOnDeath: true, Store: store})
+	t.Cleanup(func() { mgr.ShutdownAll(ctx) })
+
+	d, err := mgr.EnsureDaemon(ctx, repoID, branchID, tabID, worktree)
+	if err != nil {
+		t.Fatalf("EnsureDaemon: %v", err)
+	}
+	if err := d.EnsureStarted(ctx); err != nil {
+		t.Fatalf("EnsureStarted: %v", err)
+	}
+	waitForState(t, d, StateRunning, 10*time.Second)
+
+	// The FIRST spawn must have carried --resume <sessionID> (fake_claude echoes
+	// "resume: <id>"). No death/respawn is involved.
+	deadline := time.After(5 * time.Second)
+	want := []byte("resume: " + sessionID)
+	for {
+		select {
+		case <-deadline:
+			t.Fatalf("first spawn did not resume the persisted session; ring=%q", d.ring.Bytes())
+		default:
+		}
+		if bytes.Contains(d.ring.Bytes(), want) {
+			return
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+}
+
+// TestFirstSpawnFreshWhenTranscriptMissing verifies the stale-resume guard: a
+// persisted session whose transcript is GONE must NOT be resumed on the first
+// spawn (else `claude --resume <gone-id>` errors) — the first spawn is fresh.
+func TestFirstSpawnFreshWhenTranscriptMissing(t *testing.T) {
+	bin := fakeBin(t)
+	ctx := context.Background()
+	configDir := t.TempDir()
+	worktree := t.TempDir() // no transcript written under its TranscriptDir
+	dump := filepath.Join(t.TempDir(), "invocation.json")
+
+	const (
+		repoID    = "fresh-repo"
+		branchID  = "fresh-branch"
+		tabID     = "claude:claude"
+		sessionID = "99998888-7777-6666-5555-444433332222"
+	)
+
+	store, err := NewSessionStore(configDir)
+	if err != nil {
+		t.Fatalf("NewSessionStore: %v", err)
+	}
+	if err := store.SetActive(repoID, branchID, tabID, sessionID); err != nil {
+		t.Fatalf("SetActive: %v", err)
+	}
+
+	mgr := NewManager(ManagerConfig{
+		ClaudeBin:     bin,
+		ClaudeArgs:    []string{"--dump-invocation", dump},
+		RingSize:      1 << 16,
+		ResumeOnDeath: false,
+		Store:         store,
+	})
+	t.Cleanup(func() { mgr.ShutdownAll(ctx) })
+
+	d, err := mgr.EnsureDaemon(ctx, repoID, branchID, tabID, worktree)
+	if err != nil {
+		t.Fatalf("EnsureDaemon: %v", err)
+	}
+	if err := d.EnsureStarted(ctx); err != nil {
+		t.Fatalf("EnsureStarted: %v", err)
+	}
+	waitForState(t, d, StateRunning, 10*time.Second)
+
+	// Read the dumped argv; the first spawn must NOT carry --resume.
+	deadline := time.After(5 * time.Second)
+	for {
+		b, rerr := os.ReadFile(dump)
+		if rerr == nil {
+			var rec struct {
+				Argv []string `json:"argv"`
+			}
+			if json.Unmarshal(b, &rec) == nil {
+				for _, a := range rec.Argv {
+					if a == "--resume" {
+						t.Fatalf("first spawn resumed a gone-transcript session; argv=%v", rec.Argv)
+					}
+				}
+				return // fresh spawn confirmed
+			}
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("invocation dump never appeared at %s", dump)
+		default:
+			time.Sleep(30 * time.Millisecond)
+		}
 	}
 }
 

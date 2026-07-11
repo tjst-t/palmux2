@@ -183,6 +183,18 @@ type Daemon struct {
 	ptmx      *os.File // master side of PTY pair
 	sessionID string   // set by SetSessionID; used by respawnLoop for --resume
 
+	// initialSessionID is the session the FIRST spawn resumes (from DaemonConfig,
+	// gated by the Manager on transcript existence). Immutable after construction.
+	// initialResumeBad is set when a spawn that resumed initialSessionID died too
+	// quickly to be a real session — thereafter respawnLoop stops resuming that
+	// specific (bad) id and spawns fresh, so a broken transcript can't tight-loop.
+	// spawnedAt / lastResumedSid record the most recent spawn for that judgement.
+	// All guarded by stateMu.
+	initialSessionID string
+	initialResumeBad bool
+	spawnedAt        time.Time
+	lastResumedSid   string
+
 	// lastCols/lastRows are the most recent client-requested terminal size,
 	// recorded by Resize even if it arrives before a subprocess exists. Every
 	// spawn (initial, crash respawn, or container-regenerate respawn) re-applies
@@ -241,6 +253,15 @@ type DaemonConfig struct {
 	// `--resume <lastSessionID>` after an unexpected subprocess exit.
 	// Default is true.
 	ResumeOnDeath bool
+	// InitialSessionID, when non-empty, makes the FIRST spawn (EnsureStarted)
+	// start with `--resume <id>` instead of a fresh session — so a palmux
+	// restart (e.g. self-update) or any cold start re-attaches to the previous
+	// conversation rather than dropping the user into a blank claude. The
+	// Manager only sets this when the session's transcript still exists on disk
+	// (stale-resume guard); a fast death of this resumed spawn additionally
+	// falls back to a fresh session once (see respawnLoop) so a broken
+	// transcript can't tight-loop. Empty → fresh first spawn (unchanged).
+	InitialSessionID string
 	// Logger is the slog logger to use (nil → slog.Default()).
 	Logger *slog.Logger
 
@@ -297,6 +318,7 @@ func NewDaemon(cfg DaemonConfig) *Daemon {
 		permissionMode:       cfg.PermissionModeFn,
 		worktree:             cfg.Worktree,
 		resumeOnDeath:        cfg.ResumeOnDeath,
+		initialSessionID:     cfg.InitialSessionID,
 		ring:                 NewRing(cfg.RingSize),
 		emulator:             NewEmulator(80, 24, cfg.NotifyHub, cfg.RepoID, cfg.BranchID),
 		logger:               cfg.Logger,
@@ -364,7 +386,18 @@ func (d *Daemon) EnsureStarted(ctx context.Context) error {
 	if d.spawned {
 		return nil
 	}
-	if err := d.spawnWithArgs(d.claudeArgs); err != nil {
+	// First spawn: resume the previous session when the Manager pre-seeded one
+	// (its transcript still exists), so a palmux restart re-attaches to the prior
+	// conversation instead of starting blank. Fresh (no --resume) otherwise.
+	initArgs := d.claudeArgs
+	if d.initialSessionID != "" {
+		initArgs = append(append([]string(nil), d.claudeArgs...), "--resume", d.initialSessionID)
+		d.stateMu.Lock()
+		d.lastResumedSid = d.initialSessionID
+		d.stateMu.Unlock()
+		d.logger.Info("claudetui: initial spawn resuming previous session", "session_id", d.initialSessionID)
+	}
+	if err := d.spawnWithArgs(initArgs); err != nil {
 		return fmt.Errorf("claudetui daemon: spawn: %w", err)
 	}
 	d.spawned = true
@@ -482,6 +515,7 @@ func (d *Daemon) spawnWithArgs(args []string) error {
 	d.ptmx = ptmx
 	d.proc = cmd.Process
 	d.exited = exited
+	d.spawnedAt = time.Now()
 	d.state.Store(int32(StateRunning))
 	// Snapshot the last client-requested size under the same lock so a resize
 	// that raced this spawn is not lost. Applied below, outside the lock.
@@ -663,6 +697,7 @@ func (d *Daemon) respawnLoop() {
 			return
 		case exitErr = <-exited:
 		}
+		diedAt := time.Now()
 
 		// If we are in StateShutdown, the exit was intentional — stop.
 		if State(d.state.Load()) == StateShutdown {
@@ -698,17 +733,34 @@ func (d *Daemon) respawnLoop() {
 
 		d.stateMu.Lock()
 		sid := d.sessionID
+		// Bad-transcript guard: if the process that just died had resumed the
+		// pre-seeded initialSessionID and lived only briefly, that transcript is
+		// unusable (e.g. deleted/corrupt) — mark it bad so we stop resuming it and
+		// spawn fresh instead. Bounds a broken-resume crash loop to one fast fail.
+		if d.initialSessionID != "" && d.lastResumedSid == d.initialSessionID &&
+			diedAt.Sub(d.spawnedAt) < resumeFallbackWindow {
+			d.initialResumeBad = true
+			d.logger.Warn("claudetui: resumed session died immediately; restarting fresh",
+				"session_id", d.initialSessionID, "lifetime", diedAt.Sub(d.spawnedAt))
+		}
+		useResume := sid != "" && !(d.initialResumeBad && sid == d.initialSessionID)
+		if useResume {
+			d.lastResumedSid = sid
+		} else {
+			d.lastResumedSid = ""
+		}
 		d.stateMu.Unlock()
 
-		// Build re-spawn args: base args + --resume <id>.
+		// Build re-spawn args: base args, plus --resume <id> unless the id is the
+		// known-bad initial session (then spawn fresh).
 		respawnArgs := make([]string, 0, len(d.claudeArgs)+2)
 		respawnArgs = append(respawnArgs, d.claudeArgs...)
-		respawnArgs = append(respawnArgs, "--resume", sid)
-
-		d.logger.Info("claudetui: re-spawning with --resume",
-			"session_id", sid,
-			"args", respawnArgs,
-		)
+		if useResume {
+			respawnArgs = append(respawnArgs, "--resume", sid)
+			d.logger.Info("claudetui: re-spawning with --resume", "session_id", sid, "args", respawnArgs)
+		} else {
+			d.logger.Info("claudetui: re-spawning fresh (no resume)", "args", respawnArgs)
+		}
 
 		// S4d8b1c-fix2: gate the re-spawn so a regenerating incus container
 		// (briefly destroyed during Update) doesn't make `incus exec` re-run at
@@ -746,6 +798,14 @@ func (d *Daemon) respawnLoop() {
 // respawnReadyPollInterval is how often gateRespawn re-checks runtime readiness
 // while waiting for a regenerating container to come back.
 const respawnReadyPollInterval = 1 * time.Second
+
+// resumeFallbackWindow bounds the "resumed session died too fast to be real"
+// check. `claude --resume <bad-id>` prints an error and exits within a second or
+// two; a genuinely-resumed session runs far longer before any unexpected crash.
+// A spawn that resumed the pre-seeded initialSessionID and died inside this
+// window is treated as a bad transcript → the next spawn drops --resume and
+// starts fresh (respawnLoop), so a broken transcript can't tight-loop.
+const resumeFallbackWindow = 8 * time.Second
 
 // runtimeReady reports whether the workspace runtime is ready to exec into.
 // Host runtime (nil resolver / nil commander / commander without a Status

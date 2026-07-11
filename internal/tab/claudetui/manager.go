@@ -168,6 +168,17 @@ func (m *Manager) EnsureDaemon(ctx context.Context, repoID, branchID, tabID, wor
 		}
 	}
 
+	// Only resume the persisted session on the FIRST spawn when its transcript
+	// still exists on disk — otherwise `claude --resume <gone-id>` fails and we'd
+	// drop the user into an error/blank claude. When the transcript is gone we
+	// leave resumeInitial empty (fresh first spawn). This mirrors claude-agent's
+	// transcript-gated resume so a palmux restart re-attaches to the prior
+	// conversation without risking a stale-id failure.
+	resumeInitial := ""
+	if initialSessionID != "" && worktree != "" && transcriptExists(worktree, initialSessionID) {
+		resumeInitial = initialSessionID
+	}
+
 	d := NewDaemon(DaemonConfig{
 		ClaudeBin:            m.cfg.ClaudeBin,
 		ClaudeArgs:           m.cfg.ClaudeArgs,
@@ -175,6 +186,7 @@ func (m *Manager) EnsureDaemon(ctx context.Context, repoID, branchID, tabID, wor
 		Worktree:             worktree,
 		RingSize:             m.cfg.RingSize,
 		ResumeOnDeath:        m.cfg.ResumeOnDeath,
+		InitialSessionID:     resumeInitial,
 		Logger:               m.cfg.Logger.With("repo", repoID, "branch", branchID, "tab", tabID),
 		NotifyHub:            m.cfg.NotifyHub,
 		RepoID:               repoID,
@@ -187,10 +199,12 @@ func (m *Manager) EnsureDaemon(ctx context.Context, repoID, branchID, tabID, wor
 		NotifyURLInContainer: m.cfg.NotifyURLInContainer,
 	})
 
-	// Pre-seed session ID if we loaded one from the store.  This unblocks
-	// respawnLoop immediately so that if the daemon dies on first start
-	// (e.g. because claude itself wasn't installed yet), the re-spawn
-	// already knows to use --resume.
+	// Pre-seed session ID if we loaded one from the store. This unblocks
+	// respawnLoop immediately so that if the daemon dies on first start, the
+	// re-spawn already knows to use --resume. Kept unconditional (independent of
+	// the transcript-gated resumeInitial above): in the normal case the fresh
+	// first spawn creates a new session and the watcher overrides this id before
+	// any respawn; this pre-seed only matters if the first spawn dies before that.
 	if initialSessionID != "" {
 		d.SetSessionID(initialSessionID)
 	}
