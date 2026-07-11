@@ -400,6 +400,20 @@ func run(rc resolved) error {
 		}
 	}
 
+	// Share the attachment upload root into every incus container at the same host
+	// path so Ctrl+V-pasted images (saved on the host) are readable by in-container
+	// Claude at the exact absolute path the composer/terminal injects. MkdirAll so
+	// the mount source exists before the first container launch (declaredDevices
+	// skips an absent source; the 10s reconcile would otherwise add it only after
+	// the first upload creates the dir).
+	attachmentRoot := resolveAttachmentRoot(settingsStore.Get())
+	if attachmentRoot != "" {
+		if err := os.MkdirAll(attachmentRoot, 0o755); err != nil {
+			slog.Warn("could not create attachment upload dir for container sharing", "dir", attachmentRoot, "err", err)
+		}
+		runtimeRegistry.SharedProfileManager().SetAttachmentDir(attachmentRoot)
+	}
+
 	// See8bd4-2: configure publishing of incus container ports as HTTPS
 	// subdomains via the Caddy admin API. The public domain + edge basic-auth
 	// creds come from flags / env (install.sh writes /etc/palmux/runtime.env
@@ -636,6 +650,15 @@ func run(rc resolved) error {
 		// Hot-apply the claude permission mode so a GUI/file change takes effect on
 		// the next claude respawn without a server restart.
 		claudetuiMgr.SetPermissionMode(updated.ClaudePermissionMode())
+		// Hot-apply the attachment upload root to the shared profile so a GUI/file
+		// change to AttachmentUploadDir re-points the container bind-mount without a
+		// restart (the next scan-tick reconcile live-propagates it).
+		if root := resolveAttachmentRoot(updated); root != "" {
+			if err := os.MkdirAll(root, 0o755); err != nil {
+				slog.Warn("could not create attachment upload dir for container sharing", "dir", root, "err", err)
+			}
+			runtimeRegistry.SharedProfileManager().SetAttachmentDir(root)
+		}
 		st.Hub().Publish(store.Event{Type: store.EventSettings, Payload: updated})
 	}, slog.Default()); werr != nil {
 		slog.Warn("settings file watch disabled", "err", werr)
@@ -1062,6 +1085,17 @@ func (a deployHotApplier) SetBasicAuthDefaults(user, hash string) {
 	if a.registry != nil {
 		a.registry.RefreshBasicAuth(user, hash)
 	}
+}
+
+// resolveAttachmentRoot returns the attachment upload ROOT from settings, falling
+// back to the package default, with any trailing slash trimmed. Empty only if the
+// default is somehow blanked. Shared by startup + the settings-watch hot-apply.
+func resolveAttachmentRoot(s config.Settings) string {
+	root := s.AttachmentUploadDir
+	if root == "" {
+		root = config.DefaultAttachmentUploadDir
+	}
+	return strings.TrimRight(root, "/")
 }
 
 func (a deployHotApplier) SetClaudeBin(bin string) {

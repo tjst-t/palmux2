@@ -37,6 +37,11 @@ import (
 // bind-mounts. Do not rename — operators inspect it with `incus profile show`.
 const SharedProfileName = "palmux-shared"
 
+// attachmentDevice is the profile device name for the attachment upload root
+// bind-mount (Ctrl+V-pasted images). A fixed human name so operators recognise
+// it in `incus profile show`.
+const attachmentDevice = "palmux-uploads"
+
 // S41bdf2-1-4: shared /nix/store + Nix system bin dir. On a NixOS appliance an
 // app installed via the GUI lands in the host's Nix profile (systemPackages →
 // /run/current-system/sw/bin, backed by /nix/store). To make that binary run
@@ -109,8 +114,9 @@ type SharedProfileManager struct {
 	run runner
 	log *slog.Logger
 
-	mu         sync.Mutex
-	sharedDirs []string // config-driven extra shared folders (absolute host paths)
+	mu            sync.Mutex
+	sharedDirs    []string // config-driven extra shared folders (absolute host paths)
+	attachmentDir string   // resolved attachment upload ROOT (settings.AttachmentUploadDir)
 
 	ensuredOnce   bool   // whether the profile has been created at least once
 	lastHookInode uint64 // inode of the last-reconciled palmux hook binary (S52fc2c-5 at profile scope)
@@ -137,6 +143,20 @@ func (m *SharedProfileManager) SetSharedDirs(dirs []string) {
 	cp := make([]string, len(dirs))
 	copy(cp, dirs)
 	m.sharedDirs = cp
+}
+
+// SetAttachmentDir records the attachment upload ROOT (settings.AttachmentUploadDir)
+// so it is bind-mounted at the same host path inside every container. Without this,
+// an image pasted via Ctrl+V lands under `/tmp/palmux-uploads/...` on the HOST and
+// the absolute path the composer/terminal injects is unreadable by in-container
+// Claude (the container has no such file). Sharing the root at the identical path
+// makes the injected path resolve in both host and container runtimes. Empty ⇒ no
+// attachment mount. The next Ensure/Reconcile converges it (live-propagated to
+// running containers).
+func (m *SharedProfileManager) SetAttachmentDir(dir string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.attachmentDir = strings.TrimRight(dir, "/")
 }
 
 // declaredDevices computes the desired device set from current host state +
@@ -193,10 +213,19 @@ func (m *SharedProfileManager) declaredDevices() []deviceSpec {
 		candidates = append(candidates, deviceSpec{nixSysbinDevice, sysbin, nixBinContainerPath, true})
 	}
 
-	// Config-driven shared folders (Story 2). Same-path mount; skipped if absent.
+	// Attachment upload root → same-path mount so Ctrl+V-pasted images (saved on
+	// the host under this root) are readable by in-container Claude at the exact
+	// absolute path the composer/terminal injects. Lives outside $HOME (default
+	// /tmp/palmux-uploads), so it is exempt from the symlink-skip below.
 	m.mu.Lock()
+	attach := m.attachmentDir
 	dirs := append([]string(nil), m.sharedDirs...)
 	m.mu.Unlock()
+	if attach != "" {
+		candidates = append(candidates, deviceSpec{name: attachmentDevice, source: attach, path: attach})
+	}
+
+	// Config-driven shared folders (Story 2). Same-path mount; skipped if absent.
 	for _, d := range dirs {
 		// Defensive re-validation: only accept $HOME-scoped paths even if the
 		// config was hand-edited. Handles a leading ~ too.
@@ -233,7 +262,7 @@ func (m *SharedProfileManager) declaredDevices() []deviceSpec {
 // ghq, palmux-hook-bin, dot-claude*, dot-local* and the user shared dirs (sf-*)
 // are never symlink-skipped.
 func isSkippableSymlinkDotfile(name string) bool {
-	if name == "ghq" || name == "palmux-hook-bin" {
+	if name == "ghq" || name == "palmux-hook-bin" || name == attachmentDevice {
 		return false
 	}
 	// S41bdf2-1-4: the shared /nix devices intentionally live OUTSIDE $HOME (host
