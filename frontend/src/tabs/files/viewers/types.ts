@@ -27,4 +27,11 @@ export interface ViewerProps {
   repoId?: string
   branchId?: string
   tabId?: string
+  /** Navigate to another file WITHIN the current Files panel. Provided by
+   *  FilesView (= its isUrlPanel-aware `selectFile`): the URL/left panel pushes
+   *  history (search preserved, so a ?right= split survives), the local/right
+   *  panel updates its own local selection WITHOUT hijacking the main route.
+   *  When absent, MarkdownView falls back to a plain route navigate. This is the
+   *  fix for "Split 右パネル内リンクがメインルートを navigate する". */
+  onInternalNavigate?: (path: string) => void
 }

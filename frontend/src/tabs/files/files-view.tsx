@@ -779,6 +779,7 @@ export function FilesView({ repoId, branchId, tabId }: TabViewProps) {
               path={selected}
               lineNum={selectedLine}
               onCursorLineChange={handleCursorLineChange}
+              onInternalNavigate={selectFile}
             />
           ) : (
             <p className={styles.empty}>Pick a file to preview.</p>
