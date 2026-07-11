@@ -1,0 +1,43 @@
+{
+  "story": "S3f2658-4",
+  "title": "survival on incus runtime (in-container claude)",
+  "story_type": "go-library-cli",
+  "design_refs": [
+    "docs/no-halt-agent-design.md#1-プロセスモデル",
+    "docs/no-halt-agent-design.md#8-リスクと未解決事項",
+    "ADR-0001",
+    "docs/claude-in-container-design.md (S4d8b1c)"
+  ],
+  "depends_on": ["S3f2658-1", "S3f2658-2"],
+  "acceptance_scenarios": [
+    {
+      "ac": "AC-S3f2658-4-1",
+      "intent": "For incus-container workspaces, ptyhost holds the `incus exec -t` wrapper (argv assembled by palmux2 via PTYCommander); in-container claude survives palmux2 restart at the same pid.",
+      "test_kind": "REAL-MACHINE SURVIVAL smoke on a real incus host (deploy-test isolated-throwaway method)",
+      "survival": true,
+      "steps": [
+        "Assert (unit/integration) that palmux2 builds the full `incus exec -t <inst> --user … --cwd … --env … -- /abs/claude <args>` argv (existing PTYCommand output) and passes it OPAQUELY to the ptyhost launcher — ptyhost holds no claude/incus knowledge.",
+        "Real-incus smoke: use the deploy-test isolated-throwaway method (project_deploytest_isolated_smoke) — a SEPARATE config-dir, defaultRuntime=incus-container, a throwaway repo, and a dev-prefix instance so the managed palmux2 and existing containers are never disturbed.",
+        "Start the throwaway dev palmux2 under a systemd --user transient unit; open a claude-tui tab in an incus workspace → ptyhost holds the incus-exec wrapper; record the ptyhost pid (host) AND the in-container claude pid (`incus exec <inst> -- pgrep -f claude`).",
+        "Restart the dev palmux2 unit (`systemctl --user restart` / re-serve). Assert: ptyhost host pid unchanged AND in-container claude pid unchanged (same pid) after restart.",
+        "Reconnect and assert the TUI screen restores (ties AC-2-2) with the in-container session intact.",
+        "Full cleanup: delete throwaway instance, repo, config-dir. Confirm managed palmux2 + pre-existing containers untouched.",
+        "If no real incus host is reachable under autopilot, escalate at milestone (priority_rule 0 [SURVIVAL]); do NOT mark done from host-only reasoning."
+      ],
+      "expected": "In-container claude keeps its pid across palmux2 restart; screen restores. SURVIVAL_PASS on real incus."
+    },
+    {
+      "ac": "AC-S3f2658-4-2",
+      "intent": "SHUTDOWN reaps the in-container claude (KillContainerProcesses-equivalent) so no claude lingers in the container (S4d8b1c reap backlog).",
+      "test_kind": "go integration + real-incus assertion",
+      "steps": [
+        "On a SHUTDOWN of a ptyhost holding an incus wrapper, assert palmux2-side GC invokes the in-container reap (runtime.ContainerProcessKiller.KillContainerProcesses TERM→KILL matching the container claude bin) — per design §8 the reap is palmux2-side, not baked into the generic ptyhost.",
+        "Assert killing only the host-side `incus exec` wrapper is NOT sufficient and the explicit in-container pkill runs.",
+        "Real-incus: after SHUTDOWN (tab delete / orphan GC), assert `incus exec <inst> -- pgrep -f claude` returns NO match (no residual claude).",
+        "Assert pkill exit code 1 (no match) is treated as success, not error."
+      ],
+      "expected": "After SHUTDOWN the container has zero residual claude processes."
+    }
+  ],
+  "notes": "Because palmux2 already assembles the incus-exec argv (existing PTYCommand path in daemon.spawnWithArgs), the ptyhost side needs no incus awareness — it just holds the process (ADR-0002). Reuse the existing runtime.ContainerProcessKiller (incus.KillContainerProcesses) for the reap; wire it into the SHUTDOWN/GC path on the palmux2 side (Story 3's orphan-GC + tab-delete). Touches daemon.go (incus arg path stays), manager.go + store GC (SHUTDOWN → reap), reuses incus.go KillContainerProcesses. Coupled with Story 3's SHUTDOWN path — hence serialized after it."
+}

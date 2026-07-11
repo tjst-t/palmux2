@@ -1,0 +1,99 @@
+{
+  "sprint": "S3f2658",
+  "title": "no-halt-agent Sprint 1: ptyhost foundation + claude-tui survival — PLAN",
+  "phase": "plan",
+  "planning_decisions": [
+    {
+      "title": "Story granularity kept as-is (4 stories, no split)",
+      "decision": "S3f2658-1..4 are each a single coherent user-facing capability (ptyhost foundation / thin-client migration / discovery+GC / incus survival). No story bundles independent behaviors that warrant splitting; the per-story task lists in ROADMAP already decompose them.",
+      "rationale": "Splitting further would create sub-stories that all still edit the same daemon.go/manager.go, adding merge risk without parallelism gain. The natural seam is exactly the 4 stories already defined.",
+      "reference": "ROADMAP.json sprints.S3f2658.stories"
+    },
+    {
+      "title": "Fully-serial 4-wave execution (no intra-wave parallelism)",
+      "decision": "Wave 1 = S3f2658-1, Wave 2 = S3f2658-2, Wave 3 = S3f2658-3, Wave 4 = S3f2658-4. Each wave is a single story.",
+      "rationale": "This is a tightly-coupled infra sprint. Story 1 creates the protocol/ring/launcher that 2/3/4 all depend on. Stories 2, 3, 4 ALL edit internal/tab/claudetui/daemon.go and manager.go, and 3+4 share the SHUTDOWN/orphan-GC path. Parallel worktrees editing the same core files would produce bad merge conflicts. Per the plan directive, correctness > parallelism here.",
+      "reference": "file_touch_analysis below; docs/no-halt-agent-design.md §4 migration map"
+    },
+    {
+      "title": "Scenario derivation: every AC → ordered mechanical steps",
+      "decision": "One scenario JSON per story (scenario-S3f2658-{1..4}.json). Each AC has a test_kind and ordered steps. The two [SURVIVAL] ACs (1-3, 4-1) specify the real-machine smoke explicitly.",
+      "rationale": "Implement agents need mechanical acceptance steps, not prose. story_type is go-library-cli / real-process for all four (not GUI); AC-2-3's 'UI degrade' is asserted as a server-side degrade STATE, not pixels.",
+      "reference": "docs/DESIGN_PRINCIPLES.json autonomous-execution rules; priority_rule 0"
+    },
+    {
+      "title": "[SURVIVAL] ACs must run on real systemd / real incus, never by restarting host palmux2",
+      "decision": "AC-1-3 uses a separate `make serve INSTANCE=dev` instance wrapped in a systemd --user transient unit; verifies pid-survival across `systemctl --user restart` AND `kill -9`. AC-4-1 uses the deploy-test isolated-throwaway method on a real incus host. If truly impossible under autopilot, escalate at the milestone — do not silently mark done.",
+      "rationale": "priority_rule 0 forbids skipping SURVIVAL AC; forbidden rule forbids restarting host palmux2 (it kills the live Claude session). Mirrors Sa8e7d0 SURVIVAL_PASS shape.",
+      "reference": "VISION priority_rule 0; MEMORY project_deploytest_isolated_smoke, project_dev_vm; docs/no-halt-agent-design.md §7"
+    },
+    {
+      "title": "ADR-0002 thin-holder is the hard constraint on scope",
+      "decision": "ptyhost holds ONLY {one claude process + PTY + absolute-offset raw ring + unix socket}. Emulator, roleCoordinator, respawn, --resume, hooks generation, argv assembly, gateRespawn, SessionWatcher, and the in-container reap policy all STAY in palmux2. respawn = spawn a new ptyhost.",
+      "rationale": "ptyhosts outlive many self-updates as stale binaries; keeping logic in palmux2 means fixes reach every tab immediately and the socket protocol can be frozen minimal. Adding protocol messages is an ADR-0002 violation signal.",
+      "reference": "ADR-0002; docs/no-halt-agent-design.md §2, §4"
+    },
+    {
+      "title": "instancePrefix derived from the --tmux-prefix source",
+      "decision": "The socket dir subpath and the systemd-run scope --unit name both embed an instancePrefix derived the same way as domain.Configure(--tmux-prefix). Default 'palmux', dev rig '_pmx_dev_'.",
+      "rationale": "Guarantees the same isolation --tmux-prefix gives tmux sessions: host and INSTANCE=dev instances never claim/GC each other's ptyhosts.",
+      "reference": "internal/domain/naming.go; CLAUDE.md tmux naming; AC-S3f2658-3-3"
+    }
+  ],
+  "spike": {
+    "task": "S3f2658-1-1",
+    "question": "Does `systemd-run --user --scope --collect` isolate the child into a cgroup that survives `systemctl --user restart` of a sibling palmux2 unit, on Ubuntu/home-manager and NixOS-appliance-equivalent environments? Is the setsid+double-fork fallback correct when no D-Bus user session exists?",
+    "run_first": true,
+    "why_first": "The entire survival guarantee (ADR-0003) rests on this. If systemd-run scope does not escape the palmux2 cgroup, the whole approach fails and must be revisited before building the protocol. Record result (available? cgroup-isolated? fallback verified?) in this file before Wave 1 implementation proceeds.",
+    "record_fields": ["systemd_run_available", "cgroup_isolated_from_parent", "survives_sibling_unit_restart", "setsid_fallback_detaches", "dbus_user_session_present", "notes"]
+  },
+  "waves": [
+    {
+      "wave": 1,
+      "stories": ["S3f2658-1"],
+      "rationale": "Foundation: new internal/ptyhost/ package (ring+protocol+socket+launcher) and cmd/palmux/ptyhost.go. Contains the cgroup-escape spike (S3f2658-1-1) which MUST run first. Everything else depends on this protocol + launcher."
+    },
+    {
+      "wave": 2,
+      "stories": ["S3f2658-2"],
+      "rationale": "Core migration: rewrite claudetui.Daemon into a thin socket client (daemon.go). Highest-risk story (screen restore + no regression). Serialized because 3 and 4 build on the thin-client shape."
+    },
+    {
+      "wave": 3,
+      "stories": ["S3f2658-3"],
+      "rationale": "Discovery/reconnect + orphan GC + instance separation. Edits manager.go (restore path) and store sync loop. Depends on Stories 1+2. Establishes the SHUTDOWN/GC path that Story 4's reap plugs into."
+    },
+    {
+      "wave": 4,
+      "stories": ["S3f2658-4"],
+      "rationale": "incus survival + in-container reap. Shares daemon.go/manager.go and the SHUTDOWN/GC path with Story 3, so serialized after it to avoid conflicts. Reuses existing runtime.ContainerProcessKiller."
+    }
+  ],
+  "file_touch_analysis": {
+    "S3f2658-1": [
+      "internal/ptyhost/ (NEW: ring.go abs-offset, protocol.go framed codec, server.go socket server, launch.go systemd-run/setsid)",
+      "cmd/palmux/ptyhost.go (NEW subcommand)",
+      "cmd/palmux/main.go (register subcommand — small)"
+    ],
+    "S3f2658-2": [
+      "internal/tab/claudetui/daemon.go (MAJOR rewrite: PTY ownership → socket attach; readLoop/WriteInput/Resize/spawnWithArgs/respawnLoop/Shutdown)",
+      "internal/tab/claudetui/manager.go (wire ptyhost launcher into spawn)",
+      "internal/tab/claudetui/*_test.go (adapt fakes to socket path)",
+      "internal/ptyhost/ (consume; possibly a thin client helper)"
+    ],
+    "S3f2658-3": [
+      "internal/tab/claudetui/manager.go (startup discovery/restore path)",
+      "internal/tab/claudetui/discover.go (NEW: socket-dir scan + adopt)",
+      "internal/store/sync_worktree.go (orphan GC piggyback on scanPorts 10s loop)",
+      "internal/store/store.go / deps (Manager handle for GC)",
+      "cmd/palmux/main.go (startup reconnect call + instancePrefix wiring)"
+    ],
+    "S3f2658-4": [
+      "internal/tab/claudetui/daemon.go (incus argv assembly path stays; spawn via ptyhost)",
+      "internal/tab/claudetui/manager.go + store GC (SHUTDOWN → in-container reap)",
+      "internal/runtime/incus/incus.go (reuse KillContainerProcesses — likely read-only)"
+    ]
+  },
+  "conflict_notes": "S3f2658-2, -3, -4 ALL modify internal/tab/claudetui/daemon.go and manager.go. -3 and -4 both modify the store orphan-GC/SHUTDOWN path. This overlap is why intra-wave parallelism is rejected; each story merges to the sprint branch before the next starts.",
+  "status_note": "No story/AC statuses mutated (all remain pending). Sprint detail_level left 'detailed'."
+}

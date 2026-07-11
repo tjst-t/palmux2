@@ -1,0 +1,79 @@
+{
+  "story": "S3f2658-1",
+  "title": "`palmux ptyhost` subcommand (pty mode) + socket protocol + cgroup-escape spawn",
+  "story_type": "go-library-cli",
+  "design_refs": [
+    "docs/no-halt-agent-design.md#1-プロセスモデル",
+    "docs/no-halt-agent-design.md#2-socket-protocol",
+    "docs/no-halt-agent-design.md#3-配置発見再接続",
+    "ADR-0001", "ADR-0002", "ADR-0003"
+  ],
+  "spike_first": {
+    "task": "S3f2658-1-1",
+    "goal": "Confirm systemd-run --user --scope --collect places the child in a cgroup that survives `systemctl --user restart` of a sibling user unit.",
+    "steps": [
+      "On this host (Ubuntu/home-manager class) run: `systemd-run --user --scope --collect --unit palmux-spike-$$ -- sleep 600` and capture the child PID.",
+      "Verify the child is in a DIFFERENT cgroup than the parent shell / a mock unit: `cat /proc/<pid>/cgroup` vs the launcher's cgroup.",
+      "Simulate the survival guarantee: start a throwaway `systemd --user` transient unit, restart it, confirm the systemd-run scope child is NOT killed.",
+      "Record whether D-Bus user session is present (`systemctl --user status`); if absent, exercise the setsid+double-fork fallback path and confirm detach (child reparented to pid 1, new session id via `ps -o sid`).",
+      "Note NixOS-appliance equivalence expectations (D-Bus user session present per ADR-0003) in decisions.json — full NixOS run deferred to SURVIVAL AC on real systemd."
+    ],
+    "record_to": "docs/sprint-logs/S3f2658/decisions.json (spike result: systemd-run available? cgroup isolated? fallback verified?)"
+  },
+  "acceptance_scenarios": [
+    {
+      "ac": "AC-S3f2658-1-1",
+      "intent": "ptyhost spawns claude under a PTY with argv/env/cwd from palmux2 and serves the framed socket protocol with an absolute-offset ring.",
+      "test_kind": "go-unit + real-subprocess integration (internal/ptyhost)",
+      "steps": [
+        "Unit: construct the framed protocol codec; round-trip encode/decode every message (HELLO, ATTACH, DATA, INPUT, RESIZE, ACK, STATUS, SHUTDOWN) and assert byte-exact framing + version field in HELLO.",
+        "Unit: Ring with absolute offsets — write N chunks, assert DATA replay from offset O returns bytes[O:] with correct absolute offset headers; assert offset=-1 replays from ring head; assert wrap/eviction advances the head offset (no offset reuse).",
+        "Integration: run `palmux ptyhost` (or the internal server directly) holding a fake claude (tests/testdata fake_claude or `cat`) under a real PTY; connect a unix-socket client, send HELLO, assert HELLO reply carries protocol version + mode=pty + pid + argv-hash.",
+        "Integration: ATTACH{offset:-1}, feed input via INPUT, assert echoed bytes arrive as DATA frames with monotonically increasing absolute offsets; send RESIZE{cols,rows} and assert the child sees the new winsize (fake child prints TIOCGWINSZ).",
+        "Integration: send STATUS request, assert response includes pid, alive=true, ring bytes, ring head offset."
+      ],
+      "expected": "All frames round-trip; ring offsets are absolute and monotone; PTY spawn/resize/input/output all work over the socket."
+    },
+    {
+      "ac": "AC-S3f2658-1-2",
+      "intent": "Spawn path tries systemd-run --user --scope --collect, falls back to setsid+double-fork on failure (runtime detection, ADR-0003).",
+      "test_kind": "go-unit (launcher, injected command runner)",
+      "steps": [
+        "Unit: launcher with an injected exec runner — when systemd-run probe succeeds, assert the built argv is `systemd-run --user --scope --collect --unit palmux-agent-<instancePrefix>-<hash> -- <palmuxBin> ptyhost …`.",
+        "Unit: when the systemd-run probe returns non-zero / not-found, assert the launcher falls back to the setsid+double-fork detach path (no systemd-run in argv).",
+        "Unit: assert the scope --unit name embeds instancePrefix so INSTANCE=dev and host never collide.",
+        "Integration (host, real): actually launch a ptyhost via the launcher on this box; confirm it detaches (survives the launching process exit) — ties into AC-1-3 survival."
+      ],
+      "expected": "Runtime detection picks systemd-run when available, setsid otherwise; scope name carries instancePrefix."
+    },
+    {
+      "ac": "AC-S3f2658-1-3",
+      "intent": "[SURVIVAL] ptyhost + claude (same pid) survive `systemctl --user restart palmux2` and a `kill -9` of palmux2.",
+      "test_kind": "REAL-MACHINE SURVIVAL smoke (Sa8e7d0 SURVIVAL_PASS shape)",
+      "survival": true,
+      "steps": [
+        "Start a SEPARATE dev instance: `make serve INSTANCE=dev` (never touch host palmux2 — forbidden). This gives an independent palmux2 with its own instancePrefix (_pmx_dev_) and socket dir.",
+        "Wrap the dev instance in a transient user unit for the systemd path: `systemd-run --user --unit palmux2-survtest --scope -- <bin> serve --config-dir <tmp> --addr 127.0.0.1:<devport> --tmux-prefix _pmx_dev_` OR use an existing user-unit test harness; record the ptyhost child pid and claude pid.",
+        "Open a claude-tui tab (drive via API/WS on the dev port) so a ptyhost spawns; capture ptyhost pid and the claude pid from the STATUS response / status file.",
+        "SURVIVAL-A: `systemctl --user restart palmux2-survtest` (restart the palmux2 unit). After restart, assert the ptyhost pid AND the claude pid are STILL ALIVE (same pids) via `kill -0 <pid>` / `ps`.",
+        "SURVIVAL-B: `kill -9` the palmux2 process directly. Assert ptyhost + claude survive (same pids).",
+        "Assert the socket + status file still exist and STATUS still answers alive=true after each event. Log SURVIVAL_PASS x2.",
+        "If a real systemd --user session is genuinely unavailable in the runner, escalate at milestone (priority_rule 0) — do NOT silently mark done; the setsid fallback survival (kill -9 only) must still be demonstrated."
+      ],
+      "expected": "ptyhost and claude keep the same pids across palmux2 restart and kill -9; STATUS remains alive. SURVIVAL_PASS."
+    },
+    {
+      "ac": "AC-S3f2658-1-4",
+      "intent": "claude exit → ptyhost records exit status in STATUS response + status file, then exits itself (thin holder; respawn is palmux2's job).",
+      "test_kind": "go integration (real subprocess)",
+      "steps": [
+        "Hold a fake child that exits with a known code (e.g. `sh -c 'exit 7'`).",
+        "After the child exits, assert a STATUS request returns alive=false with exit status 7 (before the ptyhost tears down), and that the status JSON file on disk records the same exit status.",
+        "Assert the ptyhost process itself then exits (does NOT respawn — respawn is palmux2-side).",
+        "Assert no orphaned PTY fd / goroutine leak (clean shutdown)."
+      ],
+      "expected": "Exit status is recorded in both channels; ptyhost self-terminates without respawning."
+    }
+  ],
+  "notes": "internal/ptyhost/ is a NEW package (ring w/ absolute offsets, framed protocol codec, socket server, launcher). cmd/palmux/ptyhost.go is the subcommand entry. ptyhost holds NO claude-specific knowledge — argv/env/cwd are opaque (ADR-0002). Protocol must be frozen-minimal (adding messages is an ADR-0002 violation signal)."
+}

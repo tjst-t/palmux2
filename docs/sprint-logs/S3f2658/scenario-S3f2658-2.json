@@ -1,0 +1,69 @@
+{
+  "story": "S3f2658-2",
+  "title": "claudetui.Daemon thin-client-ification (socket attach + screen restore)",
+  "story_type": "go-library-cli",
+  "design_refs": [
+    "docs/no-halt-agent-design.md#4-既存コードからの移行マップ",
+    "docs/no-halt-agent-design.md#5-再接続時の画面復元",
+    "ADR-0002"
+  ],
+  "depends_on": ["S3f2658-1"],
+  "acceptance_scenarios": [
+    {
+      "ac": "AC-S3f2658-2-1",
+      "intent": "Daemon no longer owns the PTY; it socket-attaches to a ptyhost. Emulator/roleCoordinator/respawn(exit→new ptyhost + --resume decision)/hooks/gateRespawn stay in palmux2 (migration map §4).",
+      "test_kind": "go-unit + integration",
+      "steps": [
+        "Assert spawnWithArgs no longer calls creackpty.Start directly; instead it builds full argv/env (hooks settings, --permission-mode, incus wrapper via PTYCommander, --plugin-dir) EXACTLY as today and hands it to the ptyhost launcher (Story 1).",
+        "Assert the Daemon's readLoop now reads DATA frames from the socket (not a PTY fd) and still does (ring.Write + emulator.Feed) under feedMu.",
+        "Assert WriteInput sends INPUT frames and Resize sends RESIZE frames over the socket.",
+        "Assert Emulator, roleCoordinator, feedMu, RenderSnapshotAndSubscribe, SetSessionID/SessionWatcher, gateRespawn, hooks.go stay on the palmux2 side (still referenced by Daemon; not moved into ptyhost).",
+        "Integration: with a real ptyhost holding a fake child, attach the Daemon, feed bytes, assert emulator grid reflects them and a WS client sees the rendered snapshot."
+      ],
+      "expected": "Daemon is a thin socket client; all orchestration stays in palmux2 per §4."
+    },
+    {
+      "ac": "AC-S3f2658-2-2",
+      "intent": "After palmux2 restart, reconnect restores the pre-restart TUI screen AND output produced during the restart window is not lost. Restore = ring replay → Emulator feed → SIGWINCH jiggle; no stale frame residue.",
+      "test_kind": "REAL-MACHINE E2E (dev INSTANCE + Playwright headless)",
+      "survival": false,
+      "steps": [
+        "Start dev instance `make serve INSTANCE=dev`. Open a claude-tui tab; let claude render a distinctive screen (e.g. run a command whose output + status line are visible). Record the visible text via the grid snapshot / xterm buffer.",
+        "Have claude produce CONTINUOUS output (a running turn, e.g. a long `for i in $(seq ...); do echo ...; sleep` inside claude's Bash, or feed the fake child a stream) so bytes flow DURING the restart.",
+        "Restart ONLY the dev palmux2 (`make serve INSTANCE=dev` re-run kills+restarts the dev instance — NEVER the host). ptyhost survives (Story 1).",
+        "Reconnect the browser/WS to the dev instance; assert the restore path ran: ring ATTACH from head offset → Emulator re-fed → RESIZE(cols,rows-1) then RESIZE(cols,rows) jiggle observed.",
+        "Assert the previously-visible conversation + status line are visible again in the reattached grid.",
+        "Assert output emitted DURING the restart window appears (compare a sentinel counter printed across the gap — no missing lines).",
+        "Assert NO stale-frame residue after the jiggle (the grid equals a freshly-rendered screen, not overlapping fragments)."
+      ],
+      "expected": "Screen restored, in-flight-turn output preserved, no residue. Matches §5 acceptance criteria."
+    },
+    {
+      "ac": "AC-S3f2658-2-3",
+      "intent": "protocol-version-mismatch ptyhost is NOT killed; palmux2 surfaces a UI-degrade state ('old-gen agent host — restart to enable new features').",
+      "test_kind": "go-unit + status-field assertion",
+      "steps": [
+        "Simulate a ptyhost whose HELLO reports an older protocol version than the Daemon expects.",
+        "Assert the Daemon does NOT send SHUTDOWN / does NOT kill the ptyhost.",
+        "Assert the Daemon exposes a degrade flag (e.g. in CurrentStats / a status field consumed by the existing tab status channel) indicating 'old-gen agent host'.",
+        "Assert minimal-compat INPUT/DATA still flow where possible; where not, the state instructs 'restart & reconnect'.",
+        "(No pixel test — this story is go-library-cli; the degrade STATE is asserted, existing frontend renders it.)"
+      ],
+      "expected": "Version skew degrades gracefully; ptyhost preserved; degrade state observable."
+    },
+    {
+      "ac": "AC-S3f2658-2-4",
+      "intent": "Existing claude-tui unit/E2E (multi-client role, hook notification, resize, respawn --resume) regress cleanly.",
+      "test_kind": "go test ./internal/tab/claudetui/... + existing E2E",
+      "steps": [
+        "Run the full claudetui unit suite (daemon_test, multiclient_test, role, ring_test, emulator_test, render_snapshot_test, manager_integration_test, daemon_gate_test, hooks_test, sessions_test) — all pass, adapting fakes to the socket path where a test previously assumed a direct PTY.",
+        "Assert multi-client active/viewer role coordination still works over the new attach path.",
+        "Assert hook notification injection (settings/env via argv to ptyhost) is byte-identical to today's payload.",
+        "Assert respawn-on-death with --resume still works: kill the child inside the ptyhost → ptyhost exits → Daemon detects exit (STATUS/disconnect) → spawns a NEW ptyhost with --resume <sid>, gated by gateRespawn.",
+        "Assert resize propagation reaches the child."
+      ],
+      "expected": "No regression across the existing claudetui behaviors."
+    }
+  ],
+  "notes": "This is the core migration and the highest-risk story. daemon.go is substantially rewritten (PTY ownership removed). Keep the exact argv/env assembly (hooks, --permission-mode, incus PTYCommand wrapper, --plugin-dir) so hook payload + in-container spawn are unchanged. The 'respawn = spawn new ptyhost' shape replaces the in-process re-exec but keeps gateRespawn / bad-transcript guard / --resume logic. §5 SIGWINCH jiggle is the convergence mechanism — if a TUI state fails to converge, that is an ADR-0002 revisit trigger (escalate at milestone)."
+}
