@@ -122,7 +122,7 @@ function classifyRelative(href: string, currentPath: string): { resolved: string
   return { resolved }
 }
 
-export function MarkdownView({ body, path, apiBase, repoId, branchId, tabId }: ViewerProps) {
+export function MarkdownView({ body, path, apiBase, repoId, branchId, tabId, onInternalNavigate }: ViewerProps) {
   const navigate = useNavigate()
   const containerRef = useRef<HTMLDivElement | null>(null)
 
@@ -184,7 +184,14 @@ export function MarkdownView({ body, path, apiBase, repoId, branchId, tabId }: V
       const rel = classifyRelative(href, path)
       if (rel && repoId && branchId && tabId) {
         e.preventDefault()
-        navigate(buildFilesUrl(repoId, branchId, tabId, rel.resolved))
+        // Route through the panel-aware navigator when FilesView provides one, so
+        // the right (local) split panel navigates itself instead of hijacking the
+        // main route. Fall back to a plain route push when unavailable.
+        if (onInternalNavigate) {
+          onInternalNavigate(rel.resolved)
+        } else {
+          navigate(buildFilesUrl(repoId, branchId, tabId, rel.resolved))
+        }
         return
       }
 
@@ -217,7 +224,7 @@ export function MarkdownView({ body, path, apiBase, repoId, branchId, tabId }: V
       // external / unknown: let the renderer's `target="_blank"` /
       // browser default win.
     },
-    [navigate, path, repoId, branchId, tabId],
+    [navigate, path, repoId, branchId, tabId, onInternalNavigate],
   )
 
   if (!body) return <p className={styles.placeholder}>Loading…</p>

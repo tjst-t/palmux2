@@ -73,6 +73,10 @@ interface Props {
   /** Files-tab id (e.g. `files`). Forwarded to MarkdownView so SPA
    *  navigation between markdown files keeps the same tab focused. */
   tabId: string
+  /** Navigate to another file within THIS Files panel (FilesView.selectFile).
+   *  Forwarded to MarkdownView so right-split link clicks don't hijack the main
+   *  route. */
+  onInternalNavigate?: (path: string) => void
   path: string
   /** 1-based line to scroll to and briefly highlight (for grep results). */
   lineNum?: number
@@ -108,7 +112,7 @@ function isEditable(kind: ViewerKind): boolean {
   )
 }
 
-export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum, onCursorLineChange }: Props) {
+export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum, onCursorLineChange, onInternalNavigate }: Props) {
   const previewMaxBytes = usePalmuxStore(
     (s) => s.globalSettings.previewMaxBytes ?? DEFAULT_PREVIEW_MAX_BYTES,
   )
@@ -632,6 +636,7 @@ export function FilePreview({ apiBase, repoId, branchId, tabId, path, lineNum, o
               repoId={repoId}
               branchId={branchId}
               tabId={tabId}
+              onInternalNavigate={onInternalNavigate}
             />
           )}
           {viewerKind === 'markdown' && mode === 'edit' && (

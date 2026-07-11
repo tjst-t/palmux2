@@ -52,8 +52,14 @@ export function MainArea() {
 
   // If the right target points at something that no longer exists, clear it.
   const repos = usePalmuxStore((s) => s.repos)
+  const bootstrapped = usePalmuxStore((s) => s.bootstrapped)
   useEffect(() => {
     if (!rightTarget.repoId) return
+    // Don't judge existence until the initial /api/repos load has completed —
+    // otherwise a bookmarked `?right=` URL is wiped in the window before `repos`
+    // arrives (repos is still [], so every target looks "gone"). Guarding on
+    // `bootstrapped` keeps deep-linked splits intact across a cold load / reload.
+    if (!bootstrapped) return
     const repo = repos.find((r) => r.id === rightTarget.repoId)
     if (!repo) {
       setRightTarget({})
@@ -62,7 +68,7 @@ export function MainArea() {
     if (rightTarget.branchId && !repo.openBranches.some((b) => b.id === rightTarget.branchId)) {
       setRightTarget({ repoId: rightTarget.repoId })
     }
-  }, [repos, rightTarget.repoId, rightTarget.branchId, setRightTarget])
+  }, [repos, bootstrapped, rightTarget.repoId, rightTarget.branchId, setRightTarget])
 
   // When split turns on with no right target yet, default the right panel to the
   // SAME workspace shown on the left (repo/branch/tab) — so a fresh split shows the
