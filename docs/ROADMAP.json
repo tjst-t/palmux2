@@ -11927,39 +11927,39 @@
           "id": "S862203-2",
           "title": "ptyhost pipe モード + 行 ring + ACK/offset 永続化",
           "user_story": "palmux 運用者として、agent モードの stream-json イベントを 1 行も取りこぼさずに palmux2 再起動を跨いで引き継ぎたい。なぜなら、イベント欠落は transcript 破損・宙に浮いた permission 要求になるから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S862203-2-1",
               "description": "ptyhost pipe モードは PTY なしの stdin/stdout/stderr パイプ (S4d8b1c ExecCommander と同じ binary-clean 性) で claude を保持し、stdout を絶対 offset 付き行単位 ring に貯める (stderr は別チャネル)。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S862203-2-2",
               "description": "palmux2 は処理済み offset を ACK し永続化する。再接続時に last-ack 以降が replay され、二重処理も欠落もない (palmux2 kill -9 → 再起動の障害シナリオ含む)。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S862203-2-3",
               "description": "ring 溢れ (長時間切断) を検出した場合は黙って欠けた transcript を出さず、「ロスレス復元不能」を明示して新規セッション扱いにする。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S862203-2-1": {
               "id": "S862203-2-1",
               "title": "ptyhost pipe モード (行 ring + stderr チャネル)",
-              "status": "pending"
+              "status": "done"
             },
             "S862203-2-2": {
               "id": "S862203-2-2",
               "title": "ACK/offset 永続化 (sessions.json 相当) + replay プロトコル",
-              "status": "pending"
+              "status": "done"
             },
             "S862203-2-3": {
               "id": "S862203-2-3",
               "title": "ring 溢れ検出 + 明示エラー経路",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
@@ -12641,6 +12641,12 @@
       "note": "TestGCOrphans_ReapsInContainerClaude does not bound repeat reap calls; safe today only because KillContainerProcesses is idempotent (pkill exit1=no-op). Add a bound assertion or a comment documenting the idempotency contract.",
       "source": "S3f2658-4 review",
       "severity": "low"
+    },
+    {
+      "title": "claudeagent perm integration tests: hardcoded 2s deadlines flake under -race + CPU contention",
+      "note": "TestBashPerm_NoLeakOverManyRounds / TestAskUserQuestion_FullRoundTrip / TestExitPlanMode_FullRoundTrip (from S43cfb1) time out under go test -race + high CPU; pass in isolation + non-race. Reproduced on parent commits (pre-existing, not from no-halt-agent). make test gate is non-race + green. Fix: adaptive/larger deadlines or serialize.",
+      "source": "S3f2658+S862203-2",
+      "severity": "medium"
     }
   ]
 }
