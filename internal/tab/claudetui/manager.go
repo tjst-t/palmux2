@@ -6,7 +6,9 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/tjst-t/palmux2/internal/domain"
 	"github.com/tjst-t/palmux2/internal/notify"
+	"github.com/tjst-t/palmux2/internal/ptyhost"
 	"github.com/tjst-t/palmux2/internal/runtime"
 )
 
@@ -55,6 +57,10 @@ type ManagerConfig struct {
 	PalmuxBin      string
 	PtyHostLaunch  PtyHostLaunchFunc
 	RunDirOverride string
+	// InstancePrefix (S3f2658-3) is forwarded verbatim to every Daemon this
+	// Manager creates — see DaemonConfig.InstancePrefix. Empty (production)
+	// falls back to the global domain.PalmuxSessionPrefix.
+	InstancePrefix string
 }
 
 // managerEntry bundles a Daemon with its associated SessionWatcher so both
@@ -207,6 +213,7 @@ func (m *Manager) EnsureDaemon(ctx context.Context, repoID, branchID, tabID, wor
 		PalmuxBin:            m.cfg.PalmuxBin,
 		PtyHostLaunch:        m.cfg.PtyHostLaunch,
 		RunDirOverride:       m.cfg.RunDirOverride,
+		InstancePrefix:       m.cfg.InstancePrefix,
 	})
 
 	// Pre-seed session ID if we loaded one from the store. This unblocks
@@ -373,6 +380,33 @@ func (m *Manager) DetachAll(ctx context.Context) error {
 		m.cfg.Logger.Info("claudetui: daemon detached (ptyhost left running)", "key", k)
 	}
 	return nil
+}
+
+// RunDir (S3f2658-3) returns the directory this Manager's Daemons place
+// ptyhost sockets/status files in — the SAME computation [Daemon.ptyHostPaths]
+// uses (cfg.RunDirOverride if set, else ptyhost.RunDir(instancePrefix)) — so a
+// discovery/GC pass driven from outside a specific Daemon (see discover.go)
+// scans the exact directory this Manager's daemons actually use.
+//
+// NOTE: this is only meaningful when every Daemon this Manager creates
+// resolves to the SAME directory, which requires either cfg.PalmuxBin (the
+// production case: ptyhost.RunDir(instancePrefix) is process-wide, not
+// per-Daemon) or an explicit cfg.RunDirOverride. The automatic in-process
+// test fallback (PalmuxBin=="" && RunDirOverride=="") gives each Daemon its
+// OWN unique temp directory for hermetic test isolation — discovery/GC
+// against THIS Manager's RunDir() would see none of them, by design; tests
+// exercising discovery/GC set RunDirOverride explicitly.
+func (m *Manager) RunDir() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cfg.RunDirOverride != "" {
+		return m.cfg.RunDirOverride
+	}
+	prefix := m.cfg.InstancePrefix
+	if prefix == "" {
+		prefix = domain.PalmuxSessionPrefix
+	}
+	return ptyhost.RunDir(prefix)
 }
 
 // Len returns the number of currently managed daemons.

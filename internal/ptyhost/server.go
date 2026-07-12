@@ -36,6 +36,33 @@ type Config struct {
 	// StatusPath is the JSON status file path (see [StatusFile]). Required.
 	StatusPath string
 
+	// Seed is an OPAQUE label palmux2 hashes into the socket/status FILENAME
+	// (see [FileKey]) and the systemd scope-unit name (Story 1). ptyhost does
+	// not interpret it (ADR-0002 — it stays claude-agnostic) and it is echoed
+	// verbatim into the on-disk [StatusFile] only for human/debug legibility.
+	//
+	// IMPORTANT: Seed is NOT a parseable identity. It happens to be built as
+	// "repoId__branchId__tabId", but a repoId or branchId may itself contain
+	// the literal substring "__" (domain IDs permit "_", and two adjacent
+	// sanitized-out chars collapse to "__"), so splitting Seed back on "__"
+	// does NOT reliably recover the original tuple. A discovery/GC pass must
+	// read the explicit [Config.RepoID]/[Config.BranchID]/[Config.TabID]
+	// fields below instead (S3f2658-3 orphan-GC data-loss fix).
+	Seed string
+
+	// RepoID/BranchID/TabID are the OPAQUE identity of the workspace tab this
+	// ptyhost holds a process for, written DIRECTLY (no join, no parse) into
+	// the on-disk [StatusFile] so a palmux2-side discovery/orphan-GC pass
+	// (internal/tab/claudetui/discover.go, S3f2658-3) can recover exactly
+	// which (repoId, branchId, tabId) a live ptyhost belongs to — even when
+	// an ID contains "__" — without the ambiguity of parsing [Seed]. ptyhost
+	// stores and returns these verbatim; it never acts on them (ADR-0002 —
+	// claude-agnostic). All optional (empty is written as "" and simply
+	// cannot be resolved back to an identity by a discovery pass).
+	RepoID   string
+	BranchID string
+	TabID    string
+
 	// RingSize is the ring buffer capacity in bytes. <= 0 uses
 	// [DefaultRingSize].
 	RingSize int
@@ -67,6 +94,17 @@ type StatusFile struct {
 	ExitCode      int        `json:"exitCode"`
 	ExitCodeValid bool       `json:"exitCodeValid"`
 	ExitedAt      *time.Time `json:"exitedAt,omitempty"`
+	// Seed is [Config.Seed] echoed verbatim for debug legibility ONLY — see
+	// its doc comment; it is NOT a parseable identity. Use the explicit
+	// RepoID/BranchID/TabID fields below for identity recovery.
+	Seed string `json:"seed,omitempty"`
+	// RepoID/BranchID/TabID are [Config.RepoID]/[Config.BranchID]/[Config.TabID]
+	// echoed verbatim — the authoritative, unambiguous identity a discovery/GC
+	// pass reads (S3f2658-3 orphan-GC data-loss fix). Written directly (no
+	// join/parse) so an ID containing "__" round-trips exactly.
+	RepoID   string `json:"repoId,omitempty"`
+	BranchID string `json:"branchId,omitempty"`
+	TabID    string `json:"tabId,omitempty"`
 }
 
 // Server owns one PTY-spawned child process, feeds its output into a
@@ -162,6 +200,21 @@ func (s *Server) Run(ctx context.Context) error {
 
 	connCh := make(chan net.Conn)
 	acceptErrCh := make(chan error, 1)
+	// stopAccept is closed FIRST in teardown (before ln.Close()) so the
+	// accept-loop goroutine's connCh send below has a guaranteed escape
+	// hatch. Without this, a connection that Accept() returns in the tiny
+	// window between the main select loop below choosing its shutdown/ctx
+	// branch (which stops servicing connCh — see the loop's `return` paths)
+	// and ln.Close() actually taking effect would block that goroutine on
+	// `connCh <- conn` FOREVER (nobody left to receive), which in turn hangs
+	// s.wg.Wait() in teardown() forever, which hangs Run() forever. This is
+	// not a hypothetical: a discovery/orphan-GC pass (S3f2658-3) that
+	// liveness-probes (dial+HELLO+close) a ptyhost RIGHT AS it is being
+	// SHUTDOWN can land exactly in this window, and does so more often under
+	// real scheduling contention (observed as an intermittent goroutine leak
+	// / Run()-never-returns hang in internal/tab/claudetui's discovery/GC
+	// test suite before this fix).
+	stopAccept := make(chan struct{})
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -171,15 +224,26 @@ func (s *Server) Run(ctx context.Context) error {
 				acceptErrCh <- aerr
 				return
 			}
-			connCh <- conn
+			select {
+			case connCh <- conn:
+			case <-stopAccept:
+				// Run() is tearing down and will never service connCh again
+				// — this straggler connection (accepted in the shutdown
+				// race window described above) gets closed instead of
+				// leaking the goroutine that's holding it.
+				_ = conn.Close()
+				return
+			}
 		}
 	}()
 
-	// teardown closes the listener (which is what unblocks the accept-loop
-	// goroutine above) and the active client connection BEFORE waiting on
-	// wg — waiting first would deadlock, since those goroutines only return
-	// once their fd is closed.
+	// teardown closes stopAccept (unblocks a straggler connCh send — see
+	// above), THEN the listener (which is what unblocks the accept-loop's
+	// NEXT Accept() call), THEN the active client connection, all BEFORE
+	// waiting on wg — waiting first would deadlock, since those goroutines
+	// only return once unblocked by one of these three signals.
 	teardown := func() {
+		close(stopAccept)
 		_ = ln.Close()
 		_ = os.Remove(s.cfg.SocketPath)
 		s.closeActiveConn()
@@ -541,6 +605,10 @@ func (s *Server) writeStatusFile(exited bool, exitCode int, exitCodeValid bool, 
 		ExitCode:      exitCode,
 		ExitCodeValid: exitCodeValid,
 		ExitedAt:      exitedAt,
+		Seed:          s.cfg.Seed,
+		RepoID:        s.cfg.RepoID,
+		BranchID:      s.cfg.BranchID,
+		TabID:         s.cfg.TabID,
 	}
 	s.mu.Unlock()
 	return writeStatusFileAtomic(s.cfg.StatusPath, sf)

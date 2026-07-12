@@ -391,6 +391,16 @@ type DaemonConfig struct {
 	// directory. Empty + PalmuxBin empty → an automatic per-Daemon-unique
 	// temp directory (full test isolation, zero configuration needed).
 	RunDirOverride string
+	// InstancePrefix (S3f2658-3) overrides domain.PalmuxSessionPrefix as the
+	// source of instance isolation for this Daemon's ptyhost run
+	// directory/scope-unit name. Empty (every existing caller, including
+	// production main.go) falls back to the global domain.PalmuxSessionPrefix
+	// — unchanged behavior. Tests that need TWO independently-instance-scoped
+	// Managers/Daemons live in the SAME process (where domain.PalmuxSessionPrefix,
+	// a package var, cannot hold two values at once) set this directly to
+	// simulate "host palmux2" vs "INSTANCE=dev palmux2" without needing two
+	// real OS processes for every test (see AC-S3f2658-3-3).
+	InstancePrefix string
 }
 
 // NewDaemon creates a Daemon from cfg.  No subprocess is spawned yet.
@@ -410,6 +420,10 @@ func NewDaemon(cfg DaemonConfig) *Daemon {
 	ctx, cancel := context.WithCancel(context.Background())
 	if cfg.PermissionModeFn == nil {
 		cfg.PermissionModeFn = func() string { return "" }
+	}
+	instancePrefix := cfg.InstancePrefix
+	if instancePrefix == "" {
+		instancePrefix = domain.PalmuxSessionPrefix
 	}
 	d := &Daemon{
 		claudeBin:            cfg.ClaudeBin,
@@ -431,7 +445,7 @@ func NewDaemon(cfg DaemonConfig) *Daemon {
 		runtimeResolver:      cfg.RuntimeResolver,
 		notifyURLInContainer: cfg.NotifyURLInContainer,
 		palmuxBin:            cfg.PalmuxBin,
-		instancePrefix:       domain.PalmuxSessionPrefix,
+		instancePrefix:       instancePrefix,
 		ptyHostLaunch:        cfg.PtyHostLaunch,
 		runDirOverride:       cfg.RunDirOverride,
 		ptyHostRingSize:      cfg.RingSize,
@@ -831,6 +845,9 @@ func (d *Daemon) launchAndAttach(argv, env []string, cwd string) (conn net.Conn,
 		PalmuxBin:      d.palmuxBin,
 		InstancePrefix: d.instancePrefix,
 		Seed:           d.ptyHostSeed(),
+		RepoID:         d.repoID,
+		BranchID:       d.branchID,
+		TabID:          d.tabID,
 		SocketPath:     sockPath,
 		StatusPath:     statusPath,
 		Argv:           argv,

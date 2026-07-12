@@ -1,0 +1,20 @@
+{
+  "task": "AC-S3f2658-3-3",
+  "startedAt": "2026-07-12T03:33:46.014284291Z",
+  "instancePrefixA": "s3f2658-3-isoA-999702-1783827227755605850",
+  "instancePrefixB": "s3f2658-3-isoB-999702-1783827227755605850",
+  "runDirA": "/tmp/palmux-ptyhost/s3f2658-3-isoA-999702-1783827227755605850",
+  "runDirB": "/tmp/palmux-ptyhost/s3f2658-3-isoB-999702-1783827227755605850",
+  "runDirsDiffer": true,
+  "discoveryA_adopted": 1,
+  "discoveryA_cleaned": 0,
+  "discoveryB_adopted": 1,
+  "discoveryB_cleaned": 0,
+  "bSurvivedADiscovery": true,
+  "aSurvivedBDiscovery": true,
+  "gcA_shutdownCount": 1,
+  "bSurvivedAGC": true,
+  "gcB_shutdownCount": 1,
+  "verdict": "PASS",
+  "finishedAt": "2026-07-12T03:33:49.868050879Z"
+}

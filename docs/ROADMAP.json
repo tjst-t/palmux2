@@ -11820,39 +11820,39 @@
           "id": "S3f2658-3",
           "title": "発見・再接続・orphan GC・INSTANCE 分離",
           "user_story": "palmux 運用者として、palmux2 が起動したら生きている ptyhost に自動で再接続し、不要になった ptyhost は自動で回収してほしい。なぜなら、detach したプロセスの手動管理はしたくないから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S3f2658-3-1",
               "description": "palmux2 起動時に socket dir ($XDG_RUNTIME_DIR/palmux/<instancePrefix>/、fallback <config-dir>/run/) を走査し、生きている ptyhost に再接続してタブ状態を復元する。接続不能 / pid 死亡の socket・status ファイルは掃除される。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S3f2658-3-2",
               "description": "タブ削除 / worktree 消失 / branch close に対応する ptyhost へ既存 sync ループ経由で SHUTDOWN が送られ、claude ごと終了する (tmux zombie kill と同型)。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S3f2658-3-3",
               "description": "INSTANCE=dev rig の ptyhost は instancePrefix で分離され、ホスト用 instance と互いに claim / GC しない (--tmux-prefix と同じ保証)。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S3f2658-3-1": {
               "id": "S3f2658-3-1",
               "title": "socket dir 走査 + 起動時再接続 (Manager 復元パス)",
-              "status": "pending"
+              "status": "done"
             },
             "S3f2658-3-2": {
               "id": "S3f2658-3-2",
               "title": "orphan GC を既存 sync ループに相乗り (store と socket dir の突き合わせ)",
-              "status": "pending"
+              "status": "done"
             },
             "S3f2658-3-3": {
               "id": "S3f2658-3-3",
               "title": "instancePrefix 分離 (--tmux-prefix と同じ導出) + 並走 E2E",
-              "status": "pending"
+              "status": "done"
             }
           }
         },

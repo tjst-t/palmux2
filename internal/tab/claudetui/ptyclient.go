@@ -43,9 +43,20 @@ type PtyHostLaunchRequest struct {
 	// InstancePrefix isolates concurrent palmux instances (host vs
 	// INSTANCE=dev rigs), mirroring domain.PalmuxSessionPrefix.
 	InstancePrefix string
-	// Seed is hashed into the systemd scope unit name for readability
-	// (repoId__branchId__tabId).
+	// Seed is hashed into the socket/status filename + systemd scope unit
+	// name (repoId__branchId__tabId) — a LABEL only, not a parseable
+	// identity (see [ptyhost.Config.Seed]). Use RepoID/BranchID/TabID for
+	// identity recovery.
 	Seed string
+	// RepoID/BranchID/TabID are the opaque workspace-tab identity written
+	// DIRECTLY into the ptyhost status file (S3f2658-3) so discovery/GC can
+	// recover the exact tuple without parsing Seed (which is ambiguous when
+	// an ID contains "__"). Threaded verbatim into the ptyhost subcommand's
+	// --repo-id/--branch-id/--tab-id flags (production) or ptyhost.Config
+	// (in-process test fallback).
+	RepoID   string
+	BranchID string
+	TabID    string
 	// SocketPath / StatusPath are where the ptyhost must listen / write its
 	// status file — precomputed by the caller (Daemon) so the "does a
 	// survivor already exist" dial-first check and the actual launch agree
@@ -83,6 +94,23 @@ func defaultLaunchPtyHost(ctx context.Context, req PtyHostLaunchRequest) error {
 		return fmt.Errorf("claudetui: ptyhost launch: PalmuxBin is empty")
 	}
 	args := []string{"--socket", req.SocketPath, "--status", req.StatusPath}
+	if req.Seed != "" {
+		// Opaque label hashed into the socket/status filename + scope unit
+		// name — see [ptyhost.Config.Seed]. NOT a parseable identity.
+		args = append(args, "--seed", req.Seed)
+	}
+	// Explicit, unambiguous identity written directly into the status file so
+	// discovery/GC recovers the exact (repoId, branchId, tabId) even when an
+	// ID contains "__" (S3f2658-3 orphan-GC data-loss fix).
+	if req.RepoID != "" {
+		args = append(args, "--repo-id", req.RepoID)
+	}
+	if req.BranchID != "" {
+		args = append(args, "--branch-id", req.BranchID)
+	}
+	if req.TabID != "" {
+		args = append(args, "--tab-id", req.TabID)
+	}
 	if req.Cwd != "" {
 		args = append(args, "--cwd", req.Cwd)
 	}
@@ -136,6 +164,10 @@ func inProcessLaunchPtyHost(ctx context.Context, req PtyHostLaunchRequest) error
 		SocketPath: req.SocketPath,
 		StatusPath: req.StatusPath,
 		RingSize:   req.RingSize,
+		Seed:       req.Seed,
+		RepoID:     req.RepoID,
+		BranchID:   req.BranchID,
+		TabID:      req.TabID,
 	})
 	if err != nil {
 		return fmt.Errorf("claudetui: in-process ptyhost: %w", err)
