@@ -1,0 +1,24 @@
+{
+  "task": "AC-S3f2658-1-3",
+  "host": "dev.tjstkm.net",
+  "launcherUnit": "s3f2658-survtest-djw69paazt7w.service",
+  "childPid": 2589230,
+  "ptyhostPid": 2589221,
+  "survivalA": {
+    "pass": true,
+    "ringGrewAfterEvent": true,
+    "ringTotalBefore": 12,
+    "ringTotalAfter": 72
+  },
+  "survivalB": {
+    "pass": true,
+    "launcherMainPidKilled": 2589234,
+    "ringTotalBefore": 72,
+    "ringTotalAfter": 134,
+    "ringGrewAfterEvent": true
+  },
+  "finalStatusAlive": true,
+  "verdict": "SURVIVAL_PASS x2",
+  "startedAt": "2026-07-12T00:39:25.90368688Z",
+  "finishedAt": "2026-07-12T00:39:28.046358758Z"
+}

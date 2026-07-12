@@ -108,6 +108,14 @@ func main() {
 		os.Exit(runHook(os.Args[2:]))
 	}
 
+	// S3f2658-1: `palmux ptyhost ...` is the thin, claude-agnostic process
+	// holder (ADR-0001/0002) that survives palmux2 restarts. Dispatch before
+	// server bootstrap — it is launched as its own detached process (see
+	// internal/ptyhost/launch.go), never as part of a running palmux2.
+	if len(os.Args) > 1 && os.Args[1] == "ptyhost" {
+		os.Exit(runPtyHost(os.Args[2:]))
+	}
+
 	// `palmux runtime <install|doctor>` manages the palmux-ws Incus image and
 	// host prerequisites.  Dispatch before server bootstrap.
 	if len(os.Args) > 1 && os.Args[1] == "runtime" {
