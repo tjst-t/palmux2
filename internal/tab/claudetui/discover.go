@@ -335,6 +335,16 @@ func (m *Manager) GCOrphans(ctx context.Context, isLive func(repoID, branchID, t
 				"repo", h.RepoID, "branch", h.BranchID, "tab", h.TabID, "err", serr)
 			continue
 		}
+		// S3f2658-4: unlike Daemon.teardown (tab close / branch close), this
+		// SHUTDOWN never goes through a Daemon — GCOrphans dials the orphaned
+		// ptyhost's socket directly (no live Daemon exists for it; see the
+		// [sendOrphanShutdown] doc comment) — so the S52fc2c-4 in-container
+		// reap that teardown performs must be triggered explicitly here too.
+		// Without this, a tab/branch deleted while palmux2 was down (the
+		// ptyhost — and any incus-wrapped in-container claude it holds —
+		// outlives palmux2 per ADR-0001) would leave the in-container claude
+		// running forever: nothing else ever reaps it. [AC-S3f2658-4-2]
+		reapContainerClaude(m.cfg.RuntimeResolver, h.RepoID, h.BranchID, gracefulShutdownTimeout, m.cfg.Logger)
 		shutdown++
 		m.cfg.Logger.Info("claudetui: orphan gc: shut down unreferenced ptyhost",
 			"repo", h.RepoID, "branch", h.BranchID, "tab", h.TabID, "pid", h.Pid)
