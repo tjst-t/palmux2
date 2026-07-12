@@ -10,7 +10,7 @@
     "in_progress": 0,
     "percent": 97,
     "percentage": 97,
-    "current_sprint": "S862203"
+    "current_sprint": "S64c835"
   },
   "execution_order": [
     "S001",
@@ -12011,7 +12011,7 @@
       "title": "no-halt-agent 硬化: 並行データ競合の解消 + テスト健全化 + claude-agent orphan-GC",
       "description": "no-halt-agent マイルストーン (S3f2658+S862203) のレビュー/検証で積んだ fix 価値のある backlog を回収する硬化 Sprint。実プロダクトの並行データ競合 (claudetui) を潰して -race を信頼できるゲートにし、実機テストのプロセスリーク/期限 flake を直し、claude-agent に claudetui と対称な orphan-GC を入れる。設計は docs/no-halt-agent-design.md、ADR-0001/0002/0004。",
       "milestone": false,
-      "status": "pending",
+      "status": "in_progress",
       "detail_level": "detailed",
       "depends_on": {
         "depends_on": [
