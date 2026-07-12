@@ -1,0 +1,52 @@
+{
+  "sprint": "Sfeed64",
+  "story": "Sfeed64-1",
+  "type": "P0 hotfix",
+  "summary": "Fixed the v0.14.12 (S3f2658) claude-tui reattach startup deadlock: spawnWithArgs fed the ATTACH replay into the emulator BEFORE starting the response-pipe drainer goroutine, so a busy surviving ptyhost's replay (containing real ANSI device queries) blocked Feed forever while holding spawnMu, wedging the whole startup goroutine before ListenAndServe. Root-caused in a prior session (docs/handoff/reattach-deadlock-handoff.md, untracked scratch notes carried over from worktree churn) and DRAFT-patched (docs/handoff/reattach-deadlock-fix.patch); this Sprint verified/applied that patch, extended AC-3 to claude-agent's DiscoverAndRestore, wrote a REALISTIC (>64KiB, real DA1/DA2/CPR queries) regression test that reproduces the deadlock with a demonstrated fail-without-fix / pass-with-fix cycle, and fixed a newly-surfaced pre-existing data race the regression test's realistic throughput exposed.",
+  "decisions": [
+    {
+      "id": "root-fix-apply",
+      "decision": "Applied docs/handoff/reattach-deadlock-fix.patch as the starting point for internal/tab/claudetui/daemon.go's spawnWithArgs and cmd/palmux/main.go's claudetui.DiscoverAndRestore call, after confirming git apply --check succeeded cleanly against current main (S862203/S64c835 did not touch this region).",
+      "rationale": "Patch was already root-caused and reasoned through in a prior session against the exact live code; re-deriving from scratch would duplicate work and risk drifting from the documented analysis. Verified the pre-patch code matched the patch's base context exactly before applying."
+    },
+    {
+      "id": "ac3-extend-to-claudeagent",
+      "decision": "Extended the async-discovery defense (originally patch-drafted for claudetui only) to claudeagent.DiscoverAndRestore's call site in main.go too, via a new shared, named, directly-testable helper runDiscoveryAsync(fn, onResult) rather than two independent inline `go func(){...}()` blocks.",
+      "rationale": "AC-Sfeed64-1-3 explicitly requires covering BOTH call sites (the draft patch only covered claudetui; claude-agent got its own synchronous DiscoverAndRestore call in S862203-3 that carries the identical blast-radius risk even though no concrete hang has been found in claudeagent's pipe-mode reattach path yet). A shared named helper (vs. copy-pasted goroutine literals) is directly unit-testable with an injected blocking fn (cmd/palmux/discovery_async_test.go) and gives both call sites one place to fix if the pattern ever needs to change again."
+    },
+    {
+      "id": "regression-test-realistic-data",
+      "decision": "Built a new fake_claude testdata flag (--query-burst <minBytes>) that emits >64KiB of realistic scrollback filler text interleaved with REAL ANSI device query sequences (DA1 \\x1b[c, DA2 \\x1b[>c, cursor-position \\x1b[6n — the exact three sequences third_party/charmbracelet-x-vt-racefix/handlers.go answers into the emulator's response pipe), used by a two-Daemon reattach scenario (dA spawns fresh + produces the burst as live output; dB, a separately-constructed Daemon over the SAME run dir, reattaches and receives the whole burst as its ATTACH(-1) replay) mirroring the existing TestDaemonReconnectsToSurvivingPtyhostAndRestoresScreen pattern.",
+      "rationale": "DESIGN_PRINCIPLES priority-0 rule (added alongside this Sprint's plan commit) requires an AC to reproduce the FAILURE-TRIGGERING condition, not just traverse the code path with toy data — S3f2658's original verification used tens of bytes of query-free heartbeat text and never exercised the response-generating path at all, which is exactly why it shipped broken. A toy poke would not have caught this bug and would not catch a regression of it."
+    },
+    {
+      "id": "burst-timing-delay",
+      "decision": "Added a 500ms delay inside fake_claude's --query-burst handling before the burst starts writing.",
+      "rationale": "Initial investigation showed the burst could race dA's OWN first ATTACH(-1) (a fresh spawn's replay is only genuinely empty if the child hasn't produced output yet) — an unlucky race made dA occasionally observe part of the burst as ITS OWN initial replay instead of ordinary live output, which still exercises the same underlying bug but nondeterministically and on the wrong Daemon, undermining the test's intended two-phase (fresh spawn A / reattach B) structure. The delay deterministically lets A's own spawn/attach complete first (normally sub-millisecond) before the burst lands, so the burst reliably becomes B's replay."
+    },
+    {
+      "id": "burst-batched-single-write",
+      "decision": "Changed fake_claude's emitQueryBurst to build the entire burst in an in-memory buffer and emit it with ONE os.Stdout.Write call, instead of ~2500 separate small fmt.Fprint calls (one per line/query).",
+      "rationale": "The regression test flaked (burst not fully landing within a 30-60s bound) specifically under `go test ./...` full-monorepo parallel load on this 4-core box (many packages' real-subprocess tests competing for CPU simultaneously) — a pre-existing, documented characteristic of this test suite (see internal/tab/claudetui/survival_gate_test.go's doc comment on why heavy real-subprocess tests are gated). Batching into one write call removes ~2500 redundant syscalls without changing the emitted DATA (same size, same content, same interleaved real queries), which resolved the flakiness while preserving full realism."
+    },
+    {
+      "id": "gridsnapshot-race-fix",
+      "decision": "Fixed a pre-existing, previously-undetected data race: Daemon.GridSnapshot() and restoreScreenJiggle() called d.emulator.GridSnapshot() without holding feedMu, while vt.SafeEmulator.CellAt returns a *uv.Cell POINTER into its own live buffer under RLock but releases that lock before the caller (cellToGridCell) finishes reading the pointer's fields — a concurrent Feed (write-locked) can mutate the same cell mid-read. Both call sites now go through feedMu, matching the existing pattern already used by RenderSnapshotAndSubscribe for the same class of emulator read.",
+      "rationale": "The new realistic-data regression test (high-throughput live Feed calls via readLoop, running concurrently with a reconnect's restoreScreenJiggle -> GridSnapshot call) was the first test in the suite to generate enough concurrent throughput to trip this latent race under `go test -race` — no existing test (all much lower throughput, e.g. --counter-winch's ~10 bytes/100ms) ever exercised it. Per project discipline (no self-judged skips/suppression of real failures, and the explicit AC-Sfeed64-1 requirement not to regress S64c835's -race cleanliness), the race was fixed rather than worked around by weakening the new test's realism."
+    },
+    {
+      "id": "ac4-escalated",
+      "decision": "AC-Sfeed64-1-4 (real claude-tui session dogfood on green.tjstkm.net, double restart, human-judged) is explicitly NOT attempted by this agent — marked needs_user / escalated.",
+      "rationale": "Explicit instruction in the story: this requires a real, human-operated claude-tui session with accumulated conversational output, a real double palmux2 restart on a live host, and human-eyes judgment of screen/conversation continuity — none of which an autonomous agent can safely or meaningfully perform. Also gates the v0.14.13 release per the priority-0 DESIGN_PRINCIPLES rule this same incident produced (no release immediately after 'done' without a real dogfood)."
+    }
+  ],
+  "verification": {
+    "build": "go build ./... clean",
+    "vet": "go vet ./... clean",
+    "unit_tests": "go test ./internal/tab/claudetui/ ./internal/tab/claudeagent/ ./cmd/palmux/... — pass, repeated runs",
+    "race": "go test -race ./internal/tab/claudetui/ -count=1 — clean across 9 repeated runs (6 before + 3 after the batching change)",
+    "full_repo": "go test ./... — clean across multiple repeated full-suite runs after the burst-batching fix; was intermittently flaky (timing only, not a logic failure) before batching, due to CPU contention on a 4-core box running the full monorepo test suite in parallel (matches survival_gate_test.go's documented, pre-existing rationale for gating heavy real-subprocess tests)",
+    "deadlock_reproduction": "Confirmed by temporarily reverting ONLY daemon.go's ordering fix (git stash) and re-running the new regression test: (1) with go test's own -timeout, produced a full goroutine dump showing the exact reported production stack (io.(*pipe).write <- PrimaryDeviceAttributes handler <- Emulator.Write <- SafeEmulator.Write (writer lock held) <- claudetui.Emulator.Feed <- daemon.go's pre-fix Feed line <- EnsureStarted (spawnMu held) <- test); (2) after adding the burst-timing delay to deterministically target dB's reattach specifically, produced a clean, self-diagnosing test failure at the internal 15s(later 45s) bound identifying the exact reattach hang. Fix was then restored (git stash pop) and the test re-confirmed passing in ~1s.",
+    "leaked_processes": "none (ps aux checked clean after all test runs)"
+  }
+}

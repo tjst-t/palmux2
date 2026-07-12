@@ -667,17 +667,33 @@ func run(rc resolved) error {
 
 	// S3f2658-3: reconnect to any `palmux ptyhost` processes that survived a
 	// PRIOR palmux2 lifetime (self-update / systemctl restart / `make serve`
-	// re-run — ADR-0001/0002) BEFORE starting the background loops, so a
-	// restart's very first frame already shows restored claude-tui tabs
-	// rather than a blank one waiting for a lazy first WS attach. Dead /
-	// unreachable ptyhost sockets left behind by an unclean prior exit are
-	// cleaned up here too. Must run after tab/branch reconciliation above so
-	// worktree lookups are accurate.
-	if adopted, cleaned, derr := claudetui.DiscoverAndRestore(ctx, claudetuiMgr, storeWorktreeResolver{store: st}.BranchWorktreePath, slog.Default()); derr != nil {
-		slog.Warn("claudetui: startup ptyhost discovery failed", "err", derr)
-	} else if adopted > 0 || cleaned > 0 {
-		slog.Info("claudetui: startup ptyhost discovery", "adopted", adopted, "cleanedStale", cleaned)
-	}
+	// re-run — ADR-0001/0002) so a restart's first frame already shows restored
+	// claude-tui tabs rather than a blank one waiting for a lazy first WS attach.
+	// Dead / unreachable ptyhost sockets left behind by an unclean prior exit are
+	// cleaned up here too. Runs after tab/branch reconciliation above so worktree
+	// lookups are accurate.
+	//
+	// Run in the BACKGROUND (v0.14.12 hardening, Sfeed64-1): a slow or wedged
+	// reattach must never delay ListenAndServe. In v0.14.12 a reattach
+	// deadlocked HERE on the main goroutine, so the process stayed
+	// systemd-"active" but never bound its port and the whole web UI 502'd.
+	// Correctness does not depend on this finishing before serve — the lazy
+	// first-WS-attach path (Daemon.EnsureStarted) reattaches to the same
+	// surviving ptyhost on demand; this only front-loads it. See
+	// runDiscoveryAsync's doc comment for why this is a named, directly
+	// testable helper rather than an inline `go func(){...}()`.
+	runDiscoveryAsync(
+		func() (int, int, error) {
+			return claudetui.DiscoverAndRestore(ctx, claudetuiMgr, storeWorktreeResolver{store: st}.BranchWorktreePath, slog.Default())
+		},
+		func(adopted, cleaned int, derr error) {
+			if derr != nil {
+				slog.Warn("claudetui: startup ptyhost discovery failed", "err", derr)
+			} else if adopted > 0 || cleaned > 0 {
+				slog.Info("claudetui: startup ptyhost discovery", "adopted", adopted, "cleanedStale", cleaned)
+			}
+		},
+	)
 	// S3f2658-3: wire orphan GC onto the store's existing 10s scan loop
 	// (tmux-zombie-kill parity for ptyhosts whose tab/branch/worktree is
 	// gone). Must be set before st.Run(ctx) starts that loop.
@@ -688,11 +704,28 @@ func run(rc resolved) error {
 	// prior palmux2 lifetime so an in-flight turn's transcript (and any
 	// permission that arrived during the restart window) is restored
 	// before the first WS/REST request lands, not lazily on next message.
-	if adopted, cleaned, derr := claudeagent.DiscoverAndRestore(ctx, agentManager, slog.Default()); derr != nil {
-		slog.Warn("claudeagent: startup ptyhost discovery failed", "err", derr)
-	} else if adopted > 0 || cleaned > 0 {
-		slog.Info("claudeagent: startup ptyhost discovery", "adopted", adopted, "cleanedStale", cleaned)
-	}
+	//
+	// Sfeed64-1: run in the BACKGROUND, same rationale as the claudetui
+	// discovery goroutine above. claude-agent's reattach path is a different
+	// package (claudeagent.DiscoverAndRestore / launch.go) than claudetui's
+	// deadlocked spawnWithArgs, and no equivalent hang has been found there —
+	// but running it synchronously on the startup goroutine gave S3f2658 the
+	// exact same "wedged reattach blocks ListenAndServe, whole web UI 502s"
+	// blast radius for a bug class this call is equally capable of hitting.
+	// Correctness does not depend on this finishing before serve — the lazy
+	// first-WS-attach path re-adopts the same surviving ptyhost on demand.
+	runDiscoveryAsync(
+		func() (int, int, error) {
+			return claudeagent.DiscoverAndRestore(ctx, agentManager, slog.Default())
+		},
+		func(adopted, cleaned int, derr error) {
+			if derr != nil {
+				slog.Warn("claudeagent: startup ptyhost discovery failed", "err", derr)
+			} else if adopted > 0 || cleaned > 0 {
+				slog.Info("claudeagent: startup ptyhost discovery", "adopted", adopted, "cleanedStale", cleaned)
+			}
+		},
+	)
 	// S64c835-3: wire orphan GC onto the store's existing 10s scan loop —
 	// claudetui parity (see SetTuiOrphanGC above). Must be set before
 	// st.Run(ctx) starts that loop.
@@ -1114,6 +1147,31 @@ func (h claudeMultiTabHook) CreateTab(_ context.Context, repoID, branchID, provi
 
 func (h claudeMultiTabHook) DeleteTab(ctx context.Context, repoID, branchID, tabID string) error {
 	return h.mgr.RemoveTabForBranch(ctx, repoID, branchID, tabID)
+}
+
+// runDiscoveryAsync runs fn — a startup ptyhost-discovery pass
+// (claudetui.DiscoverAndRestore or claudeagent.DiscoverAndRestore) — in the
+// BACKGROUND, then hands its (adopted, cleaned, err) result to onResult once
+// fn returns. onResult may be nil.
+//
+// Sfeed64-1: this exists as a small, named, directly-testable helper (rather
+// than an inline `go func(){...}()` at each call site in run()) specifically
+// so a test can drive the EXACT mechanism run() uses with a deliberately
+// blocking fn and assert that whatever runs immediately after the call site
+// (in production, ListenAndServe) is never delayed — see
+// TestRunDiscoveryAsyncDoesNotBlockCaller in discovery_async_test.go. Both
+// call sites in run() must go through this helper; a caller that inlines its own
+// synchronous DiscoverAndRestore(...) call instead reintroduces exactly the
+// v0.14.12 startup deadlock this Sprint fixes (a wedged reattach on the main
+// goroutine holds up ListenAndServe and the whole web UI 502s while systemd
+// still reports the process "active").
+func runDiscoveryAsync(fn func() (adopted, cleaned int, err error), onResult func(adopted, cleaned int, err error)) {
+	go func() {
+		adopted, cleaned, err := fn()
+		if onResult != nil {
+			onResult(adopted, cleaned, err)
+		}
+	}()
 }
 
 // storeWorktreeResolver adapts *store.Store into claudetui.WorktreeResolver
