@@ -693,6 +693,10 @@ func run(rc resolved) error {
 	} else if adopted > 0 || cleaned > 0 {
 		slog.Info("claudeagent: startup ptyhost discovery", "adopted", adopted, "cleanedStale", cleaned)
 	}
+	// S64c835-3: wire orphan GC onto the store's existing 10s scan loop —
+	// claudetui parity (see SetTuiOrphanGC above). Must be set before
+	// st.Run(ctx) starts that loop.
+	st.SetAgentOrphanGC(agentManager)
 
 	st.Run(ctx)
 

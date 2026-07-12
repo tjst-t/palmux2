@@ -29,10 +29,10 @@ import (
 // "surface a permission to the UI" path) and lets the test hold a specific
 // request pending (block) or answer it (return allow) deterministically.
 type surfacedRecorder struct {
-	mu        sync.Mutex
-	surfaced  []string
-	arrived   map[string]chan struct{} // closed when RequestPermission for id is entered
-	release   map[string]chan struct{} // the handler blocks until this is closed
+	mu       sync.Mutex
+	surfaced []string
+	arrived  map[string]chan struct{} // closed when RequestPermission for id is entered
+	release  map[string]chan struct{} // the handler blocks until this is closed
 }
 
 func newSurfacedRecorder(ids ...string) *surfacedRecorder {
