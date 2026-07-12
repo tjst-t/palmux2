@@ -2,14 +2,14 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 72,
+    "sprints_done": 73,
     "sprints_total": 74,
-    "done": 72,
+    "done": 73,
     "total": 74,
-    "remaining": 2,
+    "remaining": 1,
     "in_progress": 0,
-    "percent": 97,
-    "percentage": 97,
+    "percent": 99,
+    "percentage": 99,
     "current_sprint": "S64c835"
   },
   "execution_order": [
@@ -12011,7 +12011,7 @@
       "title": "no-halt-agent 硬化: 並行データ競合の解消 + テスト健全化 + claude-agent orphan-GC",
       "description": "no-halt-agent マイルストーン (S3f2658+S862203) のレビュー/検証で積んだ fix 価値のある backlog を回収する硬化 Sprint。実プロダクトの並行データ競合 (claudetui) を潰して -race を信頼できるゲートにし、実機テストのプロセスリーク/期限 flake を直し、claude-agent に claudetui と対称な orphan-GC を入れる。設計は docs/no-halt-agent-design.md、ADR-0001/0002/0004。",
       "milestone": false,
-      "status": "in_progress",
+      "status": "done",
       "detail_level": "detailed",
       "depends_on": {
         "depends_on": [
@@ -12765,6 +12765,12 @@
       "note": "Benign visual reflow after screen restore, caused by xterm FitAddon third attach interacting with scrolling output; proven NOT from the restore SIGWINCH jiggle (strict-ordering assertion on raw reconnect frame). Cosmetic; revisit if users report confusion.",
       "source": "S3f2658-2 e2e",
       "severity": "low"
+    },
+    {
+      "title": "Remove go.mod replace for charmbracelet/x/vt once upstream fixes the Emulator closed-field race",
+      "note": "S64c835-1 vendored third_party/charmbracelet-x-vt-racefix (closed bool->atomic.Bool) via go.mod replace to fix a data race unfixable from palmux2 side. The replace freezes x/vt — go get -u will not pick up an upstream fix. Periodically check upstream; when it ships an equivalent atomic-based fix, drop the replace + third_party copy. Consider contributing the fix upstream.",
+      "source": "S64c835 verifier",
+      "severity": "medium"
     }
   ]
 }

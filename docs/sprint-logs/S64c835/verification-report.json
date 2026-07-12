@@ -1,0 +1,75 @@
+{
+  "sprint": "S64c835",
+  "verifier": "independent",
+  "method": "READ-ONLY re-check against code + logs (not the self-report). Byte-diffed the vendored fork vs the pinned module cache; read all 4 TOCTOU call sites + Answer* delivery paths + awaitPermission; grepped skips across all touched packages; independently re-ran go build, go vet, claudetui -race -count=3, claudeagent perm -race -count=50, and every new GC/idempotency/store test.",
+  "ac_reconciliation": [
+    {
+      "ac": "AC-S64c835-1-1",
+      "self": "pass",
+      "verifier": "confirm",
+      "note": "Vendored fork closes the Emulator.closed race at the root (atomic.Bool at all 3 sites). Independently re-ran `go test -race ./internal/tab/claudetui/ -count=3` = ok, 63.6s, 0 races. NOTE: implementation DEVIATES from the AC's literal wording ('palmux2 側アクセスを直列化' = serialize caller-side); it instead patches upstream via go.mod replace. Deviation is documented in decisions.json with a sound proof that caller-side serialization is impossible (Read blocks indefinitely; -race needs a happens-before edge, not wall-clock separation). AC INTENT (0 races, stable -count=3) is fully met."
+    },
+    {
+      "ac": "AC-S64c835-1-2",
+      "self": "pass",
+      "verifier": "confirm",
+      "note": "role.go OnSubscribe/OnUnsubscribe now capture len(rc.subs) into a local UNDER rc.mu before Unlock; the debug log uses the local. Pure hoist, no behavior/lock change. TestRoleCoordinatorConcurrentSubscribeUnsubscribe (32 workers x 50 rounds) is a real regression test with a real assertion (remaining==0). Covered by the clean -race count=3 run."
+    },
+    {
+      "ac": "AC-S64c835-1-3",
+      "self": "pass",
+      "verifier": "confirm",
+      "note": "Full claudetui suite -race -count=3 green (re-run). No assertions removed; the only claudetui-side change beyond role.go is simplifying Emulator.Close/Read back to pass-throughs (the fork now owns the sync), which is correct."
+    },
+    {
+      "ac": "AC-S64c835-2-1",
+      "self": "pass",
+      "verifier": "confirm",
+      "note": "reapAndAssertNoLeak registered FIRST (runs LAST, LIFO), tracks every launched host, polls pidAlive with grace, SIGKILL backstop, and ASSERTS via t.Errorf on any survivor + pgrep of the t.TempDir()-unique bins. This STRENGTHENS cleanup (was fire-and-forget) into a real assertion. pgrep-unavailable fallback is a t.Logf non-fatal (correct: absence of pgrep is not leak evidence, not a suppression of real failures)."
+    },
+    {
+      "ac": "AC-S64c835-2-2",
+      "self": "pass",
+      "verifier": "confirm",
+      "note": "Two-part: (a) permTestTimeout only WIDENS budgets (base x raceTimeoutMultiplier>=1 x scale>=1); applied only to time.After wait budgets; all behavior/no-leak/deny-reprompt assertions in the 3 perm test files are byte-for-byte unchanged (verified via diff). (b) REAL production TOCTOU fix in manager.go — verified sound below. Re-ran claudeagent perm `-race -count=50` = ok, 0 failures."
+    },
+    {
+      "ac": "AC-S64c835-2-3",
+      "self": "pass",
+      "verifier": "confirm",
+      "note": "TestKillContainerProcesses_RepeatCallsAreIdempotent asserts 4 repeats each return nil AND exactly 4 well-formed `pkill -TERM -f <bin>` calls. claudetui TestReapContainerClaude_RepeatCallsAreSafe + the GCOrphans repeat-tick bounded assertion pin the contract at the call site. Both re-run green."
+    },
+    {
+      "ac": "AC-S64c835-3-1",
+      "self": "pass",
+      "verifier": "confirm",
+      "note": "Manager.GCOrphans is a faithful mirror of claudetui: skipLive-before-dial excludes referenced entries before pid/dial/HELLO; unreferenced LIVE ptyhosts get sendAgentOrphanShutdown + reapAgentContainerClaude. Wired onto the existing 10s scanPorts tick (no new loop), set before st.Run. TestGCOrphans_ShutsDownUnreferenced_LeavesReferenced re-run PASS."
+    },
+    {
+      "ac": "AC-S64c835-3-2",
+      "self": "pass",
+      "verifier": "confirm",
+      "note": "Identity read from explicit status-file RepoID/BranchID/TabID, never a Seed split. TestGCOrphans_IDContainingDoubleUnderscore_SurvivesGC is substantive: real ptyhost with repoID 'my__tool--ab12', isLive=exact-tuple, asserts shutdown==0, pid alive, socket listening, HELLO ok, pid unchanged, status identity unmangled across multiple ticks. Re-run PASS."
+    },
+    {
+      "ac": "AC-S64c835-3-3",
+      "self": "pass",
+      "verifier": "confirm",
+      "note": "New GCOrphans tests use real fake_ndjson processes (not mocks/real-claude), hermetic + fast. Store-side TestGCAgentOrphans_{NoopWithoutGC,CallsWiredGC,TuiAndAgentGC_BothWired} prove both reapers fire independently on the same tick. All re-run PASS."
+    }
+  ],
+  "vendored_fork_assessment": "minimal + correct. Byte-diffed third_party/charmbracelet-x-vt-racefix against the pinned module cache (v0.0.0-20260519012233-798e623c8447): the ONLY source difference is emulator.go — `closed bool` -> `closed atomic.Bool` (import + comment), with all 3 field accesses converted (2 Load, 1 CompareAndSwap replacing the old read-then-write in Close). The CAS is semantically identical AND strictly strengthens Close() idempotency (old code had a two-caller TOCTOU calling CloseWithError twice; CAS guarantees exactly one). go.mod and go.sum are byte-identical to upstream (module path intact). Only 2 files removed (emulator_test.go, scrollback_test.go) — test-only, as claimed; NOT a broader fork. The suspicious `// SKIP: Fix typecheck errors` in osc.go line 2 is PRE-EXISTING UPSTREAM (confirmed present in the module cache copy), not injected. The replace is scoped, pinned to a local dir, and documented with a removal condition in the go.mod comment. CONCERN (minor, non-blocking): a go.mod `replace` FREEZES the module at the local copy — a future version-constraint bump silently has no effect while the replace exists, and `go get -u` will not pull an upstream fix. The removal follow-up is captured in PROSE (decisions.json + go.mod comment) but is NOT a tracked ROADMAP backlog item; recommend adding one so the divergence is actively revisited.",
+  "toctou_fix_verdict": "sound (4 sites, no new race, no RD-26 regression). Verified all 4 call sites (handleCanUseTool, RequestPermission, requestAskAnswer, requestPlanResponse) call registerPermWaiter(permID) AFTER minting permID but BEFORE any broadcast/publish, and thread the SAME buffered(cap 1) channel into awaitPermission. awaitPermission no longer registers — it only selects on the passed channel + the 15-min fallback (which still deletes by permID). registerPermWaiter and all Answer*/timeout deletes are under a.mu, so no new race. Answer* delivery is lookup+delete-under-lock then a single non-blocking send into the cap-1 channel, so exactly-once delivery is preserved — no resurface, RD-26 intact (TestBashPerm_Deny's 'second prompt after deny' assertion unchanged and passing). No early-return between registerPermWaiter and awaitPermission at any site (only best-effort `if ...; err==nil` inline broadcasts), so no waiter-map leak. Replay path (client_overlap_replay_test.go) only had a gofmt whitespace change and passes.",
+  "no_test_weakening": "confirmed. `grep -rn t.Skip/Skipf` across the 4 touched packages shows only PRE-EXISTING env-gated smoke skips (survival_gate, real_incus, real-claude spike, symlink-unsupported fixtures) — none added by this sprint. The diff's 'skip' hits are: prose in decisions/verification JSON, the `skipLive` GC parameter name, a testutil comment explicitly stating a widened budget is NOT a skip, and the upstream osc.go comment. Adaptive timeout only widens (multiplier>=1, scale>=1, default 1). Every assertion in the 3 perm test files is unchanged (diff shows only `2*time.Second` -> `permTestTimeout(2*time.Second)`). The leak fix (t.Errorf on survivor/pgrep) and idempotency pins (exactly-N pkill shape) are real, added assertions — coverage grew, not shrank.",
+  "machine_verdict_reconciled": "pass matches logs. verify-run.json overall_machine_status=pass with all 4 runs exit_code 0; verify-make-test.log ends __VERIFY_EXIT_CODE__=0 (26 pkgs ok, no FAIL). Independently reproduced: `go build ./...` clean, `go vet` (touched pkgs) clean, claudetui `-race -count=3` = ok 0 races (63.6s), claudeagent perm `-race -count=50` = ok, and every new GC/idempotency/store test PASS.",
+  "overlooked_compromises": [
+    {
+      "item": "go.mod replace FREEZES charmbracelet/x/vt at the vendored copy — version bumps and `go get -u` will not pick up an upstream fix while the replace stands. Recorded in prose (decisions.json + go.mod comment) but NOT as a tracked ROADMAP backlog item. Recommend a backlog entry: 'drop the x/vt replace once upstream ships an equivalent atomic-closed fix'. Non-blocking.",
+      "flag": "overlooked_by_autopilot (partial — captured in comments, not tracked)"
+    },
+    {
+      "item": "AC-S64c835-1-1's literal ROADMAP wording ('palmux2 側アクセスを直列化') was NOT implemented as written; the fix is an upstream fork instead. The deviation is well-justified and documented in decisions.json, and the AC's intent (race-free, stable -count=3) is met — but the ROADMAP AC text was not updated to reflect the actual solution shape. Cosmetic; non-blocking."
+    }
+  ],
+  "overall": "agree_sprint_complete"
+}
