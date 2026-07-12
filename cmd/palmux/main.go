@@ -379,6 +379,20 @@ func run(rc resolved) error {
 	if err != nil {
 		return err
 	}
+	agentOffsetStore, err := claudeagent.NewOffsetStore(configDir)
+	if err != nil {
+		return err
+	}
+
+	// Hook wiring: the palmux binary doubles as the Claude Code hook handler
+	// (`palmux hook`) AND (S3f2658-2/S862203-3) the `palmux ptyhost` process
+	// re-invoked to hold a claude-tui / claude-agent subprocess so it
+	// survives a palmux2 restart (ADR-0001/0002). Resolve its absolute path
+	// once, up front, so both Managers agree on the same binary.
+	hookBinPath, err := os.Executable()
+	if err != nil || hookBinPath == "" {
+		hookBinPath = os.Args[0]
+	}
 
 	tmuxClient := tmux.NewExecClient()
 	ghqClient := ghq.New()
@@ -526,6 +540,14 @@ func run(rc resolved) error {
 		NotifyURLInContainer:  bridgeNotifyURL(addr, basePath),
 		NotifyToken:           token,
 		DefaultPermissionMode: settingsStore.Get().ClaudePermissionMode(), // global setting, default "auto"
+		// S862203-3: claude now survives a palmux2 restart via a detached
+		// `palmux ptyhost --mode pipe` process (ADR-0001/0002/0004) —
+		// PalmuxBin is the same binary re-invoked as `<PalmuxBin> ptyhost
+		// ...`. InstancePrefix is left empty (defaults to
+		// domain.PalmuxSessionPrefix, already configured process-wide via
+		// --tmux-prefix), same as claudetuiMgr below.
+		PalmuxBin:   hookBinPath,
+		OffsetStore: agentOffsetStore,
 	},
 		agentStore,
 		branchResolver{store: st},
@@ -553,13 +575,6 @@ func run(rc resolved) error {
 	tuiStore, err := claudetui.NewSessionStore(configDir)
 	if err != nil {
 		return fmt.Errorf("claudetui session store: %w", err)
-	}
-	// Hook wiring: the palmux binary doubles as the Claude Code hook handler
-	// (`palmux hook`). Resolve its absolute path so the injected --settings
-	// command is unambiguous regardless of the claude subprocess's cwd.
-	hookBinPath, err := os.Executable()
-	if err != nil || hookBinPath == "" {
-		hookBinPath = os.Args[0]
 	}
 	claudetuiMgr := claudetui.NewManager(claudetui.ManagerConfig{
 		ClaudeBin:      claudeBin,
@@ -667,6 +682,17 @@ func run(rc resolved) error {
 	// (tmux-zombie-kill parity for ptyhosts whose tab/branch/worktree is
 	// gone). Must be set before st.Run(ctx) starts that loop.
 	st.SetTuiOrphanGC(claudetuiMgr)
+
+	// S862203-3: same idea as the claudetui discovery pass above, for the
+	// Claude AGENT tab's pipe-mode ptyhosts — re-adopt any that survived a
+	// prior palmux2 lifetime so an in-flight turn's transcript (and any
+	// permission that arrived during the restart window) is restored
+	// before the first WS/REST request lands, not lazily on next message.
+	if adopted, cleaned, derr := claudeagent.DiscoverAndRestore(ctx, agentManager, slog.Default()); derr != nil {
+		slog.Warn("claudeagent: startup ptyhost discovery failed", "err", derr)
+	} else if adopted > 0 || cleaned > 0 {
+		slog.Info("claudeagent: startup ptyhost discovery", "adopted", adopted, "cleanedStale", cleaned)
+	}
 
 	st.Run(ctx)
 
@@ -835,11 +861,13 @@ func run(rc resolved) error {
 	slog.Info("shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	agentManager.Shutdown()
-	// S3f2658-2: DetachAll (NOT ShutdownAll) — palmux2 process exit (SIGTERM,
-	// self-update restart) must leave every claude-tui ptyhost running so a
-	// future palmux2 reconnects to it (ADR-0001/0002 restart survival). Only
-	// an intentional tab/branch close calls Shutdown.
+	// S3f2658-2 / S862203-3: DetachAll (NOT Shutdown) — palmux2 process exit
+	// (SIGTERM, self-update restart) must leave every claude-tui / claude-agent
+	// ptyhost running so a future palmux2 reconnects to it (ADR-0001/0002
+	// restart survival). Only an intentional tab/branch close calls Shutdown.
+	if err := agentManager.DetachAll(shutdownCtx); err != nil {
+		slog.Warn("claudeagent detach", "err", err)
+	}
 	if err := claudetuiMgr.DetachAll(shutdownCtx); err != nil {
 		slog.Warn("claudetui detach", "err", err)
 	}

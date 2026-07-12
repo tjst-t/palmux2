@@ -38,7 +38,10 @@
     "task": "S862203-1-1",
     "question": "Does the claude CLI wait for (and accept) a response to an MCP-routed permission control_request LONGER than palmux2's realistic restart window (a few seconds to ~15s)? Or does it time out / cancel / abort the tool first?",
     "run_first": true,
-    "blocks": ["S862203-2", "S862203-3"],
+    "blocks": [
+      "S862203-2",
+      "S862203-3"
+    ],
     "real_claude": true,
     "method": "Go spike harness reusing claudeagent transport primitives (mirror ask_integration_test.go / bash_perm_integration_test.go real-claude wiring): spawn real claude in stream-json mode with an in-process MCP permission server, force a permission control_request, WITHHOLD the response for tiered delays (10s/30s/60s), then send allow and record whether the late response is accepted + the tool executes + the turn continues.",
     "gate": "ADR-0004 revisit + HALT (escalate to user) IF the late allow is NOT accepted at ~15s (deadline shorter than restart window). PASS ⇒ proceed to Wave 2.",
@@ -47,17 +50,23 @@
   "waves": [
     {
       "wave": 1,
-      "stories": ["S862203-1"],
+      "stories": [
+        "S862203-1"
+      ],
       "rationale": "Gating spike — REAL claude control_request deadline. Must PASS before building the replay mechanism it validates; a FAIL triggers an ADR-0004 revisit and halts the sprint (priority_rule 0)."
     },
     {
       "wave": 2,
-      "stories": ["S862203-2"],
+      "stories": [
+        "S862203-2"
+      ],
       "rationale": "Pipe-mode ptyhost + generic line-oriented offset-ack replay + persistence store + ring-overflow detection. Fully verifiable with a fake NDJSON emitter (no claude, no quota). Depends on the Wave-1 spike PASS."
     },
     {
       "wave": 3,
-      "stories": ["S862203-3"],
+      "stories": [
+        "S862203-3"
+      ],
       "rationale": "claudeagent.Client thin-client migration onto the Wave-2 mechanism + permstate/transcript replay reconstruction + real-claude restart-crossing E2E. Depends on Wave 2 (mechanism) and shares claudeagent files with it, so it runs strictly after."
     }
   ],
@@ -222,6 +231,48 @@
       "story": "S862203-2",
       "decision": "Post-review hardening + test-run finding: the timing-dependent replay tests were made deterministic rather than sleep-and-hope. (i) ctx timeouts + 'wait for N lines' deadlines widened to 20-30s (they assert by absolute offset / seq equality, NOT by timing, so waiting longer never weakens them). (ii) TestServer_PipeMode_StdoutStderrSeparation now accumulates frames on each channel until the full 5-stdout + 3-stderr burst is present (robust to the burst spanning replay+live frames under load) instead of assuming one 300ms-sleep-then-single-frame replay. (iii) Both overflow tests (ptyhost + claudeagent) now POLL STATUS until RingHeadOffset>0 (eviction actually happened) before ATTACHing, instead of a fixed 400-500ms sleep — removing the last fixed-sleep race that produced a rare full-suite-under-load ptyhost flake. Verified 4/4 green under 4x `yes` CPU load with -race, and the full no-race suite green across repeated runs. Separately, a full-package `go test -race` run intermittently fails on the PRE-EXISTING permission integration tests (TestBashPerm_NoLeakOverManyRounds / TestAskUserQuestion_FullRoundTrip / TestExitPlanMode_FullRoundTrip) with a hard-coded 2s deadline DEADLOCK under CPU contention. These tests were last touched in S43cfb1 (untouched by this story), pass in isolation and without -race, and the SAME flake reproduces on the parent commit 0486acf (before any S862203-2 code) under identical -race+load — confirming it is pre-existing timing fragility, NOT introduced here. The project's canonical `make test` runs `go test` WITHOUT -race and is fully green. Per no-self-judged-skips discipline these pre-existing flakes were NOT silenced/modified (out of scope); they are reported to the reviewer instead.",
       "rationale": "My own new tests must be robust under the reviewer's requested `-race` run; widening offset-assertion deadlines achieves that with zero loss of rigor (verified 6/6 green under 4x `yes` CPU load with -race). Touching the unrelated pre-existing permission tests would be scope creep and risk; establishing they flake identically on the parent commit is the honest way to attribute the -race-under-load failures away from this change."
+    },
+    {
+      "id": "RD-19",
+      "story": "S862203-3",
+      "decision": "client.go's transport half is rewritten to a thin pipe-mode ptyhost socket client (launch.go NEW: PtyHostLaunchRequest/Func + defaultLaunchPtyHost/inProcessLaunchPtyHost, near-verbatim mirror of claudetui/discover.go's launch mechanics but Mode=ptyhost.ModePipe and no PTY-specific screen-restore concern). argv/env/cwd assembly (hooks --settings, --permission-mode, --plugin-dir, the incus PTYCommander wrapper -> opaque argv/env/cwd) is kept BYTE-IDENTICAL to the pre-S862203-3 exec-direct implementation via buildOpaqueCommand, which is the exact incus-unpack pattern claudetui.spawnWithArgs already established (argv=[cmd.Path,cmd.Args[1:]...], env=cmd.Env, cwd=cmd.Dir). One deliberate behavior CHANGE from the pre-story implementation: the host path now explicitly captures palmux2's OWN os.Environ()+TERM as the opaque Env handed to ptyhost (mirrors claudetui), since ptyhost is normally a SEPARATE detached process that does NOT automatically inherit palmux2's env the way an in-process exec.Cmd child used to.",
+      "rationale": "ADR-0002 requires ptyhost to stay claude-agnostic and all orchestration to live palmux2-side; buildOpaqueCommand is the seam that keeps that boundary while switching the actual spawn mechanism. The explicit env capture is required for correctness under the NEW transport (a detached ptyhost re-invoked via systemd-run/setsid does not share palmux2's process env for free) even though it is invisible in the exec-direct/in-process test world where it was previously implicit."
+    },
+    {
+      "id": "RD-20",
+      "story": "S862203-3",
+      "decision": "PipeClient.Run's onLine dispatch (handleLine) reproduces the OLD bufio.Scanner switch (control_response -> mux, control_request -> handleControlRequest, control_cancel_request -> drop, default -> onMessage) UNCHANGED in behavior, but adds offset-bookkeeping around it: advanceAck/beginPending/resolvePending + persistSafeFrontierLocked. control_request handling stays ASYNC (go func(){ handleControlRequest(msg); resolvePending(...) }()) exactly as before (a slow permission decision must not stall the read loop), but the PERSISTED replay offset now deliberately does NOT advance past a still-unresolved control_request's line start until its control_response has actually been written back. persistSafeFrontierLocked persists min(highestSeenOffset, min(all pending line-start offsets)).",
+      "rationale": "This is the mechanism that makes AC-S862203-3-2 part (b) possible. Under the OLD (pre-pipe-mode) design there was no persisted offset at all, so the question didn't arise. Under a naive port that acks a control_request line the instant it's DISPATCHED (not resolved), a palmux2 restart while a permission is genuinely pending would have already persisted an offset PAST that line -- so reconnect-replay would skip it entirely, silently losing the pending permission (violates the story's core promise). Holding the frontier back at the EARLIEST unresolved control_request's start means a restart in that window replays the SAME control_request line again on reconnect, re-entering the UNCHANGED mcp.handle -> RequestPermission -> awaitPermission path (ADR-0004 PD-5: replaying the stream through the unchanged parse path rebuilds state for free) and reconstructing the pending-permission UI state without any special-cased restart-recovery logic. Real-claude E2E (tests/e2e/s862203_agent_restart_survival.py, docs/sprint-logs/S862203/e2e-S862203-3.json) confirms: permission surfaced pre-restart -> restart -> permission RESURFACED -> answered -> tool executed -> second restart does NOT re-surface it (offset correctly advanced once resolved)."
+    },
+    {
+      "id": "RD-21",
+      "story": "S862203-3",
+      "decision": "Wave-2 review finding #4 (OffsetStore.RingGeneration was a carried-but-unused field): wired up via ringGenerationFor(hello) = fmt.Sprintf(\"%d:%s\", hello.Pid, hello.ArgvHash) and Client.resumeOffsetFor, which compares the persisted record's RingGeneration against the CURRENT connection's HELLO-derived generation before honouring a numeric LastAckOffset. A generation mismatch (a brand new ptyhost/child was spawned -- pid always differs across a genuine respawn) falls back to offset -1 (\"replay from the oldest byte the NEW ring retains\") exactly like the existing overflow path, rather than blindly ATTACHing at a numeric offset that may coincidentally be \"in range\" for the new ring but semantically refers to unrelated bytes from a dead process's ring. An EMPTY persisted RingGeneration (records written before this wiring existed, or by a caller that never set it) is treated as \"no generation info available\" (not a mismatch) so old records remain usable -- conservative default, not a data-loss risk since the overflow check is still a second independent guard.",
+      "rationale": "Without this, 'lossless restore across a full restart' is unsound specifically for the case where the OLD ptyhost genuinely died (not merely detached) between the offset being persisted and the next reconnect -- a coincidentally-in-range stale offset would silently splice a fresh ring's unrelated bytes into the transcript instead of failing safe. Tests: TestResumeOffsetFor_SameGeneration_ResumesPersistedOffset (negative control -- same generation still resumes exactly), TestResumeOffsetFor_DifferentGeneration_IgnoresStaleOffset (the core assertion), TestResumeOffsetFor_NoRecordedGeneration_TreatsAsUsable (back-compat), and the integration-level TestClient_CrossGeneration_FreshPtyhostDoesNotHangOrCorrupt (real fake-ndjson-backed ptyhost generation A is genuinely killed via Close(), generation B spawns fresh at the SAME identity/socket-seed, and is proven to receive its OWN fresh replay rather than hanging or misbehaving against the stale cross-generation offset)."
+    },
+    {
+      "id": "RD-22",
+      "story": "S862203-3",
+      "decision": "Close()/teardown's synchronous confirmation of 'the process is genuinely dead' cannot rely on 'our local connection to ptyhost closed' as a proxy signal, because ptyhost's handleConn returns (and its deferred conn.Close() fires) IMMEDIATELY upon processing a SHUTDOWN frame -- independent of and NOT ordered after waitChild() actually reaping the child and writing the final status file (those race on a SEPARATE goroutine). Fixed by finishRunLoop polling the on-disk status file (pollExitStatus, bounded by gracefulShutdownTimeout+3s) until it settles to Alive=false, THEN additionally polling for the deterministic socket path to stop accepting connections (waitForSocketGone, same budget) before closing doneCh. The second poll is required because ptyhost's own teardown (listener close + socket-file removal) is ALSO not synchronous with the status-file write -- without it, a caller that launches a BRAND NEW ptyhost at the same identity's socket path the instant Close() returns (Agent.respawnClient's Close()-then-EnsureClient sequence; this story's own TestClient_CrossGeneration test) can race a listener that is technically still alive for a few more scheduler ticks, misclassifying it as a survivor.",
+      "rationale": "Close()'s callers (respawnClient for /clear, ForkSession, ResumeSession, SetPermissionMode, SetIncludeHookEvents; Agent.Shutdown for tab/branch close) all rely on the pre-S862203-3 exec-direct contract that Close() blocks until the process is confirmed gone before they proceed (e.g. respawnClient calls EnsureClient immediately after). Discovered via a genuine test failure (TestClient_PipeHost_CloseSendsShutdown initially failed with 'still Alive=true after Close') and a second genuine failure under -race (TestClient_CrossGeneration wrongly observed Reconnected()=true for what should have been a fresh generation B) -- both fixed by this two-stage poll, verified green across repeated -race runs."
+    },
+    {
+      "id": "RD-23",
+      "story": "S862203-3",
+      "decision": "main.go: agentManager.Shutdown() (which KILLS every claude process) at palmux2's own process-exit path is replaced with agentManager.DetachAll(shutdownCtx) (leaves every ptyhost+claude running), mirroring S3f2658-2's identical fix for claudetui. New Manager.DetachAll/Agent.Detach/Client.Detach added alongside the EXISTING Shutdown/Close (unchanged semantics, still used by KillBranch/RemoveTabForBranch/respawnClient/Clear/ForkSession/ResumeSession/SetPermissionMode -- every one of those genuinely wants the old process dead). DiscoverAndRestore(ctx, agentManager, logger) is called once at startup (discover.go, near-verbatim mirror of claudetui's DiscoverAndRestore) BEFORE st.Run(ctx) starts the background loops, re-adopting every LIVE pipe-mode ptyhost found under the Manager's run directory via EnsureAgent+EnsureClient (the SAME lazy-attach path a first user message would take -- Client.launchAndAttachPipe's probeExisting finds the survivor and attaches instead of spawning).",
+      "rationale": "Without this change, S862203-3's entire premise ('a palmux2 restart losslessly restores the in-flight transcript') would be a no-op in production: the OLD Shutdown()-on-exit call would kill every claude process on every restart before any of the replay machinery could ever matter. This is the single line-of-code-level change that actually activates the whole story's mechanism for real users, verified end-to-end by the real-claude E2E."
+    },
+    {
+      "id": "RD-24",
+      "story": "S862203-3",
+      "decision": "EnsureClient skips the initialize control_request when Client.Reconnected()==true (attached to a ptyhost that survived a prior palmux2 lifetime) rather than unconditionally re-sending it as the pre-story code did for every spawn. The FE's need for command/model/account info on that path is covered by the EXISTING cache (EnsureAgent already seeds a.session from manager.store.LastInit() regardless of reconnect state).",
+      "rationale": "Escalation-avoided-by-design-choice: sending a SECOND initialize control_request into an ALREADY-initialized, potentially mid-turn-and-BLOCKED-on-our-own-pending-control_response live claude process is an unverified, unnecessarily risky interaction the story's real-claude E2E does not need to exercise to prove restart survival, and no spike covered its safety. Skipping it removes the risk entirely with a demonstrably sufficient fallback (cached LastInit), at the cost of a possibly-stale command/model list immediately after reconnect -- an acceptable, non-blocking UX tradeoff versus risking interference with the exact in-flight blocked turn this story exists to protect."
+    },
+    {
+      "id": "RD-25",
+      "story": "S862203-3",
+      "decision": "Real-claude E2E (tests/e2e/s862203_agent_restart_survival.py) required two footgun workarounds discovered empirically against the real running dev instance, neither anticipated by the story brief: (a) a fresh Claude tab's frontend can render claude-TUI (PTY) mode by default rather than claude-agent (stream-json) mode for a brand-new branch, even though the backend's own default is agent -- worked around by an explicit PATCH .../tabs/claude:claude/settings {claude_mode:'agent'} before navigating, mirroring the identical pattern S3f2658-2's own E2E already established for the opposite direction. (b) 'auto' permission mode (this deployment's configured default) does NOT gate a plain `echo` Bash command at all (confirmed by a bare no-permission-mode-change control run) -- 'manual' mode genuinely IS required to guarantee a control_request fires, exactly as the task brief's FOOTGUN warning predicted, but for a DIFFERENT underlying reason than the warned-about ~/.claude/settings.json bypassPermissions (going through the real Manager/Agent stack, that setting is already overridden by the CLI flag; 'auto' mode itself is simply too permissive for a benign command). Switching permission mode via the UI PillSelect triggers Agent.respawnClient (kill+spawn+Initialize against a REAL claude process, genuinely taking several real seconds) -- the E2E's send is therefore retry-driven (send_with_retry) rather than time-predicted, riding out the transient a.starting window exactly like a real user re-clicking Send.",
+      "rationale": "Both are pre-existing platform behaviors unrelated to this story's code (mode-default routing quirk, 'auto' mode's actual permissiveness) discovered only by driving the REAL stack end-to-end -- exactly the class of finding priority_rule 0's real-machine E2E requirement exists to catch, and neither required any production code change to work around. Retry-driven sending is the correct general pattern for any E2E interacting with a live respawn rather than trying to predict its exact duration."
     }
   ]
 }
