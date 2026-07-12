@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/tjst-t/palmux2/internal/config"
 )
@@ -41,6 +42,15 @@ const SharedProfileName = "palmux-shared"
 // bind-mount (Ctrl+V-pasted images). A fixed human name so operators recognise
 // it in `incus profile show`.
 const attachmentDevice = "palmux-uploads"
+
+// gwqWorktreesDevice bind-mounts the gwq worktree base dir (where linked,
+// gwq-created worktrees live — default ~/worktrees, OUTSIDE ~/ghq) same-path
+// into every container. Without it a Claude/Bash tab opened on a linked
+// worktree has no matching cwd in the container: claude falls back to `/`,
+// bash to `~`, and claude's resume history (keyed by the absolute worktree
+// path) is orphaned. Mirrors the ~/ghq mount. A fixed human name for
+// `incus profile show`.
+const gwqWorktreesDevice = "gwq-worktrees"
 
 // S41bdf2-1-4: shared /nix/store + Nix system bin dir. On a NixOS appliance an
 // app installed via the GUI lands in the host's Nix profile (systemPackages →
@@ -118,6 +128,13 @@ type SharedProfileManager struct {
 	sharedDirs    []string // config-driven extra shared folders (absolute host paths)
 	attachmentDir string   // resolved attachment upload ROOT (settings.AttachmentUploadDir)
 
+	// worktreeBasedirFn resolves the gwq worktree base dir (injected so this
+	// package stays decoupled from internal/gwq; nil ⇒ feature off). resolvedBasedir
+	// caches the first success — the base dir is stable global gwq config, so we
+	// avoid spawning `gwq` every reconcile tick; a change needs a palmux restart.
+	worktreeBasedirFn func(context.Context) (string, error)
+	resolvedBasedir   string
+
 	ensuredOnce   bool   // whether the profile has been created at least once
 	lastHookInode uint64 // inode of the last-reconciled palmux hook binary (S52fc2c-5 at profile scope)
 }
@@ -143,6 +160,41 @@ func (m *SharedProfileManager) SetSharedDirs(dirs []string) {
 	cp := make([]string, len(dirs))
 	copy(cp, dirs)
 	m.sharedDirs = cp
+}
+
+// SetWorktreeBasedirFunc injects the resolver for the gwq worktree base dir.
+// Set once at wiring time (Registry) so declaredDevices can mount it. nil-safe:
+// with no resolver the gwq worktrees mount is simply omitted.
+func (m *SharedProfileManager) SetWorktreeBasedirFunc(fn func(context.Context) (string, error)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.worktreeBasedirFn = fn
+}
+
+// worktreeBasedir returns the resolved gwq worktree base dir (absolute host
+// path), or "" if unavailable. The first success is cached; failures are not,
+// so a transiently-unavailable gwq is retried on the next reconcile.
+func (m *SharedProfileManager) worktreeBasedir() string {
+	m.mu.Lock()
+	cached, fn := m.resolvedBasedir, m.worktreeBasedirFn
+	m.mu.Unlock()
+	if cached != "" {
+		return cached
+	}
+	if fn == nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	dir, err := fn(ctx)
+	if err != nil || dir == "" {
+		m.log.Debug("incus shared profile: gwq worktree basedir unresolved", "err", err)
+		return ""
+	}
+	m.mu.Lock()
+	m.resolvedBasedir = dir
+	m.mu.Unlock()
+	return dir
 }
 
 // SetAttachmentDir records the attachment upload ROOT (settings.AttachmentUploadDir)
@@ -187,6 +239,18 @@ func (m *SharedProfileManager) declaredDevices() []deviceSpec {
 		{name: "dot-gitconfig", source: mj(".gitconfig"), path: mj(".gitconfig")},
 		{name: "dot-config-gh", source: mj(".config", "gh"), path: mj(".config", "gh")},
 		{name: "dot-ssh", source: mj(".ssh"), path: mj(".ssh")},
+	}
+
+	// gwq worktree base dir (default ~/worktrees, OUTSIDE ~/ghq). Mount it
+	// same-path so a Claude/Bash tab opened on a linked (gwq-created) worktree
+	// finds its cwd inside the container — otherwise claude starts at `/`, bash
+	// at `~`, and claude's resume history (keyed by the absolute worktree path)
+	// is orphaned. Mirrors the ~/ghq mount. Skipped when unresolved, when it is
+	// the home dir itself, or when it coincides with the ghq mount (a duplicate
+	// device path is an incus error). The source-absent filter below still
+	// applies (a base dir with no worktrees yet is simply not mounted).
+	if bd := m.worktreeBasedir(); bd != "" && bd != home && bd != mj("ghq") {
+		candidates = append(candidates, deviceSpec{name: gwqWorktreesDevice, source: bd, path: bd})
 	}
 
 	// palmux hook binary → /usr/local/bin/palmux (in-container `palmux hook`).
@@ -262,7 +326,7 @@ func (m *SharedProfileManager) declaredDevices() []deviceSpec {
 // ghq, palmux-hook-bin, dot-claude*, dot-local* and the user shared dirs (sf-*)
 // are never symlink-skipped.
 func isSkippableSymlinkDotfile(name string) bool {
-	if name == "ghq" || name == "palmux-hook-bin" || name == attachmentDevice {
+	if name == "ghq" || name == gwqWorktreesDevice || name == "palmux-hook-bin" || name == attachmentDevice {
 		return false
 	}
 	// S41bdf2-1-4: the shared /nix devices intentionally live OUTSIDE $HOME (host

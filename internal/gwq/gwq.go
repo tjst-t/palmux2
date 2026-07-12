@@ -8,7 +8,9 @@ package gwq
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -40,6 +42,37 @@ func (c *Client) Add(ctx context.Context, repoDir, branchName string, newBranch 
 		return fmt.Errorf("gwq add %s: %s", branchName, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// WorktreeBasedir returns the directory gwq places new worktrees under
+// (`gwq config get worktree.basedir`), as an absolute path with a leading `~`
+// expanded. Palmux needs it because gwq's default layout puts linked worktrees
+// under a base dir (default `~/worktrees`) that is OUTSIDE `~/ghq`: the incus
+// runtime bind-mounts only `~/ghq`, so a linked worktree's path does not exist
+// inside the container and a Claude/Bash tab opened on it lands at `/` (claude)
+// or `~` (bash) — and claude's resume history, keyed by the absolute worktree
+// path, is orphaned. Mounting this base dir same-path fixes both. Returns an
+// error if gwq is unavailable or worktree.basedir is unset.
+func (c *Client) WorktreeBasedir(ctx context.Context) (string, error) {
+	out, err := exec.CommandContext(ctx, c.bin, "config", "get", "worktree.basedir").Output()
+	if err != nil {
+		return "", fmt.Errorf("gwq config get worktree.basedir: %w", err)
+	}
+	dir := strings.TrimSpace(string(out))
+	if dir == "" {
+		return "", fmt.Errorf("gwq worktree.basedir is unset")
+	}
+	if dir == "~" || strings.HasPrefix(dir, "~/") {
+		home, herr := os.UserHomeDir()
+		if herr != nil {
+			return "", fmt.Errorf("expand ~ in worktree.basedir: %w", herr)
+		}
+		dir = filepath.Join(home, strings.TrimPrefix(dir, "~"))
+	}
+	if !filepath.IsAbs(dir) {
+		return "", fmt.Errorf("gwq worktree.basedir %q is not absolute", dir)
+	}
+	return dir, nil
 }
 
 // Remove deletes a worktree by branch-name pattern. Does NOT delete the
