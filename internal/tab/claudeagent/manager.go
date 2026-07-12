@@ -977,6 +977,10 @@ func (a *Agent) handleCanUseTool(_ context.Context, req canUseToolRequest, cliRe
 		return canUseToolResponse{Behavior: "allow"}, nil
 	}
 	permID, _, _ := a.session.AddPermissionRequest(cliRequestID, req.ToolName, req.Input)
+	// [AC-S64c835-2-2] Register the waiter BEFORE permID is exposed to
+	// anyone via the broadcast below, and hold onto the SAME channel to
+	// pass to awaitPermission — see [Agent.registerPermWaiter].
+	waiterCh := a.registerPermWaiter(permID)
 	a.session.SetStatus(StatusAwaitingPermission)
 	a.broadcastStatus(StatusAwaitingPermission)
 	if ev, err := makeEvent(EvPermissionRequest, PermissionRequestPayload{
@@ -986,7 +990,7 @@ func (a *Agent) handleCanUseTool(_ context.Context, req canUseToolRequest, cliRe
 	}); err == nil {
 		a.broadcast(ev)
 	}
-	resp, err := a.awaitPermission(permID)
+	resp, err := a.awaitPermission(permID, waiterCh)
 	a.session.SetStatus(StatusThinking)
 	a.broadcastStatus(StatusThinking)
 	return resp, err
@@ -1013,6 +1017,10 @@ func (a *Agent) RequestPermission(_ context.Context, toolName string, input json
 		return a.requestPlanResponse(toolName, input, toolUseID)
 	}
 	permID, _, _ := a.session.AddPermissionRequest(toolUseID, toolName, input)
+	// [AC-S64c835-2-2] Register the waiter BEFORE permID is exposed to
+	// anyone via the broadcast/publish calls below, and hold onto the SAME
+	// channel to pass to awaitPermission — see [Agent.registerPermWaiter].
+	waiterCh := a.registerPermWaiter(permID)
 	a.session.SetStatus(StatusAwaitingPermission)
 	a.broadcastStatus(StatusAwaitingPermission)
 	if ev, err := makeEvent(EvPermissionRequest, PermissionRequestPayload{
@@ -1038,7 +1046,7 @@ func (a *Agent) RequestPermission(_ context.Context, toolName string, input json
 			{Label: "Deny", Action: "claude.permission.deny:" + permID},
 		},
 	})
-	resp, err := a.awaitPermission(permID)
+	resp, err := a.awaitPermission(permID, waiterCh)
 	// The notification (if any) is no longer actionable — clear it so the
 	// Inbox doesn't keep nagging.
 	a.clearNotification(permID)
@@ -1079,6 +1087,10 @@ func (a *Agent) requestAskAnswer(toolName string, input json.RawMessage, toolUse
 	permID := a.session.RegisterPendingPermission(toolUseID)
 	a.session.RegisterAskPermission(permID, toolUseID)
 	turnID, blockID := a.session.AttachAskPermission(toolUseID, permID)
+	// [AC-S64c835-2-2] Register the waiter BEFORE permID is exposed to
+	// anyone via the broadcast/publish calls below, and hold onto the SAME
+	// channel to pass to awaitPermission — see [Agent.registerPermWaiter].
+	waiterCh := a.registerPermWaiter(permID)
 
 	// Stash the original tool input so AnswerAskQuestion can build the
 	// CLI-bound updatedInput with the questions preserved + answers
@@ -1118,7 +1130,7 @@ func (a *Agent) requestAskAnswer(toolName string, input json.RawMessage, toolUse
 		Message:   summariseAskQuestionForNotification(input),
 	})
 
-	resp, err := a.awaitPermission(permID)
+	resp, err := a.awaitPermission(permID, waiterCh)
 	a.clearNotification(permID)
 	a.broadcastStatus(a.session.Status())
 	if err != nil {
@@ -1162,6 +1174,10 @@ func (a *Agent) requestPlanResponse(toolName string, input json.RawMessage, tool
 	permID := a.session.RegisterPendingPermission(toolUseID)
 	a.session.RegisterPlanPermission(permID, toolUseID)
 	turnID, blockID := a.session.AttachPlanPermission(toolUseID, permID)
+	// [AC-S64c835-2-2] Register the waiter BEFORE permID is exposed to
+	// anyone via the broadcast/publish calls below, and hold onto the SAME
+	// channel to pass to awaitPermission — see [Agent.registerPermWaiter].
+	waiterCh := a.registerPermWaiter(permID)
 
 	a.session.SetStatus(StatusAwaitingPermission)
 	a.broadcastStatus(StatusAwaitingPermission)
@@ -1188,7 +1204,7 @@ func (a *Agent) requestPlanResponse(toolName string, input json.RawMessage, tool
 		},
 	})
 
-	resp, err := a.awaitPermission(permID)
+	resp, err := a.awaitPermission(permID, waiterCh)
 	a.clearNotification(permID)
 	a.broadcastStatus(a.session.Status())
 	if err != nil {
@@ -1584,8 +1600,47 @@ func summariseToolForNotification(toolName string, input json.RawMessage) string
 	return toolName
 }
 
-func (a *Agent) awaitPermission(permID string) (canUseToolResponse, error) {
+// registerPermWaiter creates (and registers) a FRESH response channel for
+// permID under a.mu, WITHOUT blocking. [AC-S64c835-2-2] Every caller
+// (handleCanUseTool, RequestPermission, requestAskAnswer,
+// requestPlanResponse) MUST call this BEFORE broadcasting/publishing
+// anything that exposes permID to the outside world (a WS event, an
+// Activity Inbox notification, ...), and MUST hold onto the returned
+// channel and pass it straight to [Agent.awaitPermission] — never let
+// awaitPermission re-derive it via a second, later map lookup.
+//
+// Two distinct, genuine (pre-existing, not introduced by this Sprint) TOCTOU
+// races motivate this shape, both found empirically in this Sprint under
+// `go test -race` plus CPU contention (a goroutine-scheduling perturbation
+// wide enough to hit windows a normal run essentially never does — a real
+// user's fast click could hit the same windows under load):
+//
+//  1. If the waiter isn't registered until AFTER permID is broadcast, a
+//     caller that reacts fast (a test, or a snappy real client) can call
+//     Answer*/AnswerAskQuestion/AnswerPlanResponse before any waiter exists.
+//     Those Answer* paths do a plain `permWaiters[permID]` lookup+delete; a
+//     miss silently drops the response (no error, nothing queued).
+//  2. Even with (1) fixed, if awaitPermission ITSELF re-derives the channel
+//     via its OWN `permWaiters[permID]` lookup (as this function used to,
+//     called a second time from inside awaitPermission) instead of using
+//     the SAME channel object its caller already obtained, there is a
+//     SECOND window: an Answer* call can resolve-and-DELETE the entry
+//     between the caller's registration and awaitPermission's re-lookup.
+//     awaitPermission then finds no entry, creates a BRAND NEW channel, and
+//     blocks on THAT — while the real response was already sent into the
+//     FIRST (now orphaned) channel nobody is listening to. This is worse
+//     than (1): the response was genuinely delivered and then lost. Empirically
+//     confirmed via debug instrumentation (permID, channel pointer, `new`)
+//     during this Sprint's own repro runs — see
+//     docs/sprint-logs/S64c835/decisions.json's S64c835-2 entry.
+//
+// Either miss leaves the CLI blocked until awaitPermission's 15-minute
+// fallback denies it. Registering once, up front, and threading the SAME
+// channel through explicitly closes BOTH windows completely, independent of
+// scheduling latency between broadcast and awaitPermission.
+func (a *Agent) registerPermWaiter(permID string) chan canUseToolResponse {
 	a.mu.Lock()
+	defer a.mu.Unlock()
 	if a.permWaiters == nil {
 		a.permWaiters = map[string]chan canUseToolResponse{}
 	}
@@ -1594,8 +1649,15 @@ func (a *Agent) awaitPermission(permID string) (canUseToolResponse, error) {
 		ch = make(chan canUseToolResponse, 1)
 		a.permWaiters[permID] = ch
 	}
-	a.mu.Unlock()
+	return ch
+}
 
+// awaitPermission blocks on ch — the SAME channel object the caller already
+// obtained from [Agent.registerPermWaiter] before broadcasting permID (see
+// that function's doc comment for why a second, independent lookup here
+// would reintroduce a genuine lost-response race) — until an Answer* call
+// resolves it, or a bounded timeout elapses.
+func (a *Agent) awaitPermission(permID string, ch chan canUseToolResponse) (canUseToolResponse, error) {
 	select {
 	case resp := <-ch:
 		return resp, nil

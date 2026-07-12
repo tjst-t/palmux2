@@ -175,7 +175,7 @@ func TestBashPerm_AllowOnce(t *testing.T) {
 
 	// 2. The agent broadcasts permission.request to all WS subs.
 	//    Capture the permission_id from the broadcast.
-	permID, ok := waitForPermissionRequestEvent(t, events, 2*time.Second)
+	permID, ok := waitForPermissionRequestEvent(t, events, permTestTimeout(2*time.Second))
 	if !ok {
 		t.Fatal("expected permission.request event, none seen")
 	}
@@ -205,7 +205,7 @@ func TestBashPerm_AllowOnce(t *testing.T) {
 		if got.resp.Behavior != "allow" {
 			t.Fatalf("response behavior = %q, want allow", got.resp.Behavior)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(permTestTimeout(2 * time.Second)):
 		t.Fatal("DEADLOCK: handleCanUseTool did not return after AnswerPermission")
 	}
 
@@ -228,7 +228,7 @@ func TestBashPerm_AlwaysAllow(t *testing.T) {
 
 	// 1. First Bash request — prompts.
 	respCh := startBashPermRequest(a, "cli-req-1", "ls")
-	permID, ok := waitForPermissionRequestEvent(t, events, 2*time.Second)
+	permID, ok := waitForPermissionRequestEvent(t, events, permTestTimeout(2*time.Second))
 	if !ok {
 		t.Fatal("expected permission.request event")
 	}
@@ -252,7 +252,7 @@ func TestBashPerm_AlwaysAllow(t *testing.T) {
 		if got.resp.Behavior != "allow" {
 			t.Fatalf("first response behavior = %q, want allow", got.resp.Behavior)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(permTestTimeout(2 * time.Second)):
 		t.Fatal("DEADLOCK: first handleCanUseTool did not return")
 	}
 	assertNoLeaks(t, a, permID)
@@ -274,7 +274,7 @@ func TestBashPerm_AlwaysAllow(t *testing.T) {
 		if got.resp.Behavior != "allow" {
 			t.Fatalf("second response behavior = %q, want allow (auto)", got.resp.Behavior)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(permTestTimeout(2 * time.Second)):
 		t.Fatal("DEADLOCK: second (auto-allow) handleCanUseTool did not return")
 	}
 
@@ -299,7 +299,7 @@ func TestBashPerm_Deny(t *testing.T) {
 
 	// 1. First Bash request — prompts.
 	respCh := startBashPermRequest(a, "cli-req-1", "rm -rf /")
-	permID, ok := waitForPermissionRequestEvent(t, events, 2*time.Second)
+	permID, ok := waitForPermissionRequestEvent(t, events, permTestTimeout(2*time.Second))
 	if !ok {
 		t.Fatal("expected permission.request event")
 	}
@@ -325,7 +325,7 @@ func TestBashPerm_Deny(t *testing.T) {
 		if got.resp.Message != "looks dangerous" {
 			t.Fatalf("response message = %q, want 'looks dangerous'", got.resp.Message)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(permTestTimeout(2 * time.Second)):
 		t.Fatal("DEADLOCK: handleCanUseTool did not return after Deny")
 	}
 
@@ -339,7 +339,7 @@ func TestBashPerm_Deny(t *testing.T) {
 	// 5. Second Bash request prompts again (proves Deny did not
 	//    silently mark allow).
 	respCh2 := startBashPermRequest(a, "cli-req-2", "rm -rf /")
-	permID2, ok := waitForPermissionRequestEvent(t, events, 2*time.Second)
+	permID2, ok := waitForPermissionRequestEvent(t, events, permTestTimeout(2*time.Second))
 	if !ok {
 		t.Fatal("Deny must not skip the second prompt; expected permission.request")
 	}
@@ -355,7 +355,7 @@ func TestBashPerm_Deny(t *testing.T) {
 	}
 	select {
 	case <-respCh2:
-	case <-time.After(2 * time.Second):
+	case <-time.After(permTestTimeout(2 * time.Second)):
 		t.Fatal("second handleCanUseTool did not return")
 	}
 	assertNoLeaks(t, a)
@@ -391,7 +391,7 @@ func TestBashPerm_SessionAllowListPreempt(t *testing.T) {
 		if got.resp.Behavior != "allow" {
 			t.Fatalf("response behavior = %q, want allow (preempt)", got.resp.Behavior)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(permTestTimeout(2 * time.Second)):
 		t.Fatal("DEADLOCK: preempt handleCanUseTool did not return")
 	}
 
@@ -436,7 +436,7 @@ func TestBashPerm_NoLeakOverManyRounds(t *testing.T) {
 	const N = 25
 	for i := 0; i < N; i++ {
 		respCh := startBashPermRequest(a, "cli-req-loop", "echo loop")
-		permID, ok := waitForPermissionRequestEvent(t, events, 2*time.Second)
+		permID, ok := waitForPermissionRequestEvent(t, events, permTestTimeout(2*time.Second))
 		if !ok {
 			t.Fatalf("iter %d: missing permission.request", i)
 		}
@@ -455,7 +455,7 @@ func TestBashPerm_NoLeakOverManyRounds(t *testing.T) {
 			if got.resp.Behavior != "allow" {
 				t.Fatalf("iter %d: behavior = %q", i, got.resp.Behavior)
 			}
-		case <-time.After(2 * time.Second):
+		case <-time.After(permTestTimeout(2 * time.Second)):
 			t.Fatalf("iter %d: DEADLOCK", i)
 		}
 		// No leftover waiter after each round.

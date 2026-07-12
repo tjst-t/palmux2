@@ -47,7 +47,7 @@ func TestAskUserQuestion_FullRoundTrip(t *testing.T) {
 	// 3. Wait for an ask.question event to fan out — confirms the
 	//    block was stamped with a permission_id and the FE would now
 	//    enable its action row.
-	permID := waitForAskQuestion(t, events, 2*time.Second)
+	permID := waitForAskQuestion(t, events, permTestTimeout(2*time.Second))
 
 	// 4. User submits "blue".
 	if err := a.AnswerAskQuestion(AskRespondFrame{
@@ -64,7 +64,7 @@ func TestAskUserQuestion_FullRoundTrip(t *testing.T) {
 	var got respWithErr
 	select {
 	case got = <-respCh:
-	case <-time.After(2 * time.Second):
+	case <-time.After(permTestTimeout(2 * time.Second)):
 		t.Fatal("RequestPermission did not return after AnswerAskQuestion")
 	}
 	if got.err != nil {
@@ -158,7 +158,7 @@ func TestAskUserQuestion_MultiSelectRoundTrip(t *testing.T) {
 		respCh <- respWithErr{resp, err}
 	}()
 
-	permID := waitForAskQuestion(t, events, 2*time.Second)
+	permID := waitForAskQuestion(t, events, permTestTimeout(2*time.Second))
 	if err := a.AnswerAskQuestion(AskRespondFrame{
 		PermissionID: permID,
 		Answers:      [][]string{{"cheese", "basil"}},
@@ -169,7 +169,7 @@ func TestAskUserQuestion_MultiSelectRoundTrip(t *testing.T) {
 	var got respWithErr
 	select {
 	case got = <-respCh:
-	case <-time.After(2 * time.Second):
+	case <-time.After(permTestTimeout(2 * time.Second)):
 		t.Fatal("RequestPermission did not return")
 	}
 	if got.err != nil {

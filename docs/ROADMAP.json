@@ -12069,39 +12069,39 @@
           "id": "S64c835-2",
           "title": "実機テストの健全化: 決定的 cleanup + -race 期限 flake 解消 + reap 冪等性 pin",
           "user_story": "開発者として、実機テストが -race + 高負荷でも決定的に pass し、spawn したプロセスをリークしないでほしい。なぜなら、CI の信頼性と dev box の健全性 (incus/プロセス churn 劣化の回避) を守りたいから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S64c835-2-1",
               "description": "PALMUX_SURVIVAL_SMOKE 系テスト (特に TestParallelInstances_NeverClaimOrGCEachOther) が終了時に spawn した全 ptyhost/子プロセスを t.Cleanup+defer で決定的に reap し、テスト後のリークプロセスが 0 になる (backlog #4)。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S64c835-2-2",
               "description": "claudeagent の permission 統合テスト (TestBashPerm_NoLeakOverManyRounds / TestAskUserQuestion_FullRoundTrip / TestExitPlanMode_FullRoundTrip) の 2s ハードコード期限を adaptive 化 or 直列化し、`go test -race` + 高 CPU 負荷でも安定 pass する (backlog #6)。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S64c835-2-3",
               "description": "orphan-GC reap の冪等性前提が明示的に pin される (TestGCOrphans_ReapsInContainerClaude 等に repeat-reap の境界アサート or 契約コメント + テスト) (backlog #5)。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S64c835-2-1": {
               "id": "S64c835-2-1",
               "title": "TestParallelInstances の cleanup 決定的化 (全 launch を追跡し t.Cleanup で SHUTDOWN/kill)",
-              "status": "pending"
+              "status": "done"
             },
             "S64c835-2-2": {
               "id": "S64c835-2-2",
               "title": "claudeagent perm テストの 2s 期限を adaptive (env/係数) or 直列化",
-              "status": "pending"
+              "status": "done"
             },
             "S64c835-2-3": {
               "id": "S64c835-2-3",
               "title": "reap 冪等性の pin (境界アサート or 契約コメント + テスト)",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
