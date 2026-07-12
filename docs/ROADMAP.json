@@ -2,14 +2,14 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 70,
+    "sprints_done": 71,
     "sprints_total": 73,
-    "done": 70,
+    "done": 71,
     "total": 73,
-    "remaining": 3,
+    "remaining": 2,
     "in_progress": 0,
-    "percent": 95,
-    "percentage": 95,
+    "percent": 97,
+    "percentage": 97,
     "current_sprint": "S3f2658"
   },
   "execution_order": [
@@ -11706,7 +11706,7 @@
       "title": "no-halt-agent Sprint 1: ptyhost 基盤 + claude-tui 生存",
       "description": "palmux2 の再起動 (self-update / systemctl restart / make serve 入れ直し) を跨いで claude-tui タブの claude プロセスを生かす。detached `palmux ptyhost` プロセス (ADR-0001, thin holder = ADR-0002) が claude を所有し、palmux2 は unix socket で再接続する。設計は docs/no-halt-agent-design.md。",
       "milestone": false,
-      "status": "in_progress",
+      "status": "done",
       "detail_level": "detailed",
       "depends_on": null,
       "design_refs": [
