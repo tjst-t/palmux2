@@ -48,6 +48,13 @@ type ManagerConfig struct {
 	// when claude runs in-container.
 	RuntimeResolver      func(repoID, branchID string) runtime.PTYCommander
 	NotifyURLInContainer string
+
+	// S3f2658-2: PalmuxBin/PtyHostLaunch/RunDirOverride are forwarded verbatim
+	// to every Daemon this Manager creates — see DaemonConfig's fields of the
+	// same name for the full doc comment.
+	PalmuxBin      string
+	PtyHostLaunch  PtyHostLaunchFunc
+	RunDirOverride string
 }
 
 // managerEntry bundles a Daemon with its associated SessionWatcher so both
@@ -197,6 +204,9 @@ func (m *Manager) EnsureDaemon(ctx context.Context, repoID, branchID, tabID, wor
 		HookBinPath:          m.cfg.HookBinPath,
 		RuntimeResolver:      m.cfg.RuntimeResolver,
 		NotifyURLInContainer: m.cfg.NotifyURLInContainer,
+		PalmuxBin:            m.cfg.PalmuxBin,
+		PtyHostLaunch:        m.cfg.PtyHostLaunch,
+		RunDirOverride:       m.cfg.RunDirOverride,
 	})
 
 	// Pre-seed session ID if we loaded one from the store. This unblocks
@@ -313,9 +323,12 @@ func (m *Manager) CloseBranchDaemons(ctx context.Context, repoID, branchID strin
 	}
 }
 
-// ShutdownAll shuts down all managed daemons.  Should be called on process
-// exit (e.g. from Provider.OnBranchClose for every open branch, or from
-// main.go cleanup).
+// ShutdownAll shuts down (kills every ptyhost) all managed daemons. Callers
+// intending a genuine, permanent teardown of every session use this — e.g. a
+// test harness tearing down its fixtures. Do NOT call this from palmux2's own
+// process-exit path (SIGTERM / self-update restart): that would kill every
+// running claude on every restart, defeating ADR-0001/0002's entire purpose.
+// See [Manager.DetachAll] for that case.
 func (m *Manager) ShutdownAll(ctx context.Context) error {
 	m.mu.Lock()
 	entries := make(map[string]*managerEntry, len(m.entries))
@@ -334,6 +347,32 @@ func (m *Manager) ShutdownAll(ctx context.Context) error {
 		m.cfg.Logger.Info("claudetui: daemon shut down", "key", k)
 	}
 	return first
+}
+
+// DetachAll disconnects from every managed daemon's ptyhost WITHOUT killing
+// any of them (see [Daemon.Detach]) — the correct call for palmux2's own
+// process-exit path (cmd/palmux/main.go's SIGTERM/SIGINT handler), so a
+// palmux2 restart does not take down every running claude. Session watchers
+// ARE stopped (they are palmux2-side fsnotify goroutines with nothing to do
+// with ptyhost survival); a freshly (re)started palmux2 recreates them on the
+// next EnsureDaemon.
+func (m *Manager) DetachAll(ctx context.Context) error {
+	m.mu.Lock()
+	entries := make(map[string]*managerEntry, len(m.entries))
+	for k, e := range m.entries {
+		entries[k] = e
+	}
+	m.entries = make(map[string]*managerEntry)
+	m.mu.Unlock()
+
+	for k, e := range entries {
+		if e.watcher != nil {
+			e.watcher.Close()
+		}
+		e.daemon.Detach()
+		m.cfg.Logger.Info("claudetui: daemon detached (ptyhost left running)", "key", k)
+	}
+	return nil
 }
 
 // Len returns the number of currently managed daemons.

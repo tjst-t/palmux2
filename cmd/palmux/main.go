@@ -583,6 +583,10 @@ func run(rc resolved) error {
 			return nil
 		},
 		NotifyURLInContainer: bridgeNotifyURL(addr, basePath),
+		// S3f2658-2: claude now survives a palmux2 restart via a detached
+		// `palmux ptyhost` process (ADR-0001/0002) — PalmuxBin is the same
+		// binary re-invoked as `<PalmuxBin> ptyhost ...`.
+		PalmuxBin: hookBinPath,
 	})
 	claudetuiProvider := claudetui.New(claudetuiMgr)
 	// Sadf90e: claudetui daemons live per-tab and are spawned lazily on the
@@ -814,8 +818,12 @@ func run(rc resolved) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	agentManager.Shutdown()
-	if err := claudetuiMgr.ShutdownAll(shutdownCtx); err != nil {
-		slog.Warn("claudetui shutdown", "err", err)
+	// S3f2658-2: DetachAll (NOT ShutdownAll) — palmux2 process exit (SIGTERM,
+	// self-update restart) must leave every claude-tui ptyhost running so a
+	// future palmux2 reconnects to it (ADR-0001/0002 restart survival). Only
+	// an intentional tab/branch close calls Shutdown.
+	if err := claudetuiMgr.DetachAll(shutdownCtx); err != nil {
+		slog.Warn("claudetui detach", "err", err)
 	}
 	// S012: stop the per-branch worktree watcher and release its
 	// fsnotify file descriptors before the process exits.
