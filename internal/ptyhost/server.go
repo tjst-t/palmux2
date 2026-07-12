@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -15,6 +16,18 @@ import (
 	"time"
 
 	creackpty "github.com/creack/pty"
+)
+
+// Mode identifies how a [Server] holds its child process. See [Config.Mode].
+const (
+	// ModePTY (the default / back-compat mode) spawns the child under a
+	// pseudo-terminal (creackpty.Start) — used by the tui tab.
+	ModePTY = "pty"
+	// ModePipe spawns the child over plain stdin/stdout/stderr pipes (no
+	// TTY), preserving the same binary-clean, separate-stdout/stderr
+	// property S4d8b1c's runtime.ExecCommander already relies on for
+	// stream-json — used by the agent tab (ADR-0004, S862203-2).
+	ModePipe = "pipe"
 )
 
 // Config configures a [Server]. Argv/Env/Cwd are OPAQUE to ptyhost (ADR-0002)
@@ -30,6 +43,10 @@ type Config struct {
 	Env []string
 	// Cwd is the child's working directory. Empty means inherit.
 	Cwd string
+
+	// Mode selects how the child is held: [ModePTY] (default, back-compat)
+	// or [ModePipe] (S862203-2 / ADR-0004). Empty defaults to [ModePTY].
+	Mode string
 
 	// SocketPath is the unix socket path to serve the protocol on. Required.
 	SocketPath string
@@ -87,7 +104,7 @@ type Config struct {
 // ptyhost's identity/liveness without connecting to the socket.
 type StatusFile struct {
 	Pid           int        `json:"pid"`
-	Mode          string     `json:"mode"` // "pty"
+	Mode          string     `json:"mode"` // "pty" or "pipe" (ADR-0004, S862203-2)
 	ArgvHash      string     `json:"argvHash"`
 	StartedAt     time.Time  `json:"startedAt"`
 	Alive         bool       `json:"alive"`
@@ -115,15 +132,31 @@ type StatusFile struct {
 type Server struct {
 	cfg    Config
 	logger *slog.Logger
-	ring   *Ring
+	ring   *Ring // stdout (pipe mode) / merged PTY output (pty mode)
+
+	// stderrRing holds ONLY [ModePipe] stderr bytes, kept strictly separate
+	// from ring so a stream-json child's NDJSON stdout is never corrupted by
+	// interleaved stderr (ADR-0004 §6). Always allocated (even in pty mode,
+	// where it simply stays empty/unused) so helloPayload/statusPayload/etc.
+	// need no mode branch to touch it safely.
+	stderrRing *Ring
 
 	mu            sync.Mutex
-	ptmx          *os.File
+	ptmx          *os.File       // ModePTY only
+	stdin         io.WriteCloser // ModePipe only: child's stdin
+	stdoutPipe    io.ReadCloser  // ModePipe only: child's stdout
+	stderrPipe    io.ReadCloser  // ModePipe only: child's stderr
 	cmd           *exec.Cmd
 	startedAt     time.Time
 	alive         bool
 	exitCode      int
 	exitCodeValid bool
+
+	// stdioDone tracks the ModePipe stdout+stderr pump goroutines. waitChild
+	// blocks on it before calling cmd.Wait() — os/exec's StdoutPipe/
+	// StderrPipe docs require all reads to complete before Wait is called,
+	// since Wait closes the pipes once it sees the process exit.
+	stdioDone sync.WaitGroup
 
 	childExited chan struct{} // closed once the child has exited and status recorded
 	shutdownReq chan ShutdownPayload
@@ -154,6 +187,12 @@ func NewServer(cfg Config) (*Server, error) {
 	if cfg.PostExitLinger <= 0 {
 		cfg.PostExitLinger = 1 * time.Second
 	}
+	if cfg.Mode == "" {
+		cfg.Mode = ModePTY
+	}
+	if cfg.Mode != ModePTY && cfg.Mode != ModePipe {
+		return nil, fmt.Errorf("ptyhost: config: unknown mode %q (want %q or %q)", cfg.Mode, ModePTY, ModePipe)
+	}
 	logger := cfg.Logger
 	if logger == nil {
 		logger = slog.Default()
@@ -162,12 +201,14 @@ func NewServer(cfg Config) (*Server, error) {
 		cfg:         cfg,
 		logger:      logger,
 		ring:        NewRing(cfg.RingSize),
+		stderrRing:  NewRing(cfg.RingSize),
 		childExited: make(chan struct{}),
 		shutdownReq: make(chan ShutdownPayload, 1),
 	}, nil
 }
 
-// Run spawns the child under a PTY, serves the socket protocol until the
+// Run spawns the child (under a PTY in [ModePTY], over pipes in
+// [ModePipe] — see [Server.spawn]), serves the socket protocol until the
 // child exits, a SHUTDOWN is received, or ctx is canceled, then returns. Run
 // does not respawn on child exit — see the [Server] doc comment.
 func (s *Server) Run(ctx context.Context) error {
@@ -178,11 +219,25 @@ func (s *Server) Run(ctx context.Context) error {
 		s.logger.Warn("ptyhost: write initial status file failed", "err", err)
 	}
 
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-		s.readLoop()
-	}()
+	if s.cfg.Mode == ModePipe {
+		s.stdioDone.Add(2)
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.pumpToRing(s.stdoutPipe, s.ring, &s.stdioDone)
+		}()
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.pumpToRing(s.stderrPipe, s.stderrRing, &s.stdioDone)
+		}()
+	} else {
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.pumpToRing(s.ptmx, s.ring, nil)
+		}()
+	}
 
 	s.wg.Add(1)
 	go func() {
@@ -292,8 +347,18 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 }
 
-// spawn starts the child under a PTY.
+// spawn starts the child, branching on [Config.Mode]: [ModePTY] uses a real
+// pseudo-terminal (creackpty.Start); [ModePipe] uses plain binary-clean
+// stdin/stdout/stderr pipes (no TTY) — the same technique
+// runtime.ExecCommander already uses for stream-json (S4d8b1c).
 func (s *Server) spawn() error {
+	if s.cfg.Mode == ModePipe {
+		return s.spawnPipe()
+	}
+	return s.spawnPTY()
+}
+
+func (s *Server) spawnPTY() error {
 	cmd := exec.Command(s.cfg.Argv[0], s.cfg.Argv[1:]...)
 	if s.cfg.Cwd != "" {
 		cmd.Dir = s.cfg.Cwd
@@ -315,16 +380,74 @@ func (s *Server) spawn() error {
 	return nil
 }
 
-// readLoop pumps PTY output into the ring until the PTY master is closed
-// (child exit) or a read error occurs.
-func (s *Server) readLoop() {
+// spawnPipe starts the child over cmd.StdinPipe/StdoutPipe/StderrPipe — NO
+// creackpty.Start — preserving separate, binary-clean stdout/stderr exactly
+// as claudeagent's ExecCommander path does today (AC-S862203-2-1).
+func (s *Server) spawnPipe() error {
+	cmd := exec.Command(s.cfg.Argv[0], s.cfg.Argv[1:]...)
+	if s.cfg.Cwd != "" {
+		cmd.Dir = s.cfg.Cwd
+	}
+	if len(s.cfg.Env) > 0 {
+		cmd.Env = s.cfg.Env
+	}
+	// Setpgid puts the child in its own process group (pgid == child pid) so
+	// [Server.terminateChild] can signal the WHOLE group (-pid) on shutdown
+	// — otherwise a descendant the child backgrounded (e.g. claude's Bash
+	// tool launching a long-lived process that inherits our stdout/stderr)
+	// would (a) keep the pipe read-ends open so pumpToRing never sees EOF —
+	// hanging waitChild's stdioDone gate and thus Run() forever — and (b)
+	// survive teardown as an orphan. Pipe mode does NOT allocate a PTY (so,
+	// unlike the PTY path, it gets no session-leader isolation for free);
+	// this is the pipe-mode equivalent (S862203-2 review HIGH-2).
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("ptyhost: stdin pipe: %w", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("ptyhost: stdout pipe: %w", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("ptyhost: stderr pipe: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("ptyhost: start: %w", err)
+	}
+	s.mu.Lock()
+	s.cmd = cmd
+	s.stdin = stdin
+	s.stdoutPipe = stdout
+	s.stderrPipe = stderr
+	s.startedAt = time.Now()
+	s.alive = true
+	s.mu.Unlock()
+	s.logger.Info("ptyhost: child spawned (pipe mode)", "argv", s.cfg.Argv, "pid", cmd.Process.Pid)
+	return nil
+}
+
+// pumpToRing reads from r until EOF/error, writing every chunk read into
+// ring. If done is non-nil, done.Done() is called exactly once on return
+// (used in [ModePipe] so [Server.waitChild] can block until BOTH the stdout
+// and stderr pumps have observed EOF before calling cmd.Wait() — see the
+// [Server.stdioDone] doc comment). r may be nil (e.g. a mode/field that
+// doesn't apply); a nil r is treated as an already-EOF'd source.
+func (s *Server) pumpToRing(r io.Reader, ring *Ring, done *sync.WaitGroup) {
+	if done != nil {
+		defer done.Done()
+	}
+	if r == nil {
+		return
+	}
 	buf := make([]byte, 32*1024)
 	for {
-		n, err := s.ptmx.Read(buf)
+		n, err := r.Read(buf)
 		if n > 0 {
 			chunk := make([]byte, n)
 			copy(chunk, buf[:n])
-			_, _ = s.ring.Write(chunk)
+			_, _ = ring.Write(chunk)
 		}
 		if err != nil {
 			return
@@ -336,6 +459,30 @@ func (s *Server) readLoop() {
 // Wait races). It records the exit status, updates the status file, and
 // closes childExited.
 func (s *Server) waitChild() {
+	if s.cfg.Mode == ModePipe {
+		// os/exec's StdoutPipe/StderrPipe docs: "it is incorrect to call
+		// Wait before all reads from the pipe have completed" — Wait closes
+		// the pipes once it observes the process exit, which can truncate a
+		// concurrent Read. Block until both pump goroutines have seen EOF
+		// (which happens once the child's own fds close, independent of our
+		// calling Wait) before reaping.
+		//
+		// SAFETY NET (S862203-2 review HIGH-2): the wait is BOUNDED. If a
+		// descendant that inherited stdout/stderr outlives the direct child
+		// and holds a pipe write-end open, EOF never arrives and this wait
+		// would otherwise block forever — hanging cmd.Wait(), so childExited
+		// never closes, so Run()'s ctx/SHUTDOWN branches (which block on
+		// <-childExited) hang and the ptyhost becomes unkillable. The
+		// process-group kill in terminateChild normally resolves this by
+		// killing such descendants; this timeout is the last-resort guard so
+		// Run() can NEVER hang indefinitely even if that fails. Proceeding to
+		// cmd.Wait() here may truncate a final unread chunk (logged), which
+		// is strictly better than an unkillable process.
+		if !s.waitStdioDrained(pipeStdioDrainTimeout) {
+			s.logger.Warn("ptyhost: pipe stdio pumps did not reach EOF within drain timeout; reaping anyway (a descendant may still hold stdout/stderr open — possible final-chunk truncation)",
+				"timeout", pipeStdioDrainTimeout)
+		}
+	}
 	err := s.cmd.Wait()
 	code := 0
 	valid := true
@@ -357,7 +504,12 @@ func (s *Server) waitChild() {
 	s.exitCodeValid = valid
 	s.mu.Unlock()
 
-	_ = s.ptmx.Close()
+	// ModePTY owns the PTY master fd directly and must close it explicitly.
+	// ModePipe's stdin/stdout/stderr pipes are already closed by cmd.Wait()
+	// itself (os/exec docs) — closing again would double-close.
+	if s.cfg.Mode != ModePipe && s.ptmx != nil {
+		_ = s.ptmx.Close()
+	}
 
 	if werr := s.writeStatusFile(true, code, valid, &exitedAt); werr != nil {
 		s.logger.Warn("ptyhost: write exit status file failed", "err", werr)
@@ -368,7 +520,11 @@ func (s *Server) waitChild() {
 
 // terminateChild sends SIGTERM, waits up to grace for the child to exit
 // (observed via childExited), then escalates to SIGKILL. It is a no-op if
-// the child is already known to be exited.
+// the child is already known to be exited. In [ModePipe] the signals target
+// the child's whole PROCESS GROUP (Setpgid at spawn — see [Server.spawnPipe])
+// so backgrounded descendants that inherited our stdout/stderr are killed
+// too; without that they would keep the pipe read-ends open (hanging
+// waitChild's stdio drain) and/or survive teardown as orphans.
 func (s *Server) terminateChild(grace time.Duration) {
 	s.mu.Lock()
 	var proc *os.Process
@@ -376,17 +532,62 @@ func (s *Server) terminateChild(grace time.Duration) {
 		proc = s.cmd.Process
 	}
 	alive := s.alive
+	pipeMode := s.cfg.Mode == ModePipe
 	s.mu.Unlock()
 	if !alive || proc == nil {
 		return
 	}
-	_ = proc.Signal(syscall.SIGTERM)
+	s.signalChild(proc, pipeMode, syscall.SIGTERM)
 	select {
 	case <-s.childExited:
 		return
 	case <-time.After(grace):
 	}
-	_ = proc.Signal(syscall.SIGKILL)
+	s.signalChild(proc, pipeMode, syscall.SIGKILL)
+}
+
+// signalChild delivers sig to the child. In pipe mode it targets the child's
+// process group (negative pid — the group was established via Setpgid at
+// spawn) so descendants are signalled too; if the group signal fails it
+// falls back to the direct pid. In pty mode it signals the direct process as
+// before (the PTY child is already its own session leader via
+// creackpty.Start, and changing that path risks regressing existing tui
+// survival behaviour).
+func (s *Server) signalChild(proc *os.Process, pipeMode bool, sig syscall.Signal) {
+	if pipeMode {
+		if err := syscall.Kill(-proc.Pid, sig); err == nil {
+			return
+		}
+		// Group signal failed (e.g. pgid setup raced or the group is already
+		// gone) — fall back to the direct pid so we still make a best effort.
+	}
+	_ = proc.Signal(sig)
+}
+
+// pipeStdioDrainTimeout bounds how long [Server.waitChild] waits for the
+// pipe-mode stdout/stderr pumps to reach EOF before reaping the child anyway
+// (see the safety-net comment in waitChild). A package var so tests can
+// shorten it. Generous by default: the common case completes in microseconds
+// (both pumps EOF the instant the child's fds close), and the process-group
+// kill normally makes even the descendant case complete promptly; this only
+// bounds a pathological "descendant ignores SIGKILL / is unkillable" tail.
+var pipeStdioDrainTimeout = 10 * time.Second
+
+// waitStdioDrained blocks until both pipe-mode stdio pumps have returned
+// (stdioDone) or timeout elapses. Returns true if drained cleanly, false on
+// timeout.
+func (s *Server) waitStdioDrained(timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		s.stdioDone.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
 }
 
 // listen ensures the socket directory exists, removes a stale socket file
@@ -450,9 +651,13 @@ func (s *Server) handleConn(conn net.Conn) {
 	}
 
 	var sub *Subscription
+	var errSub *Subscription
 	defer func() {
 		if sub != nil {
 			s.ring.Unsubscribe(sub)
+		}
+		if errSub != nil {
+			s.stderrRing.Unsubscribe(errSub)
 		}
 	}()
 
@@ -470,6 +675,29 @@ func (s *Server) handleConn(conn net.Conn) {
 						return
 					}
 				case <-sub.Done:
+					return
+				}
+			}
+		}()
+	}
+
+	// startErrPump mirrors startPump but delivers over MsgStderrData — the
+	// one sanctioned protocol growth (ADR-0004 §6) — so a stream-json
+	// child's stdout NDJSON stream is never interleaved with stderr bytes.
+	startErrPump := func(errSub *Subscription) {
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			for {
+				select {
+				case chunk, ok := <-errSub.Ch:
+					if !ok {
+						return
+					}
+					if err := writeFrame(MsgStderrData, EncodeData(chunk.Offset, chunk.Data)); err != nil {
+						return
+					}
+				case <-errSub.Done:
 					return
 				}
 			}
@@ -500,6 +728,24 @@ func (s *Server) handleConn(conn net.Conn) {
 				return
 			}
 			startPump(sub)
+
+			// Pipe mode: ATTACH also (re)starts stderr delivery — there is
+			// no separate ATTACH-equivalent request for it (ADR-0004 §6);
+			// the client always gets the full retained stderr ring (oldest
+			// byte onward) plus live bytes as a side effect of the SAME
+			// ATTACH that establishes the stdout replay/subscription.
+			if s.cfg.Mode == ModePipe {
+				if errSub != nil {
+					s.stderrRing.Unsubscribe(errSub)
+					errSub = nil
+				}
+				edata, estart, enewSub := s.stderrRing.SnapshotAndSubscribe(-1)
+				errSub = enewSub
+				if werr := writeFrame(MsgStderrData, EncodeData(estart, edata)); werr != nil {
+					return
+				}
+				startErrPump(errSub)
+			}
 
 		case MsgInput:
 			s.writeInput(DecodeInput(payload))
@@ -534,16 +780,29 @@ func (s *Server) handleConn(conn net.Conn) {
 	}
 }
 
+// writeInput writes b to the child's input: the PTY master in [ModePTY], or
+// the child's stdin pipe in [ModePipe].
 func (s *Server) writeInput(b []byte) {
 	s.mu.Lock()
 	ptmx := s.ptmx
+	stdin := s.stdin
 	s.mu.Unlock()
-	if ptmx == nil || len(b) == 0 {
+	if len(b) == 0 {
 		return
 	}
-	_, _ = ptmx.Write(b)
+	if stdin != nil {
+		_, _ = stdin.Write(b)
+		return
+	}
+	if ptmx != nil {
+		_, _ = ptmx.Write(b)
+	}
 }
 
+// resize applies a PTY winsize change. In [ModePipe] there is no PTY, so
+// this is a documented no-op (§2 of docs/no-halt-agent-design.md) — s.ptmx
+// is always nil in pipe mode, so the existing nil check below naturally
+// covers it without a mode branch.
 func (s *Server) resize(cols, rows uint16) {
 	s.mu.Lock()
 	ptmx := s.ptmx
@@ -563,7 +822,7 @@ func (s *Server) helloPayload() HelloPayload {
 	s.mu.Unlock()
 	return HelloPayload{
 		ProtocolVersion: ProtocolVersion,
-		Mode:            "pty",
+		Mode:            s.cfg.Mode,
 		Pid:             pid,
 		ArgvHash:        ArgvHash(s.cfg.Argv),
 	}
@@ -598,7 +857,7 @@ func (s *Server) writeStatusFile(exited bool, exitCode int, exitCodeValid bool, 
 	}
 	sf := StatusFile{
 		Pid:           pid,
-		Mode:          "pty",
+		Mode:          s.cfg.Mode,
 		ArgvHash:      ArgvHash(s.cfg.Argv),
 		StartedAt:     s.startedAt,
 		Alive:         !exited,
