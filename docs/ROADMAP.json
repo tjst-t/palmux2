@@ -12029,39 +12029,39 @@
           "id": "S64c835-1",
           "title": "claudetui の並行データ競合を解消し -race clean にする",
           "user_story": "palmux 運用者として、claude-tui daemon を `go test -race` clean にしたい。なぜなら、既存のデータ競合を将来の並行処理拡張前に潰し、-race を CI・検証で信頼できるゲートにしたいから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S64c835-1-1",
               "description": "charmbracelet/x/vt Emulator への palmux2 側アクセス (Close vs Feed/Read) を直列化し、`go test -race ./internal/tab/claudetui/` が Emulator.Close/Read 競合を出さず pass する。CPU 高負荷でも -count=3 で安定 (backlog #1)。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S64c835-1-2",
               "description": "roleCoordinator.OnUnsubscribe の subscriber map アクセス競合を lock 整合で解消し -race clean にする (backlog #2)。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S64c835-1-3",
               "description": "修正が claudetui の既存機能 (multi-client role / hook 通知 / resize / respawn / 画面復元) をリグレッションさせない (既存 unit + PALMUX_SURVIVAL_SMOKE gate 付き生存テストが PASS)。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S64c835-1-1": {
               "id": "S64c835-1-1",
               "title": "Emulator アクセス直列化 (Close と Read/Feed を同一 mutex 配下、feedMu 拡張 or 専用 lock)",
-              "status": "pending"
+              "status": "done"
             },
             "S64c835-1-2": {
               "id": "S64c835-1-2",
               "title": "roleCoordinator.OnUnsubscribe の subscriber map lock 整合",
-              "status": "pending"
+              "status": "done"
             },
             "S64c835-1-3": {
               "id": "S64c835-1-3",
               "title": "該当競合を突く -race 回帰テスト追加 (並行 Close/Read + Unsubscribe)",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
@@ -12109,39 +12109,39 @@
           "id": "S64c835-3",
           "title": "claude-agent に orphan-GC を実装 (claudetui との対称性)",
           "user_story": "palmux 運用者として、agent タブの ptyhost も未参照になったら自動回収してほしい。なぜなら、claude-tui (S3f2658-3) と同じサバイバル/回収の対称性が欲しく、palmux2 停止中に閉じた branch の agent ptyhost が残留するのを避けたいから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S64c835-3-1",
               "description": "既存 store scan ループ (10s) 相乗りの orphan-GC が、store に対応 (repo,branch,tab) の無い agent pipe-mode ptyhost に SHUTDOWN を送る (claudetui GCOrphans と同型)。参照中の ptyhost は不可侵 (backlog #7)。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S64c835-3-2",
               "description": "instancePrefix 分離を尊重し他 instance の agent ptyhost を GC しない。identity は ptyhost の明示 JSON フィールド (RepoID/BranchID/TabID) で判定 (S3f2658-3 の __-split 回避と同じ、seed 再パースしない)。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S64c835-3-3",
               "description": "実プロセス (fake stream-json emitter) で、未参照 ptyhost が GC され参照中が複数 tick 生存することを検証 (PALMUX_SURVIVAL_SMOKE gate 可)。既存 claudeagent スイートは無リグレッション。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S64c835-3-1": {
               "id": "S64c835-3-1",
               "title": "claudeagent discover.go に GCOrphans 相当を実装し store scan ループへ配線 (claudetui 移植)",
-              "status": "pending"
+              "status": "done"
             },
             "S64c835-3-2": {
               "id": "S64c835-3-2",
               "title": "identity は explicit JSON fields で判定 (splitSeed 不使用)、instancePrefix 分離",
-              "status": "pending"
+              "status": "done"
             },
             "S64c835-3-3": {
               "id": "S64c835-3-3",
               "title": "fake emitter で GC 発火 / 参照保護 / 並走分離テスト",
-              "status": "pending"
+              "status": "done"
             }
           }
         }
