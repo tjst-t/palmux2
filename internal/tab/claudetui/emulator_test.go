@@ -2,6 +2,7 @@ package claudetui
 
 import (
 	"encoding/base64"
+	"sync"
 	"testing"
 	"time"
 
@@ -236,4 +237,63 @@ func TestEmulatorOsc52NoHub(t *testing.T) {
 	b64Hello := base64.StdEncoding.EncodeToString([]byte("hello"))
 	// Must not panic.
 	em.Feed([]byte("\x1b]52;c;" + b64Hello + "\x07"))
+}
+
+// TestEmulatorCloseRacesReadAndFeed is a regression test for
+// AC-S64c835-1-1: charmbracelet/x/vt's SafeEmulator does not synchronize
+// Close() against Read()/Write() (Close isn't overridden at all; Read
+// explicitly bypasses SafeEmulator's own mutex), so a goroutine blocked in
+// Read() — exactly daemon.go's drainer goroutine, which blocks waiting for
+// DA1/DA2/CPR response bytes between queries — used to race
+// `go test -race`-detectably against a concurrent Close() (see
+// docs/sprint-logs/S64c835/decisions.json and the Emulator struct doc
+// comment for the full analysis of why this couldn't be fixed with a
+// palmux2-side mutex alone).
+//
+// This mirrors daemon.go's actual usage pattern: one goroutine loops calling
+// Read() (blocking, since nothing ever writes a DA1/DA2 reply into a bare
+// Emulator with no callbacks configured) while another calls Close() almost
+// immediately, and a third concurrently calls Feed() — the same three
+// call sites daemon.go's readLoop/drainer/teardown exercise. It fails under
+// `go test -race` without the third_party/charmbracelet-x-vt-racefix patch
+// (verified while developing this fix) and must stay race-free with it.
+func TestEmulatorCloseRacesReadAndFeed(t *testing.T) {
+	const iterations = 20
+
+	for i := 0; i < iterations; i++ {
+		em := newTestEmulator(80, 24)
+
+		var wg sync.WaitGroup
+		wg.Add(3)
+
+		// Drainer-alike: block in Read() until Close() unblocks it, exactly
+		// daemon.go's spawnWithArgs drainer goroutine.
+		go func() {
+			defer wg.Done()
+			buf := make([]byte, 4096)
+			for {
+				_, err := em.Read(buf)
+				if err != nil {
+					return
+				}
+			}
+		}()
+
+		// readLoop-alike: keep feeding bytes until Close() makes further
+		// Feed() calls into a no-op, exactly daemon.go's readLoop goroutine.
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 50; j++ {
+				em.Feed([]byte("x"))
+			}
+		}()
+
+		// teardown-alike: close almost immediately, racing both above.
+		go func() {
+			defer wg.Done()
+			em.Close()
+		}()
+
+		wg.Wait()
+	}
 }

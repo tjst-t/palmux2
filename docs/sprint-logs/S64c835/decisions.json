@@ -1,0 +1,41 @@
+{
+  "sprint": "S64c835",
+  "decisions": [
+    {
+      "timestamp": "2026-07-12T00:00:00Z",
+      "category": "verify",
+      "title": "Reproduced both pre-existing races before fixing (AC-S64c835-1-1/2)",
+      "detail": "go test -race ./internal/tab/claudetui/ -count=1 on the base commit reproduced 29 identical DATA RACE reports, all charmbracelet/x/vt (*Emulator).Close() writing its internal `closed` bool (emulator.go:265) racing (*Emulator).Read() reading it (emulator.go:252), reached via daemon.go's spawnWithArgs drainer goroutine (Read, daemon.go:820) vs teardown (Close, daemon.go:1413). Separately reproduced roleCoordinator.OnUnsubscribe: a write to rc.subs at role.go:155 (under rc.mu) racing an UNGUARDED read of len(rc.subs) at role.go:172 in a DIFFERENT concurrent OnUnsubscribe call — the debug-log line ran len(rc.subs) *after* rc.mu.Unlock()."
+    },
+    {
+      "timestamp": "2026-07-12T00:00:00Z",
+      "category": "design",
+      "title": "roleCoordinator fix: capture counts under the lock (AC-S64c835-1-2)",
+      "detail": "OnSubscribe and OnUnsubscribe both had the same bug shape: len(rc.subs) read for a slog.Debug call *after* rc.mu.Unlock(). Fixed both by capturing the count into a local variable while still holding rc.mu, then using that local in the (now-unlocked) log call. No behavior change, no new locking, no deadlock risk — pure hoist of a read to inside an already-held critical section. Added TestRoleCoordinatorConcurrentSubscribeUnsubscribe (32 workers x 50 rounds of Subscribe/TakeActive/Unsubscribe) as a regression test; verified it fails under -race with role.go reverted to its old form and passes with the fix."
+    },
+    {
+      "timestamp": "2026-07-12T00:00:00Z",
+      "category": "design",
+      "title": "Emulator fix: attempted palmux2-side mutex first, proved it cannot work",
+      "detail": "First attempt: added a closeMu to internal/tab/claudetui/Emulator, held by Read() for its entire (potentially indefinite) call, with Close() using closeMu.TryLock() to avoid deadlocking against a blocked Read(). This still raced under -race even with an increasingly generous bounded retry (tried 0ms and 200ms budgets with runtime.Gosched() spin). Root cause understood after the second failure: go test -race's race detection is based purely on the presence/absence of a happens-before edge (an actual synchronization primitive shared between the two accesses), not on wall-clock proximity — waiting longer before Close()'s unsynchronized fallback call does not create that edge, so the race is reported regardless of how much real time separates the two accesses. A mutex that Read() holds for its full (unboundedly long) call cannot be shared with Close() without either deadlocking (Close() waiting on a lock a permanently-blocked Read() holds) or leaving this exact un-closeable gap. Concluded this is provably unsolvable via palmux2-side wrapping alone, given io.PipeReader (which the underlying `closed` bool guards) offers no deadline/cancel support and vt.Emulator's pr/pw fields are unexported."
+    },
+    {
+      "timestamp": "2026-07-12T00:00:00Z",
+      "category": "design",
+      "title": "Emulator fix: root-cause patch via local module replace (AC-S64c835-1-1)",
+      "detail": "Since the actual bug is charmbracelet/x/vt's Emulator.closed being a plain (unsynchronized) bool touched by both Close() and Read()/Write() from different goroutines, and SafeEmulator (which claims thread-safety) does not fix this (Close isn't overridden at all; Read explicitly bypasses SafeEmulator's own mutex) — patched a local copy of the exact same module version at third_party/charmbracelet-x-vt-racefix, changing only Emulator.closed from `bool` to `atomic.Bool` (3 call sites: 2 Load, 1 CompareAndSwap replacing the old read-then-write). Wired in via a `replace` directive in go.mod (scoped, documented, minimal — no other files touched, test files stripped from the copy). io.PipeReader.Read/io.PipeWriter.CloseWithError (what Close ultimately calls) are already safe for concurrent use per io.Pipe's own design, so this is the complete, root-cause fix — no additional palmux2-side locking needed. Simplified internal/tab/claudetui/Emulator.Close()/Read() back to plain pass-throughs. This departs from the story's 'serialize on palmux2's side' framing, but that framing did not anticipate that Read() can block indefinitely while Close() must interrupt it — a combination proven unsolvable with pure caller-side synchronization; the decisions above document why. Backlog item 'charmbracelet/x/vt Emulator.Close vs Read' should be closed by dropping the replace directive once upstream ships an equivalent fix."
+    },
+    {
+      "timestamp": "2026-07-12T00:00:00Z",
+      "category": "verify",
+      "title": "Regression tests proven to catch both original bugs",
+      "detail": "Added TestEmulatorCloseRacesReadAndFeed (20 iterations, mirrors daemon.go's drainer/readLoop/teardown goroutine triple) and TestRoleCoordinatorConcurrentSubscribeUnsubscribe. Confirmed each fails under -race when its corresponding fix is reverted in isolation (git stash on role.go alone; git stash on go.mod alone to restore the unpatched vt module) and passes with the fix restored. Also incidentally caught a related, previously-undocumented Feed()-vs-Close() race on the same `closed` field (SafeEmulator.Write takes se.mu but Close bypasses it entirely) — fixed by the same atomic.Bool patch."
+    },
+    {
+      "timestamp": "2026-07-12T00:00:00Z",
+      "category": "verify",
+      "title": "Final verification (AC-S64c835-1-1/2/3)",
+      "detail": "go build ./... clean. go vet ./... clean. go test ./internal/tab/claudetui/ (non-race) PASS. go test -race ./internal/tab/claudetui/ -count=3 -v: 300/300 PASS, 0 DATA RACE reports. Repeated -count=3 -race run concurrently with `stress-ng --cpu 8` for ~110s (simulating a loaded CPU per the AC wording): still 0 races. PALMUX_SURVIVAL_SMOKE=1 go test ./internal/tab/claudetui/ -run TestParallelInstances -count=1: PASS, no regression. No leaked fake_claude/ptyhost processes after any run (verified via pgrep)."
+    }
+  ]
+}
