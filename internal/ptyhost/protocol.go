@@ -49,6 +49,18 @@ const (
 	// SIGKILL after a grace period) and exit. Payload: JSON-encoded
 	// [ShutdownPayload] (may be empty for defaults).
 	MsgShutdown
+	// MsgStderrData is the ONE protocol growth pipe mode needs (ADR-0004 §6,
+	// S862203-2 decisions.json PD-3): the server-side stderr channel, kept
+	// SEPARATE from the stdout MsgData/ATTACH/ACK path so a stream-json
+	// child's NDJSON stdout is never corrupted by interleaved stderr bytes.
+	// Payload shape is identical to MsgData (8-byte absolute offset + raw
+	// bytes — see [EncodeData]/[DecodeData], reused as-is). h→c only; there
+	// is no separate ATTACH-equivalent request for it — the server begins
+	// (re)delivering the full retained stderr ring (oldest retained byte
+	// onward) plus live bytes as a side effect of the client's normal
+	// MsgAttach request, so no new request message is needed. In "pty" mode
+	// this message type is never sent (stderr is merged into the PTY).
+	MsgStderrData
 )
 
 // String implements fmt.Stringer for readable logs/test failures.
@@ -70,6 +82,8 @@ func (t MsgType) String() string {
 		return "STATUS"
 	case MsgShutdown:
 		return "SHUTDOWN"
+	case MsgStderrData:
+		return "STDERR_DATA"
 	default:
 		return fmt.Sprintf("MsgType(%d)", uint8(t))
 	}
@@ -124,7 +138,7 @@ func ReadFrame(r io.Reader) (MsgType, []byte, error) {
 // HelloPayload is the JSON body of a HELLO frame.
 type HelloPayload struct {
 	ProtocolVersion int    `json:"protocolVersion"`
-	Mode            string `json:"mode"` // "pty" (pipe mode is Sprint 2 / ADR-0004)
+	Mode            string `json:"mode"` // "pty" or "pipe" (ADR-0004, S862203-2)
 	Pid             int    `json:"pid"`
 	ArgvHash        string `json:"argvHash"`
 }
