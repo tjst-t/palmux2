@@ -2,14 +2,14 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 71,
+    "sprints_done": 72,
     "sprints_total": 73,
-    "done": 71,
+    "done": 72,
     "total": 73,
-    "remaining": 2,
+    "remaining": 1,
     "in_progress": 0,
-    "percent": 97,
-    "percentage": 97,
+    "percent": 99,
+    "percentage": 99,
     "current_sprint": "S862203"
   },
   "execution_order": [
@@ -11893,7 +11893,7 @@
       "title": "no-halt-agent Sprint 2: pipe モード + claude-agent ロスレス生存 [MILESTONE]",
       "description": "ptyhost を pipe モード (PTY なし stdio) で流用し、stream-json の stdout を絶対 offset 付き行 ring に貯めて ACK/replay でロスレス再接続する (ADR-0004)。palmux2 停止中の permission 要求も replay で UI に届く。冒頭 spike: MCP control_request 応答期限。",
       "milestone": true,
-      "status": "in_progress",
+      "status": "done",
       "detail_level": "detailed",
       "depends_on": [
         "S3f2658"
