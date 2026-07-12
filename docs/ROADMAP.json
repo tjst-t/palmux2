@@ -3,13 +3,13 @@
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
     "sprints_done": 72,
-    "sprints_total": 73,
+    "sprints_total": 74,
     "done": 72,
-    "total": 73,
-    "remaining": 1,
+    "total": 74,
+    "remaining": 2,
     "in_progress": 0,
-    "percent": 99,
-    "percentage": 99,
+    "percent": 97,
+    "percentage": 97,
     "current_sprint": "S862203"
   },
   "execution_order": [
@@ -85,7 +85,8 @@
     "Se173ef",
     "S4323c8",
     "S3f2658",
-    "S862203"
+    "S862203",
+    "S64c835"
   ],
   "sprints": {
     "S001": {
@@ -12004,6 +12005,147 @@
           }
         }
       }
+    },
+    "S64c835": {
+      "id": "S64c835",
+      "title": "no-halt-agent 硬化: 並行データ競合の解消 + テスト健全化 + claude-agent orphan-GC",
+      "description": "no-halt-agent マイルストーン (S3f2658+S862203) のレビュー/検証で積んだ fix 価値のある backlog を回収する硬化 Sprint。実プロダクトの並行データ競合 (claudetui) を潰して -race を信頼できるゲートにし、実機テストのプロセスリーク/期限 flake を直し、claude-agent に claudetui と対称な orphan-GC を入れる。設計は docs/no-halt-agent-design.md、ADR-0001/0002/0004。",
+      "milestone": false,
+      "status": "pending",
+      "detail_level": "detailed",
+      "depends_on": {
+        "depends_on": [
+          "S862203"
+        ],
+        "reason": "claudetui/claudeagent の thin-client + ptyhost 実装 (S3f2658/S862203) の上に載る硬化。"
+      },
+      "design_refs": [
+        "docs/no-halt-agent-design.md",
+        "docs/DESIGN/adr/ADR-0002-thin-holder-ptyhost.json",
+        "docs/DESIGN/adr/ADR-0004-agent-pipe-mode-offset-replay.json"
+      ],
+      "stories": {
+        "S64c835-1": {
+          "id": "S64c835-1",
+          "title": "claudetui の並行データ競合を解消し -race clean にする",
+          "user_story": "palmux 運用者として、claude-tui daemon を `go test -race` clean にしたい。なぜなら、既存のデータ競合を将来の並行処理拡張前に潰し、-race を CI・検証で信頼できるゲートにしたいから。",
+          "status": "pending",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S64c835-1-1",
+              "description": "charmbracelet/x/vt Emulator への palmux2 側アクセス (Close vs Feed/Read) を直列化し、`go test -race ./internal/tab/claudetui/` が Emulator.Close/Read 競合を出さず pass する。CPU 高負荷でも -count=3 で安定 (backlog #1)。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S64c835-1-2",
+              "description": "roleCoordinator.OnUnsubscribe の subscriber map アクセス競合を lock 整合で解消し -race clean にする (backlog #2)。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S64c835-1-3",
+              "description": "修正が claudetui の既存機能 (multi-client role / hook 通知 / resize / respawn / 画面復元) をリグレッションさせない (既存 unit + PALMUX_SURVIVAL_SMOKE gate 付き生存テストが PASS)。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S64c835-1-1": {
+              "id": "S64c835-1-1",
+              "title": "Emulator アクセス直列化 (Close と Read/Feed を同一 mutex 配下、feedMu 拡張 or 専用 lock)",
+              "status": "pending"
+            },
+            "S64c835-1-2": {
+              "id": "S64c835-1-2",
+              "title": "roleCoordinator.OnUnsubscribe の subscriber map lock 整合",
+              "status": "pending"
+            },
+            "S64c835-1-3": {
+              "id": "S64c835-1-3",
+              "title": "該当競合を突く -race 回帰テスト追加 (並行 Close/Read + Unsubscribe)",
+              "status": "pending"
+            }
+          }
+        },
+        "S64c835-2": {
+          "id": "S64c835-2",
+          "title": "実機テストの健全化: 決定的 cleanup + -race 期限 flake 解消 + reap 冪等性 pin",
+          "user_story": "開発者として、実機テストが -race + 高負荷でも決定的に pass し、spawn したプロセスをリークしないでほしい。なぜなら、CI の信頼性と dev box の健全性 (incus/プロセス churn 劣化の回避) を守りたいから。",
+          "status": "pending",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S64c835-2-1",
+              "description": "PALMUX_SURVIVAL_SMOKE 系テスト (特に TestParallelInstances_NeverClaimOrGCEachOther) が終了時に spawn した全 ptyhost/子プロセスを t.Cleanup+defer で決定的に reap し、テスト後のリークプロセスが 0 になる (backlog #4)。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S64c835-2-2",
+              "description": "claudeagent の permission 統合テスト (TestBashPerm_NoLeakOverManyRounds / TestAskUserQuestion_FullRoundTrip / TestExitPlanMode_FullRoundTrip) の 2s ハードコード期限を adaptive 化 or 直列化し、`go test -race` + 高 CPU 負荷でも安定 pass する (backlog #6)。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S64c835-2-3",
+              "description": "orphan-GC reap の冪等性前提が明示的に pin される (TestGCOrphans_ReapsInContainerClaude 等に repeat-reap の境界アサート or 契約コメント + テスト) (backlog #5)。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S64c835-2-1": {
+              "id": "S64c835-2-1",
+              "title": "TestParallelInstances の cleanup 決定的化 (全 launch を追跡し t.Cleanup で SHUTDOWN/kill)",
+              "status": "pending"
+            },
+            "S64c835-2-2": {
+              "id": "S64c835-2-2",
+              "title": "claudeagent perm テストの 2s 期限を adaptive (env/係数) or 直列化",
+              "status": "pending"
+            },
+            "S64c835-2-3": {
+              "id": "S64c835-2-3",
+              "title": "reap 冪等性の pin (境界アサート or 契約コメント + テスト)",
+              "status": "pending"
+            }
+          }
+        },
+        "S64c835-3": {
+          "id": "S64c835-3",
+          "title": "claude-agent に orphan-GC を実装 (claudetui との対称性)",
+          "user_story": "palmux 運用者として、agent タブの ptyhost も未参照になったら自動回収してほしい。なぜなら、claude-tui (S3f2658-3) と同じサバイバル/回収の対称性が欲しく、palmux2 停止中に閉じた branch の agent ptyhost が残留するのを避けたいから。",
+          "status": "pending",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S64c835-3-1",
+              "description": "既存 store scan ループ (10s) 相乗りの orphan-GC が、store に対応 (repo,branch,tab) の無い agent pipe-mode ptyhost に SHUTDOWN を送る (claudetui GCOrphans と同型)。参照中の ptyhost は不可侵 (backlog #7)。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S64c835-3-2",
+              "description": "instancePrefix 分離を尊重し他 instance の agent ptyhost を GC しない。identity は ptyhost の明示 JSON フィールド (RepoID/BranchID/TabID) で判定 (S3f2658-3 の __-split 回避と同じ、seed 再パースしない)。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S64c835-3-3",
+              "description": "実プロセス (fake stream-json emitter) で、未参照 ptyhost が GC され参照中が複数 tick 生存することを検証 (PALMUX_SURVIVAL_SMOKE gate 可)。既存 claudeagent スイートは無リグレッション。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S64c835-3-1": {
+              "id": "S64c835-3-1",
+              "title": "claudeagent discover.go に GCOrphans 相当を実装し store scan ループへ配線 (claudetui 移植)",
+              "status": "pending"
+            },
+            "S64c835-3-2": {
+              "id": "S64c835-3-2",
+              "title": "identity は explicit JSON fields で判定 (splitSeed 不使用)、instancePrefix 分離",
+              "status": "pending"
+            },
+            "S64c835-3-3": {
+              "id": "S64c835-3-3",
+              "title": "fake emitter で GC 発火 / 参照保護 / 並走分離テスト",
+              "status": "pending"
+            }
+          }
+        }
+      }
     }
   },
   "dependencies": {
@@ -12320,6 +12462,12 @@
         "S3f2658"
       ],
       "reason": "pipe モード + agent replay は Sprint 1 の ptyhost 基盤 (socket protocol / spawn 経路 / GC) の上に載る (ADR-0004 の 2 段構え)。milestone は Sprint 2 完了後に置き、tui 先行分の途中停止をしない。"
+    },
+    "S64c835": {
+      "depends_on": [
+        "S862203"
+      ],
+      "reason": "claudetui/claudeagent の thin-client + ptyhost 実装 (S3f2658/S862203) の上に載る硬化。"
     }
   },
   "backlog": [
@@ -12613,45 +12761,9 @@
       "detail": "frontend/src/tabs/files/viewers/markdown-view.tsx が top-level useNavigate を使うため ?right= パネルに追従しない。panel context を Files→FilePreview→MarkdownView に通し、右パネル時は ?right= 更新へ分岐する要あり。ユーザ確認待ち。"
     },
     {
-      "title": "claudetui data race under -race: charmbracelet/x/vt Emulator.Close vs Read",
-      "note": "Pre-existing (reproduced on base commit 934939b, not introduced by S3f2658-2). make test does not run -race so latent. Emulator.Close/Read is adjacent to no-halt-agent daemon code; guard before deeper concurrency work.",
-      "source": "S3f2658-2 review",
-      "severity": "medium"
-    },
-    {
-      "title": "claudetui data race under -race: roleCoordinator.OnUnsubscribe",
-      "note": "Pre-existing (role.go byte-for-byte unmodified by S3f2658-2, race reproduced on base). Latent (not in make test gate).",
-      "source": "S3f2658-2 review",
-      "severity": "low"
-    },
-    {
       "title": "claude-tui restart: xterm.js FitAddon auto-resize reflow after restore",
       "note": "Benign visual reflow after screen restore, caused by xterm FitAddon third attach interacting with scrolling output; proven NOT from the restore SIGWINCH jiggle (strict-ordering assertion on raw reconnect frame). Cosmetic; revisit if users report confusion.",
       "source": "S3f2658-2 e2e",
-      "severity": "low"
-    },
-    {
-      "title": "claudetui test hygiene: TestParallelInstances_NeverClaimOrGCEachOther leaks ptyhosts",
-      "note": "t.Cleanup does not reliably reap every spawned ptyhost/fake_claude; observed ~63-67 leaked processes on dev box after runs. Compounds the known dev-box incus/process degradation-under-churn risk. Fix cleanup to SHUTDOWN/kill all spawned ptyhosts deterministically (t.Cleanup + defer). Introduced S3f2658-3.",
-      "source": "S3f2658-4 finding",
-      "severity": "medium"
-    },
-    {
-      "title": "S3f2658-4 test: pin orphan-GC reap idempotency assumption",
-      "note": "TestGCOrphans_ReapsInContainerClaude does not bound repeat reap calls; safe today only because KillContainerProcesses is idempotent (pkill exit1=no-op). Add a bound assertion or a comment documenting the idempotency contract.",
-      "source": "S3f2658-4 review",
-      "severity": "low"
-    },
-    {
-      "title": "claudeagent perm integration tests: hardcoded 2s deadlines flake under -race + CPU contention",
-      "note": "TestBashPerm_NoLeakOverManyRounds / TestAskUserQuestion_FullRoundTrip / TestExitPlanMode_FullRoundTrip (from S43cfb1) time out under go test -race + high CPU; pass in isolation + non-race. Reproduced on parent commits (pre-existing, not from no-halt-agent). make test gate is non-race + green. Fix: adaptive/larger deadlines or serialize.",
-      "source": "S3f2658+S862203-2",
-      "severity": "medium"
-    },
-    {
-      "title": "claudeagent: no orphan-GC for pipe-mode ptyhosts (asymmetry vs claudetui GCOrphans)",
-      "note": "claudeagent has startup DiscoverAndRestore but no orphan GC on the store scan loop (claudetui got GCOrphans in S3f2658-3). A branch/repo closed while palmux2 is down leaves its agent ptyhost un-reaped until reopen. Mirror S3f2658-3 GCOrphans for claudeagent.",
-      "source": "S862203-3 review",
       "severity": "low"
     }
   ]
