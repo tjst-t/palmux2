@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/tjst-t/palmux2/internal/config"
+	"github.com/tjst-t/palmux2/internal/gwq"
 	"github.com/tjst-t/palmux2/internal/runtime"
 	"github.com/tjst-t/palmux2/internal/runtime/host"
 	"github.com/tjst-t/palmux2/internal/tmux"
@@ -92,13 +93,17 @@ func NewRegistry(
 	if log == nil {
 		log = slog.Default()
 	}
+	shared := NewSharedProfileManager(nil, log, nil)
+	// Mount gwq's worktree base dir (default ~/worktrees, outside ~/ghq) so
+	// linked worktrees are visible at the same path inside containers.
+	shared.SetWorktreeBasedirFunc(gwq.New().WorktreeBasedir)
 	return &Registry{
 		repoStore:     repoStore,
 		settingsStore: settingsStore,
 		hostTmux:      hostTmux,
 		log:           log,
 		cache:         map[cacheKey]runtime.Runtime{},
-		shared:        NewSharedProfileManager(nil, log, nil),
+		shared:        shared,
 	}
 }
 

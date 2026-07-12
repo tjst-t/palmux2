@@ -137,6 +137,62 @@ func TestSharedProfile_SharedDirsIncluded(t *testing.T) {
 	}
 }
 
+// SetWorktreeBasedirFunc makes declaredDevices include the gwq worktree base dir
+// as a same-path bind-mount, so a Claude/Bash tab opened on a linked (gwq)
+// worktree finds its cwd inside the container. The base dir may live OUTSIDE
+// ~/ghq (default ~/worktrees), so this also guards the symlink-skip exemption.
+func TestSharedProfile_GwqWorktreesIncluded(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	basedir := filepath.Join(home, "worktrees")
+	_ = os.MkdirAll(basedir, 0o755)
+
+	m := NewSharedProfileManager(newFakeRunner().asRunner(), nil, nil)
+	m.SetWorktreeBasedirFunc(func(context.Context) (string, error) { return basedir, nil })
+
+	found := false
+	for _, d := range m.declaredDevices() {
+		if d.name == gwqWorktreesDevice {
+			found = true
+			if d.source != basedir || d.path != basedir {
+				t.Errorf("gwq worktrees device source/path = %s/%s, want %s", d.source, d.path, basedir)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected gwq worktrees device %q in declaredDevices", gwqWorktreesDevice)
+	}
+
+	// Caching: the resolver must be consulted once, then the cached value reused.
+	calls := 0
+	m.resolvedBasedir = "" // reset cache primed by the first declaredDevices above
+	m.SetWorktreeBasedirFunc(func(context.Context) (string, error) { calls++; return basedir, nil })
+	_ = m.declaredDevices()
+	_ = m.declaredDevices()
+	if calls != 1 {
+		t.Errorf("resolver called %d times, want 1 (cached)", calls)
+	}
+
+	// No resolver → device absent (feature off, existing hosts unaffected).
+	m2 := NewSharedProfileManager(newFakeRunner().asRunner(), nil, nil)
+	for _, d := range m2.declaredDevices() {
+		if d.name == gwqWorktreesDevice {
+			t.Errorf("no resolver should omit the gwq worktrees device, got %v", d)
+		}
+	}
+
+	// basedir == ~/ghq must NOT add a duplicate-path device (incus error).
+	ghq := filepath.Join(home, "ghq")
+	_ = os.MkdirAll(ghq, 0o755)
+	m3 := NewSharedProfileManager(newFakeRunner().asRunner(), nil, nil)
+	m3.SetWorktreeBasedirFunc(func(context.Context) (string, error) { return ghq, nil })
+	for _, d := range m3.declaredDevices() {
+		if d.name == gwqWorktreesDevice {
+			t.Errorf("basedir coinciding with ~/ghq must be skipped (duplicate path), got %v", d)
+		}
+	}
+}
+
 // SetAttachmentDir makes declaredDevices include the attachment upload root as a
 // same-path bind-mount, so Ctrl+V-pasted images (saved on the host) are readable
 // by in-container Claude at the exact absolute path the composer injects. The root

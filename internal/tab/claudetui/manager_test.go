@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/tjst-t/palmux2/internal/ptyhost"
 )
 
 // defaultTabID is the canonical tabID used across single-tab tests. Sadf90e
@@ -174,6 +176,92 @@ func TestManagerShutdownAll(t *testing.T) {
 	if m.Len() != 0 {
 		t.Fatalf("Len() = %d after ShutdownAll, want 0", m.Len())
 	}
+}
+
+// TestManagerDetachAll verifies the SURVIVAL contract of DetachAll (the call
+// palmux2's own process-exit path uses): it removes every daemon from the
+// Manager (Len()==0, so a freshly (re)started palmux2 rebuilds them) BUT
+// leaves each underlying ptyhost process alive and its socket still
+// listening — i.e. it detaches the client WITHOUT shutting the held claude
+// process down. This is the whole point of ADR-0001/0002 restart survival;
+// the slow real-process E2E already proves it end-to-end, this is the fast
+// guard on the exact same path.
+func TestManagerDetachAll(t *testing.T) {
+	bin := fakeBin(t)
+	m := NewManager(ManagerConfig{ClaudeBin: bin, RingSize: 1 << 16})
+	ctx := context.Background()
+
+	// Start 2+ daemons via the in-process ptyhost fallback (no PalmuxBin) so
+	// each has a REAL, listening ptyhost holding a real fake_claude child.
+	// Capture the daemon refs + their socket paths BEFORE DetachAll clears
+	// the Manager's map (we need them to probe survival afterward).
+	type held struct {
+		d    *Daemon
+		sock string
+	}
+	var helds []held
+	for _, br := range []string{"b1", "b2", "b3"} {
+		d, err := m.EnsureDaemon(ctx, "r", br, defaultTabID, "")
+		if err != nil {
+			t.Fatalf("EnsureDaemon r/%s: %v", br, err)
+		}
+		if err := d.EnsureStarted(ctx); err != nil {
+			t.Fatalf("EnsureStarted r/%s: %v", br, err)
+		}
+		waitForState(t, d, StateRunning, 5*time.Second)
+		sock, _ := d.ptyHostPaths()
+		helds = append(helds, held{d: d, sock: sock})
+	}
+	if m.Len() != 3 {
+		t.Fatalf("Len() = %d, want 3", m.Len())
+	}
+
+	// Ensure the surviving ptyhosts are ALWAYS reaped, pass or fail, so this
+	// test never leaks processes (DetachAll deliberately does NOT kill them).
+	t.Cleanup(func() {
+		for _, h := range helds {
+			if conn, ok := probeExisting(h.sock); ok {
+				_ = ptyhost.WriteFrame(conn, ptyhost.MsgShutdown, ptyhost.EncodeShutdown(ptyhost.ShutdownPayload{GraceMillis: 200}))
+				_ = conn.Close()
+			}
+		}
+	})
+
+	done := make(chan struct{})
+	go func() {
+		_ = m.DetachAll(ctx)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("DetachAll timed out")
+	}
+
+	// (1) The Manager forgot every daemon.
+	if m.Len() != 0 {
+		t.Fatalf("Len() = %d after DetachAll, want 0", m.Len())
+	}
+
+	// (2) SURVIVAL: every ptyhost is STILL listening (DetachAll must NOT have
+	// sent SHUTDOWN). Probe each socket and confirm a HELLO round-trips —
+	// proving the held claude process is alive and a future palmux2 could
+	// reconnect to it.
+	for _, h := range helds {
+		conn, ok := probeExisting(h.sock)
+		if !ok {
+			t.Fatalf("SURVIVAL FAIL: ptyhost socket %s no longer listening after DetachAll — the held process was killed, defeating restart survival", h.sock)
+		}
+		hello, herr := sendHello(conn)
+		_ = conn.Close()
+		if herr != nil {
+			t.Fatalf("SURVIVAL FAIL: HELLO to surviving ptyhost %s failed: %v", h.sock, herr)
+		}
+		if hello.Pid <= 0 {
+			t.Fatalf("SURVIVAL FAIL: surviving ptyhost %s reported non-positive pid %d", h.sock, hello.Pid)
+		}
+	}
+	t.Logf("DetachAll: Manager cleared (Len=0) and all 3 ptyhosts survived, still listening + HELLO-responsive")
 }
 
 // TestManagerEnsureStarted tests the convenience helper.

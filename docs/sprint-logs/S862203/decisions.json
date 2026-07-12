@@ -1,0 +1,117 @@
+{
+  "sprint": "S862203",
+  "title": "no-halt-agent Sprint 2: pipe モード + claude-agent ロスレス生存 [MILESTONE]",
+  "phase": "plan",
+  "planning_decisions": [
+    {
+      "id": "PD-1",
+      "decision": "Story granularity kept as-is (3 stories, no split).",
+      "rationale": "The three stories are cleanly layered and non-overlapping in BEHAVIOR: (1) spike = measure real-claude control_request deadline (gating), (2) mechanism = pipe-mode ptyhost + generic offset-ack line replay + persistence + overflow detection (fake-emitter verifiable, no claude), (3) adoption = claudeagent.Client thin-client + permstate/transcript reconstruction + real-claude E2E. No story bundles independent behaviors that warrant a split. The task's suggested breakdown matches the natural mechanism-vs-consumer seam."
+    },
+    {
+      "id": "PD-2",
+      "decision": "Execution is SERIAL: [S862203-1] → [S862203-2] → [S862203-3]. No parallelism.",
+      "rationale": "Story 1 is a gating spike whose result can trigger an ADR-0004 revisit — it MUST complete and PASS before any mechanism is built. Story 2 and Story 3 both extend the pipe-mode ptyhost AND share internal/tab/claudeagent files (Story 2 lands the generic replay client + offset store there; Story 3 rewrites client.go/manager.go + adds discover.go in the same package). Overlapping file-touch + the mechanism→consumer dependency make parallelism unsafe."
+    },
+    {
+      "id": "PD-3",
+      "decision": "Reuse the S3f2658 ptyhost wire almost entirely; the ONLY sanctioned protocol growth is a stderr-delivery frame (or 1-byte stream discriminator) for pipe mode.",
+      "rationale": "priority_rule 6 + ADR-0002 (frozen-minimal protocol). The Ring is already absolute-offset; MsgAck/MsgAttach/MsgData/MsgStatus already exist and Ring.readFromLocked already returns the clamped start offset (which IS the overflow-detection primitive). So pipe mode needs only: mode-aware spawn (pipes vs PTY), a stdin-write path (reuse MsgInput), a no-op resize, and a way to deliver stderr separately from the NDJSON stdout stream. Adding one stderr frame is mandated by the design doc §6 ('stderr は別チャネル') and justified by ADR-0004, so it is not an ADR-0002 violation — but the implementer must keep it to the single minimal addition and record the exact wire choice in the run-phase decisions."
+    },
+    {
+      "id": "PD-4",
+      "decision": "Overflow detection is palmux2-side via the clamped ATTACH start offset; ptyhost does NOT persist and does NOT auto-deny pending requests.",
+      "rationale": "ADR-0002 thin-holder + ADR-0004. The ptyhost holds the ring and echoes the clamped start offset it already computes; palmux2 compares requested-last-ack vs returned-start and, if start > requested, declares 'lossless restore impossible → new session'. Persistence (sessions.json-equivalent last-ack) lives in palmux2 (Story 2 store). This keeps the surviving old-binary ptyhost claude-agnostic and the socket protocol frozen."
+    },
+    {
+      "id": "PD-5",
+      "decision": "Replay reconstruction of transcript + permstate reuses the UNCHANGED processStreamMessage path — replayed NDJSON lines are fed back through the same parser.",
+      "rationale": "ADR-0004's core premise is that the stdout stream is the source of truth for transcript/permstate/MCP state. Therefore replaying last-ack+ lines through the existing normalize.go/permstate.go/transcript.go rebuilds state for free. normalize/permstate/transcript/mcp stay palmux2-side and unchanged (ADR-0002/0004), minimizing regression surface for AC-3-3."
+    },
+    {
+      "id": "PD-6",
+      "decision": "The incus (in-container) agent path becomes an OPAQUE argv handed to a pipe-mode ptyhost, exactly as claudetui.spawnWithArgs does for the PTY path.",
+      "rationale": "Today claudeagent uses runtime.ExecCommander (incus exec, no -t, binary-clean) which returns an *exec.Cmd. For ptyhost the child must be an opaque argv/env/cwd. Convert via argv=[cmd.Path, cmd.Args[1:]...], env=cmd.Env, cwd=cmd.Dir — the identical technique S3f2658 used for the PTYCommander wrapper. ExecCommander's no-TTY binary-clean property is exactly what pipe mode needs."
+    }
+  ],
+  "spike": {
+    "task": "S862203-1-1",
+    "question": "Does the claude CLI wait for (and accept) a response to an MCP-routed permission control_request LONGER than palmux2's realistic restart window (a few seconds to ~15s)? Or does it time out / cancel / abort the tool first?",
+    "run_first": true,
+    "blocks": ["S862203-2", "S862203-3"],
+    "real_claude": true,
+    "method": "Go spike harness reusing claudeagent transport primitives (mirror ask_integration_test.go / bash_perm_integration_test.go real-claude wiring): spawn real claude in stream-json mode with an in-process MCP permission server, force a permission control_request, WITHHOLD the response for tiered delays (10s/30s/60s), then send allow and record whether the late response is accepted + the tool executes + the turn continues.",
+    "gate": "ADR-0004 revisit + HALT (escalate to user) IF the late allow is NOT accepted at ~15s (deadline shorter than restart window). PASS ⇒ proceed to Wave 2.",
+    "output": "docs/sprint-logs/S862203/spike-S862203-1-1.json (shape mirrors docs/sprint-logs/S3f2658/spike-S3f2658-1-1.json)"
+  },
+  "waves": [
+    {
+      "wave": 1,
+      "stories": ["S862203-1"],
+      "rationale": "Gating spike — REAL claude control_request deadline. Must PASS before building the replay mechanism it validates; a FAIL triggers an ADR-0004 revisit and halts the sprint (priority_rule 0)."
+    },
+    {
+      "wave": 2,
+      "stories": ["S862203-2"],
+      "rationale": "Pipe-mode ptyhost + generic line-oriented offset-ack replay + persistence store + ring-overflow detection. Fully verifiable with a fake NDJSON emitter (no claude, no quota). Depends on the Wave-1 spike PASS."
+    },
+    {
+      "wave": 3,
+      "stories": ["S862203-3"],
+      "rationale": "claudeagent.Client thin-client migration onto the Wave-2 mechanism + permstate/transcript replay reconstruction + real-claude restart-crossing E2E. Depends on Wave 2 (mechanism) and shares claudeagent files with it, so it runs strictly after."
+    }
+  ],
+  "file_touch_analysis": {
+    "S862203-1": {
+      "production": [],
+      "new_test_or_harness": [
+        "internal/tab/claudeagent/spike_control_deadline_test.go (env-gated real-claude spike harness, mirroring ask_integration_test.go / bash_perm_integration_test.go) OR an equivalent throwaway harness under tests/",
+        "docs/sprint-logs/S862203/spike-S862203-1-1.json (result record)"
+      ],
+      "note": "Pure spike — NO production code changes. Reuses existing claudeagent transport + MCP primitives at the library level to observe the exact production wire path."
+    },
+    "S862203-2": {
+      "production": [
+        "internal/ptyhost/server.go (mode-aware spawn: pipes vs PTY; separate stdout+stderr read loops; MsgInput→stdin pipe; MsgResize no-op in pipe mode)",
+        "internal/ptyhost/protocol.go (HELLO.Mode/StatusFile.Mode = \"pipe\"; the single stderr-delivery frame/discriminator — the one sanctioned addition)",
+        "cmd/palmux/ptyhost.go (--mode flag)",
+        "internal/ptyhost/ring.go (reuse as-is; instantiate a SECOND ring for stderr — likely no Ring code change)",
+        "internal/tab/claudeagent/ptyclient.go (NEW — generic line-oriented pipe-replay client: dial/HELLO/ATTACH-from-last-ack, NDJSON line reassembly across DATA boundaries, ACK-at-line-end, overflow detection)",
+        "internal/tab/claudeagent/offsetstore.go (NEW — sessions.json-equivalent last-ack offset persistence, atomic write; may extend existing store.go/sessions.go instead)"
+      ],
+      "new_test": [
+        "internal/ptyhost/pipe_test.go / server_test.go additions (pipe-mode spawn, stdout/stderr separation, kill-9 restart, overflow) with a FAKE NDJSON emitter child (testdata helper)",
+        "internal/tab/claudeagent/ptyclient_test.go, offsetstore_test.go (deterministic replay/ACK/overflow with fake emitter)"
+      ],
+      "note": "Touches internal/ptyhost AND internal/tab/claudeagent (the generic replay client + offset store land where Story 3 consumes them). This shared-package touch with Story 3 is the reason the two waves are serial."
+    },
+    "S862203-3": {
+      "production": [
+        "internal/tab/claudeagent/client.go (LARGE — replace exec+StdinPipe/StdoutPipe/StderrPipe with pipe-mode ptyhost launch/attach; pumpStdout→Story-2 line replay client; pumpStderr→separate stderr channel; writeLine→INPUT frames; Close→SHUTDOWN/GC. Keep ALL argv/env assembly + control/MCP handling)",
+        "internal/tab/claudeagent/manager.go (EnsureClient launches via ptyhost; watchClient exit-detection via socket STATUS/disconnect; respawn = new pipe-mode ptyhost; --resume/invalid-resume/gate logic preserved)",
+        "internal/tab/claudeagent/discover.go (NEW — reconnect surviving agent ptyhosts on palmux2 startup + replay-driven permstate/transcript/pending-request reconstruction; mirror internal/tab/claudetui/discover.go DiscoverAndRestore)",
+        "internal/tab/claudeagent/provider.go (wire discovery + PalmuxBin/instancePrefix/RingSize plumbing, mirror claudetui provider)",
+        "cmd/palmux/main.go (invoke agent DiscoverAndRestore on startup, mirror the claudetui wiring)"
+      ],
+      "unchanged": [
+        "internal/tab/claudeagent/normalize.go, permstate.go, transcript.go, mcp.go, control.go, events.go, modes.go — stay palmux2-side; replay reconstruction reuses processStreamMessage (PD-5)"
+      ],
+      "new_test": [
+        "internal/tab/claudeagent/ptyhost_integration_test.go, discover_test.go (mirror claudetui)",
+        "tests/e2e/s862203_agent_restart_survival.py (REAL claude, INSTANCE=dev — AC-3-2)"
+      ],
+      "note": "Highest-risk migration. Shares client.go/manager.go/store with Story 2 → serial."
+    }
+  },
+  "real_claude_requirements": {
+    "S862203-1": "REQUIRED — the AC's whole purpose is real-claude control_request deadline behavior. Fake emitter cannot answer it. Runs on this box's real `claude`. Gates the sprint.",
+    "S862203-2": "NOT needed — fake NDJSON emitter (counter-tagged lines, controllable pace) as the ptyhost child makes ring/ACK/offset/replay/overflow + kill-9 restart deterministic and quota-free.",
+    "S862203-3": "AC-3-2 REQUIRED — real claude on `make serve INSTANCE=dev` (NEVER host palmux2): restart palmux2 mid-turn, prove (a) lossless transcript restore and (b) a restart-window permission request delivered→answered→tool executes. AC-3-1 wiring: fake emitter OK. AC-3-3: existing claudeagent unit + real-claude integration suite (ask/bash_perm/plan) regress cleanly."
+  },
+  "forbidden_reminders": [
+    "Do NOT restart/foreground the host palmux2 (it would kill the operator's live Claude session). All E2E/survival runs use `make serve INSTANCE=dev` (separate portman name + --tmux-prefix _pmx_dev_).",
+    "Ports via portman only; tmux via internal/tmux.Client only; no ~/.claude writes.",
+    "priority_rule 0: NEVER mark AC-S862203-1-1 or AC-S862203-3-2 as skipped/false-done. If a real-claude run is truly impossible under autopilot, escalate at the milestone review — do not fabricate a PASS."
+  ],
+  "adr_gate": "If S862203-1 FAILS (claude aborts the control_request before ~15s), STOP: escalate an ADR-0004 revisit to the user (options per ADR notes: rely on claude to re-send the pending request on reconnect, or have ptyhost hold the request without auto-deny). Waves 2-3 assume the spike PASS."
+}

@@ -1,0 +1,52 @@
+{
+  "story": "S3f2658-3",
+  "title": "discovery / reconnect / orphan GC / INSTANCE separation",
+  "story_type": "go-library-cli",
+  "design_refs": [
+    "docs/no-halt-agent-design.md#3-配置発見再接続",
+    "ADR-0001", "ADR-0003"
+  ],
+  "depends_on": ["S3f2658-1", "S3f2658-2"],
+  "acceptance_scenarios": [
+    {
+      "ac": "AC-S3f2658-3-1",
+      "intent": "On palmux2 startup, scan the socket dir ($XDG_RUNTIME_DIR/palmux/<instancePrefix>/, fallback <config-dir>/run/), reconnect to live ptyhosts and restore tab state; clean up dead/unreachable sockets + status files.",
+      "test_kind": "go integration (real ptyhost + Manager restore path)",
+      "steps": [
+        "Start 2 real ptyhosts holding fake children, writing <repoId>__<branchId>__<tabId>.sock + .json into a temp socket dir.",
+        "Also drop a STALE socket+json whose recorded pid is dead (killed) and a socket that refuses connections.",
+        "Construct a Manager and run the startup discovery path pointed at the socket dir.",
+        "Assert the 2 live ptyhosts are re-adopted: Manager has Daemon entries in 'attach existing ptyhost' mode (HELLO handshake succeeds, no new spawn).",
+        "Assert the stale socket + json (dead pid) and the unreachable socket are removed from disk.",
+        "Assert a subsequent WS attach to a re-adopted tab replays the ring (screen restore, ties to AC-2-2)."
+      ],
+      "expected": "Live ptyhosts reconnected, dead ones GC'd, tab state restored."
+    },
+    {
+      "ac": "AC-S3f2658-3-2",
+      "intent": "Tab delete / worktree removal / branch close sends SHUTDOWN to the corresponding ptyhost (claude terminated), via the existing 10s sync loop (tmux-zombie-kill parity).",
+      "test_kind": "go integration + sync-loop reconciliation",
+      "steps": [
+        "Adopt a live ptyhost for (repo,branch,tab) with the child alive.",
+        "Remove the corresponding tab/branch from the store (simulate worktree disappearance / branch close / CloseDaemon).",
+        "Run the orphan-GC reconciliation (the pass that rides the existing scanPorts/sync 10s loop): socket dir entries with no matching store (repo,branch,tab) → SHUTDOWN.",
+        "Assert a SHUTDOWN frame is sent, the ptyhost terminates the child (SIGTERM→SIGKILL) and exits, and the socket + json are cleaned up.",
+        "Assert a still-referenced ptyhost is NOT shut down (no false GC)."
+      ],
+      "expected": "Orphan ptyhosts are reaped like tmux zombies; referenced ones untouched."
+    },
+    {
+      "ac": "AC-S3f2658-3-3",
+      "intent": "INSTANCE=dev ptyhosts are separated by instancePrefix; host and dev instances never claim/GC each other's ptyhosts (same guarantee as --tmux-prefix).",
+      "test_kind": "go-unit + REAL-MACHINE parallel E2E (host-prefix vs _pmx_dev_)",
+      "survival": false,
+      "steps": [
+        "Unit: assert the socket dir path embeds instancePrefix derived the same way as --tmux-prefix (default 'palmux', dev rig '_pmx_dev_' → sanitized subdir), and that discovery only scans this instance's subdir.",
+        "Unit: assert the systemd-run scope --unit name (Story 1) also embeds instancePrefix so scopes don't collide.",
+        "Integration/E2E: start a dev instance with a dev tmux-prefix and a second instance with a different prefix; each opens a claude-tui tab; assert instance A's startup discovery + orphan GC never touches instance B's sockets/ptyhosts (B's child stays alive when A does a full scan + GC)."
+      ],
+      "expected": "instancePrefix isolates socket dirs and scope names; no cross-instance claim/GC."
+    }
+  ],
+  "notes": "Startup discovery lives in the Manager restore path (a new discover.go alongside manager.go). Orphan GC piggybacks the existing store 10s scanPorts loop (internal/store/sync_worktree.go) which needs a handle to the tui Manager (already partly wired: main.go struct has tuiMgr). instancePrefix should be derived from the same source that feeds domain.Configure(--tmux-prefix). Fallback dir <config-dir>/run/ must be 0700."
+}

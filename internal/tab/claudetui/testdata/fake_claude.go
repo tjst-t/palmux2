@@ -45,6 +45,7 @@ func main() {
 	printCwd := false
 	emitOsc52 := ""      // non-empty → emit OSC 52 with this text as the payload
 	dumpInvocation := "" // non-empty → write argv + PALMUX_* env as JSON to this path
+	counterWinch := false // S3f2658-2: incrementing counter + SIGWINCH trap, for restart/reconnect + screen-restore-jiggle tests
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -76,6 +77,8 @@ func main() {
 				emitOsc52 = args[i+1]
 				i++
 			}
+		case "--counter-winch":
+			counterWinch = true
 		}
 	}
 
@@ -142,6 +145,34 @@ func main() {
 	// the gracefulShutdownTimeout.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+
+	if counterWinch {
+		// S3f2658-2: a distinctive, fast-incrementing counter line (for
+		// "no gap across a palmux2 restart" assertions) that also traps
+		// SIGWINCH and echoes a marker — proving a RESIZE frame sent over the
+		// ptyhost socket genuinely reaches this process as a real terminal
+		// resize (the §5 screen-restore jiggle's convergence mechanism).
+		winchCh := make(chan os.Signal, 8)
+		signal.Notify(winchCh, syscall.SIGWINCH)
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		n := 0
+		for {
+			select {
+			case <-sigCh:
+				os.Exit(0)
+			case <-winchCh:
+				if _, err := fmt.Fprintln(os.Stdout, "WINCH_MARKER"); err != nil {
+					os.Exit(0)
+				}
+			case <-ticker.C:
+				n++
+				if _, err := fmt.Fprintf(os.Stdout, "COUNTER %d\n", n); err != nil {
+					os.Exit(0)
+				}
+			}
+		}
+	}
 
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()

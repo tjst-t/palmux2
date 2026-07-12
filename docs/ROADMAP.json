@@ -2,15 +2,15 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 70,
-    "sprints_total": 71,
-    "done": 70,
-    "total": 71,
-    "remaining": 1,
+    "sprints_done": 71,
+    "sprints_total": 73,
+    "done": 71,
+    "total": 73,
+    "remaining": 2,
     "in_progress": 0,
-    "percent": 99,
-    "percentage": 99,
-    "current_sprint": "Sb14caa"
+    "percent": 97,
+    "percentage": 97,
+    "current_sprint": "S862203"
   },
   "execution_order": [
     "S001",
@@ -83,7 +83,9 @@
     "S673a42",
     "S41bdf2",
     "Se173ef",
-    "S4323c8"
+    "S4323c8",
+    "S3f2658",
+    "S862203"
   ],
   "sprints": {
     "S001": {
@@ -11698,6 +11700,310 @@
           }
         }
       }
+    },
+    "S3f2658": {
+      "id": "S3f2658",
+      "title": "no-halt-agent Sprint 1: ptyhost 基盤 + claude-tui 生存",
+      "description": "palmux2 の再起動 (self-update / systemctl restart / make serve 入れ直し) を跨いで claude-tui タブの claude プロセスを生かす。detached `palmux ptyhost` プロセス (ADR-0001, thin holder = ADR-0002) が claude を所有し、palmux2 は unix socket で再接続する。設計は docs/no-halt-agent-design.md。",
+      "milestone": false,
+      "status": "done",
+      "detail_level": "detailed",
+      "depends_on": null,
+      "design_refs": [
+        "docs/no-halt-agent-design.md",
+        "docs/DESIGN/adr/ADR-0001-detached-ptyhost-for-agent-survival.json",
+        "docs/DESIGN/adr/ADR-0002-thin-holder-ptyhost.json",
+        "docs/DESIGN/adr/ADR-0003-cgroup-escape-systemd-run-scope.json"
+      ],
+      "stories": {
+        "S3f2658-1": {
+          "id": "S3f2658-1",
+          "title": "`palmux ptyhost` サブコマンド (pty モード) + socket protocol + cgroup 脱出 spawn 経路",
+          "user_story": "palmux 運用者として、claude プロセスを palmux2 と独立した cgroup のプロセスに保持してほしい。なぜなら、palmux2 の再起動 (self-update / systemctl restart) の度に実行中の agent 作業が殺されるのは受け入れられないから。",
+          "status": "done",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S3f2658-1-1",
+              "description": "`palmux ptyhost` が palmux2 から渡された argv/env/cwd で claude を PTY 付き spawn し、絶対 offset 付き raw ring と unix socket (HELLO/ATTACH/DATA/INPUT/RESIZE/ACK/STATUS/SHUTDOWN、design doc §2) を提供する。HELLO は protocol version handshake を含む。",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S3f2658-1-2",
+              "description": "spawn 経路は systemd-run --user --scope --collect を試行し、失敗時 (非 systemd / D-Bus 不在) は setsid + double-fork に fallback するランタイム検出である (ADR-0003)。",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S3f2658-1-3",
+              "description": "[SURVIVAL] 実 systemd user unit 環境で `systemctl --user restart palmux2` を実行しても ptyhost と claude プロセス (同一 pid) が生存する (Sa8e7d0 SURVIVAL_PASS と同型の実機検証)。障害シナリオ: プロセスクラッシュ (palmux2 kill -9) でも同様に生存する。",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S3f2658-1-4",
+              "description": "claude が exit すると ptyhost は exit status を STATUS 応答 + status ファイルに記録して自分も終了する (thin holder: respawn は palmux2 側の責務)。",
+              "status": "pass"
+            }
+          ],
+          "tasks": {
+            "S3f2658-1-1": {
+              "id": "S3f2658-1-1",
+              "title": "spike: systemd-run --user scope の cgroup 分離を Ubuntu/hm・NixOS アプライアンス相当環境で確認 (Sprint 冒頭、結果を decisions.json へ)",
+              "status": "done"
+            },
+            "S3f2658-1-2": {
+              "id": "S3f2658-1-2",
+              "title": "internal/ptyhost/: ring (絶対 offset 付き) + socket server + framed protocol 実装",
+              "status": "done"
+            },
+            "S3f2658-1-3": {
+              "id": "S3f2658-1-3",
+              "title": "cmd/palmux/ptyhost.go: サブコマンド + PTY spawn + SHUTDOWN (SIGTERM→SIGKILL) + status ファイル",
+              "status": "done"
+            },
+            "S3f2658-1-4": {
+              "id": "S3f2658-1-4",
+              "title": "spawn 経路: systemd-run 試行 → setsid fallback のランタイム検出 (scope 名に instancePrefix)",
+              "status": "done"
+            }
+          }
+        },
+        "S3f2658-2": {
+          "id": "S3f2658-2",
+          "title": "claudetui.Daemon の thin client 化 (socket attach + 画面復元)",
+          "user_story": "palmux ユーザとして、palmux2 再起動後にブラウザの claude-tui タブを開いたら、走っていた claude の画面がそのまま復元されていてほしい。なぜなら、再起動を意識せず作業を続けたいから。",
+          "status": "done",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S3f2658-2-1",
+              "description": "claudetui.Daemon は PTY を直接持たず ptyhost に socket attach する thin client になる。Emulator / roleCoordinator / respawnLoop 相当 (exit 検知→新 ptyhost spawn + --resume 判断) / hooks 生成 / incus gateRespawn は palmux2 側に残る (ADR-0002、移行マップ = design doc §4)。",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S3f2658-2-2",
+              "description": "palmux2 再起動後の再接続で、再起動前に表示されていた TUI 内容が復元され、再起動中に claude が出し続けた出力 (実行中ターン) も失われない。復元手順は ring replay → Emulator feed → SIGWINCH ジグル (design doc §5)。ジグル後の画面に前フレームの残骸が残らない。",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S3f2658-2-3",
+              "description": "protocol version 不一致の ptyhost に対しては殺さず UI degrade (「旧世代の agent ホスト — 再起動で新機能有効」表示) となる。",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S3f2658-2-4",
+              "description": "既存の claude-tui E2E / unit (multi-client role、hook 通知、resize、respawn --resume) がリグレッションなく pass する。",
+              "status": "pass"
+            }
+          ],
+          "tasks": {
+            "S3f2658-2-1": {
+              "id": "S3f2658-2-1",
+              "title": "daemon.go 分割: PTY/readLoop/ring を ptyhost client 呼び出しに差し替え (feedMu/Emulator/roles は残留)",
+              "status": "done"
+            },
+            "S3f2658-2-2": {
+              "id": "S3f2658-2-2",
+              "title": "respawn を「exit 検知 → 新 ptyhost spawn」に変形 (--resume / gateRespawn / hooks 組み立ては現行ロジック流用)",
+              "status": "done"
+            },
+            "S3f2658-2-3": {
+              "id": "S3f2658-2-3",
+              "title": "再接続時の画面復元 (replay feed + SIGWINCH ジグル) + version 不一致 UI degrade",
+              "status": "done"
+            },
+            "S3f2658-2-4": {
+              "id": "S3f2658-2-4",
+              "title": "E2E: 再起動跨ぎの画面復元 + 実行中ターン無欠損 (dev INSTANCE + Playwright)",
+              "status": "done"
+            }
+          }
+        },
+        "S3f2658-3": {
+          "id": "S3f2658-3",
+          "title": "発見・再接続・orphan GC・INSTANCE 分離",
+          "user_story": "palmux 運用者として、palmux2 が起動したら生きている ptyhost に自動で再接続し、不要になった ptyhost は自動で回収してほしい。なぜなら、detach したプロセスの手動管理はしたくないから。",
+          "status": "done",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S3f2658-3-1",
+              "description": "palmux2 起動時に socket dir ($XDG_RUNTIME_DIR/palmux/<instancePrefix>/、fallback <config-dir>/run/) を走査し、生きている ptyhost に再接続してタブ状態を復元する。接続不能 / pid 死亡の socket・status ファイルは掃除される。",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S3f2658-3-2",
+              "description": "タブ削除 / worktree 消失 / branch close に対応する ptyhost へ既存 sync ループ経由で SHUTDOWN が送られ、claude ごと終了する (tmux zombie kill と同型)。",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S3f2658-3-3",
+              "description": "INSTANCE=dev rig の ptyhost は instancePrefix で分離され、ホスト用 instance と互いに claim / GC しない (--tmux-prefix と同じ保証)。",
+              "status": "pass"
+            }
+          ],
+          "tasks": {
+            "S3f2658-3-1": {
+              "id": "S3f2658-3-1",
+              "title": "socket dir 走査 + 起動時再接続 (Manager 復元パス)",
+              "status": "done"
+            },
+            "S3f2658-3-2": {
+              "id": "S3f2658-3-2",
+              "title": "orphan GC を既存 sync ループに相乗り (store と socket dir の突き合わせ)",
+              "status": "done"
+            },
+            "S3f2658-3-3": {
+              "id": "S3f2658-3-3",
+              "title": "instancePrefix 分離 (--tmux-prefix と同じ導出) + 並走 E2E",
+              "status": "done"
+            }
+          }
+        },
+        "S3f2658-4": {
+          "id": "S3f2658-4",
+          "title": "incus runtime での生存 (in-container claude)",
+          "user_story": "incus workspace のユーザとして、palmux2 を再起動してもコンテナ内で走っている claude が生き続けてほしい。なぜなら、隔離 workspace でも host workspace と同じ生存性が欲しいから。",
+          "status": "done",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S3f2658-4-1",
+              "description": "incus-container workspace では ptyhost が `incus exec -t` wrapper (palmux2 が組み立てた argv) を保持し、palmux2 再起動を跨いで in-container claude が同一 pid のまま生存する (実 incus ホストで実機検証)。",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S3f2658-4-2",
+              "description": "SHUTDOWN 時は in-container claude の reap (KillContainerProcesses 相当) まで行い、コンテナ内に claude が残留しない (S4d8b1c backlog の reap 課題と整合)。",
+              "status": "pass"
+            }
+          ],
+          "tasks": {
+            "S3f2658-4-1": {
+              "id": "S3f2658-4-1",
+              "title": "PTYCommander 組み立て済み argv を ptyhost に渡す spawn 経路 (ptyhost は claude 固有知識を持たない)",
+              "status": "done"
+            },
+            "S3f2658-4-2": {
+              "id": "S3f2658-4-2",
+              "title": "SHUTDOWN の in-container reap + 実 incus ホスト smoke (deploy-test 隔離 throwaway 方式)",
+              "status": "done"
+            }
+          }
+        }
+      }
+    },
+    "S862203": {
+      "id": "S862203",
+      "title": "no-halt-agent Sprint 2: pipe モード + claude-agent ロスレス生存 [MILESTONE]",
+      "description": "ptyhost を pipe モード (PTY なし stdio) で流用し、stream-json の stdout を絶対 offset 付き行 ring に貯めて ACK/replay でロスレス再接続する (ADR-0004)。palmux2 停止中の permission 要求も replay で UI に届く。冒頭 spike: MCP control_request 応答期限。",
+      "milestone": true,
+      "status": "in_progress",
+      "detail_level": "detailed",
+      "depends_on": [
+        "S3f2658"
+      ],
+      "design_refs": [
+        "docs/no-halt-agent-design.md",
+        "docs/DESIGN/adr/ADR-0004-agent-pipe-mode-offset-replay.json"
+      ],
+      "stories": {
+        "S862203-1": {
+          "id": "S862203-1",
+          "title": "spike: 再起動を跨いだ MCP control_request 応答の受理検証",
+          "user_story": "開発者として、claude CLI が MCP control_request への応答をどれだけ待つかを実装前に知りたい。なぜなら、応答期限が palmux2 の再起動時間より短ければ replay 設計自体を見直す必要があるから (ADR-0004 revisit 条件)。",
+          "status": "pending",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S862203-1-1",
+              "description": "stream-json モードの claude に permission 要求 (control_request) を出させたまま応答を 10 秒以上遅延させ、その後の応答が受理されてツール実行が継続することを実 claude CLI で確認し、結果 (待機挙動・タイムアウトの有無) を decisions.json に記録する。受理されない場合は ADR-0004 の見直しをユーザに escalate して Sprint を中断する。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S862203-1-1": {
+              "id": "S862203-1-1",
+              "title": "spike ハーネス (stream-json 手動 pump + 応答遅延) + 結果記録",
+              "status": "pending"
+            }
+          }
+        },
+        "S862203-2": {
+          "id": "S862203-2",
+          "title": "ptyhost pipe モード + 行 ring + ACK/offset 永続化",
+          "user_story": "palmux 運用者として、agent モードの stream-json イベントを 1 行も取りこぼさずに palmux2 再起動を跨いで引き継ぎたい。なぜなら、イベント欠落は transcript 破損・宙に浮いた permission 要求になるから。",
+          "status": "pending",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S862203-2-1",
+              "description": "ptyhost pipe モードは PTY なしの stdin/stdout/stderr パイプ (S4d8b1c ExecCommander と同じ binary-clean 性) で claude を保持し、stdout を絶対 offset 付き行単位 ring に貯める (stderr は別チャネル)。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S862203-2-2",
+              "description": "palmux2 は処理済み offset を ACK し永続化する。再接続時に last-ack 以降が replay され、二重処理も欠落もない (palmux2 kill -9 → 再起動の障害シナリオ含む)。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S862203-2-3",
+              "description": "ring 溢れ (長時間切断) を検出した場合は黙って欠けた transcript を出さず、「ロスレス復元不能」を明示して新規セッション扱いにする。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S862203-2-1": {
+              "id": "S862203-2-1",
+              "title": "ptyhost pipe モード (行 ring + stderr チャネル)",
+              "status": "pending"
+            },
+            "S862203-2-2": {
+              "id": "S862203-2-2",
+              "title": "ACK/offset 永続化 (sessions.json 相当) + replay プロトコル",
+              "status": "pending"
+            },
+            "S862203-2-3": {
+              "id": "S862203-2-3",
+              "title": "ring 溢れ検出 + 明示エラー経路",
+              "status": "pending"
+            }
+          }
+        },
+        "S862203-3": {
+          "id": "S862203-3",
+          "title": "claudeagent.Client の thin client 化 + replay 再構成",
+          "user_story": "palmux ユーザとして、palmux2 再起動中に来た permission 要求も含めて、agent タブの会話と権限状態が完全に復元されてほしい。なぜなら、長時間の autonomous 作業を palmux2 の都合で失いたくないから。",
+          "status": "pending",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S862203-3-1",
+              "description": "claudeagent.Client は exec 直叩きをやめ ptyhost (pipe モード) 越しに stream-json を pump する。parse / MCP 権限サーバ / permstate / transcript は palmux2 側に残る (ADR-0002/0004)。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S862203-3-2",
+              "description": "palmux2 再起動を跨いで (a) 実行中ターンの transcript が無欠損で復元され、(b) 再起動中に発生した permission 要求が UI に届き、応答してツール実行が成立する (E2E、実 claude)。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S862203-3-3",
+              "description": "既存の claude-agent E2E / unit (permission フロー、modes、transcript、respawn) がリグレッションなく pass する。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S862203-3-1": {
+              "id": "S862203-3-1",
+              "title": "client.go の cmd 構築 + pump を ptyhost client に差し替え",
+              "status": "pending"
+            },
+            "S862203-3-2": {
+              "id": "S862203-3-2",
+              "title": "replay からの permstate / transcript 再構成 (pending control_request 復元)",
+              "status": "pending"
+            },
+            "S862203-3-3": {
+              "id": "S862203-3-3",
+              "title": "E2E: 再起動跨ぎ permission 応答成立 + transcript 無欠損",
+              "status": "pending"
+            }
+          }
+        }
+      }
     }
   },
   "dependencies": {
@@ -12008,6 +12314,12 @@
         "S41bdf2"
       ],
       "reason": "コード依存ではなくバッチ順序の指定（ユーザ指示）: S673a42→S41bdf2→Se173ef の 3 本を 1 マイルストーンとして連続実行し、レビュー停止は 3 本完了後（Se173ef）に置く。autopilot の依存境界ヒューリスティックで途中停止しないよう Se173ef を S41bdf2 の後に固定。"
+    },
+    "S862203": {
+      "depends_on": [
+        "S3f2658"
+      ],
+      "reason": "pipe モード + agent replay は Sprint 1 の ptyhost 基盤 (socket protocol / spawn 経路 / GC) の上に載る (ADR-0004 の 2 段構え)。milestone は Sprint 2 完了後に置き、tui 先行分の途中停止をしない。"
     }
   },
   "backlog": [
@@ -12299,6 +12611,36 @@
       "title": "Split ビュー右パネル内の Files リンククリックが右パネルではなくメインルートを navigate する（MarkdownView が panel 非対応）",
       "source": "S4323c8-3 調査で発見（通常ビューは正常、split のみ）",
       "detail": "frontend/src/tabs/files/viewers/markdown-view.tsx が top-level useNavigate を使うため ?right= パネルに追従しない。panel context を Files→FilePreview→MarkdownView に通し、右パネル時は ?right= 更新へ分岐する要あり。ユーザ確認待ち。"
+    },
+    {
+      "title": "claudetui data race under -race: charmbracelet/x/vt Emulator.Close vs Read",
+      "note": "Pre-existing (reproduced on base commit 934939b, not introduced by S3f2658-2). make test does not run -race so latent. Emulator.Close/Read is adjacent to no-halt-agent daemon code; guard before deeper concurrency work.",
+      "source": "S3f2658-2 review",
+      "severity": "medium"
+    },
+    {
+      "title": "claudetui data race under -race: roleCoordinator.OnUnsubscribe",
+      "note": "Pre-existing (role.go byte-for-byte unmodified by S3f2658-2, race reproduced on base). Latent (not in make test gate).",
+      "source": "S3f2658-2 review",
+      "severity": "low"
+    },
+    {
+      "title": "claude-tui restart: xterm.js FitAddon auto-resize reflow after restore",
+      "note": "Benign visual reflow after screen restore, caused by xterm FitAddon third attach interacting with scrolling output; proven NOT from the restore SIGWINCH jiggle (strict-ordering assertion on raw reconnect frame). Cosmetic; revisit if users report confusion.",
+      "source": "S3f2658-2 e2e",
+      "severity": "low"
+    },
+    {
+      "title": "claudetui test hygiene: TestParallelInstances_NeverClaimOrGCEachOther leaks ptyhosts",
+      "note": "t.Cleanup does not reliably reap every spawned ptyhost/fake_claude; observed ~63-67 leaked processes on dev box after runs. Compounds the known dev-box incus/process degradation-under-churn risk. Fix cleanup to SHUTDOWN/kill all spawned ptyhosts deterministically (t.Cleanup + defer). Introduced S3f2658-3.",
+      "source": "S3f2658-4 finding",
+      "severity": "medium"
+    },
+    {
+      "title": "S3f2658-4 test: pin orphan-GC reap idempotency assumption",
+      "note": "TestGCOrphans_ReapsInContainerClaude does not bound repeat reap calls; safe today only because KillContainerProcesses is idempotent (pkill exit1=no-op). Add a bound assertion or a comment documenting the idempotency contract.",
+      "source": "S3f2658-4 review",
+      "severity": "low"
     }
   ]
 }
