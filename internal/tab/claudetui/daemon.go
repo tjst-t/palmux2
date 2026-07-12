@@ -785,19 +785,24 @@ func (d *Daemon) spawnWithArgs(args []string) error {
 	//
 	// The vt.Emulator generates response bytes for some ANSI queries (DA1 / DA2
 	// device attributes, cursor position report, etc.) by writing into an
-	// internal io.Pipe. If we never drain that pipe its 64KiB buffer fills,
-	// at which point the next response Write inside Emulator.Write blocks
+	// UNBUFFERED internal io.Pipe (Emulator.pw — see
+	// third_party/charmbracelet-x-vt-racefix/emulator.go). io.Pipe has ZERO
+	// buffering: a single response byte written with nobody reading the pipe
+	// blocks the writer immediately — and it blocks inside Emulator.Write
 	// **while still holding the SafeEmulator writer lock**. That deadlocks every
 	// subsequent GridSnapshot caller (each reader-lock attempt waits forever).
 	//
 	// CRITICAL ORDERING (v0.14.12 reattach startup-deadlock fix): this drainer
 	// MUST start BEFORE the ATTACH-replay Feed below. On a reconnect to a
 	// SURVIVING ptyhost the replay can be a full ring of prior output, whose
-	// embedded ANSI queries make Feed generate enough responses to fill the
-	// 64KiB pipe — so Feed(replay) itself blocks (holding the writer lock) with
-	// no drainer running yet, wedging the whole startup goroutine (it runs under
-	// EnsureStarted's spawnMu) so the server never reaches ListenAndServe. A
-	// fresh spawn has an empty replay, which is why only reconnects deadlocked.
+	// embedded ANSI queries make Feed generate responses that (with no drainer
+	// reading the unbuffered pipe yet) block on the very first response byte —
+	// so Feed(replay) itself blocks (holding the writer lock), wedging the whole
+	// startup goroutine (it runs under EnsureStarted's spawnMu) so the server
+	// never reaches ListenAndServe. A fresh spawn has an empty replay, which is
+	// why only reconnects deadlocked. (The fix's correctness relies on this
+	// unbuffered semantics: there is no buffer to "not fill" — the drainer must
+	// simply be running before ANY query-answering Feed.)
 	//
 	// Responses generated WHILE the replay is fed answer REPLAYED (historical)
 	// queries that the real terminal already answered when they first happened;

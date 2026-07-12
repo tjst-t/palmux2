@@ -102,7 +102,7 @@ func TestReattachSurvivorReplayDoesNotDeadlock(t *testing.T) {
 	if ringLen < queryBurstBytes {
 		t.Fatalf("ring only has %d bytes, want >= %d (query burst) — replay would not be realistic", ringLen, queryBurstBytes)
 	}
-	t.Logf("query burst landed: %d bytes in ring (> 64KiB response-pipe threshold)", ringLen)
+	t.Logf("query burst landed: %d bytes in ring (>64KiB, AC-Sfeed64-1-2's realistic 'not a toy' floor)", ringLen)
 
 	pidBefore := dA.CurrentStats().PID
 	if pidBefore == 0 {

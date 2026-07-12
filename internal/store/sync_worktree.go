@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/tjst-t/palmux2/internal/domain"
@@ -171,11 +172,74 @@ func (s *Store) SetTuiOrphanGC(gc TuiOrphanGC) {
 	s.tuiGC = gc
 }
 
+// ArmDiscoveryBarrier installs the ptyhost orphan-GC discovery barrier and
+// returns a func that releases it (idempotent). It MUST be called BEFORE
+// [Store.Run] starts the scan loop. Until the returned func is called,
+// [Store.gcTuiOrphans] and [Store.gcAgentOrphans] skip their orphan-SHUTDOWN
+// passes entirely.
+//
+// Sfeed64-1: startup DiscoverAndRestore now runs in the BACKGROUND so a slow
+// or wedged reattach can never delay ListenAndServe (see cmd/palmux/main.go's
+// runDiscoveryAsync). That removed the old guarantee — from the previous
+// SYNCHRONOUS discovery calls — that discovery fully completed before Run
+// started the 10s scan loop that drives the orphan-GC passes. Both
+// DiscoverAndRestore and the two GC passes dial the SAME on-disk ptyhosts
+// (claude-tui and claude-agent share one run dir / seed space — see
+// [Store.gcAgentOrphans]'s GUARD-RAIL, and both managers resolve to
+// ptyhost.RunDir(prefix) in production). A GC pass that dials/SHUTDOWNs an
+// orphan socket while discovery is still mid-adoption of the SAME socket
+// races: the ptyhost tolerates only one connection at a time
+// (ptyhost.Server.replaceConn), and restored Daemons have ResumeOnDeath=true,
+// so a clean orphan SHUTDOWN can flap into a respawn/re-kill. This barrier
+// restores the "discovery before GC" ordering WITHOUT re-blocking serve — GC
+// is merely deferred by at most the first (background) discovery pass. A
+// discovery that never completes keeps GC deferred, which is the safe
+// direction: orphan GC is a cleanup nicety, not correctness-critical, and a
+// wedged discovery must never be raced (the lazy first-WS-attach path still
+// re-adopts surviving ptyhosts on demand regardless).
+//
+// Both GC passes gate on this SINGLE signal (not one-per-manager): because
+// the two managers share the run dir/seed space, each GC pass can touch a
+// socket the OTHER manager's discovery is still adopting, so neither may run
+// until ALL discovery is done. main.go correspondingly runs claude-tui then
+// claude-agent discovery SEQUENTIALLY in one goroutine and releases this
+// barrier only once BOTH have finished.
+func (s *Store) ArmDiscoveryBarrier() (release func()) {
+	ch := make(chan struct{})
+	s.discoveryDone = ch
+	var once sync.Once
+	return func() { once.Do(func() { close(ch) }) }
+}
+
+// discoveryGateOpen reports whether the orphan-GC discovery barrier (if any)
+// has been released. A nil channel means no barrier was armed (the default) —
+// treated as open so every existing caller/test GCs immediately. See
+// [Store.ArmDiscoveryBarrier].
+func (s *Store) discoveryGateOpen() bool {
+	ch := s.discoveryDone
+	if ch == nil {
+		return true
+	}
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
 // gcTuiOrphans piggybacks the SAME 10s tick as scanPorts (see runPortScan) —
 // deliberately not a new ticker/loop (the design doc explicitly calls for
 // riding the existing sync loop). No-op when SetTuiOrphanGC was never called.
 func (s *Store) gcTuiOrphans(ctx context.Context) {
 	if s.tuiGC == nil {
+		return
+	}
+	// Sfeed64-1: defer the whole orphan-GC pass (which dials/SHUTDOWNs orphan
+	// sockets) until startup discovery completes — see ArmDiscoveryBarrier.
+	// Deferring the incidental dead-socket pruning too is harmless (a later
+	// tick cleans it).
+	if !s.discoveryGateOpen() {
 		return
 	}
 	shutdown, cleaned, err := s.tuiGC.GCOrphans(ctx, s.isTuiTabLive)
@@ -243,6 +307,13 @@ func (s *Store) SetAgentOrphanGC(gc AgentOrphanGC) {
 // specialised, cross-mode protection MUST be preserved.
 func (s *Store) gcAgentOrphans(ctx context.Context) {
 	if s.agentGC == nil {
+		return
+	}
+	// Sfeed64-1: gated on the SAME discovery barrier as gcTuiOrphans — the two
+	// managers share one run dir/seed space, so this agent GC pass can dial a
+	// socket claude-TUI discovery is still adopting (and vice-versa). Defer
+	// until ALL startup discovery is done. See ArmDiscoveryBarrier.
+	if !s.discoveryGateOpen() {
 		return
 	}
 	shutdown, cleaned, err := s.agentGC.GCOrphans(ctx, s.isTuiTabLive)

@@ -80,6 +80,19 @@ type Store struct {
 	tuiGC             TuiOrphanGC   // S3f2658-3: claude-tui ptyhost orphan reaper (optional)
 	agentGC           AgentOrphanGC // S64c835-3: claude-agent ptyhost orphan reaper (optional)
 
+	// discoveryDone (Sfeed64-1) gates the ptyhost orphan-GC passes
+	// (gcTuiOrphans/gcAgentOrphans) until startup ptyhost discovery
+	// (claudetui + claudeagent DiscoverAndRestore) has completed. nil = no
+	// barrier armed (the default: every existing store test, and any
+	// deployment that does not front-load discovery, GCs immediately).
+	// Installed ONCE via [Store.ArmDiscoveryBarrier] BEFORE [Store.Run] starts
+	// the scan loop, and closed by the func Arm returns when discovery
+	// finishes. Written only in Arm (before Run/its goroutine); read only in
+	// [Store.discoveryGateOpen] from the scan goroutine — the pre-Run write
+	// happens-before every read, so no lock guards the field itself; the
+	// channel close/receive is the release synchronization.
+	discoveryDone chan struct{}
+
 	// driftMu guards the per-workspace image-drift cache. The 10s scanPorts loop
 	// runs the (incus-CLI) staleness check and updates this map; RuntimeViewFor
 	// reads it cheaply (no CLI) so hot list endpoints stay fast. Key:
