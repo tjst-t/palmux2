@@ -11907,19 +11907,19 @@
           "id": "S862203-1",
           "title": "spike: 再起動を跨いだ MCP control_request 応答の受理検証",
           "user_story": "開発者として、claude CLI が MCP control_request への応答をどれだけ待つかを実装前に知りたい。なぜなら、応答期限が palmux2 の再起動時間より短ければ replay 設計自体を見直す必要があるから (ADR-0004 revisit 条件)。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S862203-1-1",
               "description": "stream-json モードの claude に permission 要求 (control_request) を出させたまま応答を 10 秒以上遅延させ、その後の応答が受理されてツール実行が継続することを実 claude CLI で確認し、結果 (待機挙動・タイムアウトの有無) を decisions.json に記録する。受理されない場合は ADR-0004 の見直しをユーザに escalate して Sprint を中断する。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S862203-1-1": {
               "id": "S862203-1-1",
               "title": "spike ハーネス (stream-json 手動 pump + 応答遅延) + 結果記録",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
