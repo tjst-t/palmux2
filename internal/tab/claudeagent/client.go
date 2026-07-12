@@ -167,7 +167,27 @@ type Client struct {
 	// restart must be replayed, not silently skipped).
 	ackMu             sync.Mutex
 	highestSeenOffset int64
-	pendingAsync      map[int64]struct{}
+	// pendingAsync maps the request_id of each control_request still being
+	// handled asynchronously to the absolute offset of the first byte of
+	// its line (lineStart). The persisted frontier is never advanced past
+	// the MIN of these (persistSafeFrontierLocked).
+	pendingAsync map[string]int64
+	// resolved maps the request_id of each control_request whose
+	// control_response has been written back, to its lineStart. Persisted
+	// (pruned to the replayable window) so a reconnect can tell an
+	// already-answered control_request apart from a genuinely-pending one
+	// and NOT re-surface it (S862203-3 review HIGH — parallel/overlapping
+	// permissions across a restart).
+	resolved map[string]int64
+	// replaySuppress is the set of control_request request_ids that were
+	// already resolved as of the persisted checkpoint this Client resumed
+	// from — loaded ONCE at construction (from the OffsetStore record, only
+	// when the persisted offset is actually honoured, i.e. same ring
+	// generation) and READ-ONLY thereafter. handleLine consults it to skip
+	// re-dispatching (and thus re-surfacing) an already-answered
+	// control_request encountered during the reconnect replay. Live traffic
+	// never mutates it (new requests get fresh ids), so it needs no lock.
+	replaySuppress map[string]struct{}
 
 	// stderrTailMu guards the small rolling buffer used to detect the
 	// "No conversation found with session ID" pattern across a stderr
@@ -260,18 +280,20 @@ func NewClient(ctx context.Context, opts ClientOptions, onMessage MessageHandler
 	argv, env, cwd := buildOpaqueCommand(opts, args)
 
 	c := &Client{
-		opts:          opts,
-		mux:           newControlMux(),
-		onMessage:     onMessage,
-		onCanUseTool:  onCanUseTool,
-		logger:        opts.Logger,
-		repoID:        opts.RepoID,
-		branchID:      opts.BranchID,
-		tabID:         opts.TabID,
-		offsetStore:   opts.OffsetStore,
-		pendingAsync:  map[int64]struct{}{},
-		runLoopExited: make(chan struct{}),
-		doneCh:        make(chan struct{}),
+		opts:           opts,
+		mux:            newControlMux(),
+		onMessage:      onMessage,
+		onCanUseTool:   onCanUseTool,
+		logger:         opts.Logger,
+		repoID:         opts.RepoID,
+		branchID:       opts.BranchID,
+		tabID:          opts.TabID,
+		offsetStore:    opts.OffsetStore,
+		pendingAsync:   map[string]int64{},
+		resolved:       map[string]int64{},
+		replaySuppress: map[string]struct{}{},
+		runLoopExited:  make(chan struct{}),
+		doneCh:         make(chan struct{}),
 	}
 	if permission != nil {
 		c.mcp = newMCPServer(permission)
@@ -288,8 +310,13 @@ func NewClient(ctx context.Context, opts ClientOptions, onMessage MessageHandler
 	}
 	c.pc = pc
 	c.reconnected = reconnected
-	offset := c.resumeOffsetFor(hello)
 	c.ringGeneration = ringGenerationFor(hello)
+	// resumeOffsetFor decides the ATTACH offset AND (when it honours a
+	// persisted checkpoint of the same ring generation) seeds
+	// replaySuppress + resolved from that record's ResolvedControlRequests,
+	// so the reconnect replay can skip re-surfacing already-answered
+	// control_requests (S862203-3 review HIGH).
+	offset := c.resumeOffsetFor(hello)
 
 	go c.runLoop(offset)
 
@@ -422,7 +449,24 @@ func (c *Client) resumeOffsetFor(hello ptyhost.HelloPayload) int64 {
 	if rec.RingGeneration != "" && rec.RingGeneration != gen {
 		c.logger.Info("claudeagent: persisted replay offset belongs to a different ptyhost generation; starting fresh replay",
 			"persisted_generation", rec.RingGeneration, "current_generation", gen, "persisted_offset", rec.LastAckOffset)
+		// A different generation's resolved-request set is meaningless for
+		// THIS ring — leave replaySuppress/resolved empty so nothing is
+		// wrongly suppressed on the fresh replay.
 		return -1
+	}
+	// Honouring the persisted checkpoint: seed the already-resolved
+	// control_request set so the reconnect replay skips re-surfacing them
+	// (S862203-3 review HIGH), and seed the live `resolved` map so
+	// subsequent persists retain them until pruned. lineStarts are absolute
+	// ptyhost offsets — stable across a reconnect to the SAME generation
+	// (which we just confirmed), so they remain comparable to `safe`.
+	for id, lineStart := range rec.ResolvedControlRequests {
+		c.replaySuppress[id] = struct{}{}
+		c.resolved[id] = lineStart
+	}
+	if n := len(c.replaySuppress); n > 0 {
+		c.logger.Info("claudeagent: resuming with already-answered control_requests to suppress on replay",
+			"count", n, "resume_offset", rec.LastAckOffset)
 	}
 	return rec.LastAckOffset
 }
@@ -640,10 +684,43 @@ func (c *Client) handleLine(line []byte, endOffset int64) error {
 		// again on reconnect rather than silently skipping a pending
 		// permission (S862203-3 AC-2 part b).
 		lineStart := endOffset - int64(len(line)) - 1
-		c.beginPending(lineStart)
+		if _, suppress := c.replaySuppress[msg.RequestID]; suppress {
+			// This control_request was ALREADY answered before the restart
+			// this Client is resuming from (its control_response was written
+			// to the live claude process, which survived — we're reconnected
+			// to it). Re-dispatching it would (a) re-surface a spurious
+			// duplicate permission prompt in the UI for an already-resolved
+			// request and (b) write a duplicate control_response for an
+			// already-cleared request_id. Skip both; just advance the ack.
+			// The transcript (assistant/tool_use/tool_result envelopes) is
+			// carried by SEPARATE `default`-case lines that replay normally —
+			// a control_request line itself contributes nothing to the
+			// visible transcript. (S862203-3 review HIGH.)
+			c.logger.Debug("claudeagent: skipping already-answered control_request on replay",
+				"request_id", msg.RequestID)
+			c.advanceAck(endOffset)
+			break
+		}
+		c.beginPending(msg.RequestID, lineStart)
 		go func() {
+			// handleControlRequest writes the control_response back to the
+			// CLI; resolvePending then records+persists this request as
+			// answered. There is a narrow window BETWEEN those two: if
+			// palmux2 crashes after the control_response is written but
+			// before resolvePending persists, the reconnect will NOT find
+			// this id in the persisted resolved-set and WILL re-surface the
+			// (already-answered) permission as a duplicate prompt. This
+			// ordering is INTENTIONAL and must NOT be "fixed" by persisting
+			// the resolved-set BEFORE writing the response: doing so would
+			// invert the failure into the opposite, worse mode — a crash in
+			// the inverted window would mark the request answered WITHOUT
+			// having told the CLI, permanently hanging the turn on a
+			// permission the user can no longer act on. A spurious duplicate
+			// prompt (recoverable — the user answers again, or it is a
+			// no-op if the CLI already cleared the request_id) is strictly
+			// safer than a permanent hang. (S862203-3 review LOW.)
 			c.handleControlRequest(msg)
-			c.resolvePending(lineStart, endOffset)
+			c.resolvePending(msg.RequestID, lineStart, endOffset)
 		}()
 
 	case msg.Type == "control_cancel_request":
@@ -672,22 +749,26 @@ func (c *Client) advanceAck(endOffset int64) {
 	c.persistSafeFrontierLocked()
 }
 
-// beginPending marks the control_request line starting at lineStart as
-// still being handled asynchronously.
-func (c *Client) beginPending(lineStart int64) {
+// beginPending marks the control_request `requestID` (whose line starts at
+// lineStart) as still being handled asynchronously.
+func (c *Client) beginPending(requestID string, lineStart int64) {
 	c.ackMu.Lock()
 	defer c.ackMu.Unlock()
-	c.pendingAsync[lineStart] = struct{}{}
+	c.pendingAsync[requestID] = lineStart
 	c.persistSafeFrontierLocked()
 }
 
 // resolvePending marks a previously-pending control_request as fully
-// handled (its control_response has been written back to the CLI) and
-// re-persists the (now possibly advanced) safe frontier.
-func (c *Client) resolvePending(lineStart, endOffset int64) {
+// handled (its control_response has been written back to the CLI): it moves
+// the request from pendingAsync into `resolved` (so a later reconnect that
+// replays its line — because an EARLIER request is still holding the
+// frontier back — will recognise it as already-answered and NOT re-surface
+// it) and re-persists the (now possibly advanced) safe frontier.
+func (c *Client) resolvePending(requestID string, lineStart, endOffset int64) {
 	c.ackMu.Lock()
 	defer c.ackMu.Unlock()
-	delete(c.pendingAsync, lineStart)
+	delete(c.pendingAsync, requestID)
+	c.resolved[requestID] = lineStart
 	if endOffset > c.highestSeenOffset {
 		c.highestSeenOffset = endOffset
 	}
@@ -696,24 +777,38 @@ func (c *Client) resolvePending(lineStart, endOffset int64) {
 
 // persistSafeFrontierLocked (ackMu held) persists the largest offset such
 // that EVERY byte up to it has been fully processed — i.e. it never
-// advances past a still-in-flight async control_request. This is the
-// mechanism that makes AC-S862203-3-2 part (b) possible: a permission
-// outstanding at the moment of a palmux2 restart was never acked past its
-// own line, so ATTACHing at the persisted offset on reconnect replays that
-// exact control_request again, re-entering the SAME (unchanged)
-// mcp.handle → RequestPermission → awaitPermission path and reconstructing
-// the pending-permission UI state for free (ADR-0004 PD-5).
+// advances past a still-in-flight async control_request — TOGETHER with the
+// set of already-answered control_request ids that fall at or after that
+// offset (i.e. could still be replayed). This is the mechanism that makes
+// AC-S862203-3-2 part (b) possible: a permission outstanding at the moment
+// of a palmux2 restart was never acked past its own line, so ATTACHing at
+// the persisted offset on reconnect replays that exact control_request
+// again, re-entering the SAME (unchanged) mcp.handle → RequestPermission →
+// awaitPermission path and reconstructing the pending-permission UI state
+// for free (ADR-0004 PD-5). The resolved-set is what keeps a DIFFERENT,
+// already-answered permission (answered while an earlier one stayed pending
+// — claude issues parallel tool calls) from ALSO re-surfacing on that same
+// replay (S862203-3 review HIGH).
 func (c *Client) persistSafeFrontierLocked() {
 	if c.offsetStore == nil {
 		return
 	}
 	safe := c.highestSeenOffset
-	for start := range c.pendingAsync {
+	for _, start := range c.pendingAsync {
 		if start < safe {
 			safe = start
 		}
 	}
-	if err := c.offsetStore.Save(c.repoID, c.branchID, c.tabID, safe, c.ringGeneration); err != nil {
+	// Prune resolved entries strictly before `safe`: a reconnect ATTACHes
+	// at `safe`, so anything before it can never be replayed and need not
+	// be remembered — keeps the persisted set bounded to the replayable
+	// window rather than growing for the whole session.
+	for id, start := range c.resolved {
+		if start < safe {
+			delete(c.resolved, id)
+		}
+	}
+	if err := c.offsetStore.Save(c.repoID, c.branchID, c.tabID, safe, c.ringGeneration, c.resolved); err != nil {
 		c.logger.Warn("claudeagent: persist replay offset failed", "err", err)
 	}
 }

@@ -31,7 +31,7 @@ func TestResumeOffsetFor_SameGeneration_ResumesPersistedOffset(t *testing.T) {
 	}
 	hello := ptyhost.HelloPayload{Pid: 4242, ArgvHash: "abc123"}
 	gen := ringGenerationFor(hello)
-	if err := store.Save("repo", "branch", "claude:claude", 555, gen); err != nil {
+	if err := store.Save("repo", "branch", "claude:claude", 555, gen, nil); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
@@ -67,7 +67,7 @@ func TestResumeOffsetFor_DifferentGeneration_IgnoresStaleOffset(t *testing.T) {
 	// generation mismatch, the bug would be "attach at a byte offset that
 	// happens to look plausible" rather than an obviously-out-of-range
 	// number that some OTHER guard might catch by accident.
-	if err := store.Save("repo", "branch", "claude:claude", 123456, oldGen); err != nil {
+	if err := store.Save("repo", "branch", "claude:claude", 123456, oldGen, nil); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
@@ -102,7 +102,7 @@ func TestResumeOffsetFor_NoRecordedGeneration_TreatsAsUsable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewOffsetStore: %v", err)
 	}
-	if err := store.Save("repo", "branch", "claude:claude", 77, ""); err != nil {
+	if err := store.Save("repo", "branch", "claude:claude", 77, "", nil); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	c := &Client{

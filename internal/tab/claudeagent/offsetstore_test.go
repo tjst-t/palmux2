@@ -18,7 +18,7 @@ func TestOffsetStore_SaveGet_RoundTrip(t *testing.T) {
 		t.Fatal("Get on empty store returned ok=true, want false")
 	}
 
-	if err := s.Save("repo", "branch", "claude:claude", 4242, "gen-1"); err != nil {
+	if err := s.Save("repo", "branch", "claude:claude", 4242, "gen-1", nil); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	rec, ok := s.Get("repo", "branch", "claude:claude")
@@ -49,7 +49,7 @@ func TestOffsetStore_SurvivesKill9_AtomicWriteThenRename(t *testing.T) {
 		t.Fatalf("NewOffsetStore: %v", err)
 	}
 	for i, off := range []int64{10, 200, 3000, 40000} {
-		if err := s1.Save("repo", "branch", "claude:claude", off, ""); err != nil {
+		if err := s1.Save("repo", "branch", "claude:claude", off, "", nil); err != nil {
 			t.Fatalf("Save #%d: %v", i, err)
 		}
 	}
@@ -93,7 +93,7 @@ func TestOffsetStore_Clear(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewOffsetStore: %v", err)
 	}
-	if err := s.Save("repo", "branch", "claude:claude", 99, ""); err != nil {
+	if err := s.Save("repo", "branch", "claude:claude", 99, "", nil); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	if err := s.Clear("repo", "branch", "claude:claude"); err != nil {
@@ -118,13 +118,13 @@ func TestOffsetStore_KeysAreTabScoped_AndCanonicalised(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewOffsetStore: %v", err)
 	}
-	if err := s.Save("repoA", "branch1", "claude:claude", 1, ""); err != nil {
+	if err := s.Save("repoA", "branch1", "claude:claude", 1, "", nil); err != nil {
 		t.Fatalf("Save A: %v", err)
 	}
-	if err := s.Save("repoA", "branch1", "claude:claude-2", 2, ""); err != nil {
+	if err := s.Save("repoA", "branch1", "claude:claude-2", 2, "", nil); err != nil {
 		t.Fatalf("Save B: %v", err)
 	}
-	if err := s.Save("repoB", "branch1", "claude:claude", 3, ""); err != nil {
+	if err := s.Save("repoB", "branch1", "claude:claude", 3, "", nil); err != nil {
 		t.Fatalf("Save C: %v", err)
 	}
 
