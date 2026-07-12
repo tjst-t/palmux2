@@ -1,0 +1,112 @@
+{
+  "adr_0004_gate": "clears (confirmed deadline \u003e= 60s \u003e= ~15s restart window) -- ADR-0004 replay design confirmed sound, proceed to Wave 2 (S862203-2)",
+  "goal": "Determine whether claude CLI's deadline for an MCP-routed permission control_request response EXCEEDS palmux2's realistic restart window (a few seconds to ~15s), per ADR-0004's revisit condition.",
+  "host": "dev.tjstkm.net -- dev worktree, real `claude` binary on PATH (see `claude --version` in spike run notes)",
+  "max_confirmed_delay_s": 60,
+  "method": "Real `claude` CLI spawned via internal/tab/claudeagent.NewClient (production wire path: --permission-prompt-tool mcp__palmux__permission_prompt, in-process mcpServer, mcp_message control_request/control_response). A user prompt forces exactly one Bash tool call; the PermissionRequester withholds the allow response for the tier's delay, then sends it. Acceptance is judged by the ground-truth side effect (did the Bash command actually write its marker file), corroborated by turn continuation (a `result` envelope) and the absence of a stdin write failure.",
+  "notes": [
+    "This harness observes production-representative behaviour via the real NewClient/mcpServer path, but does NOT intercept raw control_cancel_request frames on the wire (client.go's pumpStdout drops those silently and does not forward them to onMessage) -- acceptance is instead judged by the tool's actual side effect (marker file) plus turn-continuation and stdin-write-failure signals, which are the properties that actually matter for ADR-0004's replay design.",
+    "Each tier is a fresh claude CLI process / fresh session (no --resume) to keep tiers independent and avoid compounding turn history across withheld-response runs.",
+    "Consumed real Anthropic API quota: one real-claude turn per tier run."
+  ],
+  "restart_window_context": {
+    "basis": [
+      "docs/DESIGN/adr/ADR-0004-agent-pipe-mode-offset-replay.json and scenario-S862203-1.json both frame the restart window as 'a few seconds to ~15s' -- this spike treats 15s as the gate threshold per that framing rather than re-deriving it.",
+      "Sa8e7d0 (self-update robustness) documents the FE reconnect handshake shape (WS drop -\u003e /health version polling -\u003e reconnect -\u003e toast) but not a single-number latency; S3f2658's spike-S3f2658-1-1.json confirms the ptyhost cgroup-escape/reattach mechanism itself is near-instant (kill -0 succeeds immediately post-restart) -- the dominant cost is the palmux2 Go process's own systemd restart + listener rebind + client poll interval, typically low single-digit seconds on this class of host.",
+      "A fresh empirical `make serve INSTANCE=dev` measurement was not performed in this spike run to avoid an unrelated full build cycle; if a precise number is needed before Wave 2, it can be taken cheaply with `time (make serve INSTANCE=dev; until curl -sf http://127.0.0.1:$PORT/health; do sleep 0.2; done)`."
+    ],
+    "measured_this_run": false,
+    "reasoned_estimate_s": "a few seconds to ~15s"
+  },
+  "task": "S862203-1-1",
+  "tiers": [
+    {
+      "delay_s": 10,
+      "accepted": true,
+      "tool_executed": true,
+      "turn_continued": true,
+      "observed_timeout_or_cancel": false,
+      "result_is_error": false,
+      "result_summary": "is_error=false result=\"Done.\" num_turns=2",
+      "marker_content": "SPIKE_S862203_1_10s_OK",
+      "request_arrival_rel_ms": 5450,
+      "response_sent_rel_ms": 15458,
+      "result_rel_ms": 17210,
+      "notes": "arrival=5450ms(rel) response_sent=15458ms(rel) early_result_before_response=false write_control_response_failed=false marker_read_err=\u003cnil\u003e",
+      "raw_events": [
+        "+1020ms [message] initialize complete",
+        "+1020ms [message] user message sent",
+        "+1152ms [message] system/init",
+        "+1152ms [message] system/status",
+        "+2045ms [message] rate_limit_event/",
+        "+4254ms [message] assistant message (len=957)",
+        "+5433ms [message] assistant message (len=746)",
+        "+5450ms [permission] control_request arrived: tool=Bash tool_use_id=toolu_01L9NtDqBgZsYGjHNN4NpHnd input={\"command\":\"echo SPIKE_S862203_1_10s_OK \u003e /tmp/TestSpike_S862203_1_ControlRequestLateResponse2814607176/001/spike-marker-10s.txt\",\"description\":\"Write spike marker file\"}",
+        "+15458ms [permission] sending late allow after withholding 10.008043157s",
+        "+15531ms [message] user message (len=158)",
+        "+15537ms [message] system/status",
+        "+17116ms [message] assistant message (len=497)",
+        "+17210ms [message] result: is_error=false result=Done. num_turns=2"
+      ]
+    },
+    {
+      "delay_s": 30,
+      "accepted": true,
+      "tool_executed": true,
+      "turn_continued": true,
+      "observed_timeout_or_cancel": false,
+      "result_is_error": false,
+      "result_summary": "is_error=false result=\"Done.\" num_turns=2",
+      "marker_content": "SPIKE_S862203_1_30s_OK",
+      "request_arrival_rel_ms": 5487,
+      "response_sent_rel_ms": 35513,
+      "result_rel_ms": 49962,
+      "notes": "arrival=5487ms(rel) response_sent=35513ms(rel) early_result_before_response=false write_control_response_failed=false marker_read_err=\u003cnil\u003e",
+      "raw_events": [
+        "+1077ms [message] initialize complete",
+        "+1077ms [message] user message sent",
+        "+1337ms [message] system/init",
+        "+1337ms [message] system/status",
+        "+2218ms [message] rate_limit_event/",
+        "+4310ms [message] assistant message (len=957)",
+        "+5473ms [message] assistant message (len=746)",
+        "+5487ms [permission] control_request arrived: tool=Bash tool_use_id=toolu_01Qemk4wyPwXtgzpvQnLtoCF input={\"command\":\"echo SPIKE_S862203_1_30s_OK \u003e /tmp/TestSpike_S862203_1_ControlRequestLateResponse2814607176/002/spike-marker-30s.txt\",\"description\":\"Write spike marker file\"}",
+        "+35513ms [permission] sending late allow after withholding 30.025869733s",
+        "+35571ms [message] user message (len=158)",
+        "+35576ms [message] system/status",
+        "+49456ms [message] assistant message (len=497)",
+        "+49962ms [message] result: is_error=false result=Done. num_turns=2"
+      ]
+    },
+    {
+      "delay_s": 60,
+      "accepted": true,
+      "tool_executed": true,
+      "turn_continued": true,
+      "observed_timeout_or_cancel": false,
+      "result_is_error": false,
+      "result_summary": "is_error=false result=\"Done.\" num_turns=2",
+      "marker_content": "SPIKE_S862203_1_60s_OK",
+      "request_arrival_rel_ms": 5054,
+      "response_sent_rel_ms": 65111,
+      "result_rel_ms": 66644,
+      "notes": "arrival=5054ms(rel) response_sent=65111ms(rel) early_result_before_response=false write_control_response_failed=false marker_read_err=\u003cnil\u003e",
+      "raw_events": [
+        "+1015ms [message] initialize complete",
+        "+1015ms [message] user message sent",
+        "+1141ms [message] system/init",
+        "+1141ms [message] system/status",
+        "+2015ms [message] rate_limit_event/",
+        "+3820ms [message] assistant message (len=957)",
+        "+5040ms [message] assistant message (len=746)",
+        "+5054ms [permission] control_request arrived: tool=Bash tool_use_id=toolu_01HXaYBudamFTK9PVR9FMbKN input={\"command\":\"echo SPIKE_S862203_1_60s_OK \u003e /tmp/TestSpike_S862203_1_ControlRequestLateResponse2814607176/003/spike-marker-60s.txt\",\"description\":\"Write spike marker file\"}",
+        "+65111ms [permission] sending late allow after withholding 1m0.056350519s",
+        "+65183ms [message] user message (len=158)",
+        "+65189ms [message] system/status",
+        "+66586ms [message] assistant message (len=497)",
+        "+66644ms [message] result: is_error=false result=Done. num_turns=2"
+      ]
+    }
+  ],
+  "verdict": "PASS"
+}

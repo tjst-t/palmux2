@@ -113,5 +113,43 @@
     "Ports via portman only; tmux via internal/tmux.Client only; no ~/.claude writes.",
     "priority_rule 0: NEVER mark AC-S862203-1-1 or AC-S862203-3-2 as skipped/false-done. If a real-claude run is truly impossible under autopilot, escalate at the milestone review — do not fabricate a PASS."
   ],
-  "adr_gate": "If S862203-1 FAILS (claude aborts the control_request before ~15s), STOP: escalate an ADR-0004 revisit to the user (options per ADR notes: rely on claude to re-send the pending request on reconnect, or have ptyhost hold the request without auto-deny). Waves 2-3 assume the spike PASS."
+  "adr_gate": "If S862203-1 FAILS (claude aborts the control_request before ~15s), STOP: escalate an ADR-0004 revisit to the user (options per ADR notes: rely on claude to re-send the pending request on reconnect, or have ptyhost hold the request without auto-deny). Waves 2-3 assume the spike PASS.",
+  "run_decisions": [
+    {
+      "id": "RD-1",
+      "story": "S862203-1",
+      "decision": "Harness reuses the real internal/tab/claudeagent.NewClient production wire path (--permission-prompt-tool mcp__palmux__permission_prompt, in-process mcpServer, mcp_message control_request/control_response) rather than a hand-rolled fake emitter, wrapped in a new env-gated test file internal/tab/claudeagent/spike_control_deadline_test.go (PALMUX_SPIKE_S862203_1=1, mirroring the existing PALMUX_SURVIVAL_SMOKE / PALMUX_REALINCUS_SMOKE gate pattern in internal/tab/claudetui). Zero production code changed.",
+      "rationale": "The spike's entire purpose is measuring REAL claude CLI behaviour on the exact wire path production uses (priority_rule 0) -- a fake emitter cannot answer 'how long does claude wait for a control_request response'. Reusing NewClient/mcpServer verbatim (rather than reimplementing the MCP dispatch) guarantees the observed timing is production-representative."
+    },
+    {
+      "id": "RD-2",
+      "story": "S862203-1",
+      "decision": "PermissionMode explicitly forced to \"manual\" in the harness's ClientOptions.",
+      "rationale": "First run without this returned instantly with tool_executed=true but ZERO permission control_request ever observed -- this host's shared ~/.claude/settings.json (the ambient config for the very Claude Code session running this spike) sets permissions.defaultMode=bypassPermissions. NewClient always passes --setting-sources project,user, so that user-level default silently let the Bash tool run without ever invoking the permission_prompt MCP tool, defeating the spike. --permission-mode manual forces the CLI to ask every time regardless of the ambient settings.json, matching how the real Claude tab always requests permission (it never runs with bypassPermissions)."
+    },
+    {
+      "id": "RD-3",
+      "story": "S862203-1",
+      "decision": "Acceptance ('accepted') is judged by the ground-truth side effect (did the withheld Bash command actually write its marker file to disk) plus turn continuation (a `result` envelope arrives) and the ABSENCE of two negative signals: (a) a 'write control response' stdin-write-failure log (client.go logs this when the CLI process has already exited/closed stdin) and (b) the result envelope's own timestamp preceding the moment the late allow was actually sent (which would mean the turn ended before our response could possibly have reached the CLI).",
+      "rationale": "The harness cannot see raw control_cancel_request frames on the wire -- client.go's pumpStdout silently drops that message type without forwarding it to onMessage, and this is production code the spike must not modify. The chosen signals (tool side-effect + turn-continuation + write-failure + timestamp-ordering) are the properties that actually matter for ADR-0004's replay design (did the late response get through and did the gated action actually happen), so the blind spot on raw cancel frames does not weaken the verdict."
+    },
+    {
+      "id": "RD-4",
+      "story": "S862203-1",
+      "decision": "First implementation of the 'early result' check used a fixed racy time.After(delay+2s) window per tier and mislabelled the tier-10s run's legitimate POST-response completion as premature (observed_timeout_or_cancel=true even though accepted=true, tool_executed=true). Fixed by removing the window race entirely: the harness now blocks on a single unbounded (delay+90s ceiling) read of the result channel and compares the result envelope's OWN timestamp against the requester's recorded resolveAt timestamp after the fact, with a 50ms jitter margin.",
+      "rationale": "A window sized off the expected delay will, by construction, sometimes still be open when the genuine post-response result naturally arrives a moment later -- racing a channel read against an estimated deadline is the wrong tool for distinguishing 'before' from 'after' when the actual timestamps are available and exact. Caught and fixed via a single-tier (10s) smoke run before spending quota on the full 3-tier run."
+    },
+    {
+      "id": "RD-5",
+      "story": "S862203-1",
+      "decision": "restart_window_context in the result JSON is a REASONED ESTIMATE (\"a few seconds to ~15s\", sourced from ADR-0004/scenario-S862203-1.json's own framing plus prior sprints' timing data), not a freshly measured `make serve INSTANCE=dev` kill+respawn+reconnect cycle.",
+      "rationale": "A fresh empirical measurement would require a full frontend+backend build cycle unrelated to the quota-sensitive real-claude question that actually gates the sprint (priority_rule: keep the harness to the minimum runs/cost needed). The 15s threshold used for the PASS/HALT gate is the one already load-bearing in ADR-0004 and the scenario doc, not a number this spike invented; a precise re-measurement is noted as cheap to obtain later if ever needed and does not change today's PASS verdict since all three tiers (10s/30s/60s) cleared it with wide margin."
+    },
+    {
+      "id": "RD-6",
+      "story": "S862203-1",
+      "decision": "Result: PASS. All three tiers (10s, 30s, 60s) had accepted=true, tool_executed=true, turn_continued=true, observed_timeout_or_cancel=false, result_is_error=false. max_confirmed_delay_s=60. ADR-0004 gate CLEARS -- proceed to Wave 2 (S862203-2). No HALT, no escalation needed.",
+      "rationale": "claude CLI 2.1.207 places no observable deadline on an outstanding mcp_message control_request within the tested range (up to 60s, 4x the ~15s restart-window threshold) -- it simply blocks the turn until the (in-process MCP) permission_prompt tool call resolves, then executes the now-allowed Bash command and completes the turn normally, exactly as ADR-0004 assumed but had left unverified. Full evidence in docs/sprint-logs/S862203/spike-S862203-1-1.json (raw_events per tier)."
+    }
+  ]
 }
