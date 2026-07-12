@@ -6,6 +6,11 @@
       "detail": "ROADMAP の Acceptance Criteria は、 自動 E2E・ unit test・ MANUAL SMOKE (人間が実機で目視) のいずれであっても 'skipped' で完了させない。 自動テストでは拾い切れないことが分かっているからこそ MANUAL SMOKE が書かれている。 autopilot / sprint auto は人間がいない理由で AC を skip しない — milestone でユーザに差し戻して人間に実行してもらう。 どうしても skip しなければならない正当事由 (= AC 自体が誤りで、 別 AC で完全に代替できる、 等) がある場合は、 (1) sprint 完了報告で **冒頭に SKIP したテスト名と理由をすべて列挙**、 (2) milestone でユーザに明示確認、 (3) skip 内容を decisions.json に記録、 を必ず行う。 過去にこれを守らずユーザ可視リグレッションを混入させた事故あり (S43cfb1, 2026-05-09)。 'skip = 黙って done' は最重大の禁則行為。"
     },
     {
+      "priority": 0,
+      "rule": "AC はコードパスを『通すだけ』でなく失敗が発火する条件を再現する / lifecycle 変更は実セッション dogfood してからリリース",
+      "detail": "skip とは別のギャップ。AC が toy/合成データでコードパスを通すだけだと、失敗が負荷・データ量・内容に依存する機能では緑になっても本番で即死する。実例 S3f2658 (v0.14.12) の起動デッドロック — 生存 ptyhost への再接続で大きな replay を emulator.Feed に流したときだけ 64KiB 応答パイプが埋まって発火するのに、検証は survival ring 12→72→134 バイト / discovery adopt=1 という数十バイトの合成データでパスを通しただけで PASS になり、リリース後 ndev の『最初の実利用』で一発ブリックした。徹底事項: (1) 機能の失敗モードが負荷/量/内容依存なら、AC はその発火条件 (現実的な volume・content、例: >64KiB・実 ANSI クエリ列・実セッション) を再現する。合成 toy データでパスを通すだけの AC は不十分。(2) live-session ライフサイクル (claude/tui/agent の spawn・reattach・survival・restart) を触る milestone は、機構テストと別に『実ホストで実際に使って状態を溜め、palmux2 を更新相当に再起動し、復帰する』MANUAL SMOKE を必須とし、緑になるまでリリースしない。(3) autopilot/sprint 'done' 直後の即リリース禁止 — 独立した実セッション dogfood を挟む (S3f2658 は done の 34 分後にリリースして被弾した)。"
+    },
+    {
       "priority": 1,
       "rule": "CLI が真実 > Palmux が真実",
       "detail": "会話履歴・権限設定・skills/agents は claude 側で管理する。Palmux はミラー描画と入力中継に徹し、CLI が持つべき状態を独自に持たない"
