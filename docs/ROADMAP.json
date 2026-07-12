@@ -11770,49 +11770,49 @@
           "id": "S3f2658-2",
           "title": "claudetui.Daemon の thin client 化 (socket attach + 画面復元)",
           "user_story": "palmux ユーザとして、palmux2 再起動後にブラウザの claude-tui タブを開いたら、走っていた claude の画面がそのまま復元されていてほしい。なぜなら、再起動を意識せず作業を続けたいから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S3f2658-2-1",
               "description": "claudetui.Daemon は PTY を直接持たず ptyhost に socket attach する thin client になる。Emulator / roleCoordinator / respawnLoop 相当 (exit 検知→新 ptyhost spawn + --resume 判断) / hooks 生成 / incus gateRespawn は palmux2 側に残る (ADR-0002、移行マップ = design doc §4)。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S3f2658-2-2",
               "description": "palmux2 再起動後の再接続で、再起動前に表示されていた TUI 内容が復元され、再起動中に claude が出し続けた出力 (実行中ターン) も失われない。復元手順は ring replay → Emulator feed → SIGWINCH ジグル (design doc §5)。ジグル後の画面に前フレームの残骸が残らない。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S3f2658-2-3",
               "description": "protocol version 不一致の ptyhost に対しては殺さず UI degrade (「旧世代の agent ホスト — 再起動で新機能有効」表示) となる。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S3f2658-2-4",
               "description": "既存の claude-tui E2E / unit (multi-client role、hook 通知、resize、respawn --resume) がリグレッションなく pass する。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S3f2658-2-1": {
               "id": "S3f2658-2-1",
               "title": "daemon.go 分割: PTY/readLoop/ring を ptyhost client 呼び出しに差し替え (feedMu/Emulator/roles は残留)",
-              "status": "pending"
+              "status": "done"
             },
             "S3f2658-2-2": {
               "id": "S3f2658-2-2",
               "title": "respawn を「exit 検知 → 新 ptyhost spawn」に変形 (--resume / gateRespawn / hooks 組み立ては現行ロジック流用)",
-              "status": "pending"
+              "status": "done"
             },
             "S3f2658-2-3": {
               "id": "S3f2658-2-3",
               "title": "再接続時の画面復元 (replay feed + SIGWINCH ジグル) + version 不一致 UI degrade",
-              "status": "pending"
+              "status": "done"
             },
             "S3f2658-2-4": {
               "id": "S3f2658-2-4",
               "title": "E2E: 再起動跨ぎの画面復元 + 実行中ターン無欠損 (dev INSTANCE + Playwright)",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
