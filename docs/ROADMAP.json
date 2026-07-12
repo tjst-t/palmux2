@@ -11967,39 +11967,39 @@
           "id": "S862203-3",
           "title": "claudeagent.Client の thin client 化 + replay 再構成",
           "user_story": "palmux ユーザとして、palmux2 再起動中に来た permission 要求も含めて、agent タブの会話と権限状態が完全に復元されてほしい。なぜなら、長時間の autonomous 作業を palmux2 の都合で失いたくないから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S862203-3-1",
               "description": "claudeagent.Client は exec 直叩きをやめ ptyhost (pipe モード) 越しに stream-json を pump する。parse / MCP 権限サーバ / permstate / transcript は palmux2 側に残る (ADR-0002/0004)。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S862203-3-2",
               "description": "palmux2 再起動を跨いで (a) 実行中ターンの transcript が無欠損で復元され、(b) 再起動中に発生した permission 要求が UI に届き、応答してツール実行が成立する (E2E、実 claude)。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S862203-3-3",
               "description": "既存の claude-agent E2E / unit (permission フロー、modes、transcript、respawn) がリグレッションなく pass する。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S862203-3-1": {
               "id": "S862203-3-1",
               "title": "client.go の cmd 構築 + pump を ptyhost client に差し替え",
-              "status": "pending"
+              "status": "done"
             },
             "S862203-3-2": {
               "id": "S862203-3-2",
               "title": "replay からの permstate / transcript 再構成 (pending control_request 復元)",
-              "status": "pending"
+              "status": "done"
             },
             "S862203-3-3": {
               "id": "S862203-3-3",
               "title": "E2E: 再起動跨ぎ permission 応答成立 + transcript 無欠損",
-              "status": "pending"
+              "status": "done"
             }
           }
         }
@@ -12647,6 +12647,12 @@
       "note": "TestBashPerm_NoLeakOverManyRounds / TestAskUserQuestion_FullRoundTrip / TestExitPlanMode_FullRoundTrip (from S43cfb1) time out under go test -race + high CPU; pass in isolation + non-race. Reproduced on parent commits (pre-existing, not from no-halt-agent). make test gate is non-race + green. Fix: adaptive/larger deadlines or serialize.",
       "source": "S3f2658+S862203-2",
       "severity": "medium"
+    },
+    {
+      "title": "claudeagent: no orphan-GC for pipe-mode ptyhosts (asymmetry vs claudetui GCOrphans)",
+      "note": "claudeagent has startup DiscoverAndRestore but no orphan GC on the store scan loop (claudetui got GCOrphans in S3f2658-3). A branch/repo closed while palmux2 is down leaves its agent ptyhost un-reaped until reopen. Mirror S3f2658-3 GCOrphans for claudeagent.",
+      "source": "S862203-3 review",
+      "severity": "low"
     }
   ]
 }
