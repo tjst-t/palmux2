@@ -12611,6 +12611,24 @@
       "title": "Split ビュー右パネル内の Files リンククリックが右パネルではなくメインルートを navigate する（MarkdownView が panel 非対応）",
       "source": "S4323c8-3 調査で発見（通常ビューは正常、split のみ）",
       "detail": "frontend/src/tabs/files/viewers/markdown-view.tsx が top-level useNavigate を使うため ?right= パネルに追従しない。panel context を Files→FilePreview→MarkdownView に通し、右パネル時は ?right= 更新へ分岐する要あり。ユーザ確認待ち。"
+    },
+    {
+      "title": "claudetui data race under -race: charmbracelet/x/vt Emulator.Close vs Read",
+      "note": "Pre-existing (reproduced on base commit 934939b, not introduced by S3f2658-2). make test does not run -race so latent. Emulator.Close/Read is adjacent to no-halt-agent daemon code; guard before deeper concurrency work.",
+      "source": "S3f2658-2 review",
+      "severity": "medium"
+    },
+    {
+      "title": "claudetui data race under -race: roleCoordinator.OnUnsubscribe",
+      "note": "Pre-existing (role.go byte-for-byte unmodified by S3f2658-2, race reproduced on base). Latent (not in make test gate).",
+      "source": "S3f2658-2 review",
+      "severity": "low"
+    },
+    {
+      "title": "claude-tui restart: xterm.js FitAddon auto-resize reflow after restore",
+      "note": "Benign visual reflow after screen restore, caused by xterm FitAddon third attach interacting with scrolling output; proven NOT from the restore SIGWINCH jiggle (strict-ordering assertion on raw reconnect frame). Cosmetic; revisit if users report confusion.",
+      "source": "S3f2658-2 e2e",
+      "severity": "low"
     }
   ]
 }
