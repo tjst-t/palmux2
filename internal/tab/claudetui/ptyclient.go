@@ -83,6 +83,12 @@ func defaultLaunchPtyHost(ctx context.Context, req PtyHostLaunchRequest) error {
 		return fmt.Errorf("claudetui: ptyhost launch: PalmuxBin is empty")
 	}
 	args := []string{"--socket", req.SocketPath, "--status", req.StatusPath}
+	if req.Seed != "" {
+		// Opaque identity label echoed into the status file — see
+		// [ptyhost.Config.Seed] doc comment; enables S3f2658-3 discovery/GC
+		// to recover (repoId, branchId, tabId) from disk.
+		args = append(args, "--seed", req.Seed)
+	}
 	if req.Cwd != "" {
 		args = append(args, "--cwd", req.Cwd)
 	}
@@ -136,6 +142,7 @@ func inProcessLaunchPtyHost(ctx context.Context, req PtyHostLaunchRequest) error
 		SocketPath: req.SocketPath,
 		StatusPath: req.StatusPath,
 		RingSize:   req.RingSize,
+		Seed:       req.Seed,
 	})
 	if err != nil {
 		return fmt.Errorf("claudetui: in-process ptyhost: %w", err)

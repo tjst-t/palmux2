@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -465,6 +466,94 @@ func TestServer_ShutdownTerminatesChildAndServerExits(t *testing.T) {
 	}
 	if sf.Alive {
 		t.Fatal("status file Alive = true after SHUTDOWN, want false")
+	}
+}
+
+// TestServer_StragglerConnectionDuringShutdown_DoesNotDeadlock is a
+// regression test (found during S3f2658-3 implementation, see
+// docs/sprint-logs/S3f2658/decisions.json "story_S3f2658_3_implementation_notes")
+// for a deadlock in the accept-loop: a connection Accept()-ed in the narrow
+// window between the main select loop choosing its shutdown/ctx-done branch
+// (which permanently stops servicing connCh) and ln.Close() actually taking
+// effect used to block that goroutine on an unbuffered `connCh <- conn`
+// FOREVER, which hung s.wg.Wait() in teardown() forever, which hung Run()
+// forever — silently, no error, no timeout, discoverable only via a
+// goroutine dump.
+//
+// This is exactly the shape of a discovery/orphan-GC liveness probe
+// (dial+HELLO+close, independent of the real attach connection) landing
+// right as the SAME ptyhost is being shut down — a pattern S3f2658-3
+// introduced (internal/tab/claudetui/discover.go). The trigger here is
+// ctx cancellation (the SIGTERM/SIGINT path — see cmd/palmux/ptyhost.go and
+// [newTestServer]'s own cleanup, which uses the same mechanism) rather than
+// a SHUTDOWN frame over an established connection: a frame-based SHUTDOWN
+// requires ITS OWN connection to survive long enough to be read, which a
+// straggler racing to connect at the SAME time would itself supersede
+// (replaceConn's by-design "newest connection wins" — a real but SEPARATE
+// behavior from the deadlock this test targets); ctx cancellation has no
+// such dependency, isolating the regression this test actually checks.
+// Reproducing the exact race deterministically isn't practical (it depends
+// on OS scheduling), so this fires ONE straggler dial concurrently with
+// cancellation across many iterations to make the race likely to fire if
+// the fix regresses, and asserts Run() always returns within a bounded time
+// regardless.
+func TestServer_StragglerConnectionDuringShutdown_DoesNotDeadlock(t *testing.T) {
+	bin := fakeChildBin(t)
+
+	for iter := 0; iter < 40; iter++ {
+		dir := t.TempDir()
+		sockPath := filepath.Join(dir, "ptyhost.sock")
+		statusPath := filepath.Join(dir, "ptyhost.json")
+
+		srv, err := NewServer(Config{
+			Argv:           []string{bin},
+			SocketPath:     sockPath,
+			StatusPath:     statusPath,
+			RingSize:       1 << 16,
+			GracePeriod:    2 * time.Second,
+			PostExitLinger: 50 * time.Millisecond,
+		})
+		if err != nil {
+			t.Fatalf("iter %d: NewServer: %v", iter, err)
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		runErrCh := make(chan error, 1)
+		go func() { runErrCh <- srv.Run(ctx) }()
+
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(sockPath); err == nil {
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// One opportunistic straggler connection attempt, fired
+			// concurrently with cancel() below — trying to land Accept()
+			// right in the shutdown-transition window. A failed dial
+			// (socket already gone) is expected and fine; it just means
+			// this particular iteration didn't land in the window.
+			conn, derr := net.DialTimeout("unix", sockPath, 200*time.Millisecond)
+			if derr == nil {
+				_ = conn.Close()
+			}
+		}()
+		cancel()
+
+		select {
+		case <-runErrCh:
+		case <-time.After(5 * time.Second):
+			buf := make([]byte, 1<<20)
+			n := runtime.Stack(buf, true)
+			t.Logf("DUMP:\n%s", buf[:n])
+			t.Fatalf("iter %d: Server.Run did not return within 5s of cancellation (deadlock regression)", iter)
+		}
+		wg.Wait()
 	}
 }
 

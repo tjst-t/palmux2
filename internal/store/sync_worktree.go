@@ -147,6 +147,55 @@ func (s *Store) Run(ctx context.Context) {
 	go s.runPortScan(ctx)
 }
 
+// TuiOrphanGC (S3f2658-3) is implemented by claudetui.Manager and wired via
+// [Store.SetTuiOrphanGC] so the store's existing 10s scan loop can reap
+// `palmux ptyhost` processes whose tab no longer exists — tab delete /
+// worktree removal / branch close, the same tmux-zombie-kill parity the
+// sync_tmux loop already provides for tmux sessions (see
+// docs/no-halt-agent-design.md §3). A narrow interface (not a direct
+// *claudetui.Manager field) so store does not import internal/tab/claudetui
+// — main.go, the wiring layer, adapts the two.
+type TuiOrphanGC interface {
+	// GCOrphans scans for live ptyhosts and SHUTDOWNs every one whose
+	// (repoId, branchId, tabId) isLive reports false for. Returns counts for
+	// logging; a non-nil error means the scan itself failed (e.g. an
+	// unreadable run directory), not that some entries were left alone.
+	GCOrphans(ctx context.Context, isLive func(repoID, branchID, tabID string) bool) (shutdown, cleaned int, err error)
+}
+
+// SetTuiOrphanGC registers the orphan reaper used by [Store.gcTuiOrphans].
+// Wired from main.go after the claudetui.Manager is built, mirroring
+// [Store.SetMultiTabHook]. Nil (the default, and every existing test that
+// doesn't call this) makes gcTuiOrphans a no-op.
+func (s *Store) SetTuiOrphanGC(gc TuiOrphanGC) {
+	s.tuiGC = gc
+}
+
+// gcTuiOrphans piggybacks the SAME 10s tick as scanPorts (see runPortScan) —
+// deliberately not a new ticker/loop (the design doc explicitly calls for
+// riding the existing sync loop). No-op when SetTuiOrphanGC was never called.
+func (s *Store) gcTuiOrphans(ctx context.Context) {
+	if s.tuiGC == nil {
+		return
+	}
+	shutdown, cleaned, err := s.tuiGC.GCOrphans(ctx, s.isTuiTabLive)
+	if err != nil {
+		s.logger.Warn("store.gcTuiOrphans: reconcile failed", "err", err)
+		return
+	}
+	if shutdown > 0 || cleaned > 0 {
+		s.logger.Info("store.gcTuiOrphans: reconciled", "shutdown", shutdown, "cleanedStale", cleaned)
+	}
+}
+
+// isTuiTabLive reports whether (repoID, branchID, tabID) is a currently
+// known tab — the "still referenced" test [Store.gcTuiOrphans] passes to the
+// claudetui.Manager's GCOrphans.
+func (s *Store) isTuiTabLive(repoID, branchID, tabID string) bool {
+	_, err := s.Tab(repoID, branchID, tabID)
+	return err == nil
+}
+
 // runPortScan is the background loop that drives port detection for every
 // incus-container Workspace.  It polls the RuntimeRegistry every
 // portScanLoopInterval for currently-ready incus containers and, for each one,
@@ -166,6 +215,11 @@ func (s *Store) runPortScan(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.scanPorts(ctx)
+			// S3f2658-3: piggyback the same 10s tick for claude-tui ptyhost
+			// orphan GC — independent of RuntimeRegistry (unlike scanPorts,
+			// which early-returns without one), since ptyhost orphan
+			// reconciliation applies regardless of host vs incus runtime.
+			s.gcTuiOrphans(ctx)
 		}
 	}
 }

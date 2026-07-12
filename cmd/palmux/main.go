@@ -650,6 +650,24 @@ func run(rc resolved) error {
 	// independent so a failure in one path does not affect the other.
 	st.ReconcileLastActiveBranches(ctx)
 
+	// S3f2658-3: reconnect to any `palmux ptyhost` processes that survived a
+	// PRIOR palmux2 lifetime (self-update / systemctl restart / `make serve`
+	// re-run — ADR-0001/0002) BEFORE starting the background loops, so a
+	// restart's very first frame already shows restored claude-tui tabs
+	// rather than a blank one waiting for a lazy first WS attach. Dead /
+	// unreachable ptyhost sockets left behind by an unclean prior exit are
+	// cleaned up here too. Must run after tab/branch reconciliation above so
+	// worktree lookups are accurate.
+	if adopted, cleaned, derr := claudetui.DiscoverAndRestore(ctx, claudetuiMgr, storeWorktreeResolver{store: st}.BranchWorktreePath, slog.Default()); derr != nil {
+		slog.Warn("claudetui: startup ptyhost discovery failed", "err", derr)
+	} else if adopted > 0 || cleaned > 0 {
+		slog.Info("claudetui: startup ptyhost discovery", "adopted", adopted, "cleanedStale", cleaned)
+	}
+	// S3f2658-3: wire orphan GC onto the store's existing 10s scan loop
+	// (tmux-zombie-kill parity for ptyhosts whose tab/branch/worktree is
+	// gone). Must be set before st.Run(ctx) starts that loop.
+	st.SetTuiOrphanGC(claudetuiMgr)
+
 	st.Run(ctx)
 
 	// Sa53137-1-2: watch settings.json on disk so direct edits (or `palmux
