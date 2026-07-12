@@ -492,6 +492,20 @@ func (s *Store) MigrateLegacyBranchIDs(
 func (s *Store) SetLastInit(info InitInfo) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// WorkspaceMigrationV1 is migration bookkeeping stored on the SAME
+	// LastInit struct (not part of the CLI's initialize payload). Carry it
+	// forward so caching a fresh init payload never resets the
+	// "already-migrated" guard. Regression this fixes (S862203-3 review /
+	// AC-3-2(a) root cause): without this, every completed turn reset the
+	// flag to 0, so the NEXT palmux2 restart re-ran MigrateLegacyBranchIDs,
+	// whose legacy-branch-name-keyed resolver could not resolve an
+	// already-path-based WorkspaceID and therefore DROPPED the tab's Active
+	// session pointer as "orphaned" — wiping the resume id that the
+	// reconnect transcript backfill (EnsureAgent's LoadTranscriptTurns)
+	// depends on, so an in-flight turn's transcript vanished on restart.
+	if s.data.LastInit != nil && info.WorkspaceMigrationV1 == 0 {
+		info.WorkspaceMigrationV1 = s.data.LastInit.WorkspaceMigrationV1
+	}
 	s.data.LastInit = &info
 	return s.save()
 }

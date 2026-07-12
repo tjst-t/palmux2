@@ -52,9 +52,17 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RESULT_PATH = REPO_ROOT / "docs/sprint-logs/S862203/e2e-S862203-3.json"
-PID_FILE = REPO_ROOT / "tmp/palmux-dev.pid"
-ENV_FILE = REPO_ROOT / "tmp/palmux-dev.portman.env"
-LOG_FILE = REPO_ROOT / "tmp/palmux-dev.log"
+# INSTANCE isolates this test's dev palmux2 (portman name / tmux prefix / PID
+# + log + env files) from the host palmux2 AND from any other concurrently
+# running dev instance on a shared box (e.g. sibling autopilot worktrees).
+# Defaults to "dev" (the documented CLAUDE.md dev rig); override with
+# PALMUX_E2E_INSTANCE=<name> to run isolated when "dev" is already taken.
+INSTANCE = os.environ.get("PALMUX_E2E_INSTANCE", "dev")
+PID_FILE = REPO_ROOT / f"tmp/palmux-{INSTANCE}.pid"
+ENV_FILE = REPO_ROOT / f"tmp/palmux-{INSTANCE}.portman.env"
+LOG_FILE = REPO_ROOT / f"tmp/palmux-{INSTANCE}.log"
+TMUX_PREFIX = f"_pmx_{INSTANCE}_"
+PORT_ENV_KEY = f"PALMUX2_{INSTANCE.upper().replace('-', '_')}_PORT"
 BIN = REPO_ROOT / "bin/palmux"
 PLAYWRIGHT_TIMEOUT = 20_000
 
@@ -80,9 +88,9 @@ def read_port() -> int:
     if not ENV_FILE.is_file():
         fail(f"{ENV_FILE} not found — dev instance never started?")
     for line in ENV_FILE.read_text().splitlines():
-        if line.startswith("PALMUX2_DEV_PORT="):
+        if line.startswith(PORT_ENV_KEY + "="):
             return int(line.split("=", 1)[1])
-    fail(f"PALMUX2_DEV_PORT not found in {ENV_FILE}")
+    fail(f"{PORT_ENV_KEY} not found in {ENV_FILE}")
     raise AssertionError("unreachable")
 
 
@@ -112,7 +120,7 @@ def ensure_built() -> None:
 def start_dev_fresh() -> int:
     """`make serve INSTANCE=dev` — first start (also (re)builds, portman
     leases/keeps the port). Returns the port."""
-    run("make", "serve", "INSTANCE=dev")
+    run("make", "serve", f"INSTANCE={INSTANCE}")
     port = read_port()
     wait_listening(port)
     return port
@@ -153,7 +161,7 @@ def restart_dev_only(port: int) -> None:
                 str(BIN),
                 "--addr", f"0.0.0.0:{port}",
                 "--config-dir", "./tmp",
-                "--tmux-prefix=_pmx_dev_",
+                f"--tmux-prefix={TMUX_PREFIX}",
             ],
             cwd=REPO_ROOT,
             stdout=logf,
@@ -166,7 +174,7 @@ def restart_dev_only(port: int) -> None:
 
 
 def stop_dev() -> None:
-    run("make", "serve-stop", "INSTANCE=dev", check=False)
+    run("make", "serve-stop", f"INSTANCE={INSTANCE}", check=False)
 
 
 def force_agent_mode(port: int, repo_id: str, branch_id: str) -> None:
@@ -354,9 +362,18 @@ def main() -> None:
 
             # ---- Send the permission-gated message (retrying through the
             # transient post-mode-change respawn window) -------------------
+            # prose_sentinel lives ONLY in the user-message prose (never in
+            # the Bash command or the permission block's command/description),
+            # so its presence after restart proves the PRE-permission
+            # transcript (the user bubble) was reconstructed — the exact
+            # content that was LOST in the replay-only behaviour (AC-3-2(a)
+            # gap). It is a lowercase alnum token so terminal/markdown
+            # rendering can't split it.
+            prose_sentinel = f"userbubblesentinel{marker_id}"
             prompt = (
-                f"Use the Bash tool to run exactly this one command and nothing "
-                f"else — no explanation, no other tool, no reading files first: "
+                f"This is a test conversation ({prose_sentinel}). Use the Bash "
+                f"tool to run exactly this one command and nothing else — no "
+                f"explanation, no other tool, no reading files first: "
                 f"echo {marker_text} > {marker_path}"
             )
             send_with_retry(page, ta, send_btn, prompt)
@@ -382,16 +399,14 @@ def main() -> None:
 
             text_before = get_conv_text(page)
             result["convLenBefore"] = len(text_before)
-            if prompt.split(":")[-1].strip()[:20] not in text_before and marker_text not in text_before:
-                # Loose sanity check only — don't hard-fail on exact substring
-                # since the UI may render the command differently; the REAL
-                # continuity assertion happens after restart via occurrence
-                # counting, not this pre-check.
-                print(f"(note: composed command text not found verbatim pre-restart; conv snippet={text_before[-400:]!r})")
+            # Sanity: the user-bubble prose sentinel AND the assistant's Bash
+            # tool_use must be on screen BEFORE the restart (so their ABSENCE
+            # after restart is a genuine loss, not a never-rendered artefact).
+            if prose_sentinel not in text_before:
+                fail(f"[AC-S862203-3-2 pre-check] user-bubble sentinel {prose_sentinel!r} not "
+                     f"present BEFORE restart; conv={text_before[:500]!r}")
+            result["userBubblePresentBeforeRestart"] = True
             screenshot(page, screenshots_dir / "e2e-S862203-3-before-restart.png")
-
-            occurrences_before = text_before.count(marker_text.split("_")[0])  # sanity, cheap
-            del occurrences_before
 
             ctx.close()
             browser.close()
@@ -413,22 +428,42 @@ def main() -> None:
             result["convLenAfter"] = len(text_after)
             screenshot(page, screenshots_dir / "e2e-S862203-3-after-restart.png")
 
-            # ---- (a) transcript losslessness -------------------------------
-            # The prompt text we sent must appear exactly once (no
-            # duplication) post-restart, and the pre-restart conversation's
-            # tail must be a PREFIX-compatible subset (loose check: every
-            # non-trivial line present before is still present after).
-            prompt_occurrences = text_after.count(marker_path)
-            result["promptOccurrencesAfterRestart"] = prompt_occurrences
-            if prompt_occurrences == 0:
-                fail("[AC-S862203-3-2 part a] the sent prompt is MISSING from the "
-                     "post-restart transcript — transcript was NOT restored")
-            if prompt_occurrences > 1:
-                fail(f"[AC-S862203-3-2 part a] the sent prompt appears "
-                     f"{prompt_occurrences}x post-restart — DUPLICATED content "
-                     f"(replay re-processed already-acked lines)")
-            passed("[AC-S862203-3-2 part a] transcript restored with no loss/duplication "
-                   "(prompt text present exactly once)")
+            # ---- (a) IN-FLIGHT TURN transcript restored with no loss/dup ----
+            # The pre-permission content — specifically the user-message
+            # bubble (proven by the prose sentinel, which is NOT in the
+            # replayed permission block) — MUST be present after restart.
+            # This is the AC-3-2(a) assertion the verifier flagged: it FAILS
+            # against replay-only reconstruction (the sentinel lives before
+            # the pending control_request's frontier, so replay-only never
+            # rebuilds it) and PASSES with the .jsonl backfill.
+            sentinel_occurrences = text_after.count(prose_sentinel)
+            result["userBubbleSentinelOccurrencesAfterRestart"] = sentinel_occurrences
+            if sentinel_occurrences == 0:
+                fail("[AC-S862203-3-2 part a] the PRE-permission user bubble is MISSING "
+                     "from the post-restart transcript — the in-flight turn was NOT fully "
+                     "restored (replay-only reconstruction loses everything before the "
+                     "pending permission's frontier)")
+            if sentinel_occurrences > 1:
+                fail(f"[AC-S862203-3-2 part a] the user bubble sentinel appears "
+                     f"{sentinel_occurrences}x post-restart — DUPLICATED at the "
+                     f".jsonl-backfill / replay seam")
+            # The assistant's Bash tool_use command must also be present (the
+            # earlier tool_use line the verifier called out). It appears in
+            # BOTH the tool_use block and the permission block, so we only
+            # assert presence, and rely on the sentinel for the strict
+            # no-loss/no-dup guarantee.
+            if marker_path not in text_after:
+                fail("[AC-S862203-3-2 part a] the assistant Bash tool_use command is "
+                     "absent after restart")
+            # Coarse no-truncation guard: the restored transcript must not be
+            # dramatically shorter than before (replay-only shrank it ~374→205).
+            result["convLenBefore"] = result.get("convLenBefore")
+            if result["convLenAfter"] < int(result["convLenBefore"] * 0.85):
+                fail(f"[AC-S862203-3-2 part a] transcript shrank across restart "
+                     f"({result['convLenBefore']}→{result['convLenAfter']} chars) — content lost")
+            passed(f"[AC-S862203-3-2 part a] FULL in-flight turn restored after restart: "
+                   f"user bubble present (sentinel x{sentinel_occurrences}), Bash tool_use present, "
+                   f"convLen {result['convLenBefore']}→{result['convLenAfter']} (no loss/dup)")
             result["transcriptLossless"] = True
 
             # ---- (b) permission surfaced + answerable ----------------------
