@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -128,6 +129,93 @@ func shutdownIsolationHost(h isolationHost) {
 	shutdownRawPtyHost(h.sockPath)
 }
 
+// reapAndAssertNoLeak is TestParallelInstances_NeverClaimOrGCEachOther's
+// [AC-S64c835-2-1] cleanup: EVERY real detached ptyhost (+ its real child)
+// this test spawns via [launchRealIsolationHost] must be deterministically
+// gone by the time the test finishes — not just "asked nicely to shut down
+// and hoped". Register this as the FIRST t.Cleanup in the test (Cleanup runs
+// LIFO, so registering it first makes it execute LAST, after every other
+// cleanup in the test — mgrA/mgrB.ShutdownAll, the mid-test GCOrphans calls,
+// the per-host best-effort SHUTDOWN sends — has already had its chance):
+//
+//  1. Sends (or re-sends) a graceful SHUTDOWN to every tracked host's socket
+//     (harmless no-op if it was already shut down by production code paths
+//     exercised earlier in the test body — see [probeExisting]).
+//  2. Polls each host's captured child pid (returned by HELLO —
+//     [ptyhost.HelloPayload.Pid], the actual spawned child, not the detached
+//     `palmux ptyhost` supervisor's own pid) for exit, bounded.
+//  3. Force-SIGKILLs any pid that survives the grace window — a deterministic
+//     backstop so a bug in the graceful SHUTDOWN path (the ptyhost's own
+//     SIGTERM→SIGKILL escalation, or a lost/delayed SHUTDOWN frame under
+//     heavy CPU contention) can never leak a real OS process out of this
+//     test's run. Test failure (not a silent swallow) if even the backstop
+//     doesn't reap it.
+//  4. As a final, independent confirmation — catching anything the pid-based
+//     poll could miss, in particular the DETACHED ptyhost SUPERVISOR process
+//     itself (this test never captures ITS pid, only its child's, via
+//     HELLO) — pgreps for both this test's uniquely t.TempDir()-pathed
+//     realBin and fakeClaudeBin. Both paths are unique to THIS test
+//     invocation, so a match can only be a process this test itself spawned
+//     (never a concurrently running instance of the same test, a real host
+//     palmux2, or anything else on the box). Fails loudly on any match —
+//     backlog #4 was ~63 ptyhosts leaking silently under repeated/loaded
+//     runs because nothing ever asserted this.
+func reapAndAssertNoLeak(t *testing.T, launched *[]isolationHost, realBin, fakeClaudeBin string) {
+	t.Helper()
+	for _, h := range *launched {
+		shutdownIsolationHost(h)
+	}
+	const pollInterval = 50 * time.Millisecond
+	const graceWindow = 5 * time.Second
+	const killWindow = 3 * time.Second
+	for _, h := range *launched {
+		deadline := time.Now().Add(graceWindow)
+		for pidAlive(h.pid) && time.Now().Before(deadline) {
+			time.Sleep(pollInterval)
+		}
+		if !pidAlive(h.pid) {
+			continue
+		}
+		t.Logf("ptyhost child pid %d (prefix=%s) still alive %s after graceful SHUTDOWN — force-killing as deterministic backstop [AC-S64c835-2-1]", h.pid, h.prefix, graceWindow)
+		if proc, err := os.FindProcess(h.pid); err == nil {
+			_ = proc.Signal(syscall.SIGKILL)
+		}
+		killDeadline := time.Now().Add(killWindow)
+		for pidAlive(h.pid) && time.Now().Before(killDeadline) {
+			time.Sleep(pollInterval)
+		}
+		if pidAlive(h.pid) {
+			t.Errorf("[AC-S64c835-2-1] ptyhost child pid %d (prefix=%s) still alive after graceful SHUTDOWN + SIGKILL backstop — leaked process", h.pid, h.prefix)
+		}
+	}
+
+	// Independent, path-based confirmation — catches a leaked ptyhost
+	// SUPERVISOR process too (its own pid is never captured above), and
+	// serves as the ultimate "0 leaked" evidence this AC requires.
+	assertNoProcessMatches(t, realBin)
+	assertNoProcessMatches(t, fakeClaudeBin)
+}
+
+// assertNoProcessMatches fails t if any running process's cmdline still
+// matches pattern (via `pgrep -f`). pattern is expected to be a unique,
+// per-test t.TempDir()-rooted binary path, so a match can only be a process
+// THIS test itself spawned.
+func assertNoProcessMatches(t *testing.T, pattern string) {
+	t.Helper()
+	out, err := exec.Command("pgrep", "-f", pattern).CombinedOutput()
+	if err == nil {
+		t.Errorf("[AC-S64c835-2-1] leaked process(es) still matching %q after cleanup:\n%s", pattern, out)
+		return
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+		// pgrep exits 1 when nothing matches — the expected, successful case.
+		return
+	}
+	// pgrep itself failing to run (e.g. not installed) is a probe failure,
+	// not evidence of a leak — log it but don't fail the test on it.
+	t.Logf("pgrep -f %q: %v (output: %s) — treating as a non-fatal probe failure, not leak evidence", pattern, err, out)
+}
+
 // isoReport is written to docs/sprint-logs/S3f2658/e2e-S3f2658-3.json —
 // this Sprint's convention (see e2e-S3f2658-2.json) for recording a
 // real-machine acceptance run outside the Go test-pass/fail signal alone.
@@ -182,6 +270,14 @@ func TestParallelInstances_NeverClaimOrGCEachOther(t *testing.T) {
 	fakeClaudeBin := fakeBin(t)
 	ctx := context.Background()
 
+	// launched tracks EVERY real detached ptyhost this test spawns via
+	// launchRealIsolationHost — see [reapAndAssertNoLeak] ([AC-S64c835-2-1]).
+	// Registered FIRST so (Cleanup runs LIFO) it executes LAST, after every
+	// other cleanup below has had its chance to gracefully shut its own
+	// entries down first.
+	var launched []isolationHost
+	t.Cleanup(func() { reapAndAssertNoLeak(t, &launched, realBin, fakeClaudeBin) })
+
 	uniq := fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano())
 	prefixA := "s3f2658-3-isoA-" + uniq
 	prefixB := "s3f2658-3-isoB-" + uniq
@@ -202,8 +298,7 @@ func TestParallelInstances_NeverClaimOrGCEachOther(t *testing.T) {
 	// ---- Phase 1: discovery isolation ----------------------------------
 	hostA1 := launchRealIsolationHost(t, ctx, realBin, fakeClaudeBin, prefixA, "isoA-repo", "isoA-branch", "claude:claude")
 	hostB1 := launchRealIsolationHost(t, ctx, realBin, fakeClaudeBin, prefixB, "isoB-repo", "isoB-branch", "claude:claude")
-	t.Cleanup(func() { shutdownIsolationHost(hostA1) })
-	t.Cleanup(func() { shutdownIsolationHost(hostB1) })
+	launched = append(launched, hostA1, hostB1)
 
 	mgrA := NewManager(ManagerConfig{ClaudeBin: fakeClaudeBin, PalmuxBin: realBin, InstancePrefix: prefixA, RingSize: 1 << 16})
 	t.Cleanup(func() { _ = mgrA.ShutdownAll(ctx) })
@@ -275,8 +370,7 @@ func TestParallelInstances_NeverClaimOrGCEachOther(t *testing.T) {
 	// Store's isTuiTabLive would for a still-open tab).
 	hostA2 := launchRealIsolationHost(t, ctx, realBin, fakeClaudeBin, prefixA, "isoA2-repo", "isoA2-branch", "claude:claude")
 	hostB2 := launchRealIsolationHost(t, ctx, realBin, fakeClaudeBin, prefixB, "isoB2-repo", "isoB2-branch", "claude:claude")
-	t.Cleanup(func() { shutdownIsolationHost(hostA2) })
-	t.Cleanup(func() { shutdownIsolationHost(hostB2) })
+	launched = append(launched, hostA2, hostB2)
 
 	isLiveA := func(repoID, branchID, tabID string) bool {
 		return repoID == "isoA-repo" && branchID == "isoA-branch" && tabID == "claude:claude"

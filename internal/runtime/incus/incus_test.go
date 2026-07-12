@@ -1572,6 +1572,59 @@ func TestKillContainerProcesses(t *testing.T) {
 	}
 }
 
+// TestKillContainerProcesses_RepeatCallsAreIdempotent is [AC-S64c835-2-3]:
+// it explicitly pins the assumption several SHUTDOWN-triggered reap sites
+// (claudetui's reapContainerClaude — tab close, branch close, AND orphan GC;
+// see internal/tab/claudetui/discover.go's GCOrphans, which can observe the
+// SAME unreferenced ptyhost as still-live across more than one 10s scan
+// tick before its own teardown finally removes the socket file — see
+// [Manager.GCOrphans]'s doc comment on why cleanup is deliberately deferred)
+// rely on IMPLICITLY, without ever asserting it: calling
+// KillContainerProcesses AGAIN against a process that the FIRST call
+// already killed (or that was never running to begin with) is a safe,
+// error-free no-op — not just "this call with exit 1 returns nil" (already
+// covered above) but "N repeat calls in a row, each simulating pkill
+// finding nothing because a prior call already reaped it, all return nil
+// and dispatch the exact same well-formed pkill invocation every time".
+// This is KillContainerProcesses's documented contract (see its own doc
+// comment: "pkill exit 1 ... is the common/expected case") — this test
+// makes that contract a checked assertion instead of an implicit one.
+func TestKillContainerProcesses_RepeatCallsAreIdempotent(t *testing.T) {
+	inst := "ws-kill-idem-test-ccdd5678"
+	fr := newFakeRunner()
+	// pkill exit 1 on EVERY call — models "already reaped, nothing left to
+	// match" from the second call onward (and, degenerately, the first too:
+	// a GCOrphans tick that races the child's own natural exit).
+	fr.setResult("exec "+inst, fakeResult{code: 1})
+
+	rt := New(runtime.Config{Kind: runtime.KindIncusContainer}, inst, fr.asRunner(), nil)
+	ctx := context.Background()
+
+	const repeats = 4
+	for i := 0; i < repeats; i++ {
+		if err := rt.(*incusRuntime).KillContainerProcesses(ctx, "TERM", containerClaudeBinForTest); err != nil {
+			t.Fatalf("[AC-S64c835-2-3] repeat call %d: KillContainerProcesses returned an error (must be a safe no-op): %v", i, err)
+		}
+	}
+
+	calls := fr.recorded()
+	matched := 0
+	for _, c := range calls {
+		cmd := execCmdAfterSep(c)
+		if len(cmd) >= 4 && cmd[0] == "pkill" && cmd[1] == "-TERM" && cmd[2] == "-f" && cmd[3] == containerClaudeBinForTest {
+			matched++
+		}
+	}
+	if matched != repeats {
+		t.Fatalf("[AC-S64c835-2-3] expected exactly %d well-formed pkill calls (one per repeat, all bounded/no-op-safe), got %d: %v", repeats, matched, calls)
+	}
+}
+
+// containerClaudeBinForTest mirrors claudetui.containerClaudeBin (that
+// package cannot be imported here without a dependency cycle) — kept as a
+// literal constant purely for readable pkill-pattern assertions above.
+const containerClaudeBinForTest = "/home/ubuntu/.local/bin/claude"
+
 // ─────────────────────────────────────────────────────────────────────────────
 // S52fc2c-5 (ported to Sd44947 profile scope): the palmux hook binary is now a
 // device on the palmux-shared profile. Inode-staleness detection moved to

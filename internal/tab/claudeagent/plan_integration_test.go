@@ -46,7 +46,7 @@ func TestExitPlanMode_FullRoundTrip(t *testing.T) {
 	}()
 
 	// 3. plan.question event must fire (proves the bypass-path is wired).
-	permID := waitForPlanQuestion(t, events, 2*time.Second)
+	permID := waitForPlanQuestion(t, events, permTestTimeout(2*time.Second))
 
 	// 4. Snapshot must NOT contain a kind:"permission" block for this
 	//    permission_id — that's the exact bug S001-refine fixes.
@@ -72,7 +72,7 @@ func TestExitPlanMode_FullRoundTrip(t *testing.T) {
 	var got respWithErr
 	select {
 	case got = <-respCh:
-	case <-time.After(2 * time.Second):
+	case <-time.After(permTestTimeout(2 * time.Second)):
 		t.Fatal("RequestPermission did not return after AnswerPlanResponse")
 	}
 	if got.err != nil {
@@ -145,7 +145,7 @@ func TestExitPlanMode_RejectKeepsPlanMode(t *testing.T) {
 		respCh <- respWithErr{resp, err}
 	}()
 
-	permID := waitForPlanQuestion(t, events, 2*time.Second)
+	permID := waitForPlanQuestion(t, events, permTestTimeout(2*time.Second))
 
 	if err := a.AnswerPlanResponse(PlanRespondFrame{
 		PermissionID: permID,
@@ -157,7 +157,7 @@ func TestExitPlanMode_RejectKeepsPlanMode(t *testing.T) {
 	var got respWithErr
 	select {
 	case got = <-respCh:
-	case <-time.After(2 * time.Second):
+	case <-time.After(permTestTimeout(2 * time.Second)):
 		t.Fatal("RequestPermission did not return")
 	}
 	if got.err != nil {

@@ -295,9 +295,29 @@ func TestGCOrphans_ReapsInContainerClaude(t *testing.T) {
 		t.Fatalf("orphan GC must not reap a REFERENCED workspace's container: %+v", calls)
 	}
 
-	// A couple more ticks must not produce any further reap of the referenced
-	// entry (it is never dialed at all — skipLive excludes it before any
-	// liveness probe, let alone a reap).
+	// [AC-S64c835-2-3] A couple more ticks must not produce any further
+	// reap of the REFERENCED entry (it is never dialed at all — skipLive
+	// excludes it before any liveness probe, let alone a reap) — that part
+	// was already asserted below pre-S64c835-2. What was NOT previously
+	// asserted, and is pinned explicitly here: the just-reaped ORPHAN
+	// (hostA2/orphSock) can legitimately still show up as "live" on one or
+	// more of THESE follow-up ticks too — its own SHUTDOWN's grace-period
+	// teardown (terminateChild's SIGTERM→SIGKILL escalation,
+	// [gracefulShutdownTimeout]) is async and may not have removed the
+	// socket file by the time the next 10s-scan-piggybacked tick runs (see
+	// [Manager.GCOrphans]'s doc comment: cleanup is DELIBERATELY deferred,
+	// not synchronous). When that happens, reapContainerClaude fires AGAIN
+	// for the same already-terminated workspace — this is only safe
+	// because KillContainerProcesses's pkill-exit-1 ("no matching
+	// process") semantics are idempotent (pinned directly, at the
+	// production incus implementation, by
+	// internal/runtime/incus.TestKillContainerProcesses_RepeatCallsAreIdempotent).
+	// This loop makes that reliance an explicit, checked contract instead
+	// of an untested assumption: every call recorded across the follow-up
+	// ticks (zero or more — timing-dependent, hence no exact count
+	// assertion) must have the exact same well-formed (TERM,
+	// containerClaudeBin) shape a single reap produces; anything else would
+	// mean a repeat reap call is silently malformed or erroring.
 	for i := 0; i < 2; i++ {
 		if _, _, err := mgr.GCOrphans(context.Background(), isLive); err != nil {
 			t.Fatalf("GCOrphans tick %d: %v", i, err)
@@ -305,5 +325,41 @@ func TestGCOrphans_ReapsInContainerClaude(t *testing.T) {
 	}
 	if calls := fkRef.Calls(); len(calls) != 0 {
 		t.Fatalf("referenced workspace's container was reaped across follow-up GC ticks: %+v", calls)
+	}
+	for i, c := range fkOrphan.Calls() {
+		if c.sig != "TERM" || c.pattern != containerClaudeBin {
+			t.Fatalf("[AC-S64c835-2-3] repeat reap call %d against the already-shutdown orphan was malformed: %+v (want every repeat call to stay (TERM, %q) — pkill-exit-1 idempotency contract)", i, c, containerClaudeBin)
+		}
+	}
+}
+
+// TestReapContainerClaude_RepeatCallsAreSafe is [AC-S64c835-2-3] at the
+// claudetui-side helper directly (complementing
+// internal/runtime/incus.TestKillContainerProcesses_RepeatCallsAreIdempotent,
+// which pins the SAME contract one layer down at the real pkill primitive):
+// reapContainerClaude — the palmux2-side call site every SHUTDOWN trigger
+// (tab close, branch close, orphan GC) invokes — must tolerate being called
+// more than once for the exact same (repoID, branchID) without erroring,
+// panicking, or producing a differently-shaped call on the second
+// invocation. This is the explicit, checked pin for what was previously
+// only an implicit assumption baked into reapContainerClaude's own doc
+// comment ("pkill exit 1 ... is the common/expected case").
+func TestReapContainerClaude_RepeatCallsAreSafe(t *testing.T) {
+	fk := &fakeContainerKiller{}
+	resolver := func(_, _ string) runtime.PTYCommander { return fk }
+
+	const repeats = 3
+	for i := 0; i < repeats; i++ {
+		reapContainerClaude(resolver, "repo1", "branch1", time.Second, nil)
+	}
+
+	calls := fk.Calls()
+	if len(calls) != repeats {
+		t.Fatalf("[AC-S64c835-2-3] reapContainerClaude called %d times, want exactly %d recorded KillContainerProcesses calls", len(calls), repeats)
+	}
+	for i, c := range calls {
+		if c.sig != "TERM" || c.pattern != containerClaudeBin {
+			t.Fatalf("[AC-S64c835-2-3] repeat call %d shape drifted: %+v, want (TERM, %q) on every call", i, c, containerClaudeBin)
+		}
 	}
 }
