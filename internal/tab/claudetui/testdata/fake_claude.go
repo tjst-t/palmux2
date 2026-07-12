@@ -19,18 +19,28 @@
 //	--write-session <dir> <id>   write <dir>/<id>.jsonl then loop normally
 //	--print-cwd                  print "cwd: <os.Getwd()>" then loop normally
 //	--emit-osc52 <text>          emit OSC 52 clipboard-write sequence
+//	--query-burst <minBytes>     emit realistic scrollback filler interleaved
+//	                             with real DA1/DA2/CPR ANSI device queries
+//	                             until at least minBytes have been written,
+//	                             then print "QUERY_BURST_DONE" and loop
+//	                             normally. Used by the Sfeed64-1 reattach
+//	                             deadlock regression test to produce a large,
+//	                             query-heavy ptyhost ring for a survivor
+//	                             ATTACH replay (see reattach_deadlock_test.go).
 //	--settings <json-or-file>    accepted (ignored) — real claude consumes it
 //	--system-prompt <s>          accepted (ignored)
 //	--foo, --bar, etc.           any other flags are silently accepted
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 )
@@ -46,6 +56,7 @@ func main() {
 	emitOsc52 := ""      // non-empty → emit OSC 52 with this text as the payload
 	dumpInvocation := "" // non-empty → write argv + PALMUX_* env as JSON to this path
 	counterWinch := false // S3f2658-2: incrementing counter + SIGWINCH trap, for restart/reconnect + screen-restore-jiggle tests
+	queryBurstBytes := 0  // Sfeed64-1: >0 → emit a query-heavy burst of at least this many bytes
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -79,6 +90,13 @@ func main() {
 			}
 		case "--counter-winch":
 			counterWinch = true
+		case "--query-burst":
+			if i+1 < len(args) {
+				if n, perr := strconv.Atoi(args[i+1]); perr == nil {
+					queryBurstBytes = n
+				}
+				i++
+			}
 		}
 	}
 
@@ -120,6 +138,22 @@ func main() {
 		b64 := base64.StdEncoding.EncodeToString([]byte(emitOsc52))
 		// Write to stdout: ESC ] 52 ; c ; <b64> BEL
 		fmt.Printf("\x1b]52;c;%s\x07", b64)
+	}
+
+	if queryBurstBytes > 0 {
+		// Let the owning daemon's OWN initial spawn/ATTACH(-1) complete first
+		// (normally sub-millisecond) before this burst starts landing in the
+		// ptyhost ring. Without this delay a fast enough burst can race that
+		// very first ATTACH and become part of THIS spawn's own replay
+		// instead of accumulating as ordinary live output — which still
+		// reproduces the underlying bug, just nondeterministically and on
+		// the wrong daemon (the test wants a clean "fresh spawn, empty
+		// replay" baseline so the large replay is deterministically what a
+		// SECOND, independently-constructed Daemon receives on reconnect —
+		// see reattach_deadlock_test.go).
+		time.Sleep(500 * time.Millisecond)
+		emitQueryBurst(queryBurstBytes)
+		fmt.Println("QUERY_BURST_DONE")
 	}
 
 	if exitImmediately {
@@ -188,4 +222,46 @@ func main() {
 			}
 		}
 	}
+}
+
+// emitQueryBurst writes realistic scrollback-shaped filler text interleaved
+// with REAL ANSI device query sequences (DA1 "\x1b[c", DA2 "\x1b[>c", cursor
+// position report "\x1b[6n" — the exact three sequences
+// third_party/charmbracelet-x-vt-racefix/handlers.go answers by writing into
+// the emulator's response pipe) until at least minBytes have been written to
+// stdout. This is NOT toy/synthetic data: it is the same shape of content a
+// real, long-running claude TUI session accumulates in its ptyhost ring — a
+// busy session's screen repaints routinely provoke a real terminal emulator
+// (and, symmetrically, palmux2's server-side one) into emitting these same
+// three query kinds. See docs/handoff/reattach-deadlock-handoff.md and
+// reattach_deadlock_test.go [AC-Sfeed64-1-2].
+func emitQueryBurst(minBytes int) {
+	queries := []string{"\x1b[c", "\x1b[>c", "\x1b[6n"}
+	// Build the whole burst in memory and emit it as ONE write, rather than
+	// one small fmt.Fprint call per line/query (thousands of tiny write
+	// syscalls). The DATA is identical either way; batching only avoids
+	// syscall-count overhead that made this flaky under heavy CPU contention
+	// (e.g. `go test ./...` running many packages' real-subprocess tests
+	// concurrently on a small core count) — content realism (size, line
+	// shape, interleaved real ANSI queries) is unchanged.
+	var buf bytes.Buffer
+	buf.Grow(minBytes + 4096)
+	for line := 1; buf.Len() < minBytes; line++ {
+		fmt.Fprintf(&buf, "line %d: realistic scrollback filler content for the reattach-deadlock regression test\n", line)
+		// Real terminal sessions probe device attributes / cursor position
+		// occasionally (e.g. once per redraw), not on every single line of
+		// output — interleave queries periodically rather than after every
+		// line. This keeps the LIVE-forwarding side (the attached daemon's
+		// own drainer answering these as they stream in, which is a
+		// correctly-behaving, unrelated code path) from being swamped with
+		// thousands of responses, while still comfortably exceeding the
+		// handful of queries needed to prove the replay-time deadlock (any
+		// single unread response blocks the unbuffered emulator pipe).
+		if line%25 == 0 {
+			for _, q := range queries {
+				buf.WriteString(q)
+			}
+		}
+	}
+	_, _ = os.Stdout.Write(buf.Bytes())
 }

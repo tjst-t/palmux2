@@ -512,7 +512,25 @@ func NewDaemon(cfg DaemonConfig) *Daemon {
 // the server-side headless terminal emulator.  It is safe for concurrent use
 // and may be called from any goroutine.  Story 2 exposes this via the grid
 // WebSocket mode.
+//
+// Sfeed64-1 [race fix]: held under feedMu, matching every other emulator
+// touch (readLoop's Feed, the ATTACH-replay Feed, RenderSnapshotAndSubscribe).
+// vt.SafeEmulator.CellAt returns a *uv.Cell POINTER into its own live buffer
+// under RLock, but the lock is released the instant CellAt returns — a
+// concurrent Feed (write-locked) can then mutate that same cell's fields
+// while [cellToGridCell] is still reading them, a data race go test -race
+// catches under realistic (fast, high-throughput) traffic such as
+// reattach_deadlock_test.go's >64KiB replay + a concurrent live readLoop
+// (neither existed before Sfeed64-1's regression test — this race was
+// latent and un-triggered by any prior test's much lower throughput).
+// feedMu does not protect the SafeEmulator's OWN internal pointer-return API
+// in general, but it DOES serialize every palmux2-side Feed call against
+// every palmux2-side GridSnapshot call, which is sufficient here: the only
+// concurrent mutator of emulator state in this codebase is Feed, and every
+// Feed call site already holds feedMu.
 func (d *Daemon) GridSnapshot() Grid {
+	d.feedMu.Lock()
+	defer d.feedMu.Unlock()
 	return d.emulator.GridSnapshot()
 }
 
@@ -763,12 +781,78 @@ func (d *Daemon) spawnWithArgs(args []string) error {
 	cols, rows := d.lastCols, d.lastRows
 	d.stateMu.Unlock()
 
+	// Background drainer: emulator → ptyhost INPUT (subprocess stdin).
+	//
+	// The vt.Emulator generates response bytes for some ANSI queries (DA1 / DA2
+	// device attributes, cursor position report, etc.) by writing into an
+	// UNBUFFERED internal io.Pipe (Emulator.pw — see
+	// third_party/charmbracelet-x-vt-racefix/emulator.go). io.Pipe has ZERO
+	// buffering: a single response byte written with nobody reading the pipe
+	// blocks the writer immediately — and it blocks inside Emulator.Write
+	// **while still holding the SafeEmulator writer lock**. That deadlocks every
+	// subsequent GridSnapshot caller (each reader-lock attempt waits forever).
+	//
+	// CRITICAL ORDERING (v0.14.12 reattach startup-deadlock fix): this drainer
+	// MUST start BEFORE the ATTACH-replay Feed below. On a reconnect to a
+	// SURVIVING ptyhost the replay can be a full ring of prior output, whose
+	// embedded ANSI queries make Feed generate responses that (with no drainer
+	// reading the unbuffered pipe yet) block on the very first response byte —
+	// so Feed(replay) itself blocks (holding the writer lock), wedging the whole
+	// startup goroutine (it runs under EnsureStarted's spawnMu) so the server
+	// never reaches ListenAndServe. A fresh spawn has an empty replay, which is
+	// why only reconnects deadlocked. (The fix's correctness relies on this
+	// unbuffered semantics: there is no buffer to "not fill" — the drainer must
+	// simply be running before ANY query-answering Feed.)
+	//
+	// Responses generated WHILE the replay is fed answer REPLAYED (historical)
+	// queries that the real terminal already answered when they first happened;
+	// re-sending them to claude would inject spurious input, so we drain-and-
+	// DISCARD until replayFed closes, then forward live responses as INPUT frames
+	// (the architecturally correct path: claude asks, the emulator answers, the
+	// answer goes back to claude).
+	replayFed := make(chan struct{})
+	d.shutdownWg.Add(1)
+	go func() {
+		defer d.shutdownWg.Done()
+		buf := make([]byte, 4096)
+		forwarding := false
+		for {
+			select {
+			case <-d.shutdownCh:
+				return
+			default:
+			}
+			n, rerr := d.emulator.Read(buf)
+			if rerr != nil {
+				return
+			}
+			if n <= 0 {
+				continue
+			}
+			if !forwarding {
+				select {
+				case <-replayFed:
+					forwarding = true
+				default:
+				}
+			}
+			if !forwarding {
+				continue // discard responses to replayed (historical) queries
+			}
+			if werr := d.writeFrame(ptyhost.MsgInput, ptyhost.EncodeInput(buf[:n])); werr != nil {
+				return
+			}
+		}
+	}()
+
 	// Feed whatever the ptyhost already had buffered (the ATTACH replay) into
 	// ring+emulator, atomically with the live readLoop about to start —
 	// mirrors the old readLoop's per-chunk feedMu boundary. For a genuinely
 	// fresh spawn this is normally empty (nothing written yet); for a
 	// reconnect to a SURVIVING ptyhost (§5) this is the prior conversation's
-	// recent output, replayed from as far back as the ring retained.
+	// recent output, replayed from as far back as the ring retained. The
+	// drainer started above keeps Emulator.Feed from blocking on a full
+	// response pipe (see its CRITICAL ORDERING note).
 	if len(replay) > 0 {
 		d.feedMu.Lock()
 		if _, werr := d.ring.Write(replay); werr != nil {
@@ -777,6 +861,7 @@ func (d *Daemon) spawnWithArgs(args []string) error {
 		d.emulator.Feed(replay)
 		d.feedMu.Unlock()
 	}
+	close(replayFed) // replay drained & applied → forward live responses hereafter
 
 	d.logger.Info("claudetui: ptyhost spawned/attached",
 		"bin", d.claudeBin,
@@ -793,41 +878,6 @@ func (d *Daemon) spawnWithArgs(args []string) error {
 	go func() {
 		defer d.shutdownWg.Done()
 		d.readLoop(conn, exited, connClosed)
-	}()
-
-	// Background drainer: emulator → ptyhost INPUT (subprocess stdin).
-	//
-	// The vt.Emulator generates response bytes for some ANSI queries (DA1 / DA2
-	// device attributes, cursor position report, etc.) by writing into an
-	// internal io.Pipe. If we never drain that pipe its 64KiB buffer fills,
-	// at which point the next response Write inside Emulator.Write blocks
-	// **while still holding the SafeEmulator writer lock**. That deadlocks every
-	// subsequent GridSnapshot caller (each reader-lock attempt waits forever).
-	//
-	// Forwarding the pipe output to the ptyhost as INPUT frames (subprocess
-	// stdin) is the architecturally correct fix: claude asked the terminal a
-	// question, the emulator answers, the answer goes back to claude.
-	d.shutdownWg.Add(1)
-	go func() {
-		defer d.shutdownWg.Done()
-		buf := make([]byte, 4096)
-		for {
-			select {
-			case <-d.shutdownCh:
-				return
-			default:
-			}
-			n, rerr := d.emulator.Read(buf)
-			if rerr != nil {
-				return
-			}
-			if n <= 0 {
-				continue
-			}
-			if werr := d.writeFrame(ptyhost.MsgInput, ptyhost.EncodeInput(buf[:n])); werr != nil {
-				return
-			}
-		}
 	}()
 
 	// Re-apply the last known client size to the freshly-attached ptyhost so a
@@ -921,7 +971,9 @@ func (d *Daemon) launchAndAttach(argv, env []string, cwd string) (conn net.Conn,
 // replay). A short settle window between the two resizes gives claude's
 // SIGWINCH handler a chance to react to the shrink before it's undone.
 func (d *Daemon) restoreScreenJiggle() {
-	g := d.emulator.GridSnapshot()
+	// Sfeed64-1 [race fix]: go through d.GridSnapshot() (feedMu-guarded), not
+	// d.emulator.GridSnapshot() directly — see that method's doc comment.
+	g := d.GridSnapshot()
 	cols, rows := uint16(g.Cols), uint16(g.Rows)
 	if cols == 0 || rows < 2 {
 		return
