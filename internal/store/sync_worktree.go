@@ -196,6 +196,65 @@ func (s *Store) isTuiTabLive(repoID, branchID, tabID string) bool {
 	return err == nil
 }
 
+// AgentOrphanGC (S64c835-3) is implemented by claudeagent.Manager and wired
+// via [Store.SetAgentOrphanGC] so the store's existing 10s scan loop can
+// reap the Claude AGENT tab's pipe-mode ptyhosts whose tab no longer
+// exists — the same tmux-zombie-kill parity [TuiOrphanGC] already provides
+// for claude-tui ptyhosts (S3f2658-3). A narrow interface (not a direct
+// *claudeagent.Manager field) so store does not import
+// internal/tab/claudeagent — main.go, the wiring layer, adapts the two.
+type AgentOrphanGC interface {
+	// GCOrphans scans for live pipe-mode ptyhosts and SHUTDOWNs every one
+	// whose (repoId, branchId, tabId) isLive reports false for. Returns
+	// counts for logging; a non-nil error means the scan itself failed
+	// (e.g. an unreadable run directory), not that some entries were left
+	// alone.
+	GCOrphans(ctx context.Context, isLive func(repoID, branchID, tabID string) bool) (shutdown, cleaned int, err error)
+}
+
+// SetAgentOrphanGC registers the orphan reaper used by
+// [Store.gcAgentOrphans]. Wired from main.go after the claudeagent.Manager
+// is built, mirroring [Store.SetTuiOrphanGC]. Nil (the default, and every
+// existing test that doesn't call this) makes gcAgentOrphans a no-op.
+func (s *Store) SetAgentOrphanGC(gc AgentOrphanGC) {
+	s.agentGC = gc
+}
+
+// gcAgentOrphans piggybacks the SAME 10s tick as scanPorts/gcTuiOrphans (see
+// runPortScan) — deliberately not a new ticker/loop. No-op when
+// SetAgentOrphanGC was never called. isTuiTabLive is reused as the isLive
+// check: it is not actually claude-tui-specific — it is a plain
+// store.Tab(repoID, branchID, tabID) existence lookup, and a Claude AGENT
+// tab's id ("claude:claude", "claude:claude-2", ...) lives in the exact
+// same per-branch TabSet as every other tab type, so the same lookup is
+// correct here too.
+//
+// GUARD-RAIL (do not remove — S64c835-3 review): claude-tui and claude-agent
+// share ONE ptyhost run dir / seed space by design (both compute it from
+// ptyhost.RunDir(instancePrefix) with the same empty production prefix, and
+// the single visible "claude" tab is one shared (repoID, branchID, tabID)
+// seed regardless of mode). gcTuiOrphans and gcAgentOrphans therefore both
+// scan the SAME on-disk ptyhosts. This is safe ONLY because both pass the
+// SAME mode-agnostic isLive (isTuiTabLive = plain tab existence). A future
+// mode-specific isLive (e.g. one that also asserts Tab.Type == "claude" vs
+// "claude-tui") would make each reaper stop protecting the OTHER mode's
+// referenced ptyhost — reintroducing the exact S3f2658-3-class false-positive
+// SHUTDOWN that kills a live, referenced claude. If isLive is ever
+// specialised, cross-mode protection MUST be preserved.
+func (s *Store) gcAgentOrphans(ctx context.Context) {
+	if s.agentGC == nil {
+		return
+	}
+	shutdown, cleaned, err := s.agentGC.GCOrphans(ctx, s.isTuiTabLive)
+	if err != nil {
+		s.logger.Warn("store.gcAgentOrphans: reconcile failed", "err", err)
+		return
+	}
+	if shutdown > 0 || cleaned > 0 {
+		s.logger.Info("store.gcAgentOrphans: reconciled", "shutdown", shutdown, "cleanedStale", cleaned)
+	}
+}
+
 // runPortScan is the background loop that drives port detection for every
 // incus-container Workspace.  It polls the RuntimeRegistry every
 // portScanLoopInterval for currently-ready incus containers and, for each one,
@@ -220,6 +279,9 @@ func (s *Store) runPortScan(ctx context.Context) {
 			// which early-returns without one), since ptyhost orphan
 			// reconciliation applies regardless of host vs incus runtime.
 			s.gcTuiOrphans(ctx)
+			// S64c835-3: same idea, for the Claude AGENT tab's pipe-mode
+			// ptyhosts (claudetui/claudeagent parity).
+			s.gcAgentOrphans(ctx)
 		}
 	}
 }

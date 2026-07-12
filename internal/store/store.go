@@ -76,8 +76,9 @@ type Store struct {
 	ghqRoot           string
 	hub               *EventHub
 	registry          *tab.Registry
-	multiTabHook      MultiTabHook // S009: non-tmux multi providers (Claude)
-	tuiGC             TuiOrphanGC  // S3f2658-3: claude-tui ptyhost orphan reaper (optional)
+	multiTabHook      MultiTabHook  // S009: non-tmux multi providers (Claude)
+	tuiGC             TuiOrphanGC   // S3f2658-3: claude-tui ptyhost orphan reaper (optional)
+	agentGC           AgentOrphanGC // S64c835-3: claude-agent ptyhost orphan reaper (optional)
 
 	// driftMu guards the per-workspace image-drift cache. The 10s scanPorts loop
 	// runs the (incus-CLI) staleness check and updates this map; RuntimeViewFor
