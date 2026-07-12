@@ -1,0 +1,95 @@
+{
+  "sprint": "S64c835",
+  "generated_at": "2026-07-12T12:37:15.783434+00:00",
+  "overall_status": "pass",
+  "machine_verdict_ref": "verify-run.json (pass)",
+  "acceptance": [
+    {
+      "ac": "AC-S64c835-1-1",
+      "status": "pass",
+      "tests": [
+        "emulator_test.go TestEmulatorCloseRacesReadAndFeed",
+        "-race -count=3"
+      ],
+      "evidence": "Emulator Close/Read race fixed via vendored fork (closed bool->atomic.Bool, go.mod replace); verifier confirmed only viable fix; 0 races count=3 incl stress-ng"
+    },
+    {
+      "ac": "AC-S64c835-1-2",
+      "status": "pass",
+      "tests": [
+        "role_test.go TestRoleCoordinatorConcurrentSubscribeUnsubscribe"
+      ],
+      "evidence": "roleCoordinator debug-log count race fixed (capture under lock); -race clean, fails-without-fix"
+    },
+    {
+      "ac": "AC-S64c835-1-3",
+      "status": "pass",
+      "tests": [
+        "full claudetui suite + gated survival"
+      ],
+      "evidence": "no regression; -race -count=3 300/300 pass"
+    },
+    {
+      "ac": "AC-S64c835-2-1",
+      "status": "pass",
+      "tests": [
+        "instance_isolation_test.go reapAndAssertNoLeak"
+      ],
+      "evidence": "deterministic ptyhost cleanup, post-cleanup pgrep=0 (was ~63 leaked)"
+    },
+    {
+      "ac": "AC-S64c835-2-2",
+      "status": "pass",
+      "tests": [
+        "timeout_scale_{race,norace}_test.go",
+        "3 perm tests -race x100-200"
+      ],
+      "evidence": "adaptive permTestTimeout + fixed 2 real TOCTOU races in manager.go permission path; 0 flakes (1-6% pre), assertions unchanged"
+    },
+    {
+      "ac": "AC-S64c835-2-3",
+      "status": "pass",
+      "tests": [
+        "incus TestKillContainerProcesses_RepeatCallsAreIdempotent",
+        "claudetui TestReapContainerClaude_RepeatCallsAreSafe"
+      ],
+      "evidence": "reap idempotency pinned with real repeat-call assertions + contract comment"
+    },
+    {
+      "ac": "AC-S64c835-3-1",
+      "status": "pass",
+      "tests": [
+        "claudeagent discover_test.go TestGCOrphans_ShutsDownUnreferenced_LeavesReferenced"
+      ],
+      "evidence": "agent orphan-GC on store scan loop; unreferenced SHUTDOWN, referenced untouched (claudetui parity)"
+    },
+    {
+      "ac": "AC-S64c835-3-2",
+      "status": "pass",
+      "tests": [
+        "TestGCOrphans_IDContainingDoubleUnderscore_SurvivesGC"
+      ],
+      "evidence": "explicit JSON identity (no splitSeed), instancePrefix separation; __-in-ID survives GC"
+    },
+    {
+      "ac": "AC-S64c835-3-3",
+      "status": "pass",
+      "tests": [
+        "real fake_ndjson process tests"
+      ],
+      "evidence": "unreferenced GC'd, referenced survives N ticks; no claudeagent regression"
+    }
+  ],
+  "done_judgment": {
+    "guard1_user_review_required_not_done": "pass",
+    "guard2_nil_injection_mock": "pass",
+    "guard3_mock_mode_not_real_smoke": "pass",
+    "guard4_priority_rule_9_exception_valid": "n/a",
+    "guard5_call_path_grep": "pass",
+    "guard6_deferred_comment_clean": "pass",
+    "guard7_adr_conformance": "pass",
+    "guard8_destructive_multi_version_test": "n/a",
+    "overall": "ok",
+    "notes": "Fix sprint. Guard7: ADR-0002 ptyhost untouched by this sprint (orphan-GC lives claudeagent-side); the vendored charmbracelet/x/vt fork is a dependency-mgmt decision (go.mod replace, third_party/) — verifier-confirmed the only viable Emulator-race fix, flagged to user as load-bearing. No new t.Skip (the 2 grep hits are prose/comments documenting the ABSENCE of skips). Production TOCTOU fix in claudeagent/manager.go permission path is in-scope hardening (root cause of the AC-2 flake), verifier-approved, doesn't regress RD-26/replay."
+  }
+}
