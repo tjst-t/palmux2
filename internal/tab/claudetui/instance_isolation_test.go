@@ -155,6 +155,7 @@ type isoReport struct {
 // TestParallelInstances_NeverClaimOrGCEachOther is the real-machine half of
 // AC-S3f2658-3-3.
 func TestParallelInstances_NeverClaimOrGCEachOther(t *testing.T) {
+	requireSurvivalSmoke(t)
 	if os.Getenv("CI") == "" {
 		// Still runs by default (priority_rule 0 — execute, don't skip) but
 		// this comment documents intent: this test spawns real detached OS
