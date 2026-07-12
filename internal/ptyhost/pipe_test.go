@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -115,41 +116,75 @@ func TestServer_PipeMode_StdoutStderrSeparation(t *testing.T) {
 	_, sockPath := newPipeTestServer(t, 0,
 		"FAKE_NDJSON_COUNT=5", "FAKE_NDJSON_STDERR_COUNT=3", "FAKE_NDJSON_DELAY_MS=0")
 
-	// Let the child finish its burst before attaching, so this exercises
-	// REPLAY (both rings already hold the full burst) rather than racing
-	// live delivery.
-	time.Sleep(300 * time.Millisecond)
-
 	c := dial(t, sockPath)
 	c.send(MsgAttach, EncodeAttach(-1))
 
-	stdoutPayload := c.recvUntil(MsgData)
-	stdoutOffset, stdoutData, err := DecodeData(stdoutPayload)
-	if err != nil {
-		t.Fatalf("DecodeData(stdout): %v", err)
-	}
-	if stdoutOffset != 0 {
-		t.Fatalf("stdout replay start offset = %d, want 0", stdoutOffset)
-	}
-
-	stderrPayload := c.recvUntil(MsgStderrData)
-	stderrOffset, stderrData, err := DecodeData(stderrPayload)
-	if err != nil {
-		t.Fatalf("DecodeData(stderr): %v", err)
-	}
-	if stderrOffset != 0 {
-		t.Fatalf("stderr replay start offset = %d, want 0", stderrOffset)
+	// Accumulate frames on each channel until BOTH the full stdout burst (5
+	// lines) and stderr burst (3 diag lines) have been delivered — robust to
+	// the burst spanning the ATTACH replay + subsequent live frames and to
+	// scheduling delays under CPU load (no fixed sleep to race). The FIRST
+	// frame on each channel must still start at offset 0 (full replay).
+	var stdoutData, stderrData []byte
+	firstStdout, firstStderr := true, true
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		haveStdout := true
+		for i := 0; i < 5; i++ {
+			if !bytes.Contains(stdoutData, []byte(fmt.Sprintf(`"seq":%d`, i))) {
+				haveStdout = false
+				break
+			}
+		}
+		haveStderr := true
+		for i := 0; i < 3; i++ {
+			if !bytes.Contains(stderrData, []byte(fmt.Sprintf("diag: %d", i))) {
+				haveStderr = false
+				break
+			}
+		}
+		if haveStdout && haveStderr {
+			break
+		}
+		_ = c.conn.SetReadDeadline(time.Now().Add(20 * time.Second))
+		mt, payload, err := ReadFrame(c.conn)
+		if err != nil {
+			t.Fatalf("ReadFrame: %v", err)
+		}
+		switch mt {
+		case MsgData:
+			off, data, derr := DecodeData(payload)
+			if derr != nil {
+				t.Fatalf("DecodeData(stdout): %v", derr)
+			}
+			if firstStdout {
+				firstStdout = false
+				if off != 0 {
+					t.Fatalf("stdout replay start offset = %d, want 0", off)
+				}
+			}
+			stdoutData = append(stdoutData, data...)
+		case MsgStderrData:
+			off, data, derr := DecodeData(payload)
+			if derr != nil {
+				t.Fatalf("DecodeData(stderr): %v", derr)
+			}
+			if firstStderr {
+				firstStderr = false
+				if off != 0 {
+					t.Fatalf("stderr replay start offset = %d, want 0", off)
+				}
+			}
+			stderrData = append(stderrData, data...)
+		}
 	}
 
 	for i := 0; i < 5; i++ {
-		want := []byte(fmt.Sprintf(`"seq":%d`, i))
-		if !bytes.Contains(stdoutData, want) {
+		if !bytes.Contains(stdoutData, []byte(fmt.Sprintf(`"seq":%d`, i))) {
 			t.Errorf("stdout ring missing line seq=%d: %q", i, stdoutData)
 		}
 	}
 	for i := 0; i < 3; i++ {
-		want := []byte(fmt.Sprintf("diag: %d", i))
-		if !bytes.Contains(stderrData, want) {
+		if !bytes.Contains(stderrData, []byte(fmt.Sprintf("diag: %d", i))) {
 			t.Errorf("stderr channel missing diag line %d: %q", i, stderrData)
 		}
 	}
@@ -317,11 +352,24 @@ func TestServer_PipeMode_Overflow_ClampedAttachStartExceedsRequested(t *testing.
 	_, sockPath := newPipeTestServer(t, 128,
 		"FAKE_NDJSON_COUNT=200", "FAKE_NDJSON_STDERR_COUNT=0", "FAKE_NDJSON_DELAY_MS=0")
 
-	// Let the (small, fast) burst complete and evict the ring well past
-	// offset 0.
-	time.Sleep(400 * time.Millisecond)
-
 	c := dial(t, sockPath)
+
+	// Poll STATUS until the ring has actually evicted past offset 0
+	// (RingHeadOffset > 0) — deterministic instead of racing a fixed sleep
+	// against the child's scheduling under CPU load.
+	evDeadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(evDeadline) {
+		c.send(MsgStatus, EncodeStatusRequest())
+		st, derr := DecodeStatusResponse(c.recvUntil(MsgStatus))
+		if derr != nil {
+			t.Fatalf("DecodeStatusResponse: %v", derr)
+		}
+		if st.RingHeadOffset > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
 	requested := int64(0) // "resume from the very start" — long evicted by now.
 	c.send(MsgAttach, EncodeAttach(requested))
 	payload := c.recvUntil(MsgData)
@@ -374,5 +422,199 @@ func TestServer_PipeMode_NoOverflow_ShortDisconnectReplaysCleanly(t *testing.T) 
 	}
 	if start != requested {
 		t.Fatalf("ATTACH start offset = %d, want exactly %d (false-positive overflow)", start, requested)
+	}
+}
+
+// TestServer_PipeMode_ShutdownKillsDescendant_NoHang is the S862203-2
+// review HIGH-2 regression: a pipe-mode child spawns a `sleep 30` descendant
+// that INHERITS the stdout/stderr pipe write-ends and OUTLIVES the direct
+// child. The descendant keeps the pipe read-ends open, so pumpToRing never
+// sees EOF and waitChild's stdioDone gate cannot complete — meaning
+// childExited never fires on its own. Before the fix (process-group kill),
+// a SHUTDOWN signalled only the direct pid, leaving the descendant alive and
+// Run() blocked on <-childExited forever (unkillable ptyhost). This asserts
+// SHUTDOWN now terminates the WHOLE process group (Setpgid at spawn) so the
+// descendant dies too and Run() returns promptly.
+func TestServer_PipeMode_ShutdownKillsDescendant_NoHang(t *testing.T) {
+	bin := fakeNDJSONBin(t)
+	dir := t.TempDir()
+	sockPath := filepath.Join(dir, "ptyhost.sock")
+	statusPath := filepath.Join(dir, "ptyhost.json")
+
+	fullEnv := append([]string{}, os.Environ()...)
+	fullEnv = append(fullEnv,
+		"FAKE_NDJSON_COUNT=2", "FAKE_NDJSON_STDERR_COUNT=0",
+		"FAKE_NDJSON_EXIT_AFTER=1", "FAKE_NDJSON_SPAWN_DESCENDANT=1")
+
+	srv, err := NewServer(Config{
+		Argv:           []string{bin},
+		Env:            fullEnv,
+		Mode:           ModePipe,
+		SocketPath:     sockPath,
+		StatusPath:     statusPath,
+		RingSize:       1 << 16,
+		GracePeriod:    2 * time.Second,
+		PostExitLinger: 200 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	runErrCh := make(chan error, 1)
+	go func() { runErrCh <- srv.Run(context.Background()) }()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(sockPath); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Let the direct child print its burst, spawn the `sleep 30` descendant,
+	// and exit. The descendant now holds the pipes open.
+	time.Sleep(500 * time.Millisecond)
+
+	// Run() MUST NOT have returned yet: the direct child exited but its
+	// descendant keeps the pipes open, so stdioDone (hence childExited) is
+	// still pending — and the 10s safety-net timeout is nowhere near.
+	select {
+	case err := <-runErrCh:
+		t.Fatalf("Run returned prematurely (%v) — the descendant should still be holding the pipes open", err)
+	default:
+	}
+
+	// SHUTDOWN must terminate promptly via the process-group kill, NOT hang
+	// waiting for the descendant's (never-arriving) EOF.
+	c := dial(t, sockPath)
+	c.send(MsgShutdown, EncodeShutdown(ShutdownPayload{GraceMillis: 500}))
+
+	select {
+	case err := <-runErrCh:
+		if err != nil {
+			t.Fatalf("Run returned error after SHUTDOWN: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		buf := make([]byte, 1<<20)
+		n := runtime.Stack(buf, true)
+		t.Logf("GOROUTINE DUMP:\n%s", buf[:n])
+		t.Fatal("Run did not return within 5s of SHUTDOWN — the descendant kept the pipes open and the process-group kill did not reach it (HIGH-2 regression: ptyhost hung/unkillable)")
+	}
+
+	// The status file must record the child as exited (SHUTDOWN reaped it).
+	sf, err := ReadStatusFile(statusPath)
+	if err != nil {
+		t.Fatalf("ReadStatusFile: %v", err)
+	}
+	if sf.Alive {
+		t.Fatal("status file Alive = true after SHUTDOWN, want false")
+	}
+}
+
+// TestServer_PipeMode_FastExitNoTruncation is the S862203-2 review MEDIUM-3
+// regression for the RD-9 fix: a child that emits a large burst and exits
+// IMMEDIATELY (FAKE_NDJSON_EXIT_AFTER=1, no post-burst delay) must not lose
+// any of its final output. The stdioDone gate in waitChild ensures pumpToRing
+// drains ALL stdout into the ring BEFORE cmd.Wait closes the pipes, so a
+// post-exit ATTACH(-1) replay contains every line, none truncated.
+func TestServer_PipeMode_FastExitNoTruncation(t *testing.T) {
+	const want = 2000
+
+	bin := fakeNDJSONBin(t)
+	dir := t.TempDir()
+	sockPath := filepath.Join(dir, "ptyhost.sock")
+	statusPath := filepath.Join(dir, "ptyhost.json")
+
+	fullEnv := append([]string{}, os.Environ()...)
+	fullEnv = append(fullEnv,
+		fmt.Sprintf("FAKE_NDJSON_COUNT=%d", want),
+		"FAKE_NDJSON_STDERR_COUNT=0",
+		"FAKE_NDJSON_EXIT_AFTER=1") // delay 0 → fast burst then immediate exit
+
+	srv, err := NewServer(Config{
+		Argv:        []string{bin},
+		Env:         fullEnv,
+		Mode:        ModePipe,
+		SocketPath:  sockPath,
+		StatusPath:  statusPath,
+		RingSize:    1 << 20, // ~60KB of lines fit with wide margin (no eviction)
+		GracePeriod: 2 * time.Second,
+		// Keep the socket up well past the child's near-instant exit so the
+		// post-exit ATTACH replay has a comfortable window.
+		PostExitLinger: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = srv.Run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("Server.Run did not return within 5s of cancellation")
+		}
+	})
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(sockPath); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Give the child time to emit the full burst and exit.
+	time.Sleep(400 * time.Millisecond)
+
+	c := dial(t, sockPath)
+	c.send(MsgAttach, EncodeAttach(-1))
+
+	var all bytes.Buffer
+	readDeadline := time.Now().Add(5 * time.Second)
+	for bytes.Count(all.Bytes(), []byte("\n")) < want && time.Now().Before(readDeadline) {
+		_ = c.conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		mt, payload, rerr := ReadFrame(c.conn)
+		if rerr != nil {
+			break
+		}
+		if mt != MsgData {
+			continue
+		}
+		_, data, derr := DecodeData(payload)
+		if derr != nil {
+			t.Fatalf("DecodeData: %v", derr)
+		}
+		all.Write(data)
+	}
+
+	got := bytes.Count(all.Bytes(), []byte("\n"))
+	if got != want {
+		t.Fatalf("observed %d complete lines, want exactly %d (truncated final burst?)", got, want)
+	}
+	if b := all.Bytes(); len(b) == 0 || b[len(b)-1] != '\n' {
+		t.Fatal("replay does not end on a line boundary — final line truncated")
+	}
+	// Every sequence number 0..want-1 must be present exactly (contiguous, no
+	// loss). Presence check is sufficient given the exact newline count above
+	// rules out duplicates.
+	for i := 0; i < want; i++ {
+		if !bytes.Contains(all.Bytes(), []byte(fmt.Sprintf(`"seq":%d}`, i))) {
+			t.Fatalf("replay missing line seq=%d — output truncated/lost", i)
+		}
+	}
+
+	sf, err := ReadStatusFile(statusPath)
+	if err != nil {
+		t.Fatalf("ReadStatusFile: %v", err)
+	}
+	if sf.Alive {
+		t.Fatal("status file Alive = true, want false (child exited after burst)")
 	}
 }

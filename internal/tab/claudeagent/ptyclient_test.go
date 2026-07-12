@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -84,7 +85,7 @@ func newAgentPipeHost(t *testing.T, ringSize int, env ...string) (sockPath strin
 		}
 	})
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(sockPath); err == nil {
 			break
@@ -156,7 +157,7 @@ func TestPipeClient_LineReassembly_MonotoneOffsets(t *testing.T) {
 	sock := newAgentPipeHost(t, 0, "FAKE_NDJSON_COUNT=5", "FAKE_NDJSON_STDERR_COUNT=2", "FAKE_NDJSON_DELAY_MS=10")
 
 	col := &collector{}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	client, err := DialPipeClient(ctx, sock, col.onLine, col.onStderr)
@@ -171,7 +172,7 @@ func TestPipeClient_LineReassembly_MonotoneOffsets(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- client.Run(ctx, -1, onAttach) }()
 
-	deadline := time.Now().Add(4 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) && len(col.Seqs()) < 5 {
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -213,7 +214,7 @@ func TestPipeClient_CleanReconnect_ResumesExactlyAfterLastPersistedLine(t *testi
 	// First client: process exactly 3 lines (seq 0,1,2), persisting after
 	// each, then disconnect cleanly (simulating a routine palmux2 restart
 	// mid-conversation, NOT a kill -9 — see the next test for that).
-	ctx1, cancel1 := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx1, cancel1 := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel1()
 
 	var seen1 []int
@@ -239,7 +240,7 @@ func TestPipeClient_CleanReconnect_ResumesExactlyAfterLastPersistedLine(t *testi
 	done1 := make(chan error, 1)
 	go func() { done1 <- client1.Run(ctx1, -1, nil) }()
 
-	deadline := time.Now().Add(4 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
 		mu1.Lock()
 		n := len(seen1)
@@ -279,7 +280,7 @@ func TestPipeClient_CleanReconnect_ResumesExactlyAfterLastPersistedLine(t *testi
 	}
 
 	col2 := &collector{}
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel2()
 	client2, err := DialPipeClient(ctx2, sock, col2.onLine, nil)
 	if err != nil {
@@ -293,7 +294,7 @@ func TestPipeClient_CleanReconnect_ResumesExactlyAfterLastPersistedLine(t *testi
 		done2 <- client2.Run(ctx2, rec2.LastAckOffset, func(r AttachResult) { attachResult2 = r })
 	}()
 
-	deadline2 := time.Now().Add(4 * time.Second)
+	deadline2 := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline2) && len(col2.Seqs()) < (6-len(got1)) {
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -347,7 +348,7 @@ func TestPipeClient_Kill9Reconnect_RedeliversUnackedLine_ExactlyOnce(t *testing.
 	// "line arrived" and "offset flushed to disk".
 	const killAtSeq = 2
 
-	ctx1, cancel1 := context.WithTimeout(context.Background(), 6*time.Second)
+	ctx1, cancel1 := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel1()
 	onLine1 := func(line []byte, endOffset int64) error {
 		var ev fakeEvent
@@ -380,7 +381,7 @@ func TestPipeClient_Kill9Reconnect_RedeliversUnackedLine_ExactlyOnce(t *testing.
 
 	// Reconnect from the persisted (LAGGING) offset.
 	col2 := &collector{}
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 6*time.Second)
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel2()
 	client2, err := DialPipeClient(ctx2, sock, col2.onLine, nil)
 	if err != nil {
@@ -391,7 +392,7 @@ func TestPipeClient_Kill9Reconnect_RedeliversUnackedLine_ExactlyOnce(t *testing.
 	done2 := make(chan error, 1)
 	go func() { done2 <- client2.Run(ctx2, rec.LastAckOffset, nil) }()
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
 		seqs := col2.Seqs()
 		if len(seqs) > 0 && seqs[len(seqs)-1] == 5 {
@@ -429,17 +430,30 @@ func TestPipeClient_Overflow_SurfacesNewSessionSignal(t *testing.T) {
 	// A tiny ring guarantees eviction well before the 200-line burst ends.
 	sock := newAgentPipeHost(t, 128, "FAKE_NDJSON_COUNT=200", "FAKE_NDJSON_STDERR_COUNT=0", "FAKE_NDJSON_DELAY_MS=0")
 
-	// Let the (fast) burst complete and evict the ring past offset 0.
-	time.Sleep(500 * time.Millisecond)
-
 	col := &collector{}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	client, err := DialPipeClient(ctx, sock, col.onLine, nil)
 	if err != nil {
 		t.Fatalf("DialPipeClient: %v", err)
 	}
 	defer client.Close()
+
+	// Poll STATUS until the ring has actually evicted past offset 0
+	// (RingHeadOffset > 0) — deterministic instead of racing a fixed sleep
+	// against the child's scheduling under CPU load. Status()/Run() share
+	// the conn sequentially (STATUS before ATTACH).
+	evDeadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(evDeadline) {
+		st, serr := client.Status(5 * time.Second)
+		if serr != nil {
+			t.Fatalf("Status: %v", serr)
+		}
+		if st.RingHeadOffset > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	attachCh := make(chan AttachResult, 1)
 	done := make(chan error, 1)
@@ -455,7 +469,7 @@ func TestPipeClient_Overflow_SurfacesNewSessionSignal(t *testing.T) {
 	var result AttachResult
 	select {
 	case result = <-attachCh:
-	case <-time.After(3 * time.Second):
+	case <-time.After(20 * time.Second):
 		t.Fatal("did not observe an AttachResult before timeout")
 	}
 	cancel()
@@ -476,7 +490,7 @@ func TestPipeClient_NoOverflow_ShortDisconnectReplaysCleanly(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	col := &collector{}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	client, err := DialPipeClient(ctx, sock, col.onLine, nil)
 	if err != nil {
@@ -498,7 +512,7 @@ func TestPipeClient_NoOverflow_ShortDisconnectReplaysCleanly(t *testing.T) {
 	var result AttachResult
 	select {
 	case result = <-attachCh:
-	case <-time.After(3 * time.Second):
+	case <-time.After(20 * time.Second):
 		t.Fatal("did not observe an AttachResult before timeout")
 	}
 	cancel()
@@ -509,5 +523,102 @@ func TestPipeClient_NoOverflow_ShortDisconnectReplaysCleanly(t *testing.T) {
 	}
 	if result.StartOffset != result.Requested {
 		t.Fatalf("StartOffset = %d, want == Requested = %d (false-positive overflow)", result.StartOffset, result.Requested)
+	}
+}
+
+// TestPipeClient_NonContiguousFrame_ErrorsNotSplice is the S862203-2 review
+// HIGH-1 regression: a live DATA frame whose absolute offset is NOT
+// contiguous with the bytes seen so far (the shape a ring subscriber-lag
+// DROP produces — the ring's non-blocking broadcast discards a chunk when
+// the 256-slot subscription channel fills during a stalled socket write)
+// must make PipeClient.Run return ErrNonContiguous rather than SPLICE the
+// gapped chunk onto the buffered partial line (which would corrupt NDJSON —
+// sometimes into silently-valid-but-wrong JSON that gets persisted and never
+// re-fetched: a silent transcript gap).
+//
+// Rather than race real socket/OS-buffer/Ch dynamics to provoke a drop
+// (inherently timing-dependent and flaky — unix socket send buffers are
+// large, and pumpToRing's 32KiB reads coalesce lines into few chunks, so
+// deterministically filling the 256-slot Ch is impractical), this drives a
+// scripted server that emits exactly the byte-offset gap a drop leaves. It
+// exercises the identical production code path — Run's contiguity check —
+// and the exact observable outcome the fix guarantees.
+func TestPipeClient_NonContiguousFrame_ErrorsNotSplice(t *testing.T) {
+	dir := t.TempDir()
+	sock := filepath.Join(dir, "gap.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	line0 := []byte(`{"seq":0}` + "\n")
+
+	serverErr := make(chan error, 1)
+	go func() {
+		conn, aerr := ln.Accept()
+		if aerr != nil {
+			serverErr <- aerr
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		// Consume the client's ATTACH request.
+		if _, _, rerr := ptyhost.ReadFrame(conn); rerr != nil {
+			serverErr <- rerr
+			return
+		}
+		// First DATA = the ATTACH replay at offset 0 (one complete line).
+		if werr := ptyhost.WriteFrame(conn, ptyhost.MsgData, ptyhost.EncodeData(0, line0)); werr != nil {
+			serverErr <- werr
+			return
+		}
+		// Second (live) DATA jumps to a NON-CONTIGUOUS offset — the client
+		// expects len(line0); we jump +500 past it, exactly the gap a ring
+		// subscriber-lag drop of the intervening chunks would leave.
+		gapOffset := int64(len(line0)) + 500
+		if werr := ptyhost.WriteFrame(conn, ptyhost.MsgData, ptyhost.EncodeData(gapOffset, []byte(`{"seq":1}`+"\n"))); werr != nil {
+			serverErr <- werr
+			return
+		}
+		// Drain/ignore whatever the client writes back (e.g. its ACK for the
+		// first line) until it disconnects.
+		for {
+			if _, _, rerr := ptyhost.ReadFrame(conn); rerr != nil {
+				break
+			}
+		}
+		serverErr <- nil
+	}()
+
+	var mu sync.Mutex
+	var lines []string
+	onLine := func(line []byte, _ int64) error {
+		mu.Lock()
+		lines = append(lines, string(line))
+		mu.Unlock()
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	client, err := DialPipeClient(ctx, sock, onLine, nil)
+	if err != nil {
+		t.Fatalf("DialPipeClient: %v", err)
+	}
+	defer client.Close()
+
+	runErr := client.Run(ctx, -1, nil)
+	if !errors.Is(runErr, ErrNonContiguous) {
+		t.Fatalf("Run error = %v, want wrapping ErrNonContiguous (must NOT splice the gapped chunk)", runErr)
+	}
+
+	mu.Lock()
+	got := append([]string(nil), lines...)
+	mu.Unlock()
+	if len(got) != 1 {
+		t.Fatalf("onLine called %d times (%v), want exactly 1 — the gapped/spliced line must NOT be delivered", len(got), got)
+	}
+	if got[0] != `{"seq":0}` {
+		t.Fatalf("onLine delivered %q, want %q (only the contiguous pre-gap line)", got[0], `{"seq":0}`)
 	}
 }

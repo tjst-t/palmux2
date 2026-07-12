@@ -47,6 +47,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
 	"strings"
@@ -80,6 +81,23 @@ func main() {
 		<-sigCh
 		os.Exit(0)
 	}()
+
+	// FAKE_NDJSON_SPAWN_DESCENDANT=1 spawns a long-lived `sleep` child that
+	// INHERITS this process's stdout/stderr (the ptyhost pipe write-ends) and
+	// outlives it — the S862203-2 HIGH-2 regression scenario: a backgrounded
+	// descendant keeps the pipe read-end open so ptyhost's pumpToRing never
+	// sees EOF. ptyhost must kill the whole process group on SHUTDOWN to
+	// terminate this descendant too, otherwise Run() hangs / the descendant
+	// orphans. Not setting a new process group here means the descendant
+	// stays in THIS process's group (which ptyhost created via Setpgid).
+	if os.Getenv("FAKE_NDJSON_SPAWN_DESCENDANT") == "1" {
+		desc := exec.Command("sleep", "30")
+		desc.Stdout = os.Stdout // inherit the ptyhost stdout pipe write-end
+		desc.Stderr = os.Stderr // inherit the ptyhost stderr pipe write-end
+		if err := desc.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "fake_ndjson: spawn descendant: %v\n", err)
+		}
+	}
 
 	var wg sync.WaitGroup
 	wg.Add(1)

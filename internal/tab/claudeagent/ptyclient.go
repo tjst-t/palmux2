@@ -54,6 +54,22 @@ type LineHandler func(line []byte, endOffset int64) error
 // stderr entirely.
 type StderrHandler func(offset int64, data []byte)
 
+// ErrNonContiguous is returned by [PipeClient.Run] when a live DATA frame
+// arrives at an absolute offset that is NOT contiguous with the bytes seen
+// so far — i.e. a byte range was skipped. The only way this happens on a
+// healthy ptyhost is a Ring.Subscription drop: the ring's live broadcast
+// uses a non-blocking send that DROPS a chunk when a subscriber's 256-slot
+// channel is full (plausible during post-restart catch-up when the socket
+// write stalls behind a synchronous per-line OffsetStore.Save). Splicing the
+// next chunk onto the buffered partial would corrupt an NDJSON line —
+// sometimes into a parse error (self-heals), but sometimes into
+// silently-valid JSON that gets persisted and never re-fetched, a silent
+// transcript gap. Run() converts that into this hard error so the caller
+// reconnects and replays from the ring instead (the same safe self-heal path
+// a JSON parse failure already takes) — surfacing the drop rather than
+// hiding it (S862203-2 review HIGH-1).
+var ErrNonContiguous = errors.New("claudeagent: non-contiguous DATA frame (ring subscriber-lag drop or eviction) — reconnect and replay from the ring")
+
 // AttachResult reports the outcome of the ATTACH handshake performed at the
 // start of [PipeClient.Run].
 type AttachResult struct {
@@ -160,6 +176,9 @@ func (c *PipeClient) Run(ctx context.Context, offset int64, onAttach func(Attach
 				return fmt.Errorf("claudeagent: decode DATA: %w", derr)
 			}
 			if !attached {
+				// First frame: the ATTACH replay. Its start offset is
+				// authoritative (whatever the ring clamped to); overflow is
+				// judged here, not treated as a contiguity violation.
 				attached = true
 				result := AttachResult{
 					Requested:   offset,
@@ -170,9 +189,17 @@ func (c *PipeClient) Run(ctx context.Context, offset int64, onAttach func(Attach
 					onAttach(result)
 				}
 				lineBufStart = frameOffset
-			}
-			if lineBufStart < 0 {
-				lineBufStart = frameOffset
+			} else {
+				// Subsequent (live) frame: it MUST begin exactly where the
+				// buffered-but-unconsumed bytes end. lineBufStart is the
+				// absolute offset of lineBuf's first byte and lineBuf.Len()
+				// its length, so lineBufStart+Len() is the offset of the next
+				// byte we expect. A ring subscriber-lag drop leaves a gap
+				// here — refuse to splice (see [ErrNonContiguous]).
+				expectedNext := lineBufStart + int64(lineBuf.Len())
+				if frameOffset != expectedNext {
+					return fmt.Errorf("%w: got offset %d, expected %d", ErrNonContiguous, frameOffset, expectedNext)
+				}
 			}
 			lineBuf.Write(data)
 			if err := c.drainLines(&lineBuf, &lineBufStart); err != nil {

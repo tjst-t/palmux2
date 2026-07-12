@@ -391,6 +391,16 @@ func (s *Server) spawnPipe() error {
 	if len(s.cfg.Env) > 0 {
 		cmd.Env = s.cfg.Env
 	}
+	// Setpgid puts the child in its own process group (pgid == child pid) so
+	// [Server.terminateChild] can signal the WHOLE group (-pid) on shutdown
+	// — otherwise a descendant the child backgrounded (e.g. claude's Bash
+	// tool launching a long-lived process that inherits our stdout/stderr)
+	// would (a) keep the pipe read-ends open so pumpToRing never sees EOF —
+	// hanging waitChild's stdioDone gate and thus Run() forever — and (b)
+	// survive teardown as an orphan. Pipe mode does NOT allocate a PTY (so,
+	// unlike the PTY path, it gets no session-leader isolation for free);
+	// this is the pipe-mode equivalent (S862203-2 review HIGH-2).
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("ptyhost: stdin pipe: %w", err)
@@ -456,7 +466,22 @@ func (s *Server) waitChild() {
 		// concurrent Read. Block until both pump goroutines have seen EOF
 		// (which happens once the child's own fds close, independent of our
 		// calling Wait) before reaping.
-		s.stdioDone.Wait()
+		//
+		// SAFETY NET (S862203-2 review HIGH-2): the wait is BOUNDED. If a
+		// descendant that inherited stdout/stderr outlives the direct child
+		// and holds a pipe write-end open, EOF never arrives and this wait
+		// would otherwise block forever — hanging cmd.Wait(), so childExited
+		// never closes, so Run()'s ctx/SHUTDOWN branches (which block on
+		// <-childExited) hang and the ptyhost becomes unkillable. The
+		// process-group kill in terminateChild normally resolves this by
+		// killing such descendants; this timeout is the last-resort guard so
+		// Run() can NEVER hang indefinitely even if that fails. Proceeding to
+		// cmd.Wait() here may truncate a final unread chunk (logged), which
+		// is strictly better than an unkillable process.
+		if !s.waitStdioDrained(pipeStdioDrainTimeout) {
+			s.logger.Warn("ptyhost: pipe stdio pumps did not reach EOF within drain timeout; reaping anyway (a descendant may still hold stdout/stderr open — possible final-chunk truncation)",
+				"timeout", pipeStdioDrainTimeout)
+		}
 	}
 	err := s.cmd.Wait()
 	code := 0
@@ -495,7 +520,11 @@ func (s *Server) waitChild() {
 
 // terminateChild sends SIGTERM, waits up to grace for the child to exit
 // (observed via childExited), then escalates to SIGKILL. It is a no-op if
-// the child is already known to be exited.
+// the child is already known to be exited. In [ModePipe] the signals target
+// the child's whole PROCESS GROUP (Setpgid at spawn — see [Server.spawnPipe])
+// so backgrounded descendants that inherited our stdout/stderr are killed
+// too; without that they would keep the pipe read-ends open (hanging
+// waitChild's stdio drain) and/or survive teardown as orphans.
 func (s *Server) terminateChild(grace time.Duration) {
 	s.mu.Lock()
 	var proc *os.Process
@@ -503,17 +532,62 @@ func (s *Server) terminateChild(grace time.Duration) {
 		proc = s.cmd.Process
 	}
 	alive := s.alive
+	pipeMode := s.cfg.Mode == ModePipe
 	s.mu.Unlock()
 	if !alive || proc == nil {
 		return
 	}
-	_ = proc.Signal(syscall.SIGTERM)
+	s.signalChild(proc, pipeMode, syscall.SIGTERM)
 	select {
 	case <-s.childExited:
 		return
 	case <-time.After(grace):
 	}
-	_ = proc.Signal(syscall.SIGKILL)
+	s.signalChild(proc, pipeMode, syscall.SIGKILL)
+}
+
+// signalChild delivers sig to the child. In pipe mode it targets the child's
+// process group (negative pid — the group was established via Setpgid at
+// spawn) so descendants are signalled too; if the group signal fails it
+// falls back to the direct pid. In pty mode it signals the direct process as
+// before (the PTY child is already its own session leader via
+// creackpty.Start, and changing that path risks regressing existing tui
+// survival behaviour).
+func (s *Server) signalChild(proc *os.Process, pipeMode bool, sig syscall.Signal) {
+	if pipeMode {
+		if err := syscall.Kill(-proc.Pid, sig); err == nil {
+			return
+		}
+		// Group signal failed (e.g. pgid setup raced or the group is already
+		// gone) — fall back to the direct pid so we still make a best effort.
+	}
+	_ = proc.Signal(sig)
+}
+
+// pipeStdioDrainTimeout bounds how long [Server.waitChild] waits for the
+// pipe-mode stdout/stderr pumps to reach EOF before reaping the child anyway
+// (see the safety-net comment in waitChild). A package var so tests can
+// shorten it. Generous by default: the common case completes in microseconds
+// (both pumps EOF the instant the child's fds close), and the process-group
+// kill normally makes even the descendant case complete promptly; this only
+// bounds a pathological "descendant ignores SIGKILL / is unkillable" tail.
+var pipeStdioDrainTimeout = 10 * time.Second
+
+// waitStdioDrained blocks until both pipe-mode stdio pumps have returned
+// (stdioDone) or timeout elapses. Returns true if drained cleanly, false on
+// timeout.
+func (s *Server) waitStdioDrained(timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		s.stdioDone.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
 }
 
 // listen ensures the socket directory exists, removes a stale socket file
