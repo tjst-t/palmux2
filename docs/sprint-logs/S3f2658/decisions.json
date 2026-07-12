@@ -47,6 +47,26 @@
     "why_first": "The entire survival guarantee (ADR-0003) rests on this. If systemd-run scope does not escape the palmux2 cgroup, the whole approach fails and must be revisited before building the protocol. Record result (available? cgroup-isolated? fallback verified?) in this file before Wave 1 implementation proceeds.",
     "record_fields": ["systemd_run_available", "cgroup_isolated_from_parent", "survives_sibling_unit_restart", "setsid_fallback_detaches", "dbus_user_session_present", "notes"]
   },
+  "spike_results": [
+    {
+      "task": "S3f2658-1-1",
+      "phase": "S3f2658-1 implementation (wave 1)",
+      "ran_on": "dev.tjstkm.net (Ubuntu/home-manager palmux2 host)",
+      "full_record": "docs/sprint-logs/S3f2658/spike-S3f2658-1-1.json",
+      "verdict": "PASS",
+      "summary": "Empirically confirmed on a real systemd --user session: `setsid bash -c \"exec systemd-run --user --scope --collect --unit <name> -- <cmd>\"` places <cmd> in an isolated scope cgroup (/user.slice/user-<uid>.slice/user@<uid>.service/app.slice/<name>.scope), reparented to PID 1, and the systemd-run invocation itself exits immediately (fire-and-forget — no extra backgrounding needed beyond the outer setsid). SURVIVAL-A (systemctl --user restart of a sibling 'fake palmux2' service unit) and SURVIVAL-B (kill -9 of that sibling's main pid) both left the scope child alive with an unchanged, still-isolated cgroup. The `systemd-run` availability probe (attempt the real command, check exit code) reliably detects a missing D-Bus user session (exit 1, 'Failed to connect to bus'). The setsid+double-fork fallback genuinely detaches (PPID=1, new SID) but — exactly as ADR-0003's alternatives analysis predicted — does NOT escape an existing systemd cgroup, so it is only a true survival mechanism for non-systemd deployments (make serve/dev rigs), not a substitute for the systemd-run path under a systemd-managed palmux2. Ambient shells did not have XDG_RUNTIME_DIR/DBUS_SESSION_BUS_ADDRESS exported by default even though the user systemd/D-Bus session existed; the launcher should derive/set these explicitly (e.g. /run/user/<uid>/bus) rather than assume inheritance.",
+      "decision": "Proceed with ADR-0003 exactly as specified: runtime-probe systemd-run (try, fallback on failure), embed instancePrefix in the scope --unit name, use --collect. No design change required. Documented the setsid-fallback cgroup caveat as an accepted, non-blocking gap (scoped to non-systemd dev environments per ADR-0003's own alternatives section) rather than a spike failure."
+    },
+    {
+      "task": "S3f2658-1-1 (mechanism correction found during implementation)",
+      "phase": "S3f2658-1 implementation (wave 1) — internal/ptyhost/launch.go",
+      "full_record": "docs/sprint-logs/S3f2658/spike-S3f2658-1-1.json (cgroup_evidence[] correction entry + verdict addendum)",
+      "summary": "While implementing internal/ptyhost/launch.go's RunSystemdScope, direct re-measurement (`timeout 8 systemd-run --user --scope --collect --unit X -- sleep 30`, and a second poll-every-1s test) showed that `systemd-run --scope` is a SYNCHRONOUS foreground wrapper — it does not exit until its target exits, and forwards signals to it. The initial spike pass had misread an artifact of this agent's own tool harness (which reaps backgrounded processes left over from a completed shell command) as 'systemd-run self-detaches'; setsid alone does not protect against that reaping (consistent with the setsid-fallback cgroup caveat already recorded). The Go code had initially been written with `cmd.Run()` (blocking) based on the uncorrected assumption, which a real-host integration test (TestLaunch_RealHost_DetachesFromTestProcess) caught immediately: it hung for the full test timeout because Run() was waiting on the whole scope's lifetime.",
+      "decision": "Changed RunSystemdScope to `cmd.Start()` + `cmd.Process.Release()` (fire-and-forget, matching RunSetsidFallback's shape) instead of `cmd.Run()`. This does not change the cgroup-escape verdict: the process systemd-run FORKS to exec the target (our `palmux ptyhost` binary) is migrated into the new scope's cgroup by systemd within milliseconds of the D-Bus call, independent of whether systemd-run's own top-level process later dies by any means — Linux does not cascade-kill children on parent death, and ptyhost does not depend on systemd-run's stdio relay (it owns its own PTY/socket). Re-verified with TestLaunch_RealHost_DetachesFromTestProcess (real host, real systemd-run, PASS: launch method=systemd-run, ptyhost cgroup=palmux-agent-test-<hash>.scope, distinct from the test process's own cgroup) and confirmed no leftover systemd units/processes after test cleanup.",
+      "rationale": "Blocking the launcher (palmux2) for the full duration of a systemd-run --scope invocation would mean palmux2 hangs for the entire agent session on every claude-tui spawn — a correctness bug that would have shown up immediately once wired into palmux2 in Story 2. Caught here, in Story 1's own foundation code, before any dependent story builds on top of it.",
+      "reference": "internal/ptyhost/launch.go RunSystemdScope doc comment; internal/ptyhost/launch_integration_test.go TestLaunch_RealHost_DetachesFromTestProcess"
+    }
+  ],
   "waves": [
     {
       "wave": 1,
