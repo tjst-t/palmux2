@@ -3,14 +3,14 @@
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
     "sprints_done": 73,
-    "sprints_total": 74,
+    "sprints_total": 75,
     "done": 73,
-    "total": 74,
-    "remaining": 1,
+    "total": 75,
+    "remaining": 2,
     "in_progress": 0,
-    "percent": 99,
-    "percentage": 99,
-    "current_sprint": "S64c835"
+    "percent": 97,
+    "percentage": 97,
+    "current_sprint": "Sfeed64"
   },
   "execution_order": [
     "S001",
@@ -86,7 +86,8 @@
     "S4323c8",
     "S3f2658",
     "S862203",
-    "S64c835"
+    "S64c835",
+    "Sfeed64"
   ],
   "sprints": {
     "S001": {
@@ -12146,6 +12147,112 @@
           }
         }
       }
+    },
+    "Sfeed64": {
+      "id": "Sfeed64",
+      "title": "hotfix: claude-tui 再アタッチ起動デッドロック (emulator.Feed replay) 修正 + 検証ギャップ是正 [v0.14.13]",
+      "description": "v0.14.12 (S3f2658) のリグレッション。生存 ptyhost への再アタッチ時、大きな ATTACH replay を emulator.Feed に流すと、応答ドレイナ起動より前に 64KiB 応答パイプが埋まり Feed が writer ロックを握ったままブロック → EnsureStarted の spawnMu 保持のまま起動 goroutine が停止 → HTTP listen 不達で web UI 全体が 502。fresh spawn は replay 空で無害、busy な生存セッションの reattach でのみ発火。実機 ndev が最初の実利用で被弾しロールバック済み。修正コードは worktree にドラフト済 (daemon.go: ドレイナを Feed 前に起動し replay 中は discard・live で forward / cmd/palmux/main.go: DiscoverAndRestore 非同期化で serve をブロックしない)。本 Sprint は『修正 + 現実的データでの検証 + 再リリース』を正規の verify ceremony で行う (root cause 詳細は decisions.json)。",
+      "milestone": false,
+      "status": "in_progress",
+      "detail_level": "detailed",
+      "depends_on": [
+        "S3f2658"
+      ],
+      "design_refs": [
+        "docs/no-halt-agent-design.md"
+      ],
+      "stories": {
+        "Sfeed64-1": {
+          "id": "Sfeed64-1",
+          "title": "再アタッチ replay デッドロック修正 (root + 防御) + 発火条件を再現する回帰テスト",
+          "user_story": "ユーザとして、Claude タブを使っている最中に palmux2 が更新・再起動しても web UI が落ちずにセッションへ再接続して復帰してほしい。なぜなら v0.14.12 ではまさにその状況でブラウザから全く繋がらなくなったから。",
+          "status": "needs_user_review",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sfeed64-1-1",
+              "description": "root fix: spawnWithArgs で emulator 応答ドレイナを ATTACH replay の Feed より前に起動し、replay 供給中は応答を discard (既応答の過去クエリを claude に再送しない)、replay 完了後は live 応答を INPUT として forward する。ドレイナ起動前に Feed する経路が残っていないことをコードで確認。",
+              "status": "pass"
+            },
+            {
+              "id": "AC-Sfeed64-1-2",
+              "description": "回帰テスト (発火条件を再現): DA1/DA2/カーソル位置クエリ列を含む >64KiB の replay を再アタッチ経路に流し、Feed が有限時間でブロックせず完了して 'ptyhost spawned/attached' 到達を assert する。toy データでなく応答パイプを満杯にし得る量・内容であることをテスト内で保証する。",
+              "status": "pass"
+            },
+            {
+              "id": "AC-Sfeed64-1-3",
+              "description": "防御 fix: 起動時 DiscoverAndRestore を非同期化し、reattach が仮に無限ブロックしても HTTP listen (serve) が必ず起動することを、reattach をわざと hang させる注入テスト等で確認する。 【現 main 追加スコープ】claude-agent 側にも S862203-3 で同期 DiscoverAndRestore(main.go) が入っているため、async 防御は claude-tui / claude-agent の両方に適用する。",
+              "status": "pass"
+            },
+            {
+              "id": "AC-Sfeed64-1-4",
+              "description": "MANUAL SMOKE (実セッション dogfood, green.tjstkm.net): 実 claude-tui タブを開いて実際に使い十分な出力を溜め (ring に KB+ 蓄積)、palmux2 を更新相当に (二重) 再起動し、(a) /health と外部 HTTPS が復帰、(b) ログに 'ptyhost spawned/attached' が出て listen 到達、(c) 画面復元・会話継続、を確認して decisions.json に記録する。数十バイトの合成再現は不可 (それでは発火しないため)。",
+              "status": "needs_user_review"
+            }
+          ],
+          "tasks": {
+            "Sfeed64-1-1": {
+              "id": "Sfeed64-1-1",
+              "title": "root fix: spawnWithArgs で応答ドレイナを Feed 前に起動 + replay 中 discard / live forward (handoff patch を出発点、現 main に手適用)",
+              "status": "done"
+            },
+            "Sfeed64-1-2": {
+              "id": "Sfeed64-1-2",
+              "title": ">64KiB + 実 ANSI クエリ列 replay でデッドロックを再現する回帰テスト (修正前 fail / 修正後 pass)",
+              "status": "done"
+            },
+            "Sfeed64-1-3": {
+              "id": "Sfeed64-1-3",
+              "title": "防御: DiscoverAndRestore を tui+agent 両方 async 化 + reattach を hang させる注入テストで serve 到達を確認",
+              "status": "done"
+            },
+            "Sfeed64-1-4": {
+              "id": "Sfeed64-1-4",
+              "title": "[MANUAL SMOKE] green で実 claude タブに出力を溜め二重再起動→復帰確認 (release gate、ユーザ dogfood)",
+              "status": "needs_user_review"
+            }
+          }
+        },
+        "Sfeed64-2": {
+          "id": "Sfeed64-2",
+          "title": "v0.14.13 リリース + 無効化した v0.14.12 の後始末",
+          "user_story": "運用者として、修正版 v0.14.13 を安全にリリースし、無効化した v0.14.12 が新規インストール/更新経路に残らないようにしたい。",
+          "status": "pending",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sfeed64-2-1",
+              "description": "Sfeed64-1 の全 AC (MANUAL SMOKE 含む) が緑になってから v0.14.13 をタグ→リリースする。done 直後の即リリースをせず、実セッション dogfood の緑を確認してから出す。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sfeed64-2-2",
+              "description": "nix defaultVersion が削除済み v0.14.12 (404) を指したままなので、v0.14.13 リリースの自動 bump で 0.14.13 に更新され、新規 install.sh / palmux runtime install が 404 で失敗しないことを確認する。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sfeed64-2-3",
+              "description": "ndev (現在 v0.14.11 ロールバック中) を v0.14.13 に前進復帰させ、実 claude セッションで更新→再アタッチ復帰を確認する。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "Sfeed64-2-1": {
+              "id": "Sfeed64-2-1",
+              "title": "全 AC (dogfood 含む) 緑確認後に v0.14.13 タグ→リリース (即リリース禁止)",
+              "status": "pending"
+            },
+            "Sfeed64-2-2": {
+              "id": "Sfeed64-2-2",
+              "title": "nix defaultVersion を 0.14.13 に是正 (新規 install 404 解消) 確認",
+              "status": "pending"
+            },
+            "Sfeed64-2-3": {
+              "id": "Sfeed64-2-3",
+              "title": "ndev を v0.14.13 に前進復帰 + 実セッション再アタッチ確認",
+              "status": "pending"
+            }
+          }
+        }
+      }
     }
   },
   "dependencies": {
@@ -12468,6 +12575,12 @@
         "S862203"
       ],
       "reason": "claudetui/claudeagent の thin-client + ptyhost 実装 (S3f2658/S862203) の上に載る硬化。"
+    },
+    "Sfeed64": {
+      "depends_on": [
+        "S3f2658"
+      ],
+      "reason": "S3f2658 の reattach 経路の P0 リグレッション hotfix。"
     }
   },
   "backlog": [

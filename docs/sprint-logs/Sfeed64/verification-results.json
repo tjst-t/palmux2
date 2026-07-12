@@ -1,0 +1,54 @@
+{
+  "sprint": "Sfeed64",
+  "generated_at": "2026-07-12T15:40:31.053821+00:00",
+  "overall_status": "needs_user_review (AC-1-4 dogfood + Sfeed64-2 release user-gated)",
+  "machine_verdict_ref": "verify-run.json (pass)",
+  "acceptance": [
+    {
+      "ac": "AC-Sfeed64-1-1",
+      "status": "pass",
+      "tests": [
+        "daemon.go spawnWithArgs"
+      ],
+      "evidence": "drainer starts before emulator.Feed(replay); replayFed discard-during-replay/forward-live; no pre-drainer Feed path (grep verified)"
+    },
+    {
+      "ac": "AC-Sfeed64-1-2",
+      "status": "pass",
+      "tests": [
+        "reattach_deadlock_test.go TestReattachSurvivorReplayDoesNotDeadlock"
+      ],
+      "evidence": ">64KiB real DA1/DA2/CPR replay via real ATTACH(-1); reviewer reverted fix -> 45s hang w/ deadlock stack, restored -> 1s pass. Closes the S3f2658 toy-data verification gap"
+    },
+    {
+      "ac": "AC-Sfeed64-1-3",
+      "status": "pass",
+      "tests": [
+        "discovery_async_test.go",
+        "discover_async_test.go",
+        "discovery_barrier_test.go"
+      ],
+      "evidence": "tui+agent DiscoverAndRestore async (serve never blocked); store-level discovery barrier gates BOTH orphan-GC passes so async discovery no longer races GC on shared run dir"
+    },
+    {
+      "ac": "AC-Sfeed64-1-4",
+      "status": "needs_user_review",
+      "tests": [
+        "MANUAL SMOKE green dogfood"
+      ],
+      "evidence": "USER-GATED: real claude-tui session on green + double restart, human-judged screen/conversation continuity. Release gate per priority-0 dogfood rule."
+    }
+  ],
+  "done_judgment": {
+    "guard1_user_review_required_not_done": "pass (AC-1-4 held as needs_user_review, not auto-done)",
+    "guard2_nil_injection_mock": "pass",
+    "guard3_mock_mode_not_real_smoke": "n/a",
+    "guard4_priority_rule_9_exception_valid": "n/a",
+    "guard5_call_path_grep": "pass",
+    "guard6_deferred_comment_clean": "pass",
+    "guard7_adr_conformance": "pass",
+    "guard8_destructive_multi_version_test": "n/a",
+    "overall": "needs_user_review",
+    "notes": "Automated ACs (1-1/1-2/1-3) pass with realistic-data regression (closes S3f2658 gap). AC-1-4 dogfood + Sfeed64-2 release are user-gated per the new priority-0 principle (no release immediately after done w/o real dogfood). Fix merged to sprint branch; code un-bricks main's deadlock but MUST NOT be released/tagged until dogfood green."
+  }
+}

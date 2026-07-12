@@ -665,37 +665,58 @@ func run(rc resolved) error {
 	// independent so a failure in one path does not affect the other.
 	st.ReconcileLastActiveBranches(ctx)
 
-	// S3f2658-3: reconnect to any `palmux ptyhost` processes that survived a
-	// PRIOR palmux2 lifetime (self-update / systemctl restart / `make serve`
-	// re-run — ADR-0001/0002) BEFORE starting the background loops, so a
-	// restart's very first frame already shows restored claude-tui tabs
-	// rather than a blank one waiting for a lazy first WS attach. Dead /
-	// unreachable ptyhost sockets left behind by an unclean prior exit are
-	// cleaned up here too. Must run after tab/branch reconciliation above so
-	// worktree lookups are accurate.
-	if adopted, cleaned, derr := claudetui.DiscoverAndRestore(ctx, claudetuiMgr, storeWorktreeResolver{store: st}.BranchWorktreePath, slog.Default()); derr != nil {
-		slog.Warn("claudetui: startup ptyhost discovery failed", "err", derr)
-	} else if adopted > 0 || cleaned > 0 {
-		slog.Info("claudetui: startup ptyhost discovery", "adopted", adopted, "cleanedStale", cleaned)
-	}
-	// S3f2658-3: wire orphan GC onto the store's existing 10s scan loop
-	// (tmux-zombie-kill parity for ptyhosts whose tab/branch/worktree is
-	// gone). Must be set before st.Run(ctx) starts that loop.
+	// S3f2658-3 / S862203-3 (Sfeed64-1 async + barrier): reconnect to any
+	// `palmux ptyhost` processes that survived a PRIOR palmux2 lifetime
+	// (self-update / systemctl restart / `make serve` re-run — ADR-0001/0002)
+	// so a restart's first frame already shows restored claude-tui tabs (and a
+	// live, resumable claude-agent) rather than a blank one waiting for a lazy
+	// first WS/REST attach. Dead / unreachable ptyhost sockets left behind by
+	// an unclean prior exit are cleaned up here too. Runs after tab/branch
+	// reconciliation above so worktree lookups are accurate.
+	//
+	// Run in the BACKGROUND (v0.14.12 hardening): a slow or wedged reattach
+	// must never delay ListenAndServe. In v0.14.12 a reattach deadlocked HERE
+	// on the main goroutine, so the process stayed systemd-"active" but never
+	// bound its port and the whole web UI 502'd. Correctness does not depend on
+	// this finishing before serve — the lazy first-WS-attach path
+	// (Daemon.EnsureStarted / Agent.EnsureClient) reattaches to the same
+	// surviving ptyhost on demand; this only front-loads it.
+	//
+	// claude-tui and claude-agent discovery run SEQUENTIALLY inside ONE
+	// goroutine (not two parallel ones): both scan the SAME on-disk ptyhosts
+	// (shared run dir/seed space — see store.gcAgentOrphans's GUARD-RAIL and
+	// both managers' RunDir()), so overlapping them would race two probes on
+	// one socket. Sequential preserves the original (pre-async) tui-then-agent
+	// ordering.
+	//
+	// The orphan-GC barrier (st.ArmDiscoveryBarrier, released once BOTH
+	// discoveries finish — success OR failure, so a failed/slow discovery does
+	// not wedge GC forever) makes the store's 10s scan-loop orphan-GC passes
+	// wait for discovery before they dial/SHUTDOWN any ptyhost. Without it, the
+	// first GC tick could fire while this background discovery is still
+	// mid-adoption of the SAME socket and race it (ptyhost tolerates one
+	// connection; restored Daemons have ResumeOnDeath=true → a clean orphan
+	// SHUTDOWN could flap into a respawn/re-kill). Armed BEFORE st.Run starts
+	// the scan loop; see Store.ArmDiscoveryBarrier.
+	releaseDiscoveryBarrier := st.ArmDiscoveryBarrier()
+	runDiscoveryAsync(func() {
+		defer releaseDiscoveryBarrier()
+		if adopted, cleaned, derr := claudetui.DiscoverAndRestore(ctx, claudetuiMgr, storeWorktreeResolver{store: st}.BranchWorktreePath, slog.Default()); derr != nil {
+			slog.Warn("claudetui: startup ptyhost discovery failed", "err", derr)
+		} else if adopted > 0 || cleaned > 0 {
+			slog.Info("claudetui: startup ptyhost discovery", "adopted", adopted, "cleanedStale", cleaned)
+		}
+		if adopted, cleaned, derr := claudeagent.DiscoverAndRestore(ctx, agentManager, slog.Default()); derr != nil {
+			slog.Warn("claudeagent: startup ptyhost discovery failed", "err", derr)
+		} else if adopted > 0 || cleaned > 0 {
+			slog.Info("claudeagent: startup ptyhost discovery", "adopted", adopted, "cleanedStale", cleaned)
+		}
+	})
+	// S3f2658-3 / S64c835-3: wire both orphan GCs onto the store's existing 10s
+	// scan loop (tmux-zombie-kill parity for ptyhosts whose tab/branch/worktree
+	// is gone). Must be set before st.Run(ctx) starts that loop. Their
+	// orphan-SHUTDOWN pass is gated on the discovery barrier armed above.
 	st.SetTuiOrphanGC(claudetuiMgr)
-
-	// S862203-3: same idea as the claudetui discovery pass above, for the
-	// Claude AGENT tab's pipe-mode ptyhosts — re-adopt any that survived a
-	// prior palmux2 lifetime so an in-flight turn's transcript (and any
-	// permission that arrived during the restart window) is restored
-	// before the first WS/REST request lands, not lazily on next message.
-	if adopted, cleaned, derr := claudeagent.DiscoverAndRestore(ctx, agentManager, slog.Default()); derr != nil {
-		slog.Warn("claudeagent: startup ptyhost discovery failed", "err", derr)
-	} else if adopted > 0 || cleaned > 0 {
-		slog.Info("claudeagent: startup ptyhost discovery", "adopted", adopted, "cleanedStale", cleaned)
-	}
-	// S64c835-3: wire orphan GC onto the store's existing 10s scan loop —
-	// claudetui parity (see SetTuiOrphanGC above). Must be set before
-	// st.Run(ctx) starts that loop.
 	st.SetAgentOrphanGC(agentManager)
 
 	st.Run(ctx)
@@ -1114,6 +1135,24 @@ func (h claudeMultiTabHook) CreateTab(_ context.Context, repoID, branchID, provi
 
 func (h claudeMultiTabHook) DeleteTab(ctx context.Context, repoID, branchID, tabID string) error {
 	return h.mgr.RemoveTabForBranch(ctx, repoID, branchID, tabID)
+}
+
+// runDiscoveryAsync runs fn — the startup ptyhost-discovery pass (claude-tui
+// then claude-agent DiscoverAndRestore, plus its barrier release) — in the
+// BACKGROUND.
+//
+// Sfeed64-1: this exists as a small, named, directly-testable seam (rather
+// than a bare inline `go func(){...}()` in run()) specifically so a test can
+// drive the EXACT mechanism run() uses with a deliberately blocking fn and
+// assert that whatever runs immediately after the call site (in production,
+// ListenAndServe) is never delayed — see TestRunDiscoveryAsyncDoesNotBlockCaller
+// in discovery_async_test.go. run() must launch startup discovery through this
+// helper; running DiscoverAndRestore synchronously on the startup goroutine
+// instead reintroduces exactly the v0.14.12 startup deadlock this Sprint fixes
+// (a wedged reattach on the main goroutine holds up ListenAndServe and the
+// whole web UI 502s while systemd still reports the process "active").
+func runDiscoveryAsync(fn func()) {
+	go fn()
 }
 
 // storeWorktreeResolver adapts *store.Store into claudetui.WorktreeResolver

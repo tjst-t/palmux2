@@ -1,0 +1,39 @@
+{
+  "sprint": "Sfeed64",
+  "verifier": "independent",
+  "generated_at": "2026-07-12",
+  "method": "fresh read-only re-check on branch autopilot/main/Sfeed64: read full sprint diff (git diff merge-base...HEAD), re-ran regression/barrier/package/race tests from scratch (-count=1, no cache reliance for the targeted runs), read daemon.go drainer + store barrier + main.go wiring + all new test files, reconciled machine logs and ROADMAP statuses.",
+  "ac_reconciliation": [
+    {
+      "ac": "AC-Sfeed64-1-1 (drainer-before-Feed + discard-during-replay)",
+      "self": "pass",
+      "verifier": "confirm",
+      "note": "daemon.go spawnWithArgs now starts the emulator response-pipe drainer goroutine BEFORE the ATTACH-replay Feed, and closes replayFed only AFTER Feed returns; the old (post-Feed) drainer block is fully removed (diff verified, no residual pre-drainer query-answering Feed path). Comments corrected to describe the io.Pipe as unbuffered (any single unread response byte blocks the writer holding the SafeEmulator write lock)."
+    },
+    {
+      "ac": "AC-Sfeed64-1-2 (realistic >64KiB regression reproducing the deadlock)",
+      "self": "pass",
+      "verifier": "confirm",
+      "note": "Re-ran TestReattachSurvivorReplayDoesNotDeadlock -count=1: PASS in ~1.1s, 210250 bytes landed in ring, dB reattached to the SAME surviving ptyhost pid (pidAfter==pidBefore assertion enforced) — genuinely exercises the reattach-replay Feed path, not a mock. See deadlock_regression_real below."
+    },
+    {
+      "ac": "AC-Sfeed64-1-3 (async discovery both call sites + discovery/GC barrier)",
+      "self": "pass",
+      "verifier": "confirm",
+      "note": "Both claudetui and claudeagent DiscoverAndRestore run through runDiscoveryAsync (one sequential background goroutine); barrier armed before st.Run, released via defer inside the goroutine. TestRunDiscoveryAsyncDoesNotBlockCaller (serve never delayed by a wedged fn), TestOrphanGC_DeferredUntilDiscoveryDone (both GCs no-op while armed, run after release, release idempotent), and TestOrphanGC_RunsImmediatelyWithoutBarrier (nil-gate default unaffected) all pass."
+    },
+    {
+      "ac": "AC-Sfeed64-1-4 (green dogfood, double restart, human-judged)",
+      "self": "needs_user_review",
+      "verifier": "confirm",
+      "note": "Correctly held as needs_user_review in ROADMAP.json; not attemptable by an autonomous verifier. Release gate."
+    }
+  ],
+  "deadlock_regression_real": "confirmed (>64KiB real ANSI, real path, reproduces). The test spawns a real fake_claude child (--query-burst 200KiB) whose burst is scrollback filler interleaved with the exact three real query sequences the racefix handlers answer (DA1 \\x1b[c, DA2 \\x1b[>c, CPR \\x1b[6n) every 25 lines; Daemon A produces it as live output, a second independently-constructed Daemon B reattaches to A's still-live real ptyhost via ATTACH(-1) and receives the entire 210KB query-heavy burst as its replay, feeding it through the real emulator.Feed. This is the exact production deadlock path (Feed of a survivor replay containing queries with no drainer running). Ring-length (>=200KiB) and same-pid reattach are both asserted, so the test cannot pass via a fresh spawn / empty replay / toy data. Self-report's revert-and-hang reproduction (45s timeout + goroutine dump matching the reported io.pipe.write<-DA-handler<-Feed<-EnsureStarted-spawnMu stack) is credible and consistent with the code; I did not re-perform the destructive stash-revert but confirmed the pass side and the 45s deadlock-detecting bound in the test.",
+  "discard_forward_correct": "sound (no live dropped / no historical forwarded in practice). Direction that matters for the reviewer's stated fear (a dropped LIVE response = a NEW hang) is impossible: replayFed is closed before the live readLoop goroutine starts, so any live query response is generated only after forwarding has (or will immediately) latch true — live responses are always forwarded, never discarded. Unbuffered-pipe reasoning for the discard side is correct: Feed(replay) cannot return until every replay-era response byte has been Read by the drainer, so all historical responses are consumed while forwarding is still false. MINOR (non-blocking) edge: there is a theoretical scheduling window where the drainer could classify the FINAL replay response chunk AFTER close(replayFed) and thus forward it; this is benign (a duplicate DA/CPR response byte-sequence to claude's stdin, which claude ignores as unsolicited input — not a hang) and effectively unreachable with realistic data (real replays, and this test's burst, end in rendered screen content well past the last query, so Feed keeps parsing filler after the last response is read+classified, leaving close(replayFed) well after). Not a correctness defect.",
+  "discovery_barrier_correct": "both GC gated, armed pre-Run, released on failure, serve unblocked. gcTuiOrphans AND gcAgentOrphans both return early on !discoveryGateOpen(); ArmDiscoveryBarrier is called before st.Run and installs discoveryDone (written once pre-Run, read only from the scan goroutine — store -race -count=2 clean, confirms no race on the unlocked field); release is a deferred call inside the single discovery goroutine so it fires on both success and every error/return path; runDiscoveryAsync is a bare `go fn()` so ListenAndServe is never blocked (proven by TestRunDiscoveryAsyncDoesNotBlockCaller with a never-returning fn). A permanently wedged discovery keeps GC deferred forever — this is the intended SAFE direction (orphan GC is a cleanup nicety; lazy first-WS-attach still re-adopts), and it cannot wedge serve. Single barrier over ALL (sequential tui-then-agent) discovery correctly handles the shared run-dir/seed-space so neither GC pass can race the other manager's in-flight adoption.",
+  "no_weakening_no_regression": "confirmed (no skips, -race clean). No new t.Skip/Skipf introduced (the 6 grep hits are all pre-existing, in files untouched by this diff: render_snapshot fixture guards, real-claude/real-incus/survival smoke gates, symlink-support guard). go build ./... clean, go vet ./... clean. go test ./internal/tab/claudetui/ ./internal/tab/claudeagent/ ./internal/store/ ./cmd/palmux/ -count=1 all ok. go test -race ./internal/tab/claudetui/ -count=1 clean (includes the new GridSnapshot/feedMu race fix + high-throughput regression test) and go test -race ./internal/store/ -count=2 clean (covers the new barrier). S64c835's -race cleanliness is not regressed.",
+  "machine_verdict_reconciled": "pass matches logs. verify-run.json overall_machine_status=pass with all 4 runs exit_code=0; verify-make-test.log ends __VERIFY_EXIT_CODE__=0 with 26 pkgs ok and no FAIL. Independent re-runs reproduce the same green results.",
+  "ac_1_4_held_for_user": "confirmed needs_user_review. AC-Sfeed64-1-4 and story Sfeed64-1-4 are status=needs_user_review; parent story Sfeed64-1 is needs_user_review (not done); Sfeed64-2 (v0.14.13 release + all its ACs) is status=pending — the release is NOT auto-done and is correctly gated on the dogfood green per the priority-0 dogfood principle.",
+  "overall": "agree_code_ready_pending_dogfood"
+}

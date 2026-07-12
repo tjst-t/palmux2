@@ -1,0 +1,35 @@
+{
+  "sprint": "Sfeed64",
+  "generated_at": "2026-07-12T15:40:31.053821+00:00",
+  "overall_machine_status": "pass",
+  "runs": [
+    {
+      "name": "default-suite",
+      "command": "make test",
+      "machine_status": "pass",
+      "exit_code": 0,
+      "note": "26 pkgs ok, no FAIL"
+    },
+    {
+      "name": "deadlock-regression",
+      "command": "go test ./internal/tab/claudetui/ -run TestReattachSurvivorReplayDoesNotDeadlock",
+      "machine_status": "pass",
+      "exit_code": 0,
+      "note": ">64KiB real-ANSI replay reattach completes ~1s; reviewer confirmed hang-without-fix (45s timeout + deadlock stack)"
+    },
+    {
+      "name": "discovery-barrier",
+      "command": "go test ./internal/store/ -run TestOrphanGC_DeferredUntilDiscoveryDone",
+      "machine_status": "pass",
+      "exit_code": 0,
+      "note": "GC deferred until discovery done (0 dials while armed)"
+    },
+    {
+      "name": "claudetui-race",
+      "command": "go test -race ./internal/tab/claudetui/ -count=2",
+      "machine_status": "pass",
+      "exit_code": 0,
+      "note": "0 races incl the GridSnapshot/feedMu fix"
+    }
+  ]
+}
