@@ -2,15 +2,15 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 71,
+    "sprints_done": 72,
     "sprints_total": 73,
-    "done": 71,
+    "done": 72,
     "total": 73,
-    "remaining": 2,
+    "remaining": 1,
     "in_progress": 0,
-    "percent": 97,
-    "percentage": 97,
-    "current_sprint": "S3f2658"
+    "percent": 99,
+    "percentage": 99,
+    "current_sprint": "S862203"
   },
   "execution_order": [
     "S001",
@@ -11893,7 +11893,7 @@
       "title": "no-halt-agent Sprint 2: pipe モード + claude-agent ロスレス生存 [MILESTONE]",
       "description": "ptyhost を pipe モード (PTY なし stdio) で流用し、stream-json の stdout を絶対 offset 付き行 ring に貯めて ACK/replay でロスレス再接続する (ADR-0004)。palmux2 停止中の permission 要求も replay で UI に届く。冒頭 spike: MCP control_request 応答期限。",
       "milestone": true,
-      "status": "pending",
+      "status": "done",
       "detail_level": "detailed",
       "depends_on": [
         "S3f2658"
@@ -11907,19 +11907,19 @@
           "id": "S862203-1",
           "title": "spike: 再起動を跨いだ MCP control_request 応答の受理検証",
           "user_story": "開発者として、claude CLI が MCP control_request への応答をどれだけ待つかを実装前に知りたい。なぜなら、応答期限が palmux2 の再起動時間より短ければ replay 設計自体を見直す必要があるから (ADR-0004 revisit 条件)。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S862203-1-1",
               "description": "stream-json モードの claude に permission 要求 (control_request) を出させたまま応答を 10 秒以上遅延させ、その後の応答が受理されてツール実行が継続することを実 claude CLI で確認し、結果 (待機挙動・タイムアウトの有無) を decisions.json に記録する。受理されない場合は ADR-0004 の見直しをユーザに escalate して Sprint を中断する。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S862203-1-1": {
               "id": "S862203-1-1",
               "title": "spike ハーネス (stream-json 手動 pump + 応答遅延) + 結果記録",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
@@ -11927,39 +11927,39 @@
           "id": "S862203-2",
           "title": "ptyhost pipe モード + 行 ring + ACK/offset 永続化",
           "user_story": "palmux 運用者として、agent モードの stream-json イベントを 1 行も取りこぼさずに palmux2 再起動を跨いで引き継ぎたい。なぜなら、イベント欠落は transcript 破損・宙に浮いた permission 要求になるから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S862203-2-1",
               "description": "ptyhost pipe モードは PTY なしの stdin/stdout/stderr パイプ (S4d8b1c ExecCommander と同じ binary-clean 性) で claude を保持し、stdout を絶対 offset 付き行単位 ring に貯める (stderr は別チャネル)。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S862203-2-2",
               "description": "palmux2 は処理済み offset を ACK し永続化する。再接続時に last-ack 以降が replay され、二重処理も欠落もない (palmux2 kill -9 → 再起動の障害シナリオ含む)。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S862203-2-3",
               "description": "ring 溢れ (長時間切断) を検出した場合は黙って欠けた transcript を出さず、「ロスレス復元不能」を明示して新規セッション扱いにする。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S862203-2-1": {
               "id": "S862203-2-1",
               "title": "ptyhost pipe モード (行 ring + stderr チャネル)",
-              "status": "pending"
+              "status": "done"
             },
             "S862203-2-2": {
               "id": "S862203-2-2",
               "title": "ACK/offset 永続化 (sessions.json 相当) + replay プロトコル",
-              "status": "pending"
+              "status": "done"
             },
             "S862203-2-3": {
               "id": "S862203-2-3",
               "title": "ring 溢れ検出 + 明示エラー経路",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
@@ -11967,39 +11967,39 @@
           "id": "S862203-3",
           "title": "claudeagent.Client の thin client 化 + replay 再構成",
           "user_story": "palmux ユーザとして、palmux2 再起動中に来た permission 要求も含めて、agent タブの会話と権限状態が完全に復元されてほしい。なぜなら、長時間の autonomous 作業を palmux2 の都合で失いたくないから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S862203-3-1",
               "description": "claudeagent.Client は exec 直叩きをやめ ptyhost (pipe モード) 越しに stream-json を pump する。parse / MCP 権限サーバ / permstate / transcript は palmux2 側に残る (ADR-0002/0004)。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S862203-3-2",
               "description": "palmux2 再起動を跨いで (a) 実行中ターンの transcript が無欠損で復元され、(b) 再起動中に発生した permission 要求が UI に届き、応答してツール実行が成立する (E2E、実 claude)。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S862203-3-3",
               "description": "既存の claude-agent E2E / unit (permission フロー、modes、transcript、respawn) がリグレッションなく pass する。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S862203-3-1": {
               "id": "S862203-3-1",
               "title": "client.go の cmd 構築 + pump を ptyhost client に差し替え",
-              "status": "pending"
+              "status": "done"
             },
             "S862203-3-2": {
               "id": "S862203-3-2",
               "title": "replay からの permstate / transcript 再構成 (pending control_request 復元)",
-              "status": "pending"
+              "status": "done"
             },
             "S862203-3-3": {
               "id": "S862203-3-3",
               "title": "E2E: 再起動跨ぎ permission 応答成立 + transcript 無欠損",
-              "status": "pending"
+              "status": "done"
             }
           }
         }
@@ -12640,6 +12640,18 @@
       "title": "S3f2658-4 test: pin orphan-GC reap idempotency assumption",
       "note": "TestGCOrphans_ReapsInContainerClaude does not bound repeat reap calls; safe today only because KillContainerProcesses is idempotent (pkill exit1=no-op). Add a bound assertion or a comment documenting the idempotency contract.",
       "source": "S3f2658-4 review",
+      "severity": "low"
+    },
+    {
+      "title": "claudeagent perm integration tests: hardcoded 2s deadlines flake under -race + CPU contention",
+      "note": "TestBashPerm_NoLeakOverManyRounds / TestAskUserQuestion_FullRoundTrip / TestExitPlanMode_FullRoundTrip (from S43cfb1) time out under go test -race + high CPU; pass in isolation + non-race. Reproduced on parent commits (pre-existing, not from no-halt-agent). make test gate is non-race + green. Fix: adaptive/larger deadlines or serialize.",
+      "source": "S3f2658+S862203-2",
+      "severity": "medium"
+    },
+    {
+      "title": "claudeagent: no orphan-GC for pipe-mode ptyhosts (asymmetry vs claudetui GCOrphans)",
+      "note": "claudeagent has startup DiscoverAndRestore but no orphan GC on the store scan loop (claudetui got GCOrphans in S3f2658-3). A branch/repo closed while palmux2 is down leaves its agent ptyhost un-reaped until reopen. Mirror S3f2658-3 GCOrphans for claudeagent.",
+      "source": "S862203-3 review",
       "severity": "low"
     }
   ]

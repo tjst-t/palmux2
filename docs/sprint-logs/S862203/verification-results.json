@@ -1,0 +1,78 @@
+{
+  "sprint": "S862203",
+  "generated_at": "2026-07-12T09:01:30.222833+00:00",
+  "overall_status": "pass",
+  "machine_verdict_ref": "verify-run.json (pass)",
+  "acceptance": [
+    {
+      "ac": "AC-S862203-1-1",
+      "status": "pass",
+      "tests": [
+        "spike_control_deadline_test.go (env-gated real claude)"
+      ],
+      "evidence": "claude accepts late permission allow at 10/30/60s, tool executes, turn continues — no deadline <=60s. ADR-0004 replay design sound. spike-S862203-1-1.json"
+    },
+    {
+      "ac": "AC-S862203-2-1",
+      "status": "pass",
+      "tests": [
+        "ptyhost/pipe_test.go PipeMode_StdoutStderrSeparation/InputWritesToStdin/ResizeNoOp"
+      ],
+      "evidence": "PTY-less binary-clean stdio; stdout->abs-offset line ring; stderr on separate MsgStderrData channel, no cross-contamination"
+    },
+    {
+      "ac": "AC-S862203-2-2",
+      "status": "pass",
+      "tests": [
+        "ptyclient_test.go CleanReconnect/Kill9Reconnect_RedeliversUnackedLine_ExactlyOnce",
+        "pipe_test.go Kill9Reconnect_NoDupNoLoss"
+      ],
+      "evidence": "ACK+persist (OffsetStore), reconnect replays from last-ack, exact-once incl kill-9; exact offset/seq equality"
+    },
+    {
+      "ac": "AC-S862203-2-3",
+      "status": "pass",
+      "tests": [
+        "pipe_test.go Overflow_ClampedAttachStart",
+        "ptyclient_test.go Overflow_SurfacesNewSessionSignal"
+      ],
+      "evidence": "ring overflow -> AttachResult.Overflowed -> explicit new-session, never a silent gap"
+    },
+    {
+      "ac": "AC-S862203-3-1",
+      "status": "pass",
+      "tests": [
+        "client_pipehost_test.go LinesReachOnMessage/CloseSendsShutdown/DetachLeavesChildRunning"
+      ],
+      "evidence": "client pumps stream-json over pipe-mode ptyhost into unchanged processStreamMessage; stderr separate; Close->SHUTDOWN; Detach leaves running"
+    },
+    {
+      "ac": "AC-S862203-3-2",
+      "status": "pass",
+      "tests": [
+        "tests/e2e/s862203_agent_restart_survival.py (real claude)"
+      ],
+      "evidence": "restart-crossing: control_request fired (manual mode forced), transcript no-loss/dup, pending permission surfaced+answered, gated tool executed, 2nd restart no re-surface. e2e-S862203-3.json"
+    },
+    {
+      "ac": "AC-S862203-3-3",
+      "status": "pass",
+      "tests": [
+        "full internal/tab/claudeagent + internal/ptyhost suites"
+      ],
+      "evidence": "existing suite passes UNMODIFIED (-race x3); parse/MCP/permstate/transcript untouched; review-fixed overlapping-permission re-surface + main.go DetachAll survival bug"
+    }
+  ],
+  "done_judgment": {
+    "guard1_user_review_required_not_done": "pass",
+    "guard2_nil_injection_mock": "pass",
+    "guard3_mock_mode_not_real_smoke": "pass",
+    "guard4_priority_rule_9_exception_valid": "n/a",
+    "guard5_call_path_grep": "pass",
+    "guard6_deferred_comment_clean": "pass",
+    "guard7_adr_conformance": "pass",
+    "guard8_destructive_multi_version_test": "n/a",
+    "overall": "ok",
+    "notes": "Guard3: spike + E2E on REAL claude (no MOCK/fake/DRY_RUN); pipe ring/ACK use fake NDJSON emitter deterministically (mechanism test, not a real-smoke substitute). Guard7: ADR-0002 ptyhost stays generic (only Mode string + MsgStderrData added, no agent knowledge); ADR-0004 offset-replay implemented per spec incl RingGeneration + resolved-request-id suppression. only t.Skip is the documented real-claude spike quota gate."
+  }
+}

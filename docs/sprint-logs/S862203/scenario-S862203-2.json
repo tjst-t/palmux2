@@ -1,0 +1,56 @@
+{
+  "story": "S862203-2",
+  "title": "ptyhost pipe モード + 行 ring + ACK/offset 永続化",
+  "story_type": "go-library",
+  "depends_on": ["S862203-1"],
+  "design_refs": [
+    "docs/no-halt-agent-design.md#6-agent-モードのロスレス-replay",
+    "docs/no-halt-agent-design.md#2-socket-protocol",
+    "docs/DESIGN/adr/ADR-0004-agent-pipe-mode-offset-replay.json",
+    "ADR-0002"
+  ],
+  "real_claude": "NOT needed — use a FAKE stream-json NDJSON emitter as the ptyhost child (a tiny helper program/script that prints newline-delimited JSON lines with a monotonic counter at a controllable pace, and exits/blocks on demand). This makes ring/ACK/offset/replay/overflow mechanics deterministic and quota-free. kill-9 restart is simulated by killing the palmux2-side client and reconnecting to the SAME surviving ptyhost.",
+  "acceptance_scenarios": [
+    {
+      "ac": "AC-S862203-2-1",
+      "intent": "A pipe-mode ptyhost holds claude with PTY-less stdin/stdout/stderr pipes (same binary-clean property as S4d8b1c ExecCommander), and buffers stdout into an absolute-offset ring; stderr is a SEPARATE channel (never interleaved into the NDJSON stdout stream, which would corrupt line parsing).",
+      "test_kind": "go-unit + integration (internal/ptyhost)",
+      "steps": [
+        "Add a Mode to ptyhost.Config (\"pty\" default | \"pipe\") + a `--mode` flag in cmd/palmux/ptyhost.go (default pty for back-compat). HELLO.Mode and StatusFile.Mode reflect the actual mode.",
+        "In Server.spawn, branch on mode: pipe mode uses cmd.StdinPipe/StdoutPipe/StderrPipe (NO creackpty.Start), preserving separate binary-clean stdout/stderr exactly as claudeagent's ExecCommander path does today.",
+        "Add a second read loop: stdout bytes → the existing offset ring (unchanged Ring, absolute offsets); stderr bytes → a SEPARATE stderr ring/channel. Assert stderr bytes never appear in the stdout ring and vice-versa.",
+        "writeInput (MsgInput) writes to the child's stdin pipe in pipe mode; resize (MsgResize) is a no-op in pipe mode (documented; §2).",
+        "Decide + implement the minimal wire delivery for stderr (ADR-0004-sanctioned, the one protocol growth pipe mode needs): a dedicated stderr DATA frame type OR a 1-byte stream discriminator — keep stdout on the EXISTING MsgData/ATTACH/ACK path so all S3f2658 replay wire is reused unchanged. Record the choice in decisions.json.",
+        "Integration: spawn a real ptyhost.Server (in-process, like claudetui's inProcessLaunchPtyHost) holding the FAKE NDJSON emitter; assert emitted lines land in the stdout ring at correct absolute offsets and emitter-stderr lands only on the stderr channel."
+      ],
+      "expected": "Pipe-mode ptyhost holds a process over plain pipes, stdout→offset ring, stderr→separate channel, binary-clean, no cross-contamination."
+    },
+    {
+      "ac": "AC-S862203-2-2",
+      "intent": "palmux2 ACKs each processed offset and PERSISTS it (sessions.json-equivalent). On reconnect, last-ack+1 is replayed via ATTACH{offset}; no line is processed twice and none is dropped — INCLUDING a palmux2 kill -9 → restart failure scenario.",
+      "test_kind": "go-unit + integration (fake emitter; deterministic)",
+      "steps": [
+        "Implement a palmux2-side generic pipe-replay client seam (mirror internal/tab/claudetui/ptyclient.go's dial/HELLO/ATTACH helpers, but line-oriented): ATTACH{lastAckOffset} → reassemble NDJSON lines from the returned byte stream + subsequent live DATA (a line may straddle DATA-frame boundaries — buffer partials), invoke a per-line callback, then ACK the absolute offset at the END of each fully-processed line.",
+        "Implement the offset-persistence store (sessions.json-equivalent, palmux2-side) keyed by (repoId, branchId, tabId): stores last-ack absolute offset (+ ring-generation/session marker for overflow detection). Atomic write (write-then-rename) so a palmux2 crash never leaves a torn file. Reuse claudeagent's existing Store/sessions.json layout style.",
+        "Deterministic replay test: fake emitter prints lines with a monotonic counter; client processes N lines, ACKs, persists; simulate palmux2 restart = drop the client connection (ptyhost survives) + reconstruct a fresh client that reads the persisted last-ack and ATTACHes from it; assert processing RESUMES at counter N+1 exactly — no gap, no duplicate.",
+        "kill -9 scenario: while lines are mid-flight, hard-kill the palmux2-side client WITHOUT a clean ACK of the last in-flight line (persisted offset is behind the last emitted line). Reconnect; assert the un-acked line(s) are re-delivered exactly once (at-least-once delivery + idempotent-by-offset = effectively exactly-once for the consumer) and nothing after the persisted offset is skipped.",
+        "Assert ACK to ptyhost is honored as a no-op-or-informational on the holder side (persistence is palmux2-side per ADR-0002/0004; ptyhost does NOT persist)."
+      ],
+      "expected": "Lossless, duplicate-free replay from persisted last-ack across both a clean restart and a kill -9, verified deterministically with the fake emitter."
+    },
+    {
+      "ac": "AC-S862203-2-3",
+      "intent": "When the ring has OVERFLOWED during a long disconnect (the requested last-ack offset was evicted below the ring's oldest retained offset), palmux2 does NOT silently emit a truncated transcript — it detects the gap and explicitly treats the session as a NEW session (lossless restore impossible).",
+      "test_kind": "go-unit + integration (fake emitter overflow)",
+      "steps": [
+        "Configure a SMALL ring; fake emitter floods enough lines while the client is disconnected that lastAck falls below Ring.OldestOffset.",
+        "On reconnect, ATTACH{lastAck}; the ptyhost ring clamps and returns DATA with a START offset GREATER than requested (Ring.readFromLocked already returns the actual clamped start). The client MUST compare requested vs returned start: start > requested ⇒ eviction gap ⇒ lossless restore impossible.",
+        "Assert on detected overflow the client does NOT feed the (partial) replay into the transcript reconstruction as if continuous; instead it surfaces an explicit 'lossless restore impossible → new session' outcome (a typed error/flag the Story-3 consumer maps to a fresh session, e.g. reset + --resume as a NEW spawn, no invented/half transcript).",
+        "Assert the STATUS payload's RingHeadOffset/RingTotalOffset support this decision (already exposed by S3f2658).",
+        "Negative control: a disconnect SHORT enough that lastAck is still within the retained window replays cleanly (no false overflow)."
+      ],
+      "expected": "Ring overflow is detected via the clamped ATTACH start offset and surfaced as an explicit new-session outcome — never a silent truncated transcript."
+    }
+  ],
+  "notes": "Story 2 delivers the MECHANISM (pipe-mode ptyhost + generic line-oriented offset-ack replay + persistence store + overflow detection) and is fully verifiable with a fake NDJSON emitter — NO claude, NO quota. Story 3 wires claudeagent onto it. The generic replay-client + offset store live where Story 3 consumes them (internal/tab/claudeagent, new ptyclient.go + offset store), so this story TOUCHES the claudeagent package too → Story 2 and Story 3 are SERIAL (shared files). Protocol growth is limited to the single stderr-delivery addition, justified by ADR-0004 (not an ADR-0002 violation); everything else reuses the frozen S3f2658 wire (HELLO/ATTACH/DATA/INPUT/ACK/STATUS/SHUTDOWN)."
+}

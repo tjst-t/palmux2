@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tjst-t/palmux2/internal/domain"
+	"github.com/tjst-t/palmux2/internal/ptyhost"
 	"github.com/tjst-t/palmux2/internal/runtime"
 )
 
@@ -54,6 +56,27 @@ type Config struct {
 	RuntimeResolver      func(repoID, branchID string) runtime.ExecCommander
 	NotifyURLInContainer string
 	NotifyToken          string
+
+	// S862203-3: pipe-mode ptyhost survival wiring (ADR-0001/0002/0004).
+	// PalmuxBin is the palmux binary re-invoked as `<PalmuxBin> ptyhost
+	// --mode pipe ...` for a production (detached, restart-surviving)
+	// launch. Empty falls back to an in-process ptyhost.Server per Client
+	// (every existing test — hermetic, no real `palmux ptyhost` process).
+	PalmuxBin string
+	// InstancePrefix isolates concurrent palmux instances (host vs
+	// INSTANCE=dev rigs) — mirrors domain.PalmuxSessionPrefix.
+	InstancePrefix string
+	// OffsetStore persists per-tab pipe-mode replay offsets so a palmux2
+	// restart resumes an in-flight turn losslessly instead of replaying
+	// from the oldest byte the ring still retains. Nil disables
+	// persistence (acceptable for tests that don't exercise restart
+	// semantics).
+	OffsetStore *OffsetStore
+	// RunDirOverride pins the ptyhost run directory (test injection).
+	RunDirOverride string
+	// RingSize is the ptyhost ring buffer capacity in bytes. <=0 uses
+	// ptyhost's own default.
+	RingSize int
 }
 
 // NotificationSink is the subset of notify.Hub claudeagent uses to surface
@@ -384,7 +407,13 @@ func (m *Manager) KillBranch(_ context.Context, repoID, branchID string) error {
 	return nil
 }
 
-// Shutdown stops every Agent. Called on server shutdown.
+// Shutdown stops every Agent (kills every ptyhost). Callers intending a
+// genuine, permanent teardown of every session use this — e.g. a test
+// harness tearing down its fixtures, or an intentional full-branch close.
+// Do NOT call this from palmux2's own process-exit path (SIGTERM /
+// self-update restart): that would kill every running claude on every
+// restart, defeating ADR-0001/0002's entire no-halt-agent purpose. See
+// [Manager.DetachAll] for that case.
 func (m *Manager) Shutdown() {
 	m.mu.Lock()
 	agents := m.agents
@@ -393,6 +422,49 @@ func (m *Manager) Shutdown() {
 	for _, a := range agents {
 		a.Shutdown()
 	}
+}
+
+// DetachAll disconnects from every managed Agent's ptyhost WITHOUT killing
+// any of them (S862203-3, mirrors claudetui.Manager.DetachAll) — the
+// correct call for palmux2's own process-exit path (cmd/palmux/main.go's
+// SIGTERM/SIGINT handler), so a palmux2 restart does not take down every
+// running claude turn. A freshly (re)started palmux2 re-adopts every
+// surviving ptyhost via [DiscoverAndRestore].
+func (m *Manager) DetachAll(_ context.Context) error {
+	m.mu.Lock()
+	agents := m.agents
+	m.agents = map[string]*Agent{}
+	m.mu.Unlock()
+	for _, a := range agents {
+		a.Detach()
+	}
+	return nil
+}
+
+// RunDir (S862203-3) returns the directory this Manager's Agents place
+// ptyhost sockets/status files in — the SAME computation
+// [Client.ptyHostRunDir] uses — so a discovery pass driven from outside a
+// specific Agent (see discover.go) scans the exact directory this
+// Manager's clients actually use.
+//
+// NOTE: this is only meaningful when every Client this Manager creates
+// resolves to the SAME directory, which requires either cfg.PalmuxBin (the
+// production case) or an explicit cfg.RunDirOverride. The automatic
+// in-process test fallback (PalmuxBin=="" && RunDirOverride=="") gives
+// each Client its OWN unique temp directory for hermetic test isolation —
+// discovery against THIS Manager's RunDir() would see none of them, by
+// design; tests exercising discovery set RunDirOverride explicitly.
+func (m *Manager) RunDir() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cfg.RunDirOverride != "" {
+		return m.cfg.RunDirOverride
+	}
+	prefix := m.cfg.InstancePrefix
+	if prefix == "" {
+		prefix = domain.PalmuxSessionPrefix
+	}
+	return ptyhost.RunDir(prefix)
 }
 
 // Store exposes the underlying persistence store (used by REST handlers).
@@ -703,6 +775,15 @@ func (a *Agent) EnsureClient(ctx context.Context) error {
 		Logger:            a.deps.logger,
 		ExecCommander:     execCmder,
 		ContainerEnv:      containerEnv,
+		// S862203-3: pipe-mode ptyhost identity + survival wiring.
+		RepoID:         a.deps.repoID,
+		BranchID:       a.deps.branchID,
+		TabID:          a.deps.tabID,
+		PalmuxBin:      a.deps.manager.cfg.PalmuxBin,
+		InstancePrefix: a.deps.manager.cfg.InstancePrefix,
+		OffsetStore:    a.deps.manager.cfg.OffsetStore,
+		RunDirOverride: a.deps.manager.cfg.RunDirOverride,
+		RingSize:       a.deps.manager.cfg.RingSize,
 	}, a.handleStreamMsg, a.handleCanUseTool, a)
 	if err != nil {
 		a.mu.Lock()
@@ -721,11 +802,24 @@ func (a *Agent) EnsureClient(ctx context.Context) error {
 
 	go a.watchClient(cli)
 
-	initCtx, cancel := context.WithTimeout(ctx, controlRequestTimeout)
-	defer cancel()
-	resp, err := cli.Initialize(initCtx)
-	if err != nil {
-		a.deps.logger.Warn("claudeagent: initialize failed", "err", err)
+	// S862203-3: skip the initialize control_request when we RECONNECTED to
+	// a ptyhost that survived a prior palmux2 lifetime. The live claude
+	// process already completed its own initialize handshake before this
+	// palmux2 process even existed — sending a second one risks colliding
+	// with (or stalling behind) that process's own in-flight turn, which
+	// may be BLOCKED waiting on a control_response from us (exactly the
+	// restart-crossing-permission scenario this story exists to support).
+	// The cached LastInit (EnsureAgent already seeded a.session with it —
+	// see the store.LastInit() call there) covers the FE's need for
+	// command/model info without a live round-trip.
+	if cli.Reconnected() {
+		a.deps.logger.Info("claudeagent: reconnected to surviving ptyhost — skipping initialize handshake")
+	} else if resp, ierr := func() (json.RawMessage, error) {
+		initCtx, cancel := context.WithTimeout(ctx, controlRequestTimeout)
+		defer cancel()
+		return cli.Initialize(initCtx)
+	}(); ierr != nil {
+		a.deps.logger.Warn("claudeagent: initialize failed", "err", ierr)
 	} else if len(resp) > 0 {
 		info := parseInitInfo(resp)
 		a.session.SetInitInfo(info)
@@ -1885,11 +1979,25 @@ func (a *Agent) Clear() {
 	a.broadcastStatus(StatusIdle)
 }
 
-// Shutdown is the manager-driven teardown.
+// Shutdown is the manager-driven teardown: permanently kills the claude
+// process (if any) via the ptyhost. Used by intentional tab/branch close.
 func (a *Agent) Shutdown() {
 	a.mu.Lock()
 	if a.client != nil {
 		a.client.Close()
+		a.client = nil
+	}
+	a.mu.Unlock()
+}
+
+// Detach (S862203-3) disconnects from the ptyhost WITHOUT killing the
+// claude process — used ONLY by Manager.DetachAll on palmux2's own
+// process-exit path, so a restart leaves every in-flight turn running for
+// a future DiscoverAndRestore to re-adopt.
+func (a *Agent) Detach() {
+	a.mu.Lock()
+	if a.client != nil {
+		a.client.Detach()
 		a.client = nil
 	}
 	a.mu.Unlock()

@@ -1,0 +1,28 @@
+{
+  "sprint": "S862203",
+  "generated_at": "2026-07-12T09:01:30.222833+00:00",
+  "overall_machine_status": "pass",
+  "runs": [
+    {
+      "name": "default-suite",
+      "command": "make test",
+      "machine_status": "pass",
+      "exit_code": 0,
+      "note": "26 pkgs ok, no FAIL, no leaked procs (pipe-mode uses fake NDJSON emitter). verify-make-test.log"
+    },
+    {
+      "name": "spike-real-claude",
+      "command": "PALMUX_SPIKE_S862203_1=1 go test -run TestSpike... (S862203-1)",
+      "machine_status": "pass",
+      "exit_code": 0,
+      "note": "Wave 1: real claude accepts late control_request allow up to 60s (>=restart window). ADR-0004 gate clears. spike-S862203-1-1.json"
+    },
+    {
+      "name": "agent-restart-e2e-real-claude",
+      "command": "tests/e2e/s862203_agent_restart_survival.py (make serve INSTANCE=dev)",
+      "machine_status": "pass",
+      "exit_code": 0,
+      "note": "Wave 3: real claude, forced manual mode; restart-crossing: transcript no-loss/dup, pending permission surfaced+answered, tool executed, 2nd restart no re-surface. e2e-S862203-3.json + 3 screenshots"
+    }
+  ]
+}

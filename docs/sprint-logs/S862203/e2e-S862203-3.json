@@ -1,0 +1,23 @@
+{
+  "story": "S862203-3",
+  "ac": "AC-S862203-3-2",
+  "startedAt": "2026-07-12T09:38:31Z",
+  "markerId": "39f4c3d88a1f",
+  "devPort": 8200,
+  "repoId": "palmux2-test--s862203-3-restart-20260712-093921-2241581--1669",
+  "branchId": "s862203-3-restart-20260712-093921-2241581--5fd7",
+  "controlRequestFired": true,
+  "convLenBefore": 562,
+  "userBubblePresentBeforeRestart": true,
+  "restartedAt": "2026-07-12T09:39:41Z",
+  "convLenAfter": 562,
+  "userBubbleSentinelOccurrencesAfterRestart": 1,
+  "transcriptLossless": true,
+  "permissionSurfacedAfterRestart": true,
+  "permissionAnswered": true,
+  "toolExecuted": true,
+  "permissionStillPendingAfterAnswer": true,
+  "permissionResurfacedOnSecondRestart": false,
+  "verdict": "PASS",
+  "finishedAt": "2026-07-12T09:40:21Z"
+}

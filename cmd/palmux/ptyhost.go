@@ -24,13 +24,14 @@ import (
 //
 // Usage:
 //
-//	palmux ptyhost --socket <path> --status <path> [--cwd <dir>] \
+//	palmux ptyhost --socket <path> --status <path> [--mode pty|pipe] [--cwd <dir>] \
 //	  [--env KEY=VALUE ...] [--ring-size <bytes>] [--seed <label>] \
 //	  [--repo-id <id>] [--branch-id <id>] [--tab-id <id>] -- <argv...>
 func runPtyHost(args []string) int {
 	fs := pflag.NewFlagSet("ptyhost", pflag.ContinueOnError)
 	socketPath := fs.String("socket", "", "unix socket path to serve the ptyhost protocol on (required)")
 	statusPath := fs.String("status", "", "path to write the JSON status file (required)")
+	mode := fs.String("mode", ptyhost.ModePTY, `child holding mode: "pty" (default, tui) or "pipe" (agent, ADR-0004/S862203-2)`)
 	cwd := fs.String("cwd", "", "working directory for the spawned child (empty = inherit)")
 	envFlags := fs.StringArray("env", nil, "KEY=VALUE environment variable for the spawned child (repeatable); if omitted entirely, the child inherits palmux ptyhost's own environment")
 	ringSize := fs.Int("ring-size", ptyhost.DefaultRingSize, "ring buffer capacity in bytes")
@@ -59,6 +60,7 @@ func runPtyHost(args []string) int {
 		Argv:       argv,
 		Env:        []string(*envFlags),
 		Cwd:        *cwd,
+		Mode:       *mode,
 		SocketPath: *socketPath,
 		StatusPath: *statusPath,
 		RingSize:   *ringSize,
