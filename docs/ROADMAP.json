@@ -10,7 +10,7 @@
     "in_progress": 0,
     "percent": 97,
     "percentage": 97,
-    "current_sprint": "S3f2658"
+    "current_sprint": "S862203"
   },
   "execution_order": [
     "S001",
@@ -11893,7 +11893,7 @@
       "title": "no-halt-agent Sprint 2: pipe モード + claude-agent ロスレス生存 [MILESTONE]",
       "description": "ptyhost を pipe モード (PTY なし stdio) で流用し、stream-json の stdout を絶対 offset 付き行 ring に貯めて ACK/replay でロスレス再接続する (ADR-0004)。palmux2 停止中の permission 要求も replay で UI に届く。冒頭 spike: MCP control_request 応答期限。",
       "milestone": true,
-      "status": "pending",
+      "status": "in_progress",
       "detail_level": "detailed",
       "depends_on": [
         "S3f2658"

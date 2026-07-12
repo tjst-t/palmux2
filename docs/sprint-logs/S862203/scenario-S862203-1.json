@@ -1,0 +1,32 @@
+{
+  "story": "S862203-1",
+  "title": "spike: 再起動を跨いだ MCP control_request 応答の受理検証",
+  "story_type": "spike",
+  "run_first": true,
+  "gating": true,
+  "design_refs": [
+    "docs/no-halt-agent-design.md#6-agent-モードのロスレス-replay",
+    "docs/DESIGN/adr/ADR-0004-agent-pipe-mode-offset-replay.json"
+  ],
+  "real_claude": "REQUIRED — this AC's entire purpose is to measure REAL claude CLI behavior (priority_rule 0). A fake emitter cannot answer 'how long does claude wait for a control_request response'. Must run against the real `claude` binary on this box.",
+  "acceptance_scenarios": [
+    {
+      "ac": "AC-S862203-1-1",
+      "intent": "Determine whether the claude CLI's deadline for an MCP-routed permission control_request response EXCEEDS palmux2's realistic restart window (a few seconds to ~15s). If claude gives up / times out / aborts the tool before a delayed allow arrives, the ADR-0004 replay design (palmux2 answers a control_request that was in-flight across its own restart) is unsound and must be revisited.",
+      "test_kind": "REAL-CLAUDE spike harness (Go integration harness mirroring internal/tab/claudeagent/ask_integration_test.go + bash_perm_integration_test.go real-claude wiring; env-gated like the existing real-claude integration tests). NOT a unit test, NOT a fake emitter.",
+      "real_claude": true,
+      "steps": [
+        "Build a minimal spike harness that reuses claudeagent's OWN transport primitives at the library level: spawn `claude --input-format stream-json --output-format stream-json --include-partial-messages --verbose --permission-prompt-tool mcp__<server>__<tool> --settings '{\"disableRemoteControl\":true}'` with an in-process MCP permission server (reuse mcp.go / the PermissionRequester seam, or a hand-rolled equivalent) so we observe the EXACT wire path production uses (mcp_message control_request → can_use_tool decision).",
+        "Send a user.message that reliably forces ONE tool call requiring permission (e.g. ask claude to run a specific Bash command, or Write a file) so the CLI emits an mcp_message control_request whose inner JSON-RPC is a permission check.",
+        "Capture the timestamp the control_request arrives. Then DELIBERATELY WITHHOLD the MCP/permission response — do NOT call respondControl — for a tiered set of delays: 10s, then (fresh run) 30s, then (fresh run) 60s. Between tiers, watch stdout/stderr for any timeout/abort/error envelope, control_cancel_request, tool_result with an error, or process exit.",
+        "After each tier's delay elapses, SEND the allow response (respondControl with behavior=allow / mcp_response success) and record whether: (a) claude ACCEPTS the late response, (b) the gated tool then EXECUTES, and (c) the assistant turn CONTINUES to completion (result envelope).",
+        "Record for each tier: arrival time, whether a timeout/cancel was observed before responding, whether the late allow was accepted, whether the tool executed, and the final turn outcome.",
+        "Additionally record the OBSERVED palmux2 restart window baseline for context (how long `make serve INSTANCE=dev` kill+respawn + reconnect takes) so the deadline can be compared against the real restart pain it must survive.",
+        "Write the full result (waiting behavior, presence/absence of timeout, per-tier accept/execute/continue booleans, verdict) to docs/sprint-logs/S862203/spike-S862203-1-1.json in the same shape as docs/sprint-logs/S3f2658/spike-S3f2658-1-1.json.",
+        "GATE: if the late allow is NOT accepted (claude aborted/cancelled/timed out the control_request before ~15s, i.e. shorter than the restart window) — do NOT proceed to Story 2/3. Escalate an ADR-0004 revisit to the user per the ADR's notes (pending-request re-send by claude / ptyhost-side hold-without-auto-deny) and HALT the sprint (priority_rule 0: never false-done; escalate at milestone)."
+      ],
+      "expected": "Documented real-claude behavior. PASS = claude waits for (and accepts) a control_request response for at least the palmux2 restart window (empirically expected ≥ tens of seconds, since permission prompts are human-in-the-loop and claude blocks the turn on them) → ADR-0004 replay design confirmed sound, proceed to Wave 2. FAIL = deadline shorter than restart window → escalate ADR-0004 revisit, halt."
+    }
+  ],
+  "notes": "Runs FIRST and BLOCKS Story 2 and Story 3 (they build the very replay mechanism this spike validates). Consumes real quota — keep the harness to the minimum runs needed for the three delay tiers (a handful of turns). Do NOT touch the host palmux2. The harness itself is throwaway/manual (env-gated), not part of the always-run CI suite. This spike answers the single open '-' consequence in ADR-0004 and its revisit condition verbatim."
+}

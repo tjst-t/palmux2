@@ -1,0 +1,59 @@
+{
+  "story": "S862203-3",
+  "title": "claudeagent.Client の thin client 化 + replay 再構成",
+  "story_type": "go-library",
+  "depends_on": ["S862203-1", "S862203-2"],
+  "design_refs": [
+    "docs/no-halt-agent-design.md#4-既存コードからの移行マップ",
+    "docs/no-halt-agent-design.md#6-agent-モードのロスレス-replay",
+    "docs/DESIGN/adr/ADR-0004-agent-pipe-mode-offset-replay.json",
+    "ADR-0002"
+  ],
+  "real_claude": "REQUIRED for AC-S862203-3-2 (restart-crossing permission E2E, real claude, on INSTANCE=dev — NEVER host palmux2). AC-3-1 wiring can be exercised with the fake NDJSON emitter. AC-3-3 = the EXISTING claudeagent unit + real-claude integration suite (ask/bash_perm/plan) regressing cleanly.",
+  "acceptance_scenarios": [
+    {
+      "ac": "AC-S862203-3-1",
+      "intent": "claudeagent.Client stops direct exec (host exec.CommandContext AND incus ExecCommander) and instead pumps stream-json over a pipe-mode ptyhost socket. Parse / MCP permission server / permstate / transcript stay in palmux2 (ADR-0002/0004).",
+      "test_kind": "go-unit + integration (fake emitter as ptyhost child)",
+      "steps": [
+        "In client.go, KEEP the entire argv/env/cwd assembly (the args[] builder incl --input-format stream-json, --permission-prompt-tool, --resume, --model, --permission-mode, --effort, --include-hook-events, --add-dir, --settings disableRemoteControl, and the incus --plugin-dir + ExecCommander wrapper) — this is palmux2-side and unchanged. For the incus path, convert the ExecCommander-built *exec.Cmd into an OPAQUE argv/env/cwd for ptyhost exactly as claudetui.spawnWithArgs does (argv = [cmd.Path, cmd.Args[1:]...], env = cmd.Env, cwd = cmd.Dir).",
+        "Replace cmd.Start()+StdinPipe/StdoutPipe/StderrPipe with: hand the opaque argv/env/cwd to a pipe-mode ptyhost launch/attach (mirror claudetui launchAndAttach: probeExisting → attach surviving, else launch fresh; HELLO version-degrade, do NOT kill on skew).",
+        "pumpStdout: instead of bufio.Scanner over a pipe, consume the Story-2 line-oriented replay client (ATTACH from persisted last-ack → reassemble NDJSON lines → the EXISTING `switch msg.Type` dispatch: control_response→mux, control_request→handleControlRequest, else onMessage). ACK each line's end offset + persist (Story 2 store).",
+        "pumpStderr: consume the separate stderr channel; keep logging + the 'No conversation found with session ID' invalid-resume detection.",
+        "writeLine (control responses + user messages) sends INPUT frames over the socket instead of stdin.Write. handleControlRequest / handleMCPMessage / respondControl / the in-process mcpServer + PermissionRequester STAY in palmux2 unchanged (they just write via INPUT now).",
+        "Close sends SHUTDOWN (or leaves the surviving ptyhost for GC on intentional shutdown vs. respawn). In-container claude reap (KillContainerProcesses) is driven by palmux2-side GC / SHUTDOWN as today.",
+        "manager.go: EnsureClient launches via ptyhost; watchClient detects child exit via socket STATUS/disconnect (not cmd.Wait); respawn = spawn a NEW pipe-mode ptyhost with the --resume decision (gate/invalid-resume logic unchanged, mirrors claudetui 'respawn = new ptyhost').",
+        "Integration: with the fake NDJSON emitter as the ptyhost child, assert the Client dispatches synthetic system/assistant/result envelopes through the unchanged normalize/transcript path and that INPUT-frame writes reach the child's stdin."
+      ],
+      "expected": "Client is a thin pipe-mode ptyhost socket client; all stream-json parse / MCP / permstate / transcript orchestration remains palmux2-side."
+    },
+    {
+      "ac": "AC-S862203-3-2",
+      "intent": "Across a palmux2 restart: (a) an in-flight turn's transcript is restored with NO loss, and (b) a permission request that ARRIVED DURING the restart window reaches the UI, is answered, and the gated tool executes.",
+      "test_kind": "REAL-MACHINE E2E — real claude on `make serve INSTANCE=dev` (NEVER host palmux2) + Playwright headless. tests/e2e/s862203_agent_restart_survival.py",
+      "real_claude": true,
+      "steps": [
+        "Start dev instance `make serve INSTANCE=dev`. Open a claude-agent tab. Send a message that starts a turn producing CONTINUOUS stream-json output AND that will hit a permission gate (e.g. ask claude to run a Bash command / write a file requiring approval).",
+        "Part (a) transcript losslessness: while the assistant is mid-turn emitting content, restart ONLY the dev palmux2 (re-run `make serve INSTANCE=dev` — kills+restarts the dev instance; the pipe-mode ptyhost + claude survive per Story 1/2). On reconnect, the discover pass ATTACHes from persisted last-ack and replays; assert the transcript after reconnect contains ALL pre-restart content with no missing/duplicated blocks (compare a sentinel-tagged sequence emitted across the gap).",
+        "Part (b) permission-across-restart: arrange the permission control_request to be OUTSTANDING at the moment of restart (claude blocks the turn on it — validated feasible by the Story-1 spike). After palmux2 restarts and reconnects, assert the replayed control_request is reconstructed as a PENDING permission surfaced in the Activity Inbox / agent UI. Answer 'allow' from the UI; assert the MCP allow reaches claude (INPUT frame), the gated tool EXECUTES, and the turn CONTINUES to a result.",
+        "Assert permstate is rebuilt from replay (the pending request is not lost, not auto-denied, not double-answered).",
+        "Assert offset persistence advanced past the answered request so a SECOND restart does not re-surface it."
+      ],
+      "expected": "Post-restart: transcript lossless, the restart-window permission request delivered + answerable + tool executes + turn completes. This is the milestone's core proof and MUST run on real claude (priority_rule 0)."
+    },
+    {
+      "ac": "AC-S862203-3-3",
+      "intent": "The existing claude-agent suite (permission flow, modes, transcript, respawn) regresses cleanly on the new pipe-mode transport.",
+      "test_kind": "go test ./internal/tab/claudeagent/... (incl real-claude integration: ask_integration, bash_perm_integration, plan_integration) + existing agent E2E",
+      "steps": [
+        "Run the full claudeagent unit suite (client, manager, permstate, normalize, transcript, modes, store, provider, sessions) — all pass, adapting fakes that assumed a direct PTY/pipe to the socket path (e.g. a fake pipe-mode ptyhost or the in-process launch fallback, mirroring claudetui's test adaptation).",
+        "Run the real-claude integration tests (ask/bash_perm/plan) under the new transport — permission allow/deny, plan mode, modes, and respawn behave identically to pre-migration.",
+        "Assert respawn-on-death with --resume still works: kill the child inside the ptyhost → ptyhost exits → Client/manager detects exit (STATUS/disconnect) → spawns a NEW pipe-mode ptyhost with --resume <sid> (invalid-resume clearing unchanged).",
+        "Assert permission-mode / model / effort / add-dir changes that today trigger a respawn still trigger a NEW-ptyhost respawn with the correct argv.",
+        "Assert in-container (incus) agent still works: claude runs INSIDE the container via the ptyhost holding the incus-exec wrapper argv (spot-check on deploy-test or the isolated throwaway-smoke rig if a real incus turn is needed; otherwise assert the argv/env assembly is byte-identical to today's ExecCommander path)."
+      ],
+      "expected": "No regression across existing claude-agent behaviors on the pipe-mode ptyhost transport."
+    }
+  ],
+  "notes": "This is the highest-risk migration story: client.go's transport half is rewritten and manager.go's spawn/respawn/watch + a new discover.go (mirror internal/tab/claudetui/discover.go's DiscoverAndRestore) are added, plus cmd/palmux/main.go wiring for agent discovery on startup. normalize.go / permstate.go / transcript.go / mcp.go stay UNCHANGED — replay reconstruction works by feeding replayed NDJSON lines back through the SAME processStreamMessage path (that is the whole point of ADR-0004: the stream is the source of truth, so replaying it rebuilds transcript+permstate for free). Keep argv/env assembly byte-identical (hooks, --permission-mode, incus wrapper, --plugin-dir) so hook payload + in-container spawn are unchanged. AC-3-2 depends on the Story-1 spike PASS (claude must accept a delayed control_request response); if the spike FAILED, this AC's part (b) is blocked and the whole ADR is under revisit."
+}
