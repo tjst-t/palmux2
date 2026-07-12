@@ -1,0 +1,19 @@
+{
+  "task": "AC-S3f2658-2-2",
+  "startedAt": "2026-07-12T01:53:14Z",
+  "hermeticPort": 55379,
+  "tmuxPrefix": "_pmx_s3f2658_2_55379_",
+  "browserStatusBefore": "streaming",
+  "restartedAt": "2026-07-12T01:53:20Z",
+  "pidBefore": 3703240,
+  "pidAfter": 3703240,
+  "samePid": true,
+  "counterBeforeRestart": 15,
+  "counterAfterRestart": 49,
+  "noGapDetected": true,
+  "winchMarkerCount": 3,
+  "markerOccurrencesAfter": 1,
+  "browserStatusAfter": "streaming",
+  "verdict": "PASS",
+  "finishedAt": "2026-07-12T01:53:27Z"
+}
