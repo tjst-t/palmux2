@@ -40,6 +40,45 @@ const (
 	gracefulShutdownTimeout = 5 * time.Second
 )
 
+// reapContainerClaude best-effort TERMs any in-container claude process for
+// the workspace identified by (repoID, branchID), via the workspace runtime's
+// optional runtime.ContainerProcessKiller capability (S52fc2c-4 /
+// S3f2658-4). Killing the host-side `incus exec` wrapper (the ptyhost's own
+// SIGTERM→SIGKILL escalation of the process IT holds) does not always
+// propagate the signal into the container child — see [runtime.
+// ContainerProcessKiller]'s doc comment — so every SHUTDOWN trigger (tab
+// close, branch close, orphan GC — S3f2658-4 wires ALL THREE through this
+// same helper) must ALSO explicitly reap the in-container process.
+//
+// No-op when resolver is nil, resolves to nil (host runtime / no workspace
+// runtime configured), or does not implement ContainerProcessKiller. Errors
+// from the kill itself are logged at Debug, not returned: pkill exit 1 ("no
+// matching process") is the common/expected case (S52fc2c-4
+// [AC-S52fc2c-4-1]), and a genuinely unreachable/destroyed container is not
+// a failure of the caller's own SHUTDOWN — the child is gone either way.
+func reapContainerClaude(resolver func(repoID, branchID string) runtime.PTYCommander, repoID, branchID string, timeout time.Duration, logger *slog.Logger) {
+	if resolver == nil {
+		return
+	}
+	pc := resolver(repoID, branchID)
+	if pc == nil {
+		return
+	}
+	kk, ok := pc.(runtime.ContainerProcessKiller)
+	if !ok {
+		return
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	kCtx, kCancel := context.WithTimeout(context.Background(), timeout)
+	defer kCancel()
+	if err := kk.KillContainerProcesses(kCtx, "TERM", containerClaudeBin); err != nil {
+		logger.Debug("claudetui: in-container claude reap (non-fatal)",
+			"repo", repoID, "branch", branchID, "err", err)
+	}
+}
+
 // State represents the lifecycle state of a Daemon's subprocess.
 type State int32
 
@@ -1087,17 +1126,7 @@ func (d *Daemon) respawnLoop() {
 
 		// S52fc2c-4: before respawning, kill any lingering in-container claude so
 		// only one instance runs at a time. [AC-S52fc2c-4-2]
-		if d.runtimeResolver != nil {
-			if pc := d.runtimeResolver(d.repoID, d.branchID); pc != nil {
-				if kk, ok := pc.(runtime.ContainerProcessKiller); ok {
-					kCtx, kCancel := context.WithTimeout(context.Background(), 3*time.Second)
-					if err := kk.KillContainerProcesses(kCtx, "TERM", containerClaudeBin); err != nil {
-						d.logger.Debug("claudetui: pre-respawn in-container kill (non-fatal)", "err", err)
-					}
-					kCancel()
-				}
-			}
-		}
+		reapContainerClaude(d.runtimeResolver, d.repoID, d.branchID, 3*time.Second, d.logger)
 
 		d.spawnMu.Lock()
 		spawnErr := d.spawnWithArgs(respawnArgs)
@@ -1350,23 +1379,16 @@ func (d *Daemon) teardown(killPtyhost bool) {
 			}
 		}
 
-		// S52fc2c-4: reap any lingering in-container claude process. Killing the
-		// host-side incus exec wrapper does not always propagate SIGTERM into the
-		// container child. We attempt an explicit pkill inside the container as
-		// a best-effort cleanup. Runs after the ptyhost-side process is confirmed
-		// dead/timed-out (above) so we don't race with the live process's own
-		// cleanup. Skipped entirely for Detach — a surviving ptyhost's
-		// in-container claude must keep running too.
-		if killPtyhost && d.runtimeResolver != nil {
-			if pc := d.runtimeResolver(d.repoID, d.branchID); pc != nil {
-				if kk, ok := pc.(runtime.ContainerProcessKiller); ok {
-					kCtx, kCancel := context.WithTimeout(context.Background(), 5*time.Second)
-					if err := kk.KillContainerProcesses(kCtx, "TERM", containerClaudeBin); err != nil {
-						d.logger.Debug("claudetui: in-container claude TERM (non-fatal)", "err", err)
-					}
-					kCancel()
-				}
-			}
+		// S52fc2c-4 / S3f2658-4: reap any lingering in-container claude process.
+		// Killing the host-side incus exec wrapper does not always propagate
+		// SIGTERM into the container child. We attempt an explicit pkill inside
+		// the container as a best-effort cleanup. Runs after the ptyhost-side
+		// process is confirmed dead/timed-out (above) so we don't race with the
+		// live process's own cleanup. Skipped entirely for Detach — a surviving
+		// ptyhost's in-container claude must keep running too (AC-S3f2658-4-1:
+		// palmux2's own restart must NOT reap a still-referenced session).
+		if killPtyhost {
+			reapContainerClaude(d.runtimeResolver, d.repoID, d.branchID, 5*time.Second, d.logger)
 		}
 
 		// Ensure sessionIDReady is closed so respawnLoop unblocks if it is
