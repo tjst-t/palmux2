@@ -95,6 +95,7 @@ func pidPPID(t *testing.T, pid int) int {
 // structural precondition for that survival (no PPID/cgroup relationship
 // tying the ptyhost to its launcher) without needing to kill anything.
 func TestLaunch_RealHost_DetachesFromTestProcess(t *testing.T) {
+	requireSurvivalSmoke(t)
 	bin := buildRealPalmuxBin(t)
 	dir := t.TempDir()
 	sockPath := filepath.Join(dir, "ptyhost.sock")
@@ -234,6 +235,7 @@ func zombieChildrenOf(pid int) []int {
 // failure, (b) falls back to MethodSetsid, and (c) the child actually runs
 // (status file with a live pid appears).
 func TestLaunch_RealSystemdRunFailure_FallsBackToSetsid(t *testing.T) {
+	requireSurvivalSmoke(t)
 	// Point D-Bus (and the runtime dir the launcher would otherwise derive a
 	// bus path from) at nonexistent locations so `systemd-run --user` fails
 	// fast with "Failed to connect to bus". ensureUserBusEnv keeps an
@@ -308,6 +310,7 @@ func TestLaunch_RealSystemdRunFailure_FallsBackToSetsid(t *testing.T) {
 // outlives the probe window and then exits, and asserts no zombie child of
 // the test process remains — proving the reaping goroutine Wait()s it.
 func TestLaunch_NoZombieAfterLaunchedProcessExits(t *testing.T) {
+	requireSurvivalSmoke(t)
 	// Shrink the probe window so the launched process is classified as
 	// "launched OK" (outlives the probe) and reaped by the lingering
 	// goroutine, not by the in-probe Wait().

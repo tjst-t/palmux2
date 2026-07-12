@@ -1,0 +1,36 @@
+{
+  "sprint": "S3f2658",
+  "generated_at": "2026-07-12T04:54:33.473403Z",
+  "overall_machine_status": "pass",
+  "runs": [
+    {
+      "name": "default-suite",
+      "command": "make test",
+      "machine_status": "pass",
+      "exit_code": 0,
+      "note": "full go test suite (26 pkgs ok) + frontend npm test (no-op). Log: verify-make-test.log",
+      "junit": null
+    },
+    {
+      "name": "survival-smoke-ptyhost",
+      "command": "PALMUX_SURVIVAL_SMOKE=1 go test ./internal/ptyhost/ -run 'TestSurvival_RealSystemd|TestLaunch_Real*|TestLaunch_NoZombie'",
+      "machine_status": "pass",
+      "exit_code": 0,
+      "note": "real systemd-run/setsid: DetachesFromTestProcess, RealSystemdRunFailure->setsid fallback, NoZombie, Survival(restart+kill-9) all PASS. Log: verify-survival-smoke.log"
+    },
+    {
+      "name": "survival-smoke-parallel-instance",
+      "command": "PALMUX_SURVIVAL_SMOKE=1 go test ./internal/tab/claudetui/ -run TestParallelInstances_NeverClaimOrGCEachOther",
+      "machine_status": "pass",
+      "exit_code": 0,
+      "note": "real detached ptyhosts under 2 disjoint instancePrefixes; no cross-claim/GC. PASS"
+    },
+    {
+      "name": "real-incus-smoke",
+      "command": "PALMUX_REALINCUS_SMOKE=1 go test ./internal/tab/claudetui/ -run TestRealIncus_InContainerProcessSurvivesRestartAndIsReaped",
+      "machine_status": "pass",
+      "exit_code": 0,
+      "note": "executed x2 during Story S3f2658-4 on dev incus 7.1 (pids unchanged across restart, reaped after SHUTDOWN, pre-existing containers untouched). Evidence: e2e-S3f2658-4.json. Not re-run in verify to avoid dev-box incus churn (per known degradation risk); AC executed with evidence during the story."
+    }
+  ]
+}

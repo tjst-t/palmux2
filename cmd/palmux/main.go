@@ -583,6 +583,10 @@ func run(rc resolved) error {
 			return nil
 		},
 		NotifyURLInContainer: bridgeNotifyURL(addr, basePath),
+		// S3f2658-2: claude now survives a palmux2 restart via a detached
+		// `palmux ptyhost` process (ADR-0001/0002) — PalmuxBin is the same
+		// binary re-invoked as `<PalmuxBin> ptyhost ...`.
+		PalmuxBin: hookBinPath,
 	})
 	claudetuiProvider := claudetui.New(claudetuiMgr)
 	// Sadf90e: claudetui daemons live per-tab and are spawned lazily on the
@@ -645,6 +649,24 @@ func run(rc resolved) error {
 	// longer exists. Same idea as user_opened_branches reconcile but
 	// independent so a failure in one path does not affect the other.
 	st.ReconcileLastActiveBranches(ctx)
+
+	// S3f2658-3: reconnect to any `palmux ptyhost` processes that survived a
+	// PRIOR palmux2 lifetime (self-update / systemctl restart / `make serve`
+	// re-run — ADR-0001/0002) BEFORE starting the background loops, so a
+	// restart's very first frame already shows restored claude-tui tabs
+	// rather than a blank one waiting for a lazy first WS attach. Dead /
+	// unreachable ptyhost sockets left behind by an unclean prior exit are
+	// cleaned up here too. Must run after tab/branch reconciliation above so
+	// worktree lookups are accurate.
+	if adopted, cleaned, derr := claudetui.DiscoverAndRestore(ctx, claudetuiMgr, storeWorktreeResolver{store: st}.BranchWorktreePath, slog.Default()); derr != nil {
+		slog.Warn("claudetui: startup ptyhost discovery failed", "err", derr)
+	} else if adopted > 0 || cleaned > 0 {
+		slog.Info("claudetui: startup ptyhost discovery", "adopted", adopted, "cleanedStale", cleaned)
+	}
+	// S3f2658-3: wire orphan GC onto the store's existing 10s scan loop
+	// (tmux-zombie-kill parity for ptyhosts whose tab/branch/worktree is
+	// gone). Must be set before st.Run(ctx) starts that loop.
+	st.SetTuiOrphanGC(claudetuiMgr)
 
 	st.Run(ctx)
 
@@ -814,8 +836,12 @@ func run(rc resolved) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	agentManager.Shutdown()
-	if err := claudetuiMgr.ShutdownAll(shutdownCtx); err != nil {
-		slog.Warn("claudetui shutdown", "err", err)
+	// S3f2658-2: DetachAll (NOT ShutdownAll) — palmux2 process exit (SIGTERM,
+	// self-update restart) must leave every claude-tui ptyhost running so a
+	// future palmux2 reconnects to it (ADR-0001/0002 restart survival). Only
+	// an intentional tab/branch close calls Shutdown.
+	if err := claudetuiMgr.DetachAll(shutdownCtx); err != nil {
+		slog.Warn("claudetui detach", "err", err)
 	}
 	// S012: stop the per-branch worktree watcher and release its
 	// fsnotify file descriptors before the process exits.

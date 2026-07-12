@@ -45,7 +45,14 @@
     "question": "Does `systemd-run --user --scope --collect` isolate the child into a cgroup that survives `systemctl --user restart` of a sibling palmux2 unit, on Ubuntu/home-manager and NixOS-appliance-equivalent environments? Is the setsid+double-fork fallback correct when no D-Bus user session exists?",
     "run_first": true,
     "why_first": "The entire survival guarantee (ADR-0003) rests on this. If systemd-run scope does not escape the palmux2 cgroup, the whole approach fails and must be revisited before building the protocol. Record result (available? cgroup-isolated? fallback verified?) in this file before Wave 1 implementation proceeds.",
-    "record_fields": ["systemd_run_available", "cgroup_isolated_from_parent", "survives_sibling_unit_restart", "setsid_fallback_detaches", "dbus_user_session_present", "notes"]
+    "record_fields": [
+      "systemd_run_available",
+      "cgroup_isolated_from_parent",
+      "survives_sibling_unit_restart",
+      "setsid_fallback_detaches",
+      "dbus_user_session_present",
+      "notes"
+    ]
   },
   "spike_results": [
     {
@@ -82,22 +89,30 @@
   "waves": [
     {
       "wave": 1,
-      "stories": ["S3f2658-1"],
+      "stories": [
+        "S3f2658-1"
+      ],
       "rationale": "Foundation: new internal/ptyhost/ package (ring+protocol+socket+launcher) and cmd/palmux/ptyhost.go. Contains the cgroup-escape spike (S3f2658-1-1) which MUST run first. Everything else depends on this protocol + launcher."
     },
     {
       "wave": 2,
-      "stories": ["S3f2658-2"],
+      "stories": [
+        "S3f2658-2"
+      ],
       "rationale": "Core migration: rewrite claudetui.Daemon into a thin socket client (daemon.go). Highest-risk story (screen restore + no regression). Serialized because 3 and 4 build on the thin-client shape."
     },
     {
       "wave": 3,
-      "stories": ["S3f2658-3"],
+      "stories": [
+        "S3f2658-3"
+      ],
       "rationale": "Discovery/reconnect + orphan GC + instance separation. Edits manager.go (restore path) and store sync loop. Depends on Stories 1+2. Establishes the SHUTDOWN/GC path that Story 4's reap plugs into."
     },
     {
       "wave": 4,
-      "stories": ["S3f2658-4"],
+      "stories": [
+        "S3f2658-4"
+      ],
       "rationale": "incus survival + in-container reap. Shares daemon.go/manager.go and the SHUTDOWN/GC path with Story 3, so serialized after it to avoid conflicts. Reuses existing runtime.ContainerProcessKiller."
     }
   ],
@@ -127,5 +142,143 @@
     ]
   },
   "conflict_notes": "S3f2658-2, -3, -4 ALL modify internal/tab/claudetui/daemon.go and manager.go. -3 and -4 both modify the store orphan-GC/SHUTDOWN path. This overlap is why intra-wave parallelism is rejected; each story merges to the sprint branch before the next starts.",
-  "status_note": "No story/AC statuses mutated (all remain pending). Sprint detail_level left 'detailed'."
+  "status_note": "No story/AC statuses mutated (all remain pending). Sprint detail_level left 'detailed'.",
+  "story_S3f2658_2_implementation_notes": [
+    {
+      "title": "Daemon rewrite preserves the palmux2-side Ring/Emulator/roleCoordinator verbatim; only PTY ownership moved",
+      "decision": "daemon.go keeps claudetui.Ring, Emulator, roleCoordinator, respawnLoop's decision logic, gateRespawn, hooks.go, claude_args.go byte-for-byte. spawnWithArgs still assembles the FULL argv/env/cwd (hooks --settings JSON, --permission-mode, incus PTYCommander wrapper argv/env/cwd extraction, --plugin-dir) exactly as before; the only change is the final step hands that argv/env/cwd to a ptyhost instead of calling creackpty.Start directly.",
+      "reference": "internal/tab/claudetui/daemon.go spawnWithArgs; ADR-0002"
+    },
+    {
+      "title": "launchAndAttach unifies 'fresh spawn' and 'reconnect to survivor' into one code path",
+      "decision": "Before launching a new ptyhost, launchAndAttach does a single non-retrying dial of the deterministic socket path (repoID__branchID__tabID under ptyhost.RunDir(instancePrefix)). If something answers HELLO+ATTACH there, that's a ptyhost that survived a PRIOR palmux2 lifetime (reconnected=true) — attach, don't spawn. Otherwise launch fresh via ptyhost.Launcher (reconnected=false). Both branches converge on the same HELLO/ATTACH(-1) handshake, so EnsureStarted needs no separate 'is this the first ever spawn vs a restart-recovery' orchestration — it falls out naturally from whether a survivor is found.",
+      "rationale": "Because ADR-0002 makes 'claude 終了 = ptyhost 終了' (the ptyhost self-terminates when its child exits), an in-life crash-respawn ALWAYS finds nothing at the socket path (the dead ptyhost already removed it) — reconnected is only ever true in the genuine palmux2-restart-recovery case. This gave a clean, low-risk way to gate the §5 SIGWINCH-jiggle screen restore to exactly the case it's meant for, with zero special-casing needed in the crash-respawn path (verified: the full existing respawn test suite passed unmodified).",
+      "reference": "internal/tab/claudetui/daemon.go launchAndAttach"
+    },
+    {
+      "title": "Screen restore (§5): replay is fed unconditionally; the SIGWINCH jiggle is reconnect-only",
+      "decision": "The ATTACH(-1) reply bytes are always fed into ring+emulator under feedMu (harmless/correct even for a fresh spawn — it's just 'don't lose whatever the ptyhost already buffered between its own spawn and our ATTACH', a safety net matching the pre-existing Fix-3 atomicity guarantee). The RESIZE(cols,rows-1)→RESIZE(cols,rows) jiggle only fires when reconnected==true, using the emulator's OWN current dimensions (always valid — NewEmulator's 80x24 default if nothing else) as the target size, then a further real client Resize() naturally repaints again with the true browser size once the FE reconnects.",
+      "rationale": "A fresh spawn's emulator/ring are already correct by construction — jiggling it would be pure overhead. Using the emulator's own GridSnapshot dims (rather than the Daemon's lastCols/lastRows, which reset to 0 on a freshly-reconstructed post-restart Daemon object) guarantees the jiggle always has a valid, non-zero size to use without needing to wait for the FE's first post-reconnect resize call, whose arrival is racy relative to WS attach.",
+      "reference": "internal/tab/claudetui/daemon.go restoreScreenJiggle; docs/no-halt-agent-design.md §5"
+    },
+    {
+      "title": "Two channels for 'ptyhost connection lost', not one — fixes a real race found empirically",
+      "decision": "handleConnLost populates a single-consumer `exited chan error` (respawnLoop's sole reader, carrying the specific exit reason) AND separately closes a `connClosed chan struct{}` broadcast (Shutdown's wait target). Shutdown() waits on connClosed, never exited.",
+      "found_by": "Empirical: the initial implementation had BOTH respawnLoop and Shutdown() racing to receive from the same buffered `exited chan error`. Whichever won left the other's select stuck until its own timeout. This was caught by an unexplained ~8s stall on ~26 of the existing claudetui tests (full suite went from ~14s to ~183s) — root-caused via targeted instrumentation (readLoop/handleConnLost prints) that showed handleConnLost sending successfully almost instantly while Shutdown() still timed out, meaning SOMETHING ELSE was consuming the value first.",
+      "verification": "After the fix, the full existing claudetui suite dropped back to ~14-17s (matching pre-migration baseline order of magnitude) with zero spurious timeouts across repeated runs.",
+      "reference": "internal/tab/claudetui/daemon.go — exited/connClosed field doc comments, handleConnLost, Shutdown"
+    },
+    {
+      "title": "Automatic in-process ptyhost fallback when PalmuxBin is unset — zero changes needed to ~26 existing test call sites",
+      "decision": "DaemonConfig gained PalmuxBin/PtyHostLaunch/RunDirOverride. When PalmuxBin is empty (true for every pre-existing test — none of them set it), NewDaemon wires an automatic fallback: PtyHostLaunch defaults to inProcessLaunchPtyHost (a REAL internal/ptyhost.Server run as a goroutine in the SAME test process, not a fake — still exercises the genuine protocol/ring/spawn code) and RunDirOverride defaults to a per-Daemon-unique temp directory (os.TempDir()/palmux-ptyhost-dev/d<pid>-<seq>) generated once at construction via a process-global atomic counter, guaranteeing zero collision between concurrent/sequential Daemon instances regardless of test cleanup ordering. Production (cmd/palmux/main.go) sets PalmuxBin to the same os.Executable()-derived path already used for HookBinPath, which switches on the REAL detached-process launcher (ADR-0003 systemd-run/setsid) and the real ptyhost.RunDir(instancePrefix) XDG path.",
+      "rationale": "AC-S3f2658-2-4 requires the ENTIRE existing claudetui unit suite to pass without weakening assertions. Given ~20+ test call sites construct Daemon/Manager directly with fakeBin-based ClaudeBin and no ptyhost-specific config, requiring every one of them to be edited to add explicit ptyhost wiring would be large, error-prone busywork orthogonal to what those tests actually assert. The automatic fallback achieves hermetic, fast, fully real (non-mocked) ptyhost behavior with zero test-file changes for the pre-existing suite, while explicit PalmuxBin/PtyHostLaunch/RunDirOverride remain available for the NEW tests that need fine control over the reconnect/version-mismatch scenarios (ptyhost_integration_test.go).",
+      "reference": "internal/tab/claudetui/ptyclient.go inProcessLaunchPtyHost/autoTestRunDir; internal/tab/claudetui/daemon.go NewDaemon"
+    },
+    {
+      "title": "Pre-existing data races under go test -race are NOT this story's regressions",
+      "decision": "go test ./internal/tab/claudetui/... -race surfaces two race families: (a) charmbracelet/x/vt's Emulator.Close() vs Emulator.Read() (a third-party library internal io.Pipe synchronization gap), and (b) roleCoordinator.OnUnsubscribe (role.go, a file this story does not touch at all). Both were independently reproduced on the PRE-Story-2 base commit (934939b) with the SAME test names and race signatures, confirming they are pre-existing and unrelated to the ptyhost migration. `make test` (this project's standard gate) does not run with -race, so these were already a latent, unaddressed condition. NOT fixed as part of this story (would mean patching a vendored third-party library's internals, or a larger emulator-I/O-drain redesign — out of ADR-0002/socket-migration scope) — flagged as an escalation/backlog item instead.",
+      "verification": "git worktree add --detach <tmp> 934939b; go test ./internal/tab/claudetui/... -race reproduces the identical failing-test set and race stack traces as the post-migration code.",
+      "reference": "escalations in the final story report"
+    },
+    {
+      "title": "E2E uses the proven hermetic-instance pattern (unique port/config-dir/tmux-prefix), not literally `make serve INSTANCE=dev`",
+      "decision": "tests/e2e/s3f2658_2_ptyhost_restart_survival.py follows the s7ce250_claude_tui.py / terminal_fit.py hermetic pattern: a fresh free port, a throwaway --config-dir, and a unique --tmux-prefix (which also derives the ptyhost instancePrefix, satisfying 'separate ptyhost instancePrefix' from the story brief) — restarted by killing/respawning that exact subprocess, never the host palmux2 and never any shared INSTANCE=dev rig.",
+      "rationale": "This worktree runs alongside several OTHER concurrently-active agent worktrees on the same host (confirmed via `git worktree list` — 8+ active worktrees at the time of writing). A literal `make serve INSTANCE=dev` uses a fixed portman name ('dev') that could collide with another agent's simultaneously-running dev rig. The hermetic pattern is the established, already-proven way this codebase avoids that class of collision for exactly this kind of test, and it satisfies the story's actual intent (isolated port/prefix, restart only the isolated instance, never the host) at least as strictly as the literal INSTANCE=dev invocation would.",
+      "reference": "tests/e2e/s7ce250_claude_tui.py hermetic_palmux2; docs/development.md bootstrap-problem note"
+    },
+    {
+      "title": "REAL BUG found only by the E2E: palmux2 process exit was killing every ptyhost — Shutdown/ShutdownAll split into Shutdown/Detach + ShutdownAll/DetachAll",
+      "found_by": "The AC-S3f2658-2-2 real-machine E2E, on its FIRST real run against the prebuilt binary — a Go-unit-only validation would never have caught this, since every claudetui unit test constructs its own Daemon/Manager directly and never exercises cmd/palmux/main.go's actual SIGTERM handler.",
+      "summary": "cmd/palmux/main.go's `<-ctx.Done()` shutdown path (which fires on SIGTERM/SIGINT — i.e. EVERY palmux2 process exit, including a self-update restart) called `claudetuiMgr.ShutdownAll(shutdownCtx)`. Daemon.Shutdown() now (post-migration) sends a real SHUTDOWN message over the ptyhost socket, so this was UNCONDITIONALLY killing every running claude-tui ptyhost on every palmux2 exit — the exact opposite of ADR-0001/0002's entire purpose. The E2E's `stop_hermetic()` (SIGTERM to the hermetic instance) surfaced this immediately: the reconnected daemon after restart had a DIFFERENT pid — the OLD ptyhost had been killed by the outgoing process's own graceful-shutdown path before the new process ever got a chance to find it.",
+      "decision": "Split `Daemon.Shutdown()` into two named operations sharing one `teardown(killPtyhost bool)` implementation: `Shutdown()` (killPtyhost=true — sends the socket SHUTDOWN, reaps in-container claude; for INTENTIONAL tab/branch close, unchanged from before) and `Detach()` (killPtyhost=false — closes only the LOCAL socket connection, sends nothing, skips in-container reap; for palmux2's own process-exit path). Mirrored on Manager: `ShutdownAll` (kept, now documented as NOT for process-exit — genuine full-teardown callers like test harnesses) and a new `DetachAll`. cmd/palmux/main.go's SIGTERM/SIGINT handler now calls `claudetuiMgr.DetachAll(shutdownCtx)` instead of `ShutdownAll`.",
+      "verification": "Re-ran the E2E after the fix: pidBefore == pidAfter across a real kill+respawn of the hermetic instance, confirming the surviving ptyhost is genuinely reconnected to, not silently replaced by a same-shaped-but-different spawn. Full claudetui/ptyhost/cmd-palmux unit suites re-run clean afterward (no regression — no existing test exercised this process-exit code path, so none needed updating).",
+      "reference": "internal/tab/claudetui/daemon.go Shutdown/Detach/teardown; internal/tab/claudetui/manager.go ShutdownAll/DetachAll; cmd/palmux/main.go SIGTERM handler"
+    },
+    {
+      "title": "REAL BUG found only by the E2E: ptyhost socket paths could exceed the AF_UNIX 108-byte sun_path limit",
+      "found_by": "The E2E's first run against a real repo opened via the standard `_fixture.py` helper (repo IDs like `palmux2-test--dbg2-20260712-013740-3435203--6de1`, realistic in length for CI/test-generated repos and not contrived) — every Go unit test used deliberately short synthetic repoID/branchID strings, so this never surfaced there.",
+      "summary": "The original `ptyHostPaths()` joined the LITERAL `repoID__branchID__tabID` string as the socket/status filename under RunDir. With a realistic repo ID plus a tabID like `claude:claude`, the joined path routinely exceeded ~108 bytes, and `ptyhost.Server.listen()`'s `net.Listen(\"unix\", ...)` failed with `bind: invalid argument` — the ptyhost process spawned, then immediately died (`exitCode=-1`), and BOTH the systemd-run and setsid launch paths reported 'launch did not take', surfacing as an opaque 'claudetui: ensure started' error with no obvious connection to path length. This is a genuine production risk, not a test-only artifact: real Repository/Workspace IDs are normally short slugs, but nothing in the domain model bounds their length, and `claude:claude`-shaped tab IDs are a fixed cost that eats into the budget on every install.",
+      "decision": "Added `ptyhost.FileKey(seed)` (sha256, truncated to 20 hex chars) plus `ptyhost.SocketPath`/`StatusPath(runDir, seed)` helpers that hash the seed into a short, fixed-length, still-deterministic filename (deterministic is required — it's how a restarted palmux2 rediscovers the SAME surviving ptyhost). `Daemon.ptyHostPaths()` now calls these instead of concatenating the raw seed string directly.",
+      "verification": "Reproduced the exact failure by hand against a debug build (`bind: invalid argument` with the literal-seed path), applied the fix, rebuilt, and confirmed the identical scenario (real `_fixture.py`-generated repo, real WS attach) succeeds. Full claudetui/ptyhost unit suites re-run clean afterward (the existing tests all call `d.ptyHostPaths()` rather than hardcoding the old literal-name format, so none needed changes).",
+      "reference": "internal/ptyhost/paths.go FileKey/SocketPath/StatusPath; internal/tab/claudetui/daemon.go ptyHostPaths"
+    },
+    {
+      "title": "Post-review: added a fast Go unit guard for Manager.DetachAll's SURVIVAL contract",
+      "decision": "Added TestManagerDetachAll (internal/tab/claudetui/manager_test.go) per coordinator review: starts 3 daemons via the in-process ptyhost fallback, calls DetachAll, and asserts BOTH Len()==0 (Manager forgot them) AND each ptyhost socket is still listening + HELLO-responsive with a live pid afterward (proving detach ≠ shutdown — the survival-critical distinction). t.Cleanup SHUTDOWNs the survivors so the fast test leaks no processes. DetachAll was previously only covered by the slow real-process e2e; this is the fast guard on that survival-critical path. go test ./internal/tab/claudetui/ PASS.",
+      "reference": "internal/tab/claudetui/manager_test.go TestManagerDetachAll"
+    }
+  ],
+  "story_S3f2658_3_implementation_notes": [
+    {
+      "title": "ptyhost.StatusFile gains a Seed field so discovery can recover identity from disk",
+      "decision": "ptyhost.Config/StatusFile gained a Seed string field (echoed verbatim, ADR-0002-compliant opaque plumbing -- ptyhost does not interpret it). Daemon.launchAndAttach already computed req.Seed = repoID__branchID__tabID for the systemd scope unit name (Story 1); this Sprint threads the SAME value into the ptyhost subcommand's new --seed flag and the on-disk status JSON. Without this, a discovery pass scanning the run dir could not recover which (repoId, branchId, tabId) a surviving socket belongs to, since the socket/status FILENAMES are a one-way FileKey hash of the seed (AF_UNIX sun_path length limit), not the literal seed string.",
+      "reference": "internal/ptyhost/server.go Config.Seed/StatusFile.Seed; cmd/palmux/ptyhost.go --seed; internal/tab/claudetui/ptyclient.go"
+    },
+    {
+      "title": "Startup discovery reuses Story 2's launchAndAttach verbatim -- no new attach code",
+      "decision": "DiscoverAndRestore (discover.go) does NOT re-implement the survivor-attach handshake. For every LIVE ptyhost scanRunDir finds, it simply calls the ordinary Manager.EnsureDaemon + Daemon.EnsureStarted -- the SAME lazy-attach path a first WebSocket attach already takes. Because the ptyhost is already listening at the deterministic seed-derived socket path, EnsureStarted's internal launchAndAttach.probeExisting finds it immediately and attaches (reconnected=true, screen-restore jiggle fires) instead of spawning. Discovery's only NEW responsibility is deciding WHICH (repoId, branchId, tabId) tuples to eagerly call EnsureStarted for at boot (parsed from on-disk Seed), rather than waiting for a lazy WS attach.",
+      "rationale": "priority_rule 6 (reuse, don't reinvent). This also means the AC-2-2 screen-restore guarantee (SIGWINCH jiggle, replay-before-live-feed) is inherited for free by discovery-adopted tabs with zero duplicated logic.",
+      "reference": "internal/tab/claudetui/discover.go DiscoverAndRestore"
+    },
+    {
+      "title": "Orphan GC must never dial an already-referenced ptyhost -- skipLive filters BEFORE any probe",
+      "decision": "scanRunDir takes an optional skipLive(repoId,branchId,tabId) predicate consulted immediately after parsing a status file's Seed, BEFORE any liveness probe (pid check, dial, HELLO). GCOrphans passes its isLive callback here; DiscoverAndRestore passes nil (nothing is adopted yet at boot, so nothing needs protecting). A referenced entry is left COMPLETELY untouched -- not dialed, not counted.",
+      "rationale": "ptyhost.Server tolerates exactly ONE active connection at a time (replaceConn closes whatever was previously active the instant a new one arrives -- by design, docs/no-halt-agent-design.md §2: \"socket は同時 1 接続で十分\"). An EARLIER version of GCOrphans probed (dial+HELLO) every discovered entry BEFORE checking isLive, which meant a routine 10s GC tick would silently evict a live Daemon's real connection to a STILL-REFERENCED tab -- caught by TestParallelInstances_NeverClaimOrGCEachOther (a manually-dialed liveness recheck on an already-adopted host manufactured a false 'subprocess died unexpectedly'). Fixed by moving the skipLive check before the dial, and by making the real-machine isolation test check adopted hosts via Daemon.CurrentStats() instead of a second raw dial.",
+      "reference": "internal/tab/claudetui/discover.go scanRunDir skipLive parameter"
+    },
+    {
+      "title": "Orphan-GC socket/status cleanup is deliberately deferred to a LATER scan tick, not synchronous with SHUTDOWN",
+      "decision": "sendOrphanShutdown only sends the SHUTDOWN frame; it does not delete the on-disk files. Cleanup happens via the SAME dead-entry detection scanRunDir already performs (pid dead / socket unreachable), which self-heals on a subsequent tick once the child has actually exited and the ptyhost's own teardown has removed its .sock.",
+      "rationale": "An early implementation proactively os.Remove'd both files immediately after writing the SHUTDOWN frame. This raced ptyhost.Server.waitChild's own concurrent (re)write of the final status file (Alive:false) on child exit, which could resurrect the just-deleted .json (observed directly in TestGCOrphans_ShutsDownUnreferenced_LeavesReferenced during implementation). Deferring cleanup to self-healing on a later tick avoids the race entirely and is a closer match to how tmux zombie-kill already works (fire the kill, let reconciliation catch up).",
+      "reference": "internal/tab/claudetui/discover.go Manager.GCOrphans / sendOrphanShutdown"
+    },
+    {
+      "title": "Found and fixed a pre-existing ptyhost.Server.Run() deadlock: accept-loop connCh send has no escape hatch during shutdown",
+      "decision": "ptyhost.Server.Run()'s accept-loop goroutine did `connCh <- conn` (unbuffered, unconditional). If a NEW connection is Accept()-ed in the narrow window between the main select loop choosing its shutdown/ctx-done branch (which permanently stops servicing connCh) and ln.Close() taking effect, that send blocks FOREVER -- no receiver will ever read it again -- which hangs that goroutine, which hangs s.wg.Wait() in teardown(), which hangs Run() forever (SILENT, no error, no timeout). Fixed by adding a stopAccept channel, closed FIRST thing in teardown() (before ln.Close()), and having the accept-loop select between `connCh <- conn` and `<-stopAccept` (closing the straggler conn instead of leaking the goroutine).",
+      "rationale": "This bug existed since Story 1 but was effectively unreachable by the Story 1/2 test suites, which never dial a ptyhost socket a SECOND time right as it's being shut down. S3f2658-3's discovery/orphan-GC liveness probes are EXACTLY that pattern (dial+HELLO to check aliveness, independent of the real attach connection), which made the race trivially reachable -- first observed as an intermittent 'raw ptyhost did not fully tear down' / t.TempDir() RemoveAll 'directory not empty' flake under heavy parallel test-suite load (go test ./... running all packages concurrently on this 4-core box), confirmed via a goroutine-stack dump (accept-loop stuck in 'chan send' at the connCh line, srv.Run() stuck in sync.WaitGroup.Wait). Fixed at the root (internal/ptyhost/server.go) rather than avoided in claudetui-side code, since ANY future caller that probes a ptyhost socket during its shutdown window would hit the same hang. Re-verified with 7 consecutive full `go test ./...` runs post-fix (previously flaky ~1-in-3 under load) with zero recurrence.",
+      "reference": "internal/ptyhost/server.go Run() stopAccept"
+    },
+    {
+      "title": "instancePrefix isolation for in-process multi-Manager tests via a new DaemonConfig/ManagerConfig.InstancePrefix field",
+      "decision": "Added InstancePrefix to DaemonConfig/ManagerConfig, empty (every production/existing test caller) falling back to the global domain.PalmuxSessionPrefix exactly as before. This lets AC-S3f2658-3-3's real-machine test construct TWO independently-instance-scoped Managers in the SAME test process (domain.PalmuxSessionPrefix is a package var and cannot hold two values at once) without needing two separate `make serve` OS processes for every isolation assertion, while still exercising the REAL ptyhost spawn path (systemd-run/setsid via the actual compiled binary) for the ptyhosts themselves.",
+      "reference": "internal/tab/claudetui/daemon.go/manager.go InstancePrefix; internal/tab/claudetui/instance_isolation_test.go"
+    },
+    {
+      "title": "Store <-> claudetui.Manager wiring via a narrow TuiOrphanGC interface + setter, mirroring SetMultiTabHook",
+      "decision": "internal/store defines `TuiOrphanGC` (one method: GCOrphans(ctx, isLive) (shutdown,cleaned,err)) and `Store.SetTuiOrphanGC` / `gcTuiOrphans` / `isTuiTabLive`. main.go wires `st.SetTuiOrphanGC(claudetuiMgr)` after claudetuiMgr is constructed (store is built earlier). gcTuiOrphans is called from the SAME 10s tick as scanPorts (runPortScan's ticker case), NOT a new loop, and is NOT gated by RuntimeRegistry (unlike scanPorts) since ptyhost orphan reconciliation is runtime-independent.",
+      "rationale": "Keeps store free of an internal/tab/claudetui import (avoiding a dependency direction store should not have), matching the existing MultiTabHook precedent exactly.",
+      "reference": "internal/store/sync_worktree.go TuiOrphanGC/SetTuiOrphanGC/gcTuiOrphans; cmd/palmux/main.go"
+    },
+    {
+      "title": "POST-REVIEW FIX (critical): orphan-GC identity via explicit JSON fields, not a parseable delimited string",
+      "decision": "Coordinator review found a critical orphan-GC data-loss bug in the ORIGINAL S3f2658-3 implementation: discovery/GC recovered a ptyhost's (repoId, branchId, tabId) by strings.SplitN(seed, \"__\", 3) on the on-disk Seed. That split is NOT a true inverse of ptyHostSeed's `repoID + \"__\" + branchID + \"__\" + tabID` join whenever a repoID or branchID itself contains the literal substring \"__\" (domain IDs permit \"_\" unchanged, and two adjacent sanitized-out chars collapse to \"__\"). Deterministic repro: repo dir github.com/org/my__tool -> repoID `my__tool--ab12` -> seed `my__tool--ab12__main--cd34__claude` -> SplitN yields the WRONG tuple (repoID=\"my\", branchID=\"tool--ab12\", tabID=\"main--cd34__claude\"). store.Tab(\"my\",...) is not-found -> isTuiTabLive reports FALSE for a tab that is actually LIVE and referenced -> skipLive doesn't skip -> GC dials+HELLOs it (evicting the real Daemon's active connection) and unconditionally SHUTDOWNs it -> the user's running claude dies, on the FIRST 10s GC tick after such a tab opens, no restart needed. FIX: removed splitSeed and the \"__\"-join-as-identity path ENTIRELY. Added explicit RepoID/BranchID/TabID fields to ptyhost.Config and ptyhost.StatusFile, written DIRECTLY from Config (no join, no parse) and read directly by scanRunDir. Seed is retained ONLY as the opaque socket/status-filename + systemd-scope-unit label (Story 1's original use) and is explicitly documented as NOT a parseable identity. Threaded via new --repo-id/--branch-id/--tab-id ptyhost subcommand flags (production) and PtyHostLaunchRequest.RepoID/BranchID/TabID (both launch paths). Kept ptyhost claude-agnostic per ADR-0002 — these are opaque strings it stores/returns, never acts on. This removes the entire ambiguity CLASS: any delimiter from the same charset could collide, so we stopped round-tripping identity through a delimited string at all.",
+      "rationale": "A safer delimiter would only narrow the collision set, not eliminate it. JSON already gives us structured fields for free; identity must travel as structure, not as a string that has to be re-parsed.",
+      "regression_test": "TestGCOrphans_IDContainingDoubleUnderscore_SurvivesGC (internal/tab/claudetui/discover_test.go): opens a ptyhost for repoID `my__tool--ab12` / branchID `main--cd34` / tabID `claude`, registers it LIVE via an exact-tuple isLive predicate, runs several full GC passes, and asserts the ptyhost is NEVER dialed or shut down (survives multiple ticks, same pid, still HELLO-responsive) AND that the on-disk status file carries the identity byte-exact. Verified it FAILS against the old SplitN logic (observed `orphan gc: shut down unreferenced ptyhost repo=my branch=tool--ab12 tab=main--cd34__claude` then `GC shut down 1 ptyhost(s) — a LIVE referenced tab ... was misparsed and killed`) and PASSES with the explicit-field fix.",
+      "reference": "internal/ptyhost/server.go Config/StatusFile RepoID/BranchID/TabID; cmd/palmux/ptyhost.go --repo-id/--branch-id/--tab-id; internal/tab/claudetui/{ptyclient.go,daemon.go,discover.go}; internal/tab/claudetui/discover_test.go"
+    }
+  ],
+  "story_S3f2658_4_implementation_notes": [
+    {
+      "title": "Task 1 (argv assembly + opaque handoff) was already fully implemented pre-Story-4 -- verified and unit-test-tagged, not reinvented",
+      "decision": "daemon.spawnWithArgs already assembles the full `incus exec -t <inst> --user ... --cwd ... --env ... -- /abs/claude <args>` argv via runtime.PTYCommander and hands it OPAQUELY to launchAndAttach/ptyhost (carried over verbatim from S4d8b1c through Story 2's ptyhost migration -- daemon.go:589-692). Story 4's only Task-1 deliverable was VERIFICATION (unit test asserting the wrapper is what ptyhost actually executes) plus an explicit [AC-S3f2658-4-1] tag; no argv-assembly code changed.",
+      "reference": "internal/tab/claudetui/daemon.go spawnWithArgs; internal/tab/claudetui/shutdown_reap_test.go TestSpawnWithArgs_IncusWrapperHandedOpaquelyToPtyhost"
+    },
+    {
+      "title": "Task 2 (SHUTDOWN reap) gap analysis: tab-close/branch-close already reaped (S52fc2c-4 carried over); orphan-GC did not -- that was the real Story-4 code change",
+      "decision": "Daemon.teardown (Shutdown, called by Manager.CloseDaemon/CloseBranchDaemons/ShutdownAll) already invoked runtime.ContainerProcessKiller.KillContainerProcesses on every genuine SHUTDOWN -- this is S52fc2c-4 backlog code preserved through Story 2's thin-client migration, confirmed by reading daemon.go before any edit. The ONE gap: Manager.GCOrphans (Story 3's orphan-GC path) sends SHUTDOWN by dialing the orphaned ptyhost's socket DIRECTLY (sendOrphanShutdown in discover.go) -- it never goes through a Daemon at all, so it never reached the reap. This matters because DiscoverAndRestore blindly re-adopts every LIVE ptyhost at boot regardless of whether its tab still exists in the store, so a tab/branch deleted while palmux2 was down is exactly the case orphan-GC exists to clean up -- and, before this fix, its in-container claude would have leaked forever (nothing else ever reaps it).",
+      "action": "Extracted the duplicated reap call (teardown + the pre-respawn kill in respawnLoop) into a single reapContainerClaude(resolver, repoID, branchID, timeout, logger) helper in daemon.go, then called it a THIRD time from GCOrphans in discover.go (via Manager.cfg.RuntimeResolver, resolved by the orphan's own repoID/branchID) right after a successful sendOrphanShutdown.",
+      "reference": "internal/tab/claudetui/daemon.go reapContainerClaude/teardown; internal/tab/claudetui/discover.go GCOrphans"
+    },
+    {
+      "title": "Real-incus smoke reuses incus.PTYCommand/ptyhost.Launcher directly instead of driving a second full palmux2 HTTP server",
+      "decision": "The real-incus AC-4-1/4-2 smoke (internal/tab/claudetui/real_incus_survival_test.go, gated behind PALMUX_REALINCUS_SMOKE=1, NOT part of default `go test ./...`) calls incus.New(...).PTYCommand -- the exact production argv-assembly a real workspace uses -- and defaultLaunchPtyHost -- the exact ADR-0003 systemd-run spawn a real Daemon.launchAndAttach uses -- directly with a synthetic bash-counter argv, rather than opening a claude-tui WS tab on a second full palmux2 instance (the literal 'deploytest isolated-throwaway' shape).",
+      "rationale": "containerClaudeBin (/home/ubuntu/.local/bin/claude) is BIND-MOUNTED FROM THE HOST (S8478ca/S4d8b1c) -- daemon.spawnWithArgs hardcodes this path when inContainer, so driving a real claude-tui tab end-to-end would either invoke the REAL claude CLI (API quota/auth cost the task explicitly asks to avoid) or require writing over a path shared with the live host palmux2 this session runs under (forbidden -- 'NEVER touch the host palmux2'). Calling the same production entry points directly with a cheap counter script sidesteps both hazards while still exercising 100% real incus + real ADR-0003 spawn + real runtime.ContainerProcessKiller code -- the exact primitives Task 1/2 wire together. Task 1's argv-ASSEMBLY correctness (flag injection, containerClaudeBin substitution) is separately covered at the unit level with a fake PTYCommander.",
+      "reference": "internal/tab/claudetui/real_incus_survival_test.go; docs/sprint-logs/S3f2658/e2e-S3f2658-4.json"
+    },
+    {
+      "title": "Real-incus smoke result: SURVIVAL PASS x2 + reap PASS, run twice on dev.tjstkm.net's live incus with pre-existing containers confirmed untouched both times",
+      "decision": "Ran PALMUX_REALINCUS_SMOKE=1 go test twice against dev.tjstkm.net's real incus 7.1 (2 pre-existing live-workspace containers, never touched -- verified identical before/after both runs). Both runs: AC-4-1 PASS (ptyhost-held local incus-exec wrapper pid AND in-container marker process pid unchanged across a simulated palmux2 disconnect/reconnect, ring output grew across the interval -- no gap), AC-4-2 PASS (explicit runtime.ContainerProcessKiller.KillContainerProcesses(TERM, marker) reaped the in-container process). Observed (logged, not asserted, since the design doc itself says 'does not ALWAYS propagate'): in both runs the mere host-side ptyhost SHUTDOWN alone (TERM of the local incus-exec wrapper, no explicit container-side pkill) ALSO happened to kill the container-side bash counter -- this does not weaken the case for the explicit reap (a real claude process traps SIGTERM differently than bash's default forwarding, and the design doc's own rationale is 'does not ALWAYS propagate', i.e. not guaranteed -- the explicit pkill is the deterministic backstop regardless of what a given incus-exec teardown happens to do).",
+      "reference": "docs/sprint-logs/S3f2658/e2e-S3f2658-4.json"
+    }
+  ]
 }

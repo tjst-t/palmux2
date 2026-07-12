@@ -31,6 +31,7 @@ import (
 // Results are also written to
 // docs/sprint-logs/S3f2658/survival-S3f2658-1.json by this test.
 func TestSurvival_RealSystemd_PtyhostOutlivesLauncherRestartAndKill9(t *testing.T) {
+	requireSurvivalSmoke(t)
 	if os.Getenv("PALMUX_SKIP_SURVIVAL") != "" {
 		t.Fatal("PALMUX_SKIP_SURVIVAL is set — SURVIVAL ACs must never be silently skipped (priority_rule 0); unset it to run this test")
 	}
