@@ -1,0 +1,32 @@
+{
+  "sprint": "S3f2658",
+  "verifier": "independent",
+  "verified_at": "2026-07-12T05:20:00Z",
+  "ac_reconciliation": [
+    {
+      "ac": "AC-S3f2658-1-3",
+      "self": "pass",
+      "verifier": "confirm",
+      "note": "[SURVIVAL] REAL systemd, not mock. verify-survival-smoke.log shows TestSurvival_RealSystemd PASS: cgroup isolation confirmed (ptyhost scope=app.slice/palmux-agent-test-*.scope vs test=system.slice/palmux2.service), child+ptyhost same pid alive across `systemctl --user restart` AND kill-9, ring kept growing (12->72->134). survival-S3f2658-1.json verdict SURVIVAL_PASS x2, exit 0. Genuine transient-unit throwaway launcher, never touches host palmux2."
+    },
+    {
+      "ac": "AC-S3f2658-4-1",
+      "self": "pass",
+      "verifier": "confirm",
+      "note": "[SURVIVAL] REAL incus (wrapperArgv=/usr/bin/incus exec -t ...), not mock/DRY_RUN. e2e-S3f2658-4.json: ptyhostHeldWrapperPid 1377693 unchanged across reconnect, containerPid 287 unchanged, ringGrewAcrossReconnect=true, ac41Pass=true, pre-existing containers byte-identical (existingContainersUntouched=true). Test run x2 during Story 4 on dev incus 7.1. NOT re-run inside `sprint verify` (documented, to avoid dev-box incus churn per known-degradation memory) — evidence stands from the story run; disclosed, not hidden."
+    },
+    {
+      "ac": "AC-S3f2658-4-2",
+      "self": "pass",
+      "verifier": "confirm",
+      "note": "[SURVIVAL] REAL incus. e2e-S3f2658-4.json containerAliveAfterPtyhostShutdownAlone=false, ac42Pass=true (pgrep empty after SHUTDOWN). Code-verified: reapContainerClaude wired on tab/branch/orphan SHUTDOWN paths (daemon.go:1129,1391; discover.go:347) via runtime.ContainerProcessKiller.KillContainerProcesses; guarded by killPtyhost so Detach/restart NEVER reaps (survival preserved). Host runtime = safe no-op (capability type-assert)."
+    }
+  ],
+  "forbidden_scan": "clean — no illegitimate degradation. 3 new t.Skip are all env-gated real-machine smoke (see env_gate_judgment). 2 new //nolint:noctx are correct+documented (detached child must outlive launch ctx). No TS `any`/`as any`/@ts-ignore/eslint-disable/empty-catch in added lines. All `_ =` assignments are idiomatic best-effort cleanup (conn.Close/os.Remove/signal delivery/ring writes in tests), not error-hiding on load-bearing paths. No AC removed or softened (all 13 present, all real evidence).",
+  "env_gate_judgment": "legitimate opt-in smoke — PALMUX_SURVIVAL_SMOKE / PALMUX_REALINCUS_SMOKE match the project's established real-machine convention (Sd44947/S4d8b1c PALMUX_REALINCUS_SMOKE, tests/acceptance/*.py). Gated tests still RUN and PASS in verify (verify-survival-smoke.log __EXIT__=0 + __PARALLEL_EXIT__=0; verify-run.json all 4 runs machine_status=pass). The fast branch/fallback logic (systemd-run->setsid) remains covered UNCONDITIONALLY by injected-runner unit tests in launch_test.go, so gating removes no logic coverage from the default gate. This is opt-in-because-heavy, not opt-out-because-failing.",
+  "adr_0002_ptyhost_agnostic": "confirmed — internal/ptyhost + cmd/palmux/ptyhost.go carry no claude/incus/tmux/resume/worktree logic. The only domain-shaped identifiers (RepoID/BranchID/TabID/Seed) are OPAQUE strings echoed verbatim into the status file for palmux2-side discovery/GC and never interpreted (grep confirms: server.go stores them in StatusFile JSON; ptyhost.go docstring 'stored/echoed verbatim, never acted on'). respawn/--resume/hook-gen/argv-assembly/incus-gate/Emulator/roleCoordinator all remain palmux2-side (daemon.go spawnWithArgs assembles full incus-exec wrapper and hands it opaquely). No protocol bloat.",
+  "adr_0003_runtime_detection": "real — launch.go Launcher.Launch tries RunSystemdScope (real `systemd-run --user --scope --collect --unit palmux-agent-<prefix>-<hash>`) then falls back to RunSetsidFallback (real setsid via SysProcAttr{Setsid:true}). Failure detection is genuine: startDetachedReaping bounds a launchProbeWindow to catch an early non-zero exit (e.g. unreachable D-Bus) and surface it as error so Launch falls through. Not stubbed — launch_integration_test.go PASS observed method=systemd-run with real cgroup path, and a real unreachable-D-Bus case fell back to setsid with a live child (pid confirmed alive). Injectable Run* fields exist only for the fast fake-driven unit branch tests; production defaults are the real impls.",
+  "overlooked_compromises": [],
+  "machine_verdict_reconciled": "pass matches logs — verify-run.json overall_machine_status=pass with all 4 runs exit_code 0. Cross-checked trailers: verify-make-test.log __VERIFY_EXIT_CODE__=0 (26 pkgs ok incl ptyhost 3.878s, claudetui 20.921s); verify-survival-smoke.log __EXIT__=0 (4 real ptyhost survival/launch tests PASS) and __PARALLEL_EXIT__=0 (instance-isolation PASS). No pass-over-failure. Only nuance: real-incus-smoke marked pass on story-time evidence (e2e-S3f2658-4.json), not a verify-time rerun — this is disclosed in verify-run.json note and justified by the documented dev-box incus degradation risk.",
+  "overall": "agree_sprint_complete"
+}
