@@ -181,3 +181,163 @@ func TestLaunch_RealHost_DetachesFromTestProcess(t *testing.T) {
 		t.Fatalf("unexpected launch method %q", result.Method)
 	}
 }
+
+// zombieChildrenOf scans /proc for processes in the zombie state ('Z') whose
+// parent is pid. Used to assert the launcher reaps every process it starts
+// (regression guard for the Release()-without-Wait() zombie leak).
+func zombieChildrenOf(pid int) []int {
+	var zs []int
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return zs
+	}
+	for _, e := range entries {
+		cpid, cerr := strconv.Atoi(e.Name())
+		if cerr != nil {
+			continue
+		}
+		b, rerr := os.ReadFile("/proc/" + e.Name() + "/stat")
+		if rerr != nil {
+			continue
+		}
+		s := string(b)
+		idx := strings.LastIndex(s, ")")
+		if idx < 0 {
+			continue
+		}
+		fields := strings.Fields(s[idx+1:])
+		if len(fields) < 2 {
+			continue
+		}
+		state := fields[0]
+		ppid, perr := strconv.Atoi(fields[1])
+		if perr != nil {
+			continue
+		}
+		if state == "Z" && ppid == pid {
+			zs = append(zs, cpid)
+		}
+	}
+	return zs
+}
+
+// TestLaunch_RealSystemdRunFailure_FallsBackToSetsid is the regression test
+// for the CRITICAL bug that shipped in the first S3f2658-1 pass: when
+// systemd-run exists but the D-Bus user session is unreachable (the exact
+// "D-Bus user session 不在" case ADR-0003's fallback is written for),
+// RunSystemdScope used to Start()+Release()+return nil, so Launch() falsely
+// reported MethodSystemdRun success and the setsid fallback NEVER engaged —
+// no ptyhost was ever spawned and palmux2 got no error signal.
+//
+// This drives the REAL RunSystemdScope (not an injected fake) with a
+// genuinely unreachable D-Bus address and asserts Launch() (a) detects the
+// failure, (b) falls back to MethodSetsid, and (c) the child actually runs
+// (status file with a live pid appears).
+func TestLaunch_RealSystemdRunFailure_FallsBackToSetsid(t *testing.T) {
+	// Point D-Bus (and the runtime dir the launcher would otherwise derive a
+	// bus path from) at nonexistent locations so `systemd-run --user` fails
+	// fast with "Failed to connect to bus". ensureUserBusEnv keeps an
+	// already-present DBUS_SESSION_BUS_ADDRESS, so this bad value is what
+	// systemd-run actually tries.
+	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/palmux-test-bus.sock")
+	t.Setenv("XDG_RUNTIME_DIR", "/nonexistent/palmux-test-run")
+
+	bin := buildRealPalmuxBin(t)
+	dir := t.TempDir()
+	sockPath := filepath.Join(dir, "ptyhost.sock")
+	statusPath := filepath.Join(dir, "ptyhost.json")
+
+	l := &Launcher{} // real RunSystemdScope / RunSetsidFallback
+	result, err := l.Launch(context.Background(), LaunchConfig{
+		PalmuxBin:      bin,
+		InstancePrefix: "test",
+		Seed:           t.Name(),
+		Args: []string{
+			"--socket", sockPath,
+			"--status", statusPath,
+			"--", "sleep", "60",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Launch returned an error instead of falling back to setsid: %v", err)
+	}
+	if result.Method != MethodSetsid {
+		t.Fatalf("Launch method = %q, want %q — the systemd-run failure was NOT detected and the fallback did not engage (this is the shipped bug)", result.Method, MethodSetsid)
+	}
+	t.Logf("observed fallback-to-setsid: Launch method = %q after unreachable-D-Bus systemd-run failure", result.Method)
+
+	// The child must ACTUALLY be running — a fallback that reported setsid but
+	// spawned nothing would be just as broken.
+	var sf StatusFile
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if s, rerr := ReadStatusFile(statusPath); rerr == nil && s.Pid > 0 {
+			sf = s
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if sf.Pid == 0 {
+		t.Fatal("setsid fallback reported success but no ptyhost status file with a pid appeared — child never ran")
+	}
+	if err := syscallKill0(sf.Pid); err != nil {
+		t.Fatalf("setsid fallback child pid %d is not alive: %v", sf.Pid, err)
+	}
+	t.Logf("setsid fallback child is alive (pid=%d) — fallback genuinely spawned the ptyhost", sf.Pid)
+
+	t.Cleanup(func() {
+		if conn, derr := dialRaw(sockPath); derr == nil {
+			_ = WriteFrame(conn, MsgShutdown, EncodeShutdown(ShutdownPayload{GraceMillis: 500}))
+			_ = conn.Close()
+		}
+		cd := time.Now().Add(5 * time.Second)
+		for time.Now().Before(cd) {
+			if syscallKill0(sf.Pid) != nil {
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		_ = syscallKillTerm(sf.Pid)
+	})
+}
+
+// TestLaunch_NoZombieAfterLaunchedProcessExits is the regression test for the
+// MEDIUM zombie-leak finding: the old Start()+Release()-without-Wait() left
+// every launched process as an un-reaped zombie in the launcher's process
+// table. This launches (via the real RunSetsidFallback) a process that
+// outlives the probe window and then exits, and asserts no zombie child of
+// the test process remains — proving the reaping goroutine Wait()s it.
+func TestLaunch_NoZombieAfterLaunchedProcessExits(t *testing.T) {
+	// Shrink the probe window so the launched process is classified as
+	// "launched OK" (outlives the probe) and reaped by the lingering
+	// goroutine, not by the in-probe Wait().
+	restore := launchProbeWindow
+	launchProbeWindow = 100 * time.Millisecond
+	t.Cleanup(func() { launchProbeWindow = restore })
+
+	// A process that lives past the 100ms probe, then exits at ~400ms.
+	if err := RunSetsidFallback(context.Background(), []string{"/bin/sh", "-c", "sleep 0.4"}); err != nil {
+		t.Fatalf("RunSetsidFallback of a live-past-probe process returned an error: %v", err)
+	}
+
+	// Give the child time to exit (~0.4s) and the reaping goroutine time to
+	// Wait() it, then assert no zombie child of this test process remains.
+	// Poll for a bounded window so a slightly slow reap does not flake.
+	me := os.Getpid()
+	deadline := time.Now().Add(3 * time.Second)
+	var zs []int
+	for time.Now().Before(deadline) {
+		time.Sleep(200 * time.Millisecond)
+		zs = zombieChildrenOf(me)
+		if len(zs) == 0 {
+			// Only trust a zero reading once the child has definitely had time
+			// to exit (past its 0.4s lifetime).
+			if time.Until(deadline) < 2400*time.Millisecond {
+				break
+			}
+		}
+	}
+	if len(zs) != 0 {
+		t.Fatalf("found %d zombie child process(es) of the launcher after the launched process exited: %v — the launcher is not reaping (Release-without-Wait leak)", len(zs), zs)
+	}
+}

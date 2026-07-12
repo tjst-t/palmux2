@@ -57,15 +57,24 @@ func TestSurvival_RealSystemd_PtyhostOutlivesLauncherRestartAndKill9(t *testing.
 		StartedAt: time.Now().UTC(),
 	}
 
+	scopeUnit := ScopeUnitName("survtest", "survival-"+unitSuffix)
 	t.Cleanup(func() {
 		// Best-effort teardown: SHUTDOWN the ptyhost over its socket (kills
-		// the counter + ptyhost self-exits), then stop the launcher unit and
-		// clear any failed-unit residue. Never touches host palmux2.
+		// the counter + ptyhost self-exits), then stop the launcher unit +
+		// the ptyhost's own scope, kill any surviving pids directly as a
+		// fallback (a flaky run may have lost the socket), and clear
+		// failed-unit residue. Never touches host palmux2.
 		if conn, derr := dialRaw(sockPath); derr == nil {
 			_ = WriteFrame(conn, MsgShutdown, EncodeShutdown(ShutdownPayload{GraceMillis: 500}))
 			_ = conn.Close()
 		}
 		_, _ = runSystemctlUser(env, "stop", launcherUnit+".service")
+		_, _ = runSystemctlUser(env, "stop", scopeUnit+".scope")
+		for _, pid := range []int{result.ChildPid, result.PtyhostPid} {
+			if pid > 0 && syscallKill0(pid) == nil {
+				_ = syscallKillNine(pid)
+			}
+		}
 		_, _ = runSystemctlUser(env, "reset-failed")
 		writeSurvivalResult(t, result)
 	})

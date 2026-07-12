@@ -10,6 +10,16 @@
 // `systemctl --user restart` or `kill -9` IT specifically, never the real
 // host palmux2.
 //
+// RECONNECT-not-respawn: `systemctl --user restart` re-execs this binary as a
+// fresh process, so main() runs again. It must NOT blindly re-Launch — that
+// would spawn a SECOND ptyhost on the same socket path, whose listen() would
+// remove+rebind the socket out from under the still-alive original ptyhost
+// (racy, and not what real palmux2 does). Instead, if the status file already
+// describes a live ptyhost, we adopt it (idle without launching) — modelling
+// palmux2's Story-3 startup discovery/reconnect. This keeps the surviving
+// ptyhost + its socket stable across the restart, which is exactly the
+// property the SURVIVAL smoke asserts.
+//
 // It deliberately imports internal/ptyhost directly (this file lives under
 // the module root so that import resolves normally) rather than
 // shelling out to a hand-built systemd-run command line, so this smoke
@@ -21,6 +31,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"syscall"
 
 	"github.com/tjst-t/palmux2/internal/ptyhost"
 )
@@ -37,6 +48,15 @@ func main() {
 	if *palmuxBin == "" || *socket == "" || *status == "" || len(childArgv) == 0 {
 		fmt.Fprintln(os.Stderr, "fake_palmux2_launcher: --palmux-bin, --socket, --status and a child argv are required")
 		os.Exit(2)
+	}
+
+	// Reconnect path: if a prior ptyhost is already alive (status file with a
+	// live pid), adopt it instead of spawning a duplicate.
+	if sf, err := ptyhost.ReadStatusFile(*status); err == nil && sf.Pid > 0 && sf.Alive {
+		if syscall.Kill(sf.Pid, 0) == nil {
+			fmt.Printf("RECONNECTED_TO_PID=%d\n", sf.Pid)
+			select {} // idle; adopt the surviving ptyhost
+		}
 	}
 
 	l := &ptyhost.Launcher{}

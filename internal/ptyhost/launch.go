@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // Launch method identifiers, reported in [LaunchResult.Method] for logging.
@@ -15,6 +16,17 @@ const (
 	MethodSystemdRun = "systemd-run"
 	MethodSetsid     = "setsid"
 )
+
+// launchProbeWindow is how long a launch waits to observe an EARLY exit of
+// the process it just started, so a launch that "didn't take" (e.g.
+// systemd-run failing on an unreachable D-Bus user session, exit 1) is
+// detected and reported as an error — which is what lets [Launcher.Launch]
+// correctly fall through to the setsid fallback (ADR-0003). A genuinely
+// launched, long-lived process (systemd-run --scope stays alive for the
+// child's whole session; a ptyhost runs until its child exits) does NOT exit
+// within this window, so the common path just costs this one bounded wait,
+// never the whole session. It is a package var so tests can shorten it.
+var launchProbeWindow = 500 * time.Millisecond
 
 // LaunchConfig describes a ptyhost spawn request. Args is the flag/argv tail
 // of the `palmux ptyhost ...` invocation (everything after "ptyhost") —
@@ -141,85 +153,110 @@ func BuildPlainArgv(palmuxBin string, args []string) []string {
 // RunSystemdScope is the real (non-test) implementation of the systemd-run
 // cgroup-escape launch.
 //
-// IMPORTANT (corrected understanding vs. the S3f2658-1-1 spike's first
-// pass): `systemd-run --user --scope` does NOT self-detach. It is a
-// synchronous foreground wrapper — its own top-level process stays alive for
-// the entire lifetime of the command it launches, relaying stdio and
-// forwarding signals (confirmed by direct re-measurement: a plain foreground
-// `systemd-run --scope -- sleep N` blocks for the full N seconds and
-// forwards SIGTERM to the child). What actually escapes palmux2's cgroup is
-// the process systemd-run FORKS to exec the target — systemd migrates THAT
-// pid into the new scope's cgroup via the D-Bus transient-unit call, not
-// systemd-run's own top-level pid.
+// Mechanism (see docs/sprint-logs/S3f2658/spike-S3f2658-1-1.json):
+// `systemd-run --user --scope` does NOT self-detach — it is a synchronous
+// foreground wrapper whose own top-level process stays alive for the entire
+// lifetime of the command it launches, relaying stdio and forwarding
+// signals. What escapes palmux2's cgroup is the process systemd-run FORKS to
+// exec the target: systemd migrates THAT pid into the new scope's cgroup via
+// the D-Bus transient-unit call, not systemd-run's own top-level pid. Once
+// that fork+migration has happened (milliseconds — the D-Bus round trip),
+// the forked target (`palmux ptyhost`) is in its own isolated scope cgroup
+// and is independent of systemd-run's own process — if systemd-run is later
+// killed by any means (including a cgroup-wide kill of palmux2's own unit),
+// the already-migrated ptyhost is unaffected (Linux does not cascade-kill
+// children on parent death, and ptyhost owns its own PTY/socket, not
+// systemd-run's stdio relay).
 //
-// This means WE must not wait for systemd-run to return (that would block
-// palmux2 for the entire agent session, defeating the purpose) — we start it
-// and immediately release our handle, exactly like [RunSetsidFallback]. Once
-// the fork has happened (a matter of milliseconds — the D-Bus round trip),
-// the forked target (our `palmux ptyhost` process) is in its own isolated
-// scope cgroup and is functionally independent of systemd-run's own process
-// from that point on: if systemd-run itself is later killed by any means
-// (including a cgroup-wide kill of palmux2's own unit, since systemd-run's
-// own top-level pid never migrates out of the cgroup it was started in), the
-// already-forked-and-migrated ptyhost process is unaffected — Linux does not
-// cascade-kill children when a parent dies, and ptyhost does not depend on
-// systemd-run's stdio relay for anything (it opens its own PTY device and
-// socket independently). This was re-verified against the actual production
-// scenario in AC-S3f2658-1-3's SURVIVAL smoke, not just this launcher's
-// synchronous-wrapper behavior in isolation. See
-// docs/sprint-logs/S3f2658/spike-S3f2658-1-1.json for the corrected record.
+// Because systemd-run stays in the foreground, we must NOT block Launch()
+// on its full lifetime. Instead we start it and hand off to
+// [startDetachedReaping], which waits only a bounded [launchProbeWindow] to
+// catch an EARLY failure exit (e.g. "Failed to connect to bus" when the
+// D-Bus user session is unreachable — the exact case ADR-0003's setsid
+// fallback exists for). An early non-zero exit is surfaced as an error so
+// [Launcher.Launch] falls through to setsid; otherwise the launch is
+// considered good and a background goroutine keeps the child reaped (no
+// zombie, and no Release() — Release without Wait leaked a zombie per tab).
 func RunSystemdScope(ctx context.Context, argv []string) error {
 	if len(argv) == 0 {
 		return fmt.Errorf("ptyhost: RunSystemdScope: empty argv")
 	}
-	cmd := exec.Command(argv[0], argv[1:]...) //nolint:noctx // fire-and-forget on purpose; ctx would cancel the wrong lifetime (see doc comment)
+	cmd := exec.Command(argv[0], argv[1:]...) //nolint:noctx // detached on purpose; ctx must NOT cancel the child (it outlives the launch — see doc comment)
 	cmd.Stdin = nil
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	// New session: avoid any SIGHUP surprises from the caller's controlling
-	// terminal while systemd-run is doing its (brief but real) synchronous
-	// fork+register+wait work, independent of whether the eventual scope
-	// child itself ends up isolated (that's systemd's cgroup migration, not
-	// this).
+	// terminal while systemd-run does its synchronous register work.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	ensureUserBusEnv(cmd)
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("ptyhost: systemd-run scope start failed: %w", err)
-	}
-	if err := cmd.Process.Release(); err != nil {
-		return fmt.Errorf("ptyhost: systemd-run scope release failed: %w", err)
-	}
-	return nil
+	_ = ctx // ctx must not bound the launched child's lifetime; see doc comment.
+	return startDetachedReaping(cmd, "systemd-run scope")
 }
 
 // RunSetsidFallback is the real (non-test) implementation of the setsid-
 // detach fallback launch, used when systemd-run is unavailable (no D-Bus
 // user session / non-systemd host, e.g. `make serve` dev rigs). It starts
-// argv as a new session leader (equivalent to the classic setsid(1) +
-// double-fork daemonizing idiom, without needing the external setsid binary)
-// and immediately releases palmux2's process handle — ptyhost is
-// self-reporting (socket + status file) and is never wait()'d by its
-// launcher (ADR-0002: thin holder, palmux2-side rediscovery, not a
-// parent/child wait relationship).
+// argv as a new session leader (the classic setsid daemonizing idiom without
+// the external setsid binary) and hands off to [startDetachedReaping].
 //
 // As confirmed by the S3f2658-1-1 spike, this genuinely detaches (new
-// session, reparented to init) but — unlike the systemd-run path — does NOT
-// escape an existing systemd cgroup; its restart-survival guarantee is
-// therefore scoped to non-systemd deployments, matching ADR-0003.
+// session, reparented away from any controlling terminal) but — unlike the
+// systemd-run path — does NOT escape an existing systemd cgroup; its
+// restart-survival guarantee is therefore scoped to non-systemd deployments,
+// matching ADR-0003. The bounded probe also catches a launch that never took
+// (e.g. a PalmuxBin that execs but exits non-zero immediately) so a bad spawn
+// is reported rather than silently claimed successful.
 func RunSetsidFallback(ctx context.Context, argv []string) error {
 	if len(argv) == 0 {
 		return fmt.Errorf("ptyhost: RunSetsidFallback: empty argv")
 	}
-	cmd := exec.Command(argv[0], argv[1:]...) //nolint:noctx // detached on purpose; ctx would cancel the wrong lifetime
+	cmd := exec.Command(argv[0], argv[1:]...) //nolint:noctx // detached on purpose; ctx must NOT cancel the child (it outlives the launch)
 	cmd.Stdin = nil
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	_ = ctx // ctx must not bound the launched child's lifetime.
+	return startDetachedReaping(cmd, "setsid fallback")
+}
+
+// startDetachedReaping starts cmd, then waits a bounded [launchProbeWindow]
+// to observe whether it exits early:
+//
+//   - Exits within the window with a non-zero/error status → the launch did
+//     not take; return an error (so [Launcher.Launch] falls through to the
+//     fallback). The process is already reaped by the Wait() that observed
+//     the exit, so no zombie.
+//   - Exits within the window cleanly (exit 0) → treated as a successful
+//     hand-off (avoids a spurious double-spawn if a systemd-run variant
+//     registers-then-exits-0); already reaped, so no zombie.
+//   - Still running after the window → launched OK. The wait goroutine is
+//     left running to Wait()-reap the process when it eventually exits.
+//     This is what fixes the zombie leak: every started child is eventually
+//     reaped by exactly one Wait(), and we NEVER call Release() (Release
+//     without Wait was leaving a permanent zombie in palmux2's process table
+//     for each launched process).
+//
+// The bounded window guarantees this never blocks the caller for more than
+// launchProbeWindow, so it does not re-introduce the "block for the whole
+// session" bug.
+func startDetachedReaping(cmd *exec.Cmd, what string) error {
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("ptyhost: setsid fallback start: %w", err)
+		return fmt.Errorf("ptyhost: %s start failed: %w", what, err)
 	}
-	if err := cmd.Process.Release(); err != nil {
-		return fmt.Errorf("ptyhost: setsid fallback release: %w", err)
+	waitCh := make(chan error, 1)
+	go func() { waitCh <- cmd.Wait() }()
+
+	select {
+	case werr := <-waitCh:
+		if werr != nil {
+			return fmt.Errorf("ptyhost: %s exited during launch probe (launch did not take): %w", what, werr)
+		}
+		// Clean immediate exit: treat as a successful hand-off. Already
+		// reaped by the Wait() above.
+		return nil
+	case <-time.After(launchProbeWindow):
+		// Still running → launched OK. The wait goroutine above stays alive
+		// and will reap the process when it eventually exits (no zombie).
+		return nil
 	}
-	return nil
 }
