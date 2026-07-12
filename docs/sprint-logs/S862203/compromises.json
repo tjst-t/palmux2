@@ -1,0 +1,34 @@
+{
+  "milestone_summary": {
+    "stopped_at": "milestone_no-halt-agent (S3f2658 + S862203)",
+    "note": "No degradation-class compromises (test weakening / error swallowing / type relaxation) were made or continued past in this batch. Both independent verifiers ran a forbidden-degradation scan on the full sprint diffs and reported 'clean'. Every review-found critical/high bug was FIXED (not conceded). The entries below are transparency items about verification COVERAGE, not degradations — recorded so the milestone review sees exactly what ran where (priority_rule 0).",
+    "compromises": [
+      {
+        "type": "test_skipped",
+        "severity": "low",
+        "story": "S3f2658-1/3, S862203-1",
+        "file": "internal/ptyhost/{survival_test,launch_integration_test}.go, internal/tab/claudeagent/{instance_isolation,spike_control_deadline}_test.go",
+        "rationale": "Heavy real-machine tests (real systemd-run/setsid survival, parallel-instance isolation, real-claude MCP-deadline spike) are env-gated behind PALMUX_SURVIVAL_SMOKE=1 / PALMUX_SPIKE_S862203_1=1, matching the project's existing PALMUX_REALINCUS_SMOKE convention. They caused CPU-contention flakes (tripping claudeagent's pre-existing 2s-timeout tests) + process churn under the default parallel `go test`. They are NOT in the default `make test` gate.",
+        "diff_summary": "added requireSurvivalSmoke(t) / spike env gate to the heavy tests; fast fake-injected unit logic stays in the default gate",
+        "recommended_action": "These tests WERE executed explicitly during verify with the flags and all PASS (evidence: verify-survival-smoke.log, spike-S862203-1-1.json). If CI should run them, add a gated CI job. Verifiers judged the gating 'legitimate opt-in smoke', not hidden failures.",
+        "adr_ref": "none",
+        "overlooked_by_autopilot": false
+      },
+      {
+        "type": "test_skipped",
+        "severity": "low",
+        "story": "S3f2658-4",
+        "file": "internal/tab/claudetui/real_incus_survival_test.go",
+        "rationale": "AC-S3f2658-4-1/4-2 real-incus smoke was executed x2 during Story 4 (documented PASS in e2e-S3f2658-4.json: pids unchanged across restart, reaped after SHUTDOWN, pre-existing containers byte-identical) but was NOT re-run during the verify phase, to avoid churning the dev box's incus (known degradation-under-churn risk) which also hosts the live host palmux2's containers.",
+        "diff_summary": "n/a — coverage decision, not a code change",
+        "recommended_action": "AC was genuinely executed with evidence during the story; re-run manually on a fresh incus box if independent re-confirmation is wanted.",
+        "adr_ref": "none",
+        "overlooked_by_autopilot": false
+      }
+    ],
+    "blockers_encountered": [],
+    "scope_changes": [
+      "Sb14caa (palmuxOS NixOS appliance milestone) was set aside at user request before this batch; it remains status=partial (its Stage-5 dev-VM adoption + manual-smoke items deferred, not lost). It is the only non-done sprint (72/73)."
+    ]
+  }
+}
