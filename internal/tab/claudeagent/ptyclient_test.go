@@ -224,7 +224,7 @@ func TestPipeClient_CleanReconnect_ResumesExactlyAfterLastPersistedLine(t *testi
 		if err := json.Unmarshal(line, &ev); err != nil {
 			return err
 		}
-		if err := store.Save(repoID, branchID, tabID, endOffset, ""); err != nil {
+		if err := store.Save(repoID, branchID, tabID, endOffset, "", nil); err != nil {
 			return err
 		}
 		mu1.Lock()
@@ -361,7 +361,7 @@ func TestPipeClient_Kill9Reconnect_RedeliversUnackedLine_ExactlyOnce(t *testing.
 			// LineHandler's documented contract.
 			return errSimulatedKill9
 		}
-		return store.Save(repoID, branchID, tabID, endOffset, "")
+		return store.Save(repoID, branchID, tabID, endOffset, "", nil)
 	}
 
 	client1, err := DialPipeClient(ctx1, sock, onLine1, nil)

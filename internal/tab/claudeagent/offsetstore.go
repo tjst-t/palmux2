@@ -31,8 +31,28 @@ type OffsetRecord struct {
 	// detection (AC-3) does not require it (the ATTACH clamped-start
 	// comparison in ptyclient.go is sufficient on its own); it is exposed
 	// for a Story-3 consumer that wants an extra belt-and-braces signal.
-	RingGeneration string    `json:"ringGeneration,omitempty"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	RingGeneration string `json:"ringGeneration,omitempty"`
+	// ResolvedControlRequests maps the request_id of each control_request
+	// whose control_response has already been written back to the CLI, to
+	// the absolute ptyhost offset of the FIRST byte of that request's line
+	// (its lineStart). Persisted atomically with LastAckOffset (same file,
+	// same write) so the two are always consistent.
+	//
+	// Why this is needed on TOP of the single LastAckOffset frontier
+	// (S862203-3 review HIGH): the frontier is held back at the EARLIEST
+	// still-unresolved control_request so a permission pending across a
+	// restart is replayed. But claude issues PARALLEL tool calls, so a
+	// LATER permission (B) can be answered while an EARLIER one (A) is
+	// still pending — the frontier then sits at A, and a reconnect replays
+	// B's control_request line too. Without this set, B would re-surface in
+	// the UI as a spurious duplicate prompt for an already-answered
+	// request. On reconnect the consumer skips re-dispatching any
+	// control_request whose id is in here (see client.go's replaySuppress).
+	// Entries whose lineStart is strictly before the persisted
+	// LastAckOffset are pruned by the writer (they can never be replayed),
+	// keeping the map bounded to the currently-replayable window.
+	ResolvedControlRequests map[string]int64 `json:"resolvedControlRequests,omitempty"`
+	UpdatedAt               time.Time        `json:"updatedAt"`
 }
 
 // offsetPersistedShape is the on-disk JSON layout for agent_offsets.json.
@@ -119,18 +139,32 @@ func (s *OffsetStore) Get(repoID, branchID, tabID string) (OffsetRecord, bool) {
 	return rec, ok
 }
 
-// Save persists lastAckOffset (+ optional ringGeneration marker) for
-// (repoID, branchID, tabID). Intended to be called from inside a
-// [LineHandler] callback after that line has been fully processed
+// Save persists lastAckOffset (+ optional ringGeneration marker +
+// resolvedControlRequests set) for (repoID, branchID, tabID) in a single
+// atomic write, so the offset and the resolved-request set are never
+// observed inconsistent with each other. Intended to be called from inside
+// a [LineHandler] callback after that line has been fully processed
 // (transcript/permstate updated etc. — Story 3), so a torn callback never
 // advances the persisted offset past what was actually applied.
-func (s *OffsetStore) Save(repoID, branchID, tabID string, lastAckOffset int64, ringGeneration string) error {
+//
+// resolved may be nil (no resolved control_requests to remember) and is
+// COPIED defensively so the caller may keep mutating its own map after the
+// call returns.
+func (s *OffsetStore) Save(repoID, branchID, tabID string, lastAckOffset int64, ringGeneration string, resolved map[string]int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	var resolvedCopy map[string]int64
+	if len(resolved) > 0 {
+		resolvedCopy = make(map[string]int64, len(resolved))
+		for k, v := range resolved {
+			resolvedCopy[k] = v
+		}
+	}
 	s.data.Offsets[offsetKey(repoID, branchID, tabID)] = OffsetRecord{
-		LastAckOffset:  lastAckOffset,
-		RingGeneration: ringGeneration,
-		UpdatedAt:      time.Now().UTC(),
+		LastAckOffset:           lastAckOffset,
+		RingGeneration:          ringGeneration,
+		ResolvedControlRequests: resolvedCopy,
+		UpdatedAt:               time.Now().UTC(),
 	}
 	return s.save()
 }
