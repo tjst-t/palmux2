@@ -186,6 +186,11 @@
       "decision": "Added `ptyhost.FileKey(seed)` (sha256, truncated to 20 hex chars) plus `ptyhost.SocketPath`/`StatusPath(runDir, seed)` helpers that hash the seed into a short, fixed-length, still-deterministic filename (deterministic is required — it's how a restarted palmux2 rediscovers the SAME surviving ptyhost). `Daemon.ptyHostPaths()` now calls these instead of concatenating the raw seed string directly.",
       "verification": "Reproduced the exact failure by hand against a debug build (`bind: invalid argument` with the literal-seed path), applied the fix, rebuilt, and confirmed the identical scenario (real `_fixture.py`-generated repo, real WS attach) succeeds. Full claudetui/ptyhost unit suites re-run clean afterward (the existing tests all call `d.ptyHostPaths()` rather than hardcoding the old literal-name format, so none needed changes).",
       "reference": "internal/ptyhost/paths.go FileKey/SocketPath/StatusPath; internal/tab/claudetui/daemon.go ptyHostPaths"
+    },
+    {
+      "title": "Post-review: added a fast Go unit guard for Manager.DetachAll's SURVIVAL contract",
+      "decision": "Added TestManagerDetachAll (internal/tab/claudetui/manager_test.go) per coordinator review: starts 3 daemons via the in-process ptyhost fallback, calls DetachAll, and asserts BOTH Len()==0 (Manager forgot them) AND each ptyhost socket is still listening + HELLO-responsive with a live pid afterward (proving detach ≠ shutdown — the survival-critical distinction). t.Cleanup SHUTDOWNs the survivors so the fast test leaks no processes. DetachAll was previously only covered by the slow real-process e2e; this is the fast guard on that survival-critical path. go test ./internal/tab/claudetui/ PASS.",
+      "reference": "internal/tab/claudetui/manager_test.go TestManagerDetachAll"
     }
   ]
 }
