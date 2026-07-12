@@ -62,14 +62,41 @@ type GridCell struct {
 // Feed is called synchronously from the PTY read loop — it must be fast.
 // GridSnapshot may be called from any goroutine.
 //
-// # OSC 52
+// # Close vs Read/Feed (AC-S64c835-1-1)
 //
-// Whenever the subprocess emits an OSC 52 clipboard-write sequence, the
-// Emulator decodes the base64 payload and calls [notify.Hub.PublishCopy] so
-// that Story 2's grid WebSocket — or any other subscriber — can forward the
-// text to the browser.
+// [vt.SafeEmulator] promises to be "thread-safe" but does not actually
+// synchronize Close() against Read()/Write(): it does not override Close()
+// at all (so it falls straight through to the embedded *vt.Emulator.Close,
+// which touched an unexported, unsynchronized `closed` bool), and its Read()
+// explicitly bypasses its own mutex. daemon.go's drainer goroutine calls
+// Read() in a loop for the lifetime of the daemon (draining DA1/DA2/CPR
+// response bytes back to claude — see daemon.go's spawnWithArgs comment),
+// blocking indefinitely between responses, while teardown calls Close() from
+// a *different* goroutine specifically to unblock that call (see teardown's
+// comment: "closing the underlying io.Pipe makes Read return io.EOF").
+//
+// A palmux2-side mutex around these calls cannot fix this: Read() can block
+// forever, so a lock held across the whole call would deadlock Close()
+// (which must be able to run *while* a Read() is blocked to interrupt it),
+// and any lock Close() takes only around its *own* critical section still
+// leaves an unsynchronized race against Read()'s internal check — one that
+// no amount of waiting closes, since `go test -race`'s happens-before
+// analysis is based on actual synchronization edges, not wall-clock timing
+// (verified empirically while developing this fix: a bounded TryLock-retry
+// workaround here still raced reliably under `-race`).
+//
+// The actual, root-cause fix therefore lives in
+// third_party/charmbracelet-x-vt-racefix, a locally patched copy of this
+// exact vt version (wired in via go.mod's `replace`) with the `closed` field
+// changed from `bool` to `atomic.Bool`. io.PipeReader.Read and
+// io.PipeWriter.CloseWithError (which Close ultimately calls) are already
+// safe for concurrent use — io.Pipe is designed for exactly this producer/
+// consumer-with-concurrent-close pattern — so once the flag guarding them is
+// atomic, Close() vs Read()/Write() is race-free with no palmux2-side
+// locking needed at all. See that directory's patch comment and go.mod's
+// replace-directive comment for the full rationale.
 type Emulator struct {
-	// em is the thread-safe charmbracelet/x/vt emulator.
+	// em is the charmbracelet/x/vt emulator (race-fixed — see above).
 	em *vt.SafeEmulator
 
 	// hub is the notify hub used to publish CopyEvents.  May be nil in tests
@@ -240,6 +267,11 @@ func (e *Emulator) Resize(cols, rows int) {
 }
 
 // Close releases resources held by the emulator.
+//
+// Safe to call concurrently with Read/Write and safe to call more than once
+// — see the Emulator struct doc comment (AC-S64c835-1-1): the underlying
+// vt.Emulator (third_party/charmbracelet-x-vt-racefix) guards its `closed`
+// state with an atomic.Bool, so no palmux2-side locking is required here.
 func (e *Emulator) Close() {
 	_ = e.em.Close()
 }
@@ -248,7 +280,8 @@ func (e *Emulator) Close() {
 // running program (DA1/DA2 device attribute responses, cursor-position
 // reports, etc.). Callers must read continuously or the emulator's internal
 // pipe will fill, at which point Write would block while holding the writer
-// lock — see daemon.go drainer goroutine.
+// lock — see daemon.go drainer goroutine. Safe for concurrent use with
+// Close() — see the Emulator struct doc comment (AC-S64c835-1-1).
 func (e *Emulator) Read(buf []byte) (int, error) {
 	return e.em.Read(buf)
 }

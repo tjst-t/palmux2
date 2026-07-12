@@ -31,3 +31,18 @@ require (
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.46.0 // indirect
 )
+
+// S64c835-1 (docs/sprint-logs/S64c835/decisions.json): charmbracelet/x/vt's
+// SafeEmulator does not actually synchronize Close() against Read() (Close
+// isn't overridden at all; Read explicitly bypasses SafeEmulator's own
+// mutex), so the two race on the unexported Emulator.closed bool. Read()
+// can block indefinitely, so this cannot be fixed by wrapping calls with a
+// palmux2-side mutex alone (that either deadlocks Close() against a blocked
+// Read(), or leaves a real, timing-independent data race no amount of
+// waiting closes — see internal/tab/claudetui/emulator.go's history / the
+// sprint decisions log for the analysis). third_party/charmbracelet-x-vt-racefix
+// is an unmodified copy of this exact version with Emulator.closed changed
+// from bool to atomic.Bool (3 call sites) — the minimal fix for the root
+// cause. Remove this replace once upstream ships an equivalent fix for a
+// version we can pick up.
+replace github.com/charmbracelet/x/vt => ./third_party/charmbracelet-x-vt-racefix

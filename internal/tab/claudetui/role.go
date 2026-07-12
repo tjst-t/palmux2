@@ -131,12 +131,17 @@ func (rc *roleCoordinator) OnSubscribe(sub *subscriber) string {
 	} else {
 		role = RoleViewer
 	}
+	// Capture the count under the lock — rc.subs may be concurrently
+	// mutated (e.g. a racing OnUnsubscribe reassigning the slice header)
+	// the instant we unlock, so reading len(rc.subs) below would be an
+	// unsynchronized, data-raced read of that header (AC-S64c835-1-2).
+	total := len(rc.subs)
 	rc.mu.Unlock()
 
 	rc.logger.Debug("claudetui: subscriber joined",
 		"sub_id", sub.id,
 		"role", role,
-		"total", len(rc.subs),
+		"total", total,
 	)
 	return role
 }
@@ -164,12 +169,18 @@ func (rc *roleCoordinator) OnUnsubscribe(sub *subscriber) {
 			rc.activeID.Store(0)
 		}
 	}
+	// Capture the count under the lock, same rationale as OnSubscribe above
+	// — this was the exact data race reported for AC-S64c835-1-2: two
+	// concurrent OnUnsubscribe calls (one client's write at "rc.subs =
+	// newSubs" racing another's unguarded len(rc.subs) read here after
+	// Unlock).
+	remaining := len(rc.subs)
 	rc.mu.Unlock()
 
 	rc.logger.Debug("claudetui: subscriber left",
 		"sub_id", sub.id,
 		"was_active", wasActive,
-		"remaining", len(rc.subs),
+		"remaining", remaining,
 	)
 
 	if promoted != nil {
