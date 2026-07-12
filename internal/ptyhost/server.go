@@ -36,16 +36,32 @@ type Config struct {
 	// StatusPath is the JSON status file path (see [StatusFile]). Required.
 	StatusPath string
 
-	// Seed is an OPAQUE identity label (palmux2's repoId__branchId__tabId,
-	// per docs/no-halt-agent-design.md §3) echoed verbatim into the on-disk
-	// [StatusFile]. ptyhost does not interpret it (ADR-0002 — it stays
-	// claude-agnostic); it exists purely so a palmux2-side discovery/GC pass
-	// (internal/tab/claudetui/discover.go, S3f2658-3) can recover a live
-	// ptyhost's owning (repoId, branchId, tabId) from disk without needing
-	// the hashed socket/status filename to be reversible (see [FileKey]).
-	// Optional — an empty Seed is written as "" and simply cannot be resolved
-	// back to an identity by a discovery pass.
+	// Seed is an OPAQUE label palmux2 hashes into the socket/status FILENAME
+	// (see [FileKey]) and the systemd scope-unit name (Story 1). ptyhost does
+	// not interpret it (ADR-0002 — it stays claude-agnostic) and it is echoed
+	// verbatim into the on-disk [StatusFile] only for human/debug legibility.
+	//
+	// IMPORTANT: Seed is NOT a parseable identity. It happens to be built as
+	// "repoId__branchId__tabId", but a repoId or branchId may itself contain
+	// the literal substring "__" (domain IDs permit "_", and two adjacent
+	// sanitized-out chars collapse to "__"), so splitting Seed back on "__"
+	// does NOT reliably recover the original tuple. A discovery/GC pass must
+	// read the explicit [Config.RepoID]/[Config.BranchID]/[Config.TabID]
+	// fields below instead (S3f2658-3 orphan-GC data-loss fix).
 	Seed string
+
+	// RepoID/BranchID/TabID are the OPAQUE identity of the workspace tab this
+	// ptyhost holds a process for, written DIRECTLY (no join, no parse) into
+	// the on-disk [StatusFile] so a palmux2-side discovery/orphan-GC pass
+	// (internal/tab/claudetui/discover.go, S3f2658-3) can recover exactly
+	// which (repoId, branchId, tabId) a live ptyhost belongs to — even when
+	// an ID contains "__" — without the ambiguity of parsing [Seed]. ptyhost
+	// stores and returns these verbatim; it never acts on them (ADR-0002 —
+	// claude-agnostic). All optional (empty is written as "" and simply
+	// cannot be resolved back to an identity by a discovery pass).
+	RepoID   string
+	BranchID string
+	TabID    string
 
 	// RingSize is the ring buffer capacity in bytes. <= 0 uses
 	// [DefaultRingSize].
@@ -78,9 +94,17 @@ type StatusFile struct {
 	ExitCode      int        `json:"exitCode"`
 	ExitCodeValid bool       `json:"exitCodeValid"`
 	ExitedAt      *time.Time `json:"exitedAt,omitempty"`
-	// Seed is [Config.Seed] echoed verbatim — see its doc comment for why
-	// this exists (S3f2658-3 discovery/GC identity recovery).
+	// Seed is [Config.Seed] echoed verbatim for debug legibility ONLY — see
+	// its doc comment; it is NOT a parseable identity. Use the explicit
+	// RepoID/BranchID/TabID fields below for identity recovery.
 	Seed string `json:"seed,omitempty"`
+	// RepoID/BranchID/TabID are [Config.RepoID]/[Config.BranchID]/[Config.TabID]
+	// echoed verbatim — the authoritative, unambiguous identity a discovery/GC
+	// pass reads (S3f2658-3 orphan-GC data-loss fix). Written directly (no
+	// join/parse) so an ID containing "__" round-trips exactly.
+	RepoID   string `json:"repoId,omitempty"`
+	BranchID string `json:"branchId,omitempty"`
+	TabID    string `json:"tabId,omitempty"`
 }
 
 // Server owns one PTY-spawned child process, feeds its output into a
@@ -582,6 +606,9 @@ func (s *Server) writeStatusFile(exited bool, exitCode int, exitCodeValid bool, 
 		ExitCodeValid: exitCodeValid,
 		ExitedAt:      exitedAt,
 		Seed:          s.cfg.Seed,
+		RepoID:        s.cfg.RepoID,
+		BranchID:      s.cfg.BranchID,
+		TabID:         s.cfg.TabID,
 	}
 	s.mu.Unlock()
 	return writeStatusFileAtomic(s.cfg.StatusPath, sf)

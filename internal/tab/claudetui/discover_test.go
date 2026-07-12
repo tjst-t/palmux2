@@ -25,11 +25,15 @@ import (
 
 // startRawPtyHost starts a REAL [ptyhost.Server] (holding a real fake_claude
 // child) at the deterministic socket/status path for seed under runDir, with
-// the Seed field populated (S3f2658-3 — required for discovery/GC to recover
-// identity from disk). Returns the paths, a channel closed when Run()
-// returns, and the child pid (via a throwaway HELLO probe).
-func startRawPtyHost(t *testing.T, runDir, bin, seed string, extraArgs ...string) (sockPath, statusPath string, done chan struct{}, pid int) {
+// the EXPLICIT RepoID/BranchID/TabID Config fields populated (S3f2658-3 — the
+// authoritative, unambiguous identity discovery/GC reads; NOT the Seed
+// label, which is not reliably parseable when an ID contains "__"). The
+// seed (socket/status filename hash source) is derived the SAME way
+// production's [Daemon.ptyHostSeed] does. Returns the paths, a channel
+// closed when Run() returns, and the child pid (via a throwaway HELLO probe).
+func startRawPtyHost(t *testing.T, runDir, bin, repoID, branchID, tabID string, extraArgs ...string) (sockPath, statusPath string, done chan struct{}, pid int) {
 	t.Helper()
+	seed := repoID + "__" + branchID + "__" + tabID
 	sockPath = ptyhost.SocketPath(runDir, seed)
 	statusPath = ptyhost.StatusPath(runDir, seed)
 	srv, err := ptyhost.NewServer(ptyhost.Config{
@@ -38,6 +42,9 @@ func startRawPtyHost(t *testing.T, runDir, bin, seed string, extraArgs ...string
 		StatusPath: statusPath,
 		RingSize:   1 << 16,
 		Seed:       seed,
+		RepoID:     repoID,
+		BranchID:   branchID,
+		TabID:      tabID,
 	})
 	if err != nil {
 		t.Fatalf("ptyhost.NewServer(%s): %v", seed, err)
@@ -73,10 +80,10 @@ func shutdownRawPtyHost(sockPath string) {
 }
 
 // writeDeadPidStatus writes a syntactically valid StatusFile whose Pid is
-// guaranteed to no longer exist (a just-reaped `true` child) and whose Seed
-// parses cleanly — simulating a ptyhost that was hard-killed (SIGKILL, e.g.
-// an OOM or `kill -9`) before its own teardown could remove its files.
-func writeDeadPidStatus(t *testing.T, statusPath, seed string) {
+// guaranteed to no longer exist (a just-reaped `true` child) with a valid
+// explicit identity — simulating a ptyhost that was hard-killed (SIGKILL,
+// e.g. an OOM or `kill -9`) before its own teardown could remove its files.
+func writeDeadPidStatus(t *testing.T, statusPath, repoID, branchID, tabID string) {
 	t.Helper()
 	cmd := exec.Command("true")
 	if err := cmd.Run(); err != nil {
@@ -84,10 +91,13 @@ func writeDeadPidStatus(t *testing.T, statusPath, seed string) {
 	}
 	deadPid := cmd.Process.Pid
 	sf := ptyhost.StatusFile{
-		Pid:   deadPid,
-		Mode:  "pty",
-		Alive: true, // as if teardown never got to update this
-		Seed:  seed,
+		Pid:      deadPid,
+		Mode:     "pty",
+		Alive:    true, // as if teardown never got to update this
+		Seed:     repoID + "__" + branchID + "__" + tabID,
+		RepoID:   repoID,
+		BranchID: branchID,
+		TabID:    tabID,
 	}
 	writeStatusFileForTest(t, statusPath, sf)
 }
@@ -118,9 +128,9 @@ func TestDiscoverAndRestore_AdoptsLiveCleansStale(t *testing.T) {
 	var socks []string
 	var dones []chan struct{}
 	for _, sp := range specs {
-		seed := sp.repoID + "__" + sp.branchID + "__" + sp.tabID
-		sock, _, done, pid := startRawPtyHost(t, runDir, bin, seed)
-		pidsBefore[seed] = pid
+		key := sp.repoID + "/" + sp.branchID + "/" + sp.tabID
+		sock, _, done, pid := startRawPtyHost(t, runDir, bin, sp.repoID, sp.branchID, sp.tabID)
+		pidsBefore[key] = pid
 		socks = append(socks, sock)
 		dones = append(dones, done)
 	}
@@ -150,7 +160,7 @@ func TestDiscoverAndRestore_AdoptsLiveCleansStale(t *testing.T) {
 	if err := os.WriteFile(staleSock, []byte("not a real socket"), 0o600); err != nil {
 		t.Fatalf("write stale sock placeholder: %v", err)
 	}
-	writeDeadPidStatus(t, staleStatus, staleSeed)
+	writeDeadPidStatus(t, staleStatus, "stale-repo", "stale-branch", "claude:claude")
 
 	// STALE 2: socket present but refuses connections (not actually a unix
 	// socket — a HELLO can never succeed), with a status file reporting a
@@ -164,6 +174,7 @@ func TestDiscoverAndRestore_AdoptsLiveCleansStale(t *testing.T) {
 	}
 	writeStatusFileForTest(t, unreachStatus, ptyhost.StatusFile{
 		Pid: os.Getpid(), Mode: "pty", Alive: true, Seed: unreachSeed,
+		RepoID: "unreach-repo", BranchID: "unreach-branch", TabID: "claude:claude",
 	})
 
 	mgr := NewManager(ManagerConfig{ClaudeBin: bin, RingSize: 1 << 16, RunDirOverride: runDir})
@@ -184,15 +195,15 @@ func TestDiscoverAndRestore_AdoptsLiveCleansStale(t *testing.T) {
 	// respawned — same pid as before discovery ran).
 	var d0 *Daemon
 	for _, sp := range specs {
-		seed := sp.repoID + "__" + sp.branchID + "__" + sp.tabID
+		key := sp.repoID + "/" + sp.branchID + "/" + sp.tabID
 		d := mgr.Get(sp.repoID, sp.branchID, sp.tabID)
 		if d == nil {
 			t.Fatalf("no Daemon adopted for %+v", sp)
 		}
 		waitForState(t, d, StateRunning, 5*time.Second)
 		got := d.CurrentStats().PID
-		if got != pidsBefore[seed] {
-			t.Fatalf("%+v: adopted pid = %d, want %d (the pre-existing ptyhost's pid) — discovery spawned a NEW ptyhost instead of attaching", sp, got, pidsBefore[seed])
+		if got != pidsBefore[key] {
+			t.Fatalf("%+v: adopted pid = %d, want %d (the pre-existing ptyhost's pid) — discovery spawned a NEW ptyhost instead of attaching", sp, got, pidsBefore[key])
 		}
 		if d0 == nil {
 			d0 = d
@@ -235,11 +246,8 @@ func TestGCOrphans_ShutsDownUnreferenced_LeavesReferenced(t *testing.T) {
 	bin := fakeBin(t)
 	runDir := t.TempDir()
 
-	refSeed := "gc-repo__gc-branch-ref__claude:claude"
-	orphSeed := "gc-repo__gc-branch-orphan__claude:claude"
-
-	refSock, _, refDone, refPid := startRawPtyHost(t, runDir, bin, refSeed)
-	orphSock, orphStatus, orphDone, orphPid := startRawPtyHost(t, runDir, bin, orphSeed)
+	refSock, _, refDone, refPid := startRawPtyHost(t, runDir, bin, "gc-repo", "gc-branch-ref", "claude:claude")
+	orphSock, orphStatus, orphDone, orphPid := startRawPtyHost(t, runDir, bin, "gc-repo", "gc-branch-orphan", "claude:claude")
 	// Wait for BOTH raw ptyhost.Server goroutines to fully return before
 	// t.TempDir()'s own cleanup runs RemoveAll on runDir — see the analogous
 	// comment in TestDiscoverAndRestore_AdoptsLiveCleansStale.
@@ -328,5 +336,96 @@ func TestGCOrphans_ShutsDownUnreferenced_LeavesReferenced(t *testing.T) {
 	}
 	if hello.Pid != refPid {
 		t.Fatalf("referenced ptyhost pid changed across GC ticks: got %d, want %d", hello.Pid, refPid)
+	}
+}
+
+// TestGCOrphans_IDContainingDoubleUnderscore_SurvivesGC is the regression
+// guard for the S3f2658-3 orphan-GC data-loss bug: a repoID (or branchID)
+// that itself contains the literal substring "__" must still round-trip
+// through the ptyhost status file exactly, so GC correctly recognizes a
+// LIVE, referenced tab as live and NEVER shuts it down.
+//
+// Before the fix, discovery parsed identity by splitting the "__"-joined
+// Seed with strings.SplitN(seed, "__", 3): for repoID "my__tool--ab12" the
+// seed "my__tool--ab12__main--cd34__claude" split to the WRONG tuple
+// (repoID="my", branchID="tool--ab12", tabID="main--cd34__claude"), so the
+// store's isLive lookup for the REAL ("my__tool--ab12", "main--cd34",
+// "claude") tuple returned false, skipLive didn't skip, and GC dialed +
+// SHUTDOWN'd the user's running claude on the very first tick. The fix
+// carries identity as explicit status-file fields (no join, no parse), so
+// this test fails against the old splitSeed logic and passes with the fix.
+func TestGCOrphans_IDContainingDoubleUnderscore_SurvivesGC(t *testing.T) {
+	bin := fakeBin(t)
+	runDir := t.TempDir()
+
+	// A realistic repo dir like github.com/org/my__tool yields this repoID.
+	const (
+		repoID   = "my__tool--ab12"
+		branchID = "main--cd34"
+		tabID    = "claude"
+	)
+
+	sock, _, done, pid := startRawPtyHost(t, runDir, bin, repoID, branchID, tabID)
+	t.Cleanup(func() {
+		shutdownRawPtyHost(sock)
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Log("raw ptyhost did not fully tear down within 5s during cleanup")
+		}
+	})
+
+	mgr := NewManager(ManagerConfig{ClaudeBin: bin, RunDirOverride: runDir})
+
+	// isLive is the EXACT-tuple predicate a real store.Tab lookup provides:
+	// it returns true ONLY for the genuine (repoID, branchID, tabID). A
+	// misparse that hands GC ("my", "tool--ab12", "main--cd34__claude")
+	// would make this return false → GC would (wrongly) shut the tab down.
+	isLive := func(r, b, tb string) bool {
+		return r == repoID && b == branchID && tb == tabID
+	}
+
+	// Several GC ticks: the referenced live tab must be recognized as live
+	// (via exact identity round-trip) and left completely untouched every
+	// time — never dialed, never shut down.
+	for i := 0; i < 3; i++ {
+		shutdown, _, err := mgr.GCOrphans(context.Background(), isLive)
+		if err != nil {
+			t.Fatalf("GCOrphans tick %d: %v", i, err)
+		}
+		if shutdown != 0 {
+			t.Fatalf("tick %d: GC shut down %d ptyhost(s) — a LIVE referenced tab whose repoID contains \"__\" was misparsed and killed (data-loss regression)", i, shutdown)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// Positively confirm the ptyhost is still alive, still listening, same pid.
+	if !pidAlive(pid) {
+		t.Fatal("referenced ptyhost (repoID with \"__\") pid died across GC ticks")
+	}
+	conn, ok := probeExisting(sock)
+	if !ok {
+		t.Fatal("referenced ptyhost (repoID with \"__\") socket no longer listening after GC ticks — it was wrongly reaped")
+	}
+	hello, herr := sendHello(conn)
+	_ = conn.Close()
+	if herr != nil {
+		t.Fatalf("HELLO to referenced ptyhost after GC ticks: %v", herr)
+	}
+	if hello.Pid != pid {
+		t.Fatalf("referenced ptyhost pid changed across GC ticks: got %d, want %d", hello.Pid, pid)
+	}
+
+	// And the status file the fix relies on must carry the identity EXACTLY
+	// (not a "__"-mangled version) — a direct assertion the round-trip is
+	// lossless.
+	statusPath := ptyhost.StatusPath(runDir, repoID+"__"+branchID+"__"+tabID)
+	sf, rerr := ptyhost.ReadStatusFile(statusPath)
+	if rerr != nil {
+		t.Fatalf("ReadStatusFile: %v", rerr)
+	}
+	if sf.RepoID != repoID || sf.BranchID != branchID || sf.TabID != tabID {
+		t.Fatalf("status file identity mangled: got (%q,%q,%q), want (%q,%q,%q)",
+			sf.RepoID, sf.BranchID, sf.TabID, repoID, branchID, tabID)
 	}
 }

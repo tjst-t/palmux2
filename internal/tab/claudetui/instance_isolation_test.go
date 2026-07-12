@@ -65,9 +65,12 @@ type isolationHost struct {
 // launchRealIsolationHost spawns a REAL `palmux ptyhost` process (production
 // ADR-0003 spawn path — see [defaultLaunchPtyHost]) under instancePrefix,
 // holding a real fake_claude child, and returns its identity + a HELLO-
-// confirmed pid.
-func launchRealIsolationHost(t *testing.T, ctx context.Context, realBin, fakeBin, instancePrefix, seed string) isolationHost {
+// confirmed pid. The seed (socket/status filename source) is derived the
+// SAME way production's [Daemon.ptyHostSeed] does; identity is carried
+// in-band via the explicit RepoID/BranchID/TabID request fields.
+func launchRealIsolationHost(t *testing.T, ctx context.Context, realBin, fakeBin, instancePrefix, repoID, branchID, tabID string) isolationHost {
 	t.Helper()
+	seed := repoID + "__" + branchID + "__" + tabID
 	runDir := ptyhost.RunDir(instancePrefix)
 	sockPath := ptyhost.SocketPath(runDir, seed)
 	statusPath := ptyhost.StatusPath(runDir, seed)
@@ -76,6 +79,9 @@ func launchRealIsolationHost(t *testing.T, ctx context.Context, realBin, fakeBin
 		PalmuxBin:      realBin,
 		InstancePrefix: instancePrefix,
 		Seed:           seed,
+		RepoID:         repoID,
+		BranchID:       branchID,
+		TabID:          tabID,
 		SocketPath:     sockPath,
 		StatusPath:     statusPath,
 		Argv:           []string{fakeBin},
@@ -193,10 +199,8 @@ func TestParallelInstances_NeverClaimOrGCEachOther(t *testing.T) {
 	})
 
 	// ---- Phase 1: discovery isolation ----------------------------------
-	seedA1 := "isoA-repo__isoA-branch__claude:claude"
-	seedB1 := "isoB-repo__isoB-branch__claude:claude"
-	hostA1 := launchRealIsolationHost(t, ctx, realBin, fakeClaudeBin, prefixA, seedA1)
-	hostB1 := launchRealIsolationHost(t, ctx, realBin, fakeClaudeBin, prefixB, seedB1)
+	hostA1 := launchRealIsolationHost(t, ctx, realBin, fakeClaudeBin, prefixA, "isoA-repo", "isoA-branch", "claude:claude")
+	hostB1 := launchRealIsolationHost(t, ctx, realBin, fakeClaudeBin, prefixB, "isoB-repo", "isoB-branch", "claude:claude")
 	t.Cleanup(func() { shutdownIsolationHost(hostA1) })
 	t.Cleanup(func() { shutdownIsolationHost(hostB1) })
 
@@ -268,10 +272,8 @@ func TestParallelInstances_NeverClaimOrGCEachOther(t *testing.T) {
 	// respectively, are correctly reported live so GCOrphans's skipLive
 	// path leaves them alone WITHOUT dialing them, exactly like a real
 	// Store's isTuiTabLive would for a still-open tab).
-	seedA2 := "isoA2-repo__isoA2-branch__claude:claude"
-	seedB2 := "isoB2-repo__isoB2-branch__claude:claude"
-	hostA2 := launchRealIsolationHost(t, ctx, realBin, fakeClaudeBin, prefixA, seedA2)
-	hostB2 := launchRealIsolationHost(t, ctx, realBin, fakeClaudeBin, prefixB, seedB2)
+	hostA2 := launchRealIsolationHost(t, ctx, realBin, fakeClaudeBin, prefixA, "isoA2-repo", "isoA2-branch", "claude:claude")
+	hostB2 := launchRealIsolationHost(t, ctx, realBin, fakeClaudeBin, prefixB, "isoB2-repo", "isoB2-branch", "claude:claude")
 	t.Cleanup(func() { shutdownIsolationHost(hostA2) })
 	t.Cleanup(func() { shutdownIsolationHost(hostB2) })
 

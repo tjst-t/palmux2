@@ -27,33 +27,26 @@ import (
 //     LIVE ptyhost whose (repoId, branchId, tabId) the caller's isLive
 //     callback does not recognize gets SHUTDOWN — tmux-zombie-kill parity.
 //
-// Both rely on the ptyhost [ptyhost.StatusFile.Seed] field (S3f2658-3) to
-// recover a socket's owning (repoId, branchId, tabId) from disk: the
-// socket/status FILENAME is a one-way hash of the seed (AF_UNIX sun_path
-// length limit — see [ptyhost.FileKey]), so without the Seed persisted
-// in-band a discovery pass would have no way to know what a surviving
-// ptyhost even belongs to.
+// Both recover a socket's owning (repoId, branchId, tabId) from the EXPLICIT
+// [ptyhost.StatusFile] RepoID/BranchID/TabID fields (S3f2658-3), which are
+// written DIRECTLY from the ptyhost's Config (no join, no parse). This is
+// required rather than parsing the Seed label: the socket/status FILENAME is
+// a one-way hash of the seed (AF_UNIX sun_path length limit — see
+// [ptyhost.FileKey]), and the Seed string itself ("repoId__branchId__tabId")
+// is NOT reliably splittable back — an ID may contain the literal "__"
+// (domain IDs permit "_", and two adjacent sanitized-out chars collapse to
+// "__"), so a "__"-split would mis-attribute the ptyhost to the WRONG tuple.
+// A misparse here is a data-loss bug: GC would fail to recognize a LIVE,
+// referenced tab as live and SHUTDOWN the user's running claude (fixed by
+// carrying identity in-band as explicit fields, never a delimited string).
 
 // DiscoveredHost is one LIVE ptyhost found by [scanRunDir]: its identity
-// (parsed from the status file's Seed) plus the paths a caller needs to
-// re-adopt or SHUTDOWN it.
+// (read from the status file's explicit RepoID/BranchID/TabID fields) plus
+// the paths a caller needs to re-adopt or SHUTDOWN it.
 type DiscoveredHost struct {
 	RepoID, BranchID, TabID string
 	SockPath, StatusPath    string
 	Pid                     int
-}
-
-// splitSeed parses a ptyHostSeed-shaped string ("repoId__branchId__tabId",
-// see [Daemon.ptyHostSeed]) back into its three components. Returns ok=false
-// for anything that doesn't cleanly split into exactly three non-empty
-// parts — a malformed/foreign Seed is treated as unidentifiable, never
-// guessed at.
-func splitSeed(seed string) (repoID, branchID, tabID string, ok bool) {
-	parts := strings.SplitN(seed, "__", 3)
-	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
-		return "", "", "", false
-	}
-	return parts[0], parts[1], parts[2], true
 }
 
 // pidAlive reports whether pid refers to a currently-running process, via
@@ -183,9 +176,17 @@ func scanRunDir(runDir string, logger *slog.Logger, skipLive func(repoID, branch
 			cleaned++
 			continue
 		}
-		repoID, branchID, tabID, ok := splitSeed(sf.Seed)
-		if !ok {
-			logger.Warn("claudetui: discovery: unparseable ptyhost seed, cleaning up", "seed", sf.Seed, "status", statusPath)
+		// Identity comes from the EXPLICIT status-file fields (written
+		// directly from Config, never parsed from a delimited string) so an
+		// ID containing "__" round-trips exactly — see the file-level doc
+		// comment for why parsing Seed would be a data-loss bug.
+		repoID, branchID, tabID := sf.RepoID, sf.BranchID, sf.TabID
+		if repoID == "" || branchID == "" || tabID == "" {
+			// No usable identity (empty fields, or a pre-S3f2658-3-fix
+			// ptyhost that only ever wrote Seed) — cannot be safely
+			// re-adopted or orphan-GC'd by identity. Treat as debris.
+			logger.Warn("claudetui: discovery: status file missing explicit identity fields, cleaning up",
+				"status", statusPath, "seed", sf.Seed)
 			removeStaleFiles(sockPath, statusPath)
 			cleaned++
 			continue

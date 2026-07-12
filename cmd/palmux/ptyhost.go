@@ -15,15 +15,18 @@ import (
 
 // runPtyHost implements the `palmux ptyhost` subcommand — the thin, generic
 // process holder described by ADR-0001/0002. It has ZERO claude-specific
-// knowledge: --socket/--status/--cwd/--env/--seed are opaque plumbing, and
-// the trailing argv (after "--") is whatever command palmux2 wants held
-// under a PTY. Do not add claude/incus/tmux-specific flags or logic here —
-// that belongs on the palmux2 side (see internal/ptyhost/doc.go).
+// knowledge: --socket/--status/--cwd/--env/--seed/--repo-id/--branch-id/
+// --tab-id are opaque plumbing (the identity flags are stored/echoed
+// verbatim, never acted on), and the trailing argv (after "--") is whatever
+// command palmux2 wants held under a PTY. Do not add claude/incus/tmux-
+// specific flags or logic here — that belongs on the palmux2 side (see
+// internal/ptyhost/doc.go).
 //
 // Usage:
 //
 //	palmux ptyhost --socket <path> --status <path> [--cwd <dir>] \
-//	  [--env KEY=VALUE ...] [--ring-size <bytes>] [--seed <label>] -- <argv...>
+//	  [--env KEY=VALUE ...] [--ring-size <bytes>] [--seed <label>] \
+//	  [--repo-id <id>] [--branch-id <id>] [--tab-id <id>] -- <argv...>
 func runPtyHost(args []string) int {
 	fs := pflag.NewFlagSet("ptyhost", pflag.ContinueOnError)
 	socketPath := fs.String("socket", "", "unix socket path to serve the ptyhost protocol on (required)")
@@ -31,7 +34,10 @@ func runPtyHost(args []string) int {
 	cwd := fs.String("cwd", "", "working directory for the spawned child (empty = inherit)")
 	envFlags := fs.StringArray("env", nil, "KEY=VALUE environment variable for the spawned child (repeatable); if omitted entirely, the child inherits palmux ptyhost's own environment")
 	ringSize := fs.Int("ring-size", ptyhost.DefaultRingSize, "ring buffer capacity in bytes")
-	seed := fs.String("seed", "", "opaque identity label echoed into the status file for palmux2-side discovery/GC (S3f2658-3); ptyhost does not interpret it")
+	seed := fs.String("seed", "", "opaque label hashed into the socket/status filename + systemd scope-unit name (NOT a parseable identity); ptyhost does not interpret it")
+	repoID := fs.String("repo-id", "", "opaque workspace repo identity echoed verbatim into the status file for palmux2-side discovery/GC (S3f2658-3)")
+	branchID := fs.String("branch-id", "", "opaque workspace branch identity echoed verbatim into the status file for palmux2-side discovery/GC (S3f2658-3)")
+	tabID := fs.String("tab-id", "", "opaque tab identity echoed verbatim into the status file for palmux2-side discovery/GC (S3f2658-3)")
 
 	if err := fs.Parse(args); err != nil {
 		if err == pflag.ErrHelp {
@@ -57,6 +63,9 @@ func runPtyHost(args []string) int {
 		StatusPath: *statusPath,
 		RingSize:   *ringSize,
 		Seed:       *seed,
+		RepoID:     *repoID,
+		BranchID:   *branchID,
+		TabID:      *tabID,
 		Logger:     logger,
 	})
 	if err != nil {
