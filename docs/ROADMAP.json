@@ -12221,12 +12221,12 @@
             {
               "id": "AC-Sfeed64-2-1",
               "description": "Sfeed64-1 の全 AC (MANUAL SMOKE 含む) が緑になってから v0.14.13 をタグ→リリースする。done 直後の即リリースをせず、実セッション dogfood の緑を確認してから出す。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sfeed64-2-2",
               "description": "nix defaultVersion が削除済み v0.14.12 (404) を指したままなので、v0.14.13 リリースの自動 bump で 0.14.13 に更新され、新規 install.sh / palmux runtime install が 404 で失敗しないことを確認する。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sfeed64-2-3",
@@ -12238,17 +12238,17 @@
             "Sfeed64-2-1": {
               "id": "Sfeed64-2-1",
               "title": "全 AC (dogfood 含む) 緑確認後に v0.14.13 タグ→リリース (即リリース禁止)",
-              "status": "pending"
+              "status": "done"
             },
             "Sfeed64-2-2": {
               "id": "Sfeed64-2-2",
               "title": "nix defaultVersion を 0.14.13 に是正 (新規 install 404 解消) 確認",
-              "status": "pending"
+              "status": "done"
             },
             "Sfeed64-2-3": {
               "id": "Sfeed64-2-3",
               "title": "ndev を v0.14.13 に前進復帰 + 実セッション再アタッチ確認",
-              "status": "pending"
+              "status": "needs_user_review"
             }
           }
         },
