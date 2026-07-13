@@ -12251,6 +12251,46 @@
               "status": "pending"
             }
           }
+        },
+        "Sfeed64-3": {
+          "id": "Sfeed64-3",
+          "title": "ptyhost の adoption/GC を owner-mode で振り分ける (dual-manager adoption 解消 → セッション復元回復)",
+          "user_story": "ユーザとして、palmux2 再起動後に claude-tui セッションが fresh に戻らず画面・会話ごと復元されてほしい。なぜなら green dogfood で、tui と agent の両 discovery が同じ生存 ptyhost を奪い合い evict ループ→claude 強制終了→fresh セッションになってしまったから。",
+          "status": "pending",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sfeed64-3-1",
+              "description": "claudetui の discovery(scanRunDir) と orphan-GC は Mode=='pty'(空=既定含む) の ptyhost のみを、claudeagent(scanAgentRunDir) は Mode=='pipe' の ptyhost のみを adopt/対象にする。ptyhost.StatusFile の既存 Mode フィールドで判定し、共有 run dir 上で相手モードの ptyhost を dial/adopt/SHUTDOWN しない。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sfeed64-3-2",
+              "description": "回帰テスト: 同一 (repo,branch,tab) の pty-mode ptyhost が存命の状態で claudetui と claudeagent の discovery を両方走らせ、claudetui のみが adopt し claudeagent は skip する(=単一接続 socket を evict しない)ことを実 ptyhost プロセスで assert する。逆(pipe-mode)も対称に確認。修正前は両方が adopt することを示す。",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sfeed64-3-3",
+              "description": "[MANUAL SMOKE, green 再 dogfood] 実 claude-tui タブで出力を溜め palmux2 を二重再起動し、(a) /health 200 継続、(b) 画面・会話が復元される(前回 FAIL 部分)、(c) 生存 ptyhost の incus-exec claude child が SIGTERM されず継続する、を確認して記録する。",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "Sfeed64-3-1": {
+              "id": "Sfeed64-3-1",
+              "title": "scanRunDir/scanAgentRunDir + 両 GC に Mode フィルタを追加 (tui=pty|空, agent=pipe)",
+              "status": "pending"
+            },
+            "Sfeed64-3-2": {
+              "id": "Sfeed64-3-2",
+              "title": "実 ptyhost での dual-adoption 回帰テスト (存命 pty を agent が adopt しない / 対称)",
+              "status": "pending"
+            },
+            "Sfeed64-3-3": {
+              "id": "Sfeed64-3-3",
+              "title": "[MANUAL SMOKE] green 再 dogfood で画面復元 + incus child 生存を確認 (coordinator が実行)",
+              "status": "pending"
+            }
+          }
         }
       }
     }
