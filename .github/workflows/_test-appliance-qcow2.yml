@@ -33,12 +33,24 @@ jobs:
       - name: Disk space after
         run: df -h
 
+      - name: List output dir
+        run: |
+          echo "OUT_PATH=$OUT_PATH"
+          find "$OUT_PATH" -maxdepth 2 -exec ls -lh {} \;
+
       - name: Locate qcow2
         run: |
           IMG="$(find "$OUT_PATH" -maxdepth 1 -name '*.qcow2' | head -n1)"
-          test -n "$IMG" || { echo "::error::no .qcow2 file found under $OUT_PATH"; exit 1; }
-          ls -lh "$IMG"
-          cp "$IMG" appliance-test.qcow2
+          if [ -z "$IMG" ]; then
+            RAW="$(find "$OUT_PATH" -maxdepth 1 \( -name '*.raw' -o -name '*.img' \) | head -n1)"
+            test -n "$RAW" || { echo "::error::no .qcow2/.raw/.img file found under $OUT_PATH"; exit 1; }
+            echo "no .qcow2, found raw image: $RAW — converting"
+            sudo apt-get update -qq && sudo apt-get install -y -qq qemu-utils
+            qemu-img convert -O qcow2 -c "$RAW" appliance-test.qcow2
+          else
+            cp "$IMG" appliance-test.qcow2
+          fi
+          ls -lh appliance-test.qcow2
 
       - uses: actions/upload-artifact@v4
         with:
