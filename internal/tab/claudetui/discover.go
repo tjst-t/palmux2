@@ -39,6 +39,28 @@ import (
 // A misparse here is a data-loss bug: GC would fail to recognize a LIVE,
 // referenced tab as live and SHUTDOWN the user's running claude (fixed by
 // carrying identity in-band as explicit fields, never a delimited string).
+//
+// Sfeed64-3: this Manager's run directory is SHARED on disk with
+// claudeagent's Manager (internal/tab/claudeagent/discover.go) — both walk
+// the SAME (*.sock, *.json) seed space, because a ptyhost's socket path is
+// derived purely from (repoId, branchId, tabId), independent of which
+// package spawned it (claude-tui in [ptyhost.ModePTY], claude-agent in
+// [ptyhost.ModePipe]). Before this fix, scanRunDir treated every
+// identity-bearing entry as "mine": a real dogfood restart showed BOTH
+// managers dialing/adopting each OTHER's ptyhosts, and since a ptyhost
+// socket tolerates only ONE live connection at a time
+// (ptyhost.Server.replaceConn evicts whatever connection was previously
+// active), the two managers evicted each other in a loop — broken pipe,
+// interpreted as session death, SHUTDOWN + respawn storm, and the surviving
+// claude session lost its screen/conversation continuity even though it
+// self-healed (no 502). The fix: [ptyhost.StatusFile.Mode] is the explicit,
+// authoritative ownership marker (written directly from the spawning
+// Config, exactly like RepoID/BranchID/TabID above) — scanRunDir checks it
+// immediately after reading the status file's identity, BEFORE any dial,
+// and skips (leaves COMPLETELY untouched — no dial, no adopt, no SHUTDOWN,
+// no cleaned-count) any entry whose Mode is not one this Manager owns. This
+// is the ownership marker the S3f2658-3 GUARD-RAIL comment in claudeagent's
+// GCOrphans anticipated but did not yet apply to the on-disk scan.
 
 // DiscoveredHost is one LIVE ptyhost found by [scanRunDir]: its identity
 // (read from the status file's explicit RepoID/BranchID/TabID fields) plus
@@ -189,6 +211,19 @@ func scanRunDir(runDir string, logger *slog.Logger, skipLive func(repoID, branch
 				"status", statusPath, "seed", sf.Seed)
 			removeStaleFiles(sockPath, statusPath)
 			cleaned++
+			continue
+		}
+		// Sfeed64-3: ownership filter, BEFORE any dial. claude-tui only ever
+		// spawns [ptyhost.ModePTY] (sf.Mode == "" is a pre-Mode-field
+		// back-compat record, also pty — see ptyhost.Config's own
+		// defaulting). A "pipe" entry belongs to claudeagent's Manager and
+		// MUST be left completely alone: dialing it here (even just for the
+		// HELLO liveness probe below) would evict claudeagent's own live
+		// connection (ptyhost.Server.replaceConn tolerates only one active
+		// connection) — the exact dual-manager eviction loop this story
+		// fixes. Not counted as cleaned either: it is not debris, it is a
+		// live ptyhost that simply isn't this Manager's to manage.
+		if sf.Mode == ptyhost.ModePipe {
 			continue
 		}
 		if skipLive != nil && skipLive(repoID, branchID, tabID) {
