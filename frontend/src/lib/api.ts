@@ -383,6 +383,12 @@ export const selfUpdateApi = {
   refresh: (): Promise<SelfUpdateSnapshot> => api.post<SelfUpdateSnapshot>('/api/selfupdate/refresh'),
   run: (): Promise<SelfUpdateRunResult> => api.post<SelfUpdateRunResult>('/api/selfupdate/run'),
   health: (): Promise<{ version?: string }> => api.get<{ version?: string }>('/api/health'),
+  // Sfeed64: live systemd state of palmux-update.service (home-manager "Update
+  // all" path). Reuses the RebuildStatus shape (same active/result/running
+  // fields) so the FE can detect a genuine failure directly instead of only
+  // guessing from the WS-drop → /health reconnect timeout, which a slow-but-
+  // successful update (nix eval + image download can take minutes) can outrun.
+  updateStatus: (): Promise<RebuildStatus> => api.get<RebuildStatus>('/api/selfupdate/status'),
   // S673a42-2: kick the appliance host update (`nix flake update palmux` +
   // `nixos-rebuild switch`) via the verb-limited palmux-rebuild-update unit.
   // NixOS-appliance only; 409 elsewhere.

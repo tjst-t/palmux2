@@ -70,13 +70,22 @@ def _snap(available, nix_managed, palmux_avail=True):
 
 def _wire_base(page, snap, health_version="v0.10.0"):
     """Minimal bootstrap stubs so the SPA renders the header."""
-    page.add_init_script("window.localStorage.setItem('palmux:onboarding-seen','1'); window.__PALMUX_NO_RELOAD__ = true")
+    # Sfeed64: `palmux:onboarding-seen` is stale (the wizard actually gates on
+    # sessionStorage `palmux:onboarding-skipped` + /api/deploy configured:false —
+    # left as-is for back-compat, but the deploy mock below is what actually
+    # keeps the overlay from intercepting clicks in headless runs).
+    page.add_init_script(
+        "window.localStorage.setItem('palmux:onboarding-seen','1');"
+        "window.sessionStorage.setItem('palmux:onboarding-skipped','1');"
+        "window.__PALMUX_NO_RELOAD__ = true"
+    )
     page.route("**/api/repos", lambda r: _fulfill(r, []))
     page.route("**/api/settings", lambda r: _fulfill(r, {}))
     page.route("**/api/notifications", lambda r: _fulfill(r, {}))
     page.route("**/api/orphan-sessions", lambda r: _fulfill(r, []))
     page.route("**/api/host", lambda r: _fulfill(r, {"available": False}, status=404))
     page.route("**/api/runtimes", lambda r: _fulfill(r, {"kinds": []}))
+    page.route("**/api/deploy", lambda r: _fulfill(r, {"configured": True}))
     page.route("**/api/health", lambda r: _fulfill(r, {"status": "ok", "version": health_version}))
     page.route("**/api/selfupdate", lambda r: _fulfill(r, snap))
 
@@ -116,15 +125,7 @@ def test_update_all_progress(page) -> None:
     the handshake logic — a mock cannot drop the real events WS honestly.)
     """
     snap = _snap(available=True, nix_managed=True)
-    page.add_init_script("window.localStorage.setItem('palmux:onboarding-seen','1'); window.__PALMUX_NO_RELOAD__ = true")
-    page.route("**/api/repos", lambda r: _fulfill(r, []))
-    page.route("**/api/settings", lambda r: _fulfill(r, {}))
-    page.route("**/api/notifications", lambda r: _fulfill(r, {}))
-    page.route("**/api/orphan-sessions", lambda r: _fulfill(r, []))
-    page.route("**/api/host", lambda r: _fulfill(r, {"available": False}, status=404))
-    page.route("**/api/runtimes", lambda r: _fulfill(r, {"kinds": []}))
-    page.route("**/api/health", lambda r: _fulfill(r, {"status": "ok", "version": "v0.10.0"}))
-    page.route("**/api/selfupdate", lambda r: _fulfill(r, snap))
+    _wire_base(page, snap)
 
     run_called = {"v": False}
 
@@ -132,6 +133,10 @@ def test_update_all_progress(page) -> None:
         run_called["v"] = True
         _fulfill(route, {"ok": True, "nixManaged": True, "message": "更新を開始しました"})
     page.route("**/api/selfupdate/run", run)
+    # Sfeed64: the "Update all" flow now also polls this endpoint (see
+    # test_status_poll_* below); default it to "still running" so it never
+    # interferes with THIS test's plain progress-badge assertion.
+    page.route("**/api/selfupdate/status", lambda r: _fulfill(r, {"active": "activating", "result": "", "running": True}))
 
     page.goto(BASE_URL, wait_until="domcontentloaded", timeout=T)
     page.wait_for_timeout(1200)
@@ -158,6 +163,66 @@ def test_update_all_progress(page) -> None:
         fail("AC-S6ab0ed-2-1 run invoked", "run endpoint not called")
 
 
+def test_status_poll_detects_real_failure_fast(page) -> None:
+    """[AC-Sfeed64-2] palmux-update.service reporting a genuine failure
+
+    (Active=failed) surfaces the rollback note QUICKLY via the new
+    GET /api/selfupdate/status poll, without waiting anywhere near the (now
+    15-minute) WS-reconnect-handshake backstop and WITHOUT any WS drop at all —
+    this poll runs independently of the WS.
+    """
+    name = "AC-Sfeed64-2 status poll surfaces a real failure fast"
+    snap = _snap(available=True, nix_managed=True)
+    _wire_base(page, snap)
+    page.route("**/api/selfupdate/run", lambda r: _fulfill(r, {"ok": True, "nixManaged": True, "message": "更新を開始しました"}))
+    page.route("**/api/selfupdate/status", lambda r: _fulfill(r, {"active": "failed", "result": "exit-code", "running": False}))
+
+    page.goto(BASE_URL, wait_until="domcontentloaded", timeout=T)
+    page.wait_for_timeout(1200)
+    page.locator('[data-testid="update-available-badge"]').click()
+    page.wait_for_selector('[data-testid="update-all-btn"]', timeout=T)
+    page.locator('[data-testid="update-all-btn"]').click()
+
+    try:
+        # The poll fires every 3s; allow a couple of cycles, well under the
+        # old 60s (and new 15min) WS-handshake timeout.
+        page.wait_for_selector('[data-testid="update-failed-note"]', timeout=10_000)
+        ok(name)
+    except Exception as e:  # noqa: BLE001
+        fail(name, str(e))
+
+
+def test_status_poll_slow_running_not_falsely_failed(page) -> None:
+    """[AC-Sfeed64-2] A unit that is STILL genuinely running (Active=activating)
+
+    must never be reported as failed, no matter how long it legitimately takes
+    — this is the exact false-negative regression this Sprint fixes (a slow
+    but successful update was previously shown as "ロールバックされ" once the
+    old fixed 60s WS-handshake timeout elapsed). We wait past that old 60s
+    mark here and assert the failure note NEVER appears while the poll keeps
+    reporting "running".
+    """
+    name = "AC-Sfeed64-2 still-running unit never shown as failed (past the old 60s mark)"
+    snap = _snap(available=True, nix_managed=True)
+    _wire_base(page, snap)
+    page.route("**/api/selfupdate/run", lambda r: _fulfill(r, {"ok": True, "nixManaged": True, "message": "更新を開始しました"}))
+    page.route("**/api/selfupdate/status", lambda r: _fulfill(r, {"active": "activating", "result": "", "running": True}))
+
+    page.goto(BASE_URL, wait_until="domcontentloaded", timeout=T)
+    page.wait_for_timeout(1200)
+    page.locator('[data-testid="update-available-badge"]').click()
+    page.wait_for_selector('[data-testid="update-all-btn"]', timeout=T)
+    page.locator('[data-testid="update-all-btn"]').click()
+    page.wait_for_selector('[data-testid="update-progress-badge"]', timeout=T)
+
+    # Past the OLD fixed 60s timeout that used to fire the false rollback note.
+    page.wait_for_timeout(65_000)
+    if page.locator('[data-testid="update-failed-note"]').count() == 0:
+        ok(name)
+    else:
+        fail(name, "failure note shown while the unit was still legitimately running")
+
+
 def main() -> int:
     try:
         from playwright.sync_api import sync_playwright
@@ -169,7 +234,9 @@ def main() -> int:
         browser = p.chromium.launch(headless=True)
         for tc in (test_badge_hidden_when_no_update,
                    test_manual_note_when_unmanaged,
-                   test_update_all_progress):
+                   test_update_all_progress,
+                   test_status_poll_detects_real_failure_fast,
+                   test_status_poll_slow_running_not_falsely_failed):
             ctx = browser.new_context()
             page = ctx.new_page()
             try:

@@ -462,6 +462,54 @@ func unitActiveState() string {
 	return strings.TrimSpace(string(out))
 }
 
+// UpdateUnitStatus is the live systemd state of palmux-update.service, exposed
+// to the GUI so it can detect a genuine update failure directly (the unit
+// ended without ever restarting palmux2) instead of inferring one from a fixed
+// WS-reconnect timeout. Shape mirrors deploy.RebuildStatus (the NixOS-appliance
+// counterpart of this same problem).
+type UpdateUnitStatus struct {
+	Active  string `json:"active"`  // systemd ActiveState: inactive|activating|active|failed|…
+	Result  string `json:"result"`  // systemd Result: success|exit-code|… ("" while running)
+	Running bool   `json:"running"` // true while activating/reloading/deactivating
+}
+
+// UpdateStatus reports palmux-update.service's current systemd state.
+//
+// Sfeed64: the GUI "Update all" flow used to have ONLY the WS-drop → /health
+// version-diff reconnect handshake to decide success/failure, with a fixed 60s
+// timeout on the failure branch. On a host where the real update (nix
+// evaluation, a caddy-cloudflare rebuild, a ~1GB palmux-ws image download, a
+// mid-script Caddy restart, and finally the palmux2 restart itself) can
+// legitimately take several minutes, that 60s guess routinely fired BEFORE the
+// real palmux2 restart happened — showing "更新に失敗しました。home-manager
+// 世代でロールバックされ…" even though palmux-update.service was still running
+// and went on to complete successfully seconds later (observed on
+// ndev.tjstkm.net 2026-07-13: three consecutive runs all finished with systemd
+// result=success, yet the GUI had already reported a rollback). Polling this
+// endpoint lets the GUI tell "still legitimately running" apart from "the unit
+// truly ended", so it no longer needs to guess from a clock alone.
+func (s *Service) UpdateStatus(ctx context.Context) (UpdateUnitStatus, error) {
+	out, err := exec.CommandContext(ctx, systemctlUserBin, "--user", "show", "-p", "ActiveState", "-p", "Result", updateUnitName).Output() //nolint:gosec // fixed unit name
+	if err != nil {
+		return UpdateUnitStatus{}, fmt.Errorf("show %s: %w", updateUnitName, err)
+	}
+	var st UpdateUnitStatus
+	for _, line := range strings.Split(string(out), "\n") {
+		k, v, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if !ok {
+			continue
+		}
+		switch k {
+		case "ActiveState":
+			st.Active = v
+		case "Result":
+			st.Result = v
+		}
+	}
+	st.Running = st.Active == "activating" || st.Active == "reloading" || st.Active == "deactivating"
+	return st, nil
+}
+
 // RunUpdateForeground runs the update SYNCHRONOUSLY and returns its exit status.
 // Used by the `palmux update` CLI, which (unlike the server) does not restart
 // itself — it waits for completion and reports success/fail via the exit code.
