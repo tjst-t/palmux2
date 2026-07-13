@@ -1270,6 +1270,45 @@ export const usePalmuxStore = create<PalmuxStoreState>()((set, get) => ({
       set({ updateInProgress: false })
       throw err
     }
+    // Sfeed64: poll palmux-update.service's live systemd state alongside the
+    // WS-drop → /health reconnect handshake above. That handshake alone can
+    // only INFER a failure from a fixed timeout — and a real update on this
+    // host (nix evaluation, a caddy-cloudflare rebuild, a ~1GB palmux-ws image
+    // download, a mid-script Caddy restart, then finally the palmux2 restart
+    // itself) was observed legitimately taking several minutes, well past a
+    // short guess, producing a false "更新に失敗しました…ロールバックされ"
+    // report on an update that went on to complete successfully seconds later
+    // (ndev.tjstkm.net, 2026-07-13 — three separate runs, all finished with
+    // systemd result=success, yet the GUI had already reported a rollback on
+    // the first). This poll instead asks systemd DIRECTLY whether the unit
+    // ended without success, so a genuine failure surfaces immediately while a
+    // still-running unit is never mistaken for one no matter how long it
+    // legitimately takes. It never claims SUCCESS itself — only the version
+    // handshake proves the new binary is actually serving — it only ever sets
+    // updateFailed early on a real failure signal.
+    const started = Date.now()
+    const poll = async (): Promise<void> => {
+      if (!get().updateInProgress) return // handshake already completed/cleared
+      if (Date.now() - started > 15 * 60 * 1000) {
+        // Backstop only: the WS-handshake timeout (use-event-stream.ts) is the
+        // same length and covers this same deadline independently; this just
+        // avoids polling forever if the unit query itself never resolves
+        // (e.g. legacy install predating palmux-update.service).
+        return
+      }
+      try {
+        const st = await selfUpdateApi.updateStatus()
+        if (st.active === 'failed' || (st.result && st.result !== 'success' && !st.running)) {
+          set({ updateInProgress: false, updateFailed: true })
+          return
+        }
+      } catch {
+        // Unit not found (legacy install) or transient — the WS handshake
+        // still covers both the success and eventual-timeout paths.
+      }
+      setTimeout(() => void poll(), 3000)
+    }
+    setTimeout(() => void poll(), 3000)
   },
 
   // S673a42-2: appliance host update (nixos-rebuild). Mirrors runSelfUpdate's

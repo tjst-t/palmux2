@@ -123,6 +123,10 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("GET /api/selfupdate", h.getSelfUpdate)
 	mux.HandleFunc("POST /api/selfupdate/refresh", h.postSelfUpdateRefresh)
 	mux.HandleFunc("POST /api/selfupdate/run", h.postSelfUpdateRun)
+	// Sfeed64: home-manager-path "Update all" live unit status, so the GUI can
+	// detect a genuine palmux-update.service failure instead of guessing from a
+	// fixed WS-reconnect timeout (see getSelfUpdateStatus doc comment).
+	mux.HandleFunc("GET /api/selfupdate/status", h.getSelfUpdateStatus)
 	// S673a42: appliance host update (nixos-rebuild) + palmux-ws image fetch kicks.
 	mux.HandleFunc("POST /api/selfupdate/rebuild", h.postSelfUpdateRebuild)
 	mux.HandleFunc("GET /api/selfupdate/rebuild", h.getSelfUpdateRebuild)

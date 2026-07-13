@@ -297,6 +297,47 @@ func TestWatchUpdateUnitClearsGuardOnFailure(t *testing.T) {
 	}
 }
 
+// [AC-Sfeed64-2] UpdateStatus parses systemd's ActiveState/Result for
+// palmux-update.service so the GUI can detect a genuine failure directly
+// instead of guessing from the WS-reconnect timeout (which a slow-but-
+// successful update, e.g. a big image download, can legitimately outrun).
+func TestUpdateStatusParsesSystemctlShow(t *testing.T) {
+	cases := []struct {
+		name       string
+		show       string
+		wantActive string
+		wantResult string
+		wantRun    bool
+	}{
+		{"running", "ActiveState=activating\nResult=\n", "activating", "", true},
+		{"succeeded", "ActiveState=inactive\nResult=success\n", "inactive", "success", false},
+		{"failed", "ActiveState=failed\nResult=exit-code\n", "failed", "exit-code", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			stub := filepath.Join(home, "systemctl-stub")
+			script := "#!/usr/bin/env bash\ncat <<'EOF'\n" + tc.show + "EOF\n"
+			if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			orig := systemctlUserBin
+			t.Cleanup(func() { systemctlUserBin = orig })
+			systemctlUserBin = stub
+
+			s := NewService(Manifest{Components: []Component{{Name: "palmux", Kind: KindCoreBinary}}},
+				InstalledProbes{}, nil, nil)
+			st, err := s.UpdateStatus(context.Background())
+			if err != nil {
+				t.Fatalf("UpdateStatus: %v", err)
+			}
+			if st.Active != tc.wantActive || st.Result != tc.wantResult || st.Running != tc.wantRun {
+				t.Errorf("got %+v, want active=%s result=%s running=%v", st, tc.wantActive, tc.wantResult, tc.wantRun)
+			}
+		})
+	}
+}
+
 // [AC-S6ab0ed-1-2] availabilityChanged fires only on transitions (mirrors
 // setDriftCached) so we publish WS events sparingly.
 // [AC-Sb14caa-4-3] On a NixOS host the snapshot flags NixOSHost so the GUI maps

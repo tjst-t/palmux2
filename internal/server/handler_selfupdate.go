@@ -101,6 +101,25 @@ func (h *handlers) postSelfUpdateRun(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// getSelfUpdateStatus reports palmux-update.service's live systemd state (the
+// home-manager-managed "Update all" path's counterpart of getSelfUpdateRebuild
+// below). The GUI polls it alongside the existing WS-drop → /health reconnect
+// handshake so a genuine failure (the unit ended without ever restarting
+// palmux2) is detected directly, instead of only being inferred from a fixed
+// reconnect timeout that a slow-but-successful update can outrun (Sfeed64).
+func (h *handlers) getSelfUpdateStatus(w http.ResponseWriter, r *http.Request) {
+	if h.selfupdate == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "self-update unavailable"})
+		return
+	}
+	st, err := h.selfupdate.UpdateStatus(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
+}
+
 // postSelfUpdateRebuild kicks the appliance HOST update on a NixOS appliance:
 // `nix flake update palmux` (bump the pin) + `nixos-rebuild switch`, run by the
 // verb-limited palmux-rebuild-update.service (S673a42-2). The GUI observes

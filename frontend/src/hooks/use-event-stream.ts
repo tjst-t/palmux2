@@ -82,11 +82,23 @@ async function maybeFinishSelfUpdate(): Promise<void> {
   }
 
   // Optional E2E hook: shorten the handshake poll window so the failure
-  // (rollback) path is testable without a 60s wait. Never set in production.
+  // (rollback) path is testable without a long wait. Never set in production.
+  //
+  // Sfeed64: this is now a pure BACKSTOP, not the primary failure signal. A
+  // genuine failure (palmux-update.service ended without ever restarting
+  // palmux2) is caught fast and directly by the status poll runSelfUpdate
+  // starts in palmux-store.ts (GET /api/selfupdate/status). This deadline only
+  // needs to cover installs that predate that unit (legacy detached-helper
+  // fallback, no status to poll) or a status-poll failure — real, healthy
+  // updates on this host observed taking several minutes (nix eval + ~1GB
+  // image download + a mid-script Caddy restart), so a short timeout here
+  // previously produced false "ロールバックされ" reports on completed updates
+  // (ndev.tjstkm.net, 2026-07-13).
   const w = window as unknown as { __PALMUX_UPDATE_TIMEOUT_MS__?: number }
   await pollForNewVersion({
     baseline: usePalmuxStore.getState().updateBaselineVersion,
-    timeoutMs: typeof w.__PALMUX_UPDATE_TIMEOUT_MS__ === 'number' ? w.__PALMUX_UPDATE_TIMEOUT_MS__ : undefined,
+    timeoutMs:
+      typeof w.__PALMUX_UPDATE_TIMEOUT_MS__ === 'number' ? w.__PALMUX_UPDATE_TIMEOUT_MS__ : 15 * 60 * 1000,
     fetchVersion: async () => (await selfUpdateApi.health()).version ?? '',
     onSuccess: (v) => {
       usePalmuxStore.setState({
