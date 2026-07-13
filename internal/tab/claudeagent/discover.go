@@ -34,6 +34,23 @@ import (
 // pipe-mode ptyhost un-reaped until the branch happened to be reopened
 // (S64c835-3; see decisions.json — this closes the backlog gap noted at
 // S862203-3's done time).
+//
+// Sfeed64-3: this Manager's run directory is SHARED on disk with
+// claudetui's Manager (internal/tab/claudetui/discover.go) — both walk the
+// SAME (*.sock, *.json) seed space (a ptyhost's socket path is derived
+// purely from (repoId, branchId, tabId), independent of which package
+// spawned it). Before this fix, scanAgentRunDir treated every
+// identity-bearing entry as "mine", so a real dogfood restart showed both
+// managers dialing/adopting each OTHER's ptyhosts — and since a ptyhost
+// socket tolerates only ONE live connection at a time
+// (ptyhost.Server.replaceConn evicts the previously-active connection the
+// instant a new one dials in), the two managers evicted each other in a
+// loop. The fix: [ptyhost.StatusFile.Mode] is the explicit, authoritative
+// ownership marker (written directly from the spawning Config) —
+// scanAgentRunDir checks it immediately after reading the status file's
+// identity, BEFORE any dial, and skips (leaves COMPLETELY untouched) any
+// entry that is not [ptyhost.ModePipe]. claude-tui's scanRunDir applies the
+// symmetric filter for [ptyhost.ModePTY]/empty.
 
 // discoveredAgentHost is one LIVE pipe-mode ptyhost found by
 // scanAgentRunDir: its identity (read from the status file's explicit
@@ -152,6 +169,18 @@ func scanAgentRunDir(runDir string, logger *slog.Logger, skipLive func(repoID, b
 				"status", statusPath, "seed", sf.Seed)
 			removeAgentStaleFiles(sockPath, statusPath)
 			cleaned++
+			continue
+		}
+		// Sfeed64-3: ownership filter, BEFORE any dial. claude-agent only
+		// ever spawns [ptyhost.ModePipe]. A "pty" (or empty, pre-Mode-field
+		// back-compat) entry belongs to claudetui's Manager and MUST be left
+		// completely alone: dialing it here (even just for the HELLO
+		// liveness probe below) would evict claudetui's own live connection
+		// (ptyhost.Server.replaceConn tolerates only one active connection)
+		// — the exact dual-manager eviction loop this story fixes. Not
+		// counted as cleaned either: it is not debris, it is a live ptyhost
+		// that simply isn't this Manager's to manage.
+		if sf.Mode != ptyhost.ModePipe {
 			continue
 		}
 		if skipLive != nil && skipLive(repoID, branchID, tabID) {
@@ -275,18 +304,35 @@ func DiscoverAndRestore(ctx context.Context, mgr *Manager, logger *slog.Logger) 
 // A nil isLive makes GCOrphans a no-op (defensive — callers should not
 // wire GCOrphans at all in that case).
 //
-// GUARD-RAIL (do not remove — S64c835-3 review): this Manager's run dir
-// ([Manager.RunDir], ptyhost.RunDir(instancePrefix)) is the SAME directory /
-// seed space claude-tui's Manager scans — in production both use the same
-// empty instancePrefix, and the single visible "claude" tab is ONE shared
-// (repoID, branchID, tabID) seed regardless of mode. So claude-tui's and
-// claude-agent's GCOrphans both walk the SAME on-disk ptyhosts every tick.
-// This is safe ONLY because both are driven by the SAME mode-agnostic
-// isLive (plain store.Tab existence — see store.gcAgentOrphans). isLive
-// MUST stay mode-agnostic: a variant that also asserted the tab's MODE
+// GUARD-RAIL (do not remove — S64c835-3 review, corrected by Sfeed64-3): this
+// Manager's run dir ([Manager.RunDir], ptyhost.RunDir(instancePrefix)) is the
+// SAME directory / seed space claude-tui's Manager scans — in production
+// both use the same empty instancePrefix, and the single visible "claude"
+// tab is ONE shared (repoID, branchID, tabID) seed regardless of mode. So
+// claude-tui's and claude-agent's GCOrphans (and DiscoverAndRestore) both
+// walk the SAME on-disk ptyhosts every tick.
+//
+// This was ORIGINALLY believed safe purely because both are driven by the
+// same mode-agnostic isLive (plain store.Tab existence). That was
+// insufficient on its own: isLive is only ever consulted for entries the
+// scan already dialed to confirm liveness, and dialing is itself
+// destructive (ptyhost.Server.replaceConn evicts whatever connection was
+// previously active) — a real dogfood restart proved both managers were
+// dialing/adopting each OTHER's ptyhosts and evicting each other in a loop
+// BEFORE isLive ever entered the picture (Sfeed64-3). The actual fix is in
+// [scanAgentRunDir]: it now checks [ptyhost.StatusFile.Mode] — the explicit
+// ownership marker written by whichever package spawned the ptyhost — and
+// skips any entry that is not [ptyhost.ModePipe] BEFORE any dial, so a
+// claude-tui-owned ([ptyhost.ModePTY]) entry never reaches isLive at all.
+//
+// isLive itself MUST STILL stay mode-agnostic (plain store.Tab existence —
+// see store.gcAgentOrphans): a variant that also asserted the tab's MODE
 // (agent vs tui) would make this reaper stop recognising a referenced
 // ptyhost of the OTHER mode as live and SHUTDOWN a running claude — the
-// exact S3f2658-3-class false-positive this story exists to prevent.
+// exact S3f2658-3-class false-positive this story exists to prevent. The
+// two defenses are complementary and both required: the Mode filter keeps
+// the WRONG-mode entries from ever being dialed/considered; mode-agnostic
+// isLive keeps the RIGHT-mode entries from being wrongly reaped.
 func (m *Manager) GCOrphans(ctx context.Context, isLive func(repoID, branchID, tabID string) bool) (shutdown, cleaned int, err error) {
 	if isLive == nil {
 		return 0, 0, nil
