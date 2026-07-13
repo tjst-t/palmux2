@@ -12884,6 +12884,18 @@
       "note": "S64c835-1 vendored third_party/charmbracelet-x-vt-racefix (closed bool->atomic.Bool) via go.mod replace to fix a data race unfixable from palmux2 side. The replace freezes x/vt — go get -u will not pick up an upstream fix. Periodically check upstream; when it ships an equivalent atomic-based fix, drop the replace + third_party copy. Consider contributing the fix upstream.",
       "source": "S64c835 verifier",
       "severity": "medium"
+    },
+    {
+      "title": "no-halt-agent: claudetui AND claudeagent DiscoverAndRestore both adopt the SAME surviving ptyhost socket on restart",
+      "note": "GREEN DOGFOOD found: a tab present in BOTH claudetui+claudeagent session stores (shared run dir/seed space) gets its surviving ptyhost adopted by BOTH managers at startup. Single-connection socket -> replaceConn evict loop -> broken pipe -> in-container claude SIGTERM(143) -> ~2min respawn storm -> session resets to fresh (screen/conversation NOT restored). palmux2 self-heals + never 502s, but defeats claude-tui survival continuity. Fix: gate ptyhost adoption by owner-mode (mode marker in ptyhost StatusFile, or only the manager matching the tab's current mode adopts). Blocks v0.14.13 full-survival release (AC-Sfeed64-1-4 (c)).",
+      "source": "Sfeed64 green dogfood",
+      "severity": "high"
+    },
+    {
+      "title": "in-container (incus) claude child SIGTERM(143) right after ptyhost reattach on palmux2 restart",
+      "note": "GREEN DOGFOOD (incus-container tab): even with ptyhost surviving + clean reattach, the incus-exec claude child dies with 143 ~55ms after reattach -> respawn. Matches S4d8b1c backlog 'in-container claude の確実な reap'. May compound with the dual-adoption bug. Re-test on a HOST-runtime tab to isolate incus-specificity.",
+      "source": "Sfeed64 green dogfood",
+      "severity": "high"
     }
   ]
 }
