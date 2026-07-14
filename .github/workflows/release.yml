@@ -90,6 +90,73 @@ jobs:
         run: |
           scripts/release-image.sh "${{ github.ref_name }}" --upload
 
+  # palmuxOS appliance qcow2 (Sb14caa). Built + attached to the release ONLY on
+  # minor/major version bumps (patch == 0). A deployed appliance tracks the latest
+  # patch via `nixos-rebuild switch` (generation swap, docs/nixos-appliance-design.md
+  # Stage 4) after first boot, so the base qcow2 doesn't need to be rebaked on every
+  # patch tag — this repo often ships many patch releases per week, and a fresh
+  # ~800MB image + long disko/QEMU build on each one would be pure waste.
+  #
+  # disko's image builder runs an actual QEMU VM to partition/format/grub-install
+  # (see docs/sprint-logs/S52fc2c/impl-nix.md), so this needs /dev/kvm on the
+  # runner — confirmed available on standard GitHub-hosted ubuntu-latest runners
+  # (verified 2026-07-13: a throwaway workflow_dispatch run built + converted the
+  # image in 4m8s total). Non-blocking: an independent job off `release`, so if
+  # KVM/disko/a flake input ever breaks, this job just goes red — the palmux2
+  # binary release already succeeded — and the maintainer builds it manually
+  # (`nix build .#appliance-qcow2`) and `gh release upload`s it.
+  appliance-qcow2:
+    needs: release
+    runs-on: ubuntu-latest
+    # Stable releases only (no -rc/-beta/-alpha), and only when the patch component
+    # is 0 — i.e. this tag is a minor or major bump, not a patch release.
+    if: >-
+      !contains(github.ref_name, '-rc') &&
+      !contains(github.ref_name, '-beta') &&
+      !contains(github.ref_name, '-alpha') &&
+      endsWith(github.ref_name, '.0')
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+        with:
+          extra-conf: |
+            system-features = nixos-test benchmark big-parallel kvm
+
+      - name: Build appliance qcow2
+        run: |
+          nix build .#appliance-qcow2 --print-build-logs --no-link --print-out-paths \
+            | tail -n1 > out-path.txt
+          echo "OUT_PATH=$(cat out-path.txt)" >> "$GITHUB_ENV"
+
+      - name: Locate, convert + rename qcow2
+        # disko's diskoImages output is a sparse main.raw, not a qcow2 (verified
+        # 2026-07-13 by a throwaway CI run) — compress it with qemu-img the same
+        # way the appliance image is built manually today (~810MB compressed from
+        # a 17G sparse raw).
+        run: |
+          IMG="$(find "$OUT_PATH" -maxdepth 1 -name '*.qcow2' | head -n1)"
+          if [ -z "$IMG" ]; then
+            RAW="$(find "$OUT_PATH" -maxdepth 1 \( -name '*.raw' -o -name '*.img' \) | head -n1)"
+            test -n "$RAW" || { echo "::error::no .qcow2/.raw/.img file found under $OUT_PATH"; exit 1; }
+            sudo apt-get update -qq && sudo apt-get install -y -qq qemu-utils
+            qemu-img convert -O qcow2 -c "$RAW" "palmuxos-${{ github.ref_name }}.qcow2"
+          else
+            cp "$IMG" "palmuxos-${{ github.ref_name }}.qcow2"
+          fi
+          ls -lh "palmuxos-${{ github.ref_name }}.qcow2"
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            "palmuxos-${{ github.ref_name }}.qcow2" \
+            --repo "${{ github.repository }}" \
+            --clobber
+
   # Bump the baked-in defaultVersion + defaultHashes in nix/packages/palmux2.nix
   # so that `install.sh` / `palmux runtime install` default to the just-released
   # stable version when no PALMUX_VERSION override is given.

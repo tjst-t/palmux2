@@ -65,7 +65,9 @@
         # the image ships pre-partitioned, the deployer never partitions anything.
         # Ships with ZERO baked SSH keys / passwords (cloud-init / onboarding at
         # first boot). domain=null → local-only until the deployer sets it.
-        #   nix build .#appliance-qcow2   →  result/main.qcow2
+        #   nix build .#appliance-qcow2   →  result/main.raw (sparse; compress with
+        #   `qemu-img convert -O qcow2 -c` for distribution — verified 2026-07-13,
+        #   disko's diskoImages does not emit qcow2 directly)
         appliance-qcow2 =
           let
             sys = nixpkgs-appliance.lib.nixosSystem {
