@@ -15,6 +15,11 @@ implementation detail: every browser session attaches to a tmux session named
 - **Frontend**: React 19, TypeScript, Vite, React Router 7, xterm.js, embedded via `embed.FS`
 - **Distribution**: a single static binary per architecture
 
+> **Want a whole-host appliance instead of installing onto an existing Linux
+> box?** **palmuxOS** is a declarative NixOS image (Proxmox/qcow2-ready) that
+> boots straight into a configured palmux2 + incus + Caddy/SSO host, with
+> atomic updates and rollback. See [`nixos/README.md`](nixos/README.md).
+
 ---
 
 ## Table of contents
@@ -481,6 +486,11 @@ Palmux はフロントエンドを embed した単一の Go バイナリ。tmux 
 - **バックエンド**: Go 1.25, `net/http`, `nhooyr.io/websocket`
 - **フロントエンド**: React 19, TypeScript, Vite, React Router 7, xterm.js, `embed.FS` 経由で同梱
 - **配布形態**: アーキテクチャごとの単一スタティックバイナリ
+
+> **既存の Linux ホストに後乗せするのではなく、ホストごと欲しい場合**:
+> **palmuxOS** は宣言的な NixOS イメージ（Proxmox/qcow2 対応）で、起動する
+> だけで palmux2 + incus + Caddy/SSO まで構成済みのホストになる。アトミック
+> な更新とロールバックにも対応。→ [`nixos/README.md`](nixos/README.md)
 
 ---
 
