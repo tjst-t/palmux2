@@ -532,6 +532,20 @@ in
   systemd.services.palmux2.environment.DISABLE_AUTOUPDATER = "1";
   environment.variables.DISABLE_AUTOUPDATER = "1";
 
+  # ── gh (GitHub CLI) on a fresh appliance install ──
+  # Previously only discoverable via the GUI App Catalog (internal/apps/catalog.go,
+  # opt-in install) — S61c9a6-4 added a Drawer hint pointing users there, but a
+  # first-time user still had to find + click through it before `gh` existed at
+  # all. Unlike claude-code, `gh` is an ordinary nixpkgs package with no
+  # versioned-symlink/auto-update-disable dance required (S61c9a6-3's
+  # claude-code.nix machinery does not apply) — a plain systemPackages entry is
+  # sufficient and it Just Works on every boot, migrated or fresh, no oneshot
+  # needed. Merges fine alongside nixos/modules/palmux.nix's own
+  # `environment.systemPackages = [ cfg.package ];` (NixOS merges list-typed
+  # options contributed by different modules; only `mkDefault`/`mkForce`
+  # collisions replace instead of concatenate).
+  environment.systemPackages = [ pkgs.gh ];
+
   system.stateVersion = lib.mkDefault "25.05";
 
   # ── generation-based upgrades (replaces unattended-upgrades + self-update) ──
