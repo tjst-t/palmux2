@@ -13554,6 +13554,27 @@
       "kind": "chore",
       "added_in": "S61c9a6-preflight",
       "status": "open"
+    },
+    {
+      "title": "palmux2-local.nix versionSuffix の二重v問題",
+      "description": "ldflags が -X main.Version=v${version} で常にvを前置。将来versionSuffixにgit describe出力(既にv付き)を渡すとvv0.15.0-...になる。現状nothing callsなので実害なし、修正は容易。",
+      "kind": "bug",
+      "added_in": "S31ad96-1",
+      "status": "open"
+    },
+    {
+      "title": "palmux2-local ビルドのバージョン文字列が常に固定値",
+      "description": "static \"0.0.0-local\" fallbackで、コミットごとの区別がつかない。self.dirtyShortRev/self.shortRevを使うよう改善余地あり。",
+      "kind": "enhancement",
+      "added_in": "S31ad96-1",
+      "status": "open"
+    },
+    {
+      "title": "palmux2-frontend.nix の cleanSourceWith フィルタが不十分",
+      "description": "コメントは「エディタのスワップファイル等を除外」と主張するが実際はdist/node_modulesのbasenameのみ除外。frontend/.gitignoreの除外セットと不一致。現状実害なし。",
+      "kind": "chore",
+      "added_in": "S31ad96-1",
+      "status": "open"
     }
   ]
 }
