@@ -109,6 +109,11 @@ palmuxOS (Sb14caa) は NixOS アプライアンスなので通常の `make serve
 5. 確認: `ssh -p 12222 palmux@<host>` でログイン、`systemctl is-active palmux2 incus` / `curl http://<host>:17683/` で疎通確認
 6. 後片付け: qemu プロセスを kill するだけ（overlay なのでベース qcow2 は無傷、次回も使い回せる）
 
+**未リリースの変更 (まだ GitHub Release に qcow2 が無いブランチ) を検証したい場合**: `nix build .#appliance-qcow2` でローカルビルドが要る。**ビルドする箱は dev 箱そのもの(L1) か `deploy-test` (192.168.1.43, L1) のような Proxmox 直下の VM を使うこと — dev 箱の上に建てた incus VM (L2) の中でビルドしてはいけない**。理由 (2026-07-16 に実際にハマった): `nix build .#appliance-qcow2` は内部で nixos-generators/disko が **qemu を起動してディスクイメージをフォーマットする** ため、ビルドを実行する箱自身が「もう1段 nested virtualization できる」必要がある。dev 箱 (L1, Proxmox の上) でビルドすれば内部 qemu は L2 で収まる (動作確認済みの深さ)。だが dev 箱の上に建てた incus VM (L2) の中でビルドすると、内部 qemu は **L3 (ネストのネスト)** になり、AMD SVM はこの深さを実質サポートしない → `/dev/kvm` へのアクセスが `Permission denied` になり TCG (ソフトウェアエミュレーション) に落ちて極端に遅くなる、または実質進まない。`chmod 666 /dev/kvm` のような権限系の対処では直らない (ハードウェア/カーネルの制約なので)。
+- **`deploy-test` (192.168.1.43)** が実績のあるビルドホスト。Determinate Nix 導入済み・`/dev/kvm` 既に world-rw・既存 checkout `~/palmux2-build` (Nix store に前回ビルドのキャッシュが効く)。ただし 1 core・ディスク残 13G 程度とリソースは小さいので、他の作業と衝突しないよう配慮すること (共有ホスト)。
+- dev 箱自体に Nix を入れて L1 でビルドする選択肢もあるが、常用機への新規ツールインストールになるので実行前にユーザー確認を取ること。
+- ビルド後の qcow2 は dev 箱 (192.168.1.40) に転送し (`scp`/`incus file pull` 等)、上記の起動手順で評価する。
+
 ### autopilot / sprint auto でサブエージェントに実装を委譲するときのルール
 
 **コンパイル + unit test だけで「完了」とせず、必ず E2E 検証まで行う**。`make serve INSTANCE=dev` で立てた別ポートの独立インスタンスに対して Playwright (headless) で UI / WS / API 経路を叩いて確認する。詳細と「スキップが許される条件」は [docs/DESIGN_PRINCIPLES.json](docs/DESIGN_PRINCIPLES.json) の `forbidden` / 自律実行ルール (S028 で .md → .json に正典化) を参照。
