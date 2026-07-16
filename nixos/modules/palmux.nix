@@ -286,8 +286,50 @@ in {
         # dnsmasq, but TCP to the internet times out) without this.
         "net.ipv4.ip_forward" = 1;
       };
-      # palmux-ws image install (`palmux runtime install`) is a runtime step (1GB
-      # download), run post-switch by the operator or a oneshot — not declarative.
+      # palmux-ws image install (S61c9a6-2): first boot has an empty incus image
+      # store, so the incus-container Workspace runtime is unusable until an
+      # operator manually runs `palmux2 runtime install`. Automate it as a
+      # best-effort oneshot — same Type/dependency shape as
+      # palmux-incus-reconcile above, so a network failure (no internet yet,
+      # GitHub unreachable, DNS not up) can NEVER fail the boot transaction:
+      # this unit is only `wantedBy multi-user.target` (a *weak* dependency —
+      # systemd starts Wants units alongside the target without waiting for
+      # them to succeed, unlike `requires`/`before`), and no other unit
+      # declares `after`/`requires` on it, so its failure cannot propagate
+      # anywhere. `palmux2 runtime install` is not itself a cheap no-op when
+      # the image is already present (it re-downloads the ~1GB release asset
+      # every invocation before importing), so guard it here: skip the
+      # download entirely once the `palmux-ws` alias already resolves to an
+      # image. This still converges an image-less host on every reboot
+      # (self-heal, same philosophy as the reconcile unit) without repeatedly
+      # paying a ~1GB download once installed. Image *upgrades* are handled
+      # separately by the running palmux2 service (S7364e3 drift-detect +
+      # regenerate), not by this first-install oneshot.
+      systemd.services.palmux-ws-image-install = {
+        description = "Install the palmux-ws workspace image into incus (best-effort, first-boot only)";
+        after = [ "incus.service" "palmux-incus-reconcile.service" "network-online.target" ];
+        wants = [ "network-online.target" ];
+        requires = [ "incus.service" ];
+        wantedBy = [ "multi-user.target" ];
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+          # Run as the palmux user (already in incus-admin when cfg.incus.enable,
+          # see users.users.${cfg.user}.extraGroups above) rather than root —
+          # mirrors how scripts/install.sh runs `palmux runtime install` as the
+          # install user via `sg incus-admin`, not as root.
+          User = lib.mkDefault cfg.user;
+        };
+        path = [ config.virtualisation.incus.package ];
+        script = ''
+          set -eu
+          if incus image alias list --format csv 2>/dev/null | cut -d, -f1 | grep -qx palmux-ws; then
+            echo "palmux-ws image already installed — skipping"
+            exit 0
+          fi
+          exec ${cfg.package}/bin/palmux2 runtime install
+        '';
+      };
     })
 
     ##########################################################################
