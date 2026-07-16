@@ -109,6 +109,14 @@ in {
     # palmux user + the palmux2 service
     ##########################################################################
     {
+      # plain (not mkDefault): environment.systemPackages is a list — a mkDefault
+      # definition loses entirely to any plain-assigned list elsewhere (same trap
+      # as allowedTCPPorts below) instead of merging, so the palmux CLI would
+      # silently vanish from PATH. Plain concatenates with the rest of the system's
+      # systemPackages, giving operators `palmux`/`palmux2` on the interactive
+      # shell for `palmux runtime install` / `palmux runtime doctor` etc.
+      environment.systemPackages = [ cfg.package ];
+
       users.users.${cfg.user} = {
         isNormalUser = lib.mkDefault true;
         # plain (not mkDefault): derived from the stateDir option, and must win

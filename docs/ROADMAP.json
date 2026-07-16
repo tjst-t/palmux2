@@ -12313,7 +12313,7 @@
             {
               "id": "AC-S61c9a6-1-1",
               "description": "nix/packages/palmux2.nix が作るバイナリ (cfg.package) が nixos/modules/palmux.nix の environment.systemPackages に追加されている",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S61c9a6-1-2",
@@ -12329,7 +12329,7 @@
           "tasks": {
             "S61c9a6-1-1": {
               "title": "nixos/modules/palmux.nix の environment.systemPackages に cfg.package を追加",
-              "status": "pending"
+              "status": "done"
             },
             "S61c9a6-1-2": {
               "title": "qcow2をローカルビルド/起動して実機検証 (CLAUDE.md手順)",
