@@ -302,9 +302,19 @@ ALL SCENARIOS PASS
 Script: `guard_dry_run.sh` (scratch, not committed to the repo — logic is inline in
 `nixos/modules/appliance.nix` and this transcript is the record of having exercised it).
 
-Scenario B is the one that actually reproduces the original bug (it FAILed against the
-pre-fix guard logic — confirmed by running the same test before the fix was applied — and
-PASSes against the fixed logic above). Scenario B2 additionally confirms the common
+Scenario B is the one that actually reproduces the original bug. Directly compared the
+ORIGINAL guard's logic (`[ -e "$target" ] || [ -L "$target" ]` → unconditional leave-alone)
+against the FIXED guard for the exact same input (our own prior link, older version) in a
+separate before/after script (`guard_before_after.sh`):
+```
+$ bash guard_before_after.sh
+=== scenario B: our own prior link (exists=yes, resolves into our store, OLDER version) ===
+OLD guard: leave untouched   <-- BUG: permanently skips re-linking forever after the first successful boot
+NEW guard: relink            <-- FIXED: self-heals to the current pinned version on every boot
+```
+This confirms the bug was real (the old guard's `leave untouched` outcome for this input is
+exactly the "permanent early-exit after the first boot" the reviewer described) and that the
+fix resolves it. Scenario B2 additionally confirms the common
 every-boot-after-the-first case (already-current version) is a harmless idempotent re-link,
 not an error. Scenario C confirms the non-clobber contract for a genuine migration is still
 intact after the fix. Real-VM re-verification of scenario A (fresh boot) is in
@@ -358,33 +368,73 @@ bootstrap targets the host-runtime path this Story's ACs actually exercise.)
 
 ### [AC-S61c9a6-3-1/2] re-verification — PASS
 
-Rebuilt on `deploy-test` from the same branch (now with both fixes) using the identical
-recipe as the first pass (dedicated `~/build-s61c9a6-3-v2` checkout, real KVM, `nix build
-.#appliance-qcow2 -o ...`). Converted + transferred + booted fresh (no migration) exactly as
-before.
+Rebuilt on `deploy-test` from the same branch (now with both fixes, commit `8b8dee3`) using
+the identical recipe as the first pass (fresh dedicated `~/build-s61c9a6-3-v2` checkout,
+real KVM, `nix build .#appliance-qcow2 -o ...`; build.log had zero `error`/`kvm`/`tcg`
+matches — real KVM acceleration, no fallback, no failures). Converted + transferred + booted
+fresh (no migration, fresh overlay + fresh cloud-init seed) on the dev host exactly as
+before, on different forwarded ports (12224/17685) to avoid clashing with anything else.
 
 ```
-$ ssh -p 12223 palmux@localhost 'systemctl is-active palmux2 incus palmux-state-init palmux-claude-bootstrap'
+$ ssh -p 12224 palmux@localhost 'systemctl is-active palmux2 incus palmux-state-init palmux-claude-bootstrap'
 active
 active
 active
 active
 
-$ ssh -p 12223 palmux@localhost 'readlink -f ~/.local/bin/claude'
-/nix/store/clnf7sqfblfvxan1y25jzq6rk56fiqaw-claude-code-2.1.211/bin/claude   # (1) symlink correctly resolves into the Nix store on a fresh boot
+$ ssh -p 12224 palmux@localhost 'systemctl status palmux-claude-bootstrap --no-pager | head -6'
+● palmux-claude-bootstrap.service - Project the Nix-pinned Claude Code CLI into ~/.local for a fresh (non-migrated) install, and keep it in sync with the pinned version
+     Loaded: loaded (...)
+     Active: active (exited) since Thu 2026-07-16 08:05:38 UTC; 19s ago
+    Process: 740 ExecStart=... (code=exited, status=0/SUCCESS)
+   Main PID: 740 (code=exited, status=0/SUCCESS)
 
-$ ssh -p 12223 palmux@localhost 'bash -lc "claude --version"'
+$ ssh -p 12224 palmux@localhost 'readlink -f ~/.local/bin/claude; ls -la ~/.local/bin/claude ~/.local/share/claude/versions/'
+/nix/store/clnf7sqfblfvxan1y25jzq6rk56fiqaw-claude-code-2.1.211/bin/claude   # (1) symlink correctly resolves into the Nix store on a fresh boot, under the FIXED guard logic
+lrwxrwxrwx 1 palmux users 56 Jul 16 08:05 /home/ubuntu/.local/bin/claude -> /home/ubuntu/.local/share/claude/versions/2.1.211/claude
+.../versions/: total 12  drwxr-xr-x 2 palmux users 4096 ... 2.1.211
+
+$ ssh -p 12224 palmux@localhost 'bash -lc "claude --version"'
 2.1.211 (Claude Code)
 
-$ ssh -p 12223 palmux@localhost 'systemctl show palmux2 -p Environment'
-Environment=... DISABLE_AUTOUPDATER=1 ...        # (3) present in the palmux2 service env
+$ ssh -p 12224 palmux@localhost 'systemctl show palmux2 -p Environment'
+Environment=DISABLE_AUTOUPDATER=1 LOCALE_ARCHIVE=... PATH=/home/ubuntu/.local/bin:... TZDIR=...
+                                                   # (3) DISABLE_AUTOUPDATER=1 present in the palmux2 service env
 
-$ ssh -p 12223 palmux@localhost 'bash -lc "echo DISABLE_AUTOUPDATER=\$DISABLE_AUTOUPDATER"'
+$ ssh -p 12224 palmux@localhost 'bash -lc "echo DISABLE_AUTOUPDATER=\$DISABLE_AUTOUPDATER"'
 DISABLE_AUTOUPDATER=1                             # (3) present in an interactive login shell too
 
-$ ssh -p 12223 palmux@localhost 'bash -lc "claude doctor 2>&1" | grep -i -A1 "auto.?update"'
-Auto-updater: disabled (env: DISABLE_AUTOUPDATER)  # claude's OWN doctor confirms it sees the env var and honors it
+$ ssh -p 12224 palmux@localhost 'grep -i AUTOUPDATER /etc/set-environment'
+export DISABLE_AUTOUPDATER="1"                    # (3) confirms environment.variables wiring reached the system-wide NixOS env
+
+$ ssh -p 12224 palmux@localhost 'bash -lc "claude doctor 2>&1"'
+Claude Code doctor
+
+Running: native (2.1.211)
+Commit: 17a4b6d7b2ee
+Platform: linux-x64
+Path: /nix/store/clnf7sqfblfvxan1y25jzq6rk56fiqaw-claude-code-2.1.211/bin/claude
+Config install method: unknown
+Search: OK (bundled)
+Auto-updates: disabled (set by env: DISABLE_AUTOUPDATER)   # <-- claude's OWN doctor confirms
+Auto-update channel: latest
+Last update attempt: none recorded
+...
+1 warning found
+- Running native installation but config install method is 'unknown'
+  Fix: Run claude install to update configuration
 ```
+`claude doctor`'s own "Auto-updates: disabled (set by env: DISABLE_AUTOUPDATER)" line is the
+strongest possible confirmation — it isn't palmux inferring the env var reached the process,
+it's Claude Code itself reporting that it recognized and honored it.
+
+The "1 warning found — config install method is 'unknown'" line is a harmless cosmetic
+side-effect of not running the official `claude install` self-installer (this Story
+deliberately places the binary via a Nix-managed symlink instead, per the revised
+mechanism) — Claude Code just doesn't recognize its own install method as one of its known
+categories. No functional impact observed; noted here for future maintainers rather than
+silently ignored.
+
 (2) — re-linking on a hypothetical version bump — is covered by the dry-run above per the
 reviewer's own stated scope; not re-proven with a second real pinned version on this boot.
 
