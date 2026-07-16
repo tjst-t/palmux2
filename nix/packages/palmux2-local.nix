@@ -63,7 +63,7 @@ buildGoModule {
   # Computed via `go mod vendor` hash bootstrapping (see
   # docs/sprint-logs/S31ad96/verification-S31ad96-1.md for the exact
   # command + transcript). Re-derive whenever go.mod/go.sum change.
-  vendorHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+  vendorHash = "sha256-TnTy/Pe+/lfcEkV+M+lJUS/Injf9r+Ugfd7C9JvnCAM=";
 
   subPackages = [ "cmd/palmux" ];
 
