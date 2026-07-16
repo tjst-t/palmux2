@@ -12339,36 +12339,36 @@
         },
         "S61c9a6-2": {
           "title": "運用者として、初回起動時に palmux-ws イメージが自動的にインストールされてほしい。なぜなら、手動で palmux runtime install を叩かないとワークスペースのincus-containerランタイムが一切使えないから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S61c9a6-2-1",
               "description": "nixos/modules/palmux.nix:281-282 のTODOコメントを解消する systemd oneshot (初回起動時に palmux runtime install 相当を実行) が追加されている",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S61c9a6-2-2",
               "description": "oneshotはbest-effort: ネットワーク到達不可等の失敗時もboot自体をブロックしない (systemd unit の Type/After/依存関係で保証)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S61c9a6-2-3",
               "description": "実機でqcow2アプライアンスをブートし、数分待った後 `incus image list` に palmux-ws エイリアスが存在することを確認する",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S61c9a6-2-1": {
               "title": "初回起動 oneshot systemd unit を追加 (S61c9a6-1 のPATH修正が前提)",
-              "status": "pending"
+              "status": "done"
             },
             "S61c9a6-2-2": {
               "title": "失敗時にbootをブロックしないことを確認するテスト/検証",
-              "status": "pending"
+              "status": "done"
             },
             "S61c9a6-2-3": {
               "title": "qcow2実機検証: 初回boot後にimageが自動で入ることを確認",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
