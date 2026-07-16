@@ -12404,23 +12404,25 @@
         },
         "S61c9a6-4": {
           "title": "初回ユーザーとして、gh のインストール方法をどこかで案内してほしい。なぜなら、GUIのアプリカタログの存在に気づかないと gh が使えないままになるから。",
-          "status": "pending",
+          "status": "partial",
           "acceptance_criteria": [
             {
               "id": "AC-S61c9a6-4-1",
               "description": "初回ログイン後の画面 (またはonboarding導線) に gh のインストール方法 (アプリカタログ経由) が明記されている",
-              "status": "pending"
+              "status": "pass",
+              "note": "verified via tests/e2e/s61c9a6_gh_onboarding_hint.py (headless, dev instance) — drawer-host-gh-hint present, mentions gh + 設定→デプロイ設定→アプリ, and that App Catalog path is confirmed to actually list a gh card"
             },
             {
               "id": "AC-S61c9a6-4-2",
               "description": "実機でqcow2アプライアンスをブートし、初回ログイン後の画面からghインストール導線に実際に到達できることを確認する",
-              "status": "pending"
+              "status": "pending",
+              "note": "not done: requires a real qcow2 boot smoke, out of scope for this headless-only Story per its own gui-spec note; left pending"
             }
           ],
           "tasks": {
             "S61c9a6-4-1": {
               "title": "初回ログイン後 (またはonboarding wizard) にアプリカタログへの導線を明示するUI/コピーを追加",
-              "status": "pending"
+              "status": "done"
             },
             "S61c9a6-4-2": {
               "title": "qcow2実機検証: 導線から実際にghをインストールできることを確認",
