@@ -2,15 +2,15 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 73,
-    "sprints_total": 75,
-    "done": 73,
-    "total": 75,
-    "remaining": 2,
+    "sprints_done": 74,
+    "sprints_total": 81,
+    "done": 74,
+    "total": 81,
+    "remaining": 7,
     "in_progress": 0,
-    "percent": 97,
-    "percentage": 97,
-    "current_sprint": "Sfeed64"
+    "percent": 91,
+    "percentage": 91,
+    "current_sprint": "S61c9a6"
   },
   "execution_order": [
     "S001",
@@ -87,7 +87,13 @@
     "S3f2658",
     "S862203",
     "S64c835",
-    "Sfeed64"
+    "Sfeed64",
+    "S61c9a6",
+    "S31ad96",
+    "S0e8afb",
+    "S4db2fe",
+    "S2b5691",
+    "Sfa2bab"
   ],
   "sprints": {
     "S001": {
@@ -12153,7 +12159,7 @@
       "title": "hotfix: claude-tui 再アタッチ起動デッドロック (emulator.Feed replay) 修正 + 検証ギャップ是正 [v0.14.13]",
       "description": "v0.14.12 (S3f2658) のリグレッション。生存 ptyhost への再アタッチ時、大きな ATTACH replay を emulator.Feed に流すと、応答ドレイナ起動より前に 64KiB 応答パイプが埋まり Feed が writer ロックを握ったままブロック → EnsureStarted の spawnMu 保持のまま起動 goroutine が停止 → HTTP listen 不達で web UI 全体が 502。fresh spawn は replay 空で無害、busy な生存セッションの reattach でのみ発火。実機 ndev が最初の実利用で被弾しロールバック済み。修正コードは worktree にドラフト済 (daemon.go: ドレイナを Feed 前に起動し replay 中は discard・live で forward / cmd/palmux/main.go: DiscoverAndRestore 非同期化で serve をブロックしない)。本 Sprint は『修正 + 現実的データでの検証 + 再リリース』を正規の verify ceremony で行う (root cause 詳細は decisions.json)。",
       "milestone": false,
-      "status": "in_progress",
+      "status": "done",
       "detail_level": "detailed",
       "depends_on": [
         "S3f2658"
@@ -12216,7 +12222,7 @@
           "id": "Sfeed64-2",
           "title": "v0.14.13 リリース + 無効化した v0.14.12 の後始末",
           "user_story": "運用者として、修正版 v0.14.13 を安全にリリースし、無効化した v0.14.12 が新規インストール/更新経路に残らないようにしたい。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-Sfeed64-2-1",
@@ -12231,7 +12237,7 @@
             {
               "id": "AC-Sfeed64-2-3",
               "description": "ndev (現在 v0.14.11 ロールバック中) を v0.14.13 に前進復帰させ、実 claude セッションで更新→再アタッチ復帰を確認する。",
-              "status": "pending"
+              "status": "spun_out_to_backlog"
             }
           ],
           "tasks": {
@@ -12248,7 +12254,7 @@
             "Sfeed64-2-3": {
               "id": "Sfeed64-2-3",
               "title": "ndev を v0.14.13 に前進復帰 + 実セッション再アタッチ確認",
-              "status": "needs_user_review"
+              "status": "spun_out_to_backlog"
             }
           }
         },
@@ -12289,6 +12295,575 @@
               "id": "Sfeed64-3-3",
               "title": "[MANUAL SMOKE] green 再 dogfood で画面復元 + incus child 生存を確認 (coordinator が実行)",
               "status": "done"
+            }
+          }
+        }
+      }
+    },
+    "S61c9a6": {
+      "title": "palmuxOS アプライアンス フレッシュインストール onboarding 修正",
+      "description": "実機でqcow2アプライアンスをこのdev箱でローカルドッグフーディングして発見した4つの実バグを修正する。検証手順はCLAUDE.mdの「palmuxOS アプライアンス (qcow2) をローカルで評価する」節を使う。全Storyで実機検証必須 (qcow2をローカルビルド/起動して確認、mock/dry-runでの確認では済まさない)。",
+      "milestone": false,
+      "status": "pending",
+      "detail_level": "detailed",
+      "stories": {
+        "S61c9a6-1": {
+          "title": "運用者として、palmuxOSアプライアンスのシェルから palmux コマンドを直接実行したい。なぜなら、palmux runtime install や palmux runtime doctor を手動で叩けないと、ワークスペースランタイムの初期セットアップやトラブルシュートが一切できないから。",
+          "status": "done",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S61c9a6-1-1",
+              "description": "nix/packages/palmux2.nix が作るバイナリ (cfg.package) が nixos/modules/palmux.nix の environment.systemPackages に追加されている",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S61c9a6-1-2",
+              "description": "実機でqcow2アプライアンスをブートし、SSHログイン後 `which palmux` (または `palmux2`) がPATH解決される",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S61c9a6-1-3",
+              "description": "`palmux runtime doctor` がコマンド自体は見つかった上で実行できる (中身の結果は問わない)",
+              "status": "pass"
+            }
+          ],
+          "tasks": {
+            "S61c9a6-1-1": {
+              "title": "nixos/modules/palmux.nix の environment.systemPackages に cfg.package を追加",
+              "status": "done"
+            },
+            "S61c9a6-1-2": {
+              "title": "qcow2をローカルビルド/起動して実機検証 (CLAUDE.md手順)",
+              "status": "done"
+            }
+          }
+        },
+        "S61c9a6-2": {
+          "title": "運用者として、初回起動時に palmux-ws イメージが自動的にインストールされてほしい。なぜなら、手動で palmux runtime install を叩かないとワークスペースのincus-containerランタイムが一切使えないから。",
+          "status": "done",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S61c9a6-2-1",
+              "description": "nixos/modules/palmux.nix:281-282 のTODOコメントを解消する systemd oneshot (初回起動時に palmux runtime install 相当を実行) が追加されている",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S61c9a6-2-2",
+              "description": "oneshotはbest-effort: ネットワーク到達不可等の失敗時もboot自体をブロックしない (systemd unit の Type/After/依存関係で保証)",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S61c9a6-2-3",
+              "description": "実機でqcow2アプライアンスをブートし、数分待った後 `incus image list` に palmux-ws エイリアスが存在することを確認する",
+              "status": "pass"
+            }
+          ],
+          "tasks": {
+            "S61c9a6-2-1": {
+              "title": "初回起動 oneshot systemd unit を追加 (S61c9a6-1 のPATH修正が前提)",
+              "status": "done"
+            },
+            "S61c9a6-2-2": {
+              "title": "失敗時にbootをブロックしないことを確認するテスト/検証",
+              "status": "done"
+            },
+            "S61c9a6-2-3": {
+              "title": "qcow2実機検証: 初回boot後にimageが自動で入ることを確認",
+              "status": "done"
+            }
+          }
+        },
+        "S61c9a6-3": {
+          "title": "開発者として、フレッシュインストールのpalmuxOSアプライアンスでもclaude CLIが使えるようにしたい。なぜなら、migration前提の設計だと真っさらな新規導入者はclaudeタブを一度も使えないから。",
+          "status": "done",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S61c9a6-3-1",
+              "description": "既存の ~/.local/bin/claude が無い状態 (真のフレッシュインストール) でも、初回起動後にclaudeが使える経路が用意されている (Ubuntu版install.shのnpm install相当のブートストラップ、またはそれに準ずる自動導入)",
+              "status": "pass",
+              "note": "nix/packages/claude-code.nix fetchurl-pins the official native/standalone claude binary (downloads.claude.ai/claude-code-releases/<version>/linux-<arch>/claude, sha256-verified) at Nix BUILD time — no runtime curl|sh. nixos/modules/appliance.nix's new palmux-claude-bootstrap oneshot (network-independent, best-effort, After=palmux-state-init.service, no requiredBy on palmux2) symlinks it into ~/.local/bin/claude -> ~/.local/share/claude/versions/<v>/claude on first boot, matching internal/runtime/incus/incus.go's assumed layout. No-ops (does not clobber) if ~/.local/bin/claude already exists (migrated install). Real qcow2 boot verified: see docs/sprint-logs/S61c9a6/verification-S61c9a6-3.md"
+            },
+            {
+              "id": "AC-S61c9a6-3-2",
+              "description": "実機でqcow2アプライアンスをmigrationなしでブートし、Claudeタブが実際に動く (claudeプロセスが起動し認証導線に到達する) ことを確認する",
+              "status": "pass",
+              "note": "Real qcow2 built (nix build .#appliance-qcow2 on deploy-test 192.168.1.43, real KVM) from worktree-S61c9a6-3-v2, booted fresh (no migration, no prior ~/.claude) via qemu -enable-kvm on the dev host. Confirmed: palmux-claude-bootstrap.service exited 0, ~/.local/bin/claude symlink chain resolves into the Nix store, `claude --version` -> \"2.1.211 (Claude Code)\", and an interactively-launched `claude` renders the real first-run \"Welcome to Claude Code v2.1.211\" onboarding TUI (the entry point that leads into login/auth) with zero pre-existing ~/.claude state. palmux2 web UI + `palmux2 runtime doctor` both healthy. Full transcript: docs/sprint-logs/S61c9a6/verification-S61c9a6-3.md"
+            }
+          ],
+          "tasks": {
+            "S61c9a6-3-1": {
+              "title": "claude CLI の初回ブートストラップ oneshot を nixos/modules/appliance.nix に追加。既存コードが ~/.local/bin/claude → ~/.local/share/claude/versions/<v> の versioned native installer レイアウトを前提にしている (internal/runtime/incus/incus.go の bind-mount コメント参照) ため、npm ではなく公式 curl native/standalone installer を使うこと。palmux-state-init / palmux-incus-reconcile と同様 best-effort (ネットワーク不通でも boot をブロックしない) にする",
+              "status": "done",
+              "note": "Implemented as a build-time Nix fetchurl pin (nix/packages/claude-code.nix) + a network-independent projection oneshot (nixos/modules/appliance.nix palmux-claude-bootstrap), per user's explicit revised-mechanism decision (no runtime curl|sh on every deployed box)."
+            },
+            "S61c9a6-3-2": {
+              "title": "nix-ld/PATH配線が新規インストールでも機能することを確認",
+              "status": "done",
+              "note": "Verified on the fresh qcow2 boot: `bash -lc \"which claude\"` -> /home/ubuntu/.local/bin/claude, `claude --version`/`claude --help` both run (nix-ld dynamic linking + loginShellInit PATH both already in place from S61c9a6-1, unaffected by this Story's addition)."
+            },
+            "S61c9a6-3-3": {
+              "title": "qcow2実機検証: フレッシュインストールでclaudeタブが動くことを確認",
+              "status": "done",
+              "note": "See AC-S61c9a6-3-2 note + docs/sprint-logs/S61c9a6/verification-S61c9a6-3.md for the full transcript."
+            }
+          }
+        },
+        "S61c9a6-4": {
+          "title": "初回ユーザーとして、gh のインストール方法をどこかで案内してほしい。なぜなら、GUIのアプリカタログの存在に気づかないと gh が使えないままになるから。",
+          "status": "partial",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S61c9a6-4-1",
+              "description": "初回ログイン後の画面 (またはonboarding導線) に gh のインストール方法 (アプリカタログ経由) が明記されている",
+              "status": "pass",
+              "note": "verified via tests/e2e/s61c9a6_gh_onboarding_hint.py (headless, dev instance) — drawer-host-gh-hint present, mentions gh + 設定→デプロイ設定→アプリ, and that App Catalog path is confirmed to actually list a gh card"
+            },
+            {
+              "id": "AC-S61c9a6-4-2",
+              "description": "実機でqcow2アプライアンスをブートし、初回ログイン後の画面からghインストール導線に実際に到達できることを確認する",
+              "status": "pending",
+              "note": "現行のNixパッケージング(fetchurlのみ、ローカルソースビルド経路なし)では検証不能と判明。S31ad96(ローカルソースビルド能力の追加)完了後に再検証する。"
+            },
+            {
+              "id": "AC-S61c9a6-4-3",
+              "description": "Host セクションの案内テキストに data-testid (drawer-host-gh-hint) が付与され、tests/e2e/s61c9a6_gh_onboarding_hint.py の [AC-S61c9a6-4-1] E2E test が pass する (gui-spec: docs/sprint-logs/S61c9a6/gui-spec-S61c9a6-4.json)",
+              "status": "pass",
+              "note": "verified by independent review agent: ran the E2E test itself against a fresh make serve INSTANCE=dev instance, confirmed ALL PASS, not a fabricated claim"
+            }
+          ],
+          "tasks": {
+            "S61c9a6-4-1": {
+              "title": "初回ログイン後 (またはonboarding wizard) にアプリカタログへの導線を明示するUI/コピーを追加",
+              "status": "done"
+            },
+            "S61c9a6-4-2": {
+              "title": "qcow2実機検証: 導線から実際にghをインストールできることを確認",
+              "status": "pending"
+            },
+            "S61c9a6-4-3": {
+              "title": "HostSection (frontend/src/components/drawer.tsx, ~line 1085-1096) に data-testid=\"drawer-host-gh-hint\" 付き案内テキストを追加 + tests/e2e/s61c9a6_gh_onboarding_hint.py の E2E test を pass させる (gui-spec: docs/sprint-logs/S61c9a6/gui-spec-S61c9a6-4.json)",
+              "status": "done"
+            }
+          }
+        }
+      }
+    },
+    "S0e8afb": {
+      "title": "maultiagentブランチ統合: agenttui × ptyhost マージ (フレームワークのみ、codex/opencode registryは含めない)",
+      "description": "ローカル専用ブランチ maultiagent (mainに31コミット先行、mainは84コミット先行=要アーキテクチャ統合) を main にマージする。設計は既に確定済み: `git show b51c5e5:docs/agenttui-ptyhost-merge-design.md` (maultiagentブランチ上、ユーザー確定 2026-07-13) の Approach B (main-as-base + Adapter graft)、P1〜P5フェーズング、リスク一覧をそのまま実行計画として使うこと。単純な git merge ではなく、internal/tab/claudetui/daemon.go (main側、S3f2658/S862203のno-halt-agent ptyhost化) と internal/tab/agenttui/daemon.go (maultiagent側、claude adapter抽出) の semantic な統合が必要。このSprintでは汎用マルチエージェントフレームワーク (agent registry, generic agenttab Provider, claude/genericアダプタ) のみをmainに持ち込み、codex/opencodeアダプタのregistry登録・FE露出は次Sprint (S2b5691) まで見送ること (実装ファイル自体はmaultiagentブランチに分離されているはずなので internal/agent/codex.go 等の存在を確認し、cmd/palmux/main.go でのregistry登録だけ保留する)。既存の internal/tab/claudetui/daemon_test.go・reattach_deadlock_test.go・ptyhost_integration_test.go が各フェーズで引き続きgreenであることを必須とする (設計メモのP0リスク: reattach-deadlock回帰)。",
+      "milestone": true,
+      "status": "pending",
+      "detail_level": "detailed",
+      "stories": {
+        "S0e8afb-1": {
+          "title": "開発者として、ptyhost/agenttui のrenameとADR文書をmainからそのまま採用したい。なぜなら、これらはmaultiagentに無い純追加であり、生merge衝突が起きない安全な最初のステップだから (設計メモ P1: mechanical adopt)。",
+          "status": "pending",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S0e8afb-1-1",
+              "description": "internal/ptyhost/**, cmd/palmux/ptyhost.go, docs/DESIGN/adr/ADR-0001..0003, docs/no-halt-agent-design.md をmainからverbatimで採用している",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S0e8afb-1-2",
+              "description": "claudetui/{ptyclient,discover}.go を agenttui/{ptyclient,discover}.go に git mv + package書換のみで移行している",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S0e8afb-1-3",
+              "description": "go build が通り、ptyhost package の既存テストがgreen",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S0e8afb-1-1": {
+              "title": "P1: mechanical adopt (設計メモの採用ファイル一覧通り)",
+              "status": "pending"
+            },
+            "S0e8afb-1-2": {
+              "title": "go build + ptyhost package tests 確認",
+              "status": "pending"
+            }
+          }
+        },
+        "S0e8afb-2": {
+          "title": "開発者として、daemon.go の exec 経路を Adapter 呼び出しに置き換えたい。なぜなら、main の inline claude arg-builder を maultiagent の agent.Adapter.SpawnSpec(intent) に統合することで、ptyhost restart-survival と multi-agent Adapter の両方の能力を両立できるから (設計メモ P2: graft seam)。",
+          "status": "pending",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S0e8afb-2-1",
+              "description": "internal/tab/agenttui/daemon.go の spawnWithArgs が Adapter経由の spec.Argv/Env を launchAndAttach に渡すようになっている (creackpty直接呼び出しは破棄)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S0e8afb-2-2",
+              "description": "notify URL / hook-bin の host-vs-container 解決 (main由来のロジック) が SpawnIntent.Hook 経由でAdapterに正しく渡っている",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S0e8afb-2-3",
+              "description": "golden-argv 等価テスト (claudeのspec.Argv→ptyhost.Config.Argvがhost/in-container両方で既存と一致) が追加されgreen",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S0e8afb-2-4",
+              "description": "daemon_test.go・reattach_deadlock_test.go・ptyhost_integration_test.go が全てgreen (P0リグレッションガード)",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S0e8afb-2-1": {
+              "title": "P2: daemon.go graft seam実装 (設計メモの手順1-2通り)",
+              "status": "pending"
+            },
+            "S0e8afb-2-2": {
+              "title": "respawnLoop統合 (main の gateRespawn + maultiagent の immediateFailureBackoff)",
+              "status": "pending"
+            },
+            "S0e8afb-2-3": {
+              "title": "reap経路をadapterのKillPatternに統合",
+              "status": "pending"
+            },
+            "S0e8afb-2-4": {
+              "title": "golden-argv等価テスト追加 + 既存P0テスト群のgreen確認",
+              "status": "pending"
+            }
+          }
+        },
+        "S0e8afb-3": {
+          "title": "開発者として、per-kind manager (claude/generic) と AgentKind によるdiscovery/GC分離を実装したい。なぜなら、複数エージェント種別が同じrun dirを共有しても互いのptyhostを誤ってadopt/GCしないようにするため (設計メモ P3、ただしこのSprintではclaude/genericのみ、codex/opencodeのkindは次Sprintまで登録しない)。",
+          "status": "pending",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S0e8afb-3-1",
+              "description": "internal/ptyhost/server.go の Config/StatusFile に AgentKind/KillPattern が追加されている (opaque echo)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S0e8afb-3-2",
+              "description": "discover.go の scanRunDir が既存の Mode==ModePipe skip に加え AgentKind mismatch skip も行う",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S0e8afb-3-3",
+              "description": "cmd/palmux/main.go が agent.BuildRegistry + per-kind manager loop + agenttab登録を持つが、codex/opencodeアダプタのregistry登録は行っていない (internal/agent/codex.go 等のファイルは存在してもmain.goから呼ばれていないことを確認)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S0e8afb-3-4",
+              "description": "2-kind discovery test (claude kindとgeneric kindの相互誤adoption無し) が追加されgreen",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S0e8afb-3-1": {
+              "title": "P3: multiplicity + ownership実装",
+              "status": "pending"
+            },
+            "S0e8afb-3-2": {
+              "title": "internal/agent/codex.go, opencode.go 等の存在確認 + main.goでの未登録確認",
+              "status": "pending"
+            },
+            "S0e8afb-3-3": {
+              "title": "2-kind discovery test追加",
+              "status": "pending"
+            }
+          }
+        },
+        "S0e8afb-4": {
+          "title": "運用者として、palmux2の再起動(self-update/systemctl restart/クラッシュ)を跨いでもgenericエージェントタブが生存/再接続することを確認したい。なぜなら、これがmaultiagent統合の中核価値(no-halt-agentの多エージェント対応)だから (設計メモ P4/P5)。",
+          "status": "pending",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S0e8afb-4-1",
+              "description": "genericエージェントタブ(またはclaudeタブ)でspawn→systemctl --user restart palmux2 (or kill+relaunch)→subprocess生存+タブ再adopt(画面継続)がE2Eで確認できる",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S0e8afb-4-2",
+              "description": "claudeでの既存restart-survival回帰確認 (既存のno-halt-agent E2Eが引き続きpass)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S0e8afb-4-3",
+              "description": "palmux2 down中にタブ削除→restart→orphan ptyhost (in-container proc含む) がKillPattern経由でreapされることを確認",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S0e8afb-4-1": {
+              "title": "P4: restart-survival E2E (dev箱またはtest VMで実施、incusコンテナchurnに注意)",
+              "status": "pending"
+            },
+            "S0e8afb-4-2": {
+              "title": "P5: orphan-GC E2E",
+              "status": "pending"
+            },
+            "S0e8afb-4-3": {
+              "title": "claude回帰確認",
+              "status": "pending"
+            }
+          }
+        }
+      }
+    },
+    "S4db2fe": {
+      "title": "リリース v0.15.1 準備: 実機ドッグフーディング検証 (フェーズA+Bの成果を統合)",
+      "description": "フェーズA (アプライアンスonboarding修正) とフェーズB (マルチエージェントフレームワーク統合) の成果を、実際にv0.15.1としてリリースする前に実機で検証する。過去にv0.14.12でautopilot完了直後に即リリースして本番相当ホストを壊した実例があるため、このSprintの範囲は検証までとし、実際の `git tag v0.15.1` + push (release.ymlトリガー) はこのSprintのStoryとして自動実行しない — 検証結果をもってautopilotのmilestone停止時にユーザーへ提示し、明示的な確認を得てから (このSprintの外で) tag pushを行う。検証方法はCLAUDE.mdの「palmuxOS アプライアンス (qcow2) をローカルで評価する」節の手順を使う。まだGitHub Releaseにv0.15.1のqcow2は存在しないため、`nix build .#appliance-qcow2` をこのdev箱で直接ローカルビルドして検証すること (このdev箱は既にKVM対応済み)。",
+      "milestone": true,
+      "status": "pending",
+      "detail_level": "detailed",
+      "stories": {
+        "S4db2fe-1": {
+          "title": "プロダクトオーナーとして、v0.15.1相当のビルドを実機でドッグフーディングしてからリリースしたい。なぜなら、v0.14.12でautopilot完了直後の即リリースが本番相当ホストを壊した前例があり、同じ轍を踏みたくないから。",
+          "status": "pending",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S4db2fe-1-1",
+              "description": "main (フェーズA+Bマージ後) から `nix build .#appliance-qcow2` をこのdev箱でローカルビルドできる",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S4db2fe-1-2",
+              "description": "ビルドしたqcow2をこのdev箱でqemu起動し、SSH経由で `palmux` コマンドがPATH解決される (フェーズA-1修正の実証)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S4db2fe-1-3",
+              "description": "起動後数分待ち `incus image list` に palmux-ws が自動で入っている (フェーズA-2修正の実証)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S4db2fe-1-4",
+              "description": "palmux2/incus systemdユニットが active、Web UIが HTTP 200 を返す",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S4db2fe-1-5",
+              "description": "generic/claudeエージェントタブでの基本動作 (spawn + 簡単なターン) が実機で動く (フェーズBの回帰無し確認)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S4db2fe-1-6",
+              "description": "検証結果をユーザーに提示し、明示的な go-ahead を得てから (このStoryの外側で) git tag v0.15.1 + push を実行する — このACはtag push自体を含まない、検証完了の確認のみ",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S4db2fe-1-1": {
+              "title": "dev箱でqcow2をローカルビルド (nix build .#appliance-qcow2)",
+              "status": "pending"
+            },
+            "S4db2fe-1-2": {
+              "title": "CLAUDE.md手順でqemu起動 + cloud-init seed (userはpalmux)",
+              "status": "pending"
+            },
+            "S4db2fe-1-3": {
+              "title": "PATH/ws-image/systemd/Web UI/エージェントタブの実機検証",
+              "status": "pending"
+            },
+            "S4db2fe-1-4": {
+              "title": "検証結果サマリをmilestone summaryに含める",
+              "status": "pending"
+            }
+          }
+        }
+      }
+    },
+    "S2b5691": {
+      "title": "codex/opencodeアダプタのregistry登録 + FE露出",
+      "description": "フェーズBで internal/agent/** に取り込み済みのはずのcodex/opencodeアダプタ実装 (maultiagentブランチの S339021 スコープ: built-in codex adapter, built-in opencode adapter, in-container対応, notify-capability badge) を、cmd/palmux/main.go のagent registryに実際に登録し、FEのタブ追加ピッカーに露出する。前提: v0.15.1が実際にリリース済み(tag push完了)であること。",
+      "milestone": false,
+      "status": "pending",
+      "detail_level": "detailed",
+      "stories": {
+        "S2b5691-1": {
+          "title": "開発者として、codex/opencodeアダプタをmain.goのagent registryに登録したい。なぜなら、フェーズBでは実装ファイルのみ取り込みregistry登録を見送っていたから。",
+          "status": "pending",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S2b5691-1-1",
+              "description": "cmd/palmux/main.go の agent.BuildRegistry にcodex/opencodeアダプタが登録されている",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S2b5691-1-2",
+              "description": "GET /api/agents がcodex/opencodeを含むエージェント一覧を返す",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S2b5691-1-3",
+              "description": "in-container codex/opencode実行 (同一パスbind-mount) が実機incusコンテナで動く",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S2b5691-1-1": {
+              "title": "main.go にcodex/opencode registry登録を追加",
+              "status": "pending"
+            },
+            "S2b5691-1-2": {
+              "title": "in-container実行の実機検証 (incusコンテナ)",
+              "status": "pending"
+            }
+          }
+        },
+        "S2b5691-2": {
+          "title": "ユーザーとして、⌘Kやタブ追加ピッカーからcodex/opencodeタブを作成したい。なぜなら、registryに登録されただけではUIから使えないから。",
+          "status": "pending",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S2b5691-2-1",
+              "description": "タブ追加ピッカーにcodex/opencodeが選択肢として表示される",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S2b5691-2-2",
+              "description": "codexタブ/opencodeタブを実際に作成し、簡単なターンが動く実機E2Eで確認できる",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S2b5691-2-3",
+              "description": "Activity Inboxのnotify-capability badgeがcodex/opencodeタブでも機能する",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S2b5691-2-1": {
+              "title": "FE: agent-picker/tab-add pickerにcodex/opencode追加 (実装がフェーズBで既に来ていれば配線確認のみ)",
+              "status": "pending"
+            },
+            "S2b5691-2-2": {
+              "title": "実機E2E: codex/opencodeタブ作成+ターン実行",
+              "status": "pending"
+            }
+          }
+        }
+      }
+    },
+    "Sfa2bab": {
+      "title": "リリース v0.15.2 準備: 実機ドッグフーディング検証 (codex/opencode含む)",
+      "description": "フェーズD (codex/opencode registry登録) の成果をv0.15.2としてリリースする前に実機で検証する。フェーズCと同様、実際の `git tag v0.15.2` + push はこのSprintのStoryとして自動実行しない — 検証結果をもってmilestone停止時にユーザーへ提示し、明示的な確認を得てから(このSprintの外で)tag pushを行う。",
+      "milestone": true,
+      "status": "pending",
+      "detail_level": "detailed",
+      "stories": {
+        "Sfa2bab-1": {
+          "title": "プロダクトオーナーとして、v0.15.2相当のビルドでcodex/opencodeタブが実機で動くことを確認してからリリースしたい。なぜなら、フェーズCと同じ理由でリリース前の実機ドッグフーディングを省略したくないから。",
+          "status": "pending",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sfa2bab-1-1",
+              "description": "main (フェーズDマージ後) から qcow2 をローカルビルドしこのdev箱で起動できる",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sfa2bab-1-2",
+              "description": "codexタブ・opencodeタブをワークスペース内で実際に作成し、簡単なターンが動く",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sfa2bab-1-3",
+              "description": "既存のclaudeタブ/genericタブが引き続き正常動作する (回帰無し)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sfa2bab-1-4",
+              "description": "検証結果をユーザーに提示し、明示的なgo-aheadを得てから(このStoryの外側で)git tag v0.15.2 + pushを実行する",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "Sfa2bab-1-1": {
+              "title": "dev箱でqcow2をローカルビルド + qemu起動",
+              "status": "pending"
+            },
+            "Sfa2bab-1-2": {
+              "title": "codex/opencode/claude/genericタブの実機検証",
+              "status": "pending"
+            },
+            "Sfa2bab-1-3": {
+              "title": "検証結果サマリをmilestone summaryに含める",
+              "status": "pending"
+            }
+          }
+        }
+      }
+    },
+    "S31ad96": {
+      "title": "palmux2 ローカルソースビルド + アプライアンス更新フロー検証 (フェーズBの前提)",
+      "description": "nix/packages/palmux2.nix は version/hash を差し替えても常にGitHub Releaseの既存バイナリをfetchurlするだけで、ローカルの作業ツリーソース(Go+frontend embed)からビルドする経路が存在しない。これはS61c9a6のqcow2実機検証で発覚した根本的な穴: NixOSモジュール変更(S61c9a6-1/2/3)は正しく検証できていたが、palmux2アプリ本体のソース変更(S61c9a6-4のフロントエンド変更)はqcow2ビルドに一切反映されていなかった(常に固定v0.15.0バイナリが埋め込まれるだけ)。フェーズB (S0e8afb, agenttui×ptyhostマージという大規模Goソース変更)の実機検証がこのままでは無意味になるため、フェーズBの前提として解消する。ユーザー確定のワークフロー: 「qcow2でインストール後に、最新にアップデートして確認する。ただしその最新はローカルにしかない」— つまり (1) 既存のリリース版qcow2をインストール、(2) オンアプライアンスflakeをローカルチェックアウトへのpath:入力に向けて nixos-rebuild switch で更新、という2段階のフローを実機で確立・検証する。",
+      "milestone": true,
+      "status": "pending",
+      "detail_level": "detailed",
+      "stories": {
+        "S31ad96-1": {
+          "title": "開発者として、palmux2をローカルの作業ツリーソースからビルドしたい。なぜなら、fetchurlでのリリース済みバイナリ取得だと未リリースの変更(Go/frontend)を一切検証できないから。",
+          "status": "pending",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S31ad96-1-1",
+              "description": "nix/packages/ にローカルソース(src = ./.;)からGoバイナリ+embed済みfrontendをビルドする新しいNixパッケージ(例: palmux2-local.nix、buildGoModule + frontendビルドをmake buildと同等の手順でラップ)が追加されている。既存のfetchurlベースのpalmux2パッケージ(リリースフロー用)は変更・破壊しない",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S31ad96-1-2",
+              "description": "flake.nix に追加のpackages出力(例: packages.<system>.palmux2-local)として公開されている",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S31ad96-1-3",
+              "description": "実機でこのローカルビルドパッケージを使ったappliance-qcow2をビルドし、起動したインスタンスがローカルチェックアウトのソース変更(例: フロントエンドのバージョン表示や既存のS61c9a6-4のghヒント)を実際に反映していることを確認する",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S31ad96-1-1": {
+              "title": "nix/packages/palmux2-local.nix (buildGoModule + frontend build) を追加",
+              "status": "pending"
+            },
+            "S31ad96-1-2": {
+              "title": "flake.nix に packages.<system>.palmux2-local を追加",
+              "status": "pending"
+            },
+            "S31ad96-1-3": {
+              "title": "実機検証: ローカルビルドpackageでappliance-qcow2をビルド+起動、ソース変更が反映されていることを確認",
+              "status": "pending"
+            }
+          }
+        },
+        "S31ad96-2": {
+          "title": "運用者として、既にインストール済みのアプライアンス(リリース版)を、ローカルの未リリース変更に更新したい。なぜなら、リリースを経ずに開発中の変更を実機で検証したいから。",
+          "status": "pending",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S31ad96-2-1",
+              "description": "既存のリリース版qcow2 (CLAUDE.md記載の手順でダウンロード)をインストール・起動した状態から、オンアプライアンスflakeをローカルチェックアウトへの path: 入力に向け直し、S31ad96-1のローカルビルドpackageを使うよう切り替える手順が確立・文書化されている",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S31ad96-2-2",
+              "description": "実機で nixos-rebuild switch (または既存のGUI更新キック機構、S673a42) を使ってこの切り替えを実行し、更新後にローカルのみに存在する変更(例: S61c9a6-4のghヒント)が実際に反映されていることを確認する",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S31ad96-2-3",
+              "description": "CLAUDE.mdの「palmuxOS アプライアンス (qcow2) をローカルで評価する」節に、この2段階フロー(リリース版インストール→ローカルソースへ更新)の手順を追記する",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S31ad96-2-1": {
+              "title": "オンアプライアンスflakeのpath:入力切り替え手順を確立",
+              "status": "pending"
+            },
+            "S31ad96-2-2": {
+              "title": "実機検証: リリース版qcow2起動→ローカルソースへの更新→変更反映を確認",
+              "status": "pending"
+            },
+            "S31ad96-2-3": {
+              "title": "CLAUDE.mdに手順を追記",
+              "status": "pending"
             }
           }
         }
@@ -12621,6 +13196,42 @@
         "S3f2658"
       ],
       "reason": "S3f2658 の reattach 経路の P0 リグレッション hotfix。"
+    },
+    "S61c9a6": {
+      "depends_on": [],
+      "reason": "実機ドッグフーディングで発見した4バグの独立修正。既存sprintとのコード依存なし。"
+    },
+    "S0e8afb": {
+      "depends_on": [
+        "Sfeed64",
+        "S31ad96"
+      ],
+      "reason": "agenttui×ptyhostマージはGoソースの大規模変更。S31ad96のローカルソースビルド能力が無いと実機qcow2検証が固定v0.15.0バイナリを検証するだけの無意味なものになる。"
+    },
+    "S4db2fe": {
+      "depends_on": [
+        "S61c9a6",
+        "S0e8afb"
+      ],
+      "reason": "v0.15.1リリース検証はフェーズA(onboarding修正)とフェーズB(マルチエージェントフレームワーク)両方の成果を対象にするため両方完了が前提。"
+    },
+    "S2b5691": {
+      "depends_on": [
+        "S4db2fe"
+      ],
+      "reason": "codex/opencode registry登録はv0.15.1が実際にリリースされた後に行うユーザ確定の段取り。"
+    },
+    "Sfa2bab": {
+      "depends_on": [
+        "S2b5691"
+      ],
+      "reason": "v0.15.2リリース検証はフェーズD(codex/opencode registry登録)の成果が前提。"
+    },
+    "S31ad96": {
+      "depends_on": [
+        "S61c9a6"
+      ],
+      "reason": "S61c9a6の実機検証中に発覚した根本的な穴(palmux2アプリ本体のソース変更がqcow2ビルドに一切反映されない)を解消する。S61c9a6のNixOSモジュール変更が土台として必要。"
     }
   },
   "backlog": [
@@ -12936,6 +13547,13 @@
       "note": "GREEN DOGFOOD (incus-container tab): even with ptyhost surviving + clean reattach, the incus-exec claude child dies with 143 ~55ms after reattach -> respawn. Matches S4d8b1c backlog 'in-container claude の確実な reap'. May compound with the dual-adoption bug. Re-test on a HOST-runtime tab to isolate incus-specificity.",
       "source": "Sfeed64 green dogfood",
       "severity": "high"
+    },
+    {
+      "title": "ndevホスト(ndev.tjstkm.net)をv0.15系に前進復帰 + 実claudeセッション再アタッチ確認",
+      "description": "Sfeed64-2-3の残作業。ndevは前回確認時点でv0.14.11にロールバックされたままだった。現在mainはv0.15.0まで進んでいるため、最新リリースへ前進復帰させ、実claudeセッションで更新→再アタッチ復帰を確認する。",
+      "kind": "chore",
+      "added_in": "S61c9a6-preflight",
+      "status": "open"
     }
   ]
 }

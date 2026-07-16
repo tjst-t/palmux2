@@ -774,6 +774,16 @@
   background: color-mix(in srgb, var(--color-accent) 12%, transparent);
   border-left: 2px solid var(--color-accent);
 }
+.hostHint {
+  margin: 4px 6px 2px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--color-fg-muted);
+}
+.hostHint code {
+  font-family: var(--font-mono, 'Geist Mono', 'Cascadia Code', 'Fira Code', monospace);
+  color: var(--color-fg-dim);
+}
 
 .orphanSection {
   padding: 6px 10px;

@@ -1,0 +1,37 @@
+{
+  "sprint": "S61c9a6",
+  "type": "plan",
+  "touched_adrs": [],
+  "decisions": [
+    {
+      "id": "granularity-no-split-no-merge",
+      "decision": "Kept all 4 Stories as-is (no split, no merge). All 4 already follow the {役割}として/{やりたいこと}/{理由} user-story format, each has a single distinct user-facing behavior (PATH fix / image auto-install / claude bootstrap / gh discoverability copy), and each maps to disjoint files (nixos/modules/palmux.nix systemPackages / nixos/modules/palmux.nix incus oneshot / nixos/modules/appliance.nix claude oneshot / frontend/src/components/drawer.tsx). None spans unrelated concerns (e.g. no CRUD+search+export bundling).",
+      "rationale": "sprint-plan.md step 4: a Story is too large only if it bundles multiple independently-deliverable behaviors or spans unrelated modules/layers. None of these 4 do."
+    },
+    {
+      "id": "gui-spec-classification-s4",
+      "decision": "Classified S61c9a6-4 as a GUI Story (default-on rule: React frontend, user-visible copy in the browser) but scoped the GUI-spec process to 'light': single-state diagram (no transitions — static copy, no loading/error/async state), one E2E test (tests/e2e/s61c9a6_gh_onboarding_hint.py, [AC-S61c9a6-4-1]/[AC-S61c9a6-4-3]), and explicitly no mock test file (mock:null in gui-spec-S61c9a6-4.json).",
+      "rationale": "gui-spec.md Phase 1 explicitly forbids using 'no browser-observable surface' as an escape hatch, and this Story IS browser-observable — so it is not exempted. But gui-spec.md's own mock-test rule (cover empty/loading/error/edge states) has literally zero applicable states here: the change is one static <span> with a fixed string, no API call, no interaction beyond the pre-existing Host button. Writing a mock test would just re-assert the same static string a second time with no meaningfully different mocked state — there IS existing project precedent for this exact situation (docs/sprint-logs/S1f75ec/gui-spec-S1f75ec-1.json uses \"mock\": null for a similarly state-less Story). Full state-diagram Phase 3 also produces a trivial single-node diagram, included for process completeness but not meaningfully useful.",
+      "reference": "gui-spec.md Phase 1 ('high-cost decision... do not use non-GUI as escape hatch') + gui-spec.md Mock rules + DESIGN_PRINCIPLES coding_conventions / priority_rule 6 (既存資産活用 > 新規実装, reuse the S1f75ec-1 mock:null precedent instead of inventing ceremony)"
+    },
+    {
+      "id": "ac4-2-remains-manual-smoke",
+      "decision": "AC-S61c9a6-4-2 (real qcow2 boot → reach the gh install lead from the onboarding screen) is left as a MANUAL/real-VM smoke AC, verified via the CLAUDE.md qcow2-local-eval recipe, NOT automated as Playwright against the dev instance. The new E2E test (tests/e2e/s61c9a6_gh_onboarding_hint.py) only proves AC-S61c9a6-4-1 (copy present + reachable in DOM).",
+      "rationale": "The Sprint description itself mandates real-VM verification for every Story ('全Storyで実機検証必須'), and a headless E2E test against `make serve INSTANCE=dev` cannot exercise a real qcow2 boot. This matches DESIGN_PRINCIPLES priority_rule 0/9 (MANUAL SMOKE AC must not be silently automated away or skipped — it stays an explicit real-VM check, not weakened into an automatable proxy)."
+    },
+    {
+      "id": "task-clarify-s3-native-installer-not-npm",
+      "decision": "Rewrote Task S61c9a6-3-1's title (ROADMAP.json) to explicitly require the official curl-based native/standalone claude installer (versioned ~/.local/share/claude/versions/<v> + ~/.local/bin/claude symlink layout), removing the original ambiguous 'npm/curl install' phrasing. Did not touch any acceptance_criteria wording — AC-S61c9a6-3-1/-2 are unchanged and, if anything, now less ambiguous to satisfy.",
+      "rationale": "internal/runtime/incus/incus.go (bind-mount comments, verified by reading the file) and internal/tab/claudeagent/client.go + internal/tab/claudetui/daemon.go (containerClaudeBin = \"/home/ubuntu/.local/bin/claude\") already hardcode the native-installer directory layout (~/.local/share/claude/versions/<v> → ~/.local/bin/claude symlink) for in-container claude. scripts/install.sh's `sudo npm install -g @anthropic-ai/claude-code` (the Ubuntu path) does NOT produce that layout (npm globals do not create a versions/ dir) — so if S61c9a6-3 used npm it would silently diverge from what the rest of the codebase already assumes about the claude binary's location, and Story 3's own AC-3-2 (real qcow2 dogfood of the Claude tab) would likely still fail even after 'npm install succeeds', just from a different symptom. Flagging this now avoids an implement agent picking the ambiguous 'npm' branch of the original task text and burning a full real-VM verify cycle discovering the mismatch."
+    },
+    {
+      "id": "wave-plan-dependency-confirmed",
+      "decision": "Confirmed (by reading nixos/modules/palmux.nix and appliance.nix in full) that S61c9a6-1 (target: palmux.nix's first mkMerge block, lines ~108-162, adding environment.systemPackages) and S61c9a6-2 (target: palmux.nix's SEPARATE incus mkMerge block, lines ~167-283, near the line-281 TODO) do not share a line range, but S61c9a6-2's oneshot script needs `palmux` resolvable on PATH to run `palmux runtime install`, which S61c9a6-1 is what puts it there system-wide. S61c9a6-3 (nixos/modules/appliance.nix, new oneshot near the existing claude-PATH comment block ~line 150-165) and S61c9a6-4 (frontend/src/components/drawer.tsx HostSection ~line 1085-1096) touch neither of palmux.nix's blocks nor each other — confirmed mutually independent of S61c9a6-1 and each other. Execution plan: Wave 1 = {S61c9a6-1, S61c9a6-3, S61c9a6-4} (parallel, no file/semantic overlap), Wave 2 = {S61c9a6-2} (after Wave 1 merges, so its oneshot can rely on the now-system-wide `palmux` PATH from S61c9a6-1 rather than duplicating a `path=[cfg.package]` override on its own unit).",
+      "reference": "DESIGN_PRINCIPLES priority_rule 6 (既存資産活用 > 新規実装 — S61c9a6-2 reuses S61c9a6-1's system-wide PATH fix instead of re-deriving its own)"
+    }
+  ],
+  "waves": [
+    ["S61c9a6-1", "S61c9a6-3", "S61c9a6-4"],
+    ["S61c9a6-2"]
+  ]
+}

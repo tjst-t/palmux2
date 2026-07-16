@@ -1093,6 +1093,9 @@ function HostSection() {
       >
         <span aria-hidden>🖥</span> {branch.name}
       </button>
+      <p className={styles.hostHint} data-testid="drawer-host-gh-hint">
+        <code>gh</code> (GitHub CLI) が未インストールなら 設定 → デプロイ設定 → アプリ からインストールできます
+      </p>
     </section>
   )
 }
