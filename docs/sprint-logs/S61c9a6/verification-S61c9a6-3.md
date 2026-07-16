@@ -256,16 +256,151 @@ palmux runtime doctor
   3-levels-of-nesting attempt). `palmux-nix-builder` itself left running (shared Sprint
   resource); the shared `~/palmux2-build` checkout on `deploy-test` was never touched.
 
+## Post-review fixes
+
+An independent code review of the first pass above found 2 real bugs, both fixed on the
+same branch before merge.
+
+### Bug 1 — the non-clobber guard permanently early-exited after the first successful boot
+
+Original guard: `if [ -e "$target" ] || [ -L "$target" ]; then ... exit 0; fi`. This can't
+tell a genuinely migrated install apart from the symlink the oneshot itself created on a
+prior boot — so after the very first successful bootstrap, every future boot would see
+`~/.local/bin/claude` already exist (because the unit itself put it there) and permanently
+skip re-linking, forever, contradicting the adjacent comment's claim that a future
+`nix/packages/claude-code.nix` version bump would "automatically" reach the appliance via
+`nixos-rebuild switch`. It would not have — the unit would never touch the symlink again
+once created.
+
+**Fix** (`nixos/modules/appliance.nix`, `palmux-claude-bootstrap`): resolve the existing
+target with `readlink -f` and only treat it as "migrated, leave alone" if it resolves
+OUTSIDE this package's Nix store output. If it resolves INTO
+`/nix/store/*-claude-code-*/bin/claude` (i.e. it's already our own prior link — to any
+generation, old or current), fall through and re-link to whatever the CURRENT pinned
+version's store path is. This mirrors the same "reconcile drift on every run" idea already
+used by `palmux-incus-reconcile` earlier in this same file (the oneshot this Story's design
+comment already cited as its own model, but hadn't actually followed for this specific
+case).
+
+**Dry-run verification** (no second appliance build needed — this is a pure bash guard,
+verified by exercising the exact `case "$resolved" in ... esac` pattern copied out of the
+unit script against representative resolved-path strings):
+
+```
+$ bash guard_dry_run.sh
+PASS scenario A (fresh, no target -- ...) -> leave    # (see script: the real unit script
+    never evaluates this case at all for an absent target -- it skips straight to
+    install+ln unconditionally, which IS the correct "proceed to link" behavior; the case
+    only gates what happens when something already exists at $target)
+PASS scenario B (our own prior link, OLDER version 2.1.200) -> relink
+PASS scenario B2 (our own prior link, CURRENT version 2.1.211) -> relink
+PASS scenario C (migrated real binary, outside /nix/store) -> leave
+PASS scenario D (unrelated /nix/store/*/bin/claude, not claude-code) -> leave
+
+ALL SCENARIOS PASS
+```
+Script: `guard_dry_run.sh` (scratch, not committed to the repo — logic is inline in
+`nixos/modules/appliance.nix` and this transcript is the record of having exercised it).
+
+Scenario B is the one that actually reproduces the original bug (it FAILed against the
+pre-fix guard logic — confirmed by running the same test before the fix was applied — and
+PASSes against the fixed logic above). Scenario B2 additionally confirms the common
+every-boot-after-the-first case (already-current version) is a harmless idempotent re-link,
+not an error. Scenario C confirms the non-clobber contract for a genuine migration is still
+intact after the fix. Real-VM re-verification of scenario A (fresh boot) is in
+"[AC-S61c9a6-3-1/2] re-verification" below; scenarios B/B2 (an actual version bump on a real
+booted appliance) were not additionally re-proven end-to-end on hardware — that would
+require a second pinned version to bump to, which is unnecessary to prove this bash
+conditional's correctness and was waived per the reviewer's own suggested scope
+("reasoning through the fixed guard logic + maybe a local shell dry run ... is enough").
+
+### Bug 2 — nothing disabled Claude Code's own auto-updater
+
+The entire point of this Story is defeated if, the first time the bootstrapped `claude`
+process gets network access, its own built-in auto-updater silently replaces the
+checksum-verified Nix-store-pinned binary with something un-pinned and unverified —
+reintroducing exactly the "unpinned code executes unattended" hole the original
+runtime-`curl | sh` approach was rejected for, just one step later. The first pass's
+verification doc claimed the Nix-store symlink alone prevented this; that claim was
+**wrong** (see the strikethrough correction above) — only the single `claude` file is a
+store symlink, the containing `versions/<v>/` directory is a plain writable directory.
+
+**Research**: downloaded the same checksum-verified `claude` 2.1.211 binary already fetched
+during the URL/hash derivation above and inspected it directly (`strings` + targeted
+`grep`) for how it decides whether auto-update is disabled:
+```
+$ strings claude-2.1.211-linux-x64 | grep -o "DISABLE_AUTOUPDATER\|DISABLE_UPDATES" | sort -u
+DISABLE_AUTOUPDATER
+DISABLE_UPDATES
+$ grep -a -o -P '.{0}DISABLE_AUTOUPDATER.{0}' claude-2.1.211-linux-x64  # (context excerpt)
+...function h$e(){if(ye.DISABLE_UPDATES)return{type:"env",envVar:"DISABLE_UPDATES"};
+   if(ye.DISABLE_AUTOUPDATER)return{type:"env",envVar:"DISABLE_AUTOUPDATER"}...
+```
+This is Claude Code's own internal "why is the auto-updater disabled" status resolver
+(surfaced in its `/status`-style UI as `autoUpdaterDisabledReason`) — it checks the env vars
+`DISABLE_UPDATES` and `DISABLE_AUTOUPDATER` (either one set disables it), plus a separate
+`~/.claude.json` `"autoUpdates": false` setting. This is the real, currently-shipping
+mechanism, not a guess — read directly out of the exact binary this Story pins.
+
+**Fix** (`nixos/modules/appliance.nix`): set `DISABLE_AUTOUPDATER = "1"` in **two** places,
+matching how `internal/tab/claudeagent/client.go` and `internal/tab/claudetui/daemon.go`
+actually build the spawned claude process's environment (both start from `os.Environ()` —
+i.e. palmux2's own process env — via `appendOrReplaceEnv`/`appendOrReplace`):
+1. `systemd.services.palmux2.environment.DISABLE_AUTOUPDATER = "1"` — reaches every
+   claude process the Claude tab spawns (host runtime, both agent and tui modes), since
+   both inherit palmux2's process environment.
+2. `environment.variables.DISABLE_AUTOUPDATER = "1"` — reaches a user manually running
+   `claude` in an interactive shell (Bash/Host tab, SSH), which does not go through
+   palmux2's environment at all.
+(incus-container workspace claude has its own separate `incus exec --env` list —
+S4d8b1c's scope, not touched here; out of scope for this Story since the fresh-install
+bootstrap targets the host-runtime path this Story's ACs actually exercise.)
+
+### [AC-S61c9a6-3-1/2] re-verification — PASS
+
+Rebuilt on `deploy-test` from the same branch (now with both fixes) using the identical
+recipe as the first pass (dedicated `~/build-s61c9a6-3-v2` checkout, real KVM, `nix build
+.#appliance-qcow2 -o ...`). Converted + transferred + booted fresh (no migration) exactly as
+before.
+
+```
+$ ssh -p 12223 palmux@localhost 'systemctl is-active palmux2 incus palmux-state-init palmux-claude-bootstrap'
+active
+active
+active
+active
+
+$ ssh -p 12223 palmux@localhost 'readlink -f ~/.local/bin/claude'
+/nix/store/clnf7sqfblfvxan1y25jzq6rk56fiqaw-claude-code-2.1.211/bin/claude   # (1) symlink correctly resolves into the Nix store on a fresh boot
+
+$ ssh -p 12223 palmux@localhost 'bash -lc "claude --version"'
+2.1.211 (Claude Code)
+
+$ ssh -p 12223 palmux@localhost 'systemctl show palmux2 -p Environment'
+Environment=... DISABLE_AUTOUPDATER=1 ...        # (3) present in the palmux2 service env
+
+$ ssh -p 12223 palmux@localhost 'bash -lc "echo DISABLE_AUTOUPDATER=\$DISABLE_AUTOUPDATER"'
+DISABLE_AUTOUPDATER=1                             # (3) present in an interactive login shell too
+
+$ ssh -p 12223 palmux@localhost 'bash -lc "claude doctor 2>&1" | grep -i -A1 "auto.?update"'
+Auto-updater: disabled (env: DISABLE_AUTOUPDATER)  # claude's OWN doctor confirms it sees the env var and honors it
+```
+(2) — re-linking on a hypothetical version bump — is covered by the dry-run above per the
+reviewer's own stated scope; not re-proven with a second real pinned version on this boot.
+
 ## Out of scope / follow-ups
 
 - `linux-arm64`'s pinned hash is manifest-derived only, not independently re-downloaded and
   verified (this Story and the appliance target `x86_64-linux` only). Re-verify by download
   before an aarch64 appliance ever ships.
-- Claude Code's own in-app auto-update mechanism will not be able to write into
+- ~~Claude Code's own in-app auto-update mechanism will not be able to write into
   `~/.local/share/claude/versions/<v>` when that path is a symlink into the read-only Nix
-  store (by design — version bumps go through `nix/packages/claude-code.nix` +
-  `nixos-rebuild switch`, matching how this whole appliance treats every other component).
-  Not addressed here; no existing behavior assumed otherwise.
+  store~~ — **this claim was wrong and has been corrected; see "Post-review fixes" below.**
+  Only the single `claude` file inside `versions/<v>/` is a store symlink;
+  `versions/<v>/` itself is a plain, `${pUser}`-owned, writable directory (created by
+  `install -d`), so nothing at the filesystem level stopped Claude's own auto-updater from
+  writing into it. `DISABLE_AUTOUPDATER` is now set explicitly instead of relying on this
+  non-existent protection.
 - `palmux-ws` image auto-install (S61c9a6-2) is a separate Story; `palmux runtime doctor`
   correctly reporting `palmux-ws image: NOT found` on this fresh boot is expected, not a
   regression.
