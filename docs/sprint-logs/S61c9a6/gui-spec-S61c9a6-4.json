@@ -1,0 +1,36 @@
+{
+  "story": "S61c9a6-4",
+  "story_type": "gui",
+  "gui_spec_scope": "light",
+  "gui_spec_scope_rationale": "Phase 1 default-on rule classifies this as GUI (a user-visible copy addition in a React app), so it is NOT exempted from the process. But Phase 2-4 are scoped down: the change adds ONE static hint line near the existing Host Drawer CTA (frontend/src/components/drawer.tsx HostSection, ~line 1085-1096) with no new component, no new API call, no loading/error/async state, and no user interaction beyond what the Host button already does. There is exactly one UI state (rendered) — no state diagram transitions exist to draw. Per gui-spec.md this still requires an E2E test tracing to the AC and data-testid on the new element; it does NOT warrant a mock test (no empty/loading/error/edge state exists to mock — matches the S1f75ec-1 precedent of `\"mock\": null` for a similarly state-less Story). Logged as an autonomous decision in decisions.json.",
+  "user_role": "first-time palmuxOS appliance user who has not yet installed gh",
+  "entry_point": "Drawer (left sidebar) — always-visible Host section, reachable before any repository is opened",
+  "state_diagram": "stateDiagram-v2\n    [*] --> Rendered: Drawer mounts (hostRepo present)\n    Rendered --> Rendered: no transitions — static copy, no async/loading/error state",
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "linked_ac": ["AC-S61c9a6-4-1"],
+      "description": "First-time user opens the Drawer before opening any repo and sees a hint that gh is installable via the App Catalog (Settings → デプロイ設定 → アプリ)",
+      "preconditions": ["palmux2 running, no repository opened yet (or any state — Host section is always rendered)"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "open the app (Drawer visible) — do not open any repository",
+          "expected": "Host section is visible (data-testid=drawer-host-section) with the existing Host button (data-testid=drawer-host-terminal)"
+        },
+        {
+          "n": 2,
+          "action": "look at the text under/near the Host button",
+          "expected": "a hint line is visible (data-testid=drawer-host-gh-hint) mentioning gh and that it is installable via 設定 → デプロイ設定 → アプリ (the App Catalog, internal/apps/catalog.go id=\"gh\", surfaced in frontend/src/components/apps-section.tsx)"
+        }
+      ]
+    }
+  ],
+  "note_ac_4_2": "AC-S61c9a6-4-2 (実機でqcow2アプライアンスをブートし、初回ログイン後の画面からghインストール導線に実際に到達できることを確認する) is a MANUAL/real-VM smoke AC per the Sprint description ('全Storyで実機検証必須') — it is exercised via the CLAUDE.md 'palmuxOS アプライアンス (qcow2) をローカルで評価する' recipe, not by this headless E2E test against the dev instance. This E2E test only proves AC-S61c9a6-4-1 (the copy exists and is reachable in the DOM); it cannot prove the qcow2 boot-to-onboarding-screen path.",
+  "endpoint_contracts": [],
+  "test_files": {
+    "e2e": "tests/e2e/s61c9a6_gh_onboarding_hint.py",
+    "mock": null
+  },
+  "data_testids": ["drawer-host-section", "drawer-host-terminal", "drawer-host-gh-hint"]
+}

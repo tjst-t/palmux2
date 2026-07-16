@@ -12389,7 +12389,7 @@
           ],
           "tasks": {
             "S61c9a6-3-1": {
-              "title": "claude CLIの初回ブートストラップ機構を設計・実装 (nix packageとして同梱 or 初回起動oneshotでnpm/curl install)",
+              "title": "claude CLI の初回ブートストラップ oneshot を nixos/modules/appliance.nix に追加。既存コードが ~/.local/bin/claude → ~/.local/share/claude/versions/<v> の versioned native installer レイアウトを前提にしている (internal/runtime/incus/incus.go の bind-mount コメント参照) ため、npm ではなく公式 curl native/standalone installer を使うこと。palmux-state-init / palmux-incus-reconcile と同様 best-effort (ネットワーク不通でも boot をブロックしない) にする",
               "status": "pending"
             },
             "S61c9a6-3-2": {
@@ -12415,6 +12415,11 @@
               "id": "AC-S61c9a6-4-2",
               "description": "実機でqcow2アプライアンスをブートし、初回ログイン後の画面からghインストール導線に実際に到達できることを確認する",
               "status": "pending"
+            },
+            {
+              "id": "AC-S61c9a6-4-3",
+              "description": "Host セクションの案内テキストに data-testid (drawer-host-gh-hint) が付与され、tests/e2e/s61c9a6_gh_onboarding_hint.py の [AC-S61c9a6-4-1] E2E test が pass する (gui-spec: docs/sprint-logs/S61c9a6/gui-spec-S61c9a6-4.json)",
+              "status": "pending"
             }
           ],
           "tasks": {
@@ -12424,6 +12429,10 @@
             },
             "S61c9a6-4-2": {
               "title": "qcow2実機検証: 導線から実際にghをインストールできることを確認",
+              "status": "pending"
+            },
+            "S61c9a6-4-3": {
+              "title": "HostSection (frontend/src/components/drawer.tsx, ~line 1085-1096) に data-testid=\"drawer-host-gh-hint\" 付き案内テキストを追加 + tests/e2e/s61c9a6_gh_onboarding_hint.py の E2E test を pass させる (gui-spec: docs/sprint-logs/S61c9a6/gui-spec-S61c9a6-4.json)",
               "status": "pending"
             }
           }
