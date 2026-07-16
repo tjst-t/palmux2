@@ -433,6 +433,105 @@ in
     };
   };
 
+  # ── claude CLI fresh-install bootstrap (S61c9a6-3) ─────────────────────────
+  # Migration-based deploys carry a pre-existing ~/.local/bin/claude (copied
+  # over from the deployer's prior host, per the design assumed everywhere
+  # else in this codebase — see internal/runtime/incus/incus.go's bind-mount
+  # comment). A genuinely FRESH appliance has none, so the Claude tab is dead
+  # on arrival until the operator manually installs it. Rather than curl the
+  # official installer script at runtime (unattended `curl | sh` as root on
+  # every deployed box — explicitly rejected; see
+  # docs/sprint-logs/S61c9a6/verification-S61c9a6-3.md), the binary is
+  # fetched + checksum-pinned at Nix BUILD time by
+  # nix/packages/claude-code.nix (same pattern as palmux2 itself). This
+  # oneshot's only job at boot is to PROJECT that already-fetched Nix-store
+  # binary into the conventional ~/.local/bin + ~/.local/share/claude/
+  # versions/<v> layout — no network access needed here at all, so unlike
+  # the palmux-ws image install (S61c9a6-2, a real ~1GB runtime download)
+  # this cannot fail for network reasons. It is still made best-effort
+  # (`|| true` throughout, no requiredBy on palmux2.service) on general
+  # principle: a first-boot oneshot must never be able to wedge boot.
+  #
+  # MUST NOT clobber a migrated install, but MUST self-heal / re-link a
+  # target that is already OUR OWN prior link (so a future
+  # nix/packages/claude-code.nix version bump is picked up on the next boot
+  # or `nixos-rebuild switch`, per the comment above). Distinguish the two by
+  # resolving the target: if it resolves into THIS package's Nix store
+  # output (/nix/store/*-claude-code-*), it is safe — and correct — to
+  # always re-link to whatever the CURRENT generation's store path is (same
+  # "reconcile drift every run" idea as palmux-incus-reconcile above). Only
+  # a target resolving OUTSIDE the Nix store (a real pre-existing migrated
+  # binary, or nothing yet) is left untouched / created fresh.
+  systemd.services.palmux-claude-bootstrap = {
+    description = "Project the Nix-pinned Claude Code CLI into ~/.local for a fresh (non-migrated) install, and keep it in sync with the pinned version";
+    after = [ "palmux-state-init.service" ]; # needs the ~/home/ubuntu bind mount up
+    wantedBy = [ "multi-user.target" ];
+    unitConfig.RequiresMountsFor = "/persist";
+    serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
+    path = with pkgs; [ coreutils ];
+    script =
+      let
+        claudePkg = pkgs.claude-code;
+        home = config.services.palmux.stateDir; # = /home/ubuntu on the appliance
+      in
+      ''
+        set -u
+        target="${home}/.local/bin/claude"
+        if [ -e "$target" ] || [ -L "$target" ]; then
+          resolved=$(readlink -f "$target" 2>/dev/null || true)
+          case "$resolved" in
+            /nix/store/*-claude-code-*/bin/claude)
+              # our own prior link into a (possibly older) claude-code
+              # generation — fall through and re-link to the current one.
+              ;;
+            *)
+              echo "palmux-claude-bootstrap: $target already present and does not resolve into this package's Nix store output (migrated install) — leaving untouched"
+              exit 0
+              ;;
+          esac
+        fi
+        versionDir="${home}/.local/share/claude/versions/${claudePkg.version}"
+        install -d -m 0755 -o ${pUser} -g ${pGroup} "${home}/.local/bin" || exit 0
+        install -d -m 0755 -o ${pUser} -g ${pGroup} "$versionDir" || exit 0
+        # Symlink INTO the Nix store copy (not a file copy) so a future
+        # `nixos-rebuild switch` that bumps nix/packages/claude-code.nix's
+        # pinned version is picked up automatically on next boot/switch —
+        # same "generation swap, no manual reinstall" property as palmux2
+        # itself. A genuinely migrated real install (early-exit above) is
+        # unaffected; this ln -sfn is a no-op re-link when already current.
+        ln -sfn "${claudePkg}/bin/claude" "$versionDir/claude" || exit 0
+        ln -sfn "$versionDir/claude" "$target" || exit 0
+        chown -h ${pUser}:${pGroup} "$versionDir/claude" "$target" 2>/dev/null || true
+        echo "palmux-claude-bootstrap: linked claude ${claudePkg.version} -> $target"
+      '';
+  };
+
+  # ── keep the pinned Nix-store claude binary from silently self-updating ──
+  # Claude Code has a built-in auto-updater that, given network access, will
+  # replace the running binary (and its ~/.local/share/claude/versions/<v>
+  # dir contents / active symlink) on its own — defeating the entire point
+  # of this Story (the original runtime `curl | sh` bootstrap was rejected
+  # specifically because it lets unpinned/unverified code run unattended;
+  # letting Claude's OWN auto-updater silently replace the checksum-verified
+  # Nix-store-pinned binary the first time it runs would reintroduce exactly
+  # that hole through the back door). `DISABLE_AUTOUPDATER=1` is Claude
+  # Code's documented env var for this (confirmed against the fetched
+  # 2.1.211 binary itself — its own env-driven "why is auto-update off"
+  # status resolver checks `DISABLE_UPDATES` then `DISABLE_AUTOUPDATER`).
+  # Set in TWO places so both paths are covered:
+  #   (a) systemd.services.palmux2.environment — the Claude tab (agent/tui,
+  #       host runtime) is spawned by palmux2 via exec.Command inheriting
+  #       os.Environ() (internal/tab/claudeagent/client.go,
+  #       internal/tab/claudetui/daemon.go), so this reaches every
+  #       palmux-launched claude process.
+  #   (b) environment.variables — covers a user manually invoking `claude`
+  #       in an interactive shell (Bash/Host tab, SSH), which does not go
+  #       through palmux2's process env at all.
+  # (incus-container workspaces are a separate runtime with their own `incus
+  # exec --env` list — S4d8b1c scope, not this Story's.)
+  systemd.services.palmux2.environment.DISABLE_AUTOUPDATER = "1";
+  environment.variables.DISABLE_AUTOUPDATER = "1";
+
   system.stateVersion = lib.mkDefault "25.05";
 
   # ── generation-based upgrades (replaces unattended-upgrades + self-update) ──

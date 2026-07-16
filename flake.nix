@@ -54,6 +54,8 @@
       packages = forEachSystem ({ system, pkgs }: {
         palmux2 = pkgs.callPackage ./nix/packages/palmux2.nix { };
         caddy-cloudflare = pkgs.callPackage ./nix/packages/caddy-cloudflare.nix { };
+        # Claude Code CLI, build-time pinned (S61c9a6-3) — see nix/packages/claude-code.nix.
+        claude-code = pkgs.callPackage ./nix/packages/claude-code.nix { };
         default = self.packages.${system}.palmux2;
 
         # palmuxOS appliance image (Sb14caa Stage 3). A qcow2 built via DISKO with a
@@ -98,6 +100,7 @@
         palmux2 = final.callPackage ./nix/packages/palmux2.nix { };
         caddy-cloudflare = final.callPackage ./nix/packages/caddy-cloudflare.nix { };
         gwq = final.callPackage ./nix/packages/gwq.nix { }; # palmux2 runtime dep (d-kuro/gwq)
+        claude-code = final.callPackage ./nix/packages/claude-code.nix { }; # S61c9a6-3 fresh-install bootstrap
       };
 
       nixosModules = {
