@@ -53,6 +53,12 @@
       "id": "review-fix-low-unbuffered-comment",
       "decision": "REVIEW FOLLOW-UP (coordinator, LOW): corrected daemon.go's drainer comments that described the emulator response pipe as a '64KiB buffer' that 'fills'. It is an UNBUFFERED io.Pipe (third_party/charmbracelet-x-vt-racefix/emulator.go: io.Pipe() has zero buffering — a single unread response byte blocks Write). Reworded to say so explicitly and note the fix's correctness relies on the unbuffered semantics (there is no buffer to 'not fill' — the drainer must simply be running before ANY query-answering Feed). Also fixed one test log line that said '64KiB response-pipe threshold' → '>64KiB, AC's realistic not-a-toy floor' (the >64KiB figure is a REPLAY-DATA-SIZE floor from the AC, not a pipe threshold).",
       "rationale": "A future maintainer reading '64KiB buffer' could wrongly conclude a smaller replay is safe or that raising a buffer size would fix it; the truth is any single unread query response blocks, so the ordering (drainer-before-Feed) is the only correct fix. fake_claude.go's comment was already correct and left as-is."
+    },
+    {
+      "timestamp": "2026-07-16T00:50:00Z",
+      "decision": "Sfeed64 sprintをstatus=doneに是正(retroactive re-grade目的ではなく、コード自体は既にv0.14.13としてリリース済み・main は現在v0.15.0まで前進しておりstale bookkeepingだったことをユーザーが確認・承認)。唯一未完了だったAC-Sfeed64-2-3(ndevホストの前進復帰)はコード正しさとは無関係な別ホストの運用タスクのため、backlogへ切り出しSfeed64-2-3を'spun_out_to_backlog'として残置。",
+      "reference": "ユーザー承認 2026-07-16 (autopilot start 実行前のpre-flight確認)",
+      "reason": "新規追加したS61c9a6以降のSprint連鎖がSfeed64完了を依存関係前提にしており、stale statusが新規work開始をブロックしていたため是正が必要だった。"
     }
   ],
   "verification": {

@@ -1,7 +1,7 @@
 {
-  "summary": "ブラウザから tmux と複数の Claude Code エージェントを並行運用できる Web ターミナルクライアント。PC とモバイルから同じ環境にアクセスでき、シングルユーザ・自前ホスティング前提。",
+  "summary": "ブラウザから tmux と複数の AI コーディングエージェント（Claude Code / Codex / opencode）を並行運用できる Web ターミナルクライアント。PC とモバイルから同じ環境にアクセスでき、シングルユーザ・自前ホスティング前提。",
   "target_users": [
-    "複数リポジトリ・複数ブランチで Claude Code を併走させる個人開発者",
+    "複数リポジトリ・複数ブランチで Claude Code / Codex / opencode を併走させる個人開発者",
     "自分のサーバー / VPS / ホームラボに常駐させ、PC・スマホ・タブレットから同じ作業環境を使いたい人"
   ],
   "problem": "ターミナル + AI エージェントを切り替えるオーバーヘッド、複数 Claude Code を並行運用したときの『いま何が動いてる？』『権限要求来てる？』の見えなさ、デスクトップアプリがモバイルから使えないこと（外出先で進捗が見られない／タップで操作できない）、セッション履歴・添付画像・下書きが画面遷移で散逸すること。",
@@ -12,7 +12,8 @@
     "モバイル対応: 画面幅収まり / Files タブ preview-only / scroll-to-latest 等",
     "Phase 3 (進行中): Plan モード UI / .claude/settings.json editor / Sub-agent ツリー / MCP server 表示 / Hook events / --add-dir+--file",
     "Phase 4: 磨き込み (virtualization / syntax highlight / 会話内検索 / export / モバイル UX 総点検)",
-    "Phase 5+: 需要が明確になってから検討"
+    "Phase 5: incus Workspace Runtime / palmuxOS NixOS アプライアンス化 / no-halt-agent (ptyhost) — 完了",
+    "Phase 6 (進行中): マルチエージェント対応 — agent registry + Provider 抽象化で Claude Code に加え Codex / opencode をビルトインサポート (resume + notify + in-container 実行)。2026-07 に実需要 (自分自身の開発ワークフローで複数エージェントを併用したい) が明確化し着手"
   ],
   "out_of_scope": [
     "マルチユーザ / マルチテナント / SaaS 化 — シングルユーザ前提を覆さない。OIDC / OAuth ログインも対象外",
@@ -20,7 +21,7 @@
     "IDE 機能 — LSP / 補完 / デバッガ / リファクタリング",
     "音声入力 — spec 8 章で skip 確認済",
     "iOS/Android ネイティブアプリ — PWA は範囲内",
-    "Claude Code 以外のエージェント単独サポート — Phase 6 候補としての Provider 抽象化はあるが、需要が出てから"
+    "Claude Code / Codex / opencode 以外のエージェント — 需要が出てから改めて検討 (Provider 抽象化はあるので追加自体は小さいが、無制限に手を広げない)"
   ],
   "process_constraints": [
     "テスト (自動・ MANUAL SMOKE 問わず) は ROADMAP に書かれた全 AC を実行する。 'skipped' で done 確定するのは禁止 — 詳細は DESIGN_PRINCIPLES priority_rule 0",

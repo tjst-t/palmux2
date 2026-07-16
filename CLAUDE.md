@@ -92,6 +92,23 @@ Phase 5+ は需要が明確になってから検討 (`docs/VISION.json` 参照)�
 
 ホスト用 palmux2（普段 Claude CLI を動かしている方）の `make serve` は **その palmux2 が管理している tmux セッション ＝ 自分が今操作している Claude CLI** を巻き込んで死ぬ。bootstrap 問題なので、開発は `gwq add -b dev` で別ブランチの worktree を切り、`INSTANCE=dev` で別 portman 名・別ポートで起動する。具体的な手順は [docs/development.md](docs/development.md) を参照。
 
+### palmuxOS アプライアンス (qcow2) をローカルで評価する (2026-07-15確立)
+
+palmuxOS (Sb14caa) は NixOS アプライアンスなので通常の `make serve` では評価できない。以前は都度外部 VM (testbox/green 等) に手作業でデプロイして確認していたが、**dev 箱自体の Proxmox VM が KVM 対応済み**（CPU type を `host` に変更 + コールドリスタート済み、`kvm-ok` で確認可）になったため、**このホスト上で直接 qcow2 を起動して評価できる**。
+
+**前提**: 作業する Claude 自身は通常このリポジトリの incus コンテナ (Workspace) の中で動いている (`findmnt -no SOURCE /` で incus の rootfs パスが出ればコンテナ内)。コンテナには `/dev/kvm` が渡っていないため、**`ssh <user>@<dev箱のホストIP>` で一度ホスト本体に抜けてから** 作業する必要がある（コンテナ内で `incus`/`qemu` を叩いても、それはホストではなくコンテナのネームスペースで実行される）。
+
+**手順**:
+1. リリース済み qcow2 を取得（CI が minor リリースごとに appliance qcow2 を release asset として添付する。ローカル `nix build` は不要）:
+   ```
+   gh release download vX.Y.0 -R tjst-t/palmux2 -p 'palmuxos-vX.Y.0.qcow2'
+   ```
+2. ベースイメージは触らず COW オーバーレイを作る: `qemu-img create -f qcow2 -F qcow2 -b palmuxos-vX.Y.0.qcow2 overlay.qcow2`
+3. cloud-init NoCloud seed (`user-data`/`meta-data` → `genisoimage -output seed.iso -volid cidata -joliet -rock user-data meta-data`) で自分の SSH 公開鍵を注入する。**`users: - name: ubuntu` ではなく `name: palmux` を使うこと**（アプライアンスの実ユーザー名は `ubuntu` ではなく `palmux`, uid 1000, home は `/home/ubuntu`。`ubuntu` 名で作ると cloud-init が別 uid の無関係なユーザーを新規作成し、SSH 鍵が effective にならない — 2026-07-15 に実際にハマった）
+4. 起動: `qemu-system-x86_64 -enable-kvm -cpu host -m 4096 -smp 2 -drive file=overlay.qcow2,if=virtio,format=qcow2 -drive file=seed.iso,if=virtio,format=raw -netdev user,id=net0,hostfwd=tcp::12222-:22,hostfwd=tcp::17683-:7683 -device virtio-net-pci,netdev=net0 -nographic -serial file:serial.log -display none -pidfile qemu.pid`（`hostfwd=tcp::PORT-:PORT` は既定で `0.0.0.0` bind なので、ホストの LAN IP からも外部アクセス可能）
+5. 確認: `ssh -p 12222 palmux@<host>` でログイン、`systemctl is-active palmux2 incus` / `curl http://<host>:17683/` で疎通確認
+6. 後片付け: qemu プロセスを kill するだけ（overlay なのでベース qcow2 は無傷、次回も使い回せる）
+
 ### autopilot / sprint auto でサブエージェントに実装を委譲するときのルール
 
 **コンパイル + unit test だけで「完了」とせず、必ず E2E 検証まで行う**。`make serve INSTANCE=dev` で立てた別ポートの独立インスタンスに対して Playwright (headless) で UI / WS / API 経路を叩いて確認する。詳細と「スキップが許される条件」は [docs/DESIGN_PRINCIPLES.json](docs/DESIGN_PRINCIPLES.json) の `forbidden` / 自律実行ルール (S028 で .md → .json に正典化) を参照。
