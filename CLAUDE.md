@@ -114,6 +114,37 @@ palmuxOS (Sb14caa) は NixOS アプライアンスなので通常の `make serve
 - dev 箱自体に Nix を入れて L1 でビルドする選択肢もあるが、常用機への新規ツールインストールになるので実行前にユーザー確認を取ること。
 - ビルド後の qcow2 は dev 箱 (192.168.1.40) に転送し (`scp`/`incus file pull` 等)、上記の起動手順で評価する。
 
+**既にインストール済みの「リリース版」qcow2 を、ローカルの未リリース変更に更新して検証したい場合 (S31ad96-2確立)**: 上の手順1〜6でリリース版 qcow2 を起動した後、qcow2 を作り直さずに **稼働中のそのインスタンスに `nixos-rebuild switch` で流し込む**。`nix/packages/palmux2-local.nix` (S31ad96-1、`src = ../..` でこのリポジトリの作業ツリーから Go+frontend をビルドする Nix パッケージ) と、アプライアンスの on-appliance flake (`/persist/palmux/nixos/flake.nix`、`nixos/appliance-flake/flake.nix` が初回起動時にシードされたもの) の `palmux` 入力を `path:` でローカルソースに向け直す組み合わせで実現する:
+
+1. 起動済みインスタンスにローカルのソースツリーを持ち込む (git 履歴は不要、`.gitignore` 越しの余計なファイルも持ち込まない):
+   ```
+   git archive --format=tar HEAD | gzip > /tmp/palmux2-local-src.tar.gz
+   scp -P 12222 /tmp/palmux2-local-src.tar.gz root@<host>:/root/
+   ssh -p 12222 root@<host> 'mkdir -p /root/palmux2-local-src && tar xzf /root/palmux2-local-src.tar.gz -C /root/palmux2-local-src'
+   ```
+   （`root` への SSH は cloud-init の `users:` に `- name: root` を追加鍵登録すれば通る。`palmux` ユーザーは無 sudo/無パスワードなので、この一時検証用 VM 限定で自分の鍵を root にも入れる。実運用アプライアンスの `palmux` ユーザーの権限モデルには影響しない）
+2. on-appliance flake の `palmux` 入力を `path:` にし、`nix flake update palmux` で再ロック:
+   ```
+   ssh -p 12222 root@<host> \
+     'sed -i "s#palmux.url = \"github:tjst-t/palmux2\";#palmux.url = \"path:/root/palmux2-local-src\";#" /persist/palmux/nixos/flake.nix'
+   ssh -p 12222 root@<host> 'cd /persist/palmux/nixos && nix flake update palmux'
+   ```
+3. `services.palmux.package` をローカルビルド (`palmux2-local`) に切り替える。**`./local/*.nix` オペレータ drop-in ではなく、flake.nix 自身の `nixosConfigurations.appliance.modules` に直接 1 モジュール追加する** — dropin は `{ pkgs, ... }` しか受け取らず flake 入力 `palmux` を参照できないため、`nixpkgs.overlays = [ palmux.overlays.default ]` 経由の `pkgs.palmux2-local` はこのアプライアンス flake が pin する `nixpkgs` (nixos-25.05 = Go 1.24) で評価されてしまい、`go.mod` の `go >= 1.25.0` 要求を満たせず**ビルド失敗する** (2026-07-16 に実際にハマった)。代わりに **`palmux.packages.${system}.palmux2-local`** を直接参照する — これは `palmux` 入力 (= ローカル path) 自身の `nixpkgs` 入力 (root flake.nix の `nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable"`、Go ≥1.25 を含む) で評価されるため、アプライアンス側の nixpkgs バージョンに左右されない:
+   ```nix
+   # /persist/palmux/nixos/flake.nix の let に system = "x86_64-linux"; を追加した上で、
+   # nixosConfigurations.appliance.modules に1行追加:
+   { services.palmux.package = palmux.packages.${system}.palmux2-local; }
+   ```
+4. 通常の更新コマンドで switch (GUI/CLI の `palmux-rebuild-update.service` (S673a42) 経由でもよいが、検証時は root SSH から直接で十分):
+   ```
+   ssh -p 12222 root@<host> 'cd /persist/palmux/nixos && nixos-rebuild switch --flake .#appliance'
+   ```
+   Go のビルド (`palmux2-local-0.0.0-local-go-modules` の fetch 込み) + npm/vite のフロントエンドビルドがその場で走るため、リリース版 qcow2 の初回 switch より数分長くかかる (4GB RAM / 2 vCPU のテスト VM で数分程度、実績あり)。
+5. 確認: `palmux2 --version` が release バージョン (例 `v0.14.13`) から **`v0.0.0-local`** に変わっていれば、稼働中インスタンスがローカルソースへ切り替わった証拠 (`nix-env --list-generations -p /nix/var/nix/profiles/system` で世代が増え、`who -b` の起動時刻が switch 前後で不変 = 再起動なしの in-place 更新であることも確認できる)。
+6. 元に戻すには `nixos-rebuild switch --rollback`、または `flake.nix` の `palmux.url` を `github:tjst-t/palmux2` に戻して `nix flake update palmux && nixos-rebuild switch --flake .#appliance`。
+
+この手順で実機検証済み (`docs/sprint-logs/S31ad96/verification-S31ad96-2.md`)。`nix/packages/palmux2-local.nix` 自体(S31ad96-1)への変更は不要 — 上記はすべて対象インスタンス上の一時的なファイル操作 (on-appliance flake の編集) であり、リポジトリの `flake.nix`/`nix/packages/` はこの用途のために変更不要 (overlay 経由の公開は上記の理由で機能しないため見送った)。
+
 ### autopilot / sprint auto でサブエージェントに実装を委譲するときのルール
 
 **コンパイル + unit test だけで「完了」とせず、必ず E2E 検証まで行う**。`make serve INSTANCE=dev` で立てた別ポートの独立インスタンスに対して Playwright (headless) で UI / WS / API 経路を叩いて確認する。詳細と「スキップが許される条件」は [docs/DESIGN_PRINCIPLES.json](docs/DESIGN_PRINCIPLES.json) の `forbidden` / 自律実行ルール (S028 で .md → .json に正典化) を参照。
