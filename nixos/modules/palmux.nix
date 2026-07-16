@@ -286,8 +286,79 @@ in {
         # dnsmasq, but TCP to the internet times out) without this.
         "net.ipv4.ip_forward" = 1;
       };
-      # palmux-ws image install (`palmux runtime install`) is a runtime step (1GB
-      # download), run post-switch by the operator or a oneshot — not declarative.
+      # palmux-ws image install (S61c9a6-2): first boot has an empty incus image
+      # store, so the incus-container Workspace runtime is unusable until an
+      # operator manually runs `palmux2 runtime install`. Automate it as a
+      # best-effort oneshot, same Type/After shape as palmux-incus-reconcile
+      # above — with ONE deliberate difference, `unitConfig.DefaultDependencies
+      # = false`, which is NOT optional here. Measured on a real boot (2026-07-16,
+      # dev-host qemu smoke): a plain `Type = "oneshot"; wantedBy = [
+      # "multi-user.target" ];` unit (DefaultDependencies=yes, systemd's
+      # default) gets an AUTOMATIC `Before=multi-user.target` — this is
+      # standard systemd behaviour for every unit enabled this way (verified:
+      # palmux2.service, palmux-incus-reconcile.service, and even stock
+      # sshd.service all carry the same implicit Before=), so it is not itself
+      # a bug. But for `Type=oneshot`, "the start job is done" means "ExecStart
+      # exited" — unlike Type=simple/notify, where the job resolves near-
+      # instantly on fork/sd_notify. Combined, multi-user.target's own job does
+      # not resolve until THIS unit's ExecStart exits. palmux-incus-reconcile
+      # gets away with the same default shape because its ExecStart is local-
+      # only and sub-second; ours runs `palmux2 runtime install`, which
+      # downloads a ~1GB release asset — `systemd-analyze critical-chain`
+      # showed multi-user.target reached only after 5min14s, ENTIRELY gated on
+      # this unit's ~5min download (`palmux-ws-image-install.service @17.232s
+      # +4min 56.963s` on the critical chain to multi-user.target). That is
+      # exactly the boot-blocking behaviour AC-S61c9a6-2-2 forbids — a slow (or
+      # hung, e.g. a captive portal that accepts but never completes the TCP
+      # connection) network measurably delays boot completion, not just an
+      # outright fast failure. `DefaultDependencies = false` drops the
+      # implicit Before=multi-user.target/shutdown.target entirely (same fix
+      # already used for palmux-grow-persist in appliance.nix, for an
+      # unrelated ordering reason) — multi-user.target then starts this unit
+      # concurrently via `Wants=` without waiting on it, so its success,
+      # failure, OR duration can never delay boot. The explicit `after`
+      # entries below are retained (independent of DefaultDependencies) so the
+      # unit itself still waits for incus / the reconcile profile / network
+      # before it tries to run — that ordering only constrains when THIS unit
+      # starts, not when multi-user.target is considered reached.
+      #
+      # `palmux2 runtime install` is not itself a cheap no-op when the image is
+      # already present (it re-downloads the ~1GB release asset every
+      # invocation before importing), so guard it here: skip the download
+      # entirely once the `palmux-ws` alias already resolves to an image. This
+      # still converges an image-less host on every reboot (self-heal, same
+      # philosophy as the reconcile unit) without repeatedly paying a ~1GB
+      # download once installed. Image *upgrades* are handled separately by
+      # the running palmux2 service (S7364e3 drift-detect + regenerate), not
+      # by this first-install oneshot.
+      systemd.services.palmux-ws-image-install = {
+        description = "Install the palmux-ws workspace image into incus (best-effort, first-boot only)";
+        after = [ "incus.service" "palmux-incus-reconcile.service" "network-online.target" ];
+        wants = [ "network-online.target" ];
+        requires = [ "incus.service" ];
+        wantedBy = [ "multi-user.target" ];
+        # See the long comment above: this is the load-bearing fix that keeps
+        # a slow/hung download from delaying multi-user.target.
+        unitConfig.DefaultDependencies = false;
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+          # Run as the palmux user (already in incus-admin when cfg.incus.enable,
+          # see users.users.${cfg.user}.extraGroups above) rather than root —
+          # mirrors how scripts/install.sh runs `palmux runtime install` as the
+          # install user via `sg incus-admin`, not as root.
+          User = lib.mkDefault cfg.user;
+        };
+        path = [ config.virtualisation.incus.package ];
+        script = ''
+          set -eu
+          if incus image alias list --format csv 2>/dev/null | cut -d, -f1 | grep -qx palmux-ws; then
+            echo "palmux-ws image already installed — skipping"
+            exit 0
+          fi
+          exec ${cfg.package}/bin/palmux2 runtime install
+        '';
+      };
     })
 
     ##########################################################################
