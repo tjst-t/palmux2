@@ -51,7 +51,7 @@ buildNpmPackage {
   # the same way whenever frontend/package-lock.json changes (see
   # docs/sprint-logs/S31ad96/verification-S31ad96-1.md for the exact command
   # + transcript).
-  npmDepsHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+  npmDepsHash = "sha256-FKyIqO1QFpy1bQstzi4jvkUR36emT6NJZRK/EIKiFnE=";
 
   # frontend/package.json's "build" script is `tsc -b && vite build`, which
   # is exactly what `make build-frontend` (`cd frontend && npm run build`)
