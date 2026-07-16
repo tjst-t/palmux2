@@ -12374,31 +12374,36 @@
         },
         "S61c9a6-3": {
           "title": "開発者として、フレッシュインストールのpalmuxOSアプライアンスでもclaude CLIが使えるようにしたい。なぜなら、migration前提の設計だと真っさらな新規導入者はclaudeタブを一度も使えないから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S61c9a6-3-1",
               "description": "既存の ~/.local/bin/claude が無い状態 (真のフレッシュインストール) でも、初回起動後にclaudeが使える経路が用意されている (Ubuntu版install.shのnpm install相当のブートストラップ、またはそれに準ずる自動導入)",
-              "status": "pending"
+              "status": "pass",
+              "note": "nix/packages/claude-code.nix fetchurl-pins the official native/standalone claude binary (downloads.claude.ai/claude-code-releases/<version>/linux-<arch>/claude, sha256-verified) at Nix BUILD time — no runtime curl|sh. nixos/modules/appliance.nix's new palmux-claude-bootstrap oneshot (network-independent, best-effort, After=palmux-state-init.service, no requiredBy on palmux2) symlinks it into ~/.local/bin/claude -> ~/.local/share/claude/versions/<v>/claude on first boot, matching internal/runtime/incus/incus.go's assumed layout. No-ops (does not clobber) if ~/.local/bin/claude already exists (migrated install). Real qcow2 boot verified: see docs/sprint-logs/S61c9a6/verification-S61c9a6-3.md"
             },
             {
               "id": "AC-S61c9a6-3-2",
               "description": "実機でqcow2アプライアンスをmigrationなしでブートし、Claudeタブが実際に動く (claudeプロセスが起動し認証導線に到達する) ことを確認する",
-              "status": "pending"
+              "status": "pass",
+              "note": "Real qcow2 built (nix build .#appliance-qcow2 on deploy-test 192.168.1.43, real KVM) from worktree-S61c9a6-3-v2, booted fresh (no migration, no prior ~/.claude) via qemu -enable-kvm on the dev host. Confirmed: palmux-claude-bootstrap.service exited 0, ~/.local/bin/claude symlink chain resolves into the Nix store, `claude --version` -> \"2.1.211 (Claude Code)\", and an interactively-launched `claude` renders the real first-run \"Welcome to Claude Code v2.1.211\" onboarding TUI (the entry point that leads into login/auth) with zero pre-existing ~/.claude state. palmux2 web UI + `palmux2 runtime doctor` both healthy. Full transcript: docs/sprint-logs/S61c9a6/verification-S61c9a6-3.md"
             }
           ],
           "tasks": {
             "S61c9a6-3-1": {
               "title": "claude CLI の初回ブートストラップ oneshot を nixos/modules/appliance.nix に追加。既存コードが ~/.local/bin/claude → ~/.local/share/claude/versions/<v> の versioned native installer レイアウトを前提にしている (internal/runtime/incus/incus.go の bind-mount コメント参照) ため、npm ではなく公式 curl native/standalone installer を使うこと。palmux-state-init / palmux-incus-reconcile と同様 best-effort (ネットワーク不通でも boot をブロックしない) にする",
-              "status": "pending"
+              "status": "done",
+              "note": "Implemented as a build-time Nix fetchurl pin (nix/packages/claude-code.nix) + a network-independent projection oneshot (nixos/modules/appliance.nix palmux-claude-bootstrap), per user's explicit revised-mechanism decision (no runtime curl|sh on every deployed box)."
             },
             "S61c9a6-3-2": {
               "title": "nix-ld/PATH配線が新規インストールでも機能することを確認",
-              "status": "pending"
+              "status": "done",
+              "note": "Verified on the fresh qcow2 boot: `bash -lc \"which claude\"` -> /home/ubuntu/.local/bin/claude, `claude --version`/`claude --help` both run (nix-ld dynamic linking + loginShellInit PATH both already in place from S61c9a6-1, unaffected by this Story's addition)."
             },
             "S61c9a6-3-3": {
               "title": "qcow2実機検証: フレッシュインストールでclaudeタブが動くことを確認",
-              "status": "pending"
+              "status": "done",
+              "note": "See AC-S61c9a6-3-2 note + docs/sprint-logs/S61c9a6/verification-S61c9a6-3.md for the full transcript."
             }
           }
         },
