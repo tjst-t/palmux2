@@ -110,19 +110,6 @@
         caddy-cloudflare = final.callPackage ./nix/packages/caddy-cloudflare.nix { };
         gwq = final.callPackage ./nix/packages/gwq.nix { }; # palmux2 runtime dep (d-kuro/gwq)
         claude-code = final.callPackage ./nix/packages/claude-code.nix { }; # S61c9a6-3 fresh-install bootstrap
-        # S31ad96-2: expose the local-source-build package (S31ad96-1,
-        # nix/packages/palmux2-local.nix) through the SAME overlay the
-        # on-appliance flake applies (`nixpkgs.overlays = [ palmux.overlays.default ]`
-        # in nixos/appliance-flake/flake.nix). This is what lets a deployed
-        # appliance's operator drop-in say `services.palmux.package =
-        # pkgs.palmux2-local;` and actually get a build of whatever source tree
-        # the `palmux` flake input currently resolves to (github: for a normal
-        # install, or a `path:` override for local dev iteration — see
-        # CLAUDE.md's palmuxOS アプライアンスをローカルで評価する §リリース版を
-        # ローカルソースに更新する). Purely additive: `default`/`palmux2` above
-        # are untouched, so a plain `nixos-rebuild switch` with no drop-in still
-        # resolves the release fetchurl package.
-        palmux2-local = final.callPackage ./nix/packages/palmux2-local.nix { };
       };
 
       nixosModules = {
