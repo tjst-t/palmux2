@@ -158,7 +158,13 @@ palmuxOS (Sb14caa) は NixOS アプライアンスなので通常の `make serve
   5. `/var/lib/palmux/palmux2-test --version` で新バイナリが起動していることを確認。実 incus (`incus list`) も稼働中なので、コンテナ経由の挙動もここで確認できる
   6. **検証が終わったら必ず元のバイナリに戻す** (手順2でバックアップしたファイルを `cp` で書き戻し、`systemctl restart palmux2`) — 他の用途にも使われる共有の永続ホストなので、自分の検証用ビルドを稼働させたまま放置しない
 - **NixOS モジュール変更 (`nixos/modules/*.nix`) の検証にはこの方法は使えない** (バイナリ差し替えだけで、`nixos-rebuild` を経ないため設定変更は反映されない) — その場合は上のqcow2ビルド手順、または `nixos-rebuild switch --flake` を直接このホストに対して実行する方法を使う。
-- 用途の使い分け: この手順 = Go ソースだけの素早い実機smoke。qcow2ローカル評価 = NixOSモジュール/パッケージング変更の検証。S31ad96-2のupdateフロー = 「リリース→ローカル更新」という遷移そのものの検証。
+- **「フレッシュインストール直後」の検証にはこの方法は使えない (重要な限界、2026-07-17 に確認)**: `palmux-nixos-test.tjstkm.net` は永続稼働している既存ホストで、`systemctl restart palmux2` は「動いているサービスの再起動」であって OS の再起動ではない。そのため:
+  - 初回起動 oneshot (`palmux-state-init`・`palmux-ws-image-install`・`palmux-claude-bootstrap` 等) は再実行されない
+  - `incus image list` には過去のテストで入った image がそのまま残っている
+  - `~/.local/bin/claude` 等、以前のテストで作られた state もそのまま残っている
+  - このホスト自体、真っさらな state ではない
+  - この方法で確認できるのは「今動いている palmux2 バイナリの挙動」のみで、「qcow2 インストール直後・真っさらな状態からの挙動」は原理的に確認できない。**S61c9a6 (フェーズA、オンボーディング修正) のようなフレッシュインストール系 Story には使えない** — その場合は上の「qcow2 をローカルで評価する」手順で、毎回新しい overlay + cloud-init seed から起動すること。
+- 用途の使い分け: **この手順 (バイナリ差し替え)** = Go ソースだけの、fresh-install に依存しない実機smoke (per-kind manager のような daemon/discovery ロジック等)。**qcow2ローカル評価 (ゼロから起動)** = NixOSモジュール/パッケージング変更、またはフレッシュインストール系の検証。**S31ad96-2のupdateフロー** = 「リリース→ローカル更新」という遷移そのものの検証。
 
 ### autopilot / sprint auto でサブエージェントに実装を委譲するときのルール
 
