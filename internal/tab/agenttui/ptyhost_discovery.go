@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+
+	"github.com/tjst-t/palmux2/internal/agent"
 )
 
 // This file holds the Manager-coupled half of S3f2658-3's discovery/GC
@@ -49,7 +51,9 @@ func DiscoverAndRestore(ctx context.Context, mgr *Manager, worktreeFn func(repoI
 		logger = slog.Default()
 	}
 	runDir := mgr.RunDir()
-	live, cleaned, serr := ScanRunDir(runDir, logger, nil)
+	// S0e8afb-3: scope discovery to THIS Manager's own kind — see
+	// discover.go's ScanRunDir doc comment / AgentKind ownership filter.
+	live, cleaned, serr := ScanRunDir(runDir, mgr.Kind(), logger, nil)
 	if serr != nil {
 		return 0, cleaned, fmt.Errorf("agenttui: startup discovery: %w", serr)
 	}
@@ -113,8 +117,9 @@ func (m *Manager) GCOrphans(ctx context.Context, isLive func(repoID, branchID, t
 	}
 	runDir := m.RunDir()
 	// skipLive == isLive: referenced entries are excluded INSIDE ScanRunDir,
-	// before any dial — see the doc comment above.
-	live, cleaned, serr := ScanRunDir(runDir, m.cfg.Logger, isLive)
+	// before any dial — see the doc comment above. S0e8afb-3: scope to THIS
+	// Manager's own kind, same as DiscoverAndRestore above.
+	live, cleaned, serr := ScanRunDir(runDir, m.Kind(), m.cfg.Logger, isLive)
 	if serr != nil {
 		return 0, cleaned, fmt.Errorf("agenttui: orphan gc: %w", serr)
 	}
@@ -138,20 +143,69 @@ func (m *Manager) GCOrphans(ctx context.Context, isLive func(repoID, branchID, t
 		// would leave the in-container claude running forever: nothing else
 		// ever reaps it. [AC-S3f2658-4-2]
 		//
-		// S0e8afb-2 graft note: this path has NO live Daemon (by definition
-		// — it's an orphan), so there is no adapter-supplied
-		// agent.SpawnSpec.KillPattern to read here (unlike Daemon's own
-		// reapContainerClaude call sites in daemon.go, which use d.killPattern
-		// — see that field's doc comment). It falls back to the hardcoded
-		// containerClaudeBin constant, UNCHANGED from before this graft.
-		// Generalizing this to an arbitrary adapter's kill pattern requires
-		// ptyhost.StatusFile to carry it (S0e8afb-3's AC-S0e8afb-3-1 —
-		// AgentKind/KillPattern additive fields), deliberately deferred out of
-		// this Story's scope; see docs/sprint-logs/S0e8afb/verification-S0e8afb-2.md.
-		reapContainerClaude(m.cfg.RuntimeResolver, h.RepoID, h.BranchID, containerClaudeBin, gracefulShutdownTimeout, m.cfg.Logger)
+		// S0e8afb-3: this path has NO live Daemon (by definition — it's an
+		// orphan), so there is no in-memory d.killPattern to read (unlike
+		// Daemon's own reapContainerClaude call sites in daemon.go's
+		// effectiveKillPattern). S0e8afb-2 left this as the hardcoded
+		// containerClaudeBin constant, deferring the fix to THIS Story's
+		// AC-S0e8afb-3-1 (ptyhost.StatusFile now carries KillPattern — see
+		// discover.go's DiscoveredHost.KillPattern, echoed verbatim from the
+		// on-disk status file the ORIGINAL spawn wrote). Use it when present;
+		// fall back to the claude-specific constant ONLY for this Manager's
+		// OWN kind being claude (post-review fix — see killPatternOrFallback's
+		// doc comment: guessing containerClaudeBin for a non-claude kind with
+		// no declared pattern would risk TERMing an unrelated LIVE claude
+		// session in the same container).
+		if pattern := killPatternOrFallback(m.Kind(), h.KillPattern); pattern != "" {
+			reapContainerClaude(m.cfg.RuntimeResolver, h.RepoID, h.BranchID, pattern, gracefulShutdownTimeout, m.cfg.Logger)
+		} else {
+			m.cfg.Logger.Warn("agenttui: orphan gc: no kill pattern available for this kind; skipping in-container reap (adapter's SpawnSpec never declared KillPattern, and this is not claude — see killPatternOrFallback's doc comment)",
+				"repo", h.RepoID, "branch", h.BranchID, "tab", h.TabID, "kind", m.Kind())
+		}
 		shutdown++
 		m.cfg.Logger.Info("agenttui: orphan gc: shut down unreferenced ptyhost",
 			"repo", h.RepoID, "branch", h.BranchID, "tab", h.TabID, "pid", h.Pid)
 	}
 	return shutdown, cleaned, nil
+}
+
+// killPatternOrFallback returns pattern if non-empty, else — ONLY when kind
+// is [agent.KindClaude] — the hardcoded containerClaudeBin constant. This is
+// the orphan-GC counterpart of Daemon's effectiveKillPattern (daemon.go),
+// used where there is no live Daemon to consult (S0e8afb-3, completing
+// S0e8afb-2's deferred GCOrphans wiring).
+//
+// [post-S0e8afb-3-review fix] The claude-specific fallback is deliberately
+// GATED ON KIND, not just on pattern emptiness: [agent.GenericAdapter.
+// SpawnSpec] (internal/agent/generic.go) never populates SpawnSpec.
+// KillPattern at all — so once a live generic-kind ptyhost genuinely exists
+// (as soon as a future Story wires one up, e.g. S2b5691), an orphan of that
+// kind would ALWAYS have an empty on-disk KillPattern, every time, not just
+// for pre-upgrade legacy files. Falling back to containerClaudeBin
+// unconditionally (the original implementation) would then have
+// reapContainerClaude pkill-TERM the claude binary path inside that SAME
+// (repoId, branchId) workspace container — which could be a completely
+// unrelated, LIVE, in-use claude session running alongside the orphaned
+// generic process, not the process this GC pass was meant to reap. An empty
+// AgentKind is treated as claude (matching ScanRunDir's own back-compat
+// default in discover.go — a pre-S0e8afb-3 status file that never had
+// either the AgentKind or KillPattern fields is, unambiguously, a claude
+// entry), so THAT case still gets the safe legacy fallback. Any OTHER kind
+// with an empty pattern returns "" — reapContainerClaude is already a
+// documented no-op on an empty pattern (never pkill with an empty -f
+// pattern, which can match far more than intended), so this is a genuine
+// skip, not a crash; the caller logs the skip for visibility rather than
+// silently doing nothing.
+func killPatternOrFallback(kind agent.Kind, pattern string) string {
+	if pattern != "" {
+		return pattern
+	}
+	effectiveKind := kind
+	if effectiveKind == "" {
+		effectiveKind = agent.KindClaude
+	}
+	if effectiveKind == agent.KindClaude {
+		return containerClaudeBin
+	}
+	return ""
 }

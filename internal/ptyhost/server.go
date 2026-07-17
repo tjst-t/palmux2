@@ -80,6 +80,38 @@ type Config struct {
 	BranchID string
 	TabID    string
 
+	// AgentKind (S0e8afb-3) is the OPAQUE agent-kind identity of the tab this
+	// ptyhost holds a process for ("claude", "generic", a user-defined
+	// [agents.<name>] section name, ...), written DIRECTLY (no join, no
+	// parse) into the on-disk [StatusFile] — same discipline as
+	// RepoID/BranchID/TabID above — so a PER-KIND discovery/orphan-GC pass
+	// (internal/tab/agenttui/discover.go, S0e8afb-3) can recognize whether a
+	// live ptyhost belongs to IT specifically, not just to "agenttui in
+	// general". Multiple kind-managers (one per agent.Kind, e.g. claude and
+	// generic) can share the SAME on-disk run directory/seed space (a socket
+	// path is derived purely from (repoId, branchId, tabId), independent of
+	// kind — same reason claudetui/claudeagent already share one via
+	// [Config.Mode]), so without this field every kind-manager's discovery
+	// would treat every OTHER kind-manager's ptyhost as its own too — the
+	// exact dual-manager eviction-loop bug class Sfeed64-3 already fixed once
+	// for Mode, recurring one layer down for kind instead of transport mode.
+	// ptyhost stores and returns this verbatim; it never acts on it
+	// (ADR-0002 — agent-agnostic). Empty is written as "" and is treated by
+	// agenttui's ownership filter as "claude" (the only kind that ever
+	// existed before this field) for back-compat.
+	AgentKind string
+	// KillPattern (S0e8afb-3) is the OPAQUE pkill-style pattern
+	// ([agent.SpawnSpec.KillPattern]) an orphan-GC pass with NO live Daemon
+	// (agenttui's GCOrphans, ptyhost_discovery.go) uses to best-effort reap a
+	// lingering IN-CONTAINER process this ptyhost's child left running (see
+	// runtime.ContainerProcessKiller). Written verbatim from whatever the
+	// spawning Adapter declared for this spawn; ptyhost never acts on it
+	// (ADR-0002). Empty means "no targeted kill pattern available" — callers
+	// fall back to a hardcoded default rather than pkill'ing with an empty
+	// pattern (which on some platforms/arg shapes can match far more than
+	// intended).
+	KillPattern string
+
 	// RingSize is the ring buffer capacity in bytes. <= 0 uses
 	// [DefaultRingSize].
 	RingSize int
@@ -122,6 +154,10 @@ type StatusFile struct {
 	RepoID   string `json:"repoId,omitempty"`
 	BranchID string `json:"branchId,omitempty"`
 	TabID    string `json:"tabId,omitempty"`
+	// AgentKind/KillPattern are [Config.AgentKind]/[Config.KillPattern]
+	// echoed verbatim (S0e8afb-3) — see their doc comments.
+	AgentKind   string `json:"agentKind,omitempty"`
+	KillPattern string `json:"killPattern,omitempty"`
 }
 
 // Server owns one PTY-spawned child process, feeds its output into a
@@ -868,6 +904,8 @@ func (s *Server) writeStatusFile(exited bool, exitCode int, exitCodeValid bool, 
 		RepoID:        s.cfg.RepoID,
 		BranchID:      s.cfg.BranchID,
 		TabID:         s.cfg.TabID,
+		AgentKind:     s.cfg.AgentKind,
+		KillPattern:   s.cfg.KillPattern,
 	}
 	s.mu.Unlock()
 	return writeStatusFileAtomic(s.cfg.StatusPath, sf)
