@@ -12514,7 +12514,8 @@
           "tasks": {
             "S0e8afb-2-1": {
               "title": "P2: daemon.go graft seam実装 (設計メモの手順1-2通り)",
-              "status": "done"
+              "status": "done",
+              "note": "独立レビューで EnsureDaemon の SessionWatcher が agent.SessionDiscoverer でgate されていない欠落を検出 (main の TranscriptDir/NewSessionWatcher をAdapter 種別を見ずに常時使用)。コミット後に修正 (manager.go に capability gate 追加、sessions.go の NewSessionWatcher を injectable SessionIDFromPath 対応に変更、regression test TestEnsureDaemon_NoSessionWatcherWithoutSessionDiscoverer 追加)。claude のみが稼働中の今は無影響 (byte-identical) だが、S0e8afb-3 で 同一 worktree に複数 kind が乗る際のセッション ID クロスワイヤ事故を防ぐ。詳細は docs/sprint-logs/S0e8afb/verification-S0e8afb-2.md の Deviation 5。"
             },
             "S0e8afb-2-2": {
               "title": "respawnLoop統合 (main の gateRespawn + maultiagent の immediateFailureBackoff)",

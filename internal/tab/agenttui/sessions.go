@@ -1,122 +1,26 @@
 package agenttui
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+
+	"github.com/tjst-t/palmux2/internal/agent"
 )
-
-// TranscriptDir maps a worktree absolute path to the directory where the
-// Claude CLI writes per-session .jsonl transcripts.
-//
-// The algorithm mirrors claudeagent.transcriptDir (read for canonical source):
-// replace every '/' and '.' in the absolute path with '-', then join under
-// ~/.claude/projects/<slug>. Example:
-//
-//	/home/ubuntu/ghq/github.com/foo/bar → ~/.claude/projects/-home-ubuntu-ghq-github-com-foo-bar
-//
-// Pure function — no I/O on worktree itself.
-func TranscriptDir(worktree string) (string, error) {
-	if worktree == "" {
-		return "", errors.New("claudetui: empty worktree")
-	}
-	abs, err := filepath.Abs(worktree)
-	if err != nil {
-		return "", err
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	slug := strings.NewReplacer("/", "-", ".", "-").Replace(abs)
-	return filepath.Join(home, ".claude", "projects", slug), nil
-}
-
-// transcriptExists reports whether the .jsonl transcript for sessionID still
-// exists under the worktree's transcript dir. Used to gate first-spawn --resume
-// so we never `claude --resume <gone-id>`. Any resolution error → false (treat as
-// absent; the caller falls back to a fresh session).
-func transcriptExists(worktree, sessionID string) bool {
-	if sessionID == "" {
-		return false
-	}
-	dir, err := TranscriptDir(worktree)
-	if err != nil {
-		return false
-	}
-	info, err := os.Stat(filepath.Join(dir, sessionID+".jsonl"))
-	return err == nil && !info.IsDir()
-}
-
-// looksLikeSessionID guards against random non-uuid files in the projects dir.
-// Claude Code session IDs are RFC4122 UUIDs.
-func looksLikeSessionID(s string) bool {
-	if len(s) != 36 {
-		return false
-	}
-	for i, r := range s {
-		switch i {
-		case 8, 13, 18, 23:
-			if r != '-' {
-				return false
-			}
-		default:
-			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-// LatestSessionID scans transcriptDir for *.jsonl files and returns the
-// session_id (filename without .jsonl extension) of the one with the highest
-// modification time.  Returns ("", zero, nil) when the directory is empty or
-// contains no valid session files.
-func LatestSessionID(transcriptDir string) (sessionID string, mtime time.Time, err error) {
-	entries, err := os.ReadDir(transcriptDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", time.Time{}, nil
-		}
-		return "", time.Time{}, err
-	}
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".jsonl") {
-			continue
-		}
-		id := strings.TrimSuffix(name, ".jsonl")
-		if !looksLikeSessionID(id) {
-			continue
-		}
-		info, ierr := e.Info()
-		if ierr != nil {
-			continue
-		}
-		if info.ModTime().After(mtime) {
-			mtime = info.ModTime()
-			sessionID = id
-		}
-	}
-	return sessionID, mtime, nil
-}
 
 // SessionEventType classifies the filesystem event that triggered a session
 // notification.
 type SessionEventType string
 
 const (
-	// SessionEventAppeared is emitted when a new .jsonl file is created in
-	// the transcript directory — i.e. a fresh Claude session has started.
+	// SessionEventAppeared is emitted when a new transcript file is created
+	// in the watched directory — i.e. a fresh agent session has started.
 	SessionEventAppeared SessionEventType = "appeared"
 
-	// SessionEventModified is emitted when an existing .jsonl file is
+	// SessionEventModified is emitted when an existing transcript file is
 	// written to — i.e. the current session has produced a new turn.
 	SessionEventModified SessionEventType = "modified"
 )
@@ -128,30 +32,58 @@ type SessionEvent struct {
 	EventType SessionEventType
 }
 
-// SessionWatcher watches a transcript directory for new or modified .jsonl
-// files and emits a SessionEvent on each change.
+// SessionIDFromPath reports whether a file path (as delivered by an fsnotify
+// event) names a valid session transcript, and if so, its session ID. The
+// interpretation of "valid" (file naming convention, ID format) is entirely
+// agent-specific — see agent.SessionDiscoverer — so this daemon package
+// never parses filenames itself; it just dispatches through the callback an
+// adapter supplied.
+//
+// S0e8afb-2 review fix: this package USED TO own TranscriptDir/
+// looksLikeSessionID/LatestSessionID directly (a hardcoded claude-specific
+// UUID-.jsonl convention baked into EVERY Manager regardless of which
+// Adapter it was configured with — a latent cross-kind data-loss bug for
+// S0e8afb-3: two Managers of different kinds sharing one worktree would both
+// watch the SAME ~/.claude/projects/<slug> directory and could cross-wire a
+// claude session ID into another kind's --resume). That logic moved
+// verbatim to agent.ClaudeAdapter (internal/agent/claude.go) as its
+// SessionDiscoverer implementation; this package now only ever reaches a
+// naming convention through an adapter-supplied callback like this one —
+// see Manager.EnsureDaemon's `agent.SessionDiscoverer` type-assertion gate.
+type SessionIDFromPath func(path string) (id string, ok bool)
+
+// SessionWatcher watches a transcript directory for new or modified files
+// and emits a SessionEvent on each change whose path the adapter-supplied
+// idFromPath callback recognises as a session transcript. The directory
+// layout and filename→ID parsing are entirely delegated to that callback
+// (agent.SessionDiscoverer.SessionIDFromPath) — this package has no
+// knowledge of any particular agent's transcript format.
 //
 // Usage:
 //
-//	w, err := NewSessionWatcher(transcriptDir)
+//	w, err := NewSessionWatcher(transcriptDir, adapter.SessionIDFromPath)
 //	// ...
 //	for ev := range w.Events() {
 //	    // ev.SessionID, ev.EventType
 //	}
 //	w.Close()
 type SessionWatcher struct {
-	fsw       *fsnotify.Watcher
-	dir       string
-	events    chan SessionEvent
-	done      chan struct{}
-	closeOnce sync.Once
+	fsw        *fsnotify.Watcher
+	dir        string
+	idFromPath SessionIDFromPath
+	events     chan SessionEvent
+	done       chan struct{}
+	closeOnce  sync.Once
 }
 
 // NewSessionWatcher creates a watcher for transcriptDir. If the directory
 // does not exist yet it is created (with 0o755 permissions) so that
-// NewSessionWatcher never fails merely because no claude session has been
-// recorded yet for this worktree.
-func NewSessionWatcher(transcriptDir string) (*SessionWatcher, error) {
+// NewSessionWatcher never fails merely because no session has been recorded
+// yet for this worktree. idFromPath classifies each changed file; a nil
+// idFromPath makes the watcher emit no events (defensive — callers should
+// only construct a SessionWatcher when an adapter implements
+// agent.SessionDiscoverer).
+func NewSessionWatcher(transcriptDir string, idFromPath SessionIDFromPath) (*SessionWatcher, error) {
 	if err := os.MkdirAll(transcriptDir, 0o755); err != nil {
 		return nil, err
 	}
@@ -166,10 +98,11 @@ func NewSessionWatcher(transcriptDir string) (*SessionWatcher, error) {
 	}
 
 	sw := &SessionWatcher{
-		fsw:    fsw,
-		dir:    transcriptDir,
-		events: make(chan SessionEvent, 32),
-		done:   make(chan struct{}),
+		fsw:        fsw,
+		dir:        transcriptDir,
+		idFromPath: idFromPath,
+		events:     make(chan SessionEvent, 32),
+		done:       make(chan struct{}),
 	}
 	go sw.loop()
 	return sw, nil
@@ -213,12 +146,11 @@ func (w *SessionWatcher) loop() {
 }
 
 func (w *SessionWatcher) handleFSEvent(ev fsnotify.Event) {
-	name := filepath.Base(ev.Name)
-	if !strings.HasSuffix(name, ".jsonl") {
+	if w.idFromPath == nil {
 		return
 	}
-	sessionID := strings.TrimSuffix(name, ".jsonl")
-	if !looksLikeSessionID(sessionID) {
+	sessionID, ok := w.idFromPath(ev.Name)
+	if !ok || sessionID == "" {
 		return
 	}
 
@@ -247,4 +179,38 @@ func (w *SessionWatcher) handleFSEvent(ev fsnotify.Event) {
 	case w.events <- se:
 	case <-w.done:
 	}
+}
+
+// transcriptExistsFor reports whether td (an agent.SessionDiscoverer's
+// TranscriptDir for some worktree) contains a transcript file that sd's own
+// SessionIDFromPath resolves to EXACTLY sessionID. This is the
+// capability-gated, adapter-agnostic replacement for the old hardcoded
+// "<sessionID>.jsonl" existence check (S0e8afb-2 review fix): it never
+// assumes a filename extension or naming scheme — it defers entirely to the
+// SAME classifier the SessionWatcher itself uses, so "does this ID's
+// transcript still exist" and "what ID does this file represent" can never
+// disagree.
+//
+// Used by Manager.EnsureDaemon to gate FIRST-spawn --resume (main's
+// palmux2-restart-reattaches-to-prior-conversation feature — see
+// DaemonConfig.InitialSessionID's doc comment): a persisted session ID whose
+// transcript is gone must never be resumed (claude would error), so the
+// first spawn falls back to fresh instead.
+func transcriptExistsFor(sd agent.SessionDiscoverer, td, sessionID string) bool {
+	if sessionID == "" || sd == nil {
+		return false
+	}
+	entries, err := os.ReadDir(td)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if id, ok := sd.SessionIDFromPath(filepath.Join(td, e.Name())); ok && id == sessionID {
+			return true
+		}
+	}
+	return false
 }

@@ -3,141 +3,34 @@ package agenttui
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
+
+	"github.com/tjst-t/palmux2/internal/agent"
 )
 
-// ---- TranscriptDir -----------------------------------------------------------
-
-// TestTranscriptDir verifies the slug algorithm: '/' and '.' become '-'.
-func TestTranscriptDir(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("UserHomeDir: %v", err)
-	}
-
-	tests := []struct {
-		name     string
-		worktree string
-		wantSlug string // path segment after ~/.claude/projects/
-	}{
-		{
-			name:     "simple unix path",
-			worktree: "/home/ubuntu/ghq/github.com/foo/bar",
-			wantSlug: "-home-ubuntu-ghq-github-com-foo-bar",
-		},
-		{
-			name:     "dots become dashes",
-			worktree: "/home/ubuntu/go/src/github.com/example.org/proj",
-			wantSlug: "-home-ubuntu-go-src-github-com-example-org-proj",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := TranscriptDir(tc.worktree)
-			if err != nil {
-				t.Fatalf("TranscriptDir(%q): %v", tc.worktree, err)
-			}
-			want := filepath.Join(home, ".claude", "projects", tc.wantSlug)
-			if got != want {
-				t.Errorf("TranscriptDir(%q) =\n  %q\nwant\n  %q", tc.worktree, got, want)
-			}
-		})
-	}
-}
-
-// TestTranscriptDirEmpty verifies that an empty worktree returns an error.
-func TestTranscriptDirEmpty(t *testing.T) {
-	_, err := TranscriptDir("")
-	if err == nil {
-		t.Fatal("expected error for empty worktree, got nil")
-	}
-	if !strings.Contains(err.Error(), "claudetui") {
-		t.Errorf("error %q should mention 'claudetui'", err.Error())
-	}
-}
-
-// ---- LatestSessionID ---------------------------------------------------------
-
-// TestLatestSessionID creates two .jsonl files with different mtimes and
-// verifies that LatestSessionID returns the one with the most recent mtime.
-func TestLatestSessionID(t *testing.T) {
-	dir := t.TempDir()
-
-	older := "11111111-2222-3333-4444-555555555555"
-	newer := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-
-	// Write "older" file first.
-	writeFile(t, filepath.Join(dir, older+".jsonl"), `{"type":"user"}`)
-	time.Sleep(20 * time.Millisecond) // ensure different mtime
-	writeFile(t, filepath.Join(dir, newer+".jsonl"), `{"type":"assistant"}`)
-
-	got, mtime, err := LatestSessionID(dir)
-	if err != nil {
-		t.Fatalf("LatestSessionID: %v", err)
-	}
-	if got != newer {
-		t.Errorf("LatestSessionID = %q, want %q", got, newer)
-	}
-	if mtime.IsZero() {
-		t.Error("mtime should not be zero")
-	}
-}
-
-// TestLatestSessionIDEmpty verifies behaviour on an empty dir.
-func TestLatestSessionIDEmpty(t *testing.T) {
-	dir := t.TempDir()
-	got, mtime, err := LatestSessionID(dir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "" {
-		t.Errorf("got %q, want empty string", got)
-	}
-	if !mtime.IsZero() {
-		t.Errorf("mtime should be zero, got %v", mtime)
-	}
-}
-
-// TestLatestSessionIDNonexistentDir verifies that a missing directory returns
-// ("", zero, nil) rather than an error.
-func TestLatestSessionIDNonexistentDir(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "does-not-exist")
-	got, _, err := LatestSessionID(dir)
-	if err != nil {
-		t.Fatalf("unexpected error for missing dir: %v", err)
-	}
-	if got != "" {
-		t.Errorf("got %q, want empty", got)
-	}
-}
-
-// TestLatestSessionIDIgnoresNonUUID verifies that non-UUID files are skipped.
-func TestLatestSessionIDIgnoresNonUUID(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "not-a-uuid.jsonl"), "{}")
-	writeFile(t, filepath.Join(dir, "some-other-file.txt"), "hello")
-	got, _, err := LatestSessionID(dir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "" {
-		t.Errorf("got %q, want empty (non-UUID file should be ignored)", got)
-	}
-}
-
-// ---- SessionWatcher ----------------------------------------------------------
+// These tests exercise SessionWatcher's generic fsnotify machinery. The
+// filename→ID classification is delegated to an idFromPath callback — here
+// the built-in Claude adapter's SessionIDFromPath (RFC4122-UUID-named
+// .jsonl files), since it's a convenient, realistic classifier. The point of
+// these tests is the watcher's directory-watching behavior, not claude's
+// naming convention (which has its own tests in internal/agent —
+// TestTranscriptDir / TestLatestSessionID / TestSessionIDFromPath in
+// internal/agent/claude_test.go, S0e8afb-2 review fix: this package no
+// longer owns that logic itself, see sessions.go's doc comments).
 
 // validSessionID is a valid RFC4122 UUID used in watcher tests.
 const validSessionID = "12345678-abcd-ef01-2345-6789abcdef01"
+
+func testIDFromPath() SessionIDFromPath {
+	return agent.NewClaudeAdapter("claude", nil).SessionIDFromPath
+}
 
 // TestSessionWatcher_NewFile writes a new .jsonl to the watched dir and
 // asserts an "appeared" event with the correct session_id is delivered.
 func TestSessionWatcher_NewFile(t *testing.T) {
 	dir := t.TempDir()
-	w, err := NewSessionWatcher(dir)
+	w, err := NewSessionWatcher(dir, testIDFromPath())
 	if err != nil {
 		t.Fatalf("NewSessionWatcher: %v", err)
 	}
@@ -166,7 +59,7 @@ func TestSessionWatcher_Modified(t *testing.T) {
 	path := filepath.Join(dir, validSessionID+".jsonl")
 	writeFile(t, path, `{"type":"user"}`)
 
-	w, err := NewSessionWatcher(dir)
+	w, err := NewSessionWatcher(dir, testIDFromPath())
 	if err != nil {
 		t.Fatalf("NewSessionWatcher: %v", err)
 	}
@@ -201,7 +94,7 @@ func TestSessionWatcher_Modified(t *testing.T) {
 func TestSessionWatcher_NonExistentDir(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "auto-created")
 	// dir does not exist yet.
-	w, err := NewSessionWatcher(dir)
+	w, err := NewSessionWatcher(dir, testIDFromPath())
 	if err != nil {
 		t.Fatalf("NewSessionWatcher on non-existent dir: %v", err)
 	}
@@ -213,10 +106,11 @@ func TestSessionWatcher_NonExistentDir(t *testing.T) {
 }
 
 // TestSessionWatcher_IgnoresNonUUID verifies that random .txt files and
-// non-UUID .jsonl filenames don't emit events.
+// non-UUID .jsonl filenames don't emit events (the idFromPath classifier
+// rejects them).
 func TestSessionWatcher_IgnoresNonUUID(t *testing.T) {
 	dir := t.TempDir()
-	w, err := NewSessionWatcher(dir)
+	w, err := NewSessionWatcher(dir, testIDFromPath())
 	if err != nil {
 		t.Fatalf("NewSessionWatcher: %v", err)
 	}
@@ -229,6 +123,31 @@ func TestSessionWatcher_IgnoresNonUUID(t *testing.T) {
 	select {
 	case ev := <-w.Events():
 		t.Errorf("unexpected event: %+v", ev)
+	case <-time.After(200 * time.Millisecond):
+		// correct — no event
+	}
+}
+
+// TestSessionWatcher_NilIDFromPath verifies that a nil classifier makes the
+// watcher emit no events at all (defensive default — Manager only ever
+// constructs a watcher when an adapter implements agent.SessionDiscoverer,
+// but the watcher itself must not panic if misused — S0e8afb-2 review fix
+// regression guard: this is EXACTLY the "no SessionDiscoverer" case a future
+// non-claude Adapter would hit, so a nil callback must be inert, not a
+// crash or a false-positive event).
+func TestSessionWatcher_NilIDFromPath(t *testing.T) {
+	dir := t.TempDir()
+	w, err := NewSessionWatcher(dir, nil)
+	if err != nil {
+		t.Fatalf("NewSessionWatcher: %v", err)
+	}
+	t.Cleanup(func() { w.Close() })
+
+	writeFile(t, filepath.Join(dir, validSessionID+".jsonl"), `{"type":"user"}`)
+
+	select {
+	case ev := <-w.Events():
+		t.Errorf("unexpected event with nil idFromPath: %+v", ev)
 	case <-time.After(200 * time.Millisecond):
 		// correct — no event
 	}

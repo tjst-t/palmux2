@@ -3,6 +3,16 @@
 Branch: `worktree-S0e8afb-2` (off `autopilot/main/S0e8afb`, on top of the
 merged S0e8afb-1)
 
+> **Update**: an independent high-effort review confirmed all load-bearing
+> claims below (P0 region untouched, golden-argv tests non-vacuous,
+> codex/opencode genuinely inert, real-claude smoke plausible) with no
+> blocking issues, but caught one real gap not originally in the Concerns
+> section: `EnsureDaemon` didn't gate `SessionWatcher` startup on
+> `agent.SessionDiscoverer` (design doc + maultiagent both specify this
+> gate). Fixed post-commit — see **Deviation 5** and **Concern 0** below for
+> the full writeup, impact analysis, and the new regression test that proves
+> the fix holds.
+
 This is explicitly called out as **the single riskiest phase** of the whole
 agenttui × ptyhost merge (per the design doc's own risk list and the task
 brief). This document records not just PASS/FAIL but the reasoning behind
@@ -242,6 +252,97 @@ instance.
    `daemon.go` is architecturally cleaner AND preserves claude's exact
    byte-behavior (proven by `TestGoldenArgv_HostSpawnMatchesAdapterSpec`).
 
+5. **[POST-COMMIT FIX, found by independent review] `EnsureDaemon`'s
+   `SessionWatcher` startup was NOT gated on `agent.SessionDiscoverer`.**
+   This was a genuine gap, not a deliberate scope call like 1-4 above — an
+   independent high-effort review of the first commit caught it. The design
+   doc (manager.go section: "SessionWatcher-when-SessionDiscoverer gate")
+   and maultiagent's own reference `manager.go` both gate SessionWatcher
+   construction behind `if sd, ok := m.cfg.Adapter.(agent.SessionDiscoverer);
+   ok { ... }`. My first commit instead called the OLD hardcoded
+   claude-specific free functions `TranscriptDir(worktree)` /
+   `NewSessionWatcher(td)` (whose internal file-classification logic was
+   ALSO hardcoded to claude's UUID-`.jsonl` convention via a private
+   `looksLikeSessionID`) unconditionally, with no reference to
+   `m.cfg.Adapter` at all.
+
+   **Impact at the time (none today, real for S0e8afb-3)**: byte-identical
+   to before for claude (the only live adapter — `ClaudeAdapter.TranscriptDir`
+   computes the exact same path the old free function did). But it is a
+   real latent cross-kind bug once S0e8afb-3 wires per-kind Managers: a
+   workspace with BOTH a claude tab and e.g. a codex tab on the SAME
+   worktree would have had both Managers' SessionWatchers point at the same
+   `~/.claude/projects/<slug>` directory (the old `TranscriptDir` is a pure
+   function of worktree only, ignorant of kind), so the codex daemon could
+   receive claude's own session-ID fsnotify events and silently inject a
+   claude session UUID as a codex `--resume` argument.
+
+   **Fix** (mirrors maultiagent's `sessions.go`/`manager.go` exactly, adapted
+   to preserve a main-only feature maultiagent doesn't have — see below):
+   - `sessions.go`: removed the package-level `TranscriptDir`/
+     `transcriptExists`/`looksLikeSessionID`/`LatestSessionID` (that logic
+     now lives ONLY in `agent.ClaudeAdapter`, already brought in verbatim —
+     `internal/agent/claude.go`/`claude_test.go` already cover it, so no
+     test coverage was lost, only relocated to where the logic actually
+     lives — same pattern as this Story's original `hooks.go` deletion).
+     Added a `SessionIDFromPath` func type and changed
+     `NewSessionWatcher(transcriptDir string, idFromPath SessionIDFromPath)`
+     — `handleFSEvent` now dispatches through the injected callback instead
+     of a hardcoded UUID-`.jsonl` check. A `nil` `idFromPath` makes the
+     watcher emit no events (defensive; regression-guarded by the new
+     `TestSessionWatcher_NilIDFromPath`, mirrored from maultiagent).
+   - `manager.go`'s `EnsureDaemon`: resolves
+     `sessionDiscoverer, canDiscoverSessions := m.cfg.Adapter.(agent.
+     SessionDiscoverer)` ONCE, up front. The SessionWatcher block is now
+     `if worktree != "" && canDiscoverSessions { td, _ :=
+     sessionDiscoverer.TranscriptDir(worktree); NewSessionWatcher(td,
+     sessionDiscoverer.SessionIDFromPath) }` — an Adapter without the
+     capability gets no watcher at all, full stop.
+   - **Preserved main's `InitialSessionID`/first-spawn-resume feature**
+     (maultiagent has no equivalent at all — it doesn't pre-seed
+     `DaemonConfig.InitialSessionID`, only `d.SetSessionID` after
+     construction, so a plain copy of maultiagent's `EnsureDaemon` would
+     have SILENTLY DROPPED main's "palmux restart re-attaches to the prior
+     conversation on the very first spawn" behavior — caught by re-reading
+     `manager_integration_test.go`'s `TestFirstSpawnResumesPersistedSession`/
+     `TestFirstSpawnFreshWhenTranscriptMissing`, which only exist on this
+     branch, not in maultiagent). The old `transcriptExists(worktree, id)`
+     (hardcoded `<id>.jsonl` existence check) became a new
+     `transcriptExistsFor(sd agent.SessionDiscoverer, td, sessionID)` in
+     `sessions.go`, gated the same way, and made MORE general than the old
+     helper in the process: instead of assuming a `.jsonl` extension, it
+     scans `td` and asks `sd.SessionIDFromPath` of each entry — the exact
+     same classifier the watcher itself uses, so "does this ID's transcript
+     still exist" and "what ID does this file represent" can never disagree
+     for any future adapter's naming convention, not just claude's.
+   - Test fallout (mechanical, no assertions weakened): `sessions_test.go`
+     rewritten to mirror maultiagent's (TranscriptDir/LatestSessionID tests
+     dropped — redundant with `internal/agent/claude_test.go`'s equivalents,
+     not lost coverage; SessionWatcher tests kept, now parameterized via a
+     `testIDFromPath()` helper that returns
+     `agent.NewClaudeAdapter("claude", nil).SessionIDFromPath`; added
+     `TestSessionWatcher_NilIDFromPath` from maultiagent). Three call sites
+     in `manager_integration_test.go` (`TranscriptDir(worktree)` ×3,
+     `NewSessionWatcher(transcriptDir)` ×1) updated to a new
+     `claudeTranscriptDir(t, worktree)` test helper /
+     `claude.SessionIDFromPath` — same computed paths, mechanical rename.
+   - **New regression test directly proving the fix**:
+     `TestEnsureDaemon_NoSessionWatcherWithoutSessionDiscoverer` in
+     `manager_integration_test.go` — constructs a Manager with
+     `agent.NewGenericAdapter(...)` (verified NOT to implement
+     `SessionDiscoverer`, per its own doc comment), calls `EnsureDaemon` with
+     a real worktree, and white-box-asserts `entry.watcher == nil`. This
+     test would have FAILED against the pre-fix code (which started a
+     watcher unconditionally whenever `worktree != ""`, regardless of
+     Adapter) — it is a genuine regression guard, not a vacuous assertion.
+
+   All re-verified: `go build ./...` / `go vet ./...` clean; full
+   `internal/tab/agenttui` suite green; `TestFirstSpawnResumesPersistedSession`/
+   `TestFirstSpawnFreshWhenTranscriptMissing` (main's feature) still pass
+   unmodified; the P0 `TestReattachSurvivorReplayDoesNotDeadlock` and both
+   `TestGoldenArgv_*` tests re-run clean under `-race`; full `go test ./...`
+   green.
+
 None of these deviations are silent — each is called out in ROADMAP.json
 task notes and/or this document, and none weakens what AC-S0e8afb-2-1..4
 actually require.
@@ -260,7 +361,20 @@ D      internal/tab/claudetui/hooks.go, hooks_test.go               (logic moved
 M      internal/tab/agenttui/daemon.go                              (THE graft — spawnWithArgs, EnsureStarted,
                                                                        respawnLoop, reapContainerClaude,
                                                                        effectiveKillPattern, writeFileDrops)
-M      internal/tab/agenttui/manager.go                             (Adapter field, Kind(), hot-swap via Configurable)
+M      internal/tab/agenttui/manager.go                             (Adapter field, Kind(), hot-swap via Configurable;
+                                                                       POST-COMMIT FIX: SessionDiscoverer gate — see
+                                                                       Deviation 5)
+M      internal/tab/agenttui/sessions.go                            (POST-COMMIT FIX: TranscriptDir/looksLikeSessionID/
+                                                                       LatestSessionID removed — now agent.ClaudeAdapter-
+                                                                       only; NewSessionWatcher takes an injectable
+                                                                       SessionIDFromPath; new transcriptExistsFor — see
+                                                                       Deviation 5)
+M      internal/tab/agenttui/sessions_test.go                       (POST-COMMIT FIX: rewritten to mirror maultiagent;
+                                                                       TestSessionWatcher_NilIDFromPath added — see
+                                                                       Deviation 5)
+M      internal/tab/agenttui/manager_integration_test.go            (POST-COMMIT FIX: claudeTranscriptDir test helper,
+                                                                       NEW TestEnsureDaemon_NoSessionWatcherWithoutSessionDiscoverer
+                                                                       regression guard — see Deviation 5)
 M      internal/tab/agenttui/ptyhost_discovery.go                   (same-package now; doc comment + reap pattern)
 M      internal/tab/agenttui/discover.go, ptyclient.go, doc.go,
        role.go                                                      (stale claudetui-package doc-comment fixes)
@@ -348,6 +462,29 @@ $ golangci-lint run ...                   # ENV ISSUE (pre-existing, unrelated):
                                            #   condition S0e8afb-1's verification
                                            #   log already recorded. go vet is the
                                            #   satisfied proxy per that precedent.
+```
+
+### Re-verification after the post-commit SessionDiscoverer-gate fix (Deviation 5)
+
+```
+$ go build ./...                                       # clean
+$ go vet ./...                                          # clean
+$ go test ./internal/tab/agenttui/...                   # ok, 17.7s
+$ go test ./internal/tab/agenttui/... \
+    -run 'TestSession|TestFirstSpawn|TestManagerEnsureDaemonWithWorktree|TestManagerCloseDaemonWithWatcher' -v
+    # ALL PASS, 13 tests — including main-only
+    # TestFirstSpawnResumesPersistedSession / TestFirstSpawnFreshWhenTranscriptMissing
+    # (confirms the InitialSessionID feature maultiagent doesn't have was preserved)
+$ go test ./internal/tab/agenttui/... \
+    -run TestEnsureDaemon_NoSessionWatcherWithoutSessionDiscoverer -v
+    # PASS — the new regression guard for this fix
+$ go test ./internal/tab/agenttui/... \
+    -run 'TestDaemon|TestReattach|TestPtyhost|TestSpawnWithArgs|TestGoldenArgv' -race -v
+    # ALL PASS — P0 deadlock test + both golden-argv tests re-confirmed clean
+    #   after this fix touched sessions.go/manager.go (neither test depends
+    #   on SessionWatcher, but re-running costs nothing and this is the
+    #   riskiest phase)
+$ go test ./... -count=1                                # ALL PASS (28 packages)
 ```
 
 ### One flaky full-suite run, confirmed non-regression
@@ -482,6 +619,19 @@ processes.
   `-race` for the P0-critical subset).
 
 ## Concerns (explicit — this is the riskiest phase, not omitting this section)
+
+0. **[Found by independent review, now fixed] SessionWatcher was not
+   SessionDiscoverer-gated — see Deviation 5.** This was a real gap in my
+   original submission, not a hypothetical: the original `EnsureDaemon`
+   would have started a claude-shaped SessionWatcher for ANY adapter,
+   including ones with no well-defined transcript layout. It's fixed now
+   (capability-gated, new regression test proves the gate holds, all
+   existing tests including main's `InitialSessionID` first-spawn-resume
+   feature still pass), but I'm leaving this entry in place rather than
+   deleting it, as an honest record that my own first-pass review missed
+   something an independent reviewer caught. The other deviations below (1-5)
+   are deliberate, reasoned scope calls; this one was an oversight that got
+   corrected, and I want that distinction visible rather than blended in.
 
 1. **`immediateFailureBackoff`/`StateFatal` deferral (see Deviation 1)**: I
    am confident this is the right scope call for THIS Story, but it means

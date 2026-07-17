@@ -231,15 +231,31 @@ func (m *Manager) EnsureDaemon(ctx context.Context, repoID, branchID, tabID, wor
 		}
 	}
 
+	// S0e8afb-2 review fix: resolve the configured Adapter's SessionDiscoverer
+	// capability ONCE, up front — both the resume-gate below and the
+	// SessionWatcher startup further down must use the SAME adapter-supplied
+	// transcript layout, never a hardcoded claude-specific one, or two
+	// Managers of different kinds sharing one worktree could cross-wire a
+	// session ID from one kind into another's --resume (the exact bug this
+	// fix closes — see sessions.go's SessionIDFromPath doc comment).
+	sessionDiscoverer, canDiscoverSessions := m.cfg.Adapter.(agent.SessionDiscoverer)
+
 	// Only resume the persisted session on the FIRST spawn when its transcript
 	// still exists on disk — otherwise `claude --resume <gone-id>` fails and we'd
 	// drop the user into an error/blank claude. When the transcript is gone we
 	// leave resumeInitial empty (fresh first spawn). This mirrors claude-agent's
 	// transcript-gated resume so a palmux restart re-attaches to the prior
-	// conversation without risking a stale-id failure.
+	// conversation without risking a stale-id failure. Skipped entirely when
+	// the Adapter doesn't support session discovery — there is nothing to
+	// gate against, so the first spawn is fresh (matches the pre-graft
+	// behavior for adapters that never had this capability at all).
 	resumeInitial := ""
-	if initialSessionID != "" && worktree != "" && transcriptExists(worktree, initialSessionID) {
-		resumeInitial = initialSessionID
+	if initialSessionID != "" && worktree != "" && canDiscoverSessions {
+		if td, err := sessionDiscoverer.TranscriptDir(worktree); err == nil {
+			if transcriptExistsFor(sessionDiscoverer, td, initialSessionID) {
+				resumeInitial = initialSessionID
+			}
+		}
 	}
 
 	d := NewDaemon(DaemonConfig{
@@ -277,11 +293,18 @@ func (m *Manager) EnsureDaemon(ctx context.Context, repoID, branchID, tabID, wor
 
 	entry := &managerEntry{daemon: d}
 
-	// Start SessionWatcher when a worktree path was provided.
-	if worktree != "" {
-		td, err := TranscriptDir(worktree)
+	// Start SessionWatcher when a worktree path was provided AND the
+	// configured Adapter implements agent.SessionDiscoverer (S0e8afb-2
+	// review fix — design doc §manager.go: "SessionWatcher-when-
+	// SessionDiscoverer gate"). An adapter without this capability has no
+	// well-defined transcript directory/naming scheme to watch at all — a
+	// Manager for such a kind simply never detects sessions by fsnotify
+	// (Capabilities().Resume should also be false for such an adapter, per
+	// agent.Adapter's contract).
+	if worktree != "" && canDiscoverSessions {
+		td, err := sessionDiscoverer.TranscriptDir(worktree)
 		if err == nil {
-			w, werr := NewSessionWatcher(td)
+			w, werr := NewSessionWatcher(td, sessionDiscoverer.SessionIDFromPath)
 			if werr == nil {
 				entry.watcher = w
 				go m.watcherLoop(repoID, branchID, tabID, d, w)
@@ -290,7 +313,7 @@ func (m *Manager) EnsureDaemon(ctx context.Context, repoID, branchID, tabID, wor
 					"repo", repoID, "branch", branchID, "tab", tabID, "err", werr)
 			}
 		} else {
-			m.cfg.Logger.Warn("agenttui: TranscriptDir failed",
+			m.cfg.Logger.Warn("agenttui: adapter TranscriptDir failed",
 				"repo", repoID, "branch", branchID, "tab", tabID, "err", err)
 		}
 	}

@@ -8,7 +8,26 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/tjst-t/palmux2/internal/agent"
 )
+
+// claudeTranscriptDir is a small test-local helper that computes the SAME
+// transcript directory Manager.EnsureDaemon derives internally via its
+// configured Adapter's agent.SessionDiscoverer.TranscriptDir (S0e8afb-2
+// review fix — this package no longer owns a hardcoded TranscriptDir(worktree)
+// free function; every ManagerConfig in this file that doesn't set Adapter
+// explicitly gets a default agent.NewClaudeAdapter, so mirroring that here
+// keeps the test's independently-computed path in agreement with what the
+// Manager actually watches).
+func claudeTranscriptDir(t *testing.T, worktree string) string {
+	t.Helper()
+	dir, err := agent.NewClaudeAdapter("claude", nil).TranscriptDir(worktree)
+	if err != nil {
+		t.Fatalf("TranscriptDir: %v", err)
+	}
+	return dir
+}
 
 // TestSessionIDDetection spawns fake-claude with --write-session so it writes
 // a .jsonl into the watched transcript directory, then verifies that:
@@ -16,9 +35,10 @@ import (
 //  2. The Daemon.SessionID() is updated accordingly.
 //  3. The SessionStore persists the value.
 //
-// The test passes a worktree path to EnsureDaemon; the Manager derives
-// transcriptDir via TranscriptDir(worktree).  We compute that same path
-// here and pass it to fake-claude via --write-session so both sides agree.
+// The test passes a worktree path to EnsureDaemon; the Manager derives the
+// transcript dir via the configured Adapter's SessionDiscoverer. We compute
+// that same path here and pass it to fake-claude via --write-session so both
+// sides agree.
 func TestSessionIDDetection(t *testing.T) {
 	bin := fakeBin(t)
 	ctx := context.Background()
@@ -27,10 +47,7 @@ func TestSessionIDDetection(t *testing.T) {
 	// Use t.TempDir() as the worktree; TranscriptDir will compute the real dir.
 	worktree := t.TempDir()
 
-	transcriptDir, err := TranscriptDir(worktree)
-	if err != nil {
-		t.Fatalf("TranscriptDir: %v", err)
-	}
+	transcriptDir := claudeTranscriptDir(t, worktree)
 	t.Logf("transcript dir: %s", transcriptDir)
 
 	store, err := NewSessionStore(configDir)
@@ -194,11 +211,8 @@ func TestFirstSpawnResumesPersistedSession(t *testing.T) {
 		sessionID = "aaaabbbb-cccc-dddd-eeee-ffff00001111"
 	)
 
-	// Pre-create the transcript so transcriptExists() gates the resume true.
-	transcriptDir, err := TranscriptDir(worktree)
-	if err != nil {
-		t.Fatalf("TranscriptDir: %v", err)
-	}
+	// Pre-create the transcript so transcriptExistsFor() gates the resume true.
+	transcriptDir := claudeTranscriptDir(t, worktree)
 	if err := os.MkdirAll(transcriptDir, 0o755); err != nil {
 		t.Fatalf("mkdir transcript: %v", err)
 	}
@@ -349,10 +363,7 @@ func TestManagerEnsureDaemonWithWorktree(t *testing.T) {
 	}
 
 	// Verify the transcript dir was created by the SessionWatcher.
-	td, err := TranscriptDir(worktree)
-	if err != nil {
-		t.Fatalf("TranscriptDir: %v", err)
-	}
+	td := claudeTranscriptDir(t, worktree)
 	if _, serr := os.Stat(td); serr != nil {
 		t.Errorf("transcript dir %q should have been created by SessionWatcher: %v", td, serr)
 	}
@@ -387,16 +398,16 @@ func TestManagerCloseDaemonWithWatcher(t *testing.T) {
 
 // TestSessionIDDetectionWithExplicitTranscriptDir is a variant of
 // TestSessionIDDetection that uses a dedicated temp dir as the transcript
-// directory (avoids touching ~/.claude/projects/) by passing the transcript
-// dir directly as the "worktree" argument.  SessionWatcher.loop reads from
-// the directory itself, so passing the transcript dir as worktree is valid
-// for this test.
+// directory (avoids touching ~/.claude/projects/) by watching it directly
+// with the Claude adapter's SessionIDFromPath classifier.
 func TestSessionIDDetectionWithExplicitTranscriptDir(t *testing.T) {
 	transcriptDir := t.TempDir()
 	const sessionID = "abcdef01-2345-6789-abcd-ef0123456789"
 
+	claude := agent.NewClaudeAdapter("claude", nil)
+
 	// Start the watcher directly.
-	w, err := NewSessionWatcher(transcriptDir)
+	w, err := NewSessionWatcher(transcriptDir, claude.SessionIDFromPath)
 	if err != nil {
 		t.Fatalf("NewSessionWatcher: %v", err)
 	}
@@ -410,4 +421,55 @@ func TestSessionIDDetectionWithExplicitTranscriptDir(t *testing.T) {
 	if ev.SessionID != sessionID {
 		t.Errorf("SessionID = %q, want %q", ev.SessionID, sessionID)
 	}
+}
+
+// TestEnsureDaemon_NoSessionWatcherWithoutSessionDiscoverer is the direct
+// regression guard for the S0e8afb-2 post-merge review finding: a Manager
+// whose configured Adapter does NOT implement agent.SessionDiscoverer (here,
+// agent.GenericAdapter — see its own doc comment: "does not implement
+// SessionDiscoverer") must NEVER start a SessionWatcher, even when a
+// worktree path is supplied. Before this fix, EnsureDaemon unconditionally
+// called the package's own hardcoded (claude-specific) TranscriptDir/
+// NewSessionWatcher regardless of which Adapter the Manager was configured
+// with — harmless while claude was the only live adapter, but a real
+// cross-kind data-loss bug once S0e8afb-3 wires a second kind onto the same
+// worktree: two Managers would both watch the SAME ~/.claude/projects/<slug>
+// directory, and a non-claude Manager could receive claude's own session-ID
+// fsnotify events and inject a claude session UUID as that OTHER kind's
+// --resume argument.
+func TestEnsureDaemon_NoSessionWatcherWithoutSessionDiscoverer(t *testing.T) {
+	ctx := context.Background()
+	worktree := t.TempDir()
+
+	genericAdapter := agent.NewGenericAdapter("generic-smoke", agent.GenericConfig{
+		Command: "/bin/true",
+	})
+	if _, ok := any(genericAdapter).(agent.SessionDiscoverer); ok {
+		t.Fatal("test premise broken: GenericAdapter now implements SessionDiscoverer — pick a different non-discoverer test double")
+	}
+
+	mgr := NewManager(ManagerConfig{Adapter: genericAdapter, ResumeOnDeath: false})
+	t.Cleanup(func() { mgr.ShutdownAll(ctx) })
+
+	if _, err := mgr.EnsureDaemon(ctx, "r", "b", "generic-smoke", worktree); err != nil {
+		t.Fatalf("EnsureDaemon: %v", err)
+	}
+
+	// White-box: this test lives in package agenttui, so it can inspect
+	// Manager's own entries map directly — the whole point is confirming NO
+	// watcher was constructed, which has no other externally-observable
+	// signal (CloseDaemon/ShutdownAll behave identically whether or not a
+	// nil watcher is present).
+	mgr.mu.Lock()
+	entry := mgr.entries[mgr.key("r", "b", "generic-smoke")]
+	mgr.mu.Unlock()
+	if entry == nil {
+		t.Fatal("EnsureDaemon did not register a managerEntry")
+	}
+	if entry.watcher != nil {
+		t.Fatal("SessionWatcher was started for an Adapter that does not implement agent.SessionDiscoverer — " +
+			"this is the exact cross-kind session-ID cross-wiring bug this test guards against")
+	}
+
+	mgr.CloseDaemon(ctx, "r", "b", "generic-smoke")
 }
