@@ -12452,7 +12452,7 @@
       "title": "maultiagentブランチ統合: agenttui × ptyhost マージ (フレームワークのみ、codex/opencode registryは含めない)",
       "description": "ローカル専用ブランチ maultiagent (mainに31コミット先行、mainは84コミット先行=要アーキテクチャ統合) を main にマージする。設計は既に確定済み: `git show b51c5e5:docs/agenttui-ptyhost-merge-design.md` (maultiagentブランチ上、ユーザー確定 2026-07-13) の Approach B (main-as-base + Adapter graft)、P1〜P5フェーズング、リスク一覧をそのまま実行計画として使うこと。単純な git merge ではなく、internal/tab/claudetui/daemon.go (main側、S3f2658/S862203のno-halt-agent ptyhost化) と internal/tab/agenttui/daemon.go (maultiagent側、claude adapter抽出) の semantic な統合が必要。このSprintでは汎用マルチエージェントフレームワーク (agent registry, generic agenttab Provider, claude/genericアダプタ) のみをmainに持ち込み、codex/opencodeアダプタのregistry登録・FE露出は次Sprint (S2b5691) まで見送ること (実装ファイル自体はmaultiagentブランチに分離されているはずなので internal/agent/codex.go 等の存在を確認し、cmd/palmux/main.go でのregistry登録だけ保留する)。既存の internal/tab/claudetui/daemon_test.go・reattach_deadlock_test.go・ptyhost_integration_test.go が各フェーズで引き続きgreenであることを必須とする (設計メモのP0リスク: reattach-deadlock回帰)。",
       "milestone": true,
-      "status": "pending",
+      "status": "done",
       "detail_level": "detailed",
       "note": "[S0e8afb-4 完了時点のノート] S0e8afb-1〜4 の全 Story が done (AC 全て pass)。マージ設計の P1(mechanical adopt)〜P5(orphan-GC E2E) を全フェーズ実施し、no-halt-agent (S3f2658+S862203) の ptyhost restart-survival と maultiagent の multi-agent Adapter 抽出を、両者の能力を落とさず統合した。S0e8afb-4 で実 dev 箱・実 palmux2・実 claude・実 kill-9 クラッシュ・実 incus コンテナを用いた E2E で restart-survival と orphan-GC (in-container reap 含む) を証明済み (docs/sprint-logs/S0e8afb/verification-S0e8afb-4.md)。この Sprint 冒頭の note と ROADMAP 全体の scope note の通り、codex/opencode の registry 登録・FE 露出および config.toml [agents.*] surface は意図的に次 Sprint (S2b5691) 送り — genericAgentMgrs は本番で常に空のまま (S0e8afb-3 Deviation 1、本 Story でも変わらず)。Sprint 全体としての milestone status (pending→done 等への rollup) はコーディネータ判断に委ねる (本ノートは Story 実装者からの完了報告であり、Sprint 状態の確定ではない)。",
       "stories": {
@@ -13627,6 +13627,13 @@
       "description": "AgentKindフィルタ(Mode filterと同様)は、呼び出し元Managerとkindが一致しないstatus-fileエントリを恒久的にskipする。対応するManagerが存在しないkind(将来の設定削除/リネーム時)は、誰にもadopt/GCされず永久に残る。kind削除時のクリーンアップ機構を将来検討。",
       "kind": "chore",
       "added_in": "S0e8afb-3",
+      "status": "open"
+    },
+    {
+      "title": "palmux2 down中にworktreeが消えると、次回起動時にincusコンテナが破棄されずリークする",
+      "description": "sync_worktreeのworktree消失検出は自分の直前in-memory stateとの差分でのみ判定するため、palmux2が停止している間にworktreeが消えると(gwq removeなど)、その消失イベント自体を観測できずCloseBranchのincusコンテナ破棄経路が発火しない。S0e8afb-4の実restart-survival検証中に実際に1コンテナリークし手動クリーンアップした。S8478ca由来の既存ギャップで、今回のagenttui×ptyhostマージとは別レイヤーの問題。起動時にpalmux2側の記録と実際のworktree一覧+incusコンテナ一覧を突き合わせて孤立コンテナを検出・破棄するreconcile処理が必要。",
+      "kind": "bug",
+      "added_in": "S0e8afb-4",
       "status": "open"
     }
   ]
