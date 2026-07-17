@@ -58,6 +58,15 @@
         claude-code = pkgs.callPackage ./nix/packages/claude-code.nix { };
         default = self.packages.${system}.palmux2;
 
+        # S31ad96-1: palmux2 built from THIS repo's own local working-tree
+        # source (Go + embedded frontend), NOT a fetched release asset —
+        # see nix/packages/palmux2-local.nix for the full rationale. Purely
+        # additive: `default` above stays the release/fetchurl package, and
+        # nothing else references palmux2-local unless a caller (e.g. a
+        # one-off verification nixosSystem, or `nix build .#palmux2-local`)
+        # explicitly opts in.
+        palmux2-local = pkgs.callPackage ./nix/packages/palmux2-local.nix { };
+
         # palmuxOS appliance image (Sb14caa Stage 3). A qcow2 built via DISKO with a
         # 2-partition layout baked in: root (16G, fixed) + /persist (rest, last,
         # autoResize). All durable state lives on /persist (repos / ~ (home) /
