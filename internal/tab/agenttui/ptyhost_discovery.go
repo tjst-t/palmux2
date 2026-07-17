@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+
+	"github.com/tjst-t/palmux2/internal/agent"
 )
 
 // This file holds the Manager-coupled half of S3f2658-3's discovery/GC
@@ -149,9 +151,17 @@ func (m *Manager) GCOrphans(ctx context.Context, isLive func(repoID, branchID, t
 		// AC-S0e8afb-3-1 (ptyhost.StatusFile now carries KillPattern — see
 		// discover.go's DiscoveredHost.KillPattern, echoed verbatim from the
 		// on-disk status file the ORIGINAL spawn wrote). Use it when present;
-		// fall back to the constant only for an entry written before this
-		// field existed (empty KillPattern).
-		reapContainerClaude(m.cfg.RuntimeResolver, h.RepoID, h.BranchID, killPatternOrFallback(h.KillPattern), gracefulShutdownTimeout, m.cfg.Logger)
+		// fall back to the claude-specific constant ONLY for this Manager's
+		// OWN kind being claude (post-review fix — see killPatternOrFallback's
+		// doc comment: guessing containerClaudeBin for a non-claude kind with
+		// no declared pattern would risk TERMing an unrelated LIVE claude
+		// session in the same container).
+		if pattern := killPatternOrFallback(m.Kind(), h.KillPattern); pattern != "" {
+			reapContainerClaude(m.cfg.RuntimeResolver, h.RepoID, h.BranchID, pattern, gracefulShutdownTimeout, m.cfg.Logger)
+		} else {
+			m.cfg.Logger.Warn("agenttui: orphan gc: no kill pattern available for this kind; skipping in-container reap (adapter's SpawnSpec never declared KillPattern, and this is not claude — see killPatternOrFallback's doc comment)",
+				"repo", h.RepoID, "branch", h.BranchID, "tab", h.TabID, "kind", m.Kind())
+		}
 		shutdown++
 		m.cfg.Logger.Info("agenttui: orphan gc: shut down unreferenced ptyhost",
 			"repo", h.RepoID, "branch", h.BranchID, "tab", h.TabID, "pid", h.Pid)
@@ -159,13 +169,43 @@ func (m *Manager) GCOrphans(ctx context.Context, isLive func(repoID, branchID, t
 	return shutdown, cleaned, nil
 }
 
-// killPatternOrFallback returns pattern if non-empty, else the hardcoded
-// containerClaudeBin constant — the orphan-GC counterpart of Daemon's
-// effectiveKillPattern (daemon.go), used where there is no live Daemon to
-// consult (S0e8afb-3, completing S0e8afb-2's deferred GCOrphans wiring).
-func killPatternOrFallback(pattern string) string {
+// killPatternOrFallback returns pattern if non-empty, else — ONLY when kind
+// is [agent.KindClaude] — the hardcoded containerClaudeBin constant. This is
+// the orphan-GC counterpart of Daemon's effectiveKillPattern (daemon.go),
+// used where there is no live Daemon to consult (S0e8afb-3, completing
+// S0e8afb-2's deferred GCOrphans wiring).
+//
+// [post-S0e8afb-3-review fix] The claude-specific fallback is deliberately
+// GATED ON KIND, not just on pattern emptiness: [agent.GenericAdapter.
+// SpawnSpec] (internal/agent/generic.go) never populates SpawnSpec.
+// KillPattern at all — so once a live generic-kind ptyhost genuinely exists
+// (as soon as a future Story wires one up, e.g. S2b5691), an orphan of that
+// kind would ALWAYS have an empty on-disk KillPattern, every time, not just
+// for pre-upgrade legacy files. Falling back to containerClaudeBin
+// unconditionally (the original implementation) would then have
+// reapContainerClaude pkill-TERM the claude binary path inside that SAME
+// (repoId, branchId) workspace container — which could be a completely
+// unrelated, LIVE, in-use claude session running alongside the orphaned
+// generic process, not the process this GC pass was meant to reap. An empty
+// AgentKind is treated as claude (matching ScanRunDir's own back-compat
+// default in discover.go — a pre-S0e8afb-3 status file that never had
+// either the AgentKind or KillPattern fields is, unambiguously, a claude
+// entry), so THAT case still gets the safe legacy fallback. Any OTHER kind
+// with an empty pattern returns "" — reapContainerClaude is already a
+// documented no-op on an empty pattern (never pkill with an empty -f
+// pattern, which can match far more than intended), so this is a genuine
+// skip, not a crash; the caller logs the skip for visibility rather than
+// silently doing nothing.
+func killPatternOrFallback(kind agent.Kind, pattern string) string {
 	if pattern != "" {
 		return pattern
 	}
-	return containerClaudeBin
+	effectiveKind := kind
+	if effectiveKind == "" {
+		effectiveKind = agent.KindClaude
+	}
+	if effectiveKind == agent.KindClaude {
+		return containerClaudeBin
+	}
+	return ""
 }

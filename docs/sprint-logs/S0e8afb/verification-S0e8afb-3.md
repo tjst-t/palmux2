@@ -3,6 +3,29 @@
 Branch: `worktree-S0e8afb-3` (off `autopilot/main/S0e8afb`, on top of the
 merged S0e8afb-1/S0e8afb-2).
 
+> **Update**: an independent high-effort review confirmed the safety-critical
+> property (the AgentKind ownership check sits structurally before any dial,
+> matching the Sfeed64-3 precedent) and that `TestAgentKindOwnership_
+> DiscoveryDoesNotCrossAdopt` genuinely proves it with real processes — no
+> blocking issue on the core deliverable. The review DID find one real,
+> pre-merge-worthy gap in `killPatternOrFallback`
+> (`internal/tab/agenttui/ptyhost_discovery.go`): it fell back to the
+> hardcoded `containerClaudeBin` constant whenever a StatusFile's
+> `KillPattern` was empty, regardless of AgentKind — correct for a legacy
+> claude-only StatusFile, but unsafe once a live generic-kind orphan exists
+> (`GenericAdapter.SpawnSpec` never sets `KillPattern` at all, so EVERY
+> generic-kind orphan would hit this fallback and reap the wrong process).
+> Not reachable today (no generic kind is ever live in production — see
+> Deviation 1 below), but fixed before merge rather than left as a landmine
+> for whoever lands live generic kinds next. See **"Post-review fix:
+> kind-gated `killPatternOrFallback`"** below for the full writeup, and
+> **Concern 4** for the honest "why didn't I catch this myself" note. Five
+> other review findings (registry `ok`-discard patterns, a colon-in-kind-name
+> edge case, `agenttab`/`claudeagent` code duplication, and kind-removal
+> invisibility) were assessed as legitimate but genuinely non-blocking and
+> are recorded as backlog items at the end of this document rather than fixed
+> now, per explicit reviewer/coordinator instruction.
+
 Scope per the task brief and the design doc
 (`docs/agenttui-ptyhost-merge-design.md`, "P3 — multiplicity + ownership"):
 per-kind `agenttui.Manager` + `AgentKind`-based discovery/GC ownership
@@ -325,6 +348,117 @@ non-vacuously met (see below). They are forward-looking scope boundaries for
 whichever Story next lands `[agents.*]` config (S2b5691 or a successor),
 recorded exactly so that Story doesn't have to rediscover them.
 
+## Post-review fix: kind-gated `killPatternOrFallback`
+
+An independent high-effort review, run after the initial commit, found a
+real safety gap in `killPatternOrFallback` (`internal/tab/agenttui/
+ptyhost_discovery.go`) — my original implementation:
+
+```go
+func killPatternOrFallback(pattern string) string {
+    if pattern != "" {
+        return pattern
+    }
+    return containerClaudeBin
+}
+```
+
+**The gap**: this falls back to the hardcoded `containerClaudeBin` constant
+whenever a StatusFile's on-disk `KillPattern` is empty, with NO regard for
+which kind the orphan actually is. That is exactly correct for a genuinely
+legacy claude-only StatusFile (written before this Story's `AgentKind`/
+`KillPattern` fields existed at all — such a file will always have an empty
+`KillPattern`, and IS claude, so falling back to claude's own kill pattern
+is right). But `agent.GenericAdapter.SpawnSpec` (`internal/agent/
+generic.go`) **never populates `SpawnSpec.KillPattern` at all** — it's
+simply absent from that struct literal, always the zero value. So once a
+LIVE generic-kind ptyhost genuinely exists in production (as soon as a
+future Story wires `[agents.*]` config and a real non-claude kind becomes
+reachable — see Deviation 1 above), EVERY orphan of that kind would ALWAYS
+have an empty on-disk `KillPattern`, every single time, not just for
+pre-upgrade legacy files. My original fallback would then have
+`reapContainerClaude` `pkill`-TERM the claude binary path inside that SAME
+`(repoId, branchId)` workspace container — which could be a completely
+unrelated, LIVE, in-use claude session running alongside the orphaned
+generic process in that container, not the process GC was meant to target.
+This directly undercuts the "GCOrphans reap is safe" property the whole
+KillPattern-threading work in this Story exists to establish.
+
+**Why this wasn't caught in my own first-pass verification**: my original
+test coverage (`TestAgentKindOwnership_*`) proved the DISCOVERY/ADOPTION
+ownership filter is correct — that a claude Manager and a generic Manager
+never cross-adopt each other's ptyhosts. It did not exercise `GCOrphans`'s
+IN-CONTAINER REAP fallback decision AT ALL for a non-claude kind — a
+different code path (orphan GC, not discovery) with a different failure
+mode (wrong-pattern pkill, not wrong-manager adoption). Both are real
+"AgentKind must disambiguate X" properties this Story introduces, but they
+are separate assertions and I had only written one of the two. This is
+exactly the class of gap an independent second pass is good at catching:
+not a logic error in code I looked at closely, but a property adjacent to
+the one I was focused on proving, in a code path my own test suite happened
+not to touch.
+
+**The fix**: gate the claude-specific fallback on KIND, not just on pattern
+emptiness. `killPatternOrFallback` now takes `kind agent.Kind` and only
+returns `containerClaudeBin` when `kind` (after the same `""→claude`
+back-compat default `discover.go`'s `ScanRunDir` already uses) is
+`agent.KindClaude`; for any other kind with an empty pattern it returns `""`
+— which `reapContainerClaude` already treats as a documented no-op (it never
+`pkill`s with an empty `-f` pattern). The call site in `GCOrphans` now
+distinguishes "reap with this pattern" from "skip, nothing safe to reap
+with" and logs a `Warn` in the skip case (visibility — a silent no-op would
+be too easy to overlook if this ever becomes surprising in production):
+
+```go
+if pattern := killPatternOrFallback(m.Kind(), h.KillPattern); pattern != "" {
+    reapContainerClaude(m.cfg.RuntimeResolver, h.RepoID, h.BranchID, pattern, gracefulShutdownTimeout, m.cfg.Logger)
+} else {
+    m.cfg.Logger.Warn("agenttui: orphan gc: no kill pattern available for this kind; skipping in-container reap ...",
+        "repo", h.RepoID, "branch", h.BranchID, "tab", h.TabID, "kind", m.Kind())
+}
+```
+
+Note `GCOrphans`'s primary reap — `SendOrphanShutdown` against the orphaned
+ptyhost's own socket — is completely UNAFFECTED by this fix: the ptyhost
+itself is always SHUTDOWN regardless of kind or pattern availability; only
+the ADDITIONAL best-effort in-container-process reap (the escape hatch for
+when the host-side SIGTERM/SIGKILL doesn't propagate into the container —
+see `reapContainerClaude`'s own doc comment) is what gets skipped for an
+under-specified non-claude kind.
+
+**New tests** (`internal/tab/agenttui/killpattern_fallback_test.go`):
+
+1. `TestKillPatternOrFallback` — a focused table-driven unit test of the
+   pure decision function: claude+pattern → pattern; claude+empty →
+   `containerClaudeBin`; empty-kind (legacy)+empty → `containerClaudeBin`
+   (back-compat preserved); generic+pattern → pattern; **generic+empty →
+   `""`** (the fix's core assertion); an arbitrary future kind ("codex")
+   +empty → `""` too (the fix is kind-agnostic beyond claude, not a
+   claude/generic special case).
+2. `TestGCOrphans_GenericKindEmptyKillPatternSkipsInContainerReap` —
+   integration-level: a REAL orphaned generic-kind ptyhost with no
+   `KillPattern` (exactly what `GenericAdapter.SpawnSpec` produces today),
+   `GCOrphans` run against it with a `fakeContainerKiller` (the existing
+   `shutdown_reap_test.go` test double) as the `RuntimeResolver`. Asserts
+   the ptyhost itself IS still shut down (`shutdown == 1`) but
+   `KillContainerProcesses` was called **zero times** — the critical
+   assertion this fix exists for.
+3. `TestGCOrphans_ClaudeKindEmptyKillPatternStillReapsWithFallback` — the
+   positive control: the SAME orphan-GC scenario but for a genuinely legacy
+   claude StatusFile (no `AgentKind`/`KillPattern` at all, via the existing
+   `startRawPtyHost` helper) still triggers exactly one `TERM`
+   `containerClaudeBin` call, via the pre-existing
+   `assertSingleTermCall` helper — proving the fix didn't regress claude's
+   own back-compat path. (The pre-existing `TestGCOrphans_
+   ReapsInContainerClaude` test, unmodified, also re-confirms this from a
+   different angle.)
+
+Re-verified after this fix: `go build ./...` / `go vet ./...` clean; the
+full `internal/tab/agenttui` package suite green (including all three new
+tests plus the original `TestAgentKindOwnership_*` pair); the P0/golden-argv
+subset re-run under `-race` (see "Commands run" below); full `go test
+./...` — all 28 packages still green.
+
 ## The 2-kind discovery test (AC-S0e8afb-3-4) — scenario and assertions
 
 `internal/tab/agenttui/agentkind_ownership_test.go`, two tests:
@@ -458,6 +592,37 @@ ok  github.com/tjst-t/palmux2/internal/worktreewatch     0.328s
 No flakes observed across the several full-suite runs during this Story
 (unlike S0e8afb-2's verification doc, which recorded one CPU-contention
 flake in `agenttui`'s async-discovery test — did not reproduce here).
+
+### Re-verification after the post-review `killPatternOrFallback` fix
+
+```
+$ go build ./...                                       # clean
+$ go vet ./...                                          # clean
+$ go test ./internal/tab/agenttui/... \
+    -run 'TestKillPatternOrFallback|TestGCOrphans_' -v -count=1
+    # ALL PASS (6 tests): the 2 new integration tests, the table-driven
+    #   unit test (6 subtests), and every PRE-EXISTING TestGCOrphans_* test
+    #   (ShutsDownUnreferenced_LeavesReferenced, IDContainingDoubleUnderscore_
+    #   SurvivesGC, ReapsInContainerClaude) unaffected by the signature
+    #   change (killPatternOrFallback gained a parameter; all call sites
+    #   updated, no other caller existed)
+$ go test ./internal/tab/agenttui/... -count=1          # ok, 19.4s
+$ go test ./... -count=1                                # ALL PASS (28 packages)
+$ go test ./internal/tab/agenttui/... -run \
+    'TestDaemon|TestReattach|TestPtyhost|TestSpawnWithArgs|TestGoldenArgv|TestManagerReattach|TestAgentKindOwnership|TestKillPatternOrFallback|TestGCOrphans_' \
+    -race -v
+    # ALL PASS — P0 TestReattachSurvivorReplayDoesNotDeadlock, both
+    #   TestAgentKindOwnership_* tests, and all 3 new killPatternOrFallback
+    #   tests, clean under -race
+$ go test ./cmd/palmux/... -run TestPtyOwnership_ModeFilter -v -count=1
+    # PASS — the Sfeed64-3 cross-package regression test, unaffected
+$ go fmt ./...                                          # applied only to
+    #   killpattern_fallback_test.go / ptyhost_discovery.go (this fix's own
+    #   files); the same 2 pre-existing-drift files noted in the original
+    #   verification pass (internal/auth/sso_test.go, internal/tab/browser/
+    #   browser_test.go) were reformatted again by the broad `go fmt ./...`
+    #   and reverted again (git checkout) — still untouched by this Story
+```
 
 ## Real local smoke (claude tab, both modes exercised)
 
@@ -597,7 +762,12 @@ persistent NixOS appliance test host, not a qcow2 rebuild):
   cross-adoption end-to-end) + `TestAgentKindOwnership_
   EmptyAgentKindTreatedAsClaude` (back-compat regression guard) both green,
   plus real-VM smoke on `palmux-nixos-test.tjstkm.net` performed as
-  described above.
+  described above. Post-review, extended with the orphan-GC-reap-side
+  2-kind proof (`TestGCOrphans_GenericKindEmptyKillPatternSkipsInContainerReap`
+  + its claude-side positive control) — see "Post-review fix" above; this
+  covers the SAME "AgentKind must disambiguate claude from generic"
+  property the AC asks for, in the GCOrphans reap-pattern code path rather
+  than the discovery/adoption code path the original two tests covered.
 
 ## Concerns (explicit, not omitted)
 
@@ -611,12 +781,19 @@ persistent NixOS appliance test host, not a qcow2 rebuild):
    generalizing `store.TuiOrphanGC` to fan out across multiple Managers
    (Deviation 2) — neither is optional at that point, both are flagged here
    and in ROADMAP.json so they aren't rediscovered from scratch.
-2. **GCOrphans for non-claude kinds is unwired** (Deviation 2, same root
-   cause as #1) — today this is provably a non-issue (nothing to GC, the map
-   is always empty), but it is a real gap the Story enabling live generic
-   kinds must close, not optional polish. This mirrors S0e8afb-2's own
-   Concern 2 (`GCOrphans`'s hardcoded fallback) in shape, one layer further
-   up the stack.
+2. **GCOrphans for non-claude kinds is unwired at the STORE level** (Deviation
+   2, same root cause as #1) — `store.SetTuiOrphanGC` remains single-slot
+   (claude-only) — today this is provably a non-issue (nothing to GC, the
+   map is always empty), but it is a real gap the Story enabling live
+   generic kinds must close, not optional polish. This mirrors S0e8afb-2's
+   own Concern 2 (`GCOrphans`'s hardcoded fallback) in shape, one layer
+   further up the stack. **Distinct from the post-review fix above**: that
+   fix is about `GCOrphans` picking the SAFE pattern once it DOES run for a
+   given kind; this concern is about `GCOrphans` never being INVOKED for a
+   non-claude kind at all yet (no store wiring exists to call it) — both
+   matter, and both are inert today for the identical reason (no live
+   generic kind exists), but they are separate gaps a future Story must
+   close, not one gap wearing two names.
 3. **The real-VM smoke could not exercise a genuine claude spawn** on
    `palmux-nixos-test.tjstkm.net` due to a pre-existing (confirmed
    pre-dating this Story by 3-6 days), unrelated host PATH misconfiguration.
@@ -627,3 +804,50 @@ persistent NixOS appliance test host, not a qcow2 rebuild):
    agenttui/ptyhost merge work, and whoever next uses this host for a
    claude-spawn-dependent verification will hit the same wall until its
    `palmux` service user's `PATH` (or `claude_bin` config) is fixed.
+4. **Why my own first-pass verification didn't catch the `killPatternOrFallback`
+   gap** (honest self-assessment, not just "reviewer found it, fixed it") —
+   see the "Post-review fix" section above for the full reasoning. In short:
+   I wrote a real, non-vacuous test for the DISCOVERY ownership property
+   (AC-S0e8afb-3-4's literal ask) but didn't independently ask "does every
+   OTHER place this Story threads AgentKind through also need a
+   kind-disambiguation test," and `GCOrphans`'s reap-pattern fallback was
+   exactly such a place — same Story, same underlying `AgentKind` field,
+   different code path, different test needed. I'm recording this
+   explicitly (rather than just quietly fixing and moving on) because it's
+   the kind of gap worth remembering the SHAPE of for future Stories: when a
+   Story introduces a new discriminator field, enumerate every call site
+   that reads it, not just the one the AC text names first.
+
+## Backlog (non-blocking, deferred per explicit review/coordinator instruction)
+
+The same independent review raised five further findings, assessed as
+legitimate but genuinely non-blocking for this Story — not fixed now,
+recorded here so they aren't lost:
+
+1. **`agentRegistry.Get(kind)`'s `ok` return value is discarded** at several
+   call sites in `cmd/palmux/main.go` (e.g. `claudeAdapter, _ :=
+   agentRegistry.Get(agent.KindClaude)`, and inside the per-kind loop). Safe
+   today because `Kinds()` and `Get()` are always consistent (the registry
+   is never mutated concurrently with these reads), but a defensive
+   `if !ok { ... }` would be more robust against a future refactor breaking
+   that invariant silently.
+2. **A colon (`:`) in a future user-defined kind name would collide with the
+   `"<kind>:<suffix>"` tab-id convention** — `multiAgentTabHook.DeleteTab`
+   and `agenttab.Provider`'s canonical-id scheme both split on the first
+   `:`, so a kind literally named e.g. `"my:agent"` would misparse. Not
+   reachable today (no config surface to define such a name), but worth a
+   validation guard (`agent.IsReservedKind`-style) whenever `[agents.*]`
+   config parsing lands.
+3. **`internal/tab/agenttab` and `internal/tab/claudeagent` have
+   near-duplicate tab-list-management logic** (`CanonicalTabID`,
+   `pickNextTabID`, `DisplayNameForTab`, etc.) — a shared helper package
+   could de-duplicate this once a second real (non-claude) tab-list
+   consumer exists. Premature to extract now with only one real (claude)
+   and one structurally-present-but-inert (generic) consumer.
+4. **No mechanism to detect/react to a kind being REMOVED from config
+   between restarts** (e.g. an operator deletes an `[agents.mykind]`
+   section that had live tabs) — orphaned tabs of a vanished kind would
+   have no Provider to route to. Directly related to Deviation 1/2 above
+   (moot until a live config surface exists) — the Story that adds
+   `[agents.*]` parsing should design this explicitly rather than
+   discovering it as a bug later.
