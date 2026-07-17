@@ -2,7 +2,7 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 74,
+    "sprints_done": 75,
     "sprints_total": 81,
     "done": 75,
     "total": 81,
@@ -13574,6 +13574,20 @@
       "description": "コメントは「エディタのスワップファイル等を除外」と主張するが実際はdist/node_modulesのbasenameのみ除外。frontend/.gitignoreの除外セットと不一致。現状実害なし。",
       "kind": "chore",
       "added_in": "S31ad96-1",
+      "status": "open"
+    },
+    {
+      "title": "v0.15.0タグのリリースqcow2にpalmux2 v0.14.13が埋め込まれている",
+      "description": "chore(nix): bump palmux2 default to v0.15.0 コミットがv0.15.0タグの後にmainへ着地したため、v0.15.0リリースのqcow2アセット自体は実際にはpalmux2 v0.14.13を埋め込んだまま。リリースパイプラインの版数整合性バグ。",
+      "kind": "bug",
+      "added_in": "S31ad96-2",
+      "status": "open"
+    },
+    {
+      "title": "examples/onappliance-flake/ と実際に出荷される nixos/appliance-flake/ の間にドリフト",
+      "description": "S31ad96-2の検証中に判明。ドキュメント上の食い違い、優先度低。",
+      "kind": "chore",
+      "added_in": "S31ad96-2",
       "status": "open"
     }
   ]
