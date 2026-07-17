@@ -17,6 +17,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/notify"
 	"github.com/tjst-t/palmux2/internal/ptyhost"
 	"github.com/tjst-t/palmux2/internal/runtime"
+	"github.com/tjst-t/palmux2/internal/tab/agenttui"
 )
 
 // S4d8b1c: when the workspace runtime can build an in-container PTY command
@@ -225,8 +226,8 @@ type Daemon struct {
 	// time.
 	instancePrefix string
 	// ptyHostLaunch is the injectable seam for starting/ensuring a ptyhost is
-	// listening (see [PtyHostLaunchFunc]). Never nil after NewDaemon.
-	ptyHostLaunch PtyHostLaunchFunc
+	// listening (see [agenttui.PtyHostLaunchFunc]). Never nil after NewDaemon.
+	ptyHostLaunch agenttui.PtyHostLaunchFunc
 	// runDirOverride, when non-empty, replaces ptyhost.RunDir(instancePrefix)
 	// as the base directory for this Daemon's socket/status paths. Sourced
 	// from DaemonConfig.RunDirOverride, or auto-generated (unique per Daemon)
@@ -414,15 +415,15 @@ type DaemonConfig struct {
 	// does not set this field) makes the Daemon use an automatic in-process
 	// ptyhost fallback instead of spawning a real detached OS process — still
 	// the real ptyhost protocol/ring/spawn code, just not process-detached,
-	// which keeps the test suite hermetic and fast. See ptyclient.go.
+	// which keeps the test suite hermetic and fast. See agenttui/ptyclient.go.
 	PalmuxBin string
 	// PtyHostLaunch overrides how a ptyhost is spawned/attached-to. Nil (the
-	// common case) resolves to defaultLaunchPtyHost when PalmuxBin is set, or
-	// inProcessLaunchPtyHost otherwise. Tests that need fine control over the
-	// ptyhost lifecycle (e.g. pre-creating one to test the reconnect/restore
-	// path, or a fake HELLO with a mismatched protocol version) set this
-	// directly.
-	PtyHostLaunch PtyHostLaunchFunc
+	// common case) resolves to agenttui.DefaultLaunchPtyHost when PalmuxBin
+	// is set, or agenttui.InProcessLaunchPtyHost otherwise. Tests that need
+	// fine control over the ptyhost lifecycle (e.g. pre-creating one to test
+	// the reconnect/restore path, or a fake HELLO with a mismatched protocol
+	// version) set this directly.
+	PtyHostLaunch agenttui.PtyHostLaunchFunc
 	// RunDirOverride, when non-empty, replaces ptyhost.RunDir(instancePrefix)
 	// as the directory this Daemon's ptyhost socket/status files live in.
 	// Tests that want two separately-constructed Daemons to find the SAME
@@ -496,11 +497,11 @@ func NewDaemon(cfg DaemonConfig) *Daemon {
 	}
 	if d.ptyHostLaunch == nil {
 		if d.palmuxBin != "" {
-			d.ptyHostLaunch = defaultLaunchPtyHost
+			d.ptyHostLaunch = agenttui.DefaultLaunchPtyHost
 		} else {
-			d.ptyHostLaunch = inProcessLaunchPtyHost
+			d.ptyHostLaunch = agenttui.InProcessLaunchPtyHost
 			if d.runDirOverride == "" {
-				d.runDirOverride = autoTestRunDir()
+				d.runDirOverride = agenttui.AutoTestRunDir()
 			}
 		}
 	}
@@ -918,9 +919,9 @@ func (d *Daemon) spawnWithArgs(args []string) error {
 func (d *Daemon) launchAndAttach(argv, env []string, cwd string) (conn net.Conn, hello ptyhost.HelloPayload, reconnected bool, replay []byte, err error) {
 	sockPath, statusPath := d.ptyHostPaths()
 
-	if probeConn, ok := probeExisting(sockPath); ok {
-		if h, herr := sendHello(probeConn); herr == nil {
-			if data, aerr := sendAttach(probeConn, -1); aerr == nil {
+	if probeConn, ok := agenttui.ProbeExisting(sockPath); ok {
+		if h, herr := agenttui.SendHello(probeConn); herr == nil {
+			if data, aerr := agenttui.SendAttach(probeConn, -1); aerr == nil {
 				d.logger.Info("claudetui: attached to surviving ptyhost", "socket", sockPath, "pid", h.Pid)
 				return probeConn, h, true, data, nil
 			}
@@ -930,7 +931,7 @@ func (d *Daemon) launchAndAttach(argv, env []string, cwd string) (conn net.Conn,
 		_ = probeConn.Close()
 	}
 
-	req := PtyHostLaunchRequest{
+	req := agenttui.PtyHostLaunchRequest{
 		PalmuxBin:      d.palmuxBin,
 		InstancePrefix: d.instancePrefix,
 		Seed:           d.ptyHostSeed(),
@@ -948,16 +949,16 @@ func (d *Daemon) launchAndAttach(argv, env []string, cwd string) (conn net.Conn,
 		return nil, ptyhost.HelloPayload{}, false, nil, fmt.Errorf("launch: %w", lerr)
 	}
 
-	freshConn, derr := dialFresh(d.daemonCtx, sockPath, ptyHostDialTimeout)
+	freshConn, derr := agenttui.DialFresh(d.daemonCtx, sockPath, agenttui.PtyHostDialTimeout)
 	if derr != nil {
 		return nil, ptyhost.HelloPayload{}, false, nil, fmt.Errorf("attach: %w", derr)
 	}
-	h, herr := sendHello(freshConn)
+	h, herr := agenttui.SendHello(freshConn)
 	if herr != nil {
 		_ = freshConn.Close()
 		return nil, ptyhost.HelloPayload{}, false, nil, fmt.Errorf("attach: %w", herr)
 	}
-	data, aerr := sendAttach(freshConn, -1)
+	data, aerr := agenttui.SendAttach(freshConn, -1)
 	if aerr != nil {
 		_ = freshConn.Close()
 		return nil, ptyhost.HelloPayload{}, false, nil, fmt.Errorf("attach: %w", aerr)

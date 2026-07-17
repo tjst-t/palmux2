@@ -14,6 +14,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/tjst-t/palmux2/internal/ptyhost"
+	"github.com/tjst-t/palmux2/internal/tab/agenttui"
 )
 
 // shortRunDir returns a fresh temp directory NOT rooted under t.TempDir()
@@ -77,7 +78,7 @@ func TestDaemonAttachesToRealPtyhostAndFeedsGrid(t *testing.T) {
 		defer close(srvDone)
 		_ = srv.Run(context.Background())
 	}()
-	if err := waitForSocket(context.Background(), sockPath, 5*time.Second, nil); err != nil {
+	if err := agenttui.WaitForSocket(context.Background(), sockPath, 5*time.Second, nil); err != nil {
 		t.Fatalf("ptyhost never started listening: %v", err)
 	}
 
