@@ -16,6 +16,7 @@ tmp/
 .env
 .env.*
 !.env.example
+docs/local/
 
 # OS / editor
 .DS_Store

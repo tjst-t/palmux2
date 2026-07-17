@@ -92,58 +92,17 @@ Phase 5+ は需要が明確になってから検討 (`docs/VISION.json` 参照)�
 
 ホスト用 palmux2（普段 Claude CLI を動かしている方）の `make serve` は **その palmux2 が管理している tmux セッション ＝ 自分が今操作している Claude CLI** を巻き込んで死ぬ。bootstrap 問題なので、開発は `gwq add -b dev` で別ブランチの worktree を切り、`INSTANCE=dev` で別 portman 名・別ポートで起動する。具体的な手順は [docs/development.md](docs/development.md) を参照。
 
-### palmuxOS アプライアンス (qcow2) をローカルで評価する (2026-07-15確立)
+### palmuxOS アプライアンス (qcow2) を実機評価する (2026-07-15確立、2026-07-17整理)
 
-palmuxOS (Sb14caa) は NixOS アプライアンスなので通常の `make serve` では評価できない。以前は都度外部 VM (testbox/green 等) に手作業でデプロイして確認していたが、**dev 箱自体の Proxmox VM が KVM 対応済み**（CPU type を `host` に変更 + コールドリスタート済み、`kvm-ok` で確認可）になったため、**このホスト上で直接 qcow2 を起動して評価できる**。
+palmuxOS (Sb14caa) は NixOS アプライアンスなので通常の `make serve` では評価できない。**実機評価用に3種類のホスト役割がある**（具体的なホスト名/IP/認証情報は `docs/local/eval-hosts.md` — gitignore 対象、リポジトリにcommitしない）:
 
-**前提**: 作業する Claude 自身は通常このリポジトリの incus コンテナ (Workspace) の中で動いている (`findmnt -no SOURCE /` で incus の rootfs パスが出ればコンテナ内)。コンテナには `/dev/kvm` が渡っていないため、**`ssh <user>@<dev箱のホストIP>` で一度ホスト本体に抜けてから** 作業する必要がある（コンテナ内で `incus`/`qemu` を叩いても、それはホストではなくコンテナのネームスペースで実行される）。
+1. **ビルド用ホスト**: 未リリースソースから `nix build .#appliance-qcow2` / `palmux2-local` をビルドする。**ネスト仮想化の深さ制約に注意**: ビルド内部で nixos-generators/disko がさらに qemu を起動するため、ビルドを実行する箱自身が「もう1段 nested virtualization できる」必要がある。素の実機 (L1) や L1 上に直接建てた VM でビルドすること — その VM のさらに上に建てた入れ子 VM (L2) の中でビルドしてはいけない (内部 qemu が L3 になり KVM アクセス不可、`chmod 666 /dev/kvm` 等の権限系対処では直らないハードウェア制約)。
+2. **差分適用評価用ホスト**: 既に動いている永続インスタンスに対して、(a) `make build-linux` したバイナリを差し替えて `systemctl restart` するか、(b) on-appliance flake の `palmux` 入力をローカルソースへの `path:` に向け直して `nixos-rebuild switch` するか、のどちらかで変更を適用して検証する。前者は Go ソースだけの素早いsmoke (NixOSモジュール変更やフレッシュインストール検証には使えない)。後者は「リリース→ローカル更新」という遷移そのものの検証 (S31ad96-2で確立、`docs/sprint-logs/S31ad96/verification-S31ad96-2.md`)。**どちらも「今動いているインスタンスの挙動」しか確認できず、フレッシュインストール直後の状態は確認できない** (初回起動oneshotは再実行されない、既存stateが残る)。
+3. **クリーンインストール用ホスト**: 評価のたびに作り直す。フレッシュインストール系Story (初回起動oneshot、オンボーディング等) の検証はここでしかできない。手順: リリース版なら `gh release download` で取得、未リリースならビルド用ホストでビルドして転送。COWオーバーレイ (ベースqcow2は無傷) + 新規cloud-init NoCloud seed で毎回真っさらに起動する。**cloud-init seedは`name: ubuntu`ではなく`name: palmux`を使うこと**（アプライアンスの実ユーザー名は`ubuntu`ではなく`palmux`, uid 1000, home=`/home/ubuntu`。`ubuntu`名だと別uidの無関係ユーザーが作られSSH鍵が効かない — 2026-07-15に実際にハマった）。
 
-**手順**:
-1. リリース済み qcow2 を取得（CI が minor リリースごとに appliance qcow2 を release asset として添付する。ローカル `nix build` は不要）:
-   ```
-   gh release download vX.Y.0 -R tjst-t/palmux2 -p 'palmuxos-vX.Y.0.qcow2'
-   ```
-2. ベースイメージは触らず COW オーバーレイを作る: `qemu-img create -f qcow2 -F qcow2 -b palmuxos-vX.Y.0.qcow2 overlay.qcow2`
-3. cloud-init NoCloud seed (`user-data`/`meta-data` → `genisoimage -output seed.iso -volid cidata -joliet -rock user-data meta-data`) で自分の SSH 公開鍵を注入する。**`users: - name: ubuntu` ではなく `name: palmux` を使うこと**（アプライアンスの実ユーザー名は `ubuntu` ではなく `palmux`, uid 1000, home は `/home/ubuntu`。`ubuntu` 名で作ると cloud-init が別 uid の無関係なユーザーを新規作成し、SSH 鍵が effective にならない — 2026-07-15 に実際にハマった）
-4. 起動: `qemu-system-x86_64 -enable-kvm -cpu host -m 4096 -smp 2 -drive file=overlay.qcow2,if=virtio,format=qcow2 -drive file=seed.iso,if=virtio,format=raw -netdev user,id=net0,hostfwd=tcp::12222-:22,hostfwd=tcp::17683-:7683 -device virtio-net-pci,netdev=net0 -nographic -serial file:serial.log -display none -pidfile qemu.pid`（`hostfwd=tcp::PORT-:PORT` は既定で `0.0.0.0` bind なので、ホストの LAN IP からも外部アクセス可能）
-5. 確認: `ssh -p 12222 palmux@<host>` でログイン、`systemctl is-active palmux2 incus` / `curl http://<host>:17683/` で疎通確認
-6. 後片付け: qemu プロセスを kill するだけ（overlay なのでベース qcow2 は無傷、次回も使い回せる）
+**前提**: 作業する Claude 自身は通常このリポジトリの incus コンテナ (Workspace) の中で動いている (`findmnt -no SOURCE /` で incus の rootfs パスが出ればコンテナ内)。コンテナには `/dev/kvm` が渡っていないため、**ホスト実機に一度SSHで抜けてから**作業する必要がある（コンテナ内で `incus`/`qemu` を叩いても、それはホストではなくコンテナのネームスペースで実行される）。
 
-**未リリースの変更 (まだ GitHub Release に qcow2 が無いブランチ) を検証したい場合**: `nix build .#appliance-qcow2` でローカルビルドが要る。**ビルドする箱は dev 箱そのもの(L1) か `deploy-test` (192.168.1.43, L1) のような Proxmox 直下の VM を使うこと — dev 箱の上に建てた incus VM (L2) の中でビルドしてはいけない**。理由 (2026-07-16 に実際にハマった): `nix build .#appliance-qcow2` は内部で nixos-generators/disko が **qemu を起動してディスクイメージをフォーマットする** ため、ビルドを実行する箱自身が「もう1段 nested virtualization できる」必要がある。dev 箱 (L1, Proxmox の上) でビルドすれば内部 qemu は L2 で収まる (動作確認済みの深さ)。だが dev 箱の上に建てた incus VM (L2) の中でビルドすると、内部 qemu は **L3 (ネストのネスト)** になり、AMD SVM はこの深さを実質サポートしない → `/dev/kvm` へのアクセスが `Permission denied` になり TCG (ソフトウェアエミュレーション) に落ちて極端に遅くなる、または実質進まない。`chmod 666 /dev/kvm` のような権限系の対処では直らない (ハードウェア/カーネルの制約なので)。
-- **`deploy-test` (192.168.1.43)** が実績のあるビルドホスト。Determinate Nix 導入済み・`/dev/kvm` 既に world-rw・既存 checkout `~/palmux2-build` (Nix store に前回ビルドのキャッシュが効く)。ただし 1 core・ディスク残 13G 程度とリソースは小さいので、他の作業と衝突しないよう配慮すること (共有ホスト)。
-- dev 箱自体に Nix を入れて L1 でビルドする選択肢もあるが、常用機への新規ツールインストールになるので実行前にユーザー確認を取ること。
-- ビルド後の qcow2 は dev 箱 (192.168.1.40) に転送し (`scp`/`incus file pull` 等)、上記の起動手順で評価する。
-
-**既にインストール済みの「リリース版」qcow2 を、ローカルの未リリース変更に更新して検証したい場合 (S31ad96-2確立)**: 上の手順1〜6でリリース版 qcow2 を起動した後、qcow2 を作り直さずに **稼働中のそのインスタンスに `nixos-rebuild switch` で流し込む**。`nix/packages/palmux2-local.nix` (S31ad96-1、`src = ../..` でこのリポジトリの作業ツリーから Go+frontend をビルドする Nix パッケージ) と、アプライアンスの on-appliance flake (`/persist/palmux/nixos/flake.nix`、`nixos/appliance-flake/flake.nix` が初回起動時にシードされたもの) の `palmux` 入力を `path:` でローカルソースに向け直す組み合わせで実現する:
-
-1. 起動済みインスタンスにローカルのソースツリーを持ち込む (git 履歴は不要、`.gitignore` 越しの余計なファイルも持ち込まない):
-   ```
-   git archive --format=tar HEAD | gzip > /tmp/palmux2-local-src.tar.gz
-   scp -P 12222 /tmp/palmux2-local-src.tar.gz root@<host>:/root/
-   ssh -p 12222 root@<host> 'mkdir -p /root/palmux2-local-src && tar xzf /root/palmux2-local-src.tar.gz -C /root/palmux2-local-src'
-   ```
-   （`root` への SSH は cloud-init の `users:` に `- name: root` を追加鍵登録すれば通る。`palmux` ユーザーは無 sudo/無パスワードなので、この一時検証用 VM 限定で自分の鍵を root にも入れる。実運用アプライアンスの `palmux` ユーザーの権限モデルには影響しない）
-2. on-appliance flake の `palmux` 入力を `path:` にし、`nix flake update palmux` で再ロック:
-   ```
-   ssh -p 12222 root@<host> \
-     'sed -i "s#palmux.url = \"github:tjst-t/palmux2\";#palmux.url = \"path:/root/palmux2-local-src\";#" /persist/palmux/nixos/flake.nix'
-   ssh -p 12222 root@<host> 'cd /persist/palmux/nixos && nix flake update palmux'
-   ```
-3. `services.palmux.package` をローカルビルド (`palmux2-local`) に切り替える。**`./local/*.nix` オペレータ drop-in ではなく、flake.nix 自身の `nixosConfigurations.appliance.modules` に直接 1 モジュール追加する** — dropin は `{ pkgs, ... }` しか受け取らず flake 入力 `palmux` を参照できないため、`nixpkgs.overlays = [ palmux.overlays.default ]` 経由の `pkgs.palmux2-local` はこのアプライアンス flake が pin する `nixpkgs` (nixos-25.05 = Go 1.24) で評価されてしまい、`go.mod` の `go >= 1.25.0` 要求を満たせず**ビルド失敗する** (2026-07-16 に実際にハマった)。代わりに **`palmux.packages.${system}.palmux2-local`** を直接参照する — これは `palmux` 入力 (= ローカル path) 自身の `nixpkgs` 入力 (root flake.nix の `nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable"`、Go ≥1.25 を含む) で評価されるため、アプライアンス側の nixpkgs バージョンに左右されない:
-   ```nix
-   # /persist/palmux/nixos/flake.nix の let に system = "x86_64-linux"; を追加した上で、
-   # nixosConfigurations.appliance.modules に1行追加:
-   { services.palmux.package = palmux.packages.${system}.palmux2-local; }
-   ```
-4. 通常の更新コマンドで switch (GUI/CLI の `palmux-rebuild-update.service` (S673a42) 経由でもよいが、検証時は root SSH から直接で十分):
-   ```
-   ssh -p 12222 root@<host> 'cd /persist/palmux/nixos && nixos-rebuild switch --flake .#appliance'
-   ```
-   Go のビルド (`palmux2-local-0.0.0-local-go-modules` の fetch 込み) + npm/vite のフロントエンドビルドがその場で走るため、リリース版 qcow2 の初回 switch より数分長くかかる (4GB RAM / 2 vCPU のテスト VM で数分程度、実績あり)。
-5. 確認: `palmux2 --version` が release バージョン (例 `v0.14.13`) から **`v0.0.0-local`** に変わっていれば、稼働中インスタンスがローカルソースへ切り替わった証拠 (`nix-env --list-generations -p /nix/var/nix/profiles/system` で世代が増え、`who -b` の起動時刻が switch 前後で不変 = 再起動なしの in-place 更新であることも確認できる)。
-6. 元に戻すには `nixos-rebuild switch --rollback`、または `flake.nix` の `palmux.url` を `github:tjst-t/palmux2` に戻して `nix flake update palmux && nixos-rebuild switch --flake .#appliance`。
-
-この手順で実機検証済み (`docs/sprint-logs/S31ad96/verification-S31ad96-2.md`)。`nix/packages/palmux2-local.nix` 自体(S31ad96-1)への変更は不要 — 上記はすべて対象インスタンス上の一時的なファイル操作 (on-appliance flake の編集) であり、リポジトリの `flake.nix`/`nix/packages/` はこの用途のために変更不要 (overlay 経由の公開は上記の理由で機能しないため見送った)。
+具体的なホスト名・IP・SSHコマンド・完全な手順は `docs/local/eval-hosts.md` を参照。このファイルはgitignore対象なので、初めて作業する環境では無い場合がある — その場合はこの節の方針に沿って新規に用意し、`docs/local/eval-hosts.md` に追記していく。
 
 ### autopilot / sprint auto でサブエージェントに実装を委譲するときのルール
 

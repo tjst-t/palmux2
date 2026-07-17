@@ -10,7 +10,7 @@
     "in_progress": 0,
     "percent": 91,
     "percentage": 92,
-    "current_sprint": "S31ad96"
+    "current_sprint": "S0e8afb"
   },
   "execution_order": [
     "S001",
@@ -12452,156 +12452,167 @@
       "title": "maultiagentブランチ統合: agenttui × ptyhost マージ (フレームワークのみ、codex/opencode registryは含めない)",
       "description": "ローカル専用ブランチ maultiagent (mainに31コミット先行、mainは84コミット先行=要アーキテクチャ統合) を main にマージする。設計は既に確定済み: `git show b51c5e5:docs/agenttui-ptyhost-merge-design.md` (maultiagentブランチ上、ユーザー確定 2026-07-13) の Approach B (main-as-base + Adapter graft)、P1〜P5フェーズング、リスク一覧をそのまま実行計画として使うこと。単純な git merge ではなく、internal/tab/claudetui/daemon.go (main側、S3f2658/S862203のno-halt-agent ptyhost化) と internal/tab/agenttui/daemon.go (maultiagent側、claude adapter抽出) の semantic な統合が必要。このSprintでは汎用マルチエージェントフレームワーク (agent registry, generic agenttab Provider, claude/genericアダプタ) のみをmainに持ち込み、codex/opencodeアダプタのregistry登録・FE露出は次Sprint (S2b5691) まで見送ること (実装ファイル自体はmaultiagentブランチに分離されているはずなので internal/agent/codex.go 等の存在を確認し、cmd/palmux/main.go でのregistry登録だけ保留する)。既存の internal/tab/claudetui/daemon_test.go・reattach_deadlock_test.go・ptyhost_integration_test.go が各フェーズで引き続きgreenであることを必須とする (設計メモのP0リスク: reattach-deadlock回帰)。",
       "milestone": true,
-      "status": "pending",
+      "status": "done",
       "detail_level": "detailed",
+      "note": "[S0e8afb-4 完了時点のノート] S0e8afb-1〜4 の全 Story が done (AC 全て pass)。マージ設計の P1(mechanical adopt)〜P5(orphan-GC E2E) を全フェーズ実施し、no-halt-agent (S3f2658+S862203) の ptyhost restart-survival と maultiagent の multi-agent Adapter 抽出を、両者の能力を落とさず統合した。S0e8afb-4 で実 dev 箱・実 palmux2・実 claude・実 kill-9 クラッシュ・実 incus コンテナを用いた E2E で restart-survival と orphan-GC (in-container reap 含む) を証明済み (docs/sprint-logs/S0e8afb/verification-S0e8afb-4.md)。この Sprint 冒頭の note と ROADMAP 全体の scope note の通り、codex/opencode の registry 登録・FE 露出および config.toml [agents.*] surface は意図的に次 Sprint (S2b5691) 送り — genericAgentMgrs は本番で常に空のまま (S0e8afb-3 Deviation 1、本 Story でも変わらず)。Sprint 全体としての milestone status (pending→done 等への rollup) はコーディネータ判断に委ねる (本ノートは Story 実装者からの完了報告であり、Sprint 状態の確定ではない)。",
       "stories": {
         "S0e8afb-1": {
           "title": "開発者として、ptyhost/agenttui のrenameとADR文書をmainからそのまま採用したい。なぜなら、これらはmaultiagentに無い純追加であり、生merge衝突が起きない安全な最初のステップだから (設計メモ P1: mechanical adopt)。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S0e8afb-1-1",
               "description": "internal/ptyhost/**, cmd/palmux/ptyhost.go, docs/DESIGN/adr/ADR-0001..0003, docs/no-halt-agent-design.md をmainからverbatimで採用している",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S0e8afb-1-2",
               "description": "claudetui/{ptyclient,discover}.go を agenttui/{ptyclient,discover}.go に git mv + package書換のみで移行している",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S0e8afb-1-3",
               "description": "go build が通り、ptyhost package の既存テストがgreen",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S0e8afb-1-1": {
               "title": "P1: mechanical adopt (設計メモの採用ファイル一覧通り)",
-              "status": "pending"
+              "status": "done"
             },
             "S0e8afb-1-2": {
               "title": "go build + ptyhost package tests 確認",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
         "S0e8afb-2": {
           "title": "開発者として、daemon.go の exec 経路を Adapter 呼び出しに置き換えたい。なぜなら、main の inline claude arg-builder を maultiagent の agent.Adapter.SpawnSpec(intent) に統合することで、ptyhost restart-survival と multi-agent Adapter の両方の能力を両立できるから (設計メモ P2: graft seam)。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S0e8afb-2-1",
               "description": "internal/tab/agenttui/daemon.go の spawnWithArgs が Adapter経由の spec.Argv/Env を launchAndAttach に渡すようになっている (creackpty直接呼び出しは破棄)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S0e8afb-2-2",
               "description": "notify URL / hook-bin の host-vs-container 解決 (main由来のロジック) が SpawnIntent.Hook 経由でAdapterに正しく渡っている",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S0e8afb-2-3",
               "description": "golden-argv 等価テスト (claudeのspec.Argv→ptyhost.Config.Argvがhost/in-container両方で既存と一致) が追加されgreen",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S0e8afb-2-4",
               "description": "daemon_test.go・reattach_deadlock_test.go・ptyhost_integration_test.go が全てgreen (P0リグレッションガード)",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S0e8afb-2-1": {
               "title": "P2: daemon.go graft seam実装 (設計メモの手順1-2通り)",
-              "status": "pending"
+              "status": "done",
+              "note": "独立レビューで EnsureDaemon の SessionWatcher が agent.SessionDiscoverer でgate されていない欠落を検出 (main の TranscriptDir/NewSessionWatcher をAdapter 種別を見ずに常時使用)。コミット後に修正 (manager.go に capability gate 追加、sessions.go の NewSessionWatcher を injectable SessionIDFromPath 対応に変更、regression test TestEnsureDaemon_NoSessionWatcherWithoutSessionDiscoverer 追加)。claude のみが稼働中の今は無影響 (byte-identical) だが、S0e8afb-3 で 同一 worktree に複数 kind が乗る際のセッション ID クロスワイヤ事故を防ぐ。詳細は docs/sprint-logs/S0e8afb/verification-S0e8afb-2.md の Deviation 5。"
             },
             "S0e8afb-2-2": {
               "title": "respawnLoop統合 (main の gateRespawn + maultiagent の immediateFailureBackoff)",
-              "status": "pending"
+              "status": "partial",
+              "note": "respawnLoop に main の gateRespawn (incus-regenerate 待ち) をそのまま維持し、resume-ID の取得を agent.Capabilities().Resume + SessionDiscoverer gate 経由にした(claude は両方 true なので挙動は byte-identical)。maultiagent の immediateFailureBackoff/StateFatal (即時クラッシュの指数バックオフ+諦め状態) は意図的に本 Story のスコープ外とした: (1) ROADMAP の AC-S0e8afb-2-1..4 のどれも要求していない、(2) daemon_test.go は StateFatal を知らず、導入すると既存テストの弱体化・大幅書き換えが必要になり『byte-behavior-identical for claude』という本 Story の目的を超える、(3) claude は実運用でほぼ即時クラッシュしないため今すぐ必要な保護ではない(バックオフが本当に効くのは将来の generic/codex アダプタ)。S0e8afb-3 (multiplicity) でクラッシュしやすい generic/codex アダプタを繋ぐ際に合わせて導入するのが妥当と判断。docs/sprint-logs/S0e8afb/verification-S0e8afb-2.md 参照。"
             },
             "S0e8afb-2-3": {
               "title": "reap経路をadapterのKillPatternに統合",
-              "status": "pending"
+              "status": "partial",
+              "note": "live-Daemon の reap 経路 (teardown / respawnLoop) は d.effectiveKillPattern() 経由で agent.SpawnSpec.KillPattern を使うよう統合済み (claude の場合 containerClaudeBin と byte-identical)。GCOrphans (live Daemon が無い、palmux2 再起動後の orphan 掃除) 経路は ptyhost.StatusFile に KillPattern フィールドが無くまだ読めないため、hardcoded containerClaudeBin フォールバックのまま (=挙動無変更)。StatusFile.KillPattern の追加は ROADMAP 上 AC-S0e8afb-3-1 に明示的にスコープされているため、そちらに委譲。"
             },
             "S0e8afb-2-4": {
               "title": "golden-argv等価テスト追加 + 既存P0テスト群のgreen確認",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
         "S0e8afb-3": {
           "title": "開発者として、per-kind manager (claude/generic) と AgentKind によるdiscovery/GC分離を実装したい。なぜなら、複数エージェント種別が同じrun dirを共有しても互いのptyhostを誤ってadopt/GCしないようにするため (設計メモ P3、ただしこのSprintではclaude/genericのみ、codex/opencodeのkindは次Sprintまで登録しない)。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S0e8afb-3-1",
               "description": "internal/ptyhost/server.go の Config/StatusFile に AgentKind/KillPattern が追加されている (opaque echo)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S0e8afb-3-2",
               "description": "discover.go の scanRunDir が既存の Mode==ModePipe skip に加え AgentKind mismatch skip も行う",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S0e8afb-3-3",
               "description": "cmd/palmux/main.go が agent.BuildRegistry + per-kind manager loop + agenttab登録を持つが、codex/opencodeアダプタのregistry登録は行っていない (internal/agent/codex.go 等のファイルは存在してもmain.goから呼ばれていないことを確認)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S0e8afb-3-4",
               "description": "2-kind discovery test (claude kindとgeneric kindの相互誤adoption無し) が追加されgreen",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S0e8afb-3-1": {
               "title": "P3: multiplicity + ownership実装",
-              "status": "pending"
+              "status": "done",
+              "note": "internal/ptyhost/server.go の Config/StatusFile に AgentKind/KillPattern を追加 (opaque echo、RepoID/Mode と同列)。discover.go の ScanRunDir に thisKind agent.Kind 引数を追加し、既存の Sfeed64-3 Mode==ModePipe skip の直後 (どのdialより前) に AgentKind ownership filter を追加 — 空 AgentKind (S0e8afb-3 以前の legacy status file) は agent.KindClaude として back-compat 扱い。GCOrphans は DiscoveredHost.KillPattern (status file 由来) を使うよう修正し、S0e8afb-2 で deferred だった『GCOrphans がまだ containerClaudeBin 固定』を解消 (killPatternOrFallback ヘルパー、空なら旧来の定数にフォールバック)。cmd/palmux/ptyhost.go に --agent-kind/--kill-pattern flag、agenttui/ptyclient.go の PtyHostLaunchRequest に同フィールドを追加し、daemon.go の launchAndAttach が d.adapter.Kind()/d.killPattern を積むよう配線。"
             },
             "S0e8afb-3-2": {
               "title": "internal/agent/codex.go, opencode.go 等の存在確認 + main.goでの未登録確認",
-              "status": "pending"
+              "status": "done",
+              "note": "internal/agent/codex.go, opencode.go は既に存在 (S0e8afb-2 で verbatim 採用済み)。cmd/palmux/main.go を grep しても agent.NewCodexAdapter/NewOpencodeAdapter/KindCodex/KindOpencode の呼び出しは無い (S0e8afb-2 の確認手法を踏襲)。main.go は agent.NewClaudeAdapter 直呼びから agent.BuildRegistry(claudeBin, claudeArgs, nil) に切替え、agentRegistry.Kinds() をループして claude 以外の kind ごとに agenttui.Manager + agenttab.Provider を配線する構造にした。ただし agents map は常に nil (この repo にはまだ config.toml `[agents.*]` の TOML surface が無い — internal/config.MasterConfig に Agents フィールドが無い。これは Sdec0a7-2 相当の別機能で本 Story の スコープ外) なので、このループは本番では 0 回反復する。internal/tab/agenttab パッケージは maultiagent から provider.go + 両テストファイルを verbatim 移植 (Limits() のみ、この repo の tab.SettingsView に汎用 MaxTabsPerBranch(kind) が無いため type-assertion フォールバックに調整 — コメントで明示)。agenttui.SessionStore に BranchTabs/SetBranchTabs/HasBranchTabs を additive で 追加 (ファイル名リネームはしていない、既存 claudetui-sessions.json のまま)。"
             },
             "S0e8afb-3-3": {
               "title": "2-kind discovery test追加",
-              "status": "pending"
+              "status": "done",
+              "note": "internal/tab/agenttui/agentkind_ownership_test.go を新規追加。TestAgentKindOwnership_DiscoveryDoesNotCrossAdopt が本題: 実 ptyhost.Server 2つ (どちらも ModePTY、AgentKind=claude/generic) を同一 run dir に立て、実 agenttui.Manager 2つ (Adapter kind が異なる) それぞれの DiscoverAndRestore を走らせ、互いの ptyhost を adopt/dial していないこと (adopted==1 かつ cleaned==0、pid不変=evict無し) を検証。TestAgentKindOwnership_EmptyAgentKindTreatedAsClaude で空AgentKind (アップグレード前の legacy ptyhost) が claude 側にのみ back-compat adopt されることも検証。"
             }
-          }
+          },
+          "note": "[S0e8afb-3 実装ノート] 設計メモの『main の boot-time discovery + GC wiring を各 kind-manager ごとに』は、discovery 部分 (DiscoverAndRestore) は per-kind ループで実装したが、GC 部分 (store.SetTuiOrphanGC への配線) は意図的にスコープ外とした。store.TuiOrphanGC は単一スロット 登録 (SetTuiOrphanGC は上書き、複数登録を蓄積しない) で、N per-kind Manager に汎化するには スライス化 + discovery-barrier の再検証 + 新規 store テストが要る実質的な作業だが、本 Story の AC は要求しておらず、かつ genericAgentMgrs は本番では常に空 (config.toml [agents.*] 未配線) なので GC すべき対象が今は存在しない。config.toml 経由で実際に generic kind を有効化する将来の Story で GC 汎化も合わせて行うのが妥当と判断 (S0e8afb-2 の Deviation 方針を踏襲)。docs/sprint-logs/S0e8afb/verification-S0e8afb-3.md 参照。 [post-commit fix, independent review] killPatternOrFallback (internal/tab/agenttui/ptyhost_discovery.go) は当初 pattern が空なら kind を見ずに containerClaudeBin に フォールバックしていた。agent.GenericAdapter.SpawnSpec (internal/agent/generic.go) は KillPattern を一切設定しないため、将来 generic kind が実際に稼働した際、その orphan は 常に空 KillPattern となり、同一 (repoId, branchId) コンテナ内の無関係な claude セッションを 誤って TERM しうる安全性ギャップだった (今日は genericAgentMgrs が常に空なので到達不可能だが、merge 前に修正)。修正: killPatternOrFallback(kind agent.Kind, pattern string) に変更し、kind==agent.KindClaude (または空=legacy back-compat) の場合のみ containerClaudeBin に フォールバック、それ以外の kind で pattern が空なら \"\" を返して reap をスキップ + Warn ログ (reapContainerClaude は空パターンで既に no-op)。新規テスト: TestKillPatternOrFallback (pure function の table-driven test) + TestGCOrphans_GenericKindEmptyKillPatternSkipsInContainerReap (実 orphan ptyhost + fakeContainerKiller で KillContainerProcesses が呼ばれないことを検証) + TestGCOrphans_ClaudeKindEmptyKillPatternStillReapsWithFallback (claude 側の既存挙動が壊れていないことの positive control)。go build/vet clean、internal/tab/agenttui 全体 green、P0/golden-argv/ownership テストを -race で再確認、go test ./... 28 packages 全て green。詳細は docs/sprint-logs/S0e8afb/verification-S0e8afb-3.md の『Post-review fix』セクション参照。"
         },
         "S0e8afb-4": {
           "title": "運用者として、palmux2の再起動(self-update/systemctl restart/クラッシュ)を跨いでもgenericエージェントタブが生存/再接続することを確認したい。なぜなら、これがmaultiagent統合の中核価値(no-halt-agentの多エージェント対応)だから (設計メモ P4/P5)。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S0e8afb-4-1",
               "description": "genericエージェントタブ(またはclaudeタブ)でspawn→systemctl --user restart palmux2 (or kill+relaunch)→subprocess生存+タブ再adopt(画面継続)がE2Eで確認できる",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S0e8afb-4-2",
               "description": "claudeでの既存restart-survival回帰確認 (既存のno-halt-agent E2Eが引き続きpass)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S0e8afb-4-3",
               "description": "palmux2 down中にタブ削除→restart→orphan ptyhost (in-container proc含む) がKillPattern経由でreapされることを確認",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S0e8afb-4-1": {
               "title": "P4: restart-survival E2E (dev箱またはtest VMで実施、incusコンテナchurnに注意)",
-              "status": "pending"
+              "status": "done",
+              "note": "実 dev 箱 (dev.tjstkm.net、incus/qemu 完備の実機) 上、`make serve INSTANCE=s0e8afb4` の隔離 dev instance (ホスト本番 palmux2 とは別 portman 名・tmux-prefix _pmx_s0e8afb4_) で実施。genericエージェントタブは本 repo に config.toml [agents.*] surface が無く (S0e8afb-3 Deviation 1 のまま) 未だ非到達なので、タスク説明の scope note 通り claude タブ (tui mode) で代替 — agenttui/ptyhost/AgentKind/KillPattern の機構は generic も claude も同一。実クローズドループ: ブラウザ(Playwright headless)で claude:claude タブを tui mode で spawn → 実マーカー付きターンで応答させる → ホスト側 palmux2 プロセスを kill -9 (グレースフルでないクラッシュ模擬) → ptyhost (pid 1629553) と held claude (pid 1629585) が生存していることを OS pid で確認 → `make serve INSTANCE=s0e8afb4` で新 palmux2 プロセスを起動 → ログで `agenttui: attached to surviving ptyhost ... pid=1629585 reconnected=true` `agenttui: discovery: re-adopted surviving ptyhost ... pid=1629585` を確認 (pid 完全一致 = evict 無し) → ブラウザで同じ URL に再接続し、ターミナル画面が turn1 のマーカー付きで継続表示されている (真っさらな新規セッションでない) ことをスクリーンショットで確認 → 新しいターン (『直前のメッセージで頼んだ単語は何か』) を送り、`CONTEXT_CHECK:PALMUX_S0E8AFB4_TURN1_...` の正しい応答で会話コンテキストが保持されていることを確認。詳細は docs/sprint-logs/S0e8afb/verification-S0e8afb-4.md 参照。"
             },
             "S0e8afb-4-2": {
               "title": "P5: orphan-GC E2E",
-              "status": "pending"
+              "status": "done",
+              "note": "host runtime と incus-container runtime の両方で実施。(a) host: gwq で作った linked worktree に claude tui タブを spawn (ptyhost pid + held claude pid 記録) → palmux2 を kill -9 → worktree を palmux2 停止中に `gwq remove` で削除 (= CloseBranch を経由しないタブ削除の模擬、クラッシュ/デプロイの隙間を突く) → palmux2 再起動 → 起動時 discovery が一旦 re-adopt (adopted=2) → 直後の 10s tick の gcTuiOrphans が isLive=false (store にブランチが存在しない) と判定し `agenttui: orphan gc: shut down unreferenced ptyhost` を発火 → OS pid で ptyhost/claude 双方が実際に消滅したことを確認 (同時に、まだ open な別ブランチの ptyhost/claude は無傷で生存していることも確認し、GC が生きているものを巻き込んでいないことを証明)。(b) incus-container: 同じ手順を incus runtime の workspace で実施し、host 側 ptyhost wrapper の死亡に加えて `incus exec <container> -- pgrep -af claude` で**コンテナ内**の claude プロセス自体が消えたことを確認 (KillPattern 経由の reapContainerClaude → runtime.ContainerProcessKiller.KillContainerProcesses が実際に効いていることの直接証拠、コンテナ自体は破棄されず RUNNING のまま=プロセスだけが reap された)。さらに既存の `PALMUX_REALINCUS_SMOKE=1 TestRealIncus_InContainerProcessSurvivesRestartAndIsReaped` (S3f2658-4 由来) をこの merge 後のコードで再実行し PASS を再確認 (AC-S3f2658-4-1/4-2 相当のロジックが no-halt-agent×agenttui merge を経ても崩れていないことの regression 証跡)。副次的発見: `gwq remove` で palmux2 停止中に worktree を消すと、sync_worktree の『removed worktree 検出』は起動時の in-memory 差分比較 (前回状態 vs 現在の git worktree list) にのみ基づくため、停止中に消えた worktree はそもそも起動時の in-memory 状態に一度も現れず、CloseBranch (incus コンテナ破棄を含む) が一度も呼ばれない — ptyhost/claude プロセスの reap (本 Story の対象、isLive 直接照会ベース) は正しく機能するが、incus **コンテナ自体**は迷子になり得る (今回は手動 `incus delete --force` で後始末)。これは S0e8afb の scope 外 (ptyhost 層ではなく S8478ca 由来のコンテナライフサイクル層の話) の pre-existing gap であり本 Story の AC は満たしているが、正直に記録。詳細は docs/sprint-logs/S0e8afb/verification-S0e8afb-4.md 参照。"
             },
             "S0e8afb-4-3": {
               "title": "claude回帰確認",
-              "status": "pending"
+              "status": "done",
+              "note": "PALMUX_SURVIVAL_SMOKE=1 で internal/ptyhost (TestLaunch_RealHost_DetachesFromTestProcess / TestLaunch_RealSystemdRunFailure_FallsBackToSetsid / TestLaunch_NoZombieAfterLaunchedProcessExits / TestSurvival_RealSystemd_PtyhostOutlivesLauncherRestartAndKill9) と internal/tab/agenttui (TestParallelInstances_NeverClaimOrGCEachOther) を実行し全て PASS (実 systemd-run --user scope 経由のcgroup分離確認、実 systemd restart + kill -9 の両方で SURVIVAL_PASS x2)。PALMUX_REALINCUS_SMOKE=1 で TestRealIncus_InContainerProcessSurvivesRestartAndIsReaped も再実行し PASS (実 incus 経由の in-container 生存+reap、S3f2658-4 由来の regression guard)。`go build ./...` / `go vet ./...` clean、`go test ./... -count=1` で全 28 パッケージ green (frontend/node_modules 由来の無関係な [no test files] エントリを除く)。"
             }
           }
         }
@@ -13588,6 +13599,41 @@
       "description": "S31ad96-2の検証中に判明。ドキュメント上の食い違い、優先度低。",
       "kind": "chore",
       "added_in": "S31ad96-2",
+      "status": "open"
+    },
+    {
+      "title": "agentRegistry.Get(KindClaude)のok破棄",
+      "description": "cmd/palmux/main.go:606, claudeAdapter, _ := agentRegistry.Get(agent.KindClaude) — 今はBuildRegistryが必ずclaudeを最初に登録するので安全だが、将来変更でnil Adapterがそのまま渡り、後段でnil pointer panicになりうる。okチェック+起動時エラーに直すべき。",
+      "kind": "chore",
+      "added_in": "S0e8afb-3",
+      "status": "open"
+    },
+    {
+      "title": "kind名にコロンを含む場合の誤ルーティング",
+      "description": "multiAgentTabHook.DeleteTabがstrings.IndexByte(tabID, ':')で所有kindを復元するが、BuildRegistry/IsReservedKindはkind名のコロンを拒否していない。低確率だがBuildRegistry側でコロンを拒否するバリデーションを足すべき。",
+      "kind": "chore",
+      "added_in": "S0e8afb-3",
+      "status": "open"
+    },
+    {
+      "title": "internal/tab/agenttab と internal/tab/claudeagent のロジック重複",
+      "description": "CanonicalTabID/CanonicaliseTabID、pickNextTabID、DisplayNameForTab、タブ追加/削除オーケストレーション、BranchTabsストアパターンがagenttabとclaudeagentで別々に実装されている(maultiagentからの移植時にそのまま持ち込んだ)。将来の共通バグ修正が片方にしか適用されないリスク。共有ヘルパーへの切り出しを検討。agenttui.SessionStore.SetBranchTabsがclaudeagent.Store版と違い空リストでmapエントリを削除しない、という意図的な差異(『delete freely』用)もあるので、単純な統合ではなく設計要検討。",
+      "kind": "chore",
+      "added_in": "S0e8afb-3",
+      "status": "open"
+    },
+    {
+      "title": "kindが丸ごと削除された場合、discovery/GCから永久に見えなくなる",
+      "description": "AgentKindフィルタ(Mode filterと同様)は、呼び出し元Managerとkindが一致しないstatus-fileエントリを恒久的にskipする。対応するManagerが存在しないkind(将来の設定削除/リネーム時)は、誰にもadopt/GCされず永久に残る。kind削除時のクリーンアップ機構を将来検討。",
+      "kind": "chore",
+      "added_in": "S0e8afb-3",
+      "status": "open"
+    },
+    {
+      "title": "palmux2 down中にworktreeが消えると、次回起動時にincusコンテナが破棄されずリークする",
+      "description": "sync_worktreeのworktree消失検出は自分の直前in-memory stateとの差分でのみ判定するため、palmux2が停止している間にworktreeが消えると(gwq removeなど)、その消失イベント自体を観測できずCloseBranchのincusコンテナ破棄経路が発火しない。S0e8afb-4の実restart-survival検証中に実際に1コンテナリークし手動クリーンアップした。S8478ca由来の既存ギャップで、今回のagenttui×ptyhostマージとは別レイヤーの問題。起動時にpalmux2側の記録と実際のworktree一覧+incusコンテナ一覧を突き合わせて孤立コンテナを検出・破棄するreconcile処理が必要。",
+      "kind": "bug",
+      "added_in": "S0e8afb-4",
       "status": "open"
     }
   ]

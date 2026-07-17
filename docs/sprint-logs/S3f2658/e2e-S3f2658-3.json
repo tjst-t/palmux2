@@ -1,10 +1,10 @@
 {
   "task": "AC-S3f2658-3-3",
-  "startedAt": "2026-07-12T12:29:09.472247353Z",
-  "instancePrefixA": "s3f2658-3-isoA-710772-1783859351253970728",
-  "instancePrefixB": "s3f2658-3-isoB-710772-1783859351253970728",
-  "runDirA": "/tmp/palmux-ptyhost/s3f2658-3-isoA-710772-1783859351253970728",
-  "runDirB": "/tmp/palmux-ptyhost/s3f2658-3-isoB-710772-1783859351253970728",
+  "startedAt": "2026-07-17T11:01:53.406170527Z",
+  "instancePrefixA": "s3f2658-3-isoA-1586342-1784286114383810123",
+  "instancePrefixB": "s3f2658-3-isoB-1586342-1784286114383810123",
+  "runDirA": "/tmp/palmux-ptyhost/s3f2658-3-isoA-1586342-1784286114383810123",
+  "runDirB": "/tmp/palmux-ptyhost/s3f2658-3-isoB-1586342-1784286114383810123",
   "runDirsDiffer": true,
   "discoveryA_adopted": 1,
   "discoveryA_cleaned": 0,
@@ -16,5 +16,5 @@
   "bSurvivedAGC": true,
   "gcB_shutdownCount": 1,
   "verdict": "PASS",
-  "finishedAt": "2026-07-12T12:29:13.36574044Z"
+  "finishedAt": "2026-07-17T11:01:56.497052644Z"
 }
