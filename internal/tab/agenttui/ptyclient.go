@@ -13,7 +13,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/ptyhost"
 )
 
-// This file is the socket-client seam between claudetui.Daemon and the
+// This file is the socket-client seam between Daemon and the
 // `palmux ptyhost` process holding its claude subprocess (ADR-0002 — thin
 // holder). Daemon builds the same argv/env/cwd it always has (hooks,
 // --permission-mode, incus PTYCommander wrapper, --plugin-dir — see
