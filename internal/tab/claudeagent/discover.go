@@ -17,7 +17,7 @@ import (
 
 // This file implements S862203-3's startup discovery (DiscoverAndRestore)
 // and S64c835-3's orphan-GC (GCOrphans): both are near-verbatim mirrors of
-// internal/tab/claudetui/discover.go — same on-disk scan, same "explicit
+// internal/tab/agenttui/discover.go — same on-disk scan, same "explicit
 // RepoID/BranchID/TabID status-file fields, never a parsed Seed" identity
 // discipline (a repoId/branchId containing the literal substring "__"
 // would otherwise mis-attribute a discovered ptyhost — a data-loss bug,
@@ -36,7 +36,7 @@ import (
 // S862203-3's done time).
 //
 // Sfeed64-3: this Manager's run directory is SHARED on disk with
-// claudetui's Manager (internal/tab/claudetui/discover.go) — both walk the
+// agenttui-scanned, claudetui-owned Manager — both walk the
 // SAME (*.sock, *.json) seed space (a ptyhost's socket path is derived
 // purely from (repoId, branchId, tabId), independent of which package
 // spawned it). Before this fix, scanAgentRunDir treated every
@@ -94,7 +94,7 @@ const agentScanDialTimeout = 2 * time.Second
 // parsed from EACH entry's status file BEFORE any liveness probe (pid
 // check, dial, HELLO) is performed. An entry it reports true for is left
 // COMPLETELY untouched — not dialed, not counted as live, not counted as
-// cleaned. This mirrors claudetui's scanRunDir skipLive parameter exactly
+// cleaned. This mirrors agenttui's ScanRunDir skipLive parameter exactly
 // and for the same reason: a pipe-mode ptyhost socket only tolerates ONE
 // active connection at a time (ptyhost.Server.replaceConn closes whatever
 // connection was previously active the instant a new one arrives), so a
@@ -105,7 +105,7 @@ const agentScanDialTimeout = 2 * time.Second
 // adopted into an Agent yet).
 //
 // scanAgentRunDir enumerates runDir and classifies every (*.sock, *.json)
-// pair found, exactly like claudetui's scanRunDir: unidentifiable/stale
+// pair found, exactly like agenttui's ScanRunDir: unidentifiable/stale
 // debris is removed, everything else LIVE is returned.
 func scanAgentRunDir(runDir string, logger *slog.Logger, skipLive func(repoID, branchID, tabID string) bool) (live []discoveredAgentHost, cleaned int, err error) {
 	if logger == nil {

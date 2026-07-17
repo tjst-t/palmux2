@@ -154,7 +154,7 @@ func ScanRunDir(runDir string, logger *slog.Logger, skipLive func(repoID, branch
 		if os.IsNotExist(rerr) {
 			return nil, 0, nil
 		}
-		return nil, 0, fmt.Errorf("claudetui: scan ptyhost run dir %s: %w", runDir, rerr)
+		return nil, 0, fmt.Errorf("agenttui: scan ptyhost run dir %s: %w", runDir, rerr)
 	}
 
 	type pair struct{ sock, status bool }
@@ -197,7 +197,7 @@ func ScanRunDir(runDir string, logger *slog.Logger, skipLive func(repoID, branch
 			// resolved to a (repoId, branchId, tabId), so it can never be
 			// discovered/re-adopted or safely orphan-GC'd by identity. Treat
 			// as debris.
-			logger.Warn("claudetui: discovery: socket with no status file, cleaning up", "socket", sockPath)
+			logger.Warn("agenttui: discovery: socket with no status file, cleaning up", "socket", sockPath)
 			removeStaleFiles(sockPath, "")
 			cleaned++
 			continue
@@ -205,7 +205,7 @@ func ScanRunDir(runDir string, logger *slog.Logger, skipLive func(repoID, branch
 
 		sf, serr := ptyhost.ReadStatusFile(statusPath)
 		if serr != nil {
-			logger.Warn("claudetui: discovery: unreadable status file, cleaning up", "status", statusPath, "err", serr)
+			logger.Warn("agenttui: discovery: unreadable status file, cleaning up", "status", statusPath, "err", serr)
 			removeStaleFiles(sockPath, statusPath)
 			cleaned++
 			continue
@@ -219,7 +219,7 @@ func ScanRunDir(runDir string, logger *slog.Logger, skipLive func(repoID, branch
 			// No usable identity (empty fields, or a pre-S3f2658-3-fix
 			// ptyhost that only ever wrote Seed) — cannot be safely
 			// re-adopted or orphan-GC'd by identity. Treat as debris.
-			logger.Warn("claudetui: discovery: status file missing explicit identity fields, cleaning up",
+			logger.Warn("agenttui: discovery: status file missing explicit identity fields, cleaning up",
 				"status", statusPath, "seed", sf.Seed)
 			removeStaleFiles(sockPath, statusPath)
 			cleaned++
@@ -244,7 +244,7 @@ func ScanRunDir(runDir string, logger *slog.Logger, skipLive func(repoID, branch
 			continue
 		}
 		if !PidAlive(sf.Pid) {
-			logger.Info("claudetui: discovery: dead pid, cleaning up stale ptyhost files",
+			logger.Info("agenttui: discovery: dead pid, cleaning up stale ptyhost files",
 				"repo", repoID, "branch", branchID, "tab", tabID, "pid", sf.Pid)
 			removeStaleFiles(sockPath, statusPath)
 			cleaned++
@@ -253,7 +253,7 @@ func ScanRunDir(runDir string, logger *slog.Logger, skipLive func(repoID, branch
 
 		conn, derr := net.DialTimeout("unix", sockPath, scanRunDirDialTimeout)
 		if derr != nil {
-			logger.Info("claudetui: discovery: socket unreachable, cleaning up stale ptyhost files",
+			logger.Info("agenttui: discovery: socket unreachable, cleaning up stale ptyhost files",
 				"repo", repoID, "branch", branchID, "tab", tabID, "err", derr)
 			removeStaleFiles(sockPath, statusPath)
 			cleaned++
@@ -262,7 +262,7 @@ func ScanRunDir(runDir string, logger *slog.Logger, skipLive func(repoID, branch
 		hello, herr := SendHello(conn)
 		_ = conn.Close()
 		if herr != nil {
-			logger.Info("claudetui: discovery: HELLO failed, cleaning up stale ptyhost files",
+			logger.Info("agenttui: discovery: HELLO failed, cleaning up stale ptyhost files",
 				"repo", repoID, "branch", branchID, "tab", tabID, "err", herr)
 			removeStaleFiles(sockPath, statusPath)
 			cleaned++

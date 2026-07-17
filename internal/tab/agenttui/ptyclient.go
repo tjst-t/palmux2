@@ -91,7 +91,7 @@ type PtyHostLaunchFunc func(ctx context.Context, req PtyHostLaunchRequest) error
 // connections.
 func DefaultLaunchPtyHost(ctx context.Context, req PtyHostLaunchRequest) error {
 	if req.PalmuxBin == "" {
-		return fmt.Errorf("claudetui: ptyhost launch: PalmuxBin is empty")
+		return fmt.Errorf("agenttui: ptyhost launch: PalmuxBin is empty")
 	}
 	args := []string{"--socket", req.SocketPath, "--status", req.StatusPath}
 	if req.Seed != "" {
@@ -130,7 +130,7 @@ func DefaultLaunchPtyHost(ctx context.Context, req PtyHostLaunchRequest) error {
 		Seed:           req.Seed,
 		Args:           args,
 	}); err != nil {
-		return fmt.Errorf("claudetui: ptyhost launch: %w", err)
+		return fmt.Errorf("agenttui: ptyhost launch: %w", err)
 	}
 	return WaitForSocket(ctx, req.SocketPath, PtyHostDialTimeout, nil)
 }
@@ -170,7 +170,7 @@ func InProcessLaunchPtyHost(ctx context.Context, req PtyHostLaunchRequest) error
 		TabID:      req.TabID,
 	})
 	if err != nil {
-		return fmt.Errorf("claudetui: in-process ptyhost: %w", err)
+		return fmt.Errorf("agenttui: in-process ptyhost: %w", err)
 	}
 	// Buffered so the goroutine's send never blocks even after this function
 	// has long since returned on the success path (Run() only returns once
@@ -216,7 +216,7 @@ func WaitForSocket(ctx context.Context, path string, timeout time.Duration, earl
 				return nil
 			}
 			if err != nil {
-				return fmt.Errorf("claudetui: ptyhost exited before listening: %w", err)
+				return fmt.Errorf("agenttui: ptyhost exited before listening: %w", err)
 			}
 			lastErr = fmt.Errorf("ptyhost exited before listening (no error)")
 			continue
@@ -230,7 +230,7 @@ func WaitForSocket(ctx context.Context, path string, timeout time.Duration, earl
 		lastErr = err
 		time.Sleep(ptyHostDialRetryInterval)
 	}
-	return fmt.Errorf("claudetui: ptyhost socket %s not accepting connections after %v: %w", path, timeout, lastErr)
+	return fmt.Errorf("agenttui: ptyhost socket %s not accepting connections after %v: %w", path, timeout, lastErr)
 }
 
 // ProbeExisting reports whether a ptyhost is ALREADY listening at path — a
@@ -266,7 +266,7 @@ func DialFresh(ctx context.Context, path string, timeout time.Duration) (net.Con
 		lastErr = err
 		time.Sleep(ptyHostDialRetryInterval)
 	}
-	return nil, fmt.Errorf("claudetui: dial ptyhost socket %s: %w", path, lastErr)
+	return nil, fmt.Errorf("agenttui: dial ptyhost socket %s: %w", path, lastErr)
 }
 
 // SendHello writes a HELLO frame and reads the reply.
@@ -274,18 +274,18 @@ func SendHello(conn net.Conn) (ptyhost.HelloPayload, error) {
 	if err := ptyhost.WriteFrame(conn, ptyhost.MsgHello, ptyhost.EncodeHello(ptyhost.HelloPayload{
 		ProtocolVersion: ptyhost.ProtocolVersion,
 	})); err != nil {
-		return ptyhost.HelloPayload{}, fmt.Errorf("claudetui: write HELLO: %w", err)
+		return ptyhost.HelloPayload{}, fmt.Errorf("agenttui: write HELLO: %w", err)
 	}
 	t, payload, err := ptyhost.ReadFrame(conn)
 	if err != nil {
-		return ptyhost.HelloPayload{}, fmt.Errorf("claudetui: read HELLO reply: %w", err)
+		return ptyhost.HelloPayload{}, fmt.Errorf("agenttui: read HELLO reply: %w", err)
 	}
 	if t != ptyhost.MsgHello {
-		return ptyhost.HelloPayload{}, fmt.Errorf("claudetui: expected HELLO reply, got %v", t)
+		return ptyhost.HelloPayload{}, fmt.Errorf("agenttui: expected HELLO reply, got %v", t)
 	}
 	hello, err := ptyhost.DecodeHello(payload)
 	if err != nil {
-		return ptyhost.HelloPayload{}, fmt.Errorf("claudetui: decode HELLO reply: %w", err)
+		return ptyhost.HelloPayload{}, fmt.Errorf("agenttui: decode HELLO reply: %w", err)
 	}
 	return hello, nil
 }
@@ -295,18 +295,18 @@ func SendHello(conn net.Conn) (ptyhost.HelloPayload, error) {
 // retained" (see ptyhost.EncodeAttach).
 func SendAttach(conn net.Conn, offset int64) ([]byte, error) {
 	if err := ptyhost.WriteFrame(conn, ptyhost.MsgAttach, ptyhost.EncodeAttach(offset)); err != nil {
-		return nil, fmt.Errorf("claudetui: write ATTACH: %w", err)
+		return nil, fmt.Errorf("agenttui: write ATTACH: %w", err)
 	}
 	t, payload, err := ptyhost.ReadFrame(conn)
 	if err != nil {
-		return nil, fmt.Errorf("claudetui: read ATTACH reply: %w", err)
+		return nil, fmt.Errorf("agenttui: read ATTACH reply: %w", err)
 	}
 	if t != ptyhost.MsgData {
-		return nil, fmt.Errorf("claudetui: expected DATA reply to ATTACH, got %v", t)
+		return nil, fmt.Errorf("agenttui: expected DATA reply to ATTACH, got %v", t)
 	}
 	_, data, err := ptyhost.DecodeData(payload)
 	if err != nil {
-		return nil, fmt.Errorf("claudetui: decode ATTACH replay: %w", err)
+		return nil, fmt.Errorf("agenttui: decode ATTACH replay: %w", err)
 	}
 	// DecodeData aliases payload; copy since the caller may retain this
 	// beyond the read buffer's lifetime.
