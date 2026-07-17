@@ -1,9 +1,9 @@
 {
   "task": "AC-S3f2658-1-3",
   "host": "dev.tjstkm.net",
-  "launcherUnit": "s3f2658-survtest-djwbn4u2y4xy.service",
-  "childPid": 2147292,
-  "ptyhostPid": 2147284,
+  "launcherUnit": "s3f2658-survtest-dk0smulgafh8.service",
+  "childPid": 1583069,
+  "ptyhostPid": 1583046,
   "survivalA": {
     "pass": true,
     "ringGrewAfterEvent": true,
@@ -12,13 +12,13 @@
   },
   "survivalB": {
     "pass": true,
-    "launcherMainPidKilled": 2147297,
+    "launcherMainPidKilled": 1583184,
     "ringTotalBefore": 72,
     "ringTotalAfter": 134,
     "ringGrewAfterEvent": true
   },
   "finalStatusAlive": true,
   "verdict": "SURVIVAL_PASS x2",
-  "startedAt": "2026-07-12T04:52:04.034885843Z",
-  "finishedAt": "2026-07-12T04:52:06.17801021Z"
+  "startedAt": "2026-07-17T11:01:40.440374938Z",
+  "finishedAt": "2026-07-17T11:01:42.58787888Z"
 }

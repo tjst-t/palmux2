@@ -1,16 +1,18 @@
 {
   "task": "AC-S3f2658-4-1/AC-S3f2658-4-2",
-  "startedAt": "2026-07-12T03:58:53.303145359Z",
+  "startedAt": "2026-07-17T11:02:03.41755238Z",
   "preExistingContainers": [
+    "palmux-nix-builder",
     "tjst-t-ansible-dev-server-fe86-ansible-dev-server-f132-58975117",
-    "tjst-t-blog-38f8-blog-6d6a-6d31c07b"
+    "tjst-t-blog-38f8-blog-6d6a-6d31c07b",
+    "tjst-t-dlrelay-a161-dlrelay-3b87-ef808bdb"
   ],
-  "throwawayInstance": "s3f2658-4-survtest-djwaif1kc3pw",
+  "throwawayInstance": "s3f2658-4-survtest-dk0sn55xj3ka",
   "wrapperArgv": [
     "/usr/bin/incus",
     "exec",
     "-t",
-    "s3f2658-4-survtest-djwaif1kc3pw",
+    "s3f2658-4-survtest-dk0sn55xj3ka",
     "--user",
     "1000",
     "--group",
@@ -40,21 +42,23 @@
     "--",
     "/bin/bash",
     "-c",
-    "i=0; while true; do i=$((i+1)); echo \"s3f2658_4_marker_djwaikunm7xz counter=$i\"; sleep 0.2; done"
+    "i=0; while true; do i=$((i+1)); echo \"s3f2658_4_marker_dk0sn8jeb14y counter=$i\"; sleep 0.2; done"
   ],
-  "ptyhostHeldWrapperPid": 1377693,
+  "ptyhostHeldWrapperPid": 1591561,
   "containerPidBeforeReconnect": 287,
-  "ptyhostHeldWrapperPidAfter": 1377693,
+  "ptyhostHeldWrapperPidAfter": 1591561,
   "containerPidAfterReconnect": 287,
   "ringGrewAcrossReconnect": true,
   "ac41Pass": true,
   "containerAliveAfterPtyhostShutdownAlone": false,
   "ac42Pass": true,
   "postContainers": [
+    "palmux-nix-builder",
     "tjst-t-ansible-dev-server-fe86-ansible-dev-server-f132-58975117",
-    "tjst-t-blog-38f8-blog-6d6a-6d31c07b"
+    "tjst-t-blog-38f8-blog-6d6a-6d31c07b",
+    "tjst-t-dlrelay-a161-dlrelay-3b87-ef808bdb"
   ],
   "existingContainersUntouched": true,
   "verdict": "PASS",
-  "finishedAt": "2026-07-12T03:59:14.89665623Z"
+  "finishedAt": "2026-07-17T11:02:19.444599596Z"
 }

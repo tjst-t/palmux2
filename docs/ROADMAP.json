@@ -12454,6 +12454,7 @@
       "milestone": true,
       "status": "pending",
       "detail_level": "detailed",
+      "note": "[S0e8afb-4 完了時点のノート] S0e8afb-1〜4 の全 Story が done (AC 全て pass)。マージ設計の P1(mechanical adopt)〜P5(orphan-GC E2E) を全フェーズ実施し、no-halt-agent (S3f2658+S862203) の ptyhost restart-survival と maultiagent の multi-agent Adapter 抽出を、両者の能力を落とさず統合した。S0e8afb-4 で実 dev 箱・実 palmux2・実 claude・実 kill-9 クラッシュ・実 incus コンテナを用いた E2E で restart-survival と orphan-GC (in-container reap 含む) を証明済み (docs/sprint-logs/S0e8afb/verification-S0e8afb-4.md)。この Sprint 冒頭の note と ROADMAP 全体の scope note の通り、codex/opencode の registry 登録・FE 露出および config.toml [agents.*] surface は意図的に次 Sprint (S2b5691) 送り — genericAgentMgrs は本番で常に空のまま (S0e8afb-3 Deviation 1、本 Story でも変わらず)。Sprint 全体としての milestone status (pending→done 等への rollup) はコーディネータ判断に委ねる (本ノートは Story 実装者からの完了報告であり、Sprint 状態の確定ではない)。",
       "stories": {
         "S0e8afb-1": {
           "title": "開発者として、ptyhost/agenttui のrenameとADR文書をmainからそのまま採用したい。なぜなら、これらはmaultiagentに無い純追加であり、生merge衝突が起きない安全な最初のステップだから (設計メモ P1: mechanical adopt)。",
@@ -12579,36 +12580,39 @@
         },
         "S0e8afb-4": {
           "title": "運用者として、palmux2の再起動(self-update/systemctl restart/クラッシュ)を跨いでもgenericエージェントタブが生存/再接続することを確認したい。なぜなら、これがmaultiagent統合の中核価値(no-halt-agentの多エージェント対応)だから (設計メモ P4/P5)。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S0e8afb-4-1",
               "description": "genericエージェントタブ(またはclaudeタブ)でspawn→systemctl --user restart palmux2 (or kill+relaunch)→subprocess生存+タブ再adopt(画面継続)がE2Eで確認できる",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S0e8afb-4-2",
               "description": "claudeでの既存restart-survival回帰確認 (既存のno-halt-agent E2Eが引き続きpass)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S0e8afb-4-3",
               "description": "palmux2 down中にタブ削除→restart→orphan ptyhost (in-container proc含む) がKillPattern経由でreapされることを確認",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S0e8afb-4-1": {
               "title": "P4: restart-survival E2E (dev箱またはtest VMで実施、incusコンテナchurnに注意)",
-              "status": "pending"
+              "status": "done",
+              "note": "実 dev 箱 (dev.tjstkm.net、incus/qemu 完備の実機) 上、`make serve INSTANCE=s0e8afb4` の隔離 dev instance (ホスト本番 palmux2 とは別 portman 名・tmux-prefix _pmx_s0e8afb4_) で実施。genericエージェントタブは本 repo に config.toml [agents.*] surface が無く (S0e8afb-3 Deviation 1 のまま) 未だ非到達なので、タスク説明の scope note 通り claude タブ (tui mode) で代替 — agenttui/ptyhost/AgentKind/KillPattern の機構は generic も claude も同一。実クローズドループ: ブラウザ(Playwright headless)で claude:claude タブを tui mode で spawn → 実マーカー付きターンで応答させる → ホスト側 palmux2 プロセスを kill -9 (グレースフルでないクラッシュ模擬) → ptyhost (pid 1629553) と held claude (pid 1629585) が生存していることを OS pid で確認 → `make serve INSTANCE=s0e8afb4` で新 palmux2 プロセスを起動 → ログで `agenttui: attached to surviving ptyhost ... pid=1629585 reconnected=true` `agenttui: discovery: re-adopted surviving ptyhost ... pid=1629585` を確認 (pid 完全一致 = evict 無し) → ブラウザで同じ URL に再接続し、ターミナル画面が turn1 のマーカー付きで継続表示されている (真っさらな新規セッションでない) ことをスクリーンショットで確認 → 新しいターン (『直前のメッセージで頼んだ単語は何か』) を送り、`CONTEXT_CHECK:PALMUX_S0E8AFB4_TURN1_...` の正しい応答で会話コンテキストが保持されていることを確認。詳細は docs/sprint-logs/S0e8afb/verification-S0e8afb-4.md 参照。"
             },
             "S0e8afb-4-2": {
               "title": "P5: orphan-GC E2E",
-              "status": "pending"
+              "status": "done",
+              "note": "host runtime と incus-container runtime の両方で実施。(a) host: gwq で作った linked worktree に claude tui タブを spawn (ptyhost pid + held claude pid 記録) → palmux2 を kill -9 → worktree を palmux2 停止中に `gwq remove` で削除 (= CloseBranch を経由しないタブ削除の模擬、クラッシュ/デプロイの隙間を突く) → palmux2 再起動 → 起動時 discovery が一旦 re-adopt (adopted=2) → 直後の 10s tick の gcTuiOrphans が isLive=false (store にブランチが存在しない) と判定し `agenttui: orphan gc: shut down unreferenced ptyhost` を発火 → OS pid で ptyhost/claude 双方が実際に消滅したことを確認 (同時に、まだ open な別ブランチの ptyhost/claude は無傷で生存していることも確認し、GC が生きているものを巻き込んでいないことを証明)。(b) incus-container: 同じ手順を incus runtime の workspace で実施し、host 側 ptyhost wrapper の死亡に加えて `incus exec <container> -- pgrep -af claude` で**コンテナ内**の claude プロセス自体が消えたことを確認 (KillPattern 経由の reapContainerClaude → runtime.ContainerProcessKiller.KillContainerProcesses が実際に効いていることの直接証拠、コンテナ自体は破棄されず RUNNING のまま=プロセスだけが reap された)。さらに既存の `PALMUX_REALINCUS_SMOKE=1 TestRealIncus_InContainerProcessSurvivesRestartAndIsReaped` (S3f2658-4 由来) をこの merge 後のコードで再実行し PASS を再確認 (AC-S3f2658-4-1/4-2 相当のロジックが no-halt-agent×agenttui merge を経ても崩れていないことの regression 証跡)。副次的発見: `gwq remove` で palmux2 停止中に worktree を消すと、sync_worktree の『removed worktree 検出』は起動時の in-memory 差分比較 (前回状態 vs 現在の git worktree list) にのみ基づくため、停止中に消えた worktree はそもそも起動時の in-memory 状態に一度も現れず、CloseBranch (incus コンテナ破棄を含む) が一度も呼ばれない — ptyhost/claude プロセスの reap (本 Story の対象、isLive 直接照会ベース) は正しく機能するが、incus **コンテナ自体**は迷子になり得る (今回は手動 `incus delete --force` で後始末)。これは S0e8afb の scope 外 (ptyhost 層ではなく S8478ca 由来のコンテナライフサイクル層の話) の pre-existing gap であり本 Story の AC は満たしているが、正直に記録。詳細は docs/sprint-logs/S0e8afb/verification-S0e8afb-4.md 参照。"
             },
             "S0e8afb-4-3": {
               "title": "claude回帰確認",
-              "status": "pending"
+              "status": "done",
+              "note": "PALMUX_SURVIVAL_SMOKE=1 で internal/ptyhost (TestLaunch_RealHost_DetachesFromTestProcess / TestLaunch_RealSystemdRunFailure_FallsBackToSetsid / TestLaunch_NoZombieAfterLaunchedProcessExits / TestSurvival_RealSystemd_PtyhostOutlivesLauncherRestartAndKill9) と internal/tab/agenttui (TestParallelInstances_NeverClaimOrGCEachOther) を実行し全て PASS (実 systemd-run --user scope 経由のcgroup分離確認、実 systemd restart + kill -9 の両方で SURVIVAL_PASS x2)。PALMUX_REALINCUS_SMOKE=1 で TestRealIncus_InContainerProcessSurvivesRestartAndIsReaped も再実行し PASS (実 incus 経由の in-container 生存+reap、S3f2658-4 由来の regression guard)。`go build ./...` / `go vet ./...` clean、`go test ./... -count=1` で全 28 パッケージ green (frontend/node_modules 由来の無関係な [no test files] エントリを除く)。"
             }
           }
         }
