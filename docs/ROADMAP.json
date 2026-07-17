@@ -2,14 +2,14 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 74,
+    "sprints_done": 75,
     "sprints_total": 81,
-    "done": 74,
+    "done": 75,
     "total": 81,
-    "remaining": 7,
+    "remaining": 6,
     "in_progress": 0,
     "percent": 91,
-    "percentage": 91,
+    "percentage": 92,
     "current_sprint": "S31ad96"
   },
   "execution_order": [
@@ -12794,7 +12794,7 @@
       "title": "palmux2 ローカルソースビルド + アプライアンス更新フロー検証 (フェーズBの前提)",
       "description": "nix/packages/palmux2.nix は version/hash を差し替えても常にGitHub Releaseの既存バイナリをfetchurlするだけで、ローカルの作業ツリーソース(Go+frontend embed)からビルドする経路が存在しない。これはS61c9a6のqcow2実機検証で発覚した根本的な穴: NixOSモジュール変更(S61c9a6-1/2/3)は正しく検証できていたが、palmux2アプリ本体のソース変更(S61c9a6-4のフロントエンド変更)はqcow2ビルドに一切反映されていなかった(常に固定v0.15.0バイナリが埋め込まれるだけ)。フェーズB (S0e8afb, agenttui×ptyhostマージという大規模Goソース変更)の実機検証がこのままでは無意味になるため、フェーズBの前提として解消する。ユーザー確定のワークフロー: 「qcow2でインストール後に、最新にアップデートして確認する。ただしその最新はローカルにしかない」— つまり (1) 既存のリリース版qcow2をインストール、(2) オンアプライアンスflakeをローカルチェックアウトへのpath:入力に向けて nixos-rebuild switch で更新、という2段階のフローを実機で確立・検証する。",
       "milestone": true,
-      "status": "pending",
+      "status": "done",
       "detail_level": "detailed",
       "stories": {
         "S31ad96-1": {
@@ -12834,36 +12834,36 @@
         },
         "S31ad96-2": {
           "title": "運用者として、既にインストール済みのアプライアンス(リリース版)を、ローカルの未リリース変更に更新したい。なぜなら、リリースを経ずに開発中の変更を実機で検証したいから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S31ad96-2-1",
               "description": "既存のリリース版qcow2 (CLAUDE.md記載の手順でダウンロード)をインストール・起動した状態から、オンアプライアンスflakeをローカルチェックアウトへの path: 入力に向け直し、S31ad96-1のローカルビルドpackageを使うよう切り替える手順が確立・文書化されている",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S31ad96-2-2",
               "description": "実機で nixos-rebuild switch (または既存のGUI更新キック機構、S673a42) を使ってこの切り替えを実行し、更新後にローカルのみに存在する変更(例: S61c9a6-4のghヒント)が実際に反映されていることを確認する",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S31ad96-2-3",
               "description": "CLAUDE.mdの「palmuxOS アプライアンス (qcow2) をローカルで評価する」節に、この2段階フロー(リリース版インストール→ローカルソースへ更新)の手順を追記する",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S31ad96-2-1": {
               "title": "オンアプライアンスflakeのpath:入力切り替え手順を確立",
-              "status": "pending"
+              "status": "done"
             },
             "S31ad96-2-2": {
               "title": "実機検証: リリース版qcow2起動→ローカルソースへの更新→変更反映を確認",
-              "status": "pending"
+              "status": "done"
             },
             "S31ad96-2-3": {
               "title": "CLAUDE.mdに手順を追記",
-              "status": "pending"
+              "status": "done"
             }
           }
         }
@@ -13574,6 +13574,20 @@
       "description": "コメントは「エディタのスワップファイル等を除外」と主張するが実際はdist/node_modulesのbasenameのみ除外。frontend/.gitignoreの除外セットと不一致。現状実害なし。",
       "kind": "chore",
       "added_in": "S31ad96-1",
+      "status": "open"
+    },
+    {
+      "title": "v0.15.0タグのリリースqcow2にpalmux2 v0.14.13が埋め込まれている",
+      "description": "chore(nix): bump palmux2 default to v0.15.0 コミットがv0.15.0タグの後にmainへ着地したため、v0.15.0リリースのqcow2アセット自体は実際にはpalmux2 v0.14.13を埋め込んだまま。リリースパイプラインの版数整合性バグ。",
+      "kind": "bug",
+      "added_in": "S31ad96-2",
+      "status": "open"
+    },
+    {
+      "title": "examples/onappliance-flake/ と実際に出荷される nixos/appliance-flake/ の間にドリフト",
+      "description": "S31ad96-2の検証中に判明。ドキュメント上の食い違い、優先度低。",
+      "kind": "chore",
+      "added_in": "S31ad96-2",
       "status": "open"
     }
   ]
