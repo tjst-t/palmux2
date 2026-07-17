@@ -14,6 +14,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/tjst-t/palmux2/internal/ptyhost"
+	"github.com/tjst-t/palmux2/internal/tab/agenttui"
 )
 
 // This file covers Sprint S3f2658 Story 3's Go-level acceptance scenarios:
@@ -54,14 +55,14 @@ func startRawPtyHost(t *testing.T, runDir, bin, repoID, branchID, tabID string, 
 		defer close(done)
 		_ = srv.Run(context.Background())
 	}()
-	if err := waitForSocket(context.Background(), sockPath, 5*time.Second, nil); err != nil {
+	if err := agenttui.WaitForSocket(context.Background(), sockPath, 5*time.Second, nil); err != nil {
 		t.Fatalf("ptyhost %s never started listening: %v", seed, err)
 	}
 	conn, err := net.Dial("unix", sockPath)
 	if err != nil {
 		t.Fatalf("dial %s: %v", seed, err)
 	}
-	hello, herr := sendHello(conn)
+	hello, herr := agenttui.SendHello(conn)
 	_ = conn.Close()
 	if herr != nil {
 		t.Fatalf("HELLO to %s: %v", seed, herr)
@@ -73,7 +74,7 @@ func startRawPtyHost(t *testing.T, runDir, bin, repoID, branchID, tabID string, 
 // SHUTDOWN to a still-listening socket. Safe to call on an already-gone
 // socket (probeExisting just reports false).
 func shutdownRawPtyHost(sockPath string) {
-	if conn, ok := probeExisting(sockPath); ok {
+	if conn, ok := agenttui.ProbeExisting(sockPath); ok {
 		_ = ptyhost.WriteFrame(conn, ptyhost.MsgShutdown, ptyhost.EncodeShutdown(ptyhost.ShutdownPayload{GraceMillis: 200}))
 		_ = conn.Close()
 	}
@@ -286,7 +287,7 @@ func TestGCOrphans_ShutsDownUnreferenced_LeavesReferenced(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("orphan ptyhost Run() did not return after orphan GC SHUTDOWN")
 	}
-	if pidAlive(orphPid) {
+	if agenttui.PidAlive(orphPid) {
 		t.Errorf("orphan child pid %d still alive after orphan GC SHUTDOWN", orphPid)
 	}
 
@@ -322,14 +323,14 @@ func TestGCOrphans_ShutsDownUnreferenced_LeavesReferenced(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if !pidAlive(refPid) {
+	if !agenttui.PidAlive(refPid) {
 		t.Fatal("referenced ptyhost pid died unexpectedly across GC ticks")
 	}
-	conn, ok := probeExisting(refSock)
+	conn, ok := agenttui.ProbeExisting(refSock)
 	if !ok {
 		t.Fatal("referenced ptyhost socket no longer listening after several GC ticks")
 	}
-	hello, herr := sendHello(conn)
+	hello, herr := agenttui.SendHello(conn)
 	_ = conn.Close()
 	if herr != nil {
 		t.Fatalf("HELLO to referenced ptyhost after GC ticks: %v", herr)
@@ -400,14 +401,14 @@ func TestGCOrphans_IDContainingDoubleUnderscore_SurvivesGC(t *testing.T) {
 	}
 
 	// Positively confirm the ptyhost is still alive, still listening, same pid.
-	if !pidAlive(pid) {
+	if !agenttui.PidAlive(pid) {
 		t.Fatal("referenced ptyhost (repoID with \"__\") pid died across GC ticks")
 	}
-	conn, ok := probeExisting(sock)
+	conn, ok := agenttui.ProbeExisting(sock)
 	if !ok {
 		t.Fatal("referenced ptyhost (repoID with \"__\") socket no longer listening after GC ticks — it was wrongly reaped")
 	}
-	hello, herr := sendHello(conn)
+	hello, herr := agenttui.SendHello(conn)
 	_ = conn.Close()
 	if herr != nil {
 		t.Fatalf("HELLO to referenced ptyhost after GC ticks: %v", herr)

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/tjst-t/palmux2/internal/ptyhost"
+	"github.com/tjst-t/palmux2/internal/tab/agenttui"
 )
 
 // This file is the REAL-MACHINE half of AC-S3f2658-3-3 (instancePrefix
@@ -76,7 +77,7 @@ func launchRealIsolationHost(t *testing.T, ctx context.Context, realBin, fakeBin
 	sockPath := ptyhost.SocketPath(runDir, seed)
 	statusPath := ptyhost.StatusPath(runDir, seed)
 
-	req := PtyHostLaunchRequest{
+	req := agenttui.PtyHostLaunchRequest{
 		PalmuxBin:      realBin,
 		InstancePrefix: instancePrefix,
 		Seed:           seed,
@@ -88,7 +89,7 @@ func launchRealIsolationHost(t *testing.T, ctx context.Context, realBin, fakeBin
 		Argv:           []string{fakeBin},
 		RingSize:       1 << 16,
 	}
-	if err := defaultLaunchPtyHost(ctx, req); err != nil {
+	if err := agenttui.DefaultLaunchPtyHost(ctx, req); err != nil {
 		t.Fatalf("launch real ptyhost (prefix=%s seed=%s): %v", instancePrefix, seed, err)
 	}
 
@@ -96,7 +97,7 @@ func launchRealIsolationHost(t *testing.T, ctx context.Context, realBin, fakeBin
 	if err != nil {
 		t.Fatalf("dial real ptyhost (prefix=%s): %v", instancePrefix, err)
 	}
-	hello, herr := sendHello(conn)
+	hello, herr := agenttui.SendHello(conn)
 	_ = conn.Close()
 	if herr != nil {
 		t.Fatalf("HELLO real ptyhost (prefix=%s): %v", instancePrefix, herr)
@@ -118,7 +119,7 @@ func isolationHostAlive(t *testing.T, h isolationHost) (alive bool, pid int) {
 		return false, 0
 	}
 	defer func() { _ = conn.Close() }()
-	hello, herr := sendHello(conn)
+	hello, herr := agenttui.SendHello(conn)
 	if herr != nil {
 		return false, 0
 	}
@@ -170,10 +171,10 @@ func reapAndAssertNoLeak(t *testing.T, launched *[]isolationHost, realBin, fakeC
 	const killWindow = 3 * time.Second
 	for _, h := range *launched {
 		deadline := time.Now().Add(graceWindow)
-		for pidAlive(h.pid) && time.Now().Before(deadline) {
+		for agenttui.PidAlive(h.pid) && time.Now().Before(deadline) {
 			time.Sleep(pollInterval)
 		}
-		if !pidAlive(h.pid) {
+		if !agenttui.PidAlive(h.pid) {
 			continue
 		}
 		t.Logf("ptyhost child pid %d (prefix=%s) still alive %s after graceful SHUTDOWN — force-killing as deterministic backstop [AC-S64c835-2-1]", h.pid, h.prefix, graceWindow)
@@ -181,10 +182,10 @@ func reapAndAssertNoLeak(t *testing.T, launched *[]isolationHost, realBin, fakeC
 			_ = proc.Signal(syscall.SIGKILL)
 		}
 		killDeadline := time.Now().Add(killWindow)
-		for pidAlive(h.pid) && time.Now().Before(killDeadline) {
+		for agenttui.PidAlive(h.pid) && time.Now().Before(killDeadline) {
 			time.Sleep(pollInterval)
 		}
-		if pidAlive(h.pid) {
+		if agenttui.PidAlive(h.pid) {
 			t.Errorf("[AC-S64c835-2-1] ptyhost child pid %d (prefix=%s) still alive after graceful SHUTDOWN + SIGKILL backstop — leaked process", h.pid, h.prefix)
 		}
 	}

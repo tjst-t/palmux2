@@ -17,6 +17,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/ptyhost"
 	"github.com/tjst-t/palmux2/internal/runtime"
 	"github.com/tjst-t/palmux2/internal/runtime/incus"
+	"github.com/tjst-t/palmux2/internal/tab/agenttui"
 )
 
 // This file is the REAL-INCUS half of Sprint S3f2658 Story 4
@@ -179,7 +180,7 @@ func TestRealIncus_InContainerProcessSurvivesRestartAndIsReaped(t *testing.T) {
 	statusPath := ptyhost.StatusPath(runDir, seed)
 	t.Cleanup(func() { _ = os.RemoveAll(runDir) })
 
-	req := PtyHostLaunchRequest{
+	req := agenttui.PtyHostLaunchRequest{
 		PalmuxBin:      realBin,
 		InstancePrefix: instancePrefix,
 		Seed:           seed,
@@ -193,7 +194,7 @@ func TestRealIncus_InContainerProcessSurvivesRestartAndIsReaped(t *testing.T) {
 		RingSize:       1 << 16,
 	}
 	ctx := context.Background()
-	if err := defaultLaunchPtyHost(ctx, req); err != nil {
+	if err := agenttui.DefaultLaunchPtyHost(ctx, req); err != nil {
 		t.Fatalf("[AC-S3f2658-4-1] escalate: real ptyhost launch (holding incus-exec wrapper) failed: %v", err)
 	}
 	t.Cleanup(func() {
@@ -207,7 +208,7 @@ func TestRealIncus_InContainerProcessSurvivesRestartAndIsReaped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("[AC-S3f2658-4-1] escalate: dial real ptyhost: %v", err)
 	}
-	hello, herr := sendHello(conn)
+	hello, herr := agenttui.SendHello(conn)
 	_ = conn.Close()
 	if herr != nil {
 		t.Fatalf("[AC-S3f2658-4-1] escalate: HELLO real ptyhost: %v", herr)
@@ -243,7 +244,7 @@ func TestRealIncus_InContainerProcessSurvivesRestartAndIsReaped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("[AC-S3f2658-4-1] escalate: reconnect to ptyhost after simulated restart: %v", err)
 	}
-	hello2, herr := sendHello(conn2)
+	hello2, herr := agenttui.SendHello(conn2)
 	_ = conn2.Close()
 	if herr != nil {
 		t.Fatalf("[AC-S3f2658-4-1] escalate: HELLO on reconnect: %v", herr)

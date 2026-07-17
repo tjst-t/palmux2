@@ -10,6 +10,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/notify"
 	"github.com/tjst-t/palmux2/internal/ptyhost"
 	"github.com/tjst-t/palmux2/internal/runtime"
+	"github.com/tjst-t/palmux2/internal/tab/agenttui"
 )
 
 // ManagerConfig holds configuration shared by all daemons in the Manager.
@@ -55,7 +56,7 @@ type ManagerConfig struct {
 	// to every Daemon this Manager creates — see DaemonConfig's fields of the
 	// same name for the full doc comment.
 	PalmuxBin      string
-	PtyHostLaunch  PtyHostLaunchFunc
+	PtyHostLaunch  agenttui.PtyHostLaunchFunc
 	RunDirOverride string
 	// InstancePrefix (S3f2658-3) is forwarded verbatim to every Daemon this
 	// Manager creates — see DaemonConfig.InstancePrefix. Empty (production)

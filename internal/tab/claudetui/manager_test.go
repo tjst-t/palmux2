@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/tjst-t/palmux2/internal/ptyhost"
+	"github.com/tjst-t/palmux2/internal/tab/agenttui"
 )
 
 // defaultTabID is the canonical tabID used across single-tab tests. Sadf90e
@@ -220,7 +221,7 @@ func TestManagerDetachAll(t *testing.T) {
 	// test never leaks processes (DetachAll deliberately does NOT kill them).
 	t.Cleanup(func() {
 		for _, h := range helds {
-			if conn, ok := probeExisting(h.sock); ok {
+			if conn, ok := agenttui.ProbeExisting(h.sock); ok {
 				_ = ptyhost.WriteFrame(conn, ptyhost.MsgShutdown, ptyhost.EncodeShutdown(ptyhost.ShutdownPayload{GraceMillis: 200}))
 				_ = conn.Close()
 			}
@@ -248,11 +249,11 @@ func TestManagerDetachAll(t *testing.T) {
 	// proving the held claude process is alive and a future palmux2 could
 	// reconnect to it.
 	for _, h := range helds {
-		conn, ok := probeExisting(h.sock)
+		conn, ok := agenttui.ProbeExisting(h.sock)
 		if !ok {
 			t.Fatalf("SURVIVAL FAIL: ptyhost socket %s no longer listening after DetachAll — the held process was killed, defeating restart survival", h.sock)
 		}
-		hello, herr := sendHello(conn)
+		hello, herr := agenttui.SendHello(conn)
 		_ = conn.Close()
 		if herr != nil {
 			t.Fatalf("SURVIVAL FAIL: HELLO to surviving ptyhost %s failed: %v", h.sock, herr)
