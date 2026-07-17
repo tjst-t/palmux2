@@ -13596,6 +13596,34 @@
       "kind": "chore",
       "added_in": "S31ad96-2",
       "status": "open"
+    },
+    {
+      "title": "agentRegistry.Get(KindClaude)のok破棄",
+      "description": "cmd/palmux/main.go:606, claudeAdapter, _ := agentRegistry.Get(agent.KindClaude) — 今はBuildRegistryが必ずclaudeを最初に登録するので安全だが、将来変更でnil Adapterがそのまま渡り、後段でnil pointer panicになりうる。okチェック+起動時エラーに直すべき。",
+      "kind": "chore",
+      "added_in": "S0e8afb-3",
+      "status": "open"
+    },
+    {
+      "title": "kind名にコロンを含む場合の誤ルーティング",
+      "description": "multiAgentTabHook.DeleteTabがstrings.IndexByte(tabID, ':')で所有kindを復元するが、BuildRegistry/IsReservedKindはkind名のコロンを拒否していない。低確率だがBuildRegistry側でコロンを拒否するバリデーションを足すべき。",
+      "kind": "chore",
+      "added_in": "S0e8afb-3",
+      "status": "open"
+    },
+    {
+      "title": "internal/tab/agenttab と internal/tab/claudeagent のロジック重複",
+      "description": "CanonicalTabID/CanonicaliseTabID、pickNextTabID、DisplayNameForTab、タブ追加/削除オーケストレーション、BranchTabsストアパターンがagenttabとclaudeagentで別々に実装されている(maultiagentからの移植時にそのまま持ち込んだ)。将来の共通バグ修正が片方にしか適用されないリスク。共有ヘルパーへの切り出しを検討。agenttui.SessionStore.SetBranchTabsがclaudeagent.Store版と違い空リストでmapエントリを削除しない、という意図的な差異(『delete freely』用)もあるので、単純な統合ではなく設計要検討。",
+      "kind": "chore",
+      "added_in": "S0e8afb-3",
+      "status": "open"
+    },
+    {
+      "title": "kindが丸ごと削除された場合、discovery/GCから永久に見えなくなる",
+      "description": "AgentKindフィルタ(Mode filterと同様)は、呼び出し元Managerとkindが一致しないstatus-fileエントリを恒久的にskipする。対応するManagerが存在しないkind(将来の設定削除/リネーム時)は、誰にもadopt/GCされず永久に残る。kind削除時のクリーンアップ機構を将来検討。",
+      "kind": "chore",
+      "added_in": "S0e8afb-3",
+      "status": "open"
     }
   ]
 }
