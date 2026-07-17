@@ -12488,45 +12488,47 @@
         },
         "S0e8afb-2": {
           "title": "開発者として、daemon.go の exec 経路を Adapter 呼び出しに置き換えたい。なぜなら、main の inline claude arg-builder を maultiagent の agent.Adapter.SpawnSpec(intent) に統合することで、ptyhost restart-survival と multi-agent Adapter の両方の能力を両立できるから (設計メモ P2: graft seam)。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S0e8afb-2-1",
               "description": "internal/tab/agenttui/daemon.go の spawnWithArgs が Adapter経由の spec.Argv/Env を launchAndAttach に渡すようになっている (creackpty直接呼び出しは破棄)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S0e8afb-2-2",
               "description": "notify URL / hook-bin の host-vs-container 解決 (main由来のロジック) が SpawnIntent.Hook 経由でAdapterに正しく渡っている",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S0e8afb-2-3",
               "description": "golden-argv 等価テスト (claudeのspec.Argv→ptyhost.Config.Argvがhost/in-container両方で既存と一致) が追加されgreen",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S0e8afb-2-4",
               "description": "daemon_test.go・reattach_deadlock_test.go・ptyhost_integration_test.go が全てgreen (P0リグレッションガード)",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S0e8afb-2-1": {
               "title": "P2: daemon.go graft seam実装 (設計メモの手順1-2通り)",
-              "status": "pending"
+              "status": "done"
             },
             "S0e8afb-2-2": {
               "title": "respawnLoop統合 (main の gateRespawn + maultiagent の immediateFailureBackoff)",
-              "status": "pending"
+              "status": "partial",
+              "note": "respawnLoop に main の gateRespawn (incus-regenerate 待ち) をそのまま維持し、resume-ID の取得を agent.Capabilities().Resume + SessionDiscoverer gate 経由にした(claude は両方 true なので挙動は byte-identical)。maultiagent の immediateFailureBackoff/StateFatal (即時クラッシュの指数バックオフ+諦め状態) は意図的に本 Story のスコープ外とした: (1) ROADMAP の AC-S0e8afb-2-1..4 のどれも要求していない、(2) daemon_test.go は StateFatal を知らず、導入すると既存テストの弱体化・大幅書き換えが必要になり『byte-behavior-identical for claude』という本 Story の目的を超える、(3) claude は実運用でほぼ即時クラッシュしないため今すぐ必要な保護ではない(バックオフが本当に効くのは将来の generic/codex アダプタ)。S0e8afb-3 (multiplicity) でクラッシュしやすい generic/codex アダプタを繋ぐ際に合わせて導入するのが妥当と判断。docs/sprint-logs/S0e8afb/verification-S0e8afb-2.md 参照。"
             },
             "S0e8afb-2-3": {
               "title": "reap経路をadapterのKillPatternに統合",
-              "status": "pending"
+              "status": "partial",
+              "note": "live-Daemon の reap 経路 (teardown / respawnLoop) は d.effectiveKillPattern() 経由で agent.SpawnSpec.KillPattern を使うよう統合済み (claude の場合 containerClaudeBin と byte-identical)。GCOrphans (live Daemon が無い、palmux2 再起動後の orphan 掃除) 経路は ptyhost.StatusFile に KillPattern フィールドが無くまだ読めないため、hardcoded containerClaudeBin フォールバックのまま (=挙動無変更)。StatusFile.KillPattern の追加は ROADMAP 上 AC-S0e8afb-3-1 に明示的にスコープされているため、そちらに委譲。"
             },
             "S0e8afb-2-4": {
               "title": "golden-argv等価テスト追加 + 既存P0テスト群のgreen確認",
-              "status": "pending"
+              "status": "done"
             }
           }
         },

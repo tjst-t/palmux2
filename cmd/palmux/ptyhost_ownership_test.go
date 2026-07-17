@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/tjst-t/palmux2/internal/ptyhost"
+	"github.com/tjst-t/palmux2/internal/tab/agenttui"
 	"github.com/tjst-t/palmux2/internal/tab/claudeagent"
-	"github.com/tjst-t/palmux2/internal/tab/claudetui"
 )
 
 // This file is the [AC-Sfeed64-3-2] regression test: it proves, with REAL
@@ -161,7 +161,7 @@ func (stubOwnershipBranchResolver) WorktreePath(string, string) (string, error) 
 // TestPtyOwnership_ModeFilter is [AC-Sfeed64-3-2]: a REAL ModePTY ptyhost
 // and a REAL ModePipe ptyhost sit side by side in the SAME run dir (the
 // shared-directory shape production uses). Running BOTH
-// claudetui.DiscoverAndRestore AND claudeagent.DiscoverAndRestore against
+// agenttui.DiscoverAndRestore AND claudeagent.DiscoverAndRestore against
 // that shared dir must result in EACH manager adopting ONLY its own-mode
 // entry — never the other's, and never both entries by both managers
 // (which is what the pre-fix code did, per the dogfood report this story
@@ -174,7 +174,7 @@ func (stubOwnershipBranchResolver) WorktreePath(string, string) (string, error) 
 // this test therefore also uses its own short os.MkdirTemp rather than
 // t.TempDir() for runDir specifically, for the same reason.)
 func TestPtyOwnership_ModeFilter(t *testing.T) {
-	fakeClaudeBin := buildOwnershipTestBin(t, filepath.Join("internal", "tab", "claudetui", "testdata", "fake_claude.go"), "fake_claude")
+	fakeClaudeBin := buildOwnershipTestBin(t, filepath.Join("internal", "tab", "agenttui", "testdata", "fake_claude.go"), "fake_claude")
 	fakeNDJSONBin := buildOwnershipTestBin(t, filepath.Join("internal", "ptyhost", "testdata", "fake_ndjson.go"), "fake_ndjson")
 
 	runDir, err := os.MkdirTemp("", "sfeed64-3-own")
@@ -203,7 +203,7 @@ func TestPtyOwnership_ModeFilter(t *testing.T) {
 		}
 	})
 
-	tuiMgr := claudetui.NewManager(claudetui.ManagerConfig{
+	tuiMgr := agenttui.NewManager(agenttui.ManagerConfig{
 		ClaudeBin:      fakeClaudeBin,
 		RingSize:       1 << 16,
 		RunDirOverride: runDir,
@@ -222,9 +222,9 @@ func TestPtyOwnership_ModeFilter(t *testing.T) {
 	// Run BOTH managers' startup discovery against the SAME shared run dir —
 	// this is the exact seam main.go's run() drives at boot (see
 	// runDiscoveryAsync in main.go).
-	tuiAdopted, tuiCleaned, err := claudetui.DiscoverAndRestore(ctx, tuiMgr, nil, nil)
+	tuiAdopted, tuiCleaned, err := agenttui.DiscoverAndRestore(ctx, tuiMgr, nil, nil)
 	if err != nil {
-		t.Fatalf("claudetui.DiscoverAndRestore: %v", err)
+		t.Fatalf("agenttui.DiscoverAndRestore: %v", err)
 	}
 	agentAdopted, agentCleaned, err := claudeagent.DiscoverAndRestore(ctx, agentMgr, nil)
 	if err != nil {
@@ -288,12 +288,12 @@ func TestPtyOwnership_ModeFilter(t *testing.T) {
 	}
 }
 
-// waitForOwnershipTuiRunning polls a claudetui.Daemon until CurrentStats
+// waitForOwnershipTuiRunning polls a agenttui.Daemon until CurrentStats
 // reports Alive (State == StateRunning) or the timeout elapses.
-func waitForOwnershipTuiRunning(t *testing.T, d *claudetui.Daemon, timeout time.Duration) {
+func waitForOwnershipTuiRunning(t *testing.T, d *agenttui.Daemon, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
-	var last claudetui.Stats
+	var last agenttui.Stats
 	for time.Now().Before(deadline) {
 		last = d.CurrentStats()
 		if last.Alive {

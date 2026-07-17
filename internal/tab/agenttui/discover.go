@@ -16,27 +16,30 @@ import (
 // This file implements the Manager-agnostic half of S3f2658-3 (discovery /
 // reconnect / orphan GC / INSTANCE separation) — see
 // docs/no-halt-agent-design.md §3. [ScanRunDir] is the shared on-disk scan
-// both of claudetui's Manager-coupled halves build on:
+// both of ptyhost_discovery.go's Manager-coupled halves build on:
 //
-//   - claudetui.DiscoverAndRestore: run ONCE at palmux2 startup. Every LIVE
+//   - DiscoverAndRestore: run ONCE at palmux2 startup. Every LIVE
 //     ptyhost found under a Manager's run directory is re-adopted into an
 //     "attach existing" Daemon (reusing Story 2's launchAndAttach survivor
 //     probe verbatim — no new spawn/attach code). Dead/unreachable entries
 //     are cleaned up from disk.
-//   - claudetui.Manager.GCOrphans: piggybacks the store's existing 10s
+//   - Manager.GCOrphans: piggybacks the store's existing 10s
 //     scanPorts loop. Every LIVE ptyhost whose (repoId, branchId, tabId) the
 //     caller's isLive callback does not recognize gets SHUTDOWN —
 //     tmux-zombie-kill parity.
 //
 // S0e8afb-1 (docs/agenttui-ptyhost-merge-design.md, P1): this file, plus
-// ptyclient.go, moved here verbatim from claudetui as the mechanical first
-// step of the agenttui/ptyhost merge — claudetui/daemon.go and manager.go
-// (and therefore Manager/Daemon themselves) have NOT moved yet, so
-// DiscoverAndRestore and GCOrphans — both irreducibly coupled to *Manager —
-// stayed behind in internal/tab/claudetui/ptyhost_discovery.go, calling back
-// into this package's exported [ScanRunDir]/[SendOrphanShutdown]/[PidAlive].
-// This split is expected to collapse back into one file once Manager/Daemon
-// themselves move to agenttui in a later Story.
+// ptyclient.go, moved here verbatim from the (then-separate) claudetui
+// package as the mechanical first step of the agenttui/ptyhost merge —
+// claudetui/daemon.go and manager.go (and therefore Manager/Daemon
+// themselves) had NOT moved yet at that point, so DiscoverAndRestore and
+// GCOrphans — both irreducibly coupled to *Manager — stayed behind in
+// internal/tab/claudetui/ptyhost_discovery.go, calling back into this
+// package's exported [ScanRunDir]/[SendOrphanShutdown]/[PidAlive].
+// S0e8afb-2 (P2 — graft seam) completed the move: Manager/Daemon now live in
+// THIS package too (see daemon.go/manager.go/ptyhost_discovery.go), so the
+// split collapsed as anticipated — ptyhost_discovery.go is an ordinary
+// same-package file now, kept separate only for readability.
 //
 // Both scanning halves recover a socket's owning (repoId, branchId, tabId)
 // from the EXPLICIT [ptyhost.StatusFile] RepoID/BranchID/TabID fields

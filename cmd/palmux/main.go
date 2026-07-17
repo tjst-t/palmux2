@@ -21,6 +21,7 @@ import (
 	"github.com/spf13/pflag"
 
 	palmux2 "github.com/tjst-t/palmux2"
+	"github.com/tjst-t/palmux2/internal/agent"
 	"github.com/tjst-t/palmux2/internal/apps"
 	"github.com/tjst-t/palmux2/internal/attachment"
 	"github.com/tjst-t/palmux2/internal/auth"
@@ -37,10 +38,10 @@ import (
 	"github.com/tjst-t/palmux2/internal/server"
 	"github.com/tjst-t/palmux2/internal/store"
 	"github.com/tjst-t/palmux2/internal/tab"
+	"github.com/tjst-t/palmux2/internal/tab/agenttui"
 	"github.com/tjst-t/palmux2/internal/tab/bash"
 	"github.com/tjst-t/palmux2/internal/tab/browser"
 	"github.com/tjst-t/palmux2/internal/tab/claudeagent"
-	"github.com/tjst-t/palmux2/internal/tab/claudetui"
 	"github.com/tjst-t/palmux2/internal/tab/files"
 	gittab "github.com/tjst-t/palmux2/internal/tab/git"
 	"github.com/tjst-t/palmux2/internal/tab/ports"
@@ -101,9 +102,11 @@ func resolveVersion() string {
 
 func main() {
 	// `palmux hook ...` is the Claude Code hook handler invoked per claude-tui
-	// subprocess (see internal/tab/claudetui/hooks.go). Dispatch it before any
-	// flag parsing or server bootstrap: it must be a fast, side-effect-free
-	// process that POSTs one notification and exits.
+	// subprocess (see internal/agent/claude.go — S0e8afb-2 moved the hook
+	// settings/env builder here, verbatim, from the pre-graft
+	// claudetui/hooks.go). Dispatch it before any flag parsing or server
+	// bootstrap: it must be a fast, side-effect-free process that POSTs one
+	// notification and exits.
 	if len(os.Args) > 1 && os.Args[1] == "hook" {
 		os.Exit(runHook(os.Args[2:]))
 	}
@@ -572,11 +575,20 @@ func run(rc resolved) error {
 	// The daemon spawn is lazy — the subprocess starts on first WS attach.
 	// Story 4: wire a SessionStore so session IDs are detected via fsnotify
 	// and persisted to claudetui-sessions.json across server restarts.
-	tuiStore, err := claudetui.NewSessionStore(configDir)
+	tuiStore, err := agenttui.NewSessionStore(configDir)
 	if err != nil {
 		return fmt.Errorf("claudetui session store: %w", err)
 	}
-	claudetuiMgr := claudetui.NewManager(claudetui.ManagerConfig{
+	// S0e8afb-2 graft: the claude-tui daemon's argv/env/hook assembly now
+	// lives behind agent.Adapter (internal/agent/claude.go) rather than
+	// inline in agenttui/daemon.go. claudeAdapter is explicitly constructed
+	// (rather than left to agenttui.NewManager's nil-Adapter default) so
+	// SetClaudeBin/SetClaudeArgs's deploy-hot-apply calls below
+	// (deployHotApplier) and this Manager share the SAME adapter instance —
+	// see ManagerConfig.Adapter's doc comment.
+	claudeAdapter := agent.NewClaudeAdapter(claudeBin, claudeArgs)
+	claudetuiMgr := agenttui.NewManager(agenttui.ManagerConfig{
+		Adapter:        claudeAdapter,
 		ClaudeBin:      claudeBin,
 		ClaudeArgs:     claudeArgs,
 		PermissionMode: settingsStore.Get().ClaudePermissionMode(), // global setting, default "auto"
@@ -603,7 +615,7 @@ func run(rc resolved) error {
 		// binary re-invoked as `<PalmuxBin> ptyhost ...`.
 		PalmuxBin: hookBinPath,
 	})
-	claudetuiProvider := claudetui.New(claudetuiMgr)
+	claudetuiProvider := agenttui.New(claudetuiMgr)
 	// Sadf90e: claudetui daemons live per-tab and are spawned lazily on the
 	// first WS attach. The Provider needs to look up the branch worktree path
 	// at attach time so the subprocess inherits the correct cmd.Dir. We pass
@@ -701,7 +713,7 @@ func run(rc resolved) error {
 	releaseDiscoveryBarrier := st.ArmDiscoveryBarrier()
 	runDiscoveryAsync(func() {
 		defer releaseDiscoveryBarrier()
-		if adopted, cleaned, derr := claudetui.DiscoverAndRestore(ctx, claudetuiMgr, storeWorktreeResolver{store: st}.BranchWorktreePath, slog.Default()); derr != nil {
+		if adopted, cleaned, derr := agenttui.DiscoverAndRestore(ctx, claudetuiMgr, storeWorktreeResolver{store: st}.BranchWorktreePath, slog.Default()); derr != nil {
 			slog.Warn("claudetui: startup ptyhost discovery failed", "err", derr)
 		} else if adopted > 0 || cleaned > 0 {
 			slog.Info("claudetui: startup ptyhost discovery", "adopted", adopted, "cleanedStale", cleaned)
@@ -1155,7 +1167,7 @@ func runDiscoveryAsync(fn func()) {
 	go fn()
 }
 
-// storeWorktreeResolver adapts *store.Store into claudetui.WorktreeResolver
+// storeWorktreeResolver adapts *store.Store into agenttui.WorktreeResolver
 // so the claudetui Provider can look up the cmd.Dir for a fresh daemon at
 // WS-attach time. Kept in main.go (the wiring layer) so claudetui doesn't
 // import internal/store.
@@ -1177,7 +1189,7 @@ func (r storeWorktreeResolver) BranchWorktreePath(repoID, branchID string) strin
 type deployHotApplier struct {
 	registry *incus.Registry
 	agentMgr *claudeagent.Manager
-	tuiMgr   *claudetui.Manager
+	tuiMgr   *agenttui.Manager
 }
 
 func (a deployHotApplier) SetCaddyAdmin(addr string) {
