@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tjst-t/palmux2/internal/agent"
 	"github.com/tjst-t/palmux2/internal/ptyhost"
 )
 
@@ -76,6 +77,23 @@ import (
 // no cleaned-count) any entry whose Mode is not one this Manager owns. This
 // is the ownership marker the S3f2658-3 GUARD-RAIL comment in claudeagent's
 // GCOrphans anticipated but did not yet apply to the on-disk scan.
+//
+// S0e8afb-3: the SAME class of bug recurs one layer down, once multiple
+// agenttui Managers of DIFFERENT [agent.Kind] (e.g. claude and generic) share
+// this SAME run dir — all still [ptyhost.ModePTY], so the Mode filter above
+// does not distinguish them. ScanRunDir now ALSO takes thisKind and checks
+// [ptyhost.StatusFile.AgentKind] immediately after the Mode check above —
+// still BEFORE any dial — skipping any entry whose kind does not match. This
+// mirrors the Sfeed64-3 fix exactly (ownership check before any dial, never
+// after), applied to kind instead of transport mode. See docs/
+// agenttui-ptyhost-merge-design.md's P3 risk #2, which calls this out by
+// name: "AgentKind filter 誤設定 → dual-manager eviction loop (Sfeed64-3 の
+// バグ)". A ptyhost written before this field existed has AgentKind=="",
+// treated as [agent.KindClaude] for back-compat (the only kind that ever
+// spawned an agenttui ptyhost before S0e8afb-3), so an in-place binary
+// upgrade's pre-existing claude ptyhosts are still correctly re-adopted by
+// the (also upgraded) claude Manager without requiring every surviving
+// ptyhost to be respawned.
 
 // DiscoveredHost is one LIVE ptyhost found by [ScanRunDir]: its identity
 // (read from the status file's explicit RepoID/BranchID/TabID fields) plus
@@ -84,6 +102,12 @@ type DiscoveredHost struct {
 	RepoID, BranchID, TabID string
 	SockPath, StatusPath    string
 	Pid                     int
+	// KillPattern (S0e8afb-3) is [ptyhost.StatusFile.KillPattern] echoed
+	// verbatim — the orphan-GC in-container reap pattern for THIS entry, used
+	// by GCOrphans (ptyhost_discovery.go) instead of a hardcoded fallback
+	// when non-empty. Empty for entries written before this field existed, or
+	// whose adapter declared no kill pattern.
+	KillPattern string
 }
 
 // PidAlive reports whether pid refers to a currently-running process, via
@@ -148,7 +172,13 @@ const scanRunDirDialTimeout = 2 * time.Second
 //
 // A missing runDir (nothing has ever been discovered/spawned under this
 // instancePrefix yet) is NOT an error — it returns an empty result.
-func ScanRunDir(runDir string, logger *slog.Logger, skipLive func(repoID, branchID, tabID string) bool) (live []DiscoveredHost, cleaned int, err error) {
+//
+// thisKind (S0e8afb-3) is the calling Manager's own [agent.Kind] (see
+// [Manager.Kind]) — every entry whose [ptyhost.StatusFile.AgentKind] does not
+// match (after the empty→claude back-compat default) is skipped BEFORE any
+// dial, exactly like the Mode filter above. Pass [agent.KindClaude] (or
+// simply "claude") for the historical single-kind callers/tests.
+func ScanRunDir(runDir string, thisKind agent.Kind, logger *slog.Logger, skipLive func(repoID, branchID, tabID string) bool) (live []DiscoveredHost, cleaned int, err error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -241,6 +271,21 @@ func ScanRunDir(runDir string, logger *slog.Logger, skipLive func(repoID, branch
 		if sf.Mode == ptyhost.ModePipe {
 			continue
 		}
+		// S0e8afb-3: AgentKind ownership filter, BEFORE any dial — same
+		// ordering discipline as the Sfeed64-3 Mode filter immediately above
+		// (see this file's doc comment): a per-kind Manager's discovery must
+		// never dial/adopt another kind-manager's ptyhost sharing this SAME
+		// run dir, or it risks evicting that manager's live connection
+		// (ptyhost.Server.replaceConn tolerates only one active connection at
+		// a time) — the identical dual-manager eviction-loop bug class,
+		// recurring one layer down (kind instead of transport mode).
+		effectiveKind := sf.AgentKind
+		if effectiveKind == "" {
+			effectiveKind = string(agent.KindClaude)
+		}
+		if effectiveKind != string(thisKind) {
+			continue
+		}
 		if skipLive != nil && skipLive(repoID, branchID, tabID) {
 			// Known-referenced — see the skipLive parameter doc comment.
 			// Left completely alone: no dial, no counting.
@@ -273,12 +318,13 @@ func ScanRunDir(runDir string, logger *slog.Logger, skipLive func(repoID, branch
 		}
 
 		live = append(live, DiscoveredHost{
-			RepoID:     repoID,
-			BranchID:   branchID,
-			TabID:      tabID,
-			SockPath:   sockPath,
-			StatusPath: statusPath,
-			Pid:        hello.Pid,
+			RepoID:      repoID,
+			BranchID:    branchID,
+			TabID:       tabID,
+			SockPath:    sockPath,
+			StatusPath:  statusPath,
+			Pid:         hello.Pid,
+			KillPattern: sf.KillPattern,
 		})
 	}
 	return live, cleaned, nil

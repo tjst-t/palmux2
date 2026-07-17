@@ -57,6 +57,13 @@ type PtyHostLaunchRequest struct {
 	RepoID   string
 	BranchID string
 	TabID    string
+	// AgentKind/KillPattern (S0e8afb-3) are the opaque per-kind ownership
+	// marker and orphan-GC in-container kill pattern, threaded verbatim into
+	// the ptyhost subcommand's --agent-kind/--kill-pattern flags (production)
+	// or ptyhost.Config (in-process test fallback) — see
+	// [ptyhost.Config.AgentKind]/[ptyhost.Config.KillPattern]'s doc comments.
+	AgentKind   string
+	KillPattern string
 	// SocketPath / StatusPath are where the ptyhost must listen / write its
 	// status file — precomputed by the caller (Daemon) so the "does a
 	// survivor already exist" dial-first check and the actual launch agree
@@ -111,6 +118,14 @@ func DefaultLaunchPtyHost(ctx context.Context, req PtyHostLaunchRequest) error {
 	if req.TabID != "" {
 		args = append(args, "--tab-id", req.TabID)
 	}
+	// S0e8afb-3: per-kind ownership marker + orphan-GC kill pattern, same
+	// "opaque, written verbatim" discipline as RepoID/BranchID/TabID above.
+	if req.AgentKind != "" {
+		args = append(args, "--agent-kind", req.AgentKind)
+	}
+	if req.KillPattern != "" {
+		args = append(args, "--kill-pattern", req.KillPattern)
+	}
 	if req.Cwd != "" {
 		args = append(args, "--cwd", req.Cwd)
 	}
@@ -158,16 +173,18 @@ var testPtyHostSeq atomic.Int64
 // child exits or a SHUTDOWN message arrives.
 func InProcessLaunchPtyHost(ctx context.Context, req PtyHostLaunchRequest) error {
 	srv, err := ptyhost.NewServer(ptyhost.Config{
-		Argv:       req.Argv,
-		Env:        req.Env,
-		Cwd:        req.Cwd,
-		SocketPath: req.SocketPath,
-		StatusPath: req.StatusPath,
-		RingSize:   req.RingSize,
-		Seed:       req.Seed,
-		RepoID:     req.RepoID,
-		BranchID:   req.BranchID,
-		TabID:      req.TabID,
+		Argv:        req.Argv,
+		Env:         req.Env,
+		Cwd:         req.Cwd,
+		SocketPath:  req.SocketPath,
+		StatusPath:  req.StatusPath,
+		RingSize:    req.RingSize,
+		Seed:        req.Seed,
+		RepoID:      req.RepoID,
+		BranchID:    req.BranchID,
+		TabID:       req.TabID,
+		AgentKind:   req.AgentKind,
+		KillPattern: req.KillPattern,
 	})
 	if err != nil {
 		return fmt.Errorf("agenttui: in-process ptyhost: %w", err)

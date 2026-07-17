@@ -1037,6 +1037,15 @@ func (d *Daemon) launchAndAttach(argv, env []string, cwd string) (conn net.Conn,
 		_ = probeConn.Close()
 	}
 
+	// S0e8afb-3: AgentKind/KillPattern are the per-kind ownership marker +
+	// orphan-GC kill pattern, written into the ptyhost status file so a
+	// PER-KIND Manager's discovery/GC (discover.go's ScanRunDir) never
+	// dials/adopts another kind's ptyhost sharing this same run dir — see
+	// ptyhost.Config.AgentKind's doc comment. d.killPattern was already set
+	// (under stateMu, by THIS same goroutine, immediately before the
+	// spawnWithArgs call that led here) — reading it here without re-taking
+	// the lock is safe: no other goroutine writes it, only spawnWithArgs
+	// does, and this is the same call chain.
 	req := PtyHostLaunchRequest{
 		PalmuxBin:      d.palmuxBin,
 		InstancePrefix: d.instancePrefix,
@@ -1044,6 +1053,8 @@ func (d *Daemon) launchAndAttach(argv, env []string, cwd string) (conn net.Conn,
 		RepoID:         d.repoID,
 		BranchID:       d.branchID,
 		TabID:          d.tabID,
+		AgentKind:      string(d.adapter.Kind()),
+		KillPattern:    d.killPattern,
 		SocketPath:     sockPath,
 		StatusPath:     statusPath,
 		Argv:           argv,

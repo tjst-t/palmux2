@@ -38,6 +38,7 @@ import (
 	"github.com/tjst-t/palmux2/internal/server"
 	"github.com/tjst-t/palmux2/internal/store"
 	"github.com/tjst-t/palmux2/internal/tab"
+	"github.com/tjst-t/palmux2/internal/tab/agenttab"
 	"github.com/tjst-t/palmux2/internal/tab/agenttui"
 	"github.com/tjst-t/palmux2/internal/tab/bash"
 	"github.com/tjst-t/palmux2/internal/tab/browser"
@@ -581,12 +582,38 @@ func run(rc resolved) error {
 	}
 	// S0e8afb-2 graft: the claude-tui daemon's argv/env/hook assembly now
 	// lives behind agent.Adapter (internal/agent/claude.go) rather than
-	// inline in agenttui/daemon.go. claudeAdapter is explicitly constructed
-	// (rather than left to agenttui.NewManager's nil-Adapter default) so
-	// SetClaudeBin/SetClaudeArgs's deploy-hot-apply calls below
-	// (deployHotApplier) and this Manager share the SAME adapter instance —
-	// see ManagerConfig.Adapter's doc comment.
-	claudeAdapter := agent.NewClaudeAdapter(claudeBin, claudeArgs)
+	// inline in agenttui/daemon.go.
+	//
+	// S0e8afb-3 (P3 — multiplicity + ownership): claudeAdapter is now
+	// resolved from a full agent.Registry (agent.BuildRegistry) instead of a
+	// bare agent.NewClaudeAdapter call, matching the design doc's "per-kind
+	// manager" shape — a loop below builds one agenttui.Manager +
+	// agenttab.Provider per NON-claude kind in the registry (see that loop's
+	// own doc comment). The `nil` agents argument here is deliberate: this
+	// repo has no config.toml `[agents.*]` surface yet (that TOML-parsing
+	// layer is a separate, not-yet-landed feature — internal/config's
+	// MasterConfig has no Agents field), so BuildRegistry always returns a
+	// registry containing ONLY "claude" today — the per-kind loop below is
+	// structurally complete but iterates zero times in production until a
+	// future Story adds that config surface. codex/opencode are NEVER
+	// registered by this call (BuildRegistry only ever constructs them for
+	// entries explicitly present in the agents map — see registry.go) — this
+	// Story's explicit scope boundary (S2b5691 wires codex/opencode next).
+	agentRegistry, err := agent.BuildRegistry(claudeBin, claudeArgs, nil)
+	if err != nil {
+		return fmt.Errorf("agent registry: %w", err)
+	}
+	claudeAdapter, _ := agentRegistry.Get(agent.KindClaude)
+	// S4d8b1c / S0e8afb-3: run the agent INSIDE the workspace's incus
+	// container when the runtime supports it (runtime.PTYCommander). Shared
+	// by claude's Manager AND every non-claude kind's Manager built by the
+	// per-kind loop below.
+	agentPTYRuntimeResolver := func(repoID, branchID string) runtime.PTYCommander {
+		if pc, ok := st.CurrentRuntime(repoID, branchID).(runtime.PTYCommander); ok {
+			return pc
+		}
+		return nil
+	}
 	claudetuiMgr := agenttui.NewManager(agenttui.ManagerConfig{
 		Adapter:        claudeAdapter,
 		ClaudeBin:      claudeBin,
@@ -603,12 +630,7 @@ func run(rc resolved) error {
 		// S4d8b1c: run claude INSIDE the workspace's incus container when the
 		// runtime supports it (runtime.PTYCommander). The bridge notify URL is
 		// used for the in-container hook (127.0.0.1 would be the container).
-		RuntimeResolver: func(repoID, branchID string) runtime.PTYCommander {
-			if pc, ok := st.CurrentRuntime(repoID, branchID).(runtime.PTYCommander); ok {
-				return pc
-			}
-			return nil
-		},
+		RuntimeResolver:      agentPTYRuntimeResolver,
 		NotifyURLInContainer: bridgeNotifyURL(addr, basePath),
 		// S3f2658-2: claude now survives a palmux2 restart via a detached
 		// `palmux ptyhost` process (ADR-0001/0002) — PalmuxBin is the same
@@ -624,11 +646,64 @@ func run(rc resolved) error {
 	claudetuiProvider.SetWorktreeResolver(storeWorktreeResolver{store: st})
 	registry.Register(claudetuiProvider)
 
-	// S009: wire the Claude tab as the per-branch multi-tab hook. The
-	// store delegates non-tmux multi-instance AddTab/RemoveTab through
-	// this so the bare server doesn't need to know about claudeagent
-	// internals.
-	st.SetMultiTabHook(claudeMultiTabHook{mgr: agentManager, registry: registry})
+	// S0e8afb-3 (P3 — multiplicity + ownership): one agenttui.Manager +
+	// VISIBLE agenttab.Provider per enabled, NON-claude agent kind in the
+	// registry (design §"P3", mirrors the maultiagent reference branch's
+	// Sdec0a7-2 wiring shape). Every such Manager shares the SAME
+	// tuiStore (SessionStore.BranchTabs is kind-namespaced — see
+	// agenttui/store.go — so different kinds' tab-id keys never collide) and
+	// gets its OWN [agent.Kind] via ManagerConfig.Adapter, which is what lets
+	// discover.go's AgentKind ownership filter (P3's core mechanism) tell
+	// this Manager's ptyhosts apart from claudetuiMgr's even though both
+	// share ptyhost.RunDir(instancePrefix) — see docs/
+	// agenttui-ptyhost-merge-design.md's P3 section and risk #2.
+	//
+	// codex/opencode intentionally remain unregistered THIS Story (grep this
+	// file: no agent.NewCodexAdapter/agent.NewOpencodeAdapter/KindCodex/
+	// KindOpencode call sites exist here) — agentRegistry.Kinds() only ever
+	// contains "claude" today (see agentRegistry's construction above), so
+	// this loop iterates zero times in production until a future config
+	// surface enables additional kinds. It is exercised directly by
+	// internal/tab/agenttui's own tests and by
+	// cmd/palmux/ptyhost_ownership_test.go's 2-kind discovery test
+	// (AC-S0e8afb-3-4), which construct Managers of two different kinds
+	// directly rather than through this (currently-empty) production path.
+	genericAgentMgrs := map[agent.Kind]*agenttui.Manager{}
+	genericAgentProviders := map[string]*agenttab.Provider{}
+	for _, kind := range agentRegistry.Kinds() {
+		if kind == agent.KindClaude {
+			continue
+		}
+		adapter, _ := agentRegistry.Get(kind)
+		mgr := agenttui.NewManager(agenttui.ManagerConfig{
+			Adapter:              adapter,
+			RingSize:             1 << 20,
+			ResumeOnDeath:        true,
+			Store:                tuiStore,
+			NotifyHub:            notifyHub,
+			RuntimeResolver:      agentPTYRuntimeResolver,
+			NotifyURL:            localNotifyURL(addr, basePath),
+			NotifyToken:          token,
+			HookBinPath:          hookBinPath,
+			NotifyURLInContainer: bridgeNotifyURL(addr, basePath),
+			PalmuxBin:            hookBinPath,
+		})
+		provider := agenttab.New(kind, adapter, mgr, tuiStore)
+		provider.SetWorktreeResolver(storeWorktreeResolver{store: st})
+		registry.Register(provider)
+		genericAgentMgrs[kind] = mgr
+		genericAgentProviders[string(kind)] = provider
+	}
+
+	// S009 / S0e8afb-3: wire the per-branch multi-tab hook as a dispatcher
+	// keyed by provider type: "claude" goes to claudeagent.Manager
+	// (unchanged since S009); every OTHER registered agent kind goes to its
+	// own agenttab.Provider (empty map in production today — see the loop
+	// above).
+	st.SetMultiTabHook(multiAgentTabHook{
+		claude:   claudeMultiTabHook{mgr: agentManager, registry: registry},
+		generics: genericAgentProviders,
+	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -723,11 +798,39 @@ func run(rc resolved) error {
 		} else if adopted > 0 || cleaned > 0 {
 			slog.Info("claudeagent: startup ptyhost discovery", "adopted", adopted, "cleanedStale", cleaned)
 		}
+		// S0e8afb-3: run startup discovery for every non-claude kind's
+		// Manager too (empty map in production today, see the registration
+		// loop above — a no-op until a future config surface enables
+		// additional kinds), completing the design doc's "main の boot-time
+		// discovery ... を各 kind-manager ごとに" instruction structurally.
+		// Each Manager's AgentKind ownership filter (discover.go) keeps it
+		// from touching claudetuiMgr's or any OTHER kind's ptyhosts sharing
+		// this same run dir, so running these sequentially after the two
+		// above is safe by the same "shared run dir, ownership filter first"
+		// reasoning documented in discover.go.
+		for kind, mgr := range genericAgentMgrs {
+			if adopted, cleaned, derr := agenttui.DiscoverAndRestore(ctx, mgr, storeWorktreeResolver{store: st}.BranchWorktreePath, slog.Default()); derr != nil {
+				slog.Warn("agenttui: startup ptyhost discovery failed", "kind", kind, "err", derr)
+			} else if adopted > 0 || cleaned > 0 {
+				slog.Info("agenttui: startup ptyhost discovery", "kind", kind, "adopted", adopted, "cleanedStale", cleaned)
+			}
+		}
 	})
 	// S3f2658-3 / S64c835-3: wire both orphan GCs onto the store's existing 10s
 	// scan loop (tmux-zombie-kill parity for ptyhosts whose tab/branch/worktree
 	// is gone). Must be set before st.Run(ctx) starts that loop. Their
 	// orphan-SHUTDOWN pass is gated on the discovery barrier armed above.
+	//
+	// S0e8afb-3 deviation (documented, not silent): store.TuiOrphanGC is a
+	// single-slot registration (Store.SetTuiOrphanGC overwrites, it does not
+	// accumulate) — generalizing it to fan out across N per-kind Managers is
+	// real scope (a slice/map field, discovery-barrier re-review, new store
+	// tests) that nothing in THIS Story's AC list requires, and production
+	// has ZERO live non-claude Managers today (genericAgentMgrs is always
+	// empty — see the registration loop above), so there is nothing to GC
+	// yet. Left for the Story that actually enables a live generic kind
+	// (config.toml `[agents.*]` wiring) to generalize alongside; recorded in
+	// ROADMAP.json / docs/sprint-logs/S0e8afb/verification-S0e8afb-3.md.
 	st.SetTuiOrphanGC(claudetuiMgr)
 	st.SetAgentOrphanGC(agentManager)
 
@@ -907,6 +1010,14 @@ func run(rc resolved) error {
 	}
 	if err := claudetuiMgr.DetachAll(shutdownCtx); err != nil {
 		slog.Warn("claudetui detach", "err", err)
+	}
+	// S0e8afb-3: same DetachAll (not Shutdown) discipline for every non-claude
+	// kind's Manager — empty map in production today, see the registration
+	// loop above.
+	for kind, mgr := range genericAgentMgrs {
+		if err := mgr.DetachAll(shutdownCtx); err != nil {
+			slog.Warn("agenttui detach", "kind", kind, "err", err)
+		}
 	}
 	// S012: stop the per-branch worktree watcher and release its
 	// fsnotify file descriptors before the process exits.
@@ -1147,6 +1258,59 @@ func (h claudeMultiTabHook) CreateTab(_ context.Context, repoID, branchID, provi
 
 func (h claudeMultiTabHook) DeleteTab(ctx context.Context, repoID, branchID, tabID string) error {
 	return h.mgr.RemoveTabForBranch(ctx, repoID, branchID, tabID)
+}
+
+// multiAgentTabHook (S0e8afb-3) generalizes claudeMultiTabHook into a
+// dispatcher keyed by provider type: "claude" is delegated to the unchanged
+// claudeMultiTabHook (agent-mode conversation tab, S009); every OTHER
+// registered agent kind is delegated to its own agenttab.Provider (generic
+// PTY-only tab list, one per kind — see the registration loop in run()).
+// store.MultiTabHook's interface is unchanged (no store API break); this is
+// purely a main.go wiring composite, mirroring the maultiagent reference
+// branch's identically-named type.
+type multiAgentTabHook struct {
+	claude   claudeMultiTabHook
+	generics map[string]*agenttab.Provider // keyed by kind string == provider Type()
+}
+
+func (h multiAgentTabHook) CreateTab(ctx context.Context, repoID, branchID, providerType string) (domain.Tab, error) {
+	if providerType == claudeagent.TabType {
+		return h.claude.CreateTab(ctx, repoID, branchID, providerType)
+	}
+	p, ok := h.generics[providerType]
+	if !ok {
+		return domain.Tab{}, fmt.Errorf("multiAgentTabHook: unsupported provider %q", providerType)
+	}
+	tabID, err := p.AddTabForBranch(repoID, branchID)
+	if err != nil {
+		return domain.Tab{}, err
+	}
+	return domain.Tab{
+		ID:        tabID,
+		Type:      providerType,
+		Name:      p.DisplayNameForTab(tabID),
+		Protected: false,
+		Multiple:  true,
+	}, nil
+}
+
+// DeleteTab is called with just a tabID (no providerType — see
+// store.Store.RemoveTab). Every tab id in this codebase is
+// "<kind>:<suffix>" (the "tab type = kind" invariant, e.g. "claude:claude"
+// or "generic:generic-2"), so the kind is recovered from the id's prefix.
+func (h multiAgentTabHook) DeleteTab(ctx context.Context, repoID, branchID, tabID string) error {
+	kind := tabID
+	if i := strings.IndexByte(tabID, ':'); i >= 0 {
+		kind = tabID[:i]
+	}
+	if kind == claudeagent.TabType {
+		return h.claude.DeleteTab(ctx, repoID, branchID, tabID)
+	}
+	p, ok := h.generics[kind]
+	if !ok {
+		return fmt.Errorf("multiAgentTabHook: unsupported provider %q (from tab id %q)", kind, tabID)
+	}
+	return p.RemoveTabForBranch(ctx, repoID, branchID, tabID)
 }
 
 // runDiscoveryAsync runs fn — the startup ptyhost-discovery pass (claude-tui

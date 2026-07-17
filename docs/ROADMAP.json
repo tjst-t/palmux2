@@ -12535,43 +12535,47 @@
         },
         "S0e8afb-3": {
           "title": "開発者として、per-kind manager (claude/generic) と AgentKind によるdiscovery/GC分離を実装したい。なぜなら、複数エージェント種別が同じrun dirを共有しても互いのptyhostを誤ってadopt/GCしないようにするため (設計メモ P3、ただしこのSprintではclaude/genericのみ、codex/opencodeのkindは次Sprintまで登録しない)。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S0e8afb-3-1",
               "description": "internal/ptyhost/server.go の Config/StatusFile に AgentKind/KillPattern が追加されている (opaque echo)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S0e8afb-3-2",
               "description": "discover.go の scanRunDir が既存の Mode==ModePipe skip に加え AgentKind mismatch skip も行う",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S0e8afb-3-3",
               "description": "cmd/palmux/main.go が agent.BuildRegistry + per-kind manager loop + agenttab登録を持つが、codex/opencodeアダプタのregistry登録は行っていない (internal/agent/codex.go 等のファイルは存在してもmain.goから呼ばれていないことを確認)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S0e8afb-3-4",
               "description": "2-kind discovery test (claude kindとgeneric kindの相互誤adoption無し) が追加されgreen",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S0e8afb-3-1": {
               "title": "P3: multiplicity + ownership実装",
-              "status": "pending"
+              "status": "done",
+              "note": "internal/ptyhost/server.go の Config/StatusFile に AgentKind/KillPattern を追加 (opaque echo、RepoID/Mode と同列)。discover.go の ScanRunDir に thisKind agent.Kind 引数を追加し、既存の Sfeed64-3 Mode==ModePipe skip の直後 (どのdialより前) に AgentKind ownership filter を追加 — 空 AgentKind (S0e8afb-3 以前の legacy status file) は agent.KindClaude として back-compat 扱い。GCOrphans は DiscoveredHost.KillPattern (status file 由来) を使うよう修正し、S0e8afb-2 で deferred だった『GCOrphans がまだ containerClaudeBin 固定』を解消 (killPatternOrFallback ヘルパー、空なら旧来の定数にフォールバック)。cmd/palmux/ptyhost.go に --agent-kind/--kill-pattern flag、agenttui/ptyclient.go の PtyHostLaunchRequest に同フィールドを追加し、daemon.go の launchAndAttach が d.adapter.Kind()/d.killPattern を積むよう配線。"
             },
             "S0e8afb-3-2": {
               "title": "internal/agent/codex.go, opencode.go 等の存在確認 + main.goでの未登録確認",
-              "status": "pending"
+              "status": "done",
+              "note": "internal/agent/codex.go, opencode.go は既に存在 (S0e8afb-2 で verbatim 採用済み)。cmd/palmux/main.go を grep しても agent.NewCodexAdapter/NewOpencodeAdapter/KindCodex/KindOpencode の呼び出しは無い (S0e8afb-2 の確認手法を踏襲)。main.go は agent.NewClaudeAdapter 直呼びから agent.BuildRegistry(claudeBin, claudeArgs, nil) に切替え、agentRegistry.Kinds() をループして claude 以外の kind ごとに agenttui.Manager + agenttab.Provider を配線する構造にした。ただし agents map は常に nil (この repo にはまだ config.toml `[agents.*]` の TOML surface が無い — internal/config.MasterConfig に Agents フィールドが無い。これは Sdec0a7-2 相当の別機能で本 Story の スコープ外) なので、このループは本番では 0 回反復する。internal/tab/agenttab パッケージは maultiagent から provider.go + 両テストファイルを verbatim 移植 (Limits() のみ、この repo の tab.SettingsView に汎用 MaxTabsPerBranch(kind) が無いため type-assertion フォールバックに調整 — コメントで明示)。agenttui.SessionStore に BranchTabs/SetBranchTabs/HasBranchTabs を additive で 追加 (ファイル名リネームはしていない、既存 claudetui-sessions.json のまま)。"
             },
             "S0e8afb-3-3": {
               "title": "2-kind discovery test追加",
-              "status": "pending"
+              "status": "done",
+              "note": "internal/tab/agenttui/agentkind_ownership_test.go を新規追加。TestAgentKindOwnership_DiscoveryDoesNotCrossAdopt が本題: 実 ptyhost.Server 2つ (どちらも ModePTY、AgentKind=claude/generic) を同一 run dir に立て、実 agenttui.Manager 2つ (Adapter kind が異なる) それぞれの DiscoverAndRestore を走らせ、互いの ptyhost を adopt/dial していないこと (adopted==1 かつ cleaned==0、pid不変=evict無し) を検証。TestAgentKindOwnership_EmptyAgentKindTreatedAsClaude で空AgentKind (アップグレード前の legacy ptyhost) が claude 側にのみ back-compat adopt されることも検証。"
             }
-          }
+          },
+          "note": "[S0e8afb-3 実装ノート] 設計メモの『main の boot-time discovery + GC wiring を各 kind-manager ごとに』は、discovery 部分 (DiscoverAndRestore) は per-kind ループで実装したが、GC 部分 (store.SetTuiOrphanGC への配線) は意図的にスコープ外とした。store.TuiOrphanGC は単一スロット 登録 (SetTuiOrphanGC は上書き、複数登録を蓄積しない) で、N per-kind Manager に汎化するには スライス化 + discovery-barrier の再検証 + 新規 store テストが要る実質的な作業だが、本 Story の AC は要求しておらず、かつ genericAgentMgrs は本番では常に空 (config.toml [agents.*] 未配線) なので GC すべき対象が今は存在しない。config.toml 経由で実際に generic kind を有効化する将来の Story で GC 汎化も合わせて行うのが妥当と判断 (S0e8afb-2 の Deviation 方針を踏襲)。docs/sprint-logs/S0e8afb/verification-S0e8afb-3.md 参照。"
         },
         "S0e8afb-4": {
           "title": "運用者として、palmux2の再起動(self-update/systemctl restart/クラッシュ)を跨いでもgenericエージェントタブが生存/再接続することを確認したい。なぜなら、これがmaultiagent統合の中核価値(no-halt-agentの多エージェント対応)だから (設計メモ P4/P5)。",

@@ -26,7 +26,8 @@ import (
 //
 //	palmux ptyhost --socket <path> --status <path> [--mode pty|pipe] [--cwd <dir>] \
 //	  [--env KEY=VALUE ...] [--ring-size <bytes>] [--seed <label>] \
-//	  [--repo-id <id>] [--branch-id <id>] [--tab-id <id>] -- <argv...>
+//	  [--repo-id <id>] [--branch-id <id>] [--tab-id <id>] \
+//	  [--agent-kind <kind>] [--kill-pattern <pattern>] -- <argv...>
 func runPtyHost(args []string) int {
 	fs := pflag.NewFlagSet("ptyhost", pflag.ContinueOnError)
 	socketPath := fs.String("socket", "", "unix socket path to serve the ptyhost protocol on (required)")
@@ -39,6 +40,8 @@ func runPtyHost(args []string) int {
 	repoID := fs.String("repo-id", "", "opaque workspace repo identity echoed verbatim into the status file for palmux2-side discovery/GC (S3f2658-3)")
 	branchID := fs.String("branch-id", "", "opaque workspace branch identity echoed verbatim into the status file for palmux2-side discovery/GC (S3f2658-3)")
 	tabID := fs.String("tab-id", "", "opaque tab identity echoed verbatim into the status file for palmux2-side discovery/GC (S3f2658-3)")
+	agentKind := fs.String("agent-kind", "", "opaque agent-kind identity echoed verbatim into the status file for palmux2-side per-kind discovery/GC (S0e8afb-3)")
+	killPattern := fs.String("kill-pattern", "", "opaque pkill-style pattern echoed verbatim into the status file for palmux2-side orphan-GC in-container reap (S0e8afb-3)")
 
 	if err := fs.Parse(args); err != nil {
 		if err == pflag.ErrHelp {
@@ -57,18 +60,20 @@ func runPtyHost(args []string) int {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	srv, err := ptyhost.NewServer(ptyhost.Config{
-		Argv:       argv,
-		Env:        []string(*envFlags),
-		Cwd:        *cwd,
-		Mode:       *mode,
-		SocketPath: *socketPath,
-		StatusPath: *statusPath,
-		RingSize:   *ringSize,
-		Seed:       *seed,
-		RepoID:     *repoID,
-		BranchID:   *branchID,
-		TabID:      *tabID,
-		Logger:     logger,
+		Argv:        argv,
+		Env:         []string(*envFlags),
+		Cwd:         *cwd,
+		Mode:        *mode,
+		SocketPath:  *socketPath,
+		StatusPath:  *statusPath,
+		RingSize:    *ringSize,
+		Seed:        *seed,
+		RepoID:      *repoID,
+		BranchID:    *branchID,
+		TabID:       *tabID,
+		AgentKind:   *agentKind,
+		KillPattern: *killPattern,
+		Logger:      logger,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "palmux ptyhost:", err)
