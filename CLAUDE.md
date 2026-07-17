@@ -145,6 +145,21 @@ palmuxOS (Sb14caa) は NixOS アプライアンスなので通常の `make serve
 
 この手順で実機検証済み (`docs/sprint-logs/S31ad96/verification-S31ad96-2.md`)。`nix/packages/palmux2-local.nix` 自体(S31ad96-1)への変更は不要 — 上記はすべて対象インスタンス上の一時的なファイル操作 (on-appliance flake の編集) であり、リポジトリの `flake.nix`/`nix/packages/` はこの用途のために変更不要 (overlay 経由の公開は上記の理由で機能しないため見送った)。
 
+### palmux2 の Go ソース変更を「実 NixOS アプライアンス」で素早く検証する (バイナリ差し替え、qcow2ビルド不要)
+
+**NixOS モジュール/パッケージング変更を伴わない、純粋な Go (backend/frontend embed) ソース変更**の実機検証には、qcow2 を作り直すより **`palmux-nixos-test.tjstkm.net` (= 192.168.1.44、実 Proxmox VM 上の永続的な NixOS アプライアンステスト機)** へのバイナリ差し替えの方が桁違いに速い。
+
+- このホストの `palmux2.service` は systemd drop-in (`/run/systemd/system/palmux2.service.d/override.conf`) で `ExecStart` が `/var/lib/palmux/palmux2-test serve --addr=127.0.0.1:7683` に上書き済み。
+- 手順:
+  1. `make build-linux` でこのリポジトリの作業ツリーから `bin/palmux-linux-amd64` をビルド
+  2. **既存バイナリをバックアップ** (共有ホストなので上書き前に必須): `ssh root@palmux-nixos-test.tjstkm.net 'cp /var/lib/palmux/palmux2-test /var/lib/palmux/palmux2-test.bak-$(date +%s)'`
+  3. `scp bin/palmux-linux-amd64 root@palmux-nixos-test.tjstkm.net:/var/lib/palmux/palmux2-test`
+  4. `ssh root@palmux-nixos-test.tjstkm.net systemctl restart palmux2`
+  5. `/var/lib/palmux/palmux2-test --version` で新バイナリが起動していることを確認。実 incus (`incus list`) も稼働中なので、コンテナ経由の挙動もここで確認できる
+  6. **検証が終わったら必ず元のバイナリに戻す** (手順2でバックアップしたファイルを `cp` で書き戻し、`systemctl restart palmux2`) — 他の用途にも使われる共有の永続ホストなので、自分の検証用ビルドを稼働させたまま放置しない
+- **NixOS モジュール変更 (`nixos/modules/*.nix`) の検証にはこの方法は使えない** (バイナリ差し替えだけで、`nixos-rebuild` を経ないため設定変更は反映されない) — その場合は上のqcow2ビルド手順、または `nixos-rebuild switch --flake` を直接このホストに対して実行する方法を使う。
+- 用途の使い分け: この手順 = Go ソースだけの素早い実機smoke。qcow2ローカル評価 = NixOSモジュール/パッケージング変更の検証。S31ad96-2のupdateフロー = 「リリース→ローカル更新」という遷移そのものの検証。
+
 ### autopilot / sprint auto でサブエージェントに実装を委譲するときのルール
 
 **コンパイル + unit test だけで「完了」とせず、必ず E2E 検証まで行う**。`make serve INSTANCE=dev` で立てた別ポートの独立インスタンスに対して Playwright (headless) で UI / WS / API 経路を叩いて確認する。詳細と「スキップが許される条件」は [docs/DESIGN_PRINCIPLES.json](docs/DESIGN_PRINCIPLES.json) の `forbidden` / 自律実行ルール (S028 で .md → .json に正典化) を参照。
