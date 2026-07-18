@@ -17,7 +17,6 @@ import { api } from '../lib/api'
 import type { Repository } from '../lib/api'
 import { usePalmuxStore } from '../stores/palmux-store'
 
-import { RuntimeChangeConfirm } from './runtime-change-confirm'
 import { RuntimeSelector } from './runtime-selector'
 import styles from './repo-picker.module.css'
 
@@ -41,10 +40,6 @@ interface Props {
    *  invokes this callback (typically opens RepoDeleteModal at the
    *  Drawer level so we don't need to mount it twice). */
   onRequestDelete?: (repoId: string, ghqPath: string) => void
-  /** S8478ca-5: when set, the runtime selector operates in "change"
-   *  mode for the identified open workspace (PATCH on change). */
-  activeRepoId?: string
-  activeBranchId?: string
 }
 
 type CloneState = 'idle' | 'cloning' | 'error'
@@ -82,7 +77,7 @@ function shortRepoLabel(url: string): string {
   return s
 }
 
-export function RepoPicker({ open, onClose, onRequestDelete, activeRepoId, activeBranchId }: Props) {
+export function RepoPicker({ open, onClose, onRequestDelete }: Props) {
   const reload = usePalmuxStore((s) => s.reloadAvailableRepos)
   const repos = usePalmuxStore((s) => s.availableRepos)
   const openRepo = usePalmuxStore((s) => s.openRepo)
@@ -97,12 +92,13 @@ export function RepoPicker({ open, onClose, onRequestDelete, activeRepoId, activ
   const [pending, setPending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [cloneState, setCloneState] = useState<CloneState>('idle')
-  // S8478ca-5: selected runtime kind (undefined = not yet chosen; defaults in RuntimeSelector)
+  // S8478ca-5: selected runtime kind for the repo about to be opened/cloned
+  // (undefined = not yet chosen; RuntimeSelector shows its own default —
+  // incus-container when available — and pick()/clone() below resolve the
+  // same effective default before applying it, so the UI's visible choice
+  // always matches what actually gets used).
   const [runtimeKind, setRuntimeKind] = useState<'host' | 'incus-container' | undefined>(undefined)
   const [runtimeError, setRuntimeError] = useState<string | null>(null)
-  const [runtimePending, setRuntimePending] = useState(false)
-  // Runtime change confirm: pending kind to confirm (non-null = modal open)
-  const [confirmRuntimeKind, setConfirmRuntimeKind] = useState<'host' | 'incus-container' | null>(null)
   const listRef = useRef<HTMLUListElement | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -157,11 +153,59 @@ export function RepoPicker({ open, onClose, onRequestDelete, activeRepoId, activ
     el?.scrollIntoView({ block: 'nearest' })
   }, [clampedActive])
 
+  // S8478ca-5 hotfix: resolve the same "incus if available, else host"
+  // default RuntimeSelector shows visually (effective = value ?? default),
+  // so a user who never touches the selector still gets the runtime the UI
+  // displayed as selected — not a silent fall-through to the server's own
+  // "host" default. Applied to the newly-opened repo's PRIMARY branch right
+  // after open/clone, before the user has had a chance to type anything in
+  // its terminal, so there is no "unsaved work" risk this PATCH could lose
+  // — PROVIDED the repo was genuinely not-yet-open before this call. Callers
+  // MUST pass `wasAlreadyOpen` computed from a pre-call snapshot: pasting a
+  // URL for an already-open repo (clone() has no "not open" filter the way
+  // browse mode's `filtered` list does) or a race with another device/tab
+  // opening the same repo first must NOT silently PATCH a live session's
+  // runtime out from under it — that's exactly the destructive,
+  // needs-confirmation case the (correctly-scoped, still-intact) Header
+  // runtime chip's own RuntimeChangeConfirm dialog exists for.
+  const applyChosenRuntime = async (repo: Repository, wasAlreadyOpen: boolean) => {
+    if (wasAlreadyOpen) return
+    const incusAvailable =
+      runtimeCaps?.kinds.find((k) => k.kind === 'incus-container')?.available ?? false
+    const effective = runtimeKind ?? (incusAvailable ? 'incus-container' : 'host')
+    const branch = repo.openBranches.find((b) => b.isPrimary) ?? repo.openBranches[0]
+    if (!branch) {
+      // e.g. a detached-HEAD worktree that buildBranchFromWorktree skips —
+      // openBranches can legitimately be empty right after open. Surface
+      // this rather than silently dropping the chosen runtime.
+      console.warn(
+        `palmux: opened ${repo.id} but found no branch to apply the chosen runtime (${effective}) to`,
+      )
+      return
+    }
+    try {
+      await patchWorkspaceRuntime(repo.id, branch.id, effective)
+    } catch (err) {
+      // Non-fatal: the repo is already open on whatever the server
+      // defaulted to (host). Don't block navigation, but don't pretend
+      // this didn't happen either — the modal is about to unmount, so
+      // `runtimeError`/the picker's own error box can't display this.
+      console.error(`palmux: failed to apply chosen runtime (${effective}) to ${repo.id}:`, err)
+    }
+  }
+
   const pick = async (id: string) => {
     setPending(id)
     setError(null)
     try {
+      // `repos` in this component's scope is availableRepos (not-yet-open
+      // candidates) — the actual open-repos list lives at the top-level
+      // store slice, so check that one for the pre-call snapshot.
+      const wasAlreadyOpen = usePalmuxStore
+        .getState()
+        .repos.some((r) => r.id === id)
       const repo = await openRepo(id)
+      await applyChosenRuntime(repo, wasAlreadyOpen)
       // hotfix: navigate the user to the freshly-opened repo so the
       // drawer focus + main-area both reflect their action. Without
       // this, the modal closes and the user is left wherever they
@@ -185,10 +229,16 @@ export function RepoPicker({ open, onClose, onRequestDelete, activeRepoId, activ
     setError(null)
 
     try {
+      // Snapshot BEFORE the clone call: a pasted URL can resolve to a repo
+      // that's already open (clone mode has no "not open" pre-filter the
+      // way browse mode's `filtered` list does), and we must not treat
+      // that as a fresh open eligible for a runtime-changing PATCH.
+      const preCloneRepos = usePalmuxStore.getState().repos
       const result = await api.post<{ repoId: string; ghqPath: string; fullPath: string }>(
         '/api/repos/clone',
         { url: filter.trim() },
       )
+      const wasAlreadyOpen = preCloneRepos.some((r) => r.id === result.repoId)
       // Auto-open the repo (it was already opened server-side, just reload).
       await reloadRepos()
       // hotfix: navigate to the cloned repo's primary branch claude tab
@@ -197,6 +247,7 @@ export function RepoPicker({ open, onClose, onRequestDelete, activeRepoId, activ
       const reloadedRepos = usePalmuxStore.getState().repos
       const repo = reloadedRepos.find((r) => r.id === result.repoId)
       if (repo) {
+        await applyChosenRuntime(repo, wasAlreadyOpen)
         const target = urlForRepo(repo)
         if (target) navigate(target)
       }
@@ -233,47 +284,17 @@ export function RepoPicker({ open, onClose, onRequestDelete, activeRepoId, activ
     }
   }
 
-  // S8478ca-5: fire PATCH to update the workspace runtime when user changes the selector
-  // in the context of an already-open workspace.
-  const applyRuntimeChange = async (kind: 'host' | 'incus-container') => {
-    if (!activeRepoId || !activeBranchId) {
-      // New-open flow: just update local state, no PATCH yet.
-      setRuntimeKind(kind)
-      return
-    }
-    setRuntimePending(true)
-    setRuntimeError(null)
-    setRuntimeKind(kind)
-    try {
-      await patchWorkspaceRuntime(activeRepoId, activeBranchId, kind)
-    } catch (err) {
-      setRuntimeError(err instanceof Error ? err.message : String(err))
-      // Revert to previous kind on failure.
-      setRuntimeKind(undefined)
-    } finally {
-      setRuntimePending(false)
-    }
-  }
-
+  // S8478ca-5 hotfix: this picker only ever lists repos that are NOT open
+  // yet (`filtered` above filters `!r.open`), so selecting a runtime here
+  // is always "choose the runtime this new workspace will open with" —
+  // never "change an already-running workspace's runtime" (that flow
+  // belongs to the Header's runtime chip, which owns its own confirm
+  // dialog for the real "this will restart your tmux session" case). No
+  // confirmation is needed or shown here; the effective choice is applied
+  // by applyChosenRuntime() once the repo actually opens, above.
   const handleRuntimeChange = (kind: 'host' | 'incus-container') => {
-    if (activeRepoId && activeBranchId) {
-      // Workspace is already open — show confirm modal first.
-      setConfirmRuntimeKind(kind)
-    } else {
-      setRuntimeKind(kind)
-      setRuntimeError(null)
-    }
-  }
-
-  const handleConfirmRuntime = async () => {
-    const kind = confirmRuntimeKind
-    setConfirmRuntimeKind(null)
-    if (!kind) return
-    await applyRuntimeChange(kind)
-  }
-
-  const handleCancelRuntime = () => {
-    setConfirmRuntimeKind(null)
+    setRuntimeKind(kind)
+    setRuntimeError(null)
   }
 
   const handleClose = () => {
@@ -338,7 +359,7 @@ export function RepoPicker({ open, onClose, onRequestDelete, activeRepoId, activ
               caps={runtimeCaps}
               onChange={handleRuntimeChange}
               error={runtimeError}
-              disabled={pending !== null || runtimePending}
+              disabled={pending !== null}
             />
           </div>
         )}
@@ -471,14 +492,6 @@ export function RepoPicker({ open, onClose, onRequestDelete, activeRepoId, activ
           )}
         </div>
       </div>
-      {/* S8478ca-5: Runtime change confirm modal (shown on top of picker when open workspace) */}
-      {confirmRuntimeKind !== null && (
-        <RuntimeChangeConfirm
-          newKind={confirmRuntimeKind}
-          onConfirm={() => void handleConfirmRuntime()}
-          onCancel={handleCancelRuntime}
-        />
-      )}
     </div>
   )
 }

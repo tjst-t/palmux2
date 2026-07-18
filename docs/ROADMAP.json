@@ -13635,6 +13635,13 @@
       "kind": "bug",
       "added_in": "S0e8afb-4",
       "status": "open"
+    },
+    {
+      "title": "Open Repositoryピッカーのruntime選択適用、狭いクロスデバイス競合窓が残る",
+      "description": "open_repo_picker_runtime_hotfixで、既にオープン中のリポジトリに対してruntime変更PATCHが誤発火する主要なケース(同一クライアントでの再選択、clone URL貼り付け)は修正済み。ただし別デバイス/タブが同じ未オープンリポジトリを同時にオープンした場合の狭い競合窓は、クライアント側のローカルsnapshotだけでは検知不能(POST /open のレスポンスに新規オープンか既存かを示すフィールドが無い)。サーバー側でopenRepoが新規作成か既存流用かを返すフラグを追加すれば根本解決できる。",
+      "kind": "chore",
+      "added_in": "fix/open-repo-picker-runtime-hotfix",
+      "status": "open"
     }
   ]
 }
