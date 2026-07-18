@@ -119,6 +119,38 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v6
 
+      # nix/packages/palmux2.nix's committed defaultVersion always lags one
+      # release behind: bump-nix-default (below) commits the bump to `main`
+      # AFTER this tag is cut, so this tag's own tree can never see it — left
+      # alone, `nix build .#appliance-qcow2` would bake the PREVIOUS release's
+      # palmux2 binary into an image labeled with THIS release's tag. Patch
+      # the checkout in-place (not committed) so the build is self-consistent
+      # with its own tag. The `release` job (needs: release) has already
+      # uploaded this tag's binaries, so their hashes are computable now.
+      - name: Pin nix/packages/palmux2.nix to this release
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          VERSION="${TAG#v}"
+          BASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
+
+          echo "Computing sha256 for palmux-linux-amd64..."
+          HEX_AMD64="$(curl -fsSL "${BASE_URL}/palmux-linux-amd64" | sha256sum | awk '{print $1}')"
+          SRI_AMD64="sha256-$(printf '%s' "$HEX_AMD64" | xxd -r -p | base64 -w0)"
+
+          echo "Computing sha256 for palmux-linux-arm64..."
+          HEX_ARM64="$(curl -fsSL "${BASE_URL}/palmux-linux-arm64" | sha256sum | awk '{print $1}')"
+          SRI_ARM64="sha256-$(printf '%s' "$HEX_ARM64" | xxd -r -p | base64 -w0)"
+
+          NIX_FILE="nix/packages/palmux2.nix"
+          sed -i "s|defaultVersion = \"[^\"]*\";|defaultVersion = \"${VERSION}\";|" "$NIX_FILE"
+          sed -i "s|amd64 = \"sha256-[^\"]*\";|amd64 = \"${SRI_AMD64}\";|" "$NIX_FILE"
+          sed -i "s|arm64 = \"sha256-[^\"]*\";|arm64 = \"${SRI_ARM64}\";|" "$NIX_FILE"
+
+          echo "--- Pinned for this build ---"
+          grep -E 'defaultVersion|amd64|arm64' "$NIX_FILE"
+
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@main
         with:
