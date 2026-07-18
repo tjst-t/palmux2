@@ -119,7 +119,7 @@ export function Drawer() {
   const reloadRepos = usePalmuxStore((s) => s.reloadRepos)
   // S024: single-expand — one repo open at a time. Init lazily to the
   // repo containing the active branch (URL-driven).
-  const { repoId: activeRepo, branchId: activeBranch } = useParams()
+  const { repoId: activeRepo } = useParams()
   const [expandedRepoId, setExpandedRepoId] = useState<string | null>(
     () => activeRepo ?? null,
   )
@@ -269,8 +269,6 @@ export function Drawer() {
           // the available list automatically (same store).
           setDeleteTarget({ repoId, ghqPath })
         }}
-        activeRepoId={activeRepo}
-        activeBranchId={activeBranch}
       />
       <BranchPicker
         open={typeof pickerType === 'object' && pickerType !== null}
