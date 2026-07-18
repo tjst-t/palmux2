@@ -2,15 +2,15 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 75,
+    "sprints_done": 78,
     "sprints_total": 81,
-    "done": 75,
+    "done": 78,
     "total": 81,
-    "remaining": 6,
+    "remaining": 3,
     "in_progress": 0,
-    "percent": 91,
-    "percentage": 92,
-    "current_sprint": "S0e8afb"
+    "percent": 96,
+    "percentage": 96,
+    "current_sprint": "S2b5691"
   },
   "execution_order": [
     "S001",
@@ -12304,7 +12304,7 @@
       "title": "palmuxOS アプライアンス フレッシュインストール onboarding 修正",
       "description": "実機でqcow2アプライアンスをこのdev箱でローカルドッグフーディングして発見した4つの実バグを修正する。検証手順はCLAUDE.mdの「palmuxOS アプライアンス (qcow2) をローカルで評価する」節を使う。全Storyで実機検証必須 (qcow2をローカルビルド/起動して確認、mock/dry-runでの確認では済まさない)。",
       "milestone": false,
-      "status": "pending",
+      "status": "done",
       "detail_level": "detailed",
       "stories": {
         "S61c9a6-1": {
@@ -12623,60 +12623,63 @@
       "title": "リリース v0.15.1 準備: 実機ドッグフーディング検証 (フェーズA+Bの成果を統合)",
       "description": "フェーズA (アプライアンスonboarding修正) とフェーズB (マルチエージェントフレームワーク統合) の成果を、実際にv0.15.1としてリリースする前に実機で検証する。過去にv0.14.12でautopilot完了直後に即リリースして本番相当ホストを壊した実例があるため、このSprintの範囲は検証までとし、実際の `git tag v0.15.1` + push (release.ymlトリガー) はこのSprintのStoryとして自動実行しない — 検証結果をもってautopilotのmilestone停止時にユーザーへ提示し、明示的な確認を得てから (このSprintの外で) tag pushを行う。検証方法はCLAUDE.mdの「palmuxOS アプライアンス (qcow2) をローカルで評価する」節の手順を使う。まだGitHub Releaseにv0.15.1のqcow2は存在しないため、`nix build .#appliance-qcow2` をこのdev箱で直接ローカルビルドして検証すること (このdev箱は既にKVM対応済み)。",
       "milestone": true,
-      "status": "pending",
+      "status": "done",
       "detail_level": "detailed",
       "stories": {
         "S4db2fe-1": {
           "title": "プロダクトオーナーとして、v0.15.1相当のビルドを実機でドッグフーディングしてからリリースしたい。なぜなら、v0.14.12でautopilot完了直後の即リリースが本番相当ホストを壊した前例があり、同じ轍を踏みたくないから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S4db2fe-1-1",
               "description": "main (フェーズA+Bマージ後) から `nix build .#appliance-qcow2` をこのdev箱でローカルビルドできる",
-              "status": "pending"
+              "status": "pass",
+              "note": "deploy-testで実機ビルド + dev箱にqcow2転送、その後dev箱でローカルソース(git archive)をon-appliance flakeへpath:入力しnixos-rebuild switchでin-place反映する経路も確立・使用 (docs/local/eval-hosts.md §2b)"
             },
             {
               "id": "AC-S4db2fe-1-2",
               "description": "ビルドしたqcow2をこのdev箱でqemu起動し、SSH経由で `palmux` コマンドがPATH解決される (フェーズA-1修正の実証)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S4db2fe-1-3",
               "description": "起動後数分待ち `incus image list` に palmux-ws が自動で入っている (フェーズA-2修正の実証)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S4db2fe-1-4",
               "description": "palmux2/incus systemdユニットが active、Web UIが HTTP 200 を返す",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S4db2fe-1-5",
               "description": "generic/claudeエージェントタブでの基本動作 (spawn + 簡単なターン) が実機で動く (フェーズBの回帰無し確認)",
-              "status": "pending"
+              "status": "pass",
+              "note": "実機dogfoodingでOpen Repositoryピッカーのruntime選択バグ (repo-picker hotfix) と、incus-containerランタイムでclaude-agent/claude-tui spawnがStart()を呼ばず\"Instance not found\"になるバグ (Store.EnsureRuntimeStarted hotfix) を発見・修正・実機再検証してからリリース。まさにこのACが意図した『回帰の無いことを実機で確認』が機能し、2件の実バグを本番前に捕捉できた"
             },
             {
               "id": "AC-S4db2fe-1-6",
               "description": "検証結果をユーザーに提示し、明示的な go-ahead を得てから (このStoryの外側で) git tag v0.15.1 + push を実行する — このACはtag push自体を含まない、検証完了の確認のみ",
-              "status": "pending"
+              "status": "pass",
+              "note": "ユーザーが実機VMで自ら確認 (『よさそう!』) の上で明示的にリリース指示。バージョン番号はユーザー指示によりv0.15.1ではなくv0.16.0 (S0e8afbがPhase B milestoneでmulti-agent frameworkの新規マージを含むため patch でなく minor bump が適切と判断、加えて2件のhotfixも同梱)。git tag v0.16.0 + v0.16 branch を push、release.yml 全4ジョブ (release/image/appliance-qcow2/bump-nix-default) success"
             }
           ],
           "tasks": {
             "S4db2fe-1-1": {
               "title": "dev箱でqcow2をローカルビルド (nix build .#appliance-qcow2)",
-              "status": "pending"
+              "status": "done"
             },
             "S4db2fe-1-2": {
               "title": "CLAUDE.md手順でqemu起動 + cloud-init seed (userはpalmux)",
-              "status": "pending"
+              "status": "done"
             },
             "S4db2fe-1-3": {
               "title": "PATH/ws-image/systemd/Web UI/エージェントタブの実機検証",
-              "status": "pending"
+              "status": "done"
             },
             "S4db2fe-1-4": {
               "title": "検証結果サマリをmilestone summaryに含める",
-              "status": "pending"
+              "status": "done"
             }
           }
         }
@@ -12754,7 +12757,7 @@
       }
     },
     "Sfa2bab": {
-      "title": "リリース v0.15.2 準備: 実機ドッグフーディング検証 (codex/opencode含む)",
+      "title": "リリース準備: 実機ドッグフーディング検証 (codex/opencode含む、S2b5691完了後の次リリース)",
       "description": "フェーズD (codex/opencode registry登録) の成果をv0.15.2としてリリースする前に実機で検証する。フェーズCと同様、実際の `git tag v0.15.2` + push はこのSprintのStoryとして自動実行しない — 検証結果をもってmilestone停止時にユーザーへ提示し、明示的な確認を得てから(このSprintの外で)tag pushを行う。",
       "milestone": true,
       "status": "pending",

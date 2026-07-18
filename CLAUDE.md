@@ -19,7 +19,7 @@
 
 ## 実装ステータス
 
-現在: **v0.12.0 リリース済み (Sb14caa = palmuxOS アプライアンス化マイルストーン)**。以降 main に **Sd44947 (Phase 6 マイルストーン: 共有フォルダの宣言化 profile-as-mold)** および **no-halt-agent マイルストーン (S3f2658 + S862203: palmux2 再起動を跨いだ claude 生存) を merge 済み** (次リリース候補)。Phase 0〜4 のコア + 磨き込みに加え、以降のスプリントで以下を実装済み:
+現在: **v0.16.0 リリース済み (Sb14caa = palmuxOS アプライアンス化マイルストーン、Sd44947 = 共有フォルダの宣言化、no-halt-agent マイルストーン (S3f2658 + S862203)、S61c9a6 = palmuxOS フレッシュインストール onboarding 修正、S31ad96 = ローカルソースビルド能力、S0e8afb = multi-agent Adapter framework 統合 [PHASE B MILESTONE、codex/opencode はまだ未露出] を含む)**。次は **S2b5691 (Phase D: codex/opencode の registry 登録 + FE 露出)**。Phase 0〜4 のコア + 磨き込みに加え、以降のスプリントで以下を実装済み:
 
 - **S001〜S029**: Phase 0〜3 コア機能 + Phase 4 磨き込み (S016 Sprint Dashboard、S017 virtualization、S018 検索/export、S019 rewind、S020 タブ UX、S021 Subagent worktree、S022 モバイル UX、S023/S024 Drawer redesign、S025 fixture cleanup、S026 HTML preview、S027 Markdown SPA navigation、S028 JSON canonical roadmap、S029 [BREAKING] Git タブ minimal redesign)
 - **S030〜S033**: ghq Repository 管理 UI、⌘K Command palette redesign、ユーザ定義 palette コマンド、Files タブ CRUD
