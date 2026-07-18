@@ -56,6 +56,14 @@ type Config struct {
 	RuntimeResolver      func(repoID, branchID string) runtime.ExecCommander
 	NotifyURLInContainer string
 	NotifyToken          string
+	// RuntimeStarter is called before every spawn that will use
+	// RuntimeResolver's result, ensuring an incus-container runtime is
+	// actually running (not just resolved) before `incus exec` is attempted.
+	// RuntimeResolver itself stays side-effect-free — it's also used by
+	// orphan-GC's reap path (discover.go), which must never resurrect a
+	// stopped container just to probe it. nil disables this (tests / host-only
+	// setups).
+	RuntimeStarter func(ctx context.Context, repoID, branchID string)
 
 	// S862203-3: pipe-mode ptyhost survival wiring (ADR-0001/0002/0004).
 	// PalmuxBin is the palmux binary re-invoked as `<PalmuxBin> ptyhost
@@ -753,6 +761,12 @@ func (a *Agent) EnsureClient(ctx context.Context) error {
 		}
 	}
 	// S4d8b1c: run claude inside the workspace's incus container when supported.
+	// Ensure the container is actually started BEFORE resolving/using the
+	// ExecCommander — resolving alone never starts it (see RuntimeStarter's
+	// doc comment; this is the "Instance not found" fix).
+	if rs := a.deps.manager.cfg.RuntimeStarter; rs != nil {
+		rs(ctx, a.deps.repoID, a.deps.branchID)
+	}
 	var execCmder runtime.ExecCommander
 	var containerEnv []string
 	if rr := a.deps.manager.cfg.RuntimeResolver; rr != nil {

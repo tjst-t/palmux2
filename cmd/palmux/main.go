@@ -526,6 +526,18 @@ func run(rc resolved) error {
 		}
 		return filepath.Join(root, repoID, branchID)
 	}
+	// Resolving a workspace's runtime (CurrentRuntime/RuntimeResolver below)
+	// never starts it — an incus-container workspace whose runtime resolves
+	// straight to incus-container (repo/global default, no explicit runtime
+	// switch ever performed, e.g. the "Open Repository" picker's runtime
+	// pick) would otherwise spawn against a container that was never `incus
+	// launch`'d, surfacing as "Instance not found" on first attach. Every
+	// spawn call site (claude-agent's EnsureClient, claude-tui's
+	// spawnWithArgs) calls this FIRST, mirroring what Store.tmuxFor already
+	// does for the Bash tab's lazy incus start.
+	runtimeStarter := func(ctx context.Context, repoID, branchID string) {
+		st.EnsureRuntimeStarted(ctx, repoID, branchID)
+	}
 	agentManager := claudeagent.NewManager(claudeagent.Config{
 		// Honour the resolved claude_bin (flag/env/config), same as the claude-tui
 		// manager below. Hardcoding "claude" made the Agent tab ignore claude_bin
@@ -541,6 +553,7 @@ func run(rc resolved) error {
 			}
 			return nil
 		},
+		RuntimeStarter: runtimeStarter,
 		NotifyURLInContainer:  bridgeNotifyURL(addr, basePath),
 		NotifyToken:           token,
 		DefaultPermissionMode: settingsStore.Get().ClaudePermissionMode(), // global setting, default "auto"
@@ -631,6 +644,7 @@ func run(rc resolved) error {
 		// runtime supports it (runtime.PTYCommander). The bridge notify URL is
 		// used for the in-container hook (127.0.0.1 would be the container).
 		RuntimeResolver:      agentPTYRuntimeResolver,
+		RuntimeStarter:       runtimeStarter,
 		NotifyURLInContainer: bridgeNotifyURL(addr, basePath),
 		// S3f2658-2: claude now survives a palmux2 restart via a detached
 		// `palmux ptyhost` process (ADR-0001/0002) — PalmuxBin is the same
@@ -682,6 +696,7 @@ func run(rc resolved) error {
 			Store:                tuiStore,
 			NotifyHub:            notifyHub,
 			RuntimeResolver:      agentPTYRuntimeResolver,
+			RuntimeStarter:       runtimeStarter,
 			NotifyURL:            localNotifyURL(addr, basePath),
 			NotifyToken:          token,
 			HookBinPath:          hookBinPath,

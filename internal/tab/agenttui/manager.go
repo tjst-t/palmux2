@@ -67,6 +67,13 @@ type ManagerConfig struct {
 	// when claude runs in-container.
 	RuntimeResolver      func(repoID, branchID string) runtime.PTYCommander
 	NotifyURLInContainer string
+	// RuntimeStarter is called before every spawn that will use
+	// RuntimeResolver's result, ensuring an incus-container runtime is
+	// actually running (not just resolved) before `incus exec` is attempted.
+	// RuntimeResolver itself stays side-effect-free — it's also used by
+	// orphan-GC's reap path, which must never resurrect a stopped container
+	// just to probe it. nil disables this (tests / host-only setups).
+	RuntimeStarter func(ctx context.Context, repoID, branchID string)
 
 	// S3f2658-2: PalmuxBin/PtyHostLaunch/RunDirOverride are forwarded verbatim
 	// to every Daemon this Manager creates — see DaemonConfig's fields of the
@@ -274,6 +281,7 @@ func (m *Manager) EnsureDaemon(ctx context.Context, repoID, branchID, tabID, wor
 		NotifyToken:          m.cfg.NotifyToken,
 		HookBinPath:          m.cfg.HookBinPath,
 		RuntimeResolver:      m.cfg.RuntimeResolver,
+		RuntimeStarter:       m.cfg.RuntimeStarter,
 		NotifyURLInContainer: m.cfg.NotifyURLInContainer,
 		PalmuxBin:            m.cfg.PalmuxBin,
 		PtyHostLaunch:        m.cfg.PtyHostLaunch,

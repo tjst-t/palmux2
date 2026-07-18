@@ -247,33 +247,49 @@ func (s *Store) TmuxFor(ctx context.Context, repoID, branchID string) tmux.Clien
 // tmuxFor is the private implementation; public TmuxFor is the store entry-point
 // for handlers that hold a *Store but not a branch pointer.
 func (s *Store) tmuxFor(ctx context.Context, repoID, branchID string) tmux.Client {
-	if s.deps.RuntimeRegistry == nil {
-		return s.deps.Tmux
-	}
-	rt := s.deps.RuntimeRegistry.Get(repoID, branchID)
+	rt := s.EnsureRuntimeStarted(ctx, repoID, branchID)
 	if rt == nil {
 		return s.deps.Tmux
 	}
-	tc := rt.TmuxClient()
 	// For host runtimes TmuxClient() returns the same client as s.deps.Tmux.
-	// For incus-container runtimes we need to ensure the container is started
-	// before the first tmux call.
+	return rt.TmuxClient()
+}
+
+// EnsureRuntimeStarted resolves the workspace's runtime and, for an
+// incus-container runtime that isn't Ready yet, starts it (idempotent — a
+// no-op status check if it's already running). Returns the resolved runtime,
+// or nil when no RuntimeRegistry is configured.
+//
+// Any caller about to hand a runtime.ExecCommander/PTYCommander to a fresh
+// process spawn (claude-agent, claude-tui) MUST call this first — resolving
+// the runtime alone (CurrentRuntime/WorkspaceRuntime) never starts the
+// container, so a workspace whose runtime resolves straight to
+// incus-container (repo/global default, no explicit switch ever performed)
+// would otherwise spawn against a container that was never `incus launch`'d,
+// surfacing as "Instance not found" on first attach.
+func (s *Store) EnsureRuntimeStarted(ctx context.Context, repoID, branchID string) runtime.Runtime {
+	if s.deps.RuntimeRegistry == nil {
+		return nil
+	}
+	rt := s.deps.RuntimeRegistry.Get(repoID, branchID)
+	if rt == nil {
+		return nil
+	}
 	if rt.Kind() == runtime.KindIncusContainer {
 		if st := rt.Status(); st.State != runtime.StateReady {
-			s.logger.Info("store.tmuxFor: starting incus container", "repoID", repoID, "branchID", branchID)
+			s.logger.Info("store.EnsureRuntimeStarted: starting incus container", "repoID", repoID, "branchID", branchID)
 			if err := rt.Start(ctx); err != nil {
-				// Do NOT fall back to s.deps.Tmux: recreating the session on the
-				// HOST tmux server silently breaks isolation and, during a
-				// host→incus switch, races the sync_tmux recovery loop into
-				// resurrecting the just-killed host session. Return the incus
-				// client; tmux ops surface the error and the next reconcile
-				// retries Start (now serialised + idempotent).
-				s.logger.Error("store.tmuxFor: incus Start failed (returning incus client, not host)",
+				// Do NOT fall back to a host client here either: the caller
+				// asked for THIS workspace's runtime; surfacing the incus
+				// client/commander (even mid-Start-failure) and letting the
+				// next reconcile retry Start (idempotent) is more honest than
+				// silently substituting host and breaking isolation.
+				s.logger.Error("store.EnsureRuntimeStarted: incus Start failed",
 					"repoID", repoID, "branchID", branchID, "err", err)
 			}
 		}
 	}
-	return tc
+	return rt
 }
 
 // Hub returns the broadcaster.

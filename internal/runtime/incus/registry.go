@@ -5,9 +5,15 @@
 // (once, then caches) an incusRuntime and returns it.
 //
 // The lifecycle contract:
-//   - Get() lazily creates the incusRuntime but does NOT call Start().  The
-//     store calls Start() the first time it tries to use the runtime (inside
-//     tmuxFor).
+//   - Get() lazily creates the incusRuntime but does NOT call Start(). Every
+//     caller that is about to actually USE the runtime (tmux attach,
+//     claude-agent/claude-tui spawn) must go through
+//     Store.EnsureRuntimeStarted, which calls Start() the first time (a
+//     no-op status check once already Ready). A caller that resolves via
+//     Get()/CurrentRuntime alone and skips EnsureRuntimeStarted will get a
+//     runtime handle for a container that may never have been `incus
+//     launch`'d — see the "Instance not found" bug this contract exists to
+//     prevent.
 //   - Entries stay in the cache until EvictRuntime is called (which the store
 //     does on workspace close).
 package incus

@@ -32,18 +32,41 @@ type fakeRuntime struct {
 	stopCalls int
 	startErr  error // when non-nil, Start fails (models e.g. a missing incus image)
 	mu        sync.Mutex
+
+	// notReadyUntilStart models a freshly-resolved incus runtime that was
+	// never `incus launch`'d — Status() reports StateStopped until Start()
+	// is actually called. Zero value (false) preserves every pre-existing
+	// test's assumption that Status() is always Ready.
+	notReadyUntilStart bool
+	started            bool
+	startCalls         int
 }
 
-func (f *fakeRuntime) Kind() runtime.Kind            { return f.kind }
-func (f *fakeRuntime) Config() runtime.Config        { return runtime.Config{Kind: f.kind} }
-func (f *fakeRuntime) Start(_ context.Context) error { return f.startErr }
+func (f *fakeRuntime) Kind() runtime.Kind     { return f.kind }
+func (f *fakeRuntime) Config() runtime.Config { return runtime.Config{Kind: f.kind} }
+func (f *fakeRuntime) Start(_ context.Context) error {
+	f.mu.Lock()
+	f.startCalls++
+	if f.startErr == nil {
+		f.started = true
+	}
+	f.mu.Unlock()
+	return f.startErr
+}
 func (f *fakeRuntime) Stop(_ context.Context) error {
 	f.mu.Lock()
 	f.stopCalls++
 	f.mu.Unlock()
 	return nil
 }
-func (f *fakeRuntime) Status() runtime.Status                           { return runtime.Status{State: runtime.StateReady} }
+func (f *fakeRuntime) Status() runtime.Status {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.notReadyUntilStart && !f.started {
+		return runtime.Status{State: runtime.StateStopped}
+	}
+	return runtime.Status{State: runtime.StateReady}
+}
 func (f *fakeRuntime) TmuxClient() tmux.Client                          { return f.tc }
 func (f *fakeRuntime) NewTmuxSession(_ context.Context, _ string) error { return nil }
 func (f *fakeRuntime) AttachTmuxSession(_ context.Context, _ string) (io.ReadWriteCloser, error) {
@@ -367,5 +390,83 @@ func TestRestartBranchRuntime_IncusStop(t *testing.T) {
 	// Stop must have been called exactly once (old runtime was incus-container).
 	if incusRT.stopCalls != 1 {
 		t.Errorf("expected 1 Stop call for incus→host migration; got %d", incusRT.stopCalls)
+	}
+}
+
+// TestEnsureRuntimeStarted_StartsAnUnstartedIncusRuntime is the regression
+// test for the "Instance not found" bug: a workspace whose runtime resolves
+// straight to incus-container (repo/global default, e.g. via the Open
+// Repository picker's post-open PATCH landing on the SAME kind the workspace
+// already resolved to) goes through RestartBranchRuntime's same-kind no-op
+// fast-path — which never calls Start(). Nothing else used to start it
+// either: claude-agent/claude-tui's spawn path only ever RESOLVED the
+// runtime (CurrentRuntime/RuntimeResolver), never started it, unlike
+// Store.tmuxFor which already had a lazy-start check for the Bash tab. The
+// first `incus exec` (from a Claude-tab attach) then failed with "Instance
+// not found" because the container was never `incus launch`'d.
+//
+// EnsureRuntimeStarted is the shared fix both tmuxFor and the claude-agent/
+// claude-tui RuntimeStarter callbacks now go through.
+func TestEnsureRuntimeStarted_StartsAnUnstartedIncusRuntime(t *testing.T) {
+	reg := newFakeRegistry()
+	s, _ := newStoreWithRegistry(t, reg)
+
+	repoID := "test-repo--9a9a"
+	branchID := "branch--9a9a"
+
+	freshIncus := &fakeRuntime{kind: runtime.KindIncusContainer, notReadyUntilStart: true}
+	reg.set(repoID, branchID, freshIncus)
+
+	if got := freshIncus.Status().State; got != runtime.StateStopped {
+		t.Fatalf("precondition: expected a freshly-resolved incus runtime to be StateStopped, got %q", got)
+	}
+
+	rt := s.EnsureRuntimeStarted(context.Background(), repoID, branchID)
+	if rt != runtime.Runtime(freshIncus) {
+		t.Fatalf("EnsureRuntimeStarted returned a different runtime than the registry holds")
+	}
+	if freshIncus.startCalls != 1 {
+		t.Errorf("expected Start() to be called exactly once, got %d calls", freshIncus.startCalls)
+	}
+	if got := freshIncus.Status().State; got != runtime.StateReady {
+		t.Errorf("expected the runtime to be StateReady after EnsureRuntimeStarted, got %q", got)
+	}
+
+	// Idempotent: a second call on an already-Ready runtime must not call
+	// Start() again (mirrors tmuxFor's pre-existing "single status check"
+	// behaviour for a container that's already up).
+	s.EnsureRuntimeStarted(context.Background(), repoID, branchID)
+	if freshIncus.startCalls != 1 {
+		t.Errorf("expected Start() to stay called once on an already-ready runtime, got %d calls", freshIncus.startCalls)
+	}
+}
+
+// TestEnsureRuntimeStarted_HostRuntimeNeverStarts verifies host runtimes
+// (Kind != incus-container) are returned as-is without calling Start() —
+// mirrors tmuxFor's pre-existing host behaviour.
+func TestEnsureRuntimeStarted_HostRuntimeNeverStarts(t *testing.T) {
+	reg := newFakeRegistry()
+	s, mockTmux := newStoreWithRegistry(t, reg)
+
+	repoID := "test-repo--8b8b"
+	branchID := "branch--8b8b"
+	hostRT := &fakeRuntime{kind: runtime.KindHost, tc: mockTmux}
+	reg.set(repoID, branchID, hostRT)
+
+	rt := s.EnsureRuntimeStarted(context.Background(), repoID, branchID)
+	if rt != runtime.Runtime(hostRT) {
+		t.Fatalf("expected the host runtime to be returned")
+	}
+	if hostRT.startCalls != 0 {
+		t.Errorf("Start() must not be called for a host runtime, got %d calls", hostRT.startCalls)
+	}
+}
+
+// TestEnsureRuntimeStarted_NilRegistry verifies a nil RuntimeRegistry returns
+// nil without panicking (matches CurrentRuntime/WorkspaceRuntime's contract).
+func TestEnsureRuntimeStarted_NilRegistry(t *testing.T) {
+	s, _ := newStoreFixture(t)
+	if rt := s.EnsureRuntimeStarted(context.Background(), "any-repo", "any-branch"); rt != nil {
+		t.Errorf("expected nil runtime with no RuntimeRegistry configured, got %v", rt)
 	}
 }

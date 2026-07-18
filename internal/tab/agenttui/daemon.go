@@ -238,6 +238,10 @@ type Daemon struct {
 	// runtime can run claude INSIDE a container (incus), or nil for host. nil
 	// resolver / nil result → host exec (default / tests / host runtime).
 	runtimeResolver func(repoID, branchID string) runtime.PTYCommander
+	// runtimeStarter ensures the container is actually started before a
+	// spawn uses runtimeResolver's result — see Config.RuntimeStarter's doc
+	// comment.
+	runtimeStarter func(ctx context.Context, repoID, branchID string)
 	// notifyURLInContainer is the bridge-gateway notify URL used for the hook
 	// when claude runs in the container (the plain notifyURL's 127.0.0.1 points
 	// at the container itself). Empty → fall back to notifyURL.
@@ -456,6 +460,14 @@ type DaemonConfig struct {
 	// hook.
 	RuntimeResolver      func(repoID, branchID string) runtime.PTYCommander
 	NotifyURLInContainer string
+	// RuntimeStarter is called before every spawn that will use
+	// RuntimeResolver's result, ensuring an incus-container runtime is
+	// actually running (not just resolved) before an in-container spawn is
+	// attempted. RuntimeResolver itself stays side-effect-free — it's also
+	// used by orphan-GC's reap path, which must never resurrect a stopped
+	// container just to probe it. nil disables this (tests / host-only
+	// setups).
+	RuntimeStarter func(ctx context.Context, repoID, branchID string)
 
 	// S3f2658-2 (ADR-0002 thin holder): ptyhost wiring.
 	//
@@ -538,6 +550,7 @@ func NewDaemon(cfg DaemonConfig) *Daemon {
 		notifyToken:          cfg.NotifyToken,
 		hookBinPath:          cfg.HookBinPath,
 		runtimeResolver:      cfg.RuntimeResolver,
+		runtimeStarter:       cfg.RuntimeStarter,
 		notifyURLInContainer: cfg.NotifyURLInContainer,
 		palmuxBin:            cfg.PalmuxBin,
 		instancePrefix:       instancePrefix,
@@ -729,6 +742,13 @@ func (d *Daemon) spawnWithArgs(resumeSessionID string, isRespawn bool) error {
 
 	// S4d8b1c: resolve the workspace runtime. When it can build an in-container
 	// PTY command (incus), claude runs INSIDE the container; otherwise host.
+	// Ensure it's actually started FIRST — resolving alone never starts it
+	// (see Config.RuntimeStarter's doc comment; this is the "Instance not
+	// found" fix). Uses daemonCtx, not a caller-supplied ctx (Fix 7 daemonCtx
+	// isolation — the container's lifecycle must outlive any single request).
+	if d.runtimeStarter != nil {
+		d.runtimeStarter(d.daemonCtx, d.repoID, d.branchID)
+	}
 	var pc runtime.PTYCommander
 	if d.runtimeResolver != nil {
 		pc = d.runtimeResolver(d.repoID, d.branchID)

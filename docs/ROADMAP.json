@@ -12410,24 +12410,24 @@
         },
         "S61c9a6-4": {
           "title": "初回ユーザーとして、gh のインストール方法をどこかで案内してほしい。なぜなら、GUIのアプリカタログの存在に気づかないと gh が使えないままになるから。",
-          "status": "partial",
+          "status": "superseded",
           "acceptance_criteria": [
             {
               "id": "AC-S61c9a6-4-1",
               "description": "初回ログイン後の画面 (またはonboarding導線) に gh のインストール方法 (アプリカタログ経由) が明記されている",
-              "status": "pass",
+              "status": "superseded",
               "note": "verified via tests/e2e/s61c9a6_gh_onboarding_hint.py (headless, dev instance) — drawer-host-gh-hint present, mentions gh + 設定→デプロイ設定→アプリ, and that App Catalog path is confirmed to actually list a gh card"
             },
             {
               "id": "AC-S61c9a6-4-2",
               "description": "実機でqcow2アプライアンスをブートし、初回ログイン後の画面からghインストール導線に実際に到達できることを確認する",
-              "status": "pending",
-              "note": "現行のNixパッケージング(fetchurlのみ、ローカルソースビルド経路なし)では検証不能と判明。S31ad96(ローカルソースビルド能力の追加)完了後に再検証する。"
+              "status": "superseded",
+              "note": "gh が OS に自動同梱されるようになったため、案内導線自体が不要に。検証対象なし。"
             },
             {
               "id": "AC-S61c9a6-4-3",
               "description": "Host セクションの案内テキストに data-testid (drawer-host-gh-hint) が付与され、tests/e2e/s61c9a6_gh_onboarding_hint.py の [AC-S61c9a6-4-1] E2E test が pass する (gui-spec: docs/sprint-logs/S61c9a6/gui-spec-S61c9a6-4.json)",
-              "status": "pass",
+              "status": "superseded",
               "note": "verified by independent review agent: ran the E2E test itself against a fresh make serve INSTANCE=dev instance, confirmed ALL PASS, not a fabricated claim"
             }
           ],
@@ -12444,7 +12444,8 @@
               "title": "HostSection (frontend/src/components/drawer.tsx, ~line 1085-1096) に data-testid=\"drawer-host-gh-hint\" 付き案内テキストを追加 + tests/e2e/s61c9a6_gh_onboarding_hint.py の E2E test を pass させる (gui-spec: docs/sprint-logs/S61c9a6/gui-spec-S61c9a6-4.json)",
               "status": "done"
             }
-          }
+          },
+          "superseded_note": "gh は appliance.nix の environment.systemPackages に pkgs.gh を追加したことで OS に自動同梱されるようになり (S61c9a6-3 の claude bootstrap 作業の副次変更)、「未インストールなら案内する」前提のヒントは無意味になった。2026-07-18 ユーザ指摘により Drawer の案内テキスト (data-testid=drawer-host-gh-hint) と tests/e2e/s61c9a6_gh_onboarding_hint.py を削除。"
         }
       }
     },
@@ -13642,6 +13643,13 @@
       "kind": "chore",
       "added_in": "fix/open-repo-picker-runtime-hotfix",
       "status": "open"
+    },
+    {
+      "title": "incus-container ワークスペースの claude-agent/claude-tui spawn が Start() を呼ばず \"Instance not found\" になる",
+      "description": "実機ドッグフーディングで発見: Open Repositoryピッカーでruntime=incus-containerを選び、リポジトリのdefaultRuntimeが既にincus-containerに設定されている場合、post-open PATCH がRestartBranchRuntimeの same-kind no-op fast-path (oldKind==newKind) を踏み、Start()が一切呼ばれない。claude-agent/claude-tuiのspawn経路(cmd/palmux/main.goのRuntimeResolver closure)もCurrentRuntimeで解決するだけでStart()を呼んでいなかった(Store.tmuxForだけがBashタブ用にlazy-startしていた)。結果、初回Claudeタブattachで `incus exec` が \"Instance not found\" エラーになる。修正: Store.EnsureRuntimeStarted(ctx, repoID, branchID) を新設(tmuxForのstart-if-not-readyロジックを抽出・共有化)し、claudeagent.Config/agenttui.ManagerConfig/DaemonConfigに新設したRuntimeStarterコールバック経由でspawn直前に呼ぶ(RuntimeResolver自体はorphan-GCのreap経路と共用のためside-effect-freeのまま維持)。回帰テストはinternal/store/restart_runtime_test.goに追加(TestEnsureRuntimeStarted_*)。独立レビュー済み、全テストgreen。",
+      "kind": "bug",
+      "added_in": "fix/incus-runtime-not-started-on-spawn",
+      "status": "done"
     }
   ]
 }
