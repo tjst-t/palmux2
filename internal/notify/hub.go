@@ -28,6 +28,14 @@ type Notification struct {
 	// optional — pre-S009 callers and Bash hooks leave them empty.
 	TabID   string `json:"tabId,omitempty"`
 	TabName string `json:"tabName,omitempty"`
+	// AgentKind is the agent tab type the notification originated from
+	// (e.g. "claude", "codex", "opencode", or a user-defined generic kind),
+	// derived server-side from TabID's "<kind>" / "<kind>:<kind>-N" prefix
+	// (S2b5691). The Activity Inbox uses it to look up the agent's
+	// DisplayName from the GET /api/agents registry and label the "Open
+	// <DisplayName>" action instead of a hardcoded "Open Claude". Empty
+	// when TabID is empty (no originating tab known).
+	AgentKind string `json:"agentKind,omitempty"`
 	// Resolved flips true when ClearByRequestID is called. The Inbox
 	// hides resolved entries by default but can show them on demand.
 	Resolved bool `json:"resolved,omitempty"`
@@ -192,6 +200,7 @@ func (h *Hub) IngestInternal(repoID, branchID string, req InternalRequest) {
 		Actions:   req.Actions,
 		TabID:     req.TabID,
 		TabName:   req.TabName,
+		AgentKind: agentKindFromTabID(req.TabID),
 	}
 
 	key := repoID + "/" + branchID
@@ -232,6 +241,23 @@ func (h *Hub) IngestInternal(repoID, branchID string, req InternalRequest) {
 	if h.publisher != nil {
 		h.publisher.Publish("notification", repoID, branchID, snapshot)
 	}
+}
+
+// agentKindFromTabID derives the originating agent kind from a tabID. tabIDs
+// follow either the bare-singleton form ("claude") or the "<kind>:<kind>-N"
+// multi-tab form ("codex:codex-2") — see domain.TabID / agenttab.Provider's
+// pickNextTabID. Splitting on the first ':' recovers the kind in both
+// cases. Empty tabID (pre-S009 callers, or notifications with no known
+// originating tab) yields an empty AgentKind — the FE Inbox falls back to
+// generic handling rather than guessing.
+func agentKindFromTabID(tabID string) string {
+	if tabID == "" {
+		return ""
+	}
+	if i := strings.IndexByte(tabID, ':'); i >= 0 {
+		return tabID[:i]
+	}
+	return tabID
 }
 
 // ClearByRequestID flips the matching notification's Resolved flag and

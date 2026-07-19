@@ -866,7 +866,20 @@ func (e *Emulator) registerDefaultCsiHandlers() {
 		}
 
 		height := e.Height()
-		bottom, _ := e.parser.Param(1, height)
+		// S2b5691 bugfix: this used to read e.parser.Param(1, height) — the
+		// PARSER's own (unscoped) param state rather than this handler's own
+		// `params` argument every other multi-param CSI handler in this file
+		// uses (see e.g. the CUP handler's row/col a few hundred lines up).
+		// Reading through e.parser could return a stale/unrelated value left
+		// over from a DIFFERENT escape sequence, which — via a bottom margin
+		// exceeding the real screen height by even 1 — makes a later
+		// ScrollDown/reverseIndex call Buffer.InsertLineArea with
+		// area.Max.Y > b.Height(), an unguarded `b.Lines[i]` index-out-of-
+		// range PANIC that kills the whole process (reproduced live:
+		// codex-cli's normal startup redraw hit this on a stock 80x24
+		// terminal). params.Param is scoped to THIS escape sequence's own
+		// parsed parameters, matching every other handler's convention.
+		bottom, _, _ := params.Param(1, height)
 		if bottom < 1 {
 			bottom = height
 		}

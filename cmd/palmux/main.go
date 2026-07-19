@@ -243,6 +243,11 @@ type resolved struct {
 	basicAuthUser string
 	// Sd44947: [workspace] shared_dirs from config.toml (host paths, may contain ~).
 	sharedDirs []string
+	// S2b5691: [agents.<name>] sections from config.toml (translated to
+	// agent.AgentConfigEntry by translateAgentConfig before being passed to
+	// agent.BuildRegistry). No flag/env layering exists for this — config.toml
+	// is the only entry point (D3: explicit opt-in, not auto-detected).
+	agents map[string]config.AgentSection
 }
 
 type flagState struct {
@@ -312,7 +317,32 @@ func resolveServerConfig(configDir string, f resolveFlags) resolved {
 	r.basicAuthHash = firstNonEmpty(os.Getenv("BASIC_AUTH_HASH"), sec.BasicAuthHash)
 	r.basicAuthUser = firstNonEmpty(os.Getenv("BASIC_AUTH_USER"), mc.Public.BasicAuthUser)
 	r.sharedDirs = mc.Workspace.SharedDirs
+	r.agents = mc.Agents
 	return r
+}
+
+// translateAgentConfig maps config.toml's `[agents.<name>]` sections
+// (internal/config.AgentSection) into the plain agent.AgentConfigEntry shape
+// agent.BuildRegistry needs (S2b5691). This is main.go's translation layer —
+// internal/agent stays free of a dependency on the config-file format (see
+// agent.AgentConfigEntry's own doc comment). A nil/empty map translates to a
+// nil map, matching BuildRegistry's pre-S2b5691 default (claude-only).
+func translateAgentConfig(sections map[string]config.AgentSection) map[string]agent.AgentConfigEntry {
+	if len(sections) == 0 {
+		return nil
+	}
+	out := make(map[string]agent.AgentConfigEntry, len(sections))
+	for name, sec := range sections {
+		out[name] = agent.AgentConfigEntry{
+			Enabled:          sec.IsEnabled(),
+			DisplayName:      sec.DisplayName,
+			Command:          sec.BinOrCommand(),
+			Args:             sec.Args,
+			ResumeArgs:       sec.ResumeArgs,
+			ContainerCommand: sec.ContainerCommand,
+		}
+	}
+	return out
 }
 
 func run(rc resolved) error {
@@ -602,20 +632,30 @@ func run(rc resolved) error {
 	// bare agent.NewClaudeAdapter call, matching the design doc's "per-kind
 	// manager" shape — a loop below builds one agenttui.Manager +
 	// agenttab.Provider per NON-claude kind in the registry (see that loop's
-	// own doc comment). The `nil` agents argument here is deliberate: this
-	// repo has no config.toml `[agents.*]` surface yet (that TOML-parsing
-	// layer is a separate, not-yet-landed feature — internal/config's
-	// MasterConfig has no Agents field), so BuildRegistry always returns a
-	// registry containing ONLY "claude" today — the per-kind loop below is
-	// structurally complete but iterates zero times in production until a
-	// future Story adds that config surface. codex/opencode are NEVER
-	// registered by this call (BuildRegistry only ever constructs them for
-	// entries explicitly present in the agents map — see registry.go) — this
-	// Story's explicit scope boundary (S2b5691 wires codex/opencode next).
-	agentRegistry, err := agent.BuildRegistry(claudeBin, claudeArgs, nil)
+	// own doc comment).
+	//
+	// S2b5691: rc.agents (config.toml's `[agents.*]` sections) is now threaded
+	// through — translateAgentConfig maps it to the agent.AgentConfigEntry
+	// shape BuildRegistry needs. codex/opencode only appear in agentRegistry
+	// when the operator explicitly writes an enabled `[agents.codex]` /
+	// `[agents.opencode]` section (D3: config-gated, not auto-detected from
+	// binary presence — see docs/sprint-logs/S2b5691/decisions.json). No
+	// section at all (the pre-S2b5691 default) keeps agentRegistry
+	// claude-only, byte-identical to before.
+	agentRegistry, err := agent.BuildRegistry(claudeBin, claudeArgs, translateAgentConfig(rc.agents))
 	if err != nil {
 		return fmt.Errorf("agent registry: %w", err)
 	}
+	// S2b5691: extend the host-wide palmux-shared incus profile (Sd44947
+	// profile-as-mold) with every registered agent adapter's own in-container
+	// binary + auth/config share (agent.Registry.SharedContainerPaths — empty
+	// when no InContainerProvider adapter is registered, i.e. the pre-S2b5691
+	// default, or when codex/opencode are enabled but don't resolve a binary
+	// on this host). No-op when runtimeRegistry never spawns an incus
+	// container (SharedProfileManager.Ensure/Reconcile only run against a
+	// live palmux-shared profile once at least one incus-container Workspace
+	// exists — see the scan-loop guard in store.go).
+	runtimeRegistry.SharedProfileManager().SetAgentSharedPaths(agentRegistry.SharedContainerPaths())
 	claudeAdapter, _ := agentRegistry.Get(agent.KindClaude)
 	// S4d8b1c / S0e8afb-3: run the agent INSIDE the workspace's incus
 	// container when the runtime supports it (runtime.PTYCommander). Shared
@@ -672,16 +712,20 @@ func run(rc resolved) error {
 	// share ptyhost.RunDir(instancePrefix) — see docs/
 	// agenttui-ptyhost-merge-design.md's P3 section and risk #2.
 	//
-	// codex/opencode intentionally remain unregistered THIS Story (grep this
-	// file: no agent.NewCodexAdapter/agent.NewOpencodeAdapter/KindCodex/
-	// KindOpencode call sites exist here) — agentRegistry.Kinds() only ever
-	// contains "claude" today (see agentRegistry's construction above), so
-	// this loop iterates zero times in production until a future config
-	// surface enables additional kinds. It is exercised directly by
+	// S2b5691: codex/opencode now flow through this same loop — once the
+	// operator enables `[agents.codex]`/`[agents.opencode]` in config.toml,
+	// agentRegistry.Kinds() includes them (dispatched to the real
+	// CodexAdapter/OpencodeAdapter by agent.BuildRegistry, not a generic
+	// template — see registry.go) and this loop wires one agenttui.Manager +
+	// agenttab.Provider each, identically to how a user-defined
+	// [agents.<name>] GenericAdapter kind would be wired. With no [agents.*]
+	// section configured at all, agentRegistry.Kinds() is still just
+	// "claude" and this loop iterates zero times (byte-identical to
+	// pre-S2b5691 behavior). Also exercised directly by
 	// internal/tab/agenttui's own tests and by
 	// cmd/palmux/ptyhost_ownership_test.go's 2-kind discovery test
 	// (AC-S0e8afb-3-4), which construct Managers of two different kinds
-	// directly rather than through this (currently-empty) production path.
+	// directly rather than through this production loop.
 	genericAgentMgrs := map[agent.Kind]*agenttui.Manager{}
 	genericAgentProviders := map[string]*agenttab.Provider{}
 	for _, kind := range agentRegistry.Kinds() {
@@ -952,6 +996,7 @@ func run(rc resolved) error {
 		DeployConfigDir: configDir,
 		Apps:            appsCtl,
 		SelfUpdate:      selfUpdateSvc,
+		Agents:          agentRegistry,
 		FrontendFS:      frontendFS,
 		// S010: serve bundled drawio webapp from internal/static via /static/*.
 		// fs.Sub is applied inside server.staticHandler so the request path
