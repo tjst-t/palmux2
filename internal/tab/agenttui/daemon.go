@@ -634,6 +634,27 @@ func (d *Daemon) EnsureStarted(ctx context.Context) error {
 	if State(d.state.Load()) == StateShutdown {
 		return fmt.Errorf("agenttui daemon: already shut down")
 	}
+
+	// Sc4f091-2 review fix: peek d.spawned BEFORE doing the (up to
+	// sharedPathsReadyBudget) in-container readiness wait, so a call after
+	// the daemon is already spawned — the overwhelmingly common case,
+	// EnsureStarted is meant to be a near-instant no-op then — never pays
+	// that cost. The wait itself runs OUTSIDE spawnMu (preSpawnWaitFor
+	// SharedPaths) precisely so a genuine first-spawn's bounded wait can
+	// never serialize some OTHER concurrent EnsureStarted/respawn call on
+	// this Daemon behind it — previously the wait ran INSIDE spawnWithArgs
+	// while spawnMu was held, which is exactly that avoidable regression.
+	// The second d.spawned check below (once spawnMu IS held) closes the
+	// harmless race where two callers both peek spawned==false and both
+	// wait: only the first to actually acquire the lock spawns, the other
+	// just returns nil having paid a wasted (but still bounded) wait.
+	d.spawnMu.Lock()
+	alreadySpawned := d.spawned
+	d.spawnMu.Unlock()
+	if !alreadySpawned {
+		d.preSpawnWaitForSharedPaths()
+	}
+
 	d.spawnMu.Lock()
 	defer d.spawnMu.Unlock()
 	if d.spawned {
@@ -776,6 +797,51 @@ func waitForSharedPaths(ctx context.Context, checker runtime.SharedPathChecker, 
 // false from EnsureStarted's first-ever spawn, true from every
 // respawnLoop-driven re-spawn (crash recovery or container regenerate).
 //
+// preSpawnWaitForSharedPaths resolves the in-container runtime and, when the
+// adapter needs container-shared paths (codex/opencode's InContainerProvider),
+// waits (bounded, fail-open — see waitForSharedPaths) for them to be ready.
+//
+// MUST be called WITHOUT holding spawnMu (Sc4f091-2 review fix): this can
+// take up to sharedPathsReadyBudget, and doing that while holding spawnMu
+// would needlessly serialize any OTHER concurrent EnsureStarted/respawnLoop
+// call on this SAME Daemon behind an unrelated (from that caller's
+// perspective) readiness wait. Both callers (EnsureStarted, respawnLoop) call
+// this BEFORE acquiring spawnMu, then acquire it as before to actually spawn.
+//
+// Safe to call without any lock: d.adapter and d.runtimeResolver are set once
+// at construction and never mutated afterward (immutable for the Daemon's
+// lifetime — see NewDaemon). Calling d.runtimeStarter here is idempotent
+// (starting an already-started runtime is a no-op); spawnWithArgs re-resolves
+// the same runtime handle itself (harmless, cheap — a map lookup, not
+// repeated I/O) once it actually holds spawnMu, so this function only ever
+// ADDS a bounded wait in front of the real spawn, never skips or duplicates
+// spawn logic.
+func (d *Daemon) preSpawnWaitForSharedPaths() {
+	if d.runtimeStarter != nil {
+		d.runtimeStarter(d.daemonCtx, d.repoID, d.branchID)
+	}
+	if d.runtimeResolver == nil {
+		return
+	}
+	pc := d.runtimeResolver(d.repoID, d.branchID)
+	if pc == nil {
+		return // host runtime (or unresolved) — no shared-profile window to wait on
+	}
+	icp, ok := d.adapter.(agent.InContainerProvider)
+	if !ok {
+		return
+	}
+	paths := icp.SharedContainerPaths()
+	if len(paths) == 0 {
+		return
+	}
+	spc, ok := pc.(runtime.SharedPathChecker)
+	if !ok {
+		return
+	}
+	waitForSharedPaths(d.daemonCtx, spc, paths, d.logger)
+}
+
 // MUST be called while holding spawnMu.
 func (d *Daemon) spawnWithArgs(resumeSessionID string, isRespawn bool) error {
 	if d.adapter == nil {
@@ -797,30 +863,15 @@ func (d *Daemon) spawnWithArgs(resumeSessionID string, isRespawn bool) error {
 	}
 	inContainer := pc != nil
 
-	// Sc4f091-2: before spawning an in-container agent that depends on its
-	// own bind-mounted shared paths (codex/opencode's binary + npm tree +
-	// auth/config dirs — internal/agent's InContainerProvider), give the
-	// palmux-shared incus profile a brief, bounded chance to actually have
-	// those paths mounted. See runtime.SharedPathChecker's doc comment for
-	// why this window exists (a host-wide singleton profile reconciled
-	// independently by every palmux2 process on the host can transiently
-	// strip a device's bind-mount from an already-running container). This
-	// is defense-in-depth, not a fix for the underlying race (see
-	// shared_profile.go's Ensure() for the primary mitigation) — it only
-	// covers the single highest-risk moment (spawning directly into a
-	// stripped window), and is strictly best-effort/fail-open: a checker
-	// that errors, a runtime that doesn't implement the capability at all
-	// (e.g. host), or a budget that runs out without success all fall
-	// through to spawning anyway rather than blocking the user.
-	if inContainer {
-		if icp, ok := d.adapter.(agent.InContainerProvider); ok {
-			if paths := icp.SharedContainerPaths(); len(paths) > 0 {
-				if spc, ok := pc.(runtime.SharedPathChecker); ok {
-					waitForSharedPaths(d.daemonCtx, spc, paths, d.logger)
-				}
-			}
-		}
-	}
+	// Sc4f091-2: the pre-spawn shared-paths readiness wait used to live HERE,
+	// but that ran it while the caller (EnsureStarted/respawnLoop) held
+	// spawnMu — an up-to-5s bounded wait is fine for THIS spawn, but holding
+	// spawnMu for it needlessly serializes any OTHER concurrent caller of
+	// EnsureStarted/respawnLoop on the SAME Daemon behind it (review finding).
+	// The wait now happens in preSpawnWaitForSharedPaths, called by BOTH
+	// callers BEFORE they acquire spawnMu (see that function's doc comment)
+	// — spawnWithArgs itself no longer waits, it only resolves pc/inContainer
+	// (needed for argv assembly below) exactly as before.
 
 	// Runtime-aware hook/notify resolution — main's logic, preserved
 	// VERBATIM by the S0e8afb-2 graft (design doc: "notify URL/hook-bin の
@@ -1403,6 +1454,12 @@ func (d *Daemon) respawnLoop() {
 		// byte-identical in practice) rather than the constant directly — see
 		// effectiveKillPattern's doc comment.
 		reapContainerClaude(d.runtimeResolver, d.repoID, d.branchID, d.effectiveKillPattern(), 3*time.Second, d.logger)
+
+		// Sc4f091-2 review fix: same reasoning as EnsureStarted — wait for
+		// in-container shared-path readiness OUTSIDE spawnMu so a respawn's
+		// bounded wait can't serialize some unrelated concurrent
+		// EnsureStarted/respawn call behind it.
+		d.preSpawnWaitForSharedPaths()
 
 		d.spawnMu.Lock()
 		spawnErr := d.spawnWithArgs(sid, true)

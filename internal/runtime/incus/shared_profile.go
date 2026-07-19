@@ -279,7 +279,34 @@ func agentDeviceName(abs string) string {
 // not exist is silently skipped; a dotfile symlinking outside $HOME (e.g.
 // Nix/home-manager → /nix/store) is skipped so the container shell isn't
 // broken by a dangling link.
+//
+// Snapshots m.agentPaths under a single m.mu acquisition and delegates to
+// declaredDevicesFromAgentPaths — kept as its own no-arg method (unchanged
+// signature) purely so every existing unit test calling m.declaredDevices()
+// directly needs no changes. Ensure() does NOT call this method — see
+// declaredDevicesFromAgentPaths's doc comment for why.
 func (m *SharedProfileManager) declaredDevices() []deviceSpec {
+	m.mu.Lock()
+	agentPaths := append([]string(nil), m.agentPaths...)
+	m.mu.Unlock()
+	return m.declaredDevicesFromAgentPaths(agentPaths)
+}
+
+// declaredDevicesFromAgentPaths is declaredDevices' actual implementation,
+// parameterized on an ALREADY-SNAPSHOTTED agentPaths slice rather than
+// re-reading m.agentPaths itself (Sc4f091-2 review fix for a latent TOCTOU:
+// Ensure() used to call the no-arg declaredDevices(), which takes its OWN
+// m.mu snapshot of agentPaths internally, and SEPARATELY re-read m.agentPaths
+// under a second m.mu acquisition to compute hasAgentOpinion — a concurrent
+// SetAgentSharedPaths call landing between those two acquisitions could make
+// the device list and hasAgentOpinion disagree about which agentPaths state
+// they reflect. Not reachable in production TODAY — SetAgentSharedPaths is
+// only ever called once, at startup, before the scan loop's first tick — but
+// latent fragility for any future hot-reload path (mirroring how sharedDirs
+// already supports live /api/deploy/apply updates). Ensure() now takes ONE
+// m.mu snapshot of agentPaths, derives hasAgentOpinion from it, and passes
+// that SAME slice here — guaranteeing both values are always consistent.
+func (m *SharedProfileManager) declaredDevicesFromAgentPaths(agentPaths []string) []deviceSpec {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		m.log.Warn("incus shared profile: cannot resolve home dir", "err", err)
@@ -345,8 +372,10 @@ func (m *SharedProfileManager) declaredDevices() []deviceSpec {
 	m.mu.Lock()
 	attach := m.attachmentDir
 	dirs := append([]string(nil), m.sharedDirs...)
-	agentPaths := append([]string(nil), m.agentPaths...)
 	m.mu.Unlock()
+	// agentPaths is the parameter (already snapshotted by the caller — see
+	// declaredDevicesFromAgentPaths' doc comment), NOT re-read from m.agentPaths
+	// here.
 	if attach != "" {
 		candidates = append(candidates, deviceSpec{name: attachmentDevice, source: attach, path: attach})
 	}
@@ -448,15 +477,19 @@ func (m *SharedProfileManager) Ensure(ctx context.Context) error {
 	m.reconcileMu.Lock()
 	defer m.reconcileMu.Unlock()
 
-	desired := m.declaredDevices()
+	// Single snapshot of agentPaths for BOTH the device list and
+	// hasAgentOpinion (Sc4f091-2 review fix — see declaredDevicesFromAgentPaths'
+	// doc comment for why this must be one acquisition, not two).
+	m.mu.Lock()
+	agentPaths := append([]string(nil), m.agentPaths...)
+	m.mu.Unlock()
+	hasAgentOpinion := len(agentPaths) > 0
+
+	desired := m.declaredDevicesFromAgentPaths(agentPaths)
 	desiredByName := make(map[string]deviceSpec, len(desired))
 	for _, d := range desired {
 		desiredByName[d.name] = d
 	}
-
-	m.mu.Lock()
-	hasAgentOpinion := len(m.agentPaths) > 0
-	m.mu.Unlock()
 
 	// List current profile devices; create the profile if it does not exist.
 	current, exists, err := m.currentDevices(ctx)

@@ -492,7 +492,7 @@ func (r *incusRuntime) PathsReady(ctx context.Context, paths []string) (bool, er
 		if p == "" {
 			continue
 		}
-		conds = append(conds, fmt.Sprintf("-e %q", p))
+		conds = append(conds, "-e "+shellQuoteIncus(p))
 	}
 	if len(conds) == 0 {
 		return true, nil
@@ -504,6 +504,23 @@ func (r *incusRuntime) PathsReady(ctx context.Context, paths []string) (bool, er
 		return false, fmt.Errorf("incus PathsReady: %w", err)
 	}
 	return code == 0, nil
+}
+
+// shellQuoteIncus single-quotes s for safe interpolation into a `sh -c`
+// string built by this package (Sc4f091-2 review fix: the original PathsReady
+// used Go's %q, which is GO-string escaping, not shell escaping — it does not
+// escape `$` or backticks, so a path containing either would trigger shell
+// expansion inside the container instead of being treated literally). Low
+// exploitability today (paths come from fixed adapter-declared shares, e.g.
+// SharedContainerPaths(), never from end-user/attacker input), but this
+// mirrors internal/agent/claude.go's own shellQuote (duplicated rather than
+// imported — internal/agent does not otherwise depend on internal/runtime/
+// incus and vice versa, and a 2-line escaping helper doesn't warrant a new
+// cross-package dependency) and this same file's own established
+// shell-safety pattern (ExposePort's relay script base64-encodes specifically
+// "to avoid all shell-quoting issues").
+func shellQuoteIncus(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // containerIP returns the first IPv4 address on eth0 in the container.
