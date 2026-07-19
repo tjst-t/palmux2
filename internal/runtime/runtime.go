@@ -247,6 +247,48 @@ type ContainerRegenerator interface {
 	Regenerate(ctx context.Context) error
 }
 
+// SharedPathChecker is an optional Runtime capability (Sc4f091-2) that reports
+// whether a set of paths are CURRENTLY visible/accessible from inside the
+// runtime, before a caller spawns a process that depends on them being there.
+//
+// Motivation: incus-container workspaces get their shared bind-mounts (ghq,
+// ~/.claude, and — S2b5691 — per-agent-adapter auth/binary/npm-tree shares
+// like ~/.codex or ~/.local/share/opencode) from a single host-wide singleton
+// incus profile (`palmux-shared`, see internal/runtime/incus/shared_profile.go)
+// that is reconciled independently by every palmux2 PROCESS on the host. A
+// device can be transiently absent from an already-RUNNING container's mount
+// table for the brief remove-then-add window of a reconcile tick (this
+// process's own first-ever converge, or — the more disruptive case — another
+// process's tick disagreeing about whether the device should exist at all;
+// see shared_profile.go's Ensure() doc comment). A process that starts doing
+// "create if missing" filesystem work (mkdir, open-for-append) against a path
+// that is mid-flicker sees ENOENT/EACCES on what should be a stable directory
+// — this was directly reproduced (docs/sprint-logs/Sc4f091/decisions.json) as
+// the root cause of intermittent opencode-in-container failures/crashes.
+//
+// PathsReady is a best-effort, cheap, single-round-trip pre-flight check a
+// caller (e.g. the agenttui daemon, before spawning codex/opencode inside a
+// container) can poll briefly before launching, to avoid the highest-risk
+// moment: spawning directly into a stripped window. It does NOT eliminate the
+// underlying race (a path can still flicker away a moment after this check
+// passes) — that requires the architectural fix tracked in the backlog
+// (per-instance profile namespacing or a cross-process lock) — but it removes
+// the single largest source of observed failures (first-touch directory/file
+// creation racing a not-yet-remounted device right at process start).
+//
+// host has no such window (no shared profile) and should report every path
+// ready immediately (or simply not implement this interface at all — callers
+// must treat a missing capability as "always ready").
+type SharedPathChecker interface {
+	// PathsReady reports whether every path in paths currently exists and is
+	// accessible from inside the runtime. A false result (with no error) means
+	// "not ready yet, try again shortly" — callers should poll with a bounded
+	// budget and proceed anyway (fail-open) once the budget is exhausted,
+	// never block indefinitely. An error means the check itself could not be
+	// performed (e.g. the container is unreachable) — also fail-open.
+	PathsReady(ctx context.Context, paths []string) (bool, error)
+}
+
 // ContainerProcessKiller is an optional Runtime capability for reliably
 // terminating in-container processes. Killing the host-side `incus exec`
 // wrapper does NOT always propagate SIGTERM into the container child. This

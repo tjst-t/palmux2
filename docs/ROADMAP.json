@@ -2,12 +2,12 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 79,
+    "sprints_done": 80,
     "sprints_total": 82,
-    "done": 79,
+    "done": 80,
     "total": 82,
     "remaining": 2,
-    "in_progress": 1,
+    "in_progress": 0,
     "percent": 97,
     "percentage": 97,
     "current_sprint": "Sc4f091"
@@ -12932,84 +12932,84 @@
       "title": "リリースブロッカー修正: in-container通知フック欠落 + opencodeコンテナ内信頼性調査",
       "description": "Sfa2bab実機ドッグフーディングで発見・root cause特定済みの「wildcard bind/domain未設定時にin-containerエージェント通知フックが全種別で無効化される」バグを修正し、実機で再検証する。加えてS2b5691で見つかったopencodeのコンテナ内実行信頼性ギャップ(過去成功率~44-56%)を調査し、実際の原因を特定した上で妥当な修正を行う。ユーザーが次のリリース判断の前に両方の解消を明示的に希望したため着手。",
       "milestone": true,
-      "status": "in_progress",
+      "status": "done",
       "detail_level": "detailed",
       "stories": {
         "Sc4f091-1": {
           "title": "運用者として、public domainを設定していないpalmuxOSアプライアンス(初回起動の既定状態)でも、コンテナ内で動くエージェント(claude/codex/opencode)のturn完了通知がActivity Inboxに届いてほしい。なぜなら、現状は通知だけが無条件に欠落し、ユーザーが気づかず放置されてしまうから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-Sc4f091-1-1",
               "description": "services.palmux.domainが未設定(wildcard bind)の状態でも、in-containerエージェントの通知フックに実際に到達可能なURLが注入される(現状のincusBridgeListenAddr()/bridgeNotifyURL()が空文字を返す経路を修正)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sc4f091-1-2",
               "description": "claude/codex/opencodeの3種いずれについても、実incusコンテナ内で1ターン実行後、Activity Inboxに通知が実際に届く(Sfa2babで検証した『ターンは完走するが通知が来ない』症状が解消されたことを、同種の実機ドッグフーディングで再確認する)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sc4f091-1-3",
               "description": "public domain設定済み(既存のwildcardでない構成)では、修正前と挙動が変わらない(既存の公開サブドメイン+SSO運用への回帰が無い)",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "Sc4f091-1-1": {
               "title": "cmd/palmux/main.go: incusBridgeListenAddr()/bridgeNotifyURL()を修正し、メインリスナーがwildcardでもbridge listener用に別の到達可能アドレス(incusbr0のIP等)を解決してnotify URLを組み立てるようにする",
-              "status": "pending"
+              "status": "done"
             },
             "Sc4f091-1-2": {
               "title": "internal/tab/agenttui/daemon.go 等、空NotifyURLInContainerで『フック省略』にフォールバックしている箇所の前提が崩れないことを確認(空でなくなったので通常経路に乗るはず、副作用がないか確認)",
-              "status": "pending"
+              "status": "done"
             },
             "Sc4f091-1-3": {
               "title": "回帰テスト: wildcard bind時のnotify URL解決の単体テスト + public domain設定時に既存動作が変わらないことの単体テスト",
-              "status": "pending"
+              "status": "done"
             },
             "Sc4f091-1-4": {
               "title": "実機再検証: Sfa2babと同様に実qcow2ビルド+起動 (またはこのdev箱上の実incusコンテナ) でclaude/codex/opencodeそれぞれの通知round-tripを確認",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
         "Sc4f091-2": {
           "title": "開発者として、opencodeのコンテナ内実行信頼性ギャップ(過去実機テストで成功率~44-56%、実クラッシュ事例含む)の真因を特定し、妥当な修正を行いたい。なぜなら、原因不明のまま放置するとin-container opencodeが本番で信頼できないままになるから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-Sc4f091-2-1",
               "description": "過去の実機テストログ(docs/sprint-logs/S2b5691配下)に記録された失敗症状 (EACCES/FileSystem.NotFound/LLMバックエンドエラー/D5クラッシュループ) を再現条件付きで分類し、それぞれの真因を特定する (palmux-sharedプロファイルのreconcileレース起因か、opencode自体の問題か、別の要因か)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sc4f091-2-2",
               "description": "特定した真因に対して妥当な修正を実施する (例: palmux-sharedプロファイルのreconcileレースが原因なら、device追加のリトライ/ロック機構を改善する等。修正方針は調査結果次第で決定する)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sc4f091-2-3",
               "description": "修正後、実incusコンテナで複数回 (最低5回) 連続でopencodeのin-container実行+notify round-tripを行い、Sfa2bab/S2b5691で観測された ~44-56% ではなく安定して成功することを実機で確認する (toyデータでの単発passでは不可、DESIGN_PRINCIPLES priority_rule 0/1 に基づき実際の発火条件を再現する)",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "Sc4f091-2-1": {
               "title": "docs/sprint-logs/S2b5691の過去run1-9ログ相当の記録を精査し、失敗症状ごとに再現手順を組み立てる",
-              "status": "pending"
+              "status": "done"
             },
             "Sc4f091-2-2": {
               "title": "palmux-sharedプロファイルのreconcileループ (internal/runtime/incus/shared_profile.go) と opencode起動シーケンスの競合条件を実機で再現・特定する",
-              "status": "pending"
+              "status": "done"
             },
             "Sc4f091-2-3": {
               "title": "特定した真因に対する修正を実装",
-              "status": "pending"
+              "status": "done"
             },
             "Sc4f091-2-4": {
               "title": "実機で最低5回の連続実行による信頼性再検証",
-              "status": "pending"
+              "status": "done"
             }
           }
         }
@@ -13866,6 +13866,27 @@
       "description": "On a fresh palmuxOS appliance VM, ~/.local/share is owned by root instead of the ubuntu/palmux uid:gid (1000:100), so any npm-global install that needs to write there (e.g. opencode-ai) fails with EACCES/EBADPLATFORM-looking errors that mask the real cause. Already-baked tools (claude, gh) are unaffected since they're correctly owned. Found during Sfa2bab real-machine dogfood (2026-07-19), worked around with a manual chown; the image build or a first-boot oneshot should reconcile ownership under the appliance user's $HOME.",
       "kind": "bug",
       "added_in": "Sfa2bab",
+      "status": "open"
+    },
+    {
+      "title": "palmux-shared incus プロファイルの真の恒久修正: per-instance namespacing または host-wide arbiter/lock",
+      "description": "Sc4f091-2 で実装した『無設定インスタンスは他インスタンス由来のag-*デバイスを削除しない』は Story サイズの緩和策であり、host-wide singleton という設計自体は変えていない。①「複数の opinionated インスタンスが異なる/重複するパスで agents を設定している」場合の衝突、②Ensure() のリトライ/バックオフの根本的な調整は未対応。真の恒久解決には、プロファイルまたはデバイス名をインスタンス単位で名前空間化するか、ホスト全体で1つの調停プロセス/ロック機構を設ける、Sd44947 の profile-as-mold アーキテクチャ自体に踏み込む再設計が必要。専用 Sprint で対応する。",
+      "kind": "bug",
+      "added_in": "Sc4f091",
+      "status": "open"
+    },
+    {
+      "title": "host上の全プロセスがagents未設定になった場合、ag-*デバイスが永久に取り残される (dangling leak)",
+      "description": "Sc4f091-2 のレビューで発見。『opinion を持たないインスタンスは他インスタンスのag-*デバイスを削除しない』という修正の副作用として、palmux-shared プロファイルを共有する全プロセスが同時に [agents.*] 未設定になった場合(このホストの現在の実際の状態: 本番インスタンス pid 1344307 と INSTANCE=dev インスタンス pid 247412 がどちらも未設定)、過去に opinionated だったインスタンスが残したag-*デバイスを誰も監査・削除しなくなる。TTLやowner-tagが無いため。実害は無い(bind-mountの参照先が無くなっているだけの不活性なゴミ)が、放置されたままになる。「2つのopinionatedインスタンスが不一致」というケースとは別の障害モードとして、上記の恒久修正 Sprint とは切り分けて追跡する。",
+      "kind": "bug",
+      "added_in": "Sc4f091",
+      "status": "open"
+    },
+    {
+      "title": "internal/selfupdate に既存の data race (TestRunImageInstall_SuccessAndInFlightGuard, S673a42由来、Sc4f091と無関係)",
+      "description": "Sc4f091-2 のレビューで `go test -race ./...` (Story スコープ外の全リポジトリ実行) を行った際に発見。internal/selfupdate/detect.go:226 と internal/selfupdate/s673a42_test.go:106 の間で、Service.Refresh が起動するgoroutineと deferred test cleanup が同じ状態に並行アクセスしている。Sc4f091の変更を全てstashして再現し、このStoryの diff と無関係であることを確認済み(S673a42由来の既存の欠陥)。このSprintでは修正せず記録のみ。",
+      "kind": "bug",
+      "added_in": "Sc4f091",
       "status": "open"
     }
   ]

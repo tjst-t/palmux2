@@ -157,6 +157,7 @@ var (
 	_ runtime.ExecCommander           = (*incusRuntime)(nil)
 	_ runtime.ContainerProcessKiller  = (*incusRuntime)(nil)
 	_ runtime.CachedImageDriftChecker = (*incusRuntime)(nil)
+	_ runtime.SharedPathChecker       = (*incusRuntime)(nil)
 )
 
 // DefaultImageAlias is the incus image alias palmux containers are created from
@@ -469,6 +470,57 @@ func (r *incusRuntime) waitReady(ctx context.Context) error {
 		}
 	}
 	return fmt.Errorf("incus waitReady: timed out waiting for container agent on %s", r.inst)
+}
+
+// PathsReady implements runtime.SharedPathChecker (Sc4f091-2). It is a single
+// `incus exec` round-trip (mirroring the acceptance test's own
+// wait_for_agent_share helper) that shells out `test -e p1 -a -e p2 ...`
+// AS THE WORKSPACE USER (uid 1000 — the same identity an in-container
+// codex/opencode process runs as), so it observes exactly what that process
+// would observe: a device mid-flicker (removed by a racing reconcile tick,
+// not yet re-added) shows as the path simply not existing, or existing but
+// owned/permissioned wrong (`test -e` still reports true for a directory that
+// exists but isn't writable — that residual risk is why this is a best-effort
+// pre-flight check, not a complete fix; see PathsReady's doc comment on the
+// interface). No paths → trivially ready (nothing to wait for).
+func (r *incusRuntime) PathsReady(ctx context.Context, paths []string) (bool, error) {
+	if len(paths) == 0 {
+		return true, nil
+	}
+	conds := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		conds = append(conds, "-e "+shellQuoteIncus(p))
+	}
+	if len(conds) == 0 {
+		return true, nil
+	}
+	args := append([]string{"exec", r.inst}, userExecFlags()...)
+	args = append(args, "--", "sh", "-c", "test "+strings.Join(conds, " -a "))
+	_, _, code, err := r.run(ctx, args...)
+	if err != nil {
+		return false, fmt.Errorf("incus PathsReady: %w", err)
+	}
+	return code == 0, nil
+}
+
+// shellQuoteIncus single-quotes s for safe interpolation into a `sh -c`
+// string built by this package (Sc4f091-2 review fix: the original PathsReady
+// used Go's %q, which is GO-string escaping, not shell escaping — it does not
+// escape `$` or backticks, so a path containing either would trigger shell
+// expansion inside the container instead of being treated literally). Low
+// exploitability today (paths come from fixed adapter-declared shares, e.g.
+// SharedContainerPaths(), never from end-user/attacker input), but this
+// mirrors internal/agent/claude.go's own shellQuote (duplicated rather than
+// imported — internal/agent does not otherwise depend on internal/runtime/
+// incus and vice versa, and a 2-line escaping helper doesn't warrant a new
+// cross-package dependency) and this same file's own established
+// shell-safety pattern (ExposePort's relay script base64-encodes specifically
+// "to avoid all shell-quoting issues").
+func shellQuoteIncus(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // containerIP returns the first IPv4 address on eth0 in the container.
