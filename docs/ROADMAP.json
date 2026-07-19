@@ -13715,6 +13715,20 @@
       "kind": "chore",
       "added_in": "S2b5691",
       "status": "open"
+    },
+    {
+      "title": "tab-bar.tsx / command-palette.tsx の icon 判定ロジックを共有ヘルパーに統合",
+      "description": "S2b5691-2 のレビューで発見。tab-bar.tsx の iconFor() と command-palette.tsx の tabIcon() がほぼ同一の switch 文になっている (S2b5691-2 以前から存在するパターンで、今回の diff は両方に isAgentTab(type) ? \"🤖\" : \"•\" フォールバックを対称的に追加しただけ、新規の重複ではない)。共有ヘルパーに切り出すと保守性が上がる。",
+      "kind": "chore",
+      "added_in": "S2b5691",
+      "status": "open"
+    },
+    {
+      "title": "エージェント種別ごとの tab 上限をバックエンドから配信する (フロントのマジックナンバー撲滅)",
+      "description": "S2b5691-2 のレビューで発見。tab-bar.tsx の DEFAULT_GENERIC_AGENT_MAX = 3 は internal/tab/agenttab.defaultMaxTabsPerBranch = 3 と手動で同期しなければならないマジックナンバー (AgentDescriptor に max-tabs フィールドが無いため実行時の真実の所在が無い)。既存の DEFAULT_LIMITS (claude=3, bash=5) も同種の既知の制約で、今回はその既存パターンを拡張しただけ。GET /api/agents のレスポンスに maxTabs を含めるなど、バックエンドを真実の所在にする改善の余地がある。",
+      "kind": "chore",
+      "added_in": "S2b5691",
+      "status": "open"
     }
   ]
 }
