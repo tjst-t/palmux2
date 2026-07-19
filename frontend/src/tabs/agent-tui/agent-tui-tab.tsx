@@ -104,20 +104,35 @@ function buildTheme(): Terminal['options']['theme'] {
 
 // Sadf90e: claudetui's WS / resize endpoints are now keyed by {tabId} so two
 // Claude(tui) tabs on the same branch each get their own daemon.
-function buildWsUrl(repoId: string, branchId: string, tabId: string): string {
+//
+// S2b5691-2: this renderer is now shared by claude's tui mode AND every
+// generic agent kind (codex/opencode, internal/tab/agenttab.Provider). The
+// two backends use DIFFERENT URL shapes:
+//   claude (kind omitted or "claude") → bare        /tabs/{tabId}/tui/*
+//   generic kind (codex/opencode/…)   → kind-scoped /{kind}/tabs/{tabId}/tui/*
+// kindSegment returns "" for claude (preserving the exact pre-S2b5691 URL)
+// and "/<kind>" for every other kind.
+function kindSegment(kind: string | undefined): string {
+  if (!kind || kind === 'claude') return ''
+  return `/${encodeURIComponent(kind)}`
+}
+
+function buildWsUrl(repoId: string, branchId: string, tabId: string, kind?: string): string {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   return (
     `${proto}//${window.location.host}` +
     `/api/repos/${encodeURIComponent(repoId)}` +
     `/branches/${encodeURIComponent(branchId)}` +
+    `${kindSegment(kind)}` +
     `/tabs/${encodeURIComponent(tabId)}/tui/attach`
   )
 }
 
-function buildResizeUrl(repoId: string, branchId: string, tabId: string): string {
+function buildResizeUrl(repoId: string, branchId: string, tabId: string, kind?: string): string {
   return (
     `/api/repos/${encodeURIComponent(repoId)}` +
     `/branches/${encodeURIComponent(branchId)}` +
+    `${kindSegment(kind)}` +
     `/tabs/${encodeURIComponent(tabId)}/tui/resize`
   )
 }
@@ -129,27 +144,36 @@ type Status = 'connecting' | 'connected' | 'streaming' | 'disconnected'
 // undefined means no role event has been received from the server yet.
 type Role = 'active' | 'viewer'
 
-export function ClaudeTuiTab({ repoId, branchId, tabId }: TabViewProps) {
+// S2b5691-2: generalized from ClaudeTuiTab. Registered both under the legacy
+// synthetic type 'claude-tui' (claude's tui mode, kind omitted → identical
+// bare-path behavior as before this Story) and as the fallback renderer for
+// any other registry-known agent kind (kind passed through so the PTY
+// endpoint URL gets the /{kind} segment the generic backend provider
+// expects — see kindSegment() above).
+export function AgentTuiTab({ repoId, branchId, tabId, kind }: TabViewProps) {
   const viewport = useViewport()
   return (
-    <ClaudeTuiDesktop
+    <AgentTuiDesktop
       repoId={repoId}
       branchId={branchId}
       tabId={tabId}
+      kind={kind}
       showFilePicker={isMobile(viewport)}
     />
   )
 }
 
-function ClaudeTuiDesktop({
+function AgentTuiDesktop({
   repoId,
   branchId,
   tabId,
+  kind,
   showFilePicker,
 }: {
   repoId: string
   branchId: string
   tabId: string
+  kind?: string
   showFilePicker: boolean
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -313,7 +337,7 @@ function ClaudeTuiDesktop({
     let streamingTimer: ReturnType<typeof setTimeout> | null = null
 
     const ws = new ReconnectingWebSocket({
-      url: buildWsUrl(repoId, branchId, tabId),
+      url: buildWsUrl(repoId, branchId, tabId, kind),
       binaryType: 'arraybuffer',
       onState: (s) => {
         if (s === 'open') {
@@ -521,7 +545,7 @@ function ClaudeTuiDesktop({
 
     function sendResizeNow(cols: number, rows: number): void {
       if (cols <= 0 || rows <= 0) return
-      void api.post(buildResizeUrl(repoId, branchId, tabId), { cols, rows }).catch(() => {
+      void api.post(buildResizeUrl(repoId, branchId, tabId, kind), { cols, rows }).catch(() => {
         // Non-fatal — the WS connection may not have started the daemon yet.
       })
     }
@@ -635,7 +659,7 @@ function ClaudeTuiDesktop({
     // and both tabs render the same session. Mirrors terminal-view.tsx,
     // which already keys its mount effect on tabId.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repoId, branchId, tabId, reconnectSeq])
+  }, [repoId, branchId, tabId, kind, reconnectSeq])
 
   // Live font-size update without tearing down the WS.
   useEffect(() => {

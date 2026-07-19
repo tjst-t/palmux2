@@ -5,6 +5,7 @@ import { api } from '../../lib/api'
 import { resolveBashTarget } from '../../lib/bash-target'
 import { pushRecent, listRecents } from '../../lib/recents'
 import { terminalManager } from '../../lib/terminal-manager'
+import { isAgentTab, useAgentRegistryStore } from '../../stores/agent-registry-store'
 import { selectBranchById, selectRepoById, usePalmuxStore, type UserCommand } from '../../stores/palmux-store'
 import { useTabSettingsStore } from '../../stores/tab-settings-store'
 import { ClaudeIcon } from '../icons/claude-icon'
@@ -219,6 +220,9 @@ function PaletteInner({
   const deviceSettings = usePalmuxStore((s) => s.deviceSettings)
   // S032: user-defined commands from global settings palette.userCommands
   const userCommands = usePalmuxStore((s) => s.globalSettings.palette?.userCommands ?? EMPTY_USER_COMMANDS)
+  // S2b5691-2: enabled agent kinds — drives the "new <agent>" builtin
+  // commands below (always includes at least claude).
+  const agents = useAgentRegistryStore((s) => s.agents)
   // Sadf90e: tab-scoped settings for switch-claude-mode command. The
   // toggle now affects only the active Claude tab, not every Claude tab
   // on the branch.
@@ -377,6 +381,26 @@ function PaletteInner({
         navigate(`/${encodeURIComponent(activeRepo.id)}/${encodeURIComponent(activeBranch.id)}/${encodeURIComponent(tab.id)}${search}`)
       },
     })
+    // S2b5691-2 [AC-S2b5691-2-1]: one "new <agent>" command per OTHER
+    // enabled registry agent kind (codex/opencode/…). 'builtin:new-claude'
+    // above is untouched so existing recents/searches keep working; this
+    // only ADDS entries when more than claude is enabled.
+    for (const a of agents) {
+      if (a.kind === 'claude') continue
+      items.push({
+        id: `builtin:new-agent-${a.kind}`,
+        kind: 'command',
+        icon: '🤖',
+        label: `new ${a.displayName.toLowerCase()}`,
+        detail: 'builtin',
+        searchable: `new ${a.displayName.toLowerCase()} agent tab ${a.kind}`,
+        perform: async () => {
+          const tab = await addTab(activeRepo.id, activeBranch.id, a.kind)
+          const search = searchParams.toString() ? `?${searchParams.toString()}` : ''
+          navigate(`/${encodeURIComponent(activeRepo.id)}/${encodeURIComponent(activeBranch.id)}/${encodeURIComponent(tab.id)}${search}`)
+        },
+      })
+    }
     if (params.tabId) {
       items.push({
         id: 'builtin:close-current',
@@ -514,7 +538,7 @@ function PaletteInner({
     })
 
     return items
-  }, [activeRepo, activeBranch, params.tabId, addTab, removeTab, renameTab, setDeviceSetting, deviceSettings, navigate, searchParams, onOpenUserCmdModal, getTabSettings, patchTabSettings])
+  }, [activeRepo, activeBranch, params.tabId, addTab, removeTab, renameTab, setDeviceSetting, deviceSettings, navigate, searchParams, onOpenUserCmdModal, getTabSettings, patchTabSettings, agents])
 
   // Sa53137: global commands available regardless of whether a repo/branch is
   // open. Settings (app + deploy) must be reachable on a fresh install with no
@@ -1009,7 +1033,8 @@ function tabIcon(type: string): ReactNode {
     case 'git':
       return '⎇'
     default:
-      return '•'
+      // S2b5691-2: any other registry agent kind gets a generic icon.
+      return isAgentTab(type) ? '🤖' : '•'
   }
 }
 

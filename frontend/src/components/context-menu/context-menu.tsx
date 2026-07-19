@@ -11,6 +11,7 @@ export function ContextMenuRenderer() {
   const items = useContextMenuStore((s) => s.items)
   const requestedX = useContextMenuStore((s) => s.x)
   const requestedY = useContextMenuStore((s) => s.y)
+  const containerTestId = useContextMenuStore((s) => s.containerTestId)
   const hide = useContextMenuStore((s) => s.hide)
   const ref = useRef<HTMLDivElement | null>(null)
   const [pos, setPos] = useState({ x: 0, y: 0 })
@@ -73,6 +74,7 @@ export function ContextMenuRenderer() {
       ref={ref}
       className={styles.menu}
       role="menu"
+      data-testid={containerTestId}
       style={{ left: pos.x, top: pos.y }}
       onContextMenu={(e) => e.preventDefault()}
     >
@@ -92,6 +94,7 @@ export function ContextMenuRenderer() {
             key={i}
             type="button"
             role="menuitem"
+            data-testid={item.testId}
             className={item.danger ? `${styles.item} ${styles.danger}` : styles.item}
             disabled={item.disabled}
             onClick={() => {

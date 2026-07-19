@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { useLongPress } from '../hooks/use-long-press'
 import type { Branch, Tab } from '../lib/api'
+import { agentCapabilities, isAgentTab, useAgentRegistryStore } from '../stores/agent-registry-store'
 import {
   selectBranchNotifications,
   selectRepoById,
@@ -32,6 +33,11 @@ const DEFAULT_LIMITS: Record<string, { min: number; max: number }> = {
   git: { min: 1, max: 1 },
 }
 
+// S2b5691-2: fallback max for a registry agent kind with no DEFAULT_LIMITS
+// entry of its own (mirrors backend agenttab.Provider's
+// defaultMaxTabsPerBranch — codex/opencode/a user-defined agent all use it).
+const DEFAULT_GENERIC_AGENT_MAX = 3
+
 export function TabBar({ branch }: Props) {
   const { repoId } = useParams()
   const { tabId } = useParams()
@@ -42,6 +48,11 @@ export function TabBar({ branch }: Props) {
   const renameTab = usePalmuxStore((s) => s.renameTab)
   const reorderTabs = usePalmuxStore((s) => s.reorderTabs)
   const settings = usePalmuxStore((s) => s.globalSettings)
+  // S2b5691-2: enabled agent kinds (always includes at least claude — see
+  // agent-registry-store's claude-only fallback). Reactive so the `+`
+  // button's picker-vs-immediate-add behavior updates once GET /api/agents
+  // resolves.
+  const agents = useAgentRegistryStore((s) => s.agents)
   const notifs = usePalmuxStore(
     repoId ? selectBranchNotifications(repoId, branch.id) : () => undefined,
   )
@@ -94,8 +105,19 @@ export function TabBar({ branch }: Props) {
 
   // Per-type max from settings, falling back to built-in defaults so
   // the UI is functional before the settings round-trip lands.
+  //
+  // S2b5691-2: a registry agent kind with no DEFAULT_LIMITS entry (i.e.
+  // every non-claude agent kind — codex, opencode, a user-defined agent)
+  // falls back to DEFAULT_GENERIC_AGENT_MAX (mirrors backend
+  // agenttab.Provider's defaultMaxTabsPerBranch) instead of the generic
+  // {min:1,max:1} used for non-agent single-instance types (files/git). The
+  // FE has no per-kind settings surface yet.
   const limitsFor = (type: string): { min: number; max: number } => {
-    const def = DEFAULT_LIMITS[type] ?? { min: 1, max: 1 }
+    const def =
+      DEFAULT_LIMITS[type] ??
+      (agents.some((a) => a.kind === type)
+        ? { min: 1, max: DEFAULT_GENERIC_AGENT_MAX }
+        : { min: 1, max: 1 })
     if (type === 'claude' && settings.maxClaudeTabsPerBranch) {
       return { min: def.min, max: settings.maxClaudeTabsPerBranch }
     }
@@ -119,6 +141,36 @@ export function TabBar({ branch }: Props) {
     } finally {
       setAdding(null)
     }
+  }
+
+  // S2b5691-2: the agent-kind `+` buttons (claude's, and any other registry
+  // kind's own group `+`) route through the agent-picker menu once more
+  // than one agent kind is enabled. With only claude enabled (the default)
+  // this is byte-for-byte the old behavior — onAddOfType(group.type) fires
+  // immediately, no menu. Non-agent groups (bash/files/git) are untouched:
+  // `agents` never contains those types, so isAgentGroupType is always
+  // false for them.
+  const isAgentGroupType = (type: string) => agents.some((a) => a.kind === type)
+  const onAddClick = (e: React.MouseEvent, type: string) => {
+    if (isAgentGroupType(type) && agents.length > 1) {
+      const pickable = agents.filter((a) => {
+        const lim = limitsFor(a.kind)
+        const count = branch.tabSet.tabs.filter((t) => t.type === a.kind).length
+        return count < lim.max
+      })
+      showContextMenu(
+        pickable.map((a) => ({
+          label: `New ${a.displayName}`,
+          testId: `agent-picker-item-${a.kind}`,
+          onClick: () => void onAddOfType(a.kind),
+        })),
+        e.clientX,
+        e.clientY,
+        { containerTestId: 'agent-picker' },
+      )
+      return
+    }
+    void onAddOfType(type)
   }
 
   // Drag-to-scroll the tab strip. Identical to pre-S009 behaviour.
@@ -317,7 +369,7 @@ export function TabBar({ branch }: Props) {
                   data-testid={`tab-add-${group.type}`}
                   data-tab-type={group.type}
                   className={styles.addBtn}
-                  onClick={() => onAddOfType(group.type)}
+                  onClick={(e) => onAddClick(e, group.type)}
                   disabled={adding === group.type || atMax}
                   title={
                     atMax
@@ -436,7 +488,13 @@ export function TabBar({ branch }: Props) {
               message:
                 t.type === 'bash'
                   ? `Close tab "${t.name}"? The tmux window will be killed.`
-                  : `Close tab "${t.name}"? This Claude conversation will be detached (the session id is preserved and remains resumable from history).`,
+                  : t.type === 'claude'
+                    ? `Close tab "${t.name}"? This Claude conversation will be detached (the session id is preserved and remains resumable from history).`
+                    // S2b5691-2: generic agent kinds (codex, opencode, a
+                    // user-defined agent, …) share claude's "detach, not
+                    // destroy" semantics (agenttab.Provider.RemoveTabForBranch
+                    // tears down the daemon but keeps any resumable session id).
+                    : `Close tab "${t.name}"? This session will be detached.`,
               confirmLabel: 'Close',
               danger: true,
             })
@@ -600,8 +658,34 @@ function TabRow({
           {modeBadge}
         </span>
       )}
+      <NotifyCapabilityBadge tabType={tab.type} />
       {unreadBadge > 0 && <span className={styles.tabBadge}>{unreadBadge}</span>}
     </button>
+  )
+}
+
+// S2b5691-2 [AC-S2b5691-2-3]: informational chip on an agent tab whose hook
+// mechanism cannot drive the full Activity Inbox vocabulary. Renders nothing
+// for capabilities.notify === "full" (claude, opencode) and for non-agent
+// tab types (bash/files/git/sprint), so it never adds noise to the common
+// case — only turn_end (codex-like: can only say "your turn", never "waiting
+// for permission") and none (a user-defined agent with no notify mechanism
+// at all) get a visible marker, preventing "no notification = all good"
+// misreads.
+function NotifyCapabilityBadge({ tabType }: { tabType: string }) {
+  const caps = agentCapabilities(tabType)
+  if (!caps || caps.notify === 'full') return null
+  const label = caps.notify === 'turn_end' ? '通知は turn 完了のみ' : '通知なし'
+  return (
+    <span
+      data-testid="notify-capability-badge"
+      data-notify-level={caps.notify}
+      className={styles.notifyBadge}
+      title={label}
+      aria-label={label}
+    >
+      🔕
+    </span>
   )
 }
 
@@ -661,6 +745,9 @@ function iconFor(type: string): ReactNode {
     case 'git':
       return '⎇'
     default:
-      return '•'
+      // S2b5691-2: any other registry agent kind (codex, opencode, a
+      // user-defined generic agent, …) gets a generic icon instead of the
+      // bare bullet used for non-agent tab types.
+      return isAgentTab(type) ? '🤖' : '•'
   }
 }

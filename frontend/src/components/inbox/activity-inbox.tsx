@@ -13,6 +13,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
 import { terminalManager } from '../../lib/terminal-manager'
 import { urlForClaude, urlForTab } from '../../lib/tab-nav'
+import { agentFor } from '../../stores/agent-registry-store'
 import {
   type NotificationItem,
   selectBranchNotifications,
@@ -20,6 +21,18 @@ import {
 } from '../../stores/palmux-store'
 
 import styles from './inbox.module.css'
+
+// S2b5691-2: originating-agent kind for a notification, and the DisplayName
+// the Inbox's "Open <DisplayName>" action should show. The backend stamps
+// `agentKind` (derived from tabId) on every notification; older/legacy
+// entries with no tabId at all fall back to "Claude" — that was the only
+// agent this Inbox ever spoke to before the multi-agent framework, so it's
+// the correct default rather than a generic label.
+function agentDisplayName(item: NotificationItem | undefined): string {
+  const kind = item?.agentKind || item?.tabId?.split(':')[0]
+  if (!kind) return 'Claude'
+  return agentFor(kind)?.displayName ?? kind
+}
 
 interface InboxRow {
   repoId: string
@@ -225,18 +238,25 @@ function InboxRowView({
     a.action.startsWith('claude.permission.'),
   )
 
-  // Detect claude-tui events: the latest notification (pending or last) has a
-  // claudetui.* type.  These come from the Claude Code hooks injected per
-  // claude-tui subprocess and are rendered with an "Open Claude" button.
+  // Detect agent-tui events: the latest notification (pending or last) has a
+  // claudetui.* type. This prefix is shared by every agent-tui-backed
+  // adapter's hook wire format (claude's own hooks, and codex/opencode's
+  // notify mechanisms reusing the same shape), so this is no longer
+  // claude-exclusive despite the historical type-string name.
   const latestItem = live?.notifications?.slice().reverse().find((n) => !n.resolved)
   const isClaudeTuiEvent =
     (latestItem?.type ?? row.lastType ?? '').startsWith('claudetui.')
-  // Route to the exact Claude tab that fired the hook (the notification carries
-  // its tabId) so a branch with two Claude tabs opens the right one. Fall back
-  // to the default 'claude' tab for older notifications without a tabId.
+  // Route to the exact originating tab (the notification carries its tabId)
+  // so a branch with two tabs of the same agent kind opens the right one.
+  // Fall back to the default 'claude' tab for older notifications without a
+  // tabId (pre-S009 claude-only callers).
   const claudeTuiUrl = latestItem?.tabId
     ? urlForTab(row.repoId, row.branchId, latestItem.tabId)
     : urlForClaude(row.repoId, row.branchId)
+  // S2b5691-2: the Inbox's "Open" action is labeled with the originating
+  // agent's DisplayName ("Open Codex", "Open opencode") instead of a
+  // hardcoded "Open Claude" so a codex/opencode notification is legible.
+  const agentTuiOpenLabel = `Open ${agentDisplayName(latestItem)}`
 
   const navigate = useNavigate()
   const location = useLocation()
@@ -278,8 +298,12 @@ function InboxRowView({
       </div>
       {isClaudeTuiEvent ? (
         <div className={styles.actions}>
-          <button className={styles.action} onClick={openClaudeTui}>
-            Open Claude
+          <button
+            className={styles.action}
+            data-testid="activity-inbox-open-agent"
+            onClick={openClaudeTui}
+          >
+            {agentTuiOpenLabel}
           </button>
         </div>
       ) : isMcpPermission && pendingItem ? (
