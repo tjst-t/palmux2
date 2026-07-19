@@ -137,6 +137,92 @@ func TestSharedProfile_SharedDirsIncluded(t *testing.T) {
 	}
 }
 
+// TestSharedProfile_AgentSharedPathsIncluded is [AC-S2b5691-1-3]'s unit-level
+// half: SetAgentSharedPaths (agent.Registry.SharedContainerPaths — codex/
+// opencode binary+npm-tree+auth shares) makes declaredDevices include each
+// existing path as an "ag-<hash>" device, and skips a nonexistent one
+// silently (same "source absent -> skip" contract as SetSharedDirs).
+func TestSharedProfile_AgentSharedPathsIncluded(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Simulate a codex-style share: an npm package tree dir + a node binary
+	// file, both plausibly OUTSIDE $HOME (unlike the config shared_dirs
+	// case) — e.g. /usr/lib/node_modules, /usr/bin/node in production.
+	nodeModules := filepath.Join(t.TempDir(), "node_modules")
+	_ = os.MkdirAll(nodeModules, 0o755)
+	nodeBin := filepath.Join(t.TempDir(), "node")
+	_ = os.WriteFile(nodeBin, []byte("#!/bin/sh\n"), 0o755)
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+
+	m := NewSharedProfileManager(newFakeRunner().asRunner(), nil, nil)
+	m.SetAgentSharedPaths([]string{nodeModules, nodeBin, missing})
+
+	devs := m.declaredDevices()
+	wantTree := agentDeviceName(nodeModules)
+	wantBin := agentDeviceName(nodeBin)
+	wantMissing := agentDeviceName(missing)
+
+	var foundTree, foundBin bool
+	for _, d := range devs {
+		if !strings.HasPrefix(d.name, agentDeviceNamePrefix) {
+			continue
+		}
+		switch d.name {
+		case wantTree:
+			foundTree = true
+			if d.source != nodeModules || d.path != nodeModules {
+				t.Errorf("agent tree device source/path = %s/%s, want %s", d.source, d.path, nodeModules)
+			}
+		case wantBin:
+			foundBin = true
+			if d.source != nodeBin || d.path != nodeBin {
+				t.Errorf("agent bin device source/path = %s/%s, want %s", d.source, d.path, nodeBin)
+			}
+		case wantMissing:
+			t.Errorf("nonexistent agent path should be skipped, got device %v", d)
+		}
+	}
+	if !foundTree {
+		t.Errorf("expected agent-shared node_modules device %q in %v", wantTree, devs)
+	}
+	if !foundBin {
+		t.Errorf("expected agent-shared node binary device %q in %v", wantBin, devs)
+	}
+}
+
+// TestSharedProfile_AgentSharedPathsNotSymlinkSkipped proves an
+// agent-shared path that is a symlink pointing OUTSIDE $HOME is NOT dropped
+// by the Nix-dotfile symlink-skip filter — unlike ~/.bashrc &c, an agent
+// share (e.g. a version-manager-installed node binary) routinely IS a
+// symlink outside $HOME and that is the normal, working case.
+func TestSharedProfile_AgentSharedPathsNotSymlinkSkipped(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	outsideDir := t.TempDir() // sibling tmpdir, NOT under home
+	realBin := filepath.Join(outsideDir, "real-node")
+	_ = os.WriteFile(realBin, []byte("#!/bin/sh\n"), 0o755)
+	linkedBin := filepath.Join(home, "linked-node") // symlink OUTSIDE home's target
+	if err := os.Symlink(realBin, linkedBin); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	m := NewSharedProfileManager(newFakeRunner().asRunner(), nil, nil)
+	m.SetAgentSharedPaths([]string{linkedBin})
+
+	want := agentDeviceName(linkedBin)
+	found := false
+	for _, d := range m.declaredDevices() {
+		if d.name == want {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("agent-shared symlink-outside-home path was skipped, want it kept (device %q)", want)
+	}
+}
+
 // SetWorktreeBasedirFunc makes declaredDevices include the gwq worktree base dir
 // as a same-path bind-mount, so a Claude/Bash tab opened on a linked (gwq)
 // worktree finds its cwd inside the container. The base dir may live OUTSIDE

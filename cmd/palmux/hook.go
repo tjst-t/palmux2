@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -31,8 +32,31 @@ import (
 // stdin carries Claude Code's hook JSON payload (hook_event_name, message,
 // notification_type, last_assistant_message, …). The event is taken from that
 // payload, or from an explicit `--event` flag (used by tests).
+//
+// S2b5691: an explicit `--agent=codex` flag switches to the codex notify wire
+// format instead — see runCodexHook. Codex passes its JSON payload as the
+// LAST argv element (not stdin), matching `-c
+// notify=["<hookbin>","hook","--agent=codex"]` in internal/agent/codex.go.
+//
+// `--agent=opencode` switches to the opencode notify wire format — see
+// runOpencodeHook. Unlike codex, opencode's notify plugin
+// (internal/agent/opencode.go's embedded palmux-notify.js) POSTs its JSON
+// payload on the hook subprocess's STDIN (it spawns `<hookbin> hook
+// --agent=opencode` directly via child_process.spawn, not through a shell
+// command string), so runOpencodeHook reads stdin like the claude path does.
+//
+// Any other/unrecognized --agent value (including the default, absent flag)
+// falls through to the claude/stdin path so a misconfiguration fails open
+// rather than silently dropping notifications.
 func runHook(args []string) int {
-	eventOverride, urlOverride := parseHookArgs(args)
+	eventOverride, urlOverride, agentKind := parseHookArgs(args)
+
+	if agentKind == "codex" {
+		return runCodexHook(args, urlOverride)
+	}
+	if agentKind == "opencode" {
+		return runOpencodeHook(urlOverride)
+	}
 
 	// Best-effort read of the hook payload. Cap the read so a huge transcript
 	// echoed onto stdin can't blow up memory; we only need the small header.
@@ -74,24 +98,157 @@ func runHook(args []string) int {
 	return 0
 }
 
-// parseHookArgs extracts the optional --event and --url overrides. Unknown
-// flags are ignored (fail-open).
-func parseHookArgs(args []string) (event, url string) {
+// parseHookArgs extracts the optional --event, --url, and --agent=<kind>
+// overrides. Unknown flags are ignored (fail-open).
+func parseHookArgs(args []string) (event, url, agentKind string) {
 	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--event":
+		switch {
+		case args[i] == "--event":
 			if i+1 < len(args) {
 				event = args[i+1]
 				i++
 			}
-		case "--url":
+		case args[i] == "--url":
 			if i+1 < len(args) {
 				url = args[i+1]
 				i++
 			}
+		case strings.HasPrefix(args[i], "--agent="):
+			agentKind = strings.TrimPrefix(args[i], "--agent=")
 		}
 	}
-	return event, url
+	return event, url, agentKind
+}
+
+// runCodexHook implements the `--agent=codex` branch of runHook. Codex's own
+// `notify` mechanism (see internal/agent/codex.go's `-c notify=[...]`
+// injection) invokes the configured program with a single JSON payload as
+// the LAST command-line argument — never on stdin. Today codex only ever
+// fires `"type":"agent-turn-complete"` (there is no permission-wait signal in
+// the TUI), which maps to the same "your turn" notification shape Claude's
+// Stop hook produces, so it reuses the "claudetui.*" type prefix the FE
+// Activity Inbox already recognizes and the same "claudetui-hook-<tabId>"
+// RequestID scheme (hookRequestID) so an Inbox entry updates in place rather
+// than piling up.
+func runCodexHook(args []string, urlOverride string) int {
+	raw := lastNonFlagHookArg(args)
+	var payload struct {
+		Type                 string `json:"type"`
+		LastAssistantMessage string `json:"last-assistant-message"`
+	}
+	_ = json.Unmarshal([]byte(raw), &payload)
+
+	// Only agent-turn-complete is mapped today; anything else (a future codex
+	// notify event type we don't yet understand) fails open silently.
+	if payload.Type != "agent-turn-complete" {
+		return 0
+	}
+
+	url := urlOverride
+	if url == "" {
+		url = os.Getenv("PALMUX_NOTIFY_URL")
+	}
+	repoID := os.Getenv("PALMUX_REPO_ID")
+	branchID := os.Getenv("PALMUX_BRANCH_ID")
+	tabID := os.Getenv("PALMUX_TAB_ID")
+	tabName := os.Getenv("PALMUX_TAB_NAME")
+	token := os.Getenv("PALMUX_TOKEN")
+
+	if url == "" || repoID == "" || branchID == "" {
+		return 0
+	}
+
+	body := map[string]any{
+		"repoId":    repoID,
+		"branchId":  branchID,
+		"tabId":     tabID,
+		"tabName":   tabName,
+		"requestId": hookRequestID(tabID),
+		"type":      "claudetui.task_complete",
+		"message":   firstNonEmpty(payload.LastAssistantMessage, "Codex finished — your turn"),
+	}
+
+	postHookNotification(url, token, body)
+	return 0
+}
+
+// runOpencodeHook implements the `--agent=opencode` branch of runHook.
+// opencode's own notify mechanism is a palmux-authored plugin
+// (internal/agent/opencode.go's embedded palmux-notify.js, injected
+// per-process via OPENCODE_CONFIG_CONTENT — see OpencodeAdapter.SpawnSpec)
+// that spawns `<hookbin> hook --agent=opencode` via Node's child_process and
+// writes its JSON payload to that child's STDIN — never argv, since the
+// plugin controls the spawn directly rather than going through opencode's
+// own CLI-driven notify wiring the way codex's `-c notify=[...]` does.
+//
+// The plugin drives BOTH of opencode's notify-worthy signals off a single
+// bus event — event.type "session.idle" (turn ended) and "permission.asked"
+// (a tool call needs approval) — see OpencodeAdapter's type doc comment.
+// "session.idle" maps to the same "claudetui.task_complete" shape Claude's
+// Stop hook / codex's agent-turn-complete produce; "permission.asked" maps
+// to "claudetui.permission_prompt", the same shape Claude's
+// Notification/permission_prompt hook produces — both reuse the
+// "claudetui.*" type prefix the FE Activity Inbox already recognizes and the
+// same "claudetui-hook-<tabId>" RequestID scheme so an Inbox entry updates
+// in place rather than piling up.
+func runOpencodeHook(urlOverride string) int {
+	raw, _ := io.ReadAll(io.LimitReader(os.Stdin, 1<<20))
+	var payload struct {
+		Type      string `json:"type"`
+		SessionID string `json:"sessionID"`
+		Message   string `json:"message"`
+	}
+	_ = json.Unmarshal(raw, &payload)
+
+	url := urlOverride
+	if url == "" {
+		url = os.Getenv("PALMUX_NOTIFY_URL")
+	}
+	repoID := os.Getenv("PALMUX_REPO_ID")
+	branchID := os.Getenv("PALMUX_BRANCH_ID")
+	tabID := os.Getenv("PALMUX_TAB_ID")
+	tabName := os.Getenv("PALMUX_TAB_NAME")
+	token := os.Getenv("PALMUX_TOKEN")
+
+	if url == "" || repoID == "" || branchID == "" {
+		return 0
+	}
+
+	body := map[string]any{
+		"repoId":    repoID,
+		"branchId":  branchID,
+		"tabId":     tabID,
+		"tabName":   tabName,
+		"requestId": hookRequestID(tabID),
+	}
+
+	switch payload.Type {
+	case "session.idle":
+		body["type"] = "claudetui.task_complete"
+		body["message"] = firstNonEmpty(payload.Message, "opencode finished — your turn")
+	case "permission.asked":
+		body["type"] = "claudetui.permission_prompt"
+		body["message"] = firstNonEmpty(payload.Message, "opencode needs your permission")
+	default:
+		// A future/unrecognized opencode event type — fail open silently.
+		return 0
+	}
+
+	postHookNotification(url, token, body)
+	return 0
+}
+
+// lastNonFlagHookArg returns the last element of args that does not look
+// like a `--flag` (codex's JSON payload always starts with `{`, which never
+// collides with a flag spelling). Empty when every arg looks like a flag or
+// args is empty.
+func lastNonFlagHookArg(args []string) string {
+	for i := len(args) - 1; i >= 0; i-- {
+		if !strings.HasPrefix(args[i], "--") {
+			return args[i]
+		}
+	}
+	return ""
 }
 
 // hookRequestID is the stable per-tab RequestID for claude-tui hook

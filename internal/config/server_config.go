@@ -59,11 +59,66 @@ type WorkspaceSection struct {
 	SharedDirs []string `toml:"shared_dirs" json:"sharedDirs"`
 }
 
+// AgentSection mirrors one `[agents.<name>]` table in config.toml (S2b5691,
+// ported from the maultiagent reference branch's Sdec0a7-2 design §4.3). The
+// reserved name "claude" overrides the built-in claude adapter's bin/args
+// (server.claude_bin/args remain the DEFAULT — see BinOrCommand); "codex" and
+// "opencode" enable the built-in CodexAdapter/OpencodeAdapter (D3: still
+// config-gated, but BuildRegistry dispatches to the real adapter rather than
+// a template-driven GenericAdapter — see internal/agent/registry.go); any
+// other name declares a user-defined GenericAdapter
+// (internal/agent.GenericAdapter).
+type AgentSection struct {
+	// Enabled gates whether this entry is offered as a tab kind at all. A
+	// nil value (key absent from the TOML) defaults to true — declaring
+	// `[agents.<name>]` with a command is enough to turn it on; `enabled =
+	// false` is how a user temporarily disables one without deleting the
+	// section. Ignored for "claude" (always available).
+	Enabled *bool `toml:"enabled" json:"enabled,omitempty"`
+	// DisplayName is the human-readable tab/label; empty falls back to the
+	// section name. Ignored for the built-in "claude"/"codex"/"opencode"
+	// names (their DisplayName() is a fixed label — see BuildRegistry).
+	DisplayName string `toml:"display_name" json:"displayName,omitempty"`
+	// Bin is the claude-section spelling of the binary override
+	// (`[agents.claude] bin = "..."`, mirrors server.claude_bin). Command is
+	// the generic/codex/opencode-section spelling (`[agents.codex] command =
+	// "codex"`). BinOrCommand() reads whichever is set — the two are the
+	// same concept under different, doc-friendly names.
+	Bin     string   `toml:"bin" json:"bin,omitempty"`
+	Command string   `toml:"command" json:"command,omitempty"`
+	Args    []string `toml:"args" json:"args,omitempty"`
+	// ResumeArgs declares generic Resume capability when non-empty; may
+	// contain the literal token "{session_id}" (internal/agent.GenericAdapter).
+	// Ignored for claude/codex/opencode (their resume logic is built-in).
+	ResumeArgs []string `toml:"resume_args" json:"resumeArgs,omitempty"`
+	// ContainerCommand declares generic InContainer capability when
+	// non-empty (the in-container binary path/command). Ignored for
+	// claude/codex/opencode (their in-container binary is auto-resolved —
+	// see internal/agent.InContainerProvider).
+	ContainerCommand string `toml:"container_command" json:"containerCommand,omitempty"`
+}
+
+// IsEnabled reports whether this section should be offered as a tab kind.
+// Absent (nil) defaults to true.
+func (a AgentSection) IsEnabled() bool {
+	return a.Enabled == nil || *a.Enabled
+}
+
+// BinOrCommand returns Command if set, else Bin — the two config keys are
+// synonyms (see the AgentSection doc comment).
+func (a AgentSection) BinOrCommand() string {
+	if a.Command != "" {
+		return a.Command
+	}
+	return a.Bin
+}
+
 // MasterConfig is the parsed config.toml.
 type MasterConfig struct {
-	Server    ServerSection    `toml:"server"`
-	Public    PublicSection    `toml:"public"`
-	Workspace WorkspaceSection `toml:"workspace"`
+	Server    ServerSection           `toml:"server"`
+	Public    PublicSection           `toml:"public"`
+	Workspace WorkspaceSection        `toml:"workspace"`
+	Agents    map[string]AgentSection `toml:"agents" json:"agents,omitempty"`
 }
 
 // Secrets holds the values from secrets.env (never serialised back to the
