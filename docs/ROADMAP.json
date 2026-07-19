@@ -12746,52 +12746,52 @@
         },
         "S2b5691-2": {
           "title": "ユーザーとして、⌘Kやタブ追加ピッカーからcodex/opencodeタブを作成したい。なぜなら、registryに登録されただけではUIから使えないから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S2b5691-2-1",
               "description": "config.toml で codex/opencode が有効化されている状態で、TabBar の「+」ボタン (2種以上の agent kind が enabled のときのみ agent-picker メニューを開く。1種のみなら従来通り即時追加、既存 Claude/Bash の「+」挙動は不変) と ⌘K パレット ('new codex' / 'new opencode' コマンド) の両方から codex/opencode タブを選択・作成できる。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S2b5691-2-2",
               "description": "作成した codex タブ/opencode タブで実際に PTY WS が接続し (agenttab.Provider のルート、claude-tui とは異なる kind プレフィクス付き URL 形状に対応する新レンダラが必要)、簡単なプロンプトで1ターンが完走することを実機 (実 codex/opencode バイナリ) E2E で確認する。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S2b5691-2-3",
               "description": "Activity Inbox が codex/opencode タブの通知 (Story 1 の hook dispatch 経由) を正しくそのタブ/エージェント名 (Open Codex / Open opencode) に帰属させて表示し、加えて notify-capability バッジ (capabilities.notify != 'full' のタブに「通知は turn 完了のみ」/「通知なし」を明示、'full' は非表示) が codex (turn_end) / opencode (full) それぞれ正しい表示になることを確認する。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S2b5691-2-1": {
               "title": "FE: agent-picker/tab-add picker に codex/opencode 追加 (Plan調査で判明: 配線確認のみでは済まない — agent-registry-store/agent-tui renderer/tab-bar picker/command-palette が実際には全て未実装。詳細は Tasks -2-3〜-2-7 を参照)",
-              "status": "pending"
+              "status": "done"
             },
             "S2b5691-2-2": {
               "title": "実機E2E: codex/opencodeタブ作成+ターン実行 (Python+Playwright、tests/e2e/s2b5691_2_agent_picker.py。実 codex 0.144.1/opencode 1.17.18 がこのホストにインストール済みであることを Plan 時点で確認済み)",
-              "status": "pending"
+              "status": "done"
             },
             "S2b5691-2-3": {
               "title": "frontend/src/stores/agent-registry-store.ts (Zustand, 新規) を追加: 起動時に GET /api/agents を fetch、loading/error 時は claude-only fallback (maultiagent 参照実装 e7ae79c から移植)",
-              "status": "pending"
+              "status": "done"
             },
             "S2b5691-2-4": {
               "title": "frontend/src/tabs/claude-tui/claude-tui-tab.tsx を kind プロップ対応に一般化 (agent-tui へ改名 or 並置、legacy claude-tui type + 汎用 agent-tui type の二重登録)、WS/resize URL を kind プレフィクス付きに分岐。main の役割バッジ/OSC52/タッチスクロール/ファイルピッカー等 (maultiagent には無い main独自機能) は保持したまま generalize すること",
-              "status": "pending"
+              "status": "done"
             },
             "S2b5691-2-5": {
               "title": "tabs/tab-content.tsx: 未登録 type でも registry-known agent kind ならフォールバックで agent-tui レンダラを使う配線を追加",
-              "status": "pending"
+              "status": "done"
             },
             "S2b5691-2-6": {
               "title": "tab-bar.tsx: agent-picker メニュー (2種以上 enabled 時) + per-kind limit/icon 一般化。command-palette.tsx: kind ごとの new-<agent> コマンドをループで追加 (現状 new-bash/new-claude のみハードコード)",
-              "status": "pending"
+              "status": "done"
             },
             "S2b5691-2-7": {
               "title": "activity-inbox.tsx: agentKind別ラベル (Open Codex / Open opencode) + notify-capability バッジ表示 (maultiagent 参照実装 ef3da64/cab59a7 から移植)",
-              "status": "pending"
+              "status": "done"
             }
           }
         }
