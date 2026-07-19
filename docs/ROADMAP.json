@@ -12801,46 +12801,48 @@
       "title": "リリース準備: 実機ドッグフーディング検証 (codex/opencode含む、S2b5691完了後の次リリース)",
       "description": "フェーズD (codex/opencode registry登録) の成果をv0.15.2としてリリースする前に実機で検証する。フェーズCと同様、実際の `git tag v0.15.2` + push はこのSprintのStoryとして自動実行しない — 検証結果をもってmilestone停止時にユーザーへ提示し、明示的な確認を得てから(このSprintの外で)tag pushを行う。",
       "milestone": true,
-      "status": "pending",
+      "status": "partial",
       "detail_level": "detailed",
       "stories": {
         "Sfa2bab-1": {
           "title": "プロダクトオーナーとして、v0.15.2相当のビルドでcodex/opencodeタブが実機で動くことを確認してからリリースしたい。なぜなら、フェーズCと同じ理由でリリース前の実機ドッグフーディングを省略したくないから。",
-          "status": "pending",
+          "status": "needs_user_review",
           "acceptance_criteria": [
             {
               "id": "AC-Sfa2bab-1-1",
               "description": "main (フェーズDマージ後) から qcow2 をローカルビルドしこのdev箱で起動できる",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sfa2bab-1-2",
               "description": "codexタブ・opencodeタブをワークスペース内で実際に作成し、簡単なターンが動く",
-              "status": "pending"
+              "status": "fail",
+              "note": "Both codex and opencode completed real turns correctly (verbatim PALMUXOK captured) but Activity Inbox notification never arrived — root-caused to in-container notify hooks being structurally disabled under wildcard-bind/no-domain deployments (backlog bug filed, added_in Sfa2bab). Distinct from the S2b5691 opencode crash-loop backlog item (neither confirmed nor refuted here)."
             },
             {
               "id": "AC-Sfa2bab-1-3",
               "description": "既存のclaudeタブ/genericタブが引き続き正常動作する (回帰無し)",
-              "status": "pending"
+              "status": "pass",
+              "note": "Bash tab: full pass. Claude tab: PTY/spawn path passed (no regression) but a full authenticated turn could not be exercised because copying live ~/.claude credentials into the disposable VM was correctly blocked by DESIGN_PRINCIPLES forbidden-list (no arbitrary ~/.claude/ rewrite without explicit consent flow)."
             },
             {
               "id": "AC-Sfa2bab-1-4",
               "description": "検証結果をユーザーに提示し、明示的なgo-aheadを得てから(このStoryの外側で)git tag v0.15.2 + pushを実行する",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "Sfa2bab-1-1": {
               "title": "dev箱でqcow2をローカルビルド + qemu起動",
-              "status": "pending"
+              "status": "done"
             },
             "Sfa2bab-1-2": {
               "title": "codex/opencode/claude/genericタブの実機検証",
-              "status": "pending"
+              "status": "done"
             },
             "Sfa2bab-1-3": {
               "title": "検証結果サマリをmilestone summaryに含める",
-              "status": "pending"
+              "status": "done"
             }
           }
         }
@@ -13756,6 +13758,20 @@
       "description": "Surfaced as a concern by the S2b5691 Phase 1.8 independent verifier (2026-07-19), previously flagged only in a code comment (tests/acceptance/s2b5691_codex_opencode_incontainer.py's wait_for_agent_share doc comment) and treated as 'out of this Story's scope' rather than logged as a tracked gap. The Sd44947 'profile-as-mold' design (a single host-wide `palmux-shared` incus profile, declaratively reconciled by every running palmux2 instance's ~10s scan loop) assumes all instances on a host converge to the SAME declared device set. When two instances on the same host have DIFFERENT [agents.*] config (e.g. one has [agents.codex]/[agents.opencode] enabled, another does not), their reconcile loops race to converge the SAME profile to their OWN different view, causing devices to flicker in and out of EVERY instance's containers on a ~10s cadence for as long as both instances run concurrently — not just in a throwaway test, but for any real production host running more than one palmux2 instance (e.g. a primary instance + a `INSTANCE=dev` development instance, both common per this repo's own documented workflow) where their [agents.*] config differs. This is a real multi-tenancy correctness gap in the shared-profile design, not merely a test-environment nuisance — it was directly observed during S2b5691 Verify causing `incus shared profile: device add failed` warning spam against unrelated LIVE production containers. Needs a design decision (future Sprint): options include per-instance profile naming/suffixing (trading away some of Sd44947's cross-instance sharing benefit), a leader-election/single-writer reconciler, or explicit config-compatibility checking that refuses to run two instances with differing [agents.*] declarations against the same profile without an operator override.",
       "kind": "bug",
       "added_in": "S2b5691",
+      "status": "open"
+    },
+    {
+      "title": "In-container agent notify hooks are silently disabled whenever palmuxOS binds a wildcard address (services.palmux.domain == null) — affects claude/codex/opencode alike",
+      "description": "cmd/palmux/main.go incusBridgeListenAddr()/bridgeNotifyURL() return \"\" for a wildcard --addr by design (S7364e3, avoids a bridge-listener bind collision), and internal/tab/agenttui/daemon.go spawnWithArgs() treats an empty NotifyURLInContainer as \"skip the hook\" rather than falling back to a reachable address. nixos/modules/appliance.nix sets bindAddr=0.0.0.0:7683 whenever domain==null (the default first-boot/LAN-only state for any palmuxOS appliance without a public domain configured). Net effect: Activity Inbox turn-completion notifications for ANY in-container agent are structurally impossible in this common deployment mode, even though the underlying agent turns complete correctly — a silent capability gap, since notify-capability badges in the UI still claim support. Found + root-caused during Sfa2bab real-machine dogfood (2026-07-19). Fix needs an alternative reachable-from-container bind address for the bridge listener even when the main listener is wildcard, or an explicit operator-facing warning that in-container notifications are unavailable in this mode.",
+      "kind": "bug",
+      "added_in": "Sfa2bab",
+      "status": "open"
+    },
+    {
+      "title": "palmuxOS appliance image bakes ~/.local/share (and subdirs) with root ownership, blocking npm-global CLI installs as the palmux user",
+      "description": "On a fresh palmuxOS appliance VM, ~/.local/share is owned by root instead of the ubuntu/palmux uid:gid (1000:100), so any npm-global install that needs to write there (e.g. opencode-ai) fails with EACCES/EBADPLATFORM-looking errors that mask the real cause. Already-baked tools (claude, gh) are unaffected since they're correctly owned. Found during Sfa2bab real-machine dogfood (2026-07-19), worked around with a manual chown; the image build or a first-boot oneshot should reconcile ownership under the appliance user's $HOME.",
+      "kind": "bug",
+      "added_in": "Sfa2bab",
       "status": "open"
     }
   ]
