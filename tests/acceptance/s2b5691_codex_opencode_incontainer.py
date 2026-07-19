@@ -96,8 +96,23 @@ def sh(*args: str, timeout: int = 30) -> tuple[int, str]:
     # binary when this process's stdin was a pipe rather than an explicit
     # /dev/null or a tty. Every incus exec call in this script goes through
     # sh(), so fixing it once here covers all of them.
-    p = subprocess.run(args, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
-    return p.returncode, (p.stdout + p.stderr)
+    #
+    # Found while running this test for real on a loaded dev box (real
+    # codex/opencode calls out to a real LLM API from inside the container):
+    # a slow-but-not-hung `incus exec ... run` can legitimately exceed the
+    # per-call timeout under host memory pressure. subprocess.run raises
+    # TimeoutExpired in that case, which — left uncaught — crashes the whole
+    # script with a raw traceback and skips the codex/opencode retry loops'
+    # own is_flicker_symptom handling entirely. Converting it to a synthetic
+    # (124, "TIMEOUT ...") result instead lets every call site's existing
+    # retry logic treat "the process didn't finish in time" the same way it
+    # already treats the shared-profile flicker: retry, don't crash.
+    try:
+        p = subprocess.run(args, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
+        return p.returncode, (p.stdout + p.stderr)
+    except subprocess.TimeoutExpired as e:
+        partial = ((e.stdout or b"") if isinstance(e.stdout, bytes) else (e.stdout or "")).__str__() if e.stdout else ""
+        return 124, f"TIMEOUT after {timeout}s: {' '.join(args)} {partial}"
 
 
 def incus(*args: str, timeout: int = 30) -> tuple[int, str]:
@@ -155,9 +170,16 @@ def is_flicker_symptom(rc: int, out: str) -> bool:
     failure — a check-then-use race can still land in the "stripped" window
     even after wait_for_agent_share's own poll passed (two separate incus
     exec round-trips, not one atomic operation), so retrying the whole
-    invocation is the only fully robust mitigation."""
+    invocation is the only fully robust mitigation.
+
+    rc == 124 is this script's own synthetic "the incus exec subprocess
+    didn't finish inside the per-call timeout" marker (see sh()) — a slow
+    real LLM turn under host load is not a genuine codex/opencode failure
+    either, so it is retried the same way."""
     if rc == 0:
         return False
+    if rc == 124:
+        return True
     low = out.lower()
     return any(s in low for s in _FLICKER_SYMPTOMS)
 

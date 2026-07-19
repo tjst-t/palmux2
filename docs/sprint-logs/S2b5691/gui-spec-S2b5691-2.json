@@ -53,11 +53,12 @@
   "data_testids": [
     "agent-picker",
     "agent-picker-item-{kind}",
-    "agent-tui-status",
-    "agent-tui-terminal",
-    "agent-tui-reconnect-btn",
+    "claude-tui-status",
+    "claude-tui-terminal",
+    "claude-tui-reconnect-btn",
     "tab-{tabId}"
   ],
+  "$post_implementation_note": "Verify-phase correction (sprint verify): the actual implementation kept the pre-existing claude-tui-status/-terminal/-reconnect-btn testids on the generalized agent-tui-tab.tsx renderer rather than renaming to agent-tui-* as originally spec'd here, to preserve tests/e2e/s7ce250_claude_tui_mock.py's existing contract unchanged (see that file's diff comment). tests/e2e/s2b5691_2_agent_picker.py accepts both agent-tui-* and claude-tui-* selectors defensively. This field now reflects the shipped testids, not the original plan.",
   "test_files": {
     "e2e": "tests/e2e/s2b5691_2_agent_picker.py",
     "mock": "tests/e2e/s2b5691_2_agent_picker_mock.py",

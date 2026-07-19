@@ -1,0 +1,17 @@
+{
+  "$machine_authored": true,
+  "$comment": "Authored by hooks/run-verify.py. Models MUST NOT edit this file; sprint done and the integrity hook treat it as the trust source. Ground-truth exit codes are also in each run's log (line `__VERIFY_EXIT_CODE__:<name>:<code>`).",
+  "sprint": "S2b5691",
+  "command_source": "fallback (make test)",
+  "runs": [
+    {
+      "name": "test",
+      "command": "make test",
+      "exit_code": 0,
+      "log": "docs/sprint-logs/S2b5691/verify-run-test.log",
+      "machine_status": "pass",
+      "junit": null
+    }
+  ],
+  "overall_machine_status": "pass"
+}
