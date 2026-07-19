@@ -1859,3 +1859,91 @@ func TestIsImageStaleWithCache_StaleDetected(t *testing.T) {
 		t.Errorf("[AC-S52fc2c-7-2] expected stale=true (base=%s, alias=%s), got false", baseImg, aliasImg)
 	}
 }
+
+// [AC-Sc4f091-2-3] PathsReady runs a single `incus exec` round-trip as the
+// workspace user and reports the result of the in-container `test -e ...`
+// check verbatim — true when all paths exist, false (no error) when the
+// underlying `test` exits non-zero (e.g. a device mid-flicker).
+func TestIncusRuntime_PathsReady(t *testing.T) {
+	inst := "ws-pathsready-aabb"
+
+	t.Run("all present", func(t *testing.T) {
+		fr := newFakeRunner()
+		fr.setResult("exec "+inst, fakeResult{code: 0})
+		rt := New(runtime.Config{Kind: runtime.KindIncusContainer}, inst, fr.asRunner(), nil)
+		spc := rt.(runtime.SharedPathChecker)
+
+		ready, err := spc.PathsReady(context.Background(), []string{"/home/ubuntu/.codex", "/usr/bin/node"})
+		if err != nil {
+			t.Fatalf("[AC-Sc4f091-2-3] PathsReady: %v", err)
+		}
+		if !ready {
+			t.Errorf("[AC-Sc4f091-2-3] expected ready=true when test exits 0")
+		}
+		if _, ok := findCall(fr.recorded(), "exec", inst, "--user", "1000"); !ok {
+			t.Errorf("[AC-Sc4f091-2-3] expected exec as workspace user, got %v", fr.recorded())
+		}
+	})
+
+	t.Run("missing path", func(t *testing.T) {
+		fr := newFakeRunner()
+		fr.setResult("exec "+inst, fakeResult{code: 1})
+		rt := New(runtime.Config{Kind: runtime.KindIncusContainer}, inst, fr.asRunner(), nil)
+		spc := rt.(runtime.SharedPathChecker)
+
+		ready, err := spc.PathsReady(context.Background(), []string{"/home/ubuntu/.codex"})
+		if err != nil {
+			t.Fatalf("[AC-Sc4f091-2-3] PathsReady should not error on a non-zero test exit, got %v", err)
+		}
+		if ready {
+			t.Errorf("[AC-Sc4f091-2-3] expected ready=false when test exits non-zero")
+		}
+	})
+
+	t.Run("empty paths trivially ready", func(t *testing.T) {
+		fr := newFakeRunner()
+		rt := New(runtime.Config{Kind: runtime.KindIncusContainer}, inst, fr.asRunner(), nil)
+		spc := rt.(runtime.SharedPathChecker)
+
+		ready, err := spc.PathsReady(context.Background(), nil)
+		if err != nil || !ready {
+			t.Errorf("[AC-Sc4f091-2-3] empty paths should be trivially ready, got ready=%v err=%v", ready, err)
+		}
+		if len(fr.recorded()) != 0 {
+			t.Errorf("[AC-Sc4f091-2-3] empty paths should not invoke incus at all, got %v", fr.recorded())
+		}
+	})
+
+	// [AC-Sc4f091-2-3] shell-quoting regression guard: a path containing `$`
+	// or a backtick must be passed to `sh -c` as a LITERAL string, not
+	// trigger shell expansion/command substitution. Go's %q (Go-string
+	// escaping) does NOT escape either character — this test would have
+	// passed incorrectly under %q (the literal `$(evil)`/`` ` `` bytes end up
+	// inside the generated command string either way), so it asserts the
+	// generated shell command against the single-quoting shellQuoteIncus is
+	// actually expected to produce, which a shell interprets as a no-op
+	// literal rather than expanding.
+	t.Run("shell-quotes special characters", func(t *testing.T) {
+		fr := newFakeRunner()
+		fr.setResult("exec "+inst, fakeResult{code: 0})
+		rt := New(runtime.Config{Kind: runtime.KindIncusContainer}, inst, fr.asRunner(), nil)
+		spc := rt.(runtime.SharedPathChecker)
+
+		dangerous := "/home/ubuntu/$(evil)/`backtick`"
+		if _, err := spc.PathsReady(context.Background(), []string{dangerous}); err != nil {
+			t.Fatalf("[AC-Sc4f091-2-3] PathsReady: %v", err)
+		}
+		call, ok := findCall(fr.recorded(), "exec", inst)
+		if !ok {
+			t.Fatalf("[AC-Sc4f091-2-3] expected an exec call, got %v", fr.recorded())
+		}
+		shCmd := call[len(call)-1] // last arg is the `sh -c` command string
+		wantQuoted := "'" + dangerous + "'"
+		if !strings.Contains(shCmd, wantQuoted) {
+			t.Errorf("[AC-Sc4f091-2-3] expected single-quoted literal %q in generated command, got %q", wantQuoted, shCmd)
+		}
+		if strings.Contains(shCmd, "%!") {
+			t.Errorf("[AC-Sc4f091-2-3] generated command contains a Go fmt verb artifact: %q", shCmd)
+		}
+	})
+}
