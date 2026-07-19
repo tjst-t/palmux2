@@ -12699,27 +12699,47 @@
           "acceptance_criteria": [
             {
               "id": "AC-S2b5691-1-1",
-              "description": "cmd/palmux/main.go の agent.BuildRegistry にcodex/opencodeアダプタが登録されている",
+              "description": "config.toml で [agents.codex]/[agents.opencode] を有効化すると、cmd/palmux/main.go の agent.BuildRegistry がそれらを CodexAdapter/OpencodeAdapter として登録する (agent.reservedKinds に無い、D3: GenericAdapter でなく built-in dispatch)。config.toml に何も書かなければ従来通り claude のみ (既定挙動は不変)。",
               "status": "pending"
             },
             {
               "id": "AC-S2b5691-1-2",
-              "description": "GET /api/agents がcodex/opencodeを含むエージェント一覧を返す",
+              "description": "上記が有効化されている状態で、新規追加する GET /api/agents (現状 internal/server に存在しない、新規実装) が claude/codex/opencode 3種のディスクリプタ (kind/displayName/capabilities/protected/modes) を返す。加えて palmux hook --agent=codex / --agent=opencode の dispatch (現状 --agent フラグは解析されるだけで無視されている) を実装し、各エージェント固有の通知 wire format (codex: JSON を最終 argv、opencode: JSON を stdin) を正しく POST /api/notify 相当に変換できることを確認する。",
               "status": "pending"
             },
             {
               "id": "AC-S2b5691-1-3",
-              "description": "in-container codex/opencode実行 (同一パスbind-mount) が実機incusコンテナで動く",
+              "description": "実機 incus コンテナ上で codex/opencode が (image を焼かず、claude と同じ same-path bind-mount 方式で) 実際に spawn・1ターン完走し、internal/runtime/incus/shared_profile.go の SetAgentSharedPaths (新規実装) 経由でホストのバイナリ + 認証ディレクトリ (~/.codex, ~/.local/share/opencode, ~/.config/opencode) がコンテナへ bind-mount され再認証不要で動くこと。npm-global wrapper (codex) は leaf バイナリ単体では 'Missing optional dependency' で落ちる既知の罠があるため node ランタイム込みで共有されていることも確認する。",
               "status": "pending"
             }
           ],
           "tasks": {
             "S2b5691-1-1": {
-              "title": "main.go にcodex/opencode registry登録を追加",
+              "title": "cmd/palmux/main.go: translateAgentConfig(rc.agents) を実装し agent.BuildRegistry(claudeBin, claudeArgs, translateAgentConfig(rc.agents)) に置換 (現状 nil 固定)。runtimeRegistry.SharedProfileManager().SetAgentSharedPaths(agentRegistry.SharedContainerPaths()) の配線も含む",
               "status": "pending"
             },
             "S2b5691-1-2": {
-              "title": "in-container実行の実機検証 (incusコンテナ)",
+              "title": "in-container実行の実機検証 (実 incus コンテナ、実 codex 0.144.1 / opencode 1.17.18 — このホストに両方インストール済みを Plan 時点で確認済み。throwaway instance/config-dir で現行セッションの palmux2/tmux に影響させないこと)",
+              "status": "pending"
+            },
+            "S2b5691-1-3": {
+              "title": "internal/config に [agents.*] TOML セクション (AgentSection/MasterConfig.Agents/classify.go hot-apply) を maultiagent 参照実装 (git diff main maultiagent -- internal/config) から移植",
+              "status": "pending"
+            },
+            "S2b5691-1-4": {
+              "title": "internal/server/handler_agents.go (GET /api/agents) を新規実装 + ルート登録 (maultiagent 参照実装 internal/server/handler_agents.go から移植)",
+              "status": "pending"
+            },
+            "S2b5691-1-5": {
+              "title": "cmd/palmux/hook.go に --agent=codex/--agent=opencode dispatch (runCodexHook: 最終argv JSON / runOpencodeHook: stdin JSON) を追加 (git diff main maultiagent -- cmd/palmux/hook.go を参照移植)",
+              "status": "pending"
+            },
+            "S2b5691-1-6": {
+              "title": "internal/runtime/incus/shared_profile.go に SetAgentSharedPaths を追加 + main.go で agentRegistry.SharedContainerPaths() を配線 (main の既存 gwqWorktreesDevice 等を壊さないよう手動マージ、単純 diff 適用不可)",
+              "status": "pending"
+            },
+            "S2b5691-1-7": {
+              "title": "notify hub の agentKind スタンプ + TabName 配線を S339021-3 backend half (internal/notify/hub.go, internal/agent/claude.go, internal/tab/agenttui/{daemon,manager}.go) から移植 (main の ptyhost 化後の構造に合わせて手動再適用、ADR-0001/0002 の thin-holder 境界を侵さないこと)",
               "status": "pending"
             }
           }
@@ -12730,27 +12750,47 @@
           "acceptance_criteria": [
             {
               "id": "AC-S2b5691-2-1",
-              "description": "タブ追加ピッカーにcodex/opencodeが選択肢として表示される",
+              "description": "config.toml で codex/opencode が有効化されている状態で、TabBar の「+」ボタン (2種以上の agent kind が enabled のときのみ agent-picker メニューを開く。1種のみなら従来通り即時追加、既存 Claude/Bash の「+」挙動は不変) と ⌘K パレット ('new codex' / 'new opencode' コマンド) の両方から codex/opencode タブを選択・作成できる。",
               "status": "pending"
             },
             {
               "id": "AC-S2b5691-2-2",
-              "description": "codexタブ/opencodeタブを実際に作成し、簡単なターンが動く実機E2Eで確認できる",
+              "description": "作成した codex タブ/opencode タブで実際に PTY WS が接続し (agenttab.Provider のルート、claude-tui とは異なる kind プレフィクス付き URL 形状に対応する新レンダラが必要)、簡単なプロンプトで1ターンが完走することを実機 (実 codex/opencode バイナリ) E2E で確認する。",
               "status": "pending"
             },
             {
               "id": "AC-S2b5691-2-3",
-              "description": "Activity Inboxのnotify-capability badgeがcodex/opencodeタブでも機能する",
+              "description": "Activity Inbox が codex/opencode タブの通知 (Story 1 の hook dispatch 経由) を正しくそのタブ/エージェント名 (Open Codex / Open opencode) に帰属させて表示し、加えて notify-capability バッジ (capabilities.notify != 'full' のタブに「通知は turn 完了のみ」/「通知なし」を明示、'full' は非表示) が codex (turn_end) / opencode (full) それぞれ正しい表示になることを確認する。",
               "status": "pending"
             }
           ],
           "tasks": {
             "S2b5691-2-1": {
-              "title": "FE: agent-picker/tab-add pickerにcodex/opencode追加 (実装がフェーズBで既に来ていれば配線確認のみ)",
+              "title": "FE: agent-picker/tab-add picker に codex/opencode 追加 (Plan調査で判明: 配線確認のみでは済まない — agent-registry-store/agent-tui renderer/tab-bar picker/command-palette が実際には全て未実装。詳細は Tasks -2-3〜-2-7 を参照)",
               "status": "pending"
             },
             "S2b5691-2-2": {
-              "title": "実機E2E: codex/opencodeタブ作成+ターン実行",
+              "title": "実機E2E: codex/opencodeタブ作成+ターン実行 (Python+Playwright、tests/e2e/s2b5691_2_agent_picker.py。実 codex 0.144.1/opencode 1.17.18 がこのホストにインストール済みであることを Plan 時点で確認済み)",
+              "status": "pending"
+            },
+            "S2b5691-2-3": {
+              "title": "frontend/src/stores/agent-registry-store.ts (Zustand, 新規) を追加: 起動時に GET /api/agents を fetch、loading/error 時は claude-only fallback (maultiagent 参照実装 e7ae79c から移植)",
+              "status": "pending"
+            },
+            "S2b5691-2-4": {
+              "title": "frontend/src/tabs/claude-tui/claude-tui-tab.tsx を kind プロップ対応に一般化 (agent-tui へ改名 or 並置、legacy claude-tui type + 汎用 agent-tui type の二重登録)、WS/resize URL を kind プレフィクス付きに分岐。main の役割バッジ/OSC52/タッチスクロール/ファイルピッカー等 (maultiagent には無い main独自機能) は保持したまま generalize すること",
+              "status": "pending"
+            },
+            "S2b5691-2-5": {
+              "title": "tabs/tab-content.tsx: 未登録 type でも registry-known agent kind ならフォールバックで agent-tui レンダラを使う配線を追加",
+              "status": "pending"
+            },
+            "S2b5691-2-6": {
+              "title": "tab-bar.tsx: agent-picker メニュー (2種以上 enabled 時) + per-kind limit/icon 一般化。command-palette.tsx: kind ごとの new-<agent> コマンドをループで追加 (現状 new-bash/new-claude のみハードコード)",
+              "status": "pending"
+            },
+            "S2b5691-2-7": {
+              "title": "activity-inbox.tsx: agentKind別ラベル (Open Codex / Open opencode) + notify-capability バッジ表示 (maultiagent 参照実装 ef3da64/cab59a7 から移植)",
               "status": "pending"
             }
           }
