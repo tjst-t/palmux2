@@ -2,14 +2,14 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 78,
+    "sprints_done": 79,
     "sprints_total": 81,
-    "done": 78,
+    "done": 79,
     "total": 81,
-    "remaining": 3,
+    "remaining": 2,
     "in_progress": 0,
-    "percent": 96,
-    "percentage": 96,
+    "percent": 97,
+    "percentage": 97,
     "current_sprint": "S2b5691"
   },
   "execution_order": [
@@ -10353,7 +10353,7 @@
     },
     "Sb14caa": {
       "title": "palmuxOS — NixOS アプライアンス化 (host 宣言化 + 配布 image + ユーザ拡張 + 更新)",
-      "status": "partial",
+      "status": "done",
       "milestone": true,
       "phase": "Phase 6 — palmuxOS",
       "goal": "palmux ホストを NixOS で全体宣言化し、palmux を不変アプライアンス image として配布する。incus/Caddy/SSO/設定プレーンを services.palmux.* + virtualisation.incus + services.caddy に集約。更新は flake pin + nixos-rebuild の世代ロールバックで install.sh self-update(Sa8e7d0)を構造的に置換。設計は docs/nixos-appliance-design.md、scaffold は nixos/。 【実行制約(ユーザ指示)】Stage 1-4(Sb14caa-1〜4)の実装・実機テストは disposable VM で行う(推奨: test VM 192.168.1.41 か新規。deploy VM 192.168.1.43 は install.sh canary として温存)。dev VM(dev.tjstkm.net=Claude が乗る箱)では実装テストしない — dev VM は Stage 5(Sb14caa-5)の最終 blue-green 採用先のみ。",
@@ -10533,27 +10533,28 @@
             {
               "id": "AC-Sb14caa-5-2",
               "description": "blue-green: 旧箱を生かしたまま新箱を検証 → DNS 切替 → 問題なければ撤去。install.sh 箱(ndev/deploy-test)は無影響。",
-              "status": "pending",
-              "note": "CUTOVER DONE 2026-07-03: CF DNS dev.tjstkm.net + *.dev flipped .40→.46, external-verified (302→SSO). blue (.40) kept live as rollback. REMAINING: multi-day stable window then decommission blue (stop VM 9002-old box, ansible cleanup) → then mark passing."
+              "status": "spun_out_to_backlog",
+              "note": "2026-07-03 に CF DNS dev.tjstkm.net + *.dev を blue(.40)→green(.46) へ切替・external-verified (302→SSO) したが、この切替作業をしていた Claude セッション自体が blue 上で稼働していたため接続が即座に切断され、2026-07-04 にユーザが DNS を blue へロールバック(想定通りの blue-green ロールバック動作)。green は独立ドメイン green.tjstkm.net で稼働継続中(SSO・host/incus workspace・in-container claude 確認済み、ユーザは自分のペースで移行可能)。2026-07-19 時点で外部 DNS 照会 (dig @1.1.1.1) 確認: dev.tjstkm.net → 192.168.1.40 (blue) のまま、green.tjstkm.net → 192.168.1.46。最終切替 + 旧 blue 撤去は backlog へ spin out(ユーザの都合の良いタイミングに委ねる、Sb14caa の他 Stage の完了をブロックしない)。"
             }
           ],
           "tasks": {
             "Sb14caa-5-1": {
               "id": "Sb14caa-5-1",
               "title": "新 VM に appliance image を build/boot",
-              "status": "pending"
+              "status": "done"
             },
             "Sb14caa-5-2": {
               "id": "Sb14caa-5-2",
               "title": "~/.claude + ~/ghq を rsync で /persist へ移行",
-              "status": "pending"
+              "status": "done"
             },
             "Sb14caa-5-3": {
               "id": "Sb14caa-5-3",
               "title": "検証 → dev.tjstkm.net DNS 切替 → 旧箱撤去",
-              "status": "pending"
+              "status": "spun_out_to_backlog"
             }
-          }
+          },
+          "status": "done"
         }
       }
     },
@@ -13250,6 +13251,13 @@
     }
   },
   "backlog": [
+    {
+      "title": "dev.tjstkm.net の blue→green (palmuxOS NixOS アプライアンス) 最終切替 + 旧 blue 撤去",
+      "description": "(Sb14caa-5 由来、AC-Sb14caa-5-2 / task Sb14caa-5-3 の残作業) green (pve-01 VM 9002, 192.168.1.46, palmuxOS appliance) は 2026-07-03 に構築・実機検証済みで、~/.claude + ~/ghq の移行と host/incus workspace/claude 動作確認も完了している。同日 DNS (dev.tjstkm.net + *.dev) を blue(.40)→green(.46) に切替検証したが、切替作業をしていた Claude セッション自体が blue 上で稼働していたため接続が即座に切断され、2026-07-04 にユーザが DNS を blue へロールバックした(blue-green ロールバックとして想定通りの動作)。green は独立ドメイン green.tjstkm.net で稼働継続中で、ユーザは自分のペースで移行できる。残作業: dev.tjstkm.net の DNS を green へ最終切替し、多日安定を確認した上で旧 blue box (このホスト) を撤去する。ユーザの都合の良いタイミングで実施するインフラ運用作業であり、Sb14caa の他 Stage (1-4、NixOS module/incus-on-NixOS/appliance image/拡張性+更新) の完了をブロックしない。",
+      "kind": "chore",
+      "added_in": "Sb14caa-5",
+      "status": "open"
+    },
     {
       "title": "Full Branch -> Workspace rename across Go types, TS types, URL path segments",
       "description": "(S1e8d02 由来) S1e8d02 では機能修正 (path-derived ID + head_changed event + migration + redirect) のみ実施し、 ドメイン用語の rename は scope 外として残した。 後続 sprint で `domain.Branch` -> `domain.Workspace`、 `BranchID` フィールド -> `WorkspaceID`、 frontend の TS 型 + Zustand store キー、 ログ key (`branch=` -> `workspace=`)、 Provider interface (`OnBranchOpen/Close` -> `OnWorkspaceOpen/Close`) を一括 rename する。 URL path segment (`/branches/`) は外向き互換のため要検討。 ファイル数 ~70、 mechanical churn だがレビュー負荷大。",
