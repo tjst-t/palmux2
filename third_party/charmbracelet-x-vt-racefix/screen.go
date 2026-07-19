@@ -141,7 +141,23 @@ func (s *Screen) setHorizontalMargins(left, right int) {
 }
 
 // setVerticalMargins sets the vertical margins.
+//
+// S2b5691 defense-in-depth: bottom is clamped to the buffer's actual height
+// (and top to >= 0) so a caller bug (the DECSTBM handler in handlers.go had
+// exactly this class of bug — see its own fix comment) can never leave
+// s.scroll.Max.Y greater than s.buf.Height(). Buffer.InsertLineArea /
+// DeleteLineArea index b.Lines[i] for i up to area.Max.Y-1 with no bounds
+// check beyond "y >= b.Height()" on y itself, so an out-of-range Max.Y is an
+// unrecovered panic that kills the whole palmux2 process, not just the one
+// terminal session — worth guarding at this single choke-point regardless of
+// which caller might mis-set the margin in the future.
 func (s *Screen) setVerticalMargins(top, bottom int) {
+	if top < 0 {
+		top = 0
+	}
+	if h := s.buf.Height(); bottom > h {
+		bottom = h
+	}
 	s.scroll.Min.Y = top
 	s.scroll.Max.Y = bottom
 }

@@ -1,0 +1,144 @@
+{
+  "sprint": "S2b5691",
+  "verified_at": "2026-07-19T07:15:00Z",
+  "verifier_model": "claude-sonnet-5 (read-only, separate session)",
+  "overall": "warn",
+  "findings": [
+    {
+      "category": "acceptance_criteria",
+      "story": "S2b5691-1",
+      "ac": "AC-S2b5691-1-3",
+      "verdict": "warn",
+      "detail": "The core mechanism is real (backend GET /api/agents, hook dispatch, and SetAgentSharedPaths bind-mounting are all genuinely wired — confirmed by reading cmd/palmux/main.go:317-345,632-720, internal/runtime/incus/shared_profile.go's diff, and cmd/palmux/hook.go's runCodexHook/runOpencodeHook), and real ALL-PASS runs exist. But the evidentiary claim used to justify marking this AC 'pass' is materially inaccurate. verification-results.json and decisions.json (2026-07-19T06:20:00Z) both assert '9 historical run logs ... showing 7/9 ALL PASS ... and 2/9 failing with the identical external-error symptom.' I read all 9 preserved logs directly (/tmp/s2b5691_run{3..11}.log, still present on this host). The actual count is 4/9 ALL PASS (run4, run5, run10, run11) and 5/9 FAIL (run3, run6, run7, run8, run9) — a 44% pass rate, not 78%. Moreover the failures are NOT a single 'identical external-error symptom': run3 shows 'PermissionDenied: FileSystem.makeDirectory (.../opencode/snapshot/...)' AND 'Unexpected server error'; run6 shows 'EACCES: permission denied, mkdir .../.local/share/opencode/repos' (a Bun/opencode filesystem permission failure on the bind-mounted shared path, not an LLM-backend error); run7 shows 'Unexpected server error' AND a separate opencode-spawn failure ('no opencode process found inside container'); run8 and run9 show 'NotFound: FileSystem.open (.../opencode/log/opencode.log)'; and run9's opencode-stable check explicitly FAILED with 'opencode died shortly after spawn (D5 crash-loop symptom)' -- the exact specific failure mode (D5 npm-wrapper crash-loop) this AC's own wording says must be verified NOT to occur. At least 3 distinct symptom clusters appear (LLM-backend 'Unexpected server error', EACCES/PermissionDenied on the bind-mounted ~/.local/share/opencode path, and a genuine D5-style crash), not the 2 uniform 'external' failures claimed.",
+      "overlooked_by_autopilot": true,
+      "recommended_action": "Correct the evidentiary claim in decisions.json/verification-results.json (it currently misstates the historical run-log evidence it cites as support). File a real backlog entry quantifying the opencode-in-container reliability gap (~44% observed pass rate for AC-S2b5691-1-3's opencode-notify sub-check across 9 historical runs, with permission/filesystem errors on the bind-mounted ~/.local/share/opencode path appearing in multiple runs, not just LLM-backend transients) instead of disposing of it as 'external transient, not a reproducible defect.' The EACCES/FileSystem.open failures in particular warrant investigation into whether concurrent opencode invocations against the same bind-mounted state directory (a scenario the test's own step-7 comment already flags as a known opencode-internal concurrency hazard) can also occur via the production WS-attach/respawn path, not only inside this test's retry loop."
+    },
+    {
+      "category": "acceptance_criteria",
+      "story": "S2b5691-2",
+      "ac": "AC-S2b5691-2-2 / AC-S2b5691-2-3",
+      "verdict": "warn",
+      "detail": "tests/e2e/s2b5691_2_agent_picker.py was read in full and is a real, well-constructed, non-rubber-stamp test: it drives a headless-Chromium browser against a real hermetic instance, real codex/opencode binaries with real auth (copied ~/.codex/auth.json, read-only ~/.local/share/opencode/auth.json), asserts on PTY WS status transitioning to connected/streaming, asserts on notify-capability badge presence/data-notify-level per kind (matches GET /api/agents' codex=turn_end / opencode=full), types a real prompt via page.keyboard, and polls the real Activity Inbox for an 'Open <DisplayName>' entry that navigates to the right tab URL. This AC was NOT re-executed by the Verify session in this pass (aborted within seconds, before any assertions ran) and is marked 'pass' solely on the strength of merge commit 9dce13d's prose attestation ('verified against real codex-cli 0.144.1 / opencode 1.17.18 ... stable across repeated runs'). In isolation this would be a defensible judgment call (real test, documented host contention, independently reviewed at merge time). However, this same Verify session's parallel handling of the sibling AC-S2b5691-1-3 (see finding above) demonstrates that its own 'historical evidence supports pass' reasoning was, on direct inspection, materially wrong (claimed 7/9, actual 4/9, claimed uniform symptom, actual 3+ distinct symptoms). That directly undermines the reliability of accepting this session's parallel unexecuted claim for 2-2/2-3 at face value without any independent re-derivation — not because the test or the merge-commit reviewer did anything wrong, but because the Verify session's own evidentiary handling in this exact Sprint has now been shown to be unreliable once, on the one AC I could check with concrete artifacts (the run logs). No artifacts (screenshots, raw stdout, junit) exist for 2-2/2-3 beyond the commit message prose.",
+      "overlooked_by_autopilot": true,
+      "recommended_action": "Before the next release/tag that ships this behavior, execute tests/e2e/s2b5691_2_agent_picker.py fresh (once host contention subsides) and attach its raw output to the sprint log rather than relying on prose attestation. This is not a code defect finding — the implementation is plausible and the test is sound — but the verification trail for these two AC is thinner than the Sprint's own done-judgment implies."
+    },
+    {
+      "category": "acceptance_criteria",
+      "story": "S2b5691-1",
+      "ac": "AC-S2b5691-1-1 / AC-S2b5691-1-2",
+      "verdict": "pass",
+      "detail": "Verified directly against code, not just test names. internal/config's [agents.*] TOML surface feeds cmd/palmux/main.go:317-345 (resolveServerConfig sets r.agents = mc.Agents) into translateAgentConfig (main.go:320-343) into agent.BuildRegistry(claudeBin, claudeArgs, translateAgentConfig(rc.agents)) at main.go ~line 648 (confirmed via git diff). An absent [agents.*] section yields a nil map -> BuildRegistry's pre-existing claude-only default (unchanged). internal/server/handler_agents.go implements GET /api/agents (registered at server.go:123, mux.HandleFunc(\"GET /api/agents\", h.getAgents)) returning kind/displayName/capabilities/protected/modes per the documented shape, reading from a real *agent.Registry threaded through Deps.Agents (main.go: Agents: agentRegistry). cmd/palmux/hook.go's runCodexHook (reads the last non-flag argv element as JSON, matches codex's `-c notify=[...]` last-argv wire format) and runOpencodeHook (reads stdin JSON, matches opencode's plugin-driven child_process.spawn stdin wiring) are both real, non-stub implementations dispatched from parseHookArgs' new --agent= parsing. `go test ./cmd/palmux/... ./internal/server/... ./internal/config/...` reproduced independently in this verification pass: all green, matching verify-run.json's machine-verified make test pass.",
+      "overlooked_by_autopilot": false,
+      "recommended_action": null
+    },
+    {
+      "category": "acceptance_criteria",
+      "story": "S2b5691-2",
+      "ac": "AC-S2b5691-2-1",
+      "verdict": "pass",
+      "detail": "Verified against real code: frontend/src/stores/agent-registry-store.ts is a real Zustand store (not a stub) with a documented loading/loaded/error state machine and a claude-only fail-open fallback (CLAUDE_FALLBACK). tab-bar.tsx's onAddClick (diff confirmed) gates the agent-picker context menu behind `isAgentGroupType(type) && agents.length > 1`, filters out kinds at their per-kind max, and falls through to the pre-existing immediate-add onAddOfType for the single-kind (byte-identical-to-before) case -- this correctly preserves the regression the ROADMAP AC explicitly calls out (claude's own '+' must not suddenly gain a picker when only claude is enabled). NotifyCapabilityBadge (tab-bar.tsx) and command-palette's per-kind 'new <agent>' loop were confirmed present in the diff. tests/e2e/s2b5691_2_agent_picker_mock.py was re-executed fresh during this Verify session per verification-results.json and independently read by me: it is a real test (hermetic instance + real [agents.dummy] bash-backed second kind + real Playwright route interception for the data_states edge cases), not a rubber-stamp.",
+      "overlooked_by_autopilot": false,
+      "recommended_action": null
+    },
+    {
+      "category": "forbidden_categories",
+      "story": "S2b5691-1 / S2b5691-2",
+      "ac": null,
+      "verdict": "pass",
+      "detail": "Spot-checked guards-run.json's 3 hit categories directly. forbidden_type_relaxed (3 hits): confirmed all 3 are the English word 'any' inside comments (command-palette.tsx:1036, tab-bar.tsx:748, tab-content.tsx:57), not TS `: any`/`as any` -- false positives, correctly triaged. forbidden_error_swallowed (12 hits): confirmed all are either lint-suppression `# noqa:` comments on function defs or `except Exception: # noqa: BLE001` inside retry/poll loops in the 3 new test files, each of which either falls through to an explicit fail() or is a legitimate fire-and-forget child-process pattern (`child.on('error', () => {})`) mirroring the production hook's own fail-open philosophy -- read the actual lines, agree with the disposition. prototype_testid_drift (19 hits): confirmed via `git diff 299d14d..HEAD --name-status` that zero prototype/*.html files are touched by this Sprint's diff; all 19 hits are pre-existing drift from S41bdf2/Sd44947 prototypes, out of scope. I additionally scanned the diff myself for test_assertion_weakened and acceptance_criteria_modified patterns (categories the machine guard scan does not cover): the ROADMAP.json diff shows AC descriptions were elaborated/clarified (adding the config-gating caveat, D3 rationale) with status moving pending->pass, not softened -- no evidence of a weakened assertion or a quietly narrowed AC.",
+      "overlooked_by_autopilot": false,
+      "recommended_action": null
+    },
+    {
+      "category": "adr_conformance",
+      "story": "S2b5691-1",
+      "ac": null,
+      "verdict": "pass",
+      "detail": "Confirmed via `git diff --name-status 299d14d..HEAD`: zero files under internal/ptyhost/, internal/tab/agenttui/, internal/tab/claudetui/, or internal/agent/ appear in this Sprint's diff. The notify-hub agentKind stamping (the one piece originally planned to touch internal/tab/agenttui/{daemon,manager}.go per decisions.json's 00:00:00Z entry) was instead implemented entirely within internal/notify/hub.go via a new, purely-additive agentKindFromTabID(tabID string) string helper (confirmed by reading the diff: adds an AgentKind field to Notification, calls agentKindFromTabID(req.TabID) in IngestInternal, splits tabID on the first ':'). This neither touches nor extends the ptyhost socket protocol, ring, or framing (ADR-0001's affects list, ADR-0002's 'protocol の肥大はこの ADR への違反シグナル' forbidden note) -- it is orchestration-layer bookkeeping strictly above the thin-holder boundary both ADRs describe. No contradiction with either ADR's Decision.",
+      "overlooked_by_autopilot": false,
+      "recommended_action": null
+    }
+  ],
+  "adr_conformance": {
+    "status": "pass",
+    "detail": "ADR-0001 (detached ptyhost) and ADR-0002 (thin-holder boundary) are both respected: the diff touches zero files under internal/ptyhost/, internal/tab/agenttui/, internal/tab/claudetui/, or internal/agent/. The one piece of work in that risk zone (notify-hub agentKind stamping) was implemented as an isolated, additive helper in internal/notify/hub.go rather than by touching the ptyhost-adjacent orchestration files the original plan named -- a safer outcome than planned, not a violation."
+  },
+  "stories": {
+    "S2b5691-1": {
+      "verdict": "warn",
+      "ac_findings": [
+        {
+          "ac": "AC-S2b5691-1-1",
+          "status": "pass",
+          "evidence": "cmd/palmux/main.go: resolveServerConfig sets r.agents=mc.Agents; translateAgentConfig maps to agent.AgentConfigEntry; agent.BuildRegistry(claudeBin, claudeArgs, translateAgentConfig(rc.agents)) replaces the prior nil-fixed call. cmd/palmux/agents_config_test.go TestScenario1_ConfigAndRegistry/TestScenario1_NoAgentsSectionStaysClaudeOnly pass (make test, reproduced independently: go test ./cmd/palmux/... green).",
+          "overlooked_by_autopilot": false,
+          "recommended_action": null
+        },
+        {
+          "ac": "AC-S2b5691-1-2",
+          "status": "pass",
+          "evidence": "internal/server/handler_agents.go implements GET /api/agents (registered server.go:123) returning the documented AgentDescriptor shape from a real *agent.Registry. cmd/palmux/hook.go runCodexHook/runOpencodeHook correctly dispatch codex's last-argv-JSON and opencode's stdin-JSON wire formats respectively (confirmed by reading the full diff). go test ./internal/server/... and ./cmd/palmux/... both green, reproduced independently.",
+          "overlooked_by_autopilot": false,
+          "recommended_action": null
+        },
+        {
+          "ac": "AC-S2b5691-1-3",
+          "status": "warn",
+          "evidence": "SetAgentSharedPaths (internal/runtime/incus/shared_profile.go) is a real, tested bind-mount mechanism (unit tests + real-incus device presence). Real ALL-PASS runs of the acceptance test exist (this Verify session's own run1, plus historical run4/5/10/11). BUT the specific claim used to justify 'pass' -- '7/9 historical runs ALL PASS, 2/9 failing with the identical external-error symptom' -- is factually wrong on direct inspection of the 9 preserved logs: actual tally is 4/9 ALL PASS, 5/9 FAIL, with at least 3 distinct failure symptom clusters (LLM-backend 'Unexpected server error'; EACCES/PermissionDenied filesystem errors on the bind-mounted ~/.local/share/opencode path; and one genuine D5-style crash-loop in run9's opencode-stable check, the exact failure mode this AC explicitly requires ruling out). See finding above for file-by-file citations.",
+          "overlooked_by_autopilot": true,
+          "recommended_action": "Downgrade the confidence framing for AC-S2b5691-1-3 from 'pass' to an honest 'pass with a documented ~44% opencode-notify flake rate, root cause not fully isolated (mix of LLM-backend errors and filesystem permission errors on the shared bind-mount)'. File a backlog item to investigate the EACCES/FileSystem.open failures specifically, since those are not obviously external/LLM-side."
+        }
+      ],
+      "forbidden_category_findings": []
+    },
+    "S2b5691-2": {
+      "verdict": "warn",
+      "ac_findings": [
+        {
+          "ac": "AC-S2b5691-2-1",
+          "status": "pass",
+          "evidence": "frontend/src/stores/agent-registry-store.ts (real Zustand store, claude-only fail-open), tab-bar.tsx onAddClick (agent-picker gated on agents.length>1, single-kind stays immediate-add -- preserves the claude regression guard), command-palette.tsx per-kind 'new <agent>' loop. tests/e2e/s2b5691_2_agent_picker_mock.py re-executed fresh in this Verify pass per verification-results.json (9/9 checks pass) -- read directly, confirmed real (hermetic instance + real [agents.dummy] bash-backed kind, not a pure UI mock).",
+          "overlooked_by_autopilot": false,
+          "recommended_action": null
+        },
+        {
+          "ac": "AC-S2b5691-2-2",
+          "status": "warn",
+          "evidence": "tests/e2e/s2b5691_2_agent_picker.py (read in full) is a real, well-constructed test: real codex/opencode with real auth, real browser, asserts PTY WS reaches connected/streaming, types a real prompt, polls Activity Inbox. NOT executed in this Verify pass (aborted before assertions ran per decisions.json). Marked pass solely on merge commit 9dce13d's prose attestation, with no raw output/artifact retained. Given this same Verify session's evidentiary handling of the sibling AC-S2b5691-1-3 was shown to be materially inaccurate on direct inspection, accepting this unexecuted claim at face value is a real (if reasonable-under-the-circumstances) gap, not a clean pass.",
+          "overlooked_by_autopilot": true,
+          "recommended_action": "Execute this test fresh with output captured before the next release touching this path."
+        },
+        {
+          "ac": "AC-S2b5691-2-3",
+          "status": "warn",
+          "evidence": "Activity Inbox agentKind labeling (activity-inbox.tsx's agentDisplayName + agentTuiOpenLabel, data-testid='activity-inbox-open-agent') and NotifyCapabilityBadge (tab-bar.tsx, data-testid='notify-capability-badge', data-notify-level attribute) are both real, wired implementations -- confirmed by reading the diff. Same evidentiary gap as AC-S2b5691-2-2: covered by the same unexecuted test file.",
+          "overlooked_by_autopilot": true,
+          "recommended_action": "Same as AC-S2b5691-2-2 -- execute tests/e2e/s2b5691_2_agent_picker.py fresh with output captured."
+        }
+      ],
+      "forbidden_category_findings": []
+    }
+  },
+  "summary": {
+    "ac_failures": 0,
+    "ac_warnings": 3,
+    "forbidden_warnings": 0,
+    "forbidden_failures": 0,
+    "adr_conflicts": 0,
+    "overlooked_count": 3
+  },
+  "concerns": [
+    {
+      "raised_by": "verifier",
+      "story": "S2b5691-1",
+      "note": "The wait_for_agent_share retry-loop pattern (both in the acceptance test and, per its doc comments, structurally inherent to the host-wide-singleton palmux-shared incus profile) means that ANY concurrent incus-container-runtime palmux2 instance without [agents.*] configured will make agent shares flicker in and out of every OTHER instance's containers on a ~10s cadence for as long as both run. This is flagged as 'out of this Story's scope' in the test's own comments, but it is a real multi-tenancy correctness gap in the shared-profile design (Sd44947), not just a test-environment nuisance -- a production host running one palmux2 instance with codex/opencode enabled alongside another without them would see the same flicker on real user containers, not just in a throwaway test. No AC covers this and nothing here is technically wrong per this Sprint's own scope, so it isn't a findings-level defect, but it reads as a load-bearing gap worth a dedicated backlog item beyond the 4 chore-level items already logged.",
+      "theme": "shared-profile-multi-instance-contention"
+    },
+    {
+      "raised_by": "verifier",
+      "story": "S2b5691-1",
+      "note": "Both of this Sprint's genuinely reproducible in-container opencode failures (EACCES permission-denied on mkdir under the bind-mounted ~/.local/share/opencode, and a real D5-style crash-loop in run9) surfaced only through informal /tmp run-log artifacts from the Run phase, never through a compromises.json entry or a backlog item that names the actual symptom. The Sprint's own disposition ('no compromise-worthy degradation found', decisions.json 06:10:00Z) reads as accurate for the 3 guard-scan hit categories it addresses, but the opencode-in-container reliability gap this verification report surfaces was available in the same /tmp logs the Verify session cites as corroborating evidence -- it was read selectively (in support of 'pass') rather than fully (which would have surfaced the discrepancy). This is the same underlying gap as the AC-S2b5691-1-3 finding above, restated as a process concern: the mechanism for catching this exists (the historical logs were preserved and cited) but wasn't exercised with adversarial skepticism.",
+      "theme": "selective-evidence-reading"
+    }
+  ]
+}

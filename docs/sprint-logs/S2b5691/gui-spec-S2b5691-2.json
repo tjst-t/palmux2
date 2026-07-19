@@ -1,0 +1,67 @@
+{
+  "sprint": "S2b5691",
+  "story": "S2b5691-2",
+  "$comment": "Autonomous-mode GUI spec (sprint-auto). Derived from real investigation of frontend/src/components/tab-bar.tsx, command-palette.tsx, lib/tab-registry.ts, tabs/tab-content.tsx, tabs/claude-tui/claude-tui-tab.tsx, and the maultiagent reference branch's already-implemented, already-tested equivalent (commits e7ae79c/b56c2d1 'Sdec0a7-3' for the picker+renderer, ef3da64/cab59a7 'S339021-3' for the notify badge + Inbox generalization). Ported/adapted onto main's CURRENT (post-S3f2658/S862203/S1f75ec/Sadf90e) tab-bar.tsx and claude-tui-tab.tsx, which have diverged substantially from the maultiagent fork point (role badges, OSC52 clipboard, mobile touch-scroll, file picker, runtime-restart reconnect signal) — those must all be PRESERVED, not overwritten, when generalizing to a `kind` prop.",
+  "investigation_findings": [
+    "frontend/src/lib/tab-registry.ts's getRenderer(type) has NO entry for 'codex' or 'opencode' today, and tabs/tab-content.tsx falls back to an 'Unknown tab type' message for any unregistered type — so once the backend (Story 1) auto-seeds a codex/opencode tab (agenttab.Provider.OnBranchOpen, Min=1, already present and unit-tested), the FE would render a dead 'Unknown tab type: codex' box without this Story's renderer work.",
+    "frontend/src/tabs/claude-tui/claude-tui-tab.tsx's buildWsUrl()/buildResizeUrl() hardcode `/api/repos/{repoId}/branches/{branchId}/tabs/{tabId}/tui/...` with NO kind segment — this only matches agenttui.Provider's own claude-only route. internal/tab/agenttab.Provider.RegisterRoutes (the codex/opencode backend, already merged) mounts at `{prefix}/tabs/{tabId}/tui/...` where prefix includes the kind segment (`/api/repos/{repoId}/branches/{branchId}/codex/...`) — a distinct URL shape. The maultiagent reference solves this by generalizing ClaudeTuiTab into AgentTuiTab with a `kind` prop that is empty for claude (bare path, unchanged) and the kind string for everything else (kind-prefixed path).",
+    "command-palette.tsx's builtinCommands only ever pushes 'builtin:new-bash' and 'builtin:new-claude' — there is no loop over other registered kinds today.",
+    "tab-bar.tsx's DEFAULT_LIMITS/iconFor already have generic fallbacks ({min:1,max:1} / '•' bullet) so they degrade gracefully without per-kind entries, but the maultiagent reference adds a real agent-picker MENU behavior on the `+` button once more than one agent kind is enabled (single-kind stays today's immediate-add, matching the existing claude/bash `+` UX exactly) — this is a real, specific interaction change this Story should reproduce, not an incidental nicety.",
+    "The Activity Inbox / notify-hub plumbing (internal/notify/hub.go, tab-bar.tsx, activity-inbox.tsx) is largely agent-agnostic already (generic notification/notification.cleared events keyed by RequestID), EXCEPT it does not currently stamp which agent kind/tab a notification came from beyond raw tabId string matching, and there is no FE badge indicating a tab's notify CAPABILITY (turn_end-only / none) as distinct from an actual pending notification — AC-S2b5691-2-3 needs both the capability badge (so a user viewing a codex tab is not misled into thinking 'no notification yet' means 'nothing happened' when codex/PermissionMode has no permission-wait signal at all) and confirmation that an actual notification (once Story 1's hook dispatch fires) correctly surfaces in the Inbox and is attributable to the right agent/tab."
+  ],
+  "state_diagram": "stateDiagram-v2\n    [*] --> SingleAgentGroup: only claude enabled (today's default, config.toml has no [agents.codex]/[agents.opencode])\n    SingleAgentGroup --> SingleAgentGroup: click `+` on Claude group -> immediate new claude tab (unchanged existing behavior)\n    [*] --> MultiAgentGroups: [agents.codex]/[agents.opencode] enabled in config.toml, GET /api/agents returns 3 kinds\n    MultiAgentGroups --> AgentPickerOpen: click a shared `+` (or the Claude/Codex/opencode group `+`) when >1 kind is enabled\n    AgentPickerOpen --> MultiAgentGroups: user picks a kind (or Escape/outside-click to cancel) -> addTab(repoId, branchId, kind) -> navigate to new tab\n    MultiAgentGroups --> AgentTuiConnecting: new/existing codex or opencode tab selected, WS attach begins\n    AgentTuiConnecting --> AgentTuiStreaming: PTY output flowing\n    AgentTuiStreaming --> AgentTuiConnecting: idle (no output for a while, badge shows notify-capability, not a new state visually)\n    AgentTuiConnecting --> AgentTuiDisconnected: WS closes / daemon spawn fails (e.g. binary unresolvable in-container)\n    AgentTuiDisconnected --> AgentTuiConnecting: user clicks Reconnect\n    MultiAgentGroups --> InboxEntryVisible: codex/opencode hook fires a turn-end or permission notification (Story 1 backend)\n    InboxEntryVisible --> MultiAgentGroups: user clicks the Inbox entry -> navigates to the originating codex/opencode tab, entry clears",
+  "scenarios": {
+    "entry_point": "TabBar `+` button on an agent-kind group (Claude/Codex/opencode), the ⌘K command palette ('new codex' / 'new opencode' commands), and direct navigation to an existing auto-seeded codex/opencode tab URL (/{repoId}/{branchId}/codex:codex)",
+    "happy_path": "Operator enables [agents.codex] and [agents.opencode] in config.toml (Story 1) and restarts. On any open workspace, TabBar now shows Claude / Codex / opencode groups (each auto-seeded with one canonical tab per agenttab.Provider.Limits Min=1 — mirrors how Bash always shows at least one tab). User clicks the `+` at the end of the tab strip (or on a specific group) with 3 kinds enabled: an agent-picker menu appears listing the enabled kinds not already at their per-kind max. User picks 'opencode' -> a new opencode:opencode-2 tab is created and the user is navigated to it -> PTY connects (AgentTuiTab / agent-tui renderer, kind='opencode', WS to /api/repos/{repoId}/branches/{branchId}/opencode/tabs/opencode:opencode-2/tui/attach) -> user types a trivial prompt -> a turn completes -> (Story 1 backend) a notification posts -> Activity Inbox shows a new entry attributable to the opencode tab ('opencode finished — your turn' or equivalent) -> clicking it navigates back to that tab and clears the entry. Equivalently via ⌘K: user opens the palette, types 'new codex', selects it -> same tab-create+navigate flow.",
+    "data_states": {
+      "empty": "config.toml has no [agents.codex]/[agents.opencode] (or Story 1 not yet applied) -> GET /api/agents returns only claude -> TabBar/command-palette/agent-picker show NOTHING new; existing claude/bash UX is byte-for-byte unchanged (regression guard, not just a null case)",
+      "loading": "GET /api/agents in flight at app boot -> agent-registry-store.ts (new) falls back to a claude-only descriptor so the TabBar/palette never crash or hide the always-present Claude/Bash groups while the fetch is outstanding",
+      "populated": "codex/opencode enabled -> 3-kind agent-picker, 3 tab groups, working PTY attach for each",
+      "error": "GET /api/agents fails (network/5xx) -> same claude-only fallback as loading (fail open, never worse than today's UX); a codex/opencode WS attach that fails (binary unresolvable in-container per D12-style guard) shows the existing AgentTuiTab 'Disconnected' overlay with Reconnect, same component as claude-tui already has, not a bespoke error UI"
+    },
+    "edge_cases": [
+      "Only ONE of codex/opencode enabled (not both) alongside claude -> agent-picker still appears (2 kinds > 1) unless total enabled kinds == 1, in which case `+` immediate-adds exactly as it does for a lone Claude/Bash group today",
+      "User at a kind's per-branch tab max (default 3, agenttab.Provider.Limits) -> that kind is omitted/disabled in the agent-picker, mirroring how Claude's `+` already disables at its max",
+      "Last tab of a non-claude kind is closed -> group disappears from the TabBar (Protected()==false, unlike Claude) until re-added via `+`/picker/palette — re-adding lands back on the canonical '<kind>:<kind>' id, not a '-2' suffix (agenttab.Provider.pickNextTabID)",
+      "A codex/opencode tab is opened on a workspace whose runtime is plain host (not incus-container) -> AC-S2b5691-2-2's 'simple turn works' still applies on host exec (InContainer capability only gates the container path; host spawn is unconditional per Capabilities().InContainer just reporting availability, not requiring it)"
+    ],
+    "success_feedback": "New tab appears in the TabBar and becomes the active/navigated tab immediately (existing addTab+goToTab pattern, no additional toast); Activity Inbox entry appears with the correct agent DisplayName ('Codex' / 'opencode') distinguishing it from a Claude notification",
+    "failure_feedback": "WS attach failure surfaces the same disconnected-overlay+Reconnect affordance AgentTuiTab/ClaudeTuiTab already has (data-testid pattern reused, kind-parameterized); addTab() REST failure surfaces via the existing onAddOfType try/finally (no dedicated new error UI needed — matches existing Claude/Bash `+` error handling, which itself is silent-fail-and-retry, not a toast — kept consistent rather than inventing a new pattern for just these two kinds)"
+  },
+  "endpoint_contracts": [
+    {
+      "path": "/api/agents",
+      "method": "GET",
+      "registered": false,
+      "note": "Does NOT exist on main today (verified: no handler_agents.go, no route). Story 1 must add it; Story 2's agent-registry-store.ts is its first FE consumer. Response shape to port from the maultiagent reference (internal/server/handler_agents.go): array of {kind, displayName, icon, capabilities:{resume,notify,inContainer,permissionMode}, protected, modes[]}.",
+      "request_fields": null,
+      "response_fields": { "kind": "string", "displayName": "string", "icon": "string", "capabilities": "{resume:bool, notify:'none'|'turn_end'|'full', inContainer:bool, permissionMode:bool}", "protected": "bool", "modes": "string[] ('agent'|'tui')" }
+    },
+    {
+      "path": "/api/repos/{repoId}/branches/{branchId}/tabs",
+      "method": "POST",
+      "registered": true,
+      "note": "Existing addTab endpoint (used by onAddOfType/agent-picker item click/command-palette). No shape change needed — `type` becomes 'codex'/'opencode' in addition to today's 'claude'/'bash'; the store.MultiTabHook dispatcher already routes any non-claude registered kind to its agenttab.Provider (internal/store — generic dispatch already wired per S0e8afb-3's multiAgentTabHook, currently iterating zero kinds in production only because the registry itself is empty)."
+    },
+    {
+      "path": "/api/repos/{repoId}/branches/{branchId}/{kind}/tabs/{tabId}/tui/attach",
+      "method": "WS",
+      "registered": true,
+      "note": "agenttab.Provider.RegisterRoutes, already implemented and unit-tested (internal/tab/agenttab/provider.go), just never reachable in production because no kind besides claude is ever registered today. The FE's new agent-tui renderer must build this kind-prefixed URL (distinct from claude-tui's bare /tabs/{tabId}/tui/attach) — see investigation_findings."
+    }
+  ],
+  "data_testids": [
+    "agent-picker",
+    "agent-picker-item-{kind}",
+    "claude-tui-status",
+    "claude-tui-terminal",
+    "claude-tui-reconnect-btn",
+    "tab-{tabId}"
+  ],
+  "$post_implementation_note": "Verify-phase correction (sprint verify): the actual implementation kept the pre-existing claude-tui-status/-terminal/-reconnect-btn testids on the generalized agent-tui-tab.tsx renderer rather than renaming to agent-tui-* as originally spec'd here, to preserve tests/e2e/s7ce250_claude_tui_mock.py's existing contract unchanged (see that file's diff comment). tests/e2e/s2b5691_2_agent_picker.py accepts both agent-tui-* and claude-tui-* selectors defensively. This field now reflects the shipped testids, not the original plan.",
+  "test_files": {
+    "e2e": "tests/e2e/s2b5691_2_agent_picker.py",
+    "mock": "tests/e2e/s2b5691_2_agent_picker_mock.py",
+    "note": "Python + Playwright headless per this repo's actual convention (docs/original-specs, CLAUDE.md テスト方針) — NOT the generic sprint-skill default of tests/e2e/{slug}.e2e.spec.ts (TS). e2e test requires a real dev instance (make serve INSTANCE=dev) started with a config.toml enabling [agents.codex]/[agents.opencode] (mirrors the maultiagent reference's tests/e2e/sdec0a7_multiagent.py [agents.dummy] injection pattern) plus real codex/opencode binaries on PATH (confirmed present on this host) for AC-S2b5691-2-2's 'simple turn actually runs'. mock test covers the agent-picker menu open/close, empty/loading/error GET /api/agents states, and per-kind tab-limit disabling without a real agent process."
+  }
+}

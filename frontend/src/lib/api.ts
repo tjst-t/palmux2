@@ -480,6 +480,40 @@ export interface AppValidateResult {
   message: string
 }
 
+// S2b5691-2: agent registry types. Mirrors internal/server/handler_agents.go
+// AgentDescriptor / AgentCapabilitiesDTO.
+
+/** Notify capability level: how much the agent can tell palmux about its
+ *  own turn state without a bespoke integration. */
+export type AgentNotifyLevel = 'none' | 'turn_end' | 'full'
+
+export interface AgentCapabilities {
+  resume: boolean
+  notify: AgentNotifyLevel
+  inContainer: boolean
+  permissionMode: boolean
+}
+
+/** One entry in GET /api/agents — one enabled agent kind (built-in claude,
+ *  or a `[agents.<name>]` config.toml section). */
+export interface AgentDescriptor {
+  kind: string
+  displayName: string
+  /** "claude" | "codex" | "opencode" | "generic" (fallback icon key). */
+  icon: string
+  capabilities: AgentCapabilities
+  /** True only for "claude" — its tab is always present and cannot be
+   *  fully removed. Generic agent kinds are never protected. */
+  protected: boolean
+  /** Tab surfaces this kind supports: claude has ["agent","tui"]; every
+   *  other kind is ["tui"]-only. */
+  modes: string[]
+}
+
+export const agentsApi = {
+  list: (): Promise<AgentDescriptor[]> => api.get<AgentDescriptor[]>('/api/agents'),
+}
+
 export const appsApi = {
   list: (): Promise<AppsListView> => api.get<AppsListView>('/api/apps'),
   install: (body: { id: string; package?: string; authPath?: string }): Promise<AppInstallResult> =>

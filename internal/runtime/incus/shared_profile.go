@@ -127,6 +127,7 @@ type SharedProfileManager struct {
 	mu            sync.Mutex
 	sharedDirs    []string // config-driven extra shared folders (absolute host paths)
 	attachmentDir string   // resolved attachment upload ROOT (settings.AttachmentUploadDir)
+	agentPaths    []string // S2b5691: agent.Registry.SharedContainerPaths() — codex/opencode binary+auth shares
 
 	// worktreeBasedirFn resolves the gwq worktree base dir (injected so this
 	// package stays decoupled from internal/gwq; nil ⇒ feature off). resolvedBasedir
@@ -211,6 +212,51 @@ func (m *SharedProfileManager) SetAttachmentDir(dir string) {
 	m.attachmentDir = strings.TrimRight(dir, "/")
 }
 
+// SetAgentSharedPaths replaces the agent-adapter-driven shared path list
+// (S2b5691) — every absolute host path (directory OR standalone file:
+// `incus profile device add ... disk` bind-mounts either) returned by
+// agent.Registry.SharedContainerPaths(), which aggregates each registered
+// codex/opencode-style [agent.InContainerProvider] adapter's own binary +
+// npm-package-tree + auth/config dir shares (see
+// internal/agent/incontainer.go's doc comment for why the whole npm package
+// tree AND the node runtime are shared, not just the leaf binary — the
+// D5/"npm-global wrapper" failure mode). Unlike sharedDirs (Sd44947, always
+// $HOME-scoped, validated via config.ExpandSharedDir), these paths already
+// come from resolveHostBinary/npmGlobalRoot and are NOT $HOME-scoped by
+// contract — a global npm install commonly lives under /usr/lib/node_modules
+// or ~/.nvm, and the node runtime itself is typically /usr/bin/node or
+// /usr/local/bin/node. declaredDevices' existing "source absent → skip"
+// filter still applies; the Nix-symlink-skip filter does NOT (see
+// isSkippableSymlinkDotfile's "ag-" exemption below) since a legitimate
+// agent share is routinely a symlink pointing outside $HOME (e.g. a
+// version-manager-installed node binary) — that is normal, not the broken
+// dangling-dotfile case the skip guards against.
+//
+// The next Ensure/Reconcile converges the profile to include them
+// (live-propagated to already-running containers, same as SetSharedDirs).
+func (m *SharedProfileManager) SetAgentSharedPaths(paths []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := make([]string, len(paths))
+	copy(cp, paths)
+	m.agentPaths = cp
+}
+
+// agentDeviceNamePrefix distinguishes an agent-adapter-driven device
+// (S2b5691) from a user-declared [workspace] shared_dirs device ("sf-" —
+// Sd44947) in `incus profile show` output, purely for operator legibility;
+// both are content-hash-named (sharedDirDeviceName) since neither has a
+// human-friendly fixed name the way ghq/dot-claude/etc. do.
+const agentDeviceNamePrefix = "ag-"
+
+// agentDeviceName derives a stable, incus-legal device name for an
+// agent-adapter-shared path (S2b5691), mirroring sharedDirDeviceName's
+// content-hash scheme but with its own prefix (see agentDeviceNamePrefix).
+func agentDeviceName(abs string) string {
+	sum := sha256.Sum256([]byte(abs))
+	return agentDeviceNamePrefix + hex.EncodeToString(sum[:])[:12]
+}
+
 // declaredDevices computes the desired device set from current host state +
 // the config-driven shared dirs. This reuses the EXACT existence check +
 // Nix-store-symlink-skip logic the old Start() mounts[] loop used
@@ -284,6 +330,7 @@ func (m *SharedProfileManager) declaredDevices() []deviceSpec {
 	m.mu.Lock()
 	attach := m.attachmentDir
 	dirs := append([]string(nil), m.sharedDirs...)
+	agentPaths := append([]string(nil), m.agentPaths...)
 	m.mu.Unlock()
 	if attach != "" {
 		candidates = append(candidates, deviceSpec{name: attachmentDevice, source: attach, path: attach})
@@ -299,6 +346,18 @@ func (m *SharedProfileManager) declaredDevices() []deviceSpec {
 			continue
 		}
 		candidates = append(candidates, deviceSpec{name: sharedDirDeviceName(abs), source: abs, path: abs})
+	}
+
+	// S2b5691: agent-adapter-driven shares (codex/opencode binary + npm
+	// package tree + node runtime + auth/config dirs — see
+	// SetAgentSharedPaths' doc comment). Already absolute, resolved host
+	// paths — no $HOME scoping or ~ expansion applies (unlike the config
+	// shared_dirs loop above).
+	for _, abs := range agentPaths {
+		if abs == "" {
+			continue
+		}
+		candidates = append(candidates, deviceSpec{name: agentDeviceName(abs), source: abs, path: abs})
 	}
 
 	out := make([]deviceSpec, 0, len(candidates))
@@ -335,6 +394,14 @@ func isSkippableSymlinkDotfile(name string) bool {
 		return false
 	}
 	if strings.HasPrefix(name, "dot-claude") || strings.HasPrefix(name, "dot-local") || strings.HasPrefix(name, "sf-") {
+		return false
+	}
+	// S2b5691: agent-adapter-shared paths (codex/opencode binary/npm-tree/node
+	// runtime) routinely live OUTSIDE $HOME (e.g. a version-manager-installed
+	// node, or a system npm -g root) — that is the normal, working case for
+	// these paths, not the broken dangling-Nix-dotfile case this skip guards
+	// against, so they are never symlink-skipped (mirrors "sf-"'s exemption).
+	if strings.HasPrefix(name, agentDeviceNamePrefix) {
 		return false
 	}
 	return true

@@ -1,0 +1,296 @@
+{
+  "$machine_authored": true,
+  "$comment": "Authored by hooks/run-guards.py. Models MUST NOT edit this file. Statuses are facts (pattern hits), not verdicts: the model triages each hit per the policy notes and the skill docs (sprint-done-judgment.md / test-discipline.md Rule 6).",
+  "sprint": "S2b5691",
+  "base": "299d14d",
+  "head": "d6d74d21036d5ab119d650b57804b3b18b6a4e54",
+  "config_source": "defaults",
+  "checks": [
+    {
+      "id": "forbidden_test_disabled",
+      "kind": "diff",
+      "status": "clean",
+      "hit_count": 0,
+      "hits": [],
+      "truncated": false,
+      "note": null
+    },
+    {
+      "id": "forbidden_error_swallowed",
+      "kind": "diff",
+      "status": "hits",
+      "hit_count": 12,
+      "hits": [
+        {
+          "file": "tests/acceptance/s2b5691_codex_opencode_incontainer.py",
+          "line": 119,
+          "text": "def do_POST(self):  # noqa: N802"
+        },
+        {
+          "file": "tests/acceptance/s2b5691_codex_opencode_incontainer.py",
+          "line": 131,
+          "text": "def log_message(self, fmt, *args):  # noqa: A002"
+        },
+        {
+          "file": "tests/acceptance/s2b5691_codex_opencode_incontainer.py",
+          "line": 226,
+          "text": "def main() -> int:  # noqa: C901"
+        },
+        {
+          "file": "tests/acceptance/s2b5691_codex_opencode_incontainer.py",
+          "line": 400,
+          "text": "} catch {}"
+        },
+        {
+          "file": "tests/acceptance/s2b5691_codex_opencode_incontainer.py",
+          "line": 463,
+          "text": "import websocket  # noqa: PLC0415"
+        },
+        {
+          "file": "tests/e2e/s2b5691_2_agent_picker.py",
+          "line": 132,
+          "text": "def main() -> int:  # noqa: C901"
+        },
+        {
+          "file": "tests/e2e/s2b5691_2_agent_picker.py",
+          "line": 213,
+          "text": "except Exception:  # noqa: BLE001"
+        },
+        {
+          "file": "tests/e2e/s2b5691_2_agent_picker.py",
+          "line": 308,
+          "text": "except Exception:  # noqa: BLE001"
+        },
+        {
+          "file": "tests/e2e/s2b5691_2_agent_picker.py",
+          "line": 318,
+          "text": "except Exception:  # noqa: BLE001"
+        },
+        {
+          "file": "tests/e2e/s2b5691_2_agent_picker.py",
+          "line": 394,
+          "text": "except Exception:  # noqa: BLE001"
+        },
+        {
+          "file": "tests/e2e/s2b5691_2_agent_picker.py",
+          "line": 413,
+          "text": "except Exception:  # noqa: BLE001"
+        },
+        {
+          "file": "tests/e2e/s2b5691_2_agent_picker_mock.py",
+          "line": 273,
+          "text": "except Exception:  # noqa: BLE001"
+        }
+      ],
+      "truncated": false,
+      "note": null
+    },
+    {
+      "id": "forbidden_type_relaxed",
+      "kind": "diff",
+      "status": "hits",
+      "hit_count": 3,
+      "hits": [
+        {
+          "file": "frontend/src/components/command-palette/command-palette.tsx",
+          "line": 1036,
+          "text": "// S2b5691-2: any other registry agent kind gets a generic icon."
+        },
+        {
+          "file": "frontend/src/components/tab-bar.tsx",
+          "line": 748,
+          "text": "// S2b5691-2: any other registry agent kind (codex, opencode, a"
+        },
+        {
+          "file": "frontend/src/tabs/tab-content.tsx",
+          "line": 57,
+          "text": "// S2b5691-2: any other tab type that (a) has no dedicated renderer"
+        }
+      ],
+      "truncated": false,
+      "note": null
+    },
+    {
+      "id": "guard2_nil_injection",
+      "kind": "diff",
+      "status": "clean",
+      "hit_count": 0,
+      "hits": [],
+      "truncated": false,
+      "note": "policy: 3+ hits within one Story's files => warn + user approval (Guard 2)"
+    },
+    {
+      "id": "guard6_deferred_comments",
+      "kind": "diff",
+      "status": "clean",
+      "hit_count": 0,
+      "hits": [],
+      "truncated": false,
+      "note": "policy: each hit needs a backlog entry referencing it, else done is blocked (Guard 6)"
+    },
+    {
+      "id": "guard3_mock_mode_smoke",
+      "kind": "tree",
+      "status": "skipped",
+      "hit_count": 0,
+      "hits": [],
+      "truncated": false,
+      "note": "no tracked files under tests/acceptance/devvm/"
+    },
+    {
+      "id": "guard7_adr_machine_checks",
+      "kind": "tree",
+      "status": "skipped",
+      "hit_count": 0,
+      "hits": [],
+      "truncated": false,
+      "note": "no adr_checks configured and no machine_check blocks in ADRs"
+    },
+    {
+      "id": "guard8_destructive_tests",
+      "kind": "tree",
+      "status": "skipped",
+      "hit_count": 0,
+      "hits": [],
+      "truncated": false,
+      "note": "no data_paths configured"
+    },
+    {
+      "id": "call_paths",
+      "kind": "tree",
+      "status": "skipped",
+      "hit_count": 0,
+      "hits": [],
+      "truncated": false,
+      "note": "no call_paths configured"
+    },
+    {
+      "id": "e2e_network_mock",
+      "kind": "tree",
+      "status": "skipped",
+      "hit_count": 0,
+      "hits": [],
+      "truncated": false,
+      "note": "no *.e2e.spec.* files"
+    },
+    {
+      "id": "e2e_wait_for_timeout",
+      "kind": "tree",
+      "status": "skipped",
+      "hit_count": 0,
+      "hits": [],
+      "truncated": false,
+      "note": "no spec files"
+    },
+    {
+      "id": "prototype_testid_drift",
+      "kind": "tree",
+      "status": "hits",
+      "hit_count": 19,
+      "hits": [
+        {
+          "file": "prototype/s41bdf2-app-cards.html",
+          "line": 0,
+          "text": "data-testid \"app-card-1password-cli\" not found in implementation source"
+        },
+        {
+          "file": "prototype/s41bdf2-app-cards.html",
+          "line": 0,
+          "text": "data-testid \"app-card-awscli\" not found in implementation source"
+        },
+        {
+          "file": "prototype/s41bdf2-app-cards.html",
+          "line": 0,
+          "text": "data-testid \"app-card-gh\" not found in implementation source"
+        },
+        {
+          "file": "prototype/s41bdf2-app-cards.html",
+          "line": 0,
+          "text": "data-testid \"app-card-infisical\" not found in implementation source"
+        },
+        {
+          "file": "prototype/s41bdf2-app-cards.html",
+          "line": 0,
+          "text": "data-testid \"app-card-terraform\" not found in implementation source"
+        },
+        {
+          "file": "prototype/s41bdf2-app-cards.html",
+          "line": 0,
+          "text": "data-testid \"app-error-terraform\" not found in implementation source"
+        },
+        {
+          "file": "prototype/s41bdf2-app-cards.html",
+          "line": 0,
+          "text": "data-testid \"app-rollback-terraform\" not found in implementation source"
+        },
+        {
+          "file": "prototype/sd44947-shared-folders.html",
+          "line": 0,
+          "text": "data-testid \"apply-result-toast\" not found in implementation source"
+        },
+        {
+          "file": "prototype/s41bdf2-app-cards.html",
+          "line": 0,
+          "text": "data-testid \"install-toggle-1password-cli\" not found in implementation source"
+        },
+        {
+          "file": "prototype/s41bdf2-app-cards.html",
+          "line": 0,
+          "text": "data-testid \"install-toggle-awscli\" not found in implementation source"
+        },
+        {
+          "file": "prototype/s41bdf2-app-cards.html",
+          "line": 0,
+          "text": "data-testid \"install-toggle-gh\" not found in implementation source"
+        },
+        {
+          "file": "prototype/s41bdf2-app-cards.html",
+          "line": 0,
+          "text": "data-testid \"install-toggle-infisical\" not found in implementation source"
+        },
+        {
+          "file": "prototype/s41bdf2-app-cards.html",
+          "line": 0,
+          "text": "data-testid \"install-toggle-terraform\" not found in implementation source"
+        },
+        {
+          "file": "prototype/s41bdf2-app-cards.html",
+          "line": 0,
+          "text": "data-testid \"share-toggle-1password-cli\" not found in implementation source"
+        },
+        {
+          "file": "prototype/s41bdf2-app-cards.html",
+          "line": 0,
+          "text": "data-testid \"share-toggle-awscli\" not found in implementation source"
+        },
+        {
+          "file": "prototype/s41bdf2-app-cards.html",
+          "line": 0,
+          "text": "data-testid \"share-toggle-gh\" not found in implementation source"
+        },
+        {
+          "file": "prototype/s41bdf2-app-cards.html",
+          "line": 0,
+          "text": "data-testid \"share-toggle-infisical\" not found in implementation source"
+        },
+        {
+          "file": "prototype/sd44947-shared-folders.html",
+          "line": 0,
+          "text": "data-testid \"shared-dir-remove-0\" not found in implementation source"
+        },
+        {
+          "file": "prototype/sd44947-shared-folders.html",
+          "line": 0,
+          "text": "data-testid \"shared-dir-remove-1\" not found in implementation source"
+        }
+      ],
+      "truncated": false,
+      "note": "policy: missing testids = implementation diverged from approved prototype; fix or update prototype, never silently accept"
+    }
+  ],
+  "summary": {
+    "clean": 3,
+    "hits": 3,
+    "skipped": 6
+  }
+}

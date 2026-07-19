@@ -1,0 +1,75 @@
+{
+  "story": "S2b5691-1",
+  "story_type": "mixed",
+  "user_role": "operator/developer configuring palmux2's config.toml, plus the FE (Story 2) as the eventual in-browser consumer of GET /api/agents and the in-container agent runtime this Story wires",
+  "entry_point": "~/.config/palmux/config.toml [agents.<name>] sections (file-edit CLI-style entry point) + GET /api/agents (HTTP, consumed by any API client) + the agenttab.Provider WS route a real workspace-container spawn is observed through",
+  "notes": [
+    "Investigation finding: internal/agent/{codex,opencode,registry,incontainer}.go already implement the adapters and BuildRegistry's special-case dispatch (byte-identical port from the `maultiagent` reference branch via S0e8afb). What is actually missing and in-scope for this Story: (1) internal/config has no [agents.*] TOML surface at all (MasterConfig has no Agents field) so BuildRegistry is always called with a nil agents map in cmd/palmux/main.go; (2) GET /api/agents does not exist anywhere in internal/server; (3) cmd/palmux/hook.go's `--agent=` flag is parsed and silently ignored — there is no runCodexHook/runOpencodeHook dispatch, so a codex/opencode notify firing today would post nothing or malformed data; (4) internal/runtime/incus/shared_profile.go has no SetAgentSharedPaths, so a registered codex/opencode adapter's ContainerBinary/SharedContainerPaths would never actually get bind-mounted into a workspace container; (5) the S339021-3 notify-hub agentKind stamping (internal/notify/hub.go, internal/agent/claude.go TabName, internal/tab/agenttui/{daemon,manager}.go) is also unported.",
+    "The `maultiagent` git branch (still present locally, see `git branch -a`) has ALL of these already implemented and live-verified against real codex-cli 0.144.1 and real opencode 1.17.18 through a real incus container (docs/sprint-logs/S339021 on that branch, Sdec0a7-2/S339021-1/S339021-2/S339021-3 commits). It predates the S3f2658/S862203 no-halt-agent ptyhost work, so none of these diffs apply cleanly as a merge/cherry-pick — each must be manually re-applied onto main's current structure the same way S0e8afb already did for internal/agent/**. `git diff main maultiagent -- <path>` / `git show maultiagent:<path>` is the reference for every file listed above.",
+    "This exact dev host already has codex 0.144.1 and opencode 1.17.18 and a working incus 7.1 client+server installed (verified via `which codex opencode incus` + version checks during Plan), and `findmnt -no SOURCE /` shows a real LVM root (not an incus container overlay) — i.e. this Plan ran on the real host, not inside a palmux workspace container. So AC-S2b5691-1-3 (real in-container exec) is plausibly executable for REAL during Run/Verify on this same box, not necessarily a human-only MANUAL SMOKE — but it MUST use a throwaway/isolated palmux2 instance + config-dir (mirroring docs project_deploytest_isolated_smoke.md's pattern) so it does not touch the palmux2 instance the current Claude session itself is running under (see CLAUDE.md 'palmux2 自身の中で palmux2 を開発するときの注意').",
+    "Config-gating decision (see decisions.json): mirroring the maultiagent reference (D3: codex/opencode become BUILT-IN adapters superseding the generic path, but still require an explicit, enabled [agents.codex]/[agents.opencode] config.toml section to appear in the registry — nothing is auto-enabled by binary presence alone). AC-S2b5691-1-1/1-2 are read as 'the registry mechanism correctly includes codex/opencode once the operator enables them in config.toml', not 'codex/opencode appear unconditionally on every host out of the box'. This keeps the un-opted-in default TabBar exactly as it is today (no surprise tabs for tools a user hasn't installed) and matches DESIGN_PRINCIPLES priority 7 明示的>暗黙的."
+  ],
+  "scenarios": [
+    {
+      "id": "scenario-1-config-and-registry",
+      "linked_ac": ["AC-S2b5691-1-1"],
+      "description": "Operator declares [agents.codex] and [agents.opencode] in config.toml and restarts palmux2; the running process's in-memory agent.Registry includes both built-in adapters alongside claude.",
+      "preconditions": [
+        "A throwaway --config-dir with a config.toml containing:\n[agents.codex]\ncommand = \"codex\"\n[agents.opencode]\ncommand = \"opencode\"",
+        "codex and opencode binaries resolve on PATH (already true on this host)"
+      ],
+      "steps": [
+        { "n": 1, "action": "operator writes the config.toml above and starts `palmux2 serve --config-dir <dir> ...` (or the dev equivalent) pointed at a throwaway repo/workspace", "expected": "process starts without error; log shows no 'reserved tab type' rejection (codex/opencode are not in agent.reservedKinds)" },
+        { "n": 2, "action": "operator inspects server startup wiring (or a small Go integration test using agent.BuildRegistry with the same translated config) — this is the unit-level half of the AC", "expected": "agentRegistry.Kinds() contains \"claude\", \"codex\", \"opencode\" in that order; agentRegistry.Get(\"codex\") returns a *agent.CodexAdapter, agentRegistry.Get(\"opencode\") returns a *agent.OpencodeAdapter (not GenericAdapter — D3 built-in dispatch)" }
+      ],
+      "cleanup": ["stop the throwaway instance", "remove the throwaway config-dir"]
+    },
+    {
+      "id": "scenario-2-get-api-agents",
+      "linked_ac": ["AC-S2b5691-1-2"],
+      "description": "An API client enumerates the enabled agent kinds via GET /api/agents once codex/opencode are configured.",
+      "preconditions": ["Same throwaway instance as scenario-1, running and reachable at its bound addr"],
+      "steps": [
+        { "n": 1, "action": "client sends `GET /api/agents` with the instance's auth (Cookie or Bearer per --token mode)", "expected": "200 OK; JSON array with exactly 3 entries, kinds {\"claude\",\"codex\",\"opencode\"}" },
+        { "n": 2, "action": "client inspects the \"claude\" entry", "expected": "protected: true, modes includes both \"agent\" and \"tui\"" },
+        { "n": 3, "action": "client inspects the \"codex\" entry", "expected": "protected: false, modes: [\"tui\"], capabilities.resume: true, capabilities.notify: \"turn_end\", capabilities.inContainer: true (binary resolves on this host)" },
+        { "n": 4, "action": "client inspects the \"opencode\" entry", "expected": "protected: false, modes: [\"tui\"], capabilities.resume: true, capabilities.notify: \"full\", capabilities.inContainer: true" }
+      ],
+      "cleanup": ["none beyond scenario-1's"]
+    },
+    {
+      "id": "scenario-3-hook-agent-dispatch",
+      "linked_ac": ["AC-S2b5691-1-2", "AC-S2b5691-1-3"],
+      "description": "The `palmux hook --agent=codex` / `--agent=opencode` subcommand correctly parses each agent's distinct wire format (codex: JSON as the LAST argv element; opencode: JSON on stdin) and POSTs a normalized notification, instead of being silently ignored by the current stdin-only, --agent-blind implementation.",
+      "preconditions": ["A stub HTTP server standing in for PALMUX_NOTIFY_URL, capturing POST bodies"],
+      "steps": [
+        { "n": 1, "action": "invoke `PALMUX_NOTIFY_URL=<stub> PALMUX_REPO_ID=r PALMUX_BRANCH_ID=b PALMUX_TAB_ID=codex:codex palmux hook --agent=codex '{\"type\":\"agent-turn-complete\",\"last-assistant-message\":\"done\"}'` (JSON as the final argv, matching codex's real notify contract per the D1-codex-spike decision on the maultiagent reference)", "expected": "stub receives a POST with type=\"claudetui.task_complete\" (or an equivalently agent-neutral turn-end type — see decisions.json), message containing \"done\", tabId=\"codex:codex\"" },
+        { "n": 2, "action": "invoke `echo '{\"type\":\"session.idle\",\"sessionID\":\"abc\"}' | PALMUX_NOTIFY_URL=<stub> ... palmux hook --agent=opencode` (stdin, matching opencode's real plugin wire format)", "expected": "stub receives a POST with a turn-end-shaped type" },
+        { "n": 3, "action": "invoke `echo '{\"type\":\"permission.asked\",\"sessionID\":\"abc\",\"message\":\"opencode wants to run: rm -rf\"}' | ... palmux hook --agent=opencode`", "expected": "stub receives a POST with a permission-wait-shaped type and the message text" }
+      ],
+      "cleanup": ["stop the stub server"]
+    },
+    {
+      "id": "scenario-4-real-incus-in-container",
+      "linked_ac": ["AC-S2b5691-1-3"],
+      "test_type": "real_incus_smoke",
+      "description": "codex and opencode actually run INSIDE a real workspace incus container (bind-mounted host binary + auth dirs at the identical path, no image bake), matching how claude already runs in-container per S4d8b1c, and a turn-end notification round-trips from inside the container to the palmux2 host.",
+      "preconditions": [
+        "Real incus (confirmed present: client+server 7.1) and real codex/opencode binaries (confirmed present: 0.144.1 / 1.17.18) on the box this Sprint's Run/Verify executes on",
+        "A throwaway repo + workspace opened under an incus-container runtime, isolated config-dir/instance so the current Claude session's own palmux2/tmux is never touched (see CLAUDE.md's self-hosting warning)"
+      ],
+      "steps": [
+        { "n": 1, "action": "with [agents.codex]/[agents.opencode] enabled, attach a WS client directly to the codex agenttab route (`/api/repos/{repoId}/branches/{branchId}/codex/tabs/codex:codex/tui/attach`) on a branch whose runtime is incus-container", "expected": "EnsureDaemon spawns codex INSIDE the container (verify via `incus exec <instance> -- pgrep -fa codex` from the host) rather than on the palmux host process tree" },
+        { "n": 2, "action": "send a trivial prompt through the attached PTY and wait for it to finish a turn", "expected": "the turn completes without a 'Missing optional dependency'/exit-127 crash loop (the D5-npm-global-wrapper failure mode from the maultiagent reference — codex is an npm-global Node wrapper; only bind-mounting the leaf binary, or omitting the shared node runtime, reproduces this)" },
+        { "n": 3, "action": "observe whether a turn-end notification reaches the palmux2 host's notify hub (poll GET /api/repos/{repoId}/branches/{branchId}/notifications or the events WS) once scenario-3's hook dispatch + this Story's shared_profile/notify-hub wiring are in place", "expected": "a notification referencing the codex tab id appears; repeat for opencode with a permission-triggering command to also exercise its full (not just turn_end) notify level" },
+        { "n": 4, "action": "repeat steps 1-3 for opencode", "expected": "same pass criteria, opencode-specific (session.idle / permission.asked)" }
+      ],
+      "cleanup": [
+        "incus delete the throwaway container/instance",
+        "remove the throwaway config-dir",
+        "confirm no leftover process on the palmux host itself"
+      ],
+      "escalation_if_infeasible": "If, at Run/Verify time, this exact host no longer has real incus + real codex/opencode available (e.g. a different execution environment than this Plan ran in), this scenario MUST be flagged as MANUAL SMOKE for the milestone review per DESIGN_PRINCIPLES priority_rule 0 (real container/real-agent execution over toy data) rather than silently narrowed to a mocked/host-only substitute."
+    }
+  ]
+}

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/tjst-t/palmux2/internal/agent"
 	"github.com/tjst-t/palmux2/internal/apps"
 	"github.com/tjst-t/palmux2/internal/auth"
 	"github.com/tjst-t/palmux2/internal/commands"
@@ -35,6 +36,7 @@ type Deps struct {
 	DeployConfigDir string              // config dir holding config.toml (for CLI-driven file-edit apply)
 	Apps            *apps.Controller    // S41bdf2: app card model (install + folder share) (nil = endpoints 503)
 	SelfUpdate      *selfupdate.Service // S6ab0ed: self-update service (nil = endpoints 503)
+	Agents          *agent.Registry     // S2b5691: enabled agent kinds for GET /api/agents (nil → empty list)
 	FrontendFS      fs.FS               // embedded SPA bundle
 	StaticFS        fs.FS               // embedded third-party assets (e.g. drawio webapp); served at /static/* (S010)
 	BasePath        string
@@ -115,9 +117,15 @@ func registerRoutes(mux *http.ServeMux, deps Deps) {
 		deployConfigDir: deps.DeployConfigDir,
 		apps:            deps.Apps,
 		selfupdate:      deps.SelfUpdate,
+		agents:          deps.Agents,
 	}
 
 	mux.HandleFunc("GET /api/health", h.health)
+	// S2b5691: enumerate every agent kind registered at startup (built-in
+	// claude plus any enabled `[agents.<name>]` config.toml section) so the
+	// FE can build the agent-picker / tab-creation UI and capability badges
+	// without hardcoding kind strings.
+	mux.HandleFunc("GET /api/agents", h.getAgents)
 
 	// S6ab0ed: self-update detection snapshot + one-click "Update all".
 	mux.HandleFunc("GET /api/selfupdate", h.getSelfUpdate)
@@ -242,6 +250,7 @@ type handlers struct {
 	deployConfigDir string
 	apps            *apps.Controller    // S41bdf2 (nil → apps endpoints 503)
 	selfupdate      *selfupdate.Service // S6ab0ed (nil → selfupdate endpoints 503)
+	agents          *agent.Registry     // S2b5691 (nil → GET /api/agents returns an empty list)
 }
 
 // helpers ────────────────────────────────────────────────────────────────────

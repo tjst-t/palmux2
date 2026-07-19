@@ -1,0 +1,45 @@
+{
+  "sprint": "S2b5691",
+  "waves": [
+    {
+      "wave": 1,
+      "stories": ["S2b5691-1"]
+    },
+    {
+      "wave": 2,
+      "stories": ["S2b5691-2"]
+    }
+  ],
+  "stories": {
+    "S2b5691-1": {
+      "implement_agents": 1,
+      "review_agents": 1,
+      "review_cycles_used": 1,
+      "review_cycle_cap_hit": false,
+      "fix_rounds": 1,
+      "notable": "Found and fixed a genuine pre-existing crash bug in third_party/charmbracelet-x-vt-racefix (DECSTBM handler unscoped-parser torn-read) while dogfooding codex in a real incus container; added a regression test verified by reverting the fix and confirming the test reproduces the panic."
+    },
+    "S2b5691-2": {
+      "implement_agents": 1,
+      "review_agents": 1,
+      "review_cycles_used": 1,
+      "review_cycle_cap_hit": false,
+      "fix_rounds": 1,
+      "notable": "One implement-agent turn ended mid-wait on a background E2E run without completing/committing; resumed via SendMessage to finish, verify, and commit. Real E2E ran against real codex-cli 0.144.1 / opencode 1.17.18, 3 stable runs."
+    }
+  },
+  "backlog_items_added": 8,
+  "verifier_planned": true,
+  "verifier_ran": true,
+  "sprint_review_runs": 1,
+  "guards_machine_run": true,
+  "verify_phase": {
+    "note": "Metrics for the sprint-verify pass itself (distinct from the sprint-run metrics above). Verify found the Run-phase self-report had understated a real opencode-in-container reliability gap; corrected the record and downgraded S2b5691-1's done_judgment to needs_user_review rather than silently accepting the self-reported 'done'.",
+    "backlog_items_added_by_verify": 4,
+    "live_test_reruns_attempted": 5,
+    "live_test_reruns_completed_cleanly": 2,
+    "live_test_reruns_hung_or_disrupted": 2,
+    "orphaned_processes_reaped_during_verify": "6 (this session's own orphaned ptyhost/codex/claude processes from aborted runs) + 6 (pre-existing diag1-5 debris from earlier Run-phase work, unrelated to this Verify session but reaped for host hygiene)",
+    "cross_container_disruption_incident": "1 (run3, incus shared-profile device-add-failed spam against 3 unrelated production containers for 10+ min, required orchestrator intervention; no lasting harm, all containers confirmed healthy afterward)"
+  }
+}
