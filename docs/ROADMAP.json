@@ -13701,6 +13701,20 @@
       "kind": "bug",
       "added_in": "fix/incus-runtime-not-started-on-spawn",
       "status": "done"
+    },
+    {
+      "title": "vt-racefix: setVerticalMargins で top も buf.Height() にクランプ (defense-in-depth)",
+      "description": "S2b5691-1 のレビューで発見。third_party/charmbracelet-x-vt-racefix の DECSTBM ハンドラ修正時、bottom は buf.Height() にクランプしたが top は未クランプのまま (修正前から)。病的な CSI 1000;2000r 等で Min.Y > Max.Y の矩形になり得るが、InsertLine/DeleteLine のガードにより安全な no-op に縮退することをレビューで確認済み (現状クラッシュしない)。対称性のため top も同様にクランプするのが望ましい。",
+      "kind": "chore",
+      "added_in": "S2b5691",
+      "status": "open"
+    },
+    {
+      "title": "tabID の \":\" 分割ロジックを domain 共通ヘルパーに統合",
+      "description": "S2b5691-1 のレビューで発見。internal/notify/hub.go の agentKindFromTabID (新規) が、claudeagent.DisplayNameForTab / agenttab.Provider.canonicaliseTabID/DisplayNameForTab に続く3つ目の独立した \"tabID を : で分割\" 実装になっている (prefix 抽出 vs suffix 抽出で完全に同一ではないが規約は共通)。共有 domain.SplitTabID ヘルパーに統合すると保守性が上がる。",
+      "kind": "chore",
+      "added_in": "S2b5691",
+      "status": "open"
     }
   ]
 }
