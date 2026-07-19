@@ -1,0 +1,23 @@
+{
+  "milestone_summary": {
+    "stopped_at": "Sc4f091",
+    "sprints_in_batch": ["Sc4f091"],
+    "compromises": [],
+    "compromises_note": "No notify-after-completion compromises this batch. The implement agent for Story 2 initially wrote two timing-based regression tests, discovered by direct experimentation that neither actually distinguished old vs. new behavior for this package's exact call graph, and replaced them with a deterministic test proven (by reverting the fix and confirming the test then fails) to actually guard the regression — reported transparently rather than kept as tests that looked like coverage without being coverage.",
+    "blockers_encountered": [
+      {
+        "sprint": "Sc4f091",
+        "story": "Sc4f091-2",
+        "description": "Independent review (via a nested sub-agent whose own completion notification never reached its parent — the same class of notification-routing gap flagged in Sfa2bab's skill-retrospective) found a real latency regression: the new pre-spawn readiness check ran inside daemon.go's spawnMu lock, serializing unrelated concurrent tab spawns/reattaches by up to 5s under contention.",
+        "resolution": "Fixed in a second review round: readiness check moved outside spawnMu in both call sites, with a deterministic lock-freedom test. Also fixed two smaller findings from the same review (a latent TOCTOU race, unreachable today but closed anyway; a shell-quoting gap using Go's %q instead of proper POSIX quoting)."
+      },
+      {
+        "sprint": "Sc4f091",
+        "story": "Sc4f091-2",
+        "description": "During review-round verification, a full-repo `go test -race ./...` surfaced a genuine, pre-existing data race in internal/selfupdate unrelated to this Sprint's diff.",
+        "resolution": "Confirmed unrelated by reproducing with the Sprint's entire diff stashed out. Not fixed (out of scope), filed to backlog rather than silently ignored."
+      }
+    ],
+    "scope_changes": []
+  }
+}
