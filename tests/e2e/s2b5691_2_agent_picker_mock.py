@@ -20,18 +20,24 @@ WITHOUT needing real codex/opencode binaries. Two techniques combine:
 Acceptance criteria covered:
   [AC-S2b5691-2-1] TabBar `+` opens an agent-picker menu once >1 agent kind
                     is enabled (data-testid agent-picker /
-                    agent-picker-item-<kind>); with exactly one kind enabled
-                    the `+` still immediate-adds (regression guard — no
-                    picker, byte-for-byte the pre-Story behavior).
-                    Per-kind tab limits: a kind at its max is omitted from
-                    the picker (mirrors the existing per-kind `+` disabled
-                    state).
+                    agent-picker-item-<kind>). Per-kind tab limits: a kind
+                    at its max is omitted from the picker (mirrors the
+                    existing per-kind `+` disabled state).
+  [AC-S2b5691-2-1] Regression guard — with exactly one kind enabled, the `+`
+                    still immediate-adds (no picker, byte-for-byte the
+                    pre-Story behavior). Exercised TWO ways: bash's `+`
+                    (never agent-gated at all, sanity check only) AND,
+                    critically, CLAUDE's own `+` against a second hermetic
+                    instance with no [agents.*] config — claude IS an agent
+                    kind (isAgentGroupType('claude') === true), so it's the
+                    one case where the `agents.length > 1` gate could
+                    actually regress into popping a picker.
   [AC-S2b5691-2-1] ⌘K command palette lists "new <agent>" commands for every
                     enabled non-claude kind.
   (data_states)     GET /api/agents loading/error/empty all fail open to the
                     claude-only default — no crash, `+` keeps working.
 
-Run standalone (spins up its own hermetic instance + throwaway repo):
+Run standalone (spins up two hermetic instances + throwaway repos in turn):
     python3 tests/e2e/s2b5691_2_agent_picker_mock.py
 
 Exit code 0 = ALL PASS.
@@ -135,8 +141,15 @@ def hermetic_palmux2(*, with_dummy: bool) -> Iterator[int]:
     port = _free_port()
     cfg_dir = Path("/tmp") / f"palmux2-e2e-s2b5691-2-{port}"
     cfg_dir.mkdir(parents=True, exist_ok=True)
-    if with_dummy:
-        (cfg_dir / "config.toml").write_text(DUMMY_CONFIG_TOML)
+    # Always write SOME config.toml (even an empty one for the single-kind
+    # case) — config.MasterExists(configDir) gates the deploy/onboarding
+    # "configured" flag, and a config-dir with no file at all trips the
+    # OnboardingWizardGated overlay (deployApi.get().configured === false),
+    # which then intercepts every click in the test. This is purely a test-
+    # harness concern: presence of the FILE (not its [agents.*] contents)
+    # is what the FE checks, so an empty file for with_dummy=False still
+    # gives a genuine "only claude enabled" registry.
+    (cfg_dir / "config.toml").write_text(DUMMY_CONFIG_TOML if with_dummy else "")
 
     cmd = [
         str(PREBUILT_BIN),
@@ -263,11 +276,16 @@ def test_picker_pick_dummy_creates_tab(page, port: int, repo_id: str, branch_id:
     ok(name, f"picking dummy created+navigated to {new_id} and the agent-tui renderer mounted")
 
 
-def test_single_kind_immediate_add_unchanged(page, port: int, repo_id: str, branch_id: str) -> None:
-    """Regression guard: bash's `+` (never a registry agent kind) always
-    immediate-adds, never opens a picker — proves non-agent groups are
-    untouched by this Story."""
-    name = "AC-S2b5691-2-1 (regression: bash + is unaffected)"
+def test_bash_add_unaffected(page, port: int, repo_id: str, branch_id: str) -> None:
+    """Sanity check (NOT the claude regression claim): bash's `+` was never
+    an agent-gated group in the first place (isAgentGroupType('bash') is
+    always false — 'bash' never appears in the registry's `agents` list),
+    so this only proves non-agent groups are untouched by this Story's
+    onAddClick wiring. It does NOT exercise the `agents.length > 1` gate at
+    all, since that gate is keyed on the CLICKED group's own type being a
+    registry agent kind. See test_claude_single_kind_immediate_add_unchanged
+    below for the actual single-kind claude claim."""
+    name = "AC-S2b5691-2-1 (sanity: bash + unaffected, not agent-gated)"
     # bash has no default-seeded tab (unlike claude/files/git) — the
     # per-group `+` only renders once a group has at least one tab, so seed
     # the first bash tab via REST before checking the `+`'s own behavior.
@@ -289,6 +307,34 @@ def test_single_kind_immediate_add_unchanged(page, port: int, repo_id: str, bran
         fail(name, f"bash tab count {before} -> {after}, want +1 (immediate add)")
         return
     ok(name, "bash `+` immediate-adds with no picker (unaffected by this Story)")
+
+
+def test_claude_single_kind_immediate_add_unchanged(page, port: int, repo_id: str, branch_id: str) -> None:
+    """THE regression claim from the GUI spec: 'with exactly one kind
+    enabled the `+` still immediate-adds (regression guard — no picker,
+    byte-for-byte the pre-Story behavior)'. Must run against an instance
+    with NO [agents.*] config at all (agents == [claude] only) — clicking
+    claude's OWN `+` is what exercises onAddClick's `agents.length > 1`
+    gate; unlike bash (never agent-gated at all, see
+    test_bash_add_unaffected above), claude's `+` DOES run through
+    isAgentGroupType('claude') === true, so this is the one case where the
+    gate could regress and silently start popping a (pointless,
+    single-item) picker instead of adding immediately."""
+    name = "AC-S2b5691-2-1 (regression: claude + immediate-adds when claude is the only kind)"
+    url = f"http://localhost:{port}/{urllib.parse.quote(repo_id, safe='')}/{urllib.parse.quote(branch_id, safe='')}/claude"
+    page.goto(url, timeout=PLAYWRIGHT_TIMEOUT, wait_until="load")
+    page.wait_for_selector("[data-testid='tab-add-claude']", timeout=PLAYWRIGHT_TIMEOUT)
+    before = len(page.locator("[data-tab-type='claude']").all())
+    page.locator("[data-testid='tab-add-claude']").first.click()
+    page.wait_for_timeout(800)
+    if page.locator("[data-testid='agent-picker']").count() != 0:
+        fail(name, "claude + unexpectedly opened an agent-picker menu with only claude enabled")
+        return
+    after = len(page.locator("[data-tab-type='claude']").all())
+    if after != before + 1:
+        fail(name, f"claude tab count {before} -> {after}, want +1 (immediate add)")
+        return
+    ok(name, "claude `+` immediate-adds with no picker when it's the only enabled agent kind")
 
 
 # ─── Per-kind tab-limit disabling in the picker ────────────────────────────
@@ -440,6 +486,8 @@ def test_agents_endpoint_loading_no_crash(page, port: int, repo_id: str, branch_
 def main() -> int:
     sync_playwright = _get_playwright()
 
+    # Instance 1: [agents.dummy] enabled (claude + dummy == 2 kinds) — the
+    # multi-kind picker / per-kind-limit / ⌘K / data_states cases.
     with hermetic_palmux2(with_dummy=True) as port:
         fx = _get_fixture_module(port)
         with fx.palmux2_test_fixture("s2b5691-2-picker-mock") as fixture:
@@ -451,13 +499,33 @@ def main() -> int:
                 try:
                     page = browser.new_page()
                     test_picker_opens_with_dummy_kind(page, port, repo_id, branch_id)
-                    test_single_kind_immediate_add_unchanged(page, port, repo_id, branch_id)
+                    test_bash_add_unaffected(page, port, repo_id, branch_id)
                     test_agents_endpoint_error_fails_open(page, port, repo_id, branch_id)
                     test_agents_endpoint_empty_fails_open(page, port, repo_id, branch_id)
                     test_agents_endpoint_loading_no_crash(page, port, repo_id, branch_id)
                     test_command_palette_new_agent_commands(page, port, repo_id, branch_id)
                     test_picker_pick_dummy_creates_tab(page, port, repo_id, branch_id)
                     test_picker_omits_kind_at_max(page, port, repo_id, branch_id)
+                finally:
+                    browser.close()
+
+    # Instance 2: NO [agents.*] config at all (agents == [claude] only) — the
+    # single-kind regression claim. Deliberately a SEPARATE hermetic
+    # instance rather than reusing instance 1, since instance 1 always has
+    # >1 kind enabled by construction (that's the whole point of injecting
+    # DUMMY_CONFIG_TOML) and could never exercise the agents.length <= 1
+    # branch of onAddClick.
+    with hermetic_palmux2(with_dummy=False) as port:
+        fx = _get_fixture_module(port)
+        with fx.palmux2_test_fixture("s2b5691-2-picker-mock-singlekind") as fixture:
+            repo_id = fixture.repo_id
+            branch_id = fixture.primary_branch_id(timeout_s=10.0)
+
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                try:
+                    page = browser.new_page()
+                    test_claude_single_kind_immediate_add_unchanged(page, port, repo_id, branch_id)
                 finally:
                     browser.close()
 
