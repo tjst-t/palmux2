@@ -1,0 +1,28 @@
+{
+  "milestone_summary": {
+    "stopped_at": "Sfa2bab",
+    "sprints_in_batch": ["S2b5691", "Sfa2bab"],
+    "compromises": [],
+    "compromises_note": "No notify-after-completion compromises (test_skipped / test_assertion_weakened / error_swallowed / type_safety_relaxed / acceptance_criteria_modified) were made in this batch. Two guard-hit categories surfaced during S2b5691 verify (forbidden_error_swallowed, forbidden_type_relaxed) were triaged and confirmed as false positives / legitimate fire-and-forget patterns matching this repo's own established hook-dispatch fail-open design, not real degradations — see docs/sprint-logs/S2b5691/decisions.json and guards-run.json for the triage record.",
+    "blockers_encountered": [
+      {
+        "sprint": "S2b5691",
+        "story": "S2b5691-1",
+        "description": "Independent verifier corrected the Run-phase self-report: historical real-incus test evidence for opencode-in-container reliability was overstated as 7/9 pass when the true tally is 4/9 pass, 5/9 fail across 3+ distinct failure clusters including a genuine crash-loop occurrence. Story downgraded to needs_user_review rather than done.",
+        "resolution": "Filed to backlog as a bug (kind: bug, added_in: S2b5691), not silently fixed or hidden. Sprint closed partial."
+      },
+      {
+        "sprint": "Sfa2bab",
+        "story": "Sfa2bab-1",
+        "description": "Real-machine dogfood (fresh qcow2 build+boot) found that codex/opencode turns complete correctly but Activity Inbox notifications never arrive. Root-caused to a real, agent-agnostic bug (in-container notify hooks silently disabled whenever palmuxOS binds a wildcard address / has no public domain configured — the default first-boot state), independently confirmed with even stronger evidence than the self-report cited.",
+        "resolution": "Filed to backlog as a bug (kind: bug, added_in: Sfa2bab), not fixed in this verification-only Sprint. Story marked needs_user_review, Sprint closed partial. This is the primary decision point for this milestone review."
+      }
+    ],
+    "scope_changes": [
+      {
+        "sprint": "S2b5691",
+        "description": "Plan phase expanded both Stories' Task lists from 2 total to 14 total after investigation found the ROADMAP's original task descriptions ('registry wiring', 'FE picker wiring confirmation') undersold the real gap (config TOML surface, GET /api/agents, hook dispatch, incus shared-path wiring, notify-hub stamping, and FE picker/renderer/command-palette/inbox were all genuinely unbuilt, not just unwired). A working reference implementation existed on the local `maultiagent` branch and was ported (not merged wholesale — main's ptyhost/shared-profile architecture had diverged too far for a literal merge, same reason S0e8afb couldn't literally merge it either)."
+      }
+    ]
+  }
+}
