@@ -1,0 +1,42 @@
+{
+  "sprint": "Sc4f091",
+  "touched_adrs": ["ADR-0001", "ADR-0002"],
+  "decisions": [
+    {
+      "timestamp": "2026-07-19T10:00:00Z",
+      "category": "planning",
+      "title": "Sprint inserted directly by the orchestrator, skipping a separate investigative Plan sub-agent",
+      "detail": "Both Stories' root causes were already thoroughly investigated and independently verified during the Sfa2bab real-machine dogfood (Story 1: precise code-level root cause with file:line citations, independently re-confirmed by the verifier with stronger evidence than the self-report) and during S2b5691 verify (Story 2: the historical failure tally and symptom clusters, though NOT yet root-caused to a single cause). Re-running a full investigative Plan phase would re-derive facts already on record in docs/sprint-logs/S2b5691/decisions.json and docs/sprint-logs/Sfa2bab/verification-results.json. Stories/AC/Tasks were authored directly from that existing evidence. Story 2's Tasks explicitly include a fresh root-cause investigation step (Sc4f091-2-1/2-2) since, unlike Story 1, no single root cause has been confirmed yet for the opencode reliability gap — only symptom clusters and a plausible-but-unconfirmed link to the shared-profile reconcile race.",
+      "reference": "docs/sprint-logs/Sfa2bab/verification-results.json, docs/sprint-logs/Sfa2bab/verification-report.json; docs/sprint-logs/S2b5691/decisions.json (verifier correction entry)",
+      "adr_ref": "ADR-0001, ADR-0002",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-19T10:00:00Z",
+      "category": "planning",
+      "title": "Two Stories run in the same wave (parallel), not sequential",
+      "detail": "Story 1 (notify-hook bind-address fix) touches cmd/palmux/main.go's incusBridgeListenAddr()/bridgeNotifyURL() and internal/tab/agenttui/daemon.go's hook-skip fallback. Story 2 (opencode reliability investigation) touches internal/runtime/incus/shared_profile.go's reconcile loop and opencode's own startup/auth sequence. Minimal file overlap, no functional dependency between them (Story 2's investigation does not require Story 1's fix to be in place, and vice versa) — safe to implement in parallel worktrees.",
+      "reference": "n/a — direct code-area analysis",
+      "adr_ref": "none",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-19T10:00:00Z",
+      "category": "planning",
+      "title": "touched_adrs = ADR-0001, ADR-0002 (ptyhost thin-holder boundary)",
+      "detail": "Story 1's fix touches how NotifyURLInContainer is computed/passed, which is adjacent to (but must not cross) the ptyhost thin-holder boundary established in S3f2658/S862203 — ptyhost itself must remain agent/notify-agnostic; the notify-URL computation and injection must stay in the agenttui/claudeagent/agenttab layer above it, consistent with how S2b5691's own notify-hub wiring was scoped.",
+      "reference": "docs/DESIGN/adr/ADR-0001*.json, ADR-0002*.json",
+      "adr_ref": "ADR-0001, ADR-0002",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-19T10:00:00Z",
+      "category": "planning",
+      "title": "Operational guardrails carried forward from the Sfa2bab/S2b5691 incident (skill-retrospective #1/#6)",
+      "detail": "This Sprint's implement agents (especially Story 2, which requires MULTIPLE real-incus runs to establish a stable pass rate) are explicitly instructed to bound every long-running operation with an explicit timeout, poll it themselves rather than passively waiting on an external notification, and tear down all throwaway state before ending their turn — directly applying the fix proposed (but not yet formally merged into the canonical SKILL files) in docs/sprint-logs/Sfa2bab/skill-retrospective.md signal #1/#6.",
+      "reference": "docs/sprint-logs/Sfa2bab/skill-retrospective.md",
+      "adr_ref": "none",
+      "drift_flag": "none"
+    }
+  ]
+}
