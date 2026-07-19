@@ -1,0 +1,58 @@
+{
+  "sprint": "Sc4f091",
+  "story": "Sc4f091-1",
+  "run_at": "2026-07-19T10:05:00Z",
+  "summary": "Fixed the wildcard-bind in-container notify-hook gap root-caused during Sfa2bab. Unit tests + a real-machine (real incus, real claude, real network) round-trip both confirm the fix; the non-wildcard case is byte-identical to before.",
+  "fix": {
+    "files": ["cmd/palmux/main.go"],
+    "description": "bridgeNotifyURL(addr, basePath) used to delegate to incusBridgeListenAddr(addr), which answers a DIFFERENT question (\"does palmux2 need a SECOND http.Server listener bound to the bridge IP?\") and intentionally returns \"\" when addr is a wildcard bind (0.0.0.0/::), since a wildcard bind already covers the bridge IP and a second listener there would collide (the S7364e3-era fix). bridgeNotifyURL reused that same \"\" for a different question (\"what URL should an in-container process use to reach palmux2?\") where it was WRONG: a wildcard-bound main listener is already reachable at the bridge IP without any extra listener, so the notify URL should still be a real, non-empty address in that case. Split the concerns: incusBridgeIP() (new) resolves incusbr0's own address, independent of --addr. incusBridgeListenAddr(addr) keeps its exact prior behavior/signature (still returns \"\" on wildcard -- the extra-listener decision is unchanged and still correctly avoids the bind collision). bridgeNotifyURL(addr, basePath) now calls incusBridgeIP() directly + portFromAddr(addr), so it returns a real bridge URL whenever incusbr0 exists, regardless of whether the main listener is wildcard or specific-host. Falls back to \"\" (existing 'skip the hook' behavior, unchanged) only when incusbr0 itself is absent (no incus runtime on this host at all). ptyhost (ADR-0001/0002) is untouched -- this stays entirely in the main.go / agenttui / claudeagent layer above it, as required."
+  },
+  "unit_tests": {
+    "file": "cmd/palmux/notify_bridge_test.go",
+    "cases": [
+      "TestBridgeNotifyURL_WildcardAddr_IncusPresent -- AC-Sc4f091-1-1: wildcard main addr + incus bridge present resolves to a real bridge URL, not empty",
+      "TestBridgeNotifyURL_WildcardAddr_NoIncus -- wildcard main addr + no incus bridge falls back to \"\" (no panic, no fabricated broken URL)",
+      "TestBridgeNotifyURL_NonWildcardAddr_Unaffected -- AC-Sc4f091-1-3 regression guard: non-wildcard (public-domain / production-default) case returns byte-identical output to before the fix",
+      "TestBridgeNotifyURL_NoPort -- malformed addr degrades to \"\" rather than panicking",
+      "TestIncusBridgeListenAddr_StillSuppressesOnWildcard -- the EXTRA-LISTENER decision (a different call site, main.go's serve()) is unchanged: still suppressed on wildcard bind, still avoids the S7364e3 bind collision",
+      "TestIncusBridgeListenAddr_NoIncus -- unchanged no-incus fallback"
+    ],
+    "result": "all PASS (go test ./cmd/palmux/... -run 'BridgeNotifyURL|IncusBridgeListenAddr' -v)",
+    "full_suite": "go build ./... and go test ./... both clean (all packages PASS) after the change"
+  },
+  "real_machine_verification": {
+    "ac": "AC-Sc4f091-1-2",
+    "agent_kind_tested": "claude (claude-tui / PTY mode) -- sufficient per the Story's own guidance that one clean real confirmation of the shared bridgeNotifyURL() code path is enough evidence; codex/opencode share the identical call site (confirmed by the Sfa2bab verifier and re-confirmed by direct source reading during this Story: internal/agent/codex.go, internal/tab/agenttui/daemon.go, internal/tab/claudeagent/manager.go all consume the SAME bridgeNotifyURL(addr, basePath) return value)",
+    "isolation": "fully isolated throwaway instance on this dev box (dev.tjstkm.net, which also runs this box's own LIVE production palmux2 managing real work): own freshly-built binary from this worktree, own --config-dir (temp dir), own --tmux-prefix (_pmx_sc4f091<rand>_), own throwaway repo under ~/ghq/github.com/local/sc4f091tw<rand>, own throwaway incus container (created and force-deleted by the script), own port (18990, distinct from production's 7682/7683 area and from other concurrently-running dev instances on this host)",
+    "scenario": "palmux2 started with --addr 0.0.0.0:18990 (WILDCARD bind -- the exact nixos/modules/appliance.nix default when services.palmux.domain is unset, i.e. every palmuxOS appliance in its common first-boot/LAN-only state). Opened the throwaway repo, PATCHed its runtime to incus-container (a real `incus launch`), attached the claude-tui WS (the real user entry point) to trigger a real lazy spawn of claude INSIDE the throwaway container.",
+    "evidence": [
+      "AC-Sc4f091-1-1: incus exec into the running container and read /proc/<claude-pid>/environ directly -- PALMUX_NOTIFY_URL=http://10.215.187.1:18990/api/notify, exactly matching the expected incusbr0 bridge IP + this throwaway instance's own port. Before the fix this env var would have been ABSENT entirely (spawnWithArgs()'s empty-NotifyURLInContainer skip path), matching exactly what Sfa2bab's dogfood observed via `ps aux`.",
+      "claude cmdline carries --settings {...\"hooks\":{\"Notification\":[...],\"Stop\":[...],\"UserPromptSubmit\":[...]}} -- the hook injection is no longer skipped.",
+      "Sent a real prompt ('Reply with exactly the single word SC4F091OK and nothing else.') through the real PTY WS to the real, authenticated (shared ~/.claude bind-mount, no re-auth needed) in-container claude process. Handled claude's first-run 'Quick safety check: Is this a project you trust?' dialog for the brand-new throwaway worktree path (an artifact of this test's own fresh-repo setup, not part of the fix under test).",
+      "AC-Sc4f091-1-2: polled GET /api/notifications on the throwaway instance and observed a real notification entry for tabId=claude:claude arrive within the bounded wait -- i.e. the Stop hook's `palmux hook` invocation genuinely reached this instance's /api/notify over the live incusbr0 bridge network path and was ingested into the Activity Inbox state. This can only happen if claude's turn actually completed AND the injected notify URL was actually reachable from inside the container -- both of which were false before this fix under a wildcard bind."
+    ],
+    "runs": "2 attempts. Run 1 failed only at the round-trip step (AC-Sc4f091-1-2) because the first-run trust dialog absorbed the prompt text as no-op keystrokes before the trailing Enter (a test-script issue, not a product issue) -- AC-Sc4f091-1-1's bridge-IP/hook-injection evidence was already fully confirmed in run 1. Run 2, after fixing the test script to dismiss the trust dialog first, reached ALL PASS including the full round trip.",
+    "result": "ALL PASS"
+  },
+  "regression_check": {
+    "ac": "AC-Sc4f091-1-3",
+    "method": "unit test (TestBridgeNotifyURL_NonWildcardAddr_Unaffected) proves bridgeNotifyURL(\"127.0.0.1:7683\", basePath) with an incus bridge present returns the exact same URL string as the pre-fix implementation would have (both delegate to the same incusBridgeIP()+port derivation for the non-wildcard case; the pre-fix code's incusBridgeListenAddr(addr) for non-wildcard addr already returned the bridge ip:port, unchanged by this fix). incusBridgeListenAddr(addr) itself (the extra-listener call site in serve()) is verified unchanged for BOTH wildcard and non-wildcard cases via TestIncusBridgeListenAddr_StillSuppressesOnWildcard.",
+    "result": "no regression -- production-default (127.0.0.1) and public-domain (Sbe4eee/See8bd4) deployments get byte-identical behavior to before this Sprint"
+  },
+  "cleanup_confirmation": {
+    "commands_used": [
+      "ps aux | grep -i 'sc4f091|18990'  -> empty",
+      "incus list --format csv -c n  -> identical to pre-test baseline (palmux-nix-builder, tjst-t-ansible-dev-server-..., tjst-t-blog-..., tjst-t-dlrelay-...; no sc4f091/local-* container left)",
+      "tmux list-sessions -F '#{session_name}' | grep -i sc4f091  -> empty",
+      "ls ~/ghq/github.com/local/  -> empty (throwaway repo dir removed)",
+      "ls /tmp/palmux2-sc4f091-cfg-*  -> No such file or directory (throwaway config dir removed)",
+      "ss -tln | grep 18990  -> empty (port freed)",
+      "curl http://127.0.0.1:7683/api/health  -> 200 (this host's own production palmux2 instance unaffected, confirmed both before test setup and after cleanup)"
+    ],
+    "result": "clean -- no leftover processes, containers, tmux sessions, or files; production instance on this dev box untouched throughout"
+  },
+  "escalations": [],
+  "concerns": [
+    "This dev box already runs several concurrent palmux2 instances (production + multiple named dev/hotfix worktree instances) each managing their own incus-container Workspaces against the SAME host-wide `palmux-shared` incus profile (Sd44947). A prior Sprint (S2b5691) documented that concurrent instances with DIFFERING agent-share declarations can transiently 'flicker' that shared profile against each other. This Story's throwaway instance declared no [agents.*] config (claude-only, matching the pre-S2b5691 default baseline), which should converge to the same baseline declaration as any other claude-only instance on this host, and the container's lifetime here was short (created, exercised, force-deleted within the same run) -- no flicker symptoms were observed, and cleanup confirmed no residual container. Flagging only as context, not as a new problem: this is a pre-existing architectural property of this host's setup, not something introduced by this fix."
+  ]
+}

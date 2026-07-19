@@ -1160,27 +1160,21 @@ func portFromAddr(addr string) string {
 // claude-tui subprocess, so 127.0.0.1 + the listen port + base path is always
 // reachable regardless of the server's bind address. Returns "" if the port
 // can't be derived (hook injection is then skipped).
-// incusBridgeListenAddr returns "<incusbr0-ipv4>:<port>" (port from the main
-// listen addr) so palmux can add a second listener reachable from inside
-// workspace containers via their default gateway. Returns "" if the incusbr0
-// bridge is absent (no incus on this host) — then no extra listener is added.
-// The bridge IP is private to the incus network, so this never exposes the API
-// publicly (unlike binding 0.0.0.0).
-func incusBridgeListenAddr(addr string) string {
-	port := portFromAddr(addr)
-	if port == "" {
-		return ""
-	}
-	// If the main listener already binds a wildcard address (0.0.0.0 / :: /
-	// no host), it ALREADY covers the incus bridge IP — a second bridge listener
-	// on <gateway>:<port> would collide with the wildcard bind ("address already
-	// in use") and is redundant. Only add the bridge listener when the main addr
-	// is a specific non-wildcard host (e.g. 127.0.0.1, the production default).
-	if host, _, err := net.SplitHostPort(addr); err == nil {
-		if host == "" || host == "0.0.0.0" || host == "::" {
-			return ""
-		}
-	}
+// incusBridgeIP resolves the incusbr0 interface's IPv4 address, or "" if the
+// interface doesn't exist (no incus configured on this host yet). This is the
+// bridge's OWN address — reachable both from the host (it's a local
+// interface) and from inside workspace containers (it's their default
+// gateway) — independent of what palmux2's own --addr happens to be.
+func incusBridgeIP() string {
+	return lookupIncusBridgeIP()
+}
+
+// lookupIncusBridgeIP is the real implementation, held behind a package var so
+// tests can substitute a stub (no real incusbr0 interface is available on
+// most CI/dev machines running these unit tests, and we need to exercise both
+// "bridge present" and "bridge absent" cases deterministically regardless of
+// the host actually running the test).
+var lookupIncusBridgeIP = func() string {
 	iface, err := net.InterfaceByName("incusbr0")
 	if err != nil {
 		return ""
@@ -1195,10 +1189,38 @@ func incusBridgeListenAddr(addr string) string {
 			continue
 		}
 		if ip4 := ipnet.IP.To4(); ip4 != nil {
-			return net.JoinHostPort(ip4.String(), port)
+			return ip4.String()
 		}
 	}
 	return ""
+}
+
+// incusBridgeListenAddr returns "<incusbr0-ipv4>:<port>" (port from the main
+// listen addr) so palmux can decide whether to add a SECOND listener bound to
+// that address. Returns "" if the incusbr0 bridge is absent (no incus on this
+// host), OR if the main listener already binds a wildcard address (0.0.0.0 /
+// :: / no host) — a wildcard bind already covers the bridge IP, so a second
+// listener there would collide ("address already in use") and is redundant.
+// This function answers ONLY "do we need an extra listener?" — it must NOT be
+// used to decide what URL is reachable from inside a container (see
+// bridgeNotifyURL, which answers that separately and correctly returns a real
+// address even when the main listener is wildcard-bound, since the wildcard
+// bind already covers the bridge IP without any extra listener).
+func incusBridgeListenAddr(addr string) string {
+	port := portFromAddr(addr)
+	if port == "" {
+		return ""
+	}
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		if host == "" || host == "0.0.0.0" || host == "::" {
+			return ""
+		}
+	}
+	ip := incusBridgeIP()
+	if ip == "" {
+		return ""
+	}
+	return net.JoinHostPort(ip, port)
 }
 
 func localNotifyURL(addr, basePath string) string {
@@ -1211,15 +1233,39 @@ func localNotifyURL(addr, basePath string) string {
 
 // bridgeNotifyURL returns the notify endpoint reachable from INSIDE an incus
 // container — `http://<incusbr0-ip>:<port><base>api/notify`. The container's
-// default gateway is the incus bridge IP, so an in-container hook / palmux-browser
-// CLI posts there instead of 127.0.0.1 (which is the container itself). Returns
-// "" when there is no incus bridge or --addr is wildcard. (S4d8b1c)
+// default gateway is the incus bridge IP, so an in-container hook /
+// palmux-browser CLI posts there instead of 127.0.0.1 (which is the container
+// itself).
+//
+// Sc4f091 fix: this used to delegate to incusBridgeListenAddr(addr), which
+// answers a DIFFERENT question ("is an extra listener needed?") and
+// intentionally returns "" when addr is a wildcard bind (0.0.0.0/::) — that's
+// correct for the extra-listener decision (a wildcard bind already covers the
+// bridge IP, so adding a second listener there would collide), but WRONG for
+// this function: a wildcard-bound main listener is ALSO already reachable at
+// the bridge IP, so the notify URL is still valid and must not be suppressed.
+// Prior to this fix, every palmuxOS appliance with no public domain
+// configured (nixos/modules/appliance.nix defaults bindAddr to 0.0.0.0:7683
+// in that case — the common first-boot/LAN-only state) silently dropped
+// in-container agent turn-completion notifications for every agent kind
+// (claude, codex, opencode), since spawnWithArgs()/EnsureClient() treat an
+// empty NotifyURLInContainer as "skip the hook" rather than inject a URL that
+// would always fail (see internal/tab/agenttui/daemon.go,
+// internal/tab/claudeagent/manager.go).
+//
+// Returns "" only when there's genuinely no incus bridge to reach (incusbr0
+// absent — no incus runtime configured on this host at all), which correctly
+// preserves the existing "skip the hook" fallback for that case.
 func bridgeNotifyURL(addr, basePath string) string {
-	b := incusBridgeListenAddr(addr)
-	if b == "" {
+	port := portFromAddr(addr)
+	if port == "" {
 		return ""
 	}
-	return notifyURLForHostPort(b, basePath)
+	ip := incusBridgeIP()
+	if ip == "" {
+		return ""
+	}
+	return notifyURLForHostPort(net.JoinHostPort(ip, port), basePath)
 }
 
 func notifyURLForHostPort(hostPort, basePath string) string {
