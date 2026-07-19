@@ -27,8 +27,11 @@ import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+# S2b5691-2: tabs/claude-tui was renamed to tabs/agent-tui (generalized
+# renderer, shared with codex/opencode) — the harness HTML moved with it.
+# testid contract (claude-tui-status/-terminal/-reconnect-btn) unchanged.
 HARNESS_HTML = (
-    REPO_ROOT / "frontend" / "src" / "tabs" / "claude-tui" / "test-harness.html"
+    REPO_ROOT / "frontend" / "src" / "tabs" / "agent-tui" / "test-harness.html"
 )
 
 

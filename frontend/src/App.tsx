@@ -10,6 +10,7 @@ import { HomeRedirect } from './components/redirect'
 import { MainLayout } from './components/main-layout'
 import { useEventStream } from './hooks/use-event-stream'
 import { useVisualViewport } from './hooks/use-visual-viewport'
+import { useAgentRegistryStore } from './stores/agent-registry-store'
 import { usePalmuxStore } from './stores/palmux-store'
 import { TestHarness } from './tabs/claude-agent/test-harness'
 import { BrowserFullscreen } from './tabs/browser/browser-view'
@@ -43,10 +44,18 @@ function App() {
   const bootstrap = usePalmuxStore((s) => s.bootstrap)
   const error = usePalmuxStore((s) => s.error)
   const theme = usePalmuxStore((s) => s.deviceSettings.theme)
+  const fetchAgents = useAgentRegistryStore((s) => s.fetchAgents)
 
   useEffect(() => {
     void bootstrap()
   }, [bootstrap])
+
+  // S2b5691-2: load the agent registry once at boot, in parallel with the
+  // main bootstrap. fetchAgents never throws (falls back to claude-only on
+  // error), so this can't fail App startup.
+  useEffect(() => {
+    void fetchAgents()
+  }, [fetchAgents])
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)

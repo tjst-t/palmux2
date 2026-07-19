@@ -43,6 +43,11 @@ export interface NotificationItem {
   tabId?: string
   /** S009: Display name of the originating tab (e.g. "Claude", "Claude 2"). */
   tabName?: string
+  /** S2b5691-2: the agent kind the notification originated from ("claude",
+   *  "codex", "opencode", or a user-defined generic kind), derived
+   *  server-side from tabId. Used to look up the agent's DisplayName via
+   *  the agent-registry store for the Inbox's "Open <DisplayName>" action. */
+  agentKind?: string
 }
 
 export interface NotificationAction {

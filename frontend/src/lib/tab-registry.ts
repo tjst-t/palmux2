@@ -4,6 +4,11 @@ export interface TabViewProps {
   repoId: string
   branchId: string
   tabId: string
+  /** S2b5691-2: the agent kind driving this tab's PTY endpoint, when the
+   *  renderer needs it to build a kind-scoped URL (agent-tui). Omitted (or
+   *  "claude") means "use claude's bare /tabs/{tabId}/tui/* path" — every
+   *  other renderer ignores this prop. */
+  kind?: string
 }
 
 export interface TabRenderer {
