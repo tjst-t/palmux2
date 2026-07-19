@@ -1,0 +1,115 @@
+Sfa2bab-1 scenario-2 dogfood run — verbatim captured terminal text
+(source: dogfood_codex_opencode.py's single, non-retried run against the
+freshly booted appliance VM, incus-container runtime, throwaway repo
+local--sfa2bab-tw--5545 / sfa2bab-tw--ccf0. Captured on FAILURE of the
+Activity-Inbox-based pass criterion — this is what each agent's own
+terminal actually showed at that moment, proving the underlying turn did
+complete correctly even though the scripted test's Activity Inbox check
+timed out.)
+
+=== codex:codex — full run output (PASS on PTY connect + badge; FAIL on
+    Activity Inbox notify within 150s) ===
+
+PASS [AC-Sfa2bab-1-2 (codex) PTY connect] codex WS connected
+PASS [AC-Sfa2bab-1-2 (codex) badge] codex badge shows notify-level=turn_end
+
+Terminal text at time of Activity Inbox timeout:
+
+╭────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.144.6)                     │
+│                                                │
+│ model:       gpt-5.6-terra   /model to change  │
+│ directory:   ~/ghq/github.com/local/sfa2bab-tw │
+│ permissions: YOLO mode                         │
+╰────────────────────────────────────────────────╯
+  Tip: New For a limited time, Codex is included in your plan for free – let's build together.
+
+› Reply with exactly the single word PALMUXOK and nothing else.
+
+• PALMUXOK
+
+› Reply with exactly the single word PALMUXOK and nothing else.
+
+• PALMUXOK
+
+› Write tests for @filename
+
+  gpt-5.6-terra default · ~/ghq/github.com/local/sfa2bab-tw
+
+FAIL [AC-Sfa2bab-1-2 (codex)] codex: no 'Open Codex' Activity Inbox entry
+appeared within 150.0s of sending the prompt.
+
+Note: the prompt/response pair appears twice in the captured scrollback —
+plausibly a rendering/replay artifact of the ptyhost ring-buffer reattach
+that the failure-path diagnostic re-navigation triggered (this script
+re-visits the tab's own URL once, at failure time, purely to capture
+terminal text for this excerpt) rather than two genuinely separate agent
+turns; not further root-caused within this Sprint's time budget. The final
+"Write tests for @filename" line is codex's own idle-state placeholder
+hint text in its empty input box, not a submitted prompt.
+
+=== opencode:opencode — full run output (PASS on PTY connect + badge;
+    FAIL on Activity Inbox notify within 150s) ===
+
+PASS [AC-Sfa2bab-1-2 (opencode) PTY connect] opencode WS connected
+PASS [AC-Sfa2bab-1-2 (opencode) badge] opencode (full) shows no
+notify-capability badge
+
+Terminal text at time of Activity Inbox timeout:
+
+  ┃
+  ┃  Reply with exactly the single word PALMUXOK and nothing else.
+  ┃
+
+     + Thought: 803ms
+
+     PALMUXOK
+
+     ▣  Build · Qwen3.7 Plus · 6.9s
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · Qwen3.7 Plus OpenCode Go
+                                          7.9K (1%) · $0.00  ctrl+p commands
+
+FAIL [AC-Sfa2bab-1-2 (opencode)] opencode: no 'Open opencode' Activity
+Inbox entry appeared within 150.0s of sending the prompt.
+
+=== Server-side corroboration (via `ps aux` on the VM host OS while both
+    turns above were executing) ===
+
+codex incus exec argv (captured live):
+  /nix/store/.../incus exec -t local-sfa2bab-tw-5545-sfa2bab-tw-ccf0-5c06064b
+    --user 1000 --group 1000 --env HOME=/home/ubuntu --env USER=ubuntu
+    [... GIT_CONFIG_* env, no PALMUX_NOTIFY_URL, no palmux hook bin mount env ...]
+    --cwd /home/ubuntu/ghq/github.com/local/sfa2bab-tw --env TERM=xterm-256color
+    -- /home/ubuntu/.npm-global/lib/node_modules/@openai/codex/bin/codex.js
+       --dangerously-bypass-approvals-and-sandbox
+
+Notably absent: a `-c notify=[...]` argv element (codex.go's
+codexNotifyConfigValue() output), which internal/agent/codex.go's
+SpawnSpec() only appends `if intent.Hook.HookBinPath != "" &&
+intent.Hook.NotifyURL != ""`. Confirmed via journalctl -u palmux2 that
+~/.codex/config.toml on the VM was NEVER modified by palmux2 (still
+exactly the [projects."..."] trust_level stanza this Run phase wrote by
+hand) — consistent with the per-process `-c` override never having been
+built, i.e. intent.Hook.NotifyURL was empty at SpawnSpec() call time.
+
+opencode incus exec argv showed the equivalent absence (no hook-related
+env/args beyond the same GIT_CONFIG_* passthrough every in-container spawn
+gets).
+
+A claude:claude tab in the SAME workspace, incidentally spawned by this
+script's own Activity-Inbox-check navigation (not a deliberate test),
+showed the same pattern: `--settings {"disableRemoteControl":true}` with
+NO "hooks" key, whereas a working host-runtime claude spawn on this same
+dev box (see any of the many `ps aux` claude processes already running on
+this box outside the VM) always carries a "hooks":{"Notification":...,
+"Stop":...,"UserPromptSubmit":...} block. This is the corroborating
+evidence that the notify-gap is agent-agnostic (see
+verification-results.json's root_cause_identified field for the full
+code-level trace to cmd/palmux/main.go's incusBridgeListenAddr()/
+bridgeNotifyURL() and nixos/modules/appliance.nix's
+`bindAddr = 0.0.0.0:7683 if domain == null` default).
