@@ -1,0 +1,33 @@
+{
+  "sprint": "S2b5691",
+  "waves": [
+    {
+      "wave": 1,
+      "stories": ["S2b5691-1"]
+    },
+    {
+      "wave": 2,
+      "stories": ["S2b5691-2"]
+    }
+  ],
+  "stories": {
+    "S2b5691-1": {
+      "implement_agents": 1,
+      "review_agents": 1,
+      "review_cycles_used": 1,
+      "review_cycle_cap_hit": false,
+      "fix_rounds": 1,
+      "notable": "Found and fixed a genuine pre-existing crash bug in third_party/charmbracelet-x-vt-racefix (DECSTBM handler unscoped-parser torn-read) while dogfooding codex in a real incus container; added a regression test verified by reverting the fix and confirming the test reproduces the panic."
+    },
+    "S2b5691-2": {
+      "implement_agents": 1,
+      "review_agents": 1,
+      "review_cycles_used": 1,
+      "review_cycle_cap_hit": false,
+      "fix_rounds": 1,
+      "notable": "One implement-agent turn ended mid-wait on a background E2E run without completing/committing; resumed via SendMessage to finish, verify, and commit. Real E2E ran against real codex-cli 0.144.1 / opencode 1.17.18, 3 stable runs."
+    }
+  },
+  "backlog_items_added": 4,
+  "verifier_planned": true
+}
