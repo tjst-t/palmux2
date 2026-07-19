@@ -13757,6 +13757,20 @@
       "kind": "bug",
       "added_in": "S2b5691",
       "status": "open"
+    },
+    {
+      "title": "In-container agent notify hooks are silently disabled whenever palmuxOS binds a wildcard address (services.palmux.domain == null) — affects claude/codex/opencode alike",
+      "description": "cmd/palmux/main.go incusBridgeListenAddr()/bridgeNotifyURL() return \"\" for a wildcard --addr by design (S7364e3, avoids a bridge-listener bind collision), and internal/tab/agenttui/daemon.go spawnWithArgs() treats an empty NotifyURLInContainer as \"skip the hook\" rather than falling back to a reachable address. nixos/modules/appliance.nix sets bindAddr=0.0.0.0:7683 whenever domain==null (the default first-boot/LAN-only state for any palmuxOS appliance without a public domain configured). Net effect: Activity Inbox turn-completion notifications for ANY in-container agent are structurally impossible in this common deployment mode, even though the underlying agent turns complete correctly — a silent capability gap, since notify-capability badges in the UI still claim support. Found + root-caused during Sfa2bab real-machine dogfood (2026-07-19). Fix needs an alternative reachable-from-container bind address for the bridge listener even when the main listener is wildcard, or an explicit operator-facing warning that in-container notifications are unavailable in this mode.",
+      "kind": "bug",
+      "added_in": "Sfa2bab",
+      "status": "open"
+    },
+    {
+      "title": "palmuxOS appliance image bakes ~/.local/share (and subdirs) with root ownership, blocking npm-global CLI installs as the palmux user",
+      "description": "On a fresh palmuxOS appliance VM, ~/.local/share is owned by root instead of the ubuntu/palmux uid:gid (1000:100), so any npm-global install that needs to write there (e.g. opencode-ai) fails with EACCES/EBADPLATFORM-looking errors that mask the real cause. Already-baked tools (claude, gh) are unaffected since they're correctly owned. Found during Sfa2bab real-machine dogfood (2026-07-19), worked around with a manual chown; the image build or a first-boot oneshot should reconcile ownership under the appliance user's $HOME.",
+      "kind": "bug",
+      "added_in": "Sfa2bab",
+      "status": "open"
     }
   ]
 }
