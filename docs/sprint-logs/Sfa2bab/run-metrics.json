@@ -1,0 +1,17 @@
+{
+  "sprint": "Sfa2bab",
+  "note": "Verification-only Sprint (no code Stories) — metrics differ in shape from a typical implement/review Sprint.",
+  "agents_spawned": {
+    "plan": 1,
+    "run": 1,
+    "verifier": 1
+  },
+  "review_cycles_used": 0,
+  "review_cycle_cap_hit": false,
+  "verifier_ran": true,
+  "sprint_review_runs": 0,
+  "guards_machine_run": false,
+  "guards_machine_run_note": "No source diff this Sprint (verification-only) — hooks/run-guards.py not applicable, guard evaluation done manually as n/a per verification-results.json done_judgment block.",
+  "backlog_items_added": 2,
+  "notable": "Real-machine dogfood found and root-caused a genuine, agent-agnostic bug (in-container notify hooks silently disabled under wildcard-bind/no-domain deployments) independently confirmed by the verifier with stronger evidence than the self-report itself cited. Also found a real appliance-image ownership bug (~/.local/share baked as root). Both filed to backlog, neither fixed in this Sprint (verification-only by design)."
+}

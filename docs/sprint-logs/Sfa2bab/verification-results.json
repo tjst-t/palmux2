@@ -2,7 +2,13 @@
   "sprint": "Sfa2bab",
   "run_at": "2026-07-19T07:45:00Z",
   "server_command": "real-machine dogfood only — no `make test`; deploy-test (192.168.1.43) built `nix build .#appliance-qcow2-local` (a Run-phase-added local flake output, uncommitted on deploy-test, that bakes palmux2-local instead of the release fetchurl palmux2 package), dev box (192.168.1.40) booted the resulting qcow2 as a disposable qemu VM and drove it via curl/ssh/Playwright",
-  "summary": { "total": 4, "pass": 1, "partial": 1, "fail": 1, "not_fully_verified": 1 },
+  "summary": {
+    "total": 4,
+    "pass": 1,
+    "partial": 1,
+    "fail": 1,
+    "not_fully_verified": 1
+  },
   "commit_under_test": "aef317dc0eaf644152352a325cfaf5c970fa825e",
   "commit_note": "HEAD of autopilot/main/Sfa2bab at Run-phase start; descends from cd57363 (S2b5691 merge) with one docs-only Plan-phase commit on top (aef317d itself touches no source). Confirmed identical via `git rev-parse HEAD` on the dev box vs `git log -1 sfa2bab-verify` on deploy-test after push.",
   "results": [
@@ -44,5 +50,17 @@
     "dev_box_temp_files": "8.9G of qcow2/overlay/seed/log files under the session scratchpad directory removed",
     "deploy_test": "flake.nix and nix/packages/palmux2-local.nix reverted to their pre-existing (pre-Sprint) uncommitted-dirty state via `git checkout --`, HEAD switched back to the original detached v0.16.0, temporary `sfa2bab-verify` branch deleted, the ORIGINAL pre-existing uncommitted `nix/packages/palmux2.nix` patch (present before this Sprint started, per eval-hosts.md's own documented v0.16.0 qcow2-asset-fix history) restored via `git stash pop`. `nix store gc` run as a courtesy (freed 37.1GB — deploy-test now has MORE free disk than at Sprint start: 19G vs the original 14G).",
     "production_instance_check": "This dev box's own live production palmux2 (pid 775, port 7682/7683 area — the instance managing this very session) was confirmed unaffected: `curl http://127.0.0.1:7683/api/health` returned 200 both before and after this Sprint's work; the disposable VM used entirely separate hostfwd ports (12333/17793) and its own qemu process; `incus list` on this dev box itself (not the VM) was never touched by this Sprint's incus operations (those all ran INSIDE the disposable VM's own nested incus, over SSH into the VM)."
+  },
+  "done_judgment": {
+    "story_id": "Sfa2bab-1",
+    "guard1_user_review_required_not_done": "n/a — not flagged true, but Story routes to needs_user_review anyway due to AC-Sfa2bab-1-2 fail",
+    "guard2_nil_injection_mock": "n/a — no source diff this Sprint (verification-only)",
+    "guard3_mock_mode_not_real_smoke": "pass — all evidence is real-machine (real qcow2, real qemu, real incus, real codex/opencode binaries), no mock-mode used",
+    "guard4_priority_rule_9_exception_valid": "n/a — no exception claimed, real smoke was performed",
+    "guard5_call_path_grep": "n/a — no new cross-service coupling introduced this Sprint",
+    "guard6_deferred_comment_clean": "n/a — no source diff this Sprint",
+    "guard7_adr_conformance": "n/a — touched_adrs empty, no source diff",
+    "guard8_destructive_multi_version_test": "n/a — no destructive data-path test in this Sprint",
+    "overall": "needs_user_review"
   }
 }

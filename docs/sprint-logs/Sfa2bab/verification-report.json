@@ -1,0 +1,44 @@
+{
+  "sprint": "Sfa2bab",
+  "verifier": "independent, fresh Agent, read-only, no source-diff to check (verification-only Sprint) — re-derived code-level claims against actual current source rather than re-executing the (already torn down) disposable VM",
+  "checked": [
+    {
+      "claim": "dogfood-run1-excerpt.txt genuinely shows both codex and opencode completing a real turn (verbatim PALMUXOK)",
+      "verdict": "partially_confirmed",
+      "note": "Excerpt content matches each tool's real TUI chrome and real enum vocabulary found in source (internal/agent/adapter.go NotifyNone/NotifyTurnEnd/NotifyFull). Self-flagged duplicate-render anomaly reads as a point in favor of authenticity, not against. Cannot be independently re-executed since the VM is torn down."
+    },
+    {
+      "claim": "Root-cause chain: incusBridgeListenAddr()/bridgeNotifyURL() return \"\" on wildcard bind -> spawnWithArgs() skips hook injection -> appliance.nix sets bindAddr=0.0.0.0:7683 whenever domain==null",
+      "verdict": "confirmed",
+      "note": "All three links independently re-read at cmd/palmux/main.go:1169-1223, internal/tab/agenttui/daemon.go:764-773 (+ internal/agent/codex.go:211, internal/tab/claudeagent/manager.go:189), nixos/modules/appliance.nix:203-204. Exact match including code comments."
+    },
+    {
+      "claim": "Agent-agnostic (affects claude too, not just codex/opencode)",
+      "verdict": "confirmed",
+      "note": "Stronger than the self-report's own evidence: all three call sites (stream-json Claude manager, claude-tui manager, generic per-kind agenttab loop) share the SAME bridgeNotifyURL() call — a single shared code path, not three independently-agreeing implementations."
+    },
+    {
+      "claim": "Distinct from S2b5691's opencode-in-container crash-loop backlog item, not a restatement",
+      "verdict": "confirmed",
+      "note": "S2b5691 verifier-correction tally (4/9 pass, 5/9 fail with EACCES/FileSystem.NotFound/LLM-backend-error/D5-crash-loop symptoms) is entirely filesystem/process-level on the shared-profile race — mechanistically unrelated to notify-URL wiring. Sfa2bab's finding is a clean turn completion with zero crash/EACCES symptoms, blocked only on notification delivery."
+    },
+    {
+      "claim": "Claude-tab credential-reuse refusal was a principled guardrail, not corner-cutting",
+      "verdict": "confirmed",
+      "note": "Matches docs/DESIGN_PRINCIPLES.json forbidden-list item verbatim (no arbitrary ~/.claude/ rewrite without explicit consent flow)."
+    },
+    {
+      "claim": "Full cleanup, no leftover Sfa2bab state",
+      "verdict": "confirmed",
+      "note": "No process on the claimed ports, no Sfa2bab-tagged incus entries on this dev box, no stray build artifacts in scratchpad, no git tag/sfa2bab-verify branch anywhere. One UNRELATED pre-existing stray qemu process found (PID 3458604, ~21h older, different ports/filenames, not Sfa2bab's) — flagged as general dev-box hygiene debt, not a gap in this Sprint's own cleanup."
+    }
+  ],
+  "overlooked_by_autopilot": [
+    {
+      "finding": "docs/ROADMAP.json AC statuses were still 'pending' when the verifier ran, despite verification-results.json already recording concrete pass/fail outcomes — a reader skimming ROADMAP.json alone would not see the AC-Sfa2bab-1-2 FAIL.",
+      "resolution": "Fixed by the orchestrator immediately after this report: AC statuses now set to pass/fail per verification-results.json, Story marked needs_user_review, Sprint marked partial."
+    }
+  ],
+  "overall_trust_assessment": "Report is trustworthy enough to base the release go/no-go framing on. Every code-level claim checked matches current source exactly, in some cases (agent-agnostic framing) with stronger evidence than the self-report itself argued. No material overstatement or understatement found.",
+  "recommendation": "Hold release, or explicitly accept the in-container-notify-hook-gap risk with eyes open — this is the user's call, not autopilot's. The opencode crash-loop backlog item from S2b5691 remains open and unresolved by this Sprint (neither confirmed nor refuted)."
+}
