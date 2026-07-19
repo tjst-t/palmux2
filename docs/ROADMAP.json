@@ -12695,52 +12695,52 @@
       "stories": {
         "S2b5691-1": {
           "title": "開発者として、codex/opencodeアダプタをmain.goのagent registryに登録したい。なぜなら、フェーズBでは実装ファイルのみ取り込みregistry登録を見送っていたから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S2b5691-1-1",
               "description": "config.toml で [agents.codex]/[agents.opencode] を有効化すると、cmd/palmux/main.go の agent.BuildRegistry がそれらを CodexAdapter/OpencodeAdapter として登録する (agent.reservedKinds に無い、D3: GenericAdapter でなく built-in dispatch)。config.toml に何も書かなければ従来通り claude のみ (既定挙動は不変)。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S2b5691-1-2",
               "description": "上記が有効化されている状態で、新規追加する GET /api/agents (現状 internal/server に存在しない、新規実装) が claude/codex/opencode 3種のディスクリプタ (kind/displayName/capabilities/protected/modes) を返す。加えて palmux hook --agent=codex / --agent=opencode の dispatch (現状 --agent フラグは解析されるだけで無視されている) を実装し、各エージェント固有の通知 wire format (codex: JSON を最終 argv、opencode: JSON を stdin) を正しく POST /api/notify 相当に変換できることを確認する。",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S2b5691-1-3",
               "description": "実機 incus コンテナ上で codex/opencode が (image を焼かず、claude と同じ same-path bind-mount 方式で) 実際に spawn・1ターン完走し、internal/runtime/incus/shared_profile.go の SetAgentSharedPaths (新規実装) 経由でホストのバイナリ + 認証ディレクトリ (~/.codex, ~/.local/share/opencode, ~/.config/opencode) がコンテナへ bind-mount され再認証不要で動くこと。npm-global wrapper (codex) は leaf バイナリ単体では 'Missing optional dependency' で落ちる既知の罠があるため node ランタイム込みで共有されていることも確認する。",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S2b5691-1-1": {
               "title": "cmd/palmux/main.go: translateAgentConfig(rc.agents) を実装し agent.BuildRegistry(claudeBin, claudeArgs, translateAgentConfig(rc.agents)) に置換 (現状 nil 固定)。runtimeRegistry.SharedProfileManager().SetAgentSharedPaths(agentRegistry.SharedContainerPaths()) の配線も含む",
-              "status": "pending"
+              "status": "done"
             },
             "S2b5691-1-2": {
               "title": "in-container実行の実機検証 (実 incus コンテナ、実 codex 0.144.1 / opencode 1.17.18 — このホストに両方インストール済みを Plan 時点で確認済み。throwaway instance/config-dir で現行セッションの palmux2/tmux に影響させないこと)",
-              "status": "pending"
+              "status": "done"
             },
             "S2b5691-1-3": {
               "title": "internal/config に [agents.*] TOML セクション (AgentSection/MasterConfig.Agents/classify.go hot-apply) を maultiagent 参照実装 (git diff main maultiagent -- internal/config) から移植",
-              "status": "pending"
+              "status": "done"
             },
             "S2b5691-1-4": {
               "title": "internal/server/handler_agents.go (GET /api/agents) を新規実装 + ルート登録 (maultiagent 参照実装 internal/server/handler_agents.go から移植)",
-              "status": "pending"
+              "status": "done"
             },
             "S2b5691-1-5": {
               "title": "cmd/palmux/hook.go に --agent=codex/--agent=opencode dispatch (runCodexHook: 最終argv JSON / runOpencodeHook: stdin JSON) を追加 (git diff main maultiagent -- cmd/palmux/hook.go を参照移植)",
-              "status": "pending"
+              "status": "done"
             },
             "S2b5691-1-6": {
               "title": "internal/runtime/incus/shared_profile.go に SetAgentSharedPaths を追加 + main.go で agentRegistry.SharedContainerPaths() を配線 (main の既存 gwqWorktreesDevice 等を壊さないよう手動マージ、単純 diff 適用不可)",
-              "status": "pending"
+              "status": "done"
             },
             "S2b5691-1-7": {
               "title": "notify hub の agentKind スタンプ + TabName 配線を S339021-3 backend half (internal/notify/hub.go, internal/agent/claude.go, internal/tab/agenttui/{daemon,manager}.go) から移植 (main の ptyhost 化後の構造に合わせて手動再適用、ADR-0001/0002 の thin-holder 境界を侵さないこと)",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
