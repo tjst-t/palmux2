@@ -2,12 +2,12 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 79,
+    "sprints_done": 80,
     "sprints_total": 82,
-    "done": 79,
+    "done": 80,
     "total": 82,
     "remaining": 2,
-    "in_progress": 1,
+    "in_progress": 0,
     "percent": 97,
     "percentage": 97,
     "current_sprint": "Sc4f091"
@@ -12932,7 +12932,7 @@
       "title": "リリースブロッカー修正: in-container通知フック欠落 + opencodeコンテナ内信頼性調査",
       "description": "Sfa2bab実機ドッグフーディングで発見・root cause特定済みの「wildcard bind/domain未設定時にin-containerエージェント通知フックが全種別で無効化される」バグを修正し、実機で再検証する。加えてS2b5691で見つかったopencodeのコンテナ内実行信頼性ギャップ(過去成功率~44-56%)を調査し、実際の原因を特定した上で妥当な修正を行う。ユーザーが次のリリース判断の前に両方の解消を明示的に希望したため着手。",
       "milestone": true,
-      "status": "in_progress",
+      "status": "done",
       "detail_level": "detailed",
       "stories": {
         "Sc4f091-1": {
