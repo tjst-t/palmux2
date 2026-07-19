@@ -1,0 +1,150 @@
+{
+  "story": "Sfa2bab-1",
+  "story_type": "mixed",
+  "$comment": "Real-machine/manual-smoke Story per story-scenarios.md + CLAUDE.md 'palmuxOS アプライアンス (qcow2) を実機評価する'. Not a GUI Story in the gui-spec.md sense (no new UI is built this Sprint) — the entry points are: (a) an operator building+deploying the appliance from a shell (cli/api-ish: SSH, nix build, qemu, curl/API), and (b) a real end-user driving the already-existing web UI inside the freshly booted appliance via a real browser (gui-shaped, exercised with real Playwright against the real deployed system rather than a gui-spec state-diagram — the UI itself is not new so gui-spec.md's process is skipped per the Sprint brief). Classified 'mixed' because both entry points are load-bearing for different ACs and neither alone covers all 4 AC.",
+  "user_role": "product owner / operator doing pre-release dogfooding on their own dev box + a build host, verifying a real appliance boot before authorizing a git tag",
+  "entry_point": "deploy-test (192.168.1.43, SSH ubuntu@) as the build host; dev box (192.168.1.40, this box) as the qemu host + Playwright driver; the booted appliance's own web UI at http://127.0.0.1:<hostfwd-port>/ reached via qemu -hostfwd from the dev box",
+  "preconditions": [
+    "docs/local/eval-hosts.md exists in this checkout and its SSH access to deploy-test (192.168.1.43) and this dev box's own qemu/KVM capability are usable (both are L1 hosts per the nested-virtualization constraint)",
+    "Local branch HEAD (autopilot/main/Sfa2bab, currently cd57363) already contains the S2b5691 merge (codex/opencode registry + FE exposure). This exact commit — not origin/main, which is still at beaeb48 and has not been fast-forwarded — is 'main (フェーズDマージ後)' for the purposes of AC-Sfa2bab-1-1.",
+    "This dev box already has working, already-authenticated ~/.codex/auth.json and ~/.local/share/opencode/auth.json (used by tests/e2e/s2b5691_2_agent_picker.py) that can be reused (copied) into the fresh VM rather than doing an interactive login flow inside the VM.",
+    "codex/opencode CLIs are NOT baked into the palmux-ws workspace container image (confirmed: no reference in images/workspace-default/build.sh) — internal/agent/codex.go and opencode.go's ContainerBinary()/SharedContainerPaths() instead bind-mount the AGENT'S OWN HOST (i.e. the appliance VM's host OS, not the dev box) npm-global install into the workspace container. This means codex/opencode must be `npm install -g`'d ON THE BOOTED VM ITSELF (as the palmux user) before AC-Sfa2bab-1-2 can be attempted at all — this is a real setup step, not an incidental detail."
+  ],
+  "scenarios": [
+    {
+      "id": "scenario-1-build-and-boot",
+      "linked_ac": ["AC-Sfa2bab-1-1"],
+      "description": "Operator builds a fresh appliance qcow2 from the current pre-release source on the designated build host, transfers it to the dev box, and boots it as a disposable qemu VM, then confirms palmux2 is healthy inside it.",
+      "preconditions": ["deploy-test has Nix + /dev/kvm world-rw + the existing ~/palmux2-build checkout (Nix store cache warm from prior builds)"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "operator pushes the exact commit under test to deploy-test's existing checkout without disturbing whatever branch is currently checked out there: `git push ssh://ubuntu@192.168.1.43/home/ubuntu/palmux2-build cd57363:refs/heads/sfa2bab-verify` (or the current HEAD SHA of autopilot/main/Sfa2bab if it has moved) from the dev box",
+          "expected": "push succeeds; `ssh ubuntu@192.168.1.43 'cd ~/palmux2-build && git log -1 sfa2bab-verify'` shows the same commit SHA as `git rev-parse HEAD` on the dev box"
+        },
+        {
+          "n": 2,
+          "action": "operator runs on deploy-test: `ssh ubuntu@192.168.1.43 'cd ~/palmux2-build && git checkout sfa2bab-verify && nix build .#appliance-qcow2 -L'`",
+          "expected": "build completes (exit 0); a result symlink/qcow2 artifact under result/ or a documented output path exists; if disk space (~13G free) or the single core makes this impractically slow, that is a real infra constraint to note, not a reason to fabricate a pass — escalate per test-discipline.md if it cannot complete in a reasonable bounded window (see implementation_notes for the exact budget)"
+        },
+        {
+          "n": 3,
+          "action": "operator computes a checksum and transfers the artifact to the dev box: `ssh ubuntu@192.168.1.43 'sha256sum ~/palmux2-build/result/*.qcow2'` then `scp ubuntu@192.168.1.43:~/palmux2-build/result/*.qcow2 ~/appliance-sfa2bab.qcow2` and re-verify the checksum locally",
+          "expected": "checksums match; file exists on dev box; file size is in the documented ~800MB-1GB range (a wildly different size signals a broken/corrupt build, not a pass)"
+        },
+        {
+          "n": 4,
+          "action": "operator builds a disposable qemu VM per eval-hosts.md §3b: creates a COW overlay over the transferred base qcow2 (`qemu-img create -f qcow2 -F qcow2 -b appliance-sfa2bab.qcow2 overlay.qcow2`), builds a fresh cloud-init NoCloud seed with BOTH a `palmux` user (uid 1000, matching the real appliance user — NOT `ubuntu`) and a `root` user (both with the operator's real SSH pubkey, per the documented sudo-loss-after-nixos-rebuild workaround) staged as literally-named `seed-src/user-data` + `seed-src/meta-data` before `genisoimage`, then launches `qemu-system-x86_64 -enable-kvm -cpu host -m 4096 -smp 2 -drive file=overlay.qcow2,if=virtio,format=qcow2 -drive file=seed.iso,if=virtio,format=raw -netdev user,id=net0,hostfwd=tcp::12222-:22,hostfwd=tcp::17683-:7683 -device virtio-net-pci,netdev=net0 -nographic -serial file:serial.log -display none -pidfile qemu.pid` in the background",
+          "expected": "qemu process starts and stays up (pidfile written, process alive); serial.log shows cloud-init progressing and eventually a login prompt or systemd reaching multi-user.target"
+        },
+        {
+          "n": 5,
+          "action": "operator polls `ssh -p 12222 root@127.0.0.1 'systemctl is-active palmux2 incus'` until both report active (bounded retry, e.g. up to 5 minutes for first boot + cloud-init + palmux-state-init oneshot + incus bridge setup)",
+          "expected": "both services report `active`; if palmux2 fails to reach active within the budget, `journalctl -u palmux2 -n 100 --no-pager` is captured for diagnosis before declaring failure"
+        },
+        {
+          "n": 6,
+          "action": "operator confirms the palmux2 baked into this qcow2 is genuinely built from the commit under test (not a stale/mismatched binary — this exact class of bug was found and fixed in commit beaeb48 the same week): `ssh -p 12222 root@127.0.0.1 '/home/ubuntu/.local/bin/palmux2 --version'` (or the equivalent path — confirm via `systemctl cat palmux2` if unsure) and cross-check against `git -C ~/palmux2-build describe --always --dirty` on deploy-test for the checked-out commit",
+          "expected": "version string is traceable to the sfa2bab-verify commit (a `git describe`-style dev version, since this commit is unreleased/untagged — NOT a stale prior release tag like v0.15.0/v0.16.0)"
+        },
+        {
+          "n": 7,
+          "action": "operator curls the appliance's health endpoint through the forwarded port from the dev box: `curl -s http://127.0.0.1:17683/api/health`",
+          "expected": "HTTP 200 with a healthy status body — proves the web UI backend the rest of this scenario depends on is reachable, not just that systemd thinks the unit is 'active'"
+        }
+      ],
+      "cleanup": ["leave the qemu VM running for scenario-2/3 (same disposable instance) — do not tear down until scenario-4's cleanup step"]
+    },
+    {
+      "id": "scenario-2-codex-opencode-dogfood",
+      "linked_ac": ["AC-Sfa2bab-1-2"],
+      "description": "Inside the freshly booted VM, an operator enables codex/opencode, opens a real workspace on incus-container runtime (the exact runtime the backlog's opencode reliability-gap bug concerns), creates a codex tab and an opencode tab through the real web UI, and runs one trivial turn on each — this is the FIRST fresh, uncontended evidence on whether the ~44-56% opencode-in-container pass rate observed during S2b5691 Verify is a real production-facing reliability problem or an artifact of that Verify session's unusually contended host.",
+      "preconditions": [
+        "scenario-1 completed: VM is up, palmux2 healthy, reachable at http://127.0.0.1:17683",
+        "codex/opencode CLIs installed on the VM's HOST OS (not the workspace container) as the palmux user, with auth copied in from the dev box's own ~/.codex and ~/.local/share/opencode"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "action": "operator installs codex/opencode CLIs on the VM as the palmux user (`ssh -p 12222 -l palmux 127.0.0.1 'npm install -g @openai/codex opencode-ai'` or whatever the currently-correct package names are — confirm against this dev box's own `npm ls -g` for the exact packages already proven to work here) and copies auth: `scp -P 12222 -r ~/.codex/auth.json palmux@127.0.0.1:.codex/auth.json` and the equivalent for `~/.local/share/opencode/auth.json`",
+          "expected": "`ssh -p 12222 -l palmux 127.0.0.1 'which codex opencode'` resolves both; `codex --version`/`opencode --version` succeed without an auth prompt"
+        },
+        {
+          "n": 2,
+          "action": "operator edits the appliance's config.toml (at /persist/palmux/config/config.toml per appliance.nix's configDir mapping — confirm exact path via `systemctl cat palmux2` if the module has changed) to add `[agents.codex]` / `[agents.opencode]` sections (command + any non-interactive/auto-approve args, mirroring tests/e2e/s2b5691_2_agent_picker.py's own config.toml stanza) and hot-applies without a full VM reboot, e.g. `systemctl restart palmux2` (a service restart, not a VM reboot, is sufficient and faster) or `palmux apply` if the config-watch mechanism (Sa53137) picks it up live",
+          "expected": "`curl -s http://127.0.0.1:17683/api/agents` now returns entries for `claude`, `codex`, and `opencode` with codex.capabilities.notify=='turn_end' and opencode.capabilities.notify=='full'"
+        },
+        {
+          "n": 3,
+          "action": "operator creates a throwaway git repo inside the VM (`ssh -p 12222 -l palmux 127.0.0.1 'mkdir -p ~/ghq/github.com/local/sfa2bab-tw && cd $_ && git init -q -b main && git commit -q --allow-empty -m init'`), then opens it via the API: `POST http://127.0.0.1:17683/api/repos/{repoId}/open` (repoId discovered via `GET /api/repos/available`, same pattern as tests/e2e/s2b5691_2_agent_picker.py)",
+          "expected": "200 response; response body's `openBranches[0].tabSet.tabs` already includes `codex:codex` and `opencode:opencode` tab IDs (agenttab.Provider auto-seeds one tab per registered non-claude kind, per the same test's own observed contract) — if this auto-seed does not happen, that itself is worth noting as a discrepancy from the reference test's behavior, not silently worked around"
+        },
+        {
+          "n": 4,
+          "action": "operator switches this workspace's runtime to incus-container (NOT host) via the real web UI's runtime chip (or the underlying API if faster) — this step is the one that actually exercises the flagged shared-profile/bind-mount race; testing on host runtime would produce a green result that says nothing about the backlog concern",
+          "expected": "runtime chip shows incus-container / the workspace's container is created and reaches ready state (confirm via `incus list` on the VM showing a new running container)"
+        },
+        {
+          "n": 5,
+          "action": "operator (via real headless Playwright from the dev box, pointed at http://127.0.0.1:17683) navigates to `/{repoId}/{branchId}/codex:codex`, waits for the PTY WS to leave 'connecting', types a trivial prompt ('Reply with exactly the single word PALMUXOK and nothing else.') and submits it, then polls the Activity Inbox for the codex turn-completion notification — reusing run_turn_and_check_inbox()'s exact pattern from tests/e2e/s2b5691_2_agent_picker.py, adapted to target this VM's forwarded URL instead of a locally-spawned throwaway instance",
+          "expected": "PTY attaches; the turn completes (visible output containing PALMUXOK, or at minimum the terminal produces real output); the notify hook round-trip fires and the Activity Inbox shows an entry attributed to the codex tab within a bounded wait (e.g. 120s, matching the reference test's TURN_TIMEOUT_S)"
+        },
+        {
+          "n": 6,
+          "action": "operator repeats step 5 for `/{repoId}/{branchId}/opencode:opencode`",
+          "expected": "same as step 5, for opencode — capture the FULL raw failure text verbatim if this does not pass on the first attempt (do not retry-until-green and report only the final state; the backlog bug this AC directly informs was built specifically from failure-text analysis across multiple runs, and this Sprint's whole purpose is to add ONE MORE honest, fresh, low-contention data point — a flaky/failing result here is itself the signal, not noise to be smoothed over per the Sprint brief and DESIGN_PRINCIPLES priority_rule 0/1)"
+        },
+        {
+          "n": 7,
+          "action": "operator records the observed pass/fail for both codex and opencode verbatim (including any error text, e.g. EACCES/PermissionDenied/'Unexpected server error'/D5-crash-loop-style symptoms) into the Sprint's verification artifacts, explicitly cross-referencing the two open backlog items (opencode-in-container reliability gap; s2b5691_codex_opencode_incontainer.py's own observability/resilience gaps) rather than treating a fail as this Sprint's own test bug by default",
+          "expected": "a clear, unambiguous verdict recorded: PASS (both agents' turns + notify round-trip succeeded on a fresh, single-instance, uncontended host) / PARTIAL (one of the two failed) / FAIL (both failed) — this verdict is what AC-Sfa2bab-1-4's user-facing report leads with"
+        }
+      ],
+      "cleanup": ["leave the VM running for scenario-3 — do not tear down yet"]
+    },
+    {
+      "id": "scenario-3-regression-check",
+      "linked_ac": ["AC-Sfa2bab-1-3"],
+      "description": "In the same running VM/workspace, confirm the pre-existing claude tab and a plain bash tab still work exactly as before — codex/opencode registration must be additive, not a regression on the tabs every existing user already relies on.",
+      "preconditions": ["scenario-2 completed (or at least scenario-1 completed and the workspace is open) in the same VM"],
+      "steps": [
+        {
+          "n": 1,
+          "action": "operator (Playwright) navigates to the workspace's existing `claude` tab (`/{repoId}/{branchId}/claude`), confirms the PTY WS attaches and the terminal renders the claude CLI's normal startup UI, types a trivial prompt, and confirms a real turn completes with output",
+          "expected": "claude tab behaves identically to pre-Sfa2bab behavior — attaches, renders, accepts input, produces output, no new errors in `journalctl -u palmux2` correlated with this interaction"
+        },
+        {
+          "n": 2,
+          "action": "operator creates a new bash tab via the real UI (TabBar `+` on the Bash group, or the ⌘K palette's `new-bash` command) and runs a trivial shell command (`echo palmux-sfa2bab-regression-ok`) in it",
+          "expected": "bash tab attaches and shows the command's real output in the rendered terminal"
+        },
+        {
+          "n": 3,
+          "action": "operator confirms the runtime switch performed in scenario-2 step 4 did not leave the workspace or any other tab in a broken state — re-checks `GET /api/repos/{repoId}` (or equivalent) shows all tabs (claude, bash, codex, opencode) present and none in an error state",
+          "expected": "full tab set intact; no tab shows a persistent disconnected/error UI state"
+        }
+      ],
+      "cleanup": []
+    },
+    {
+      "id": "scenario-4-report-and-cleanup",
+      "linked_ac": ["AC-Sfa2bab-1-4"],
+      "description": "Compile the results of scenarios 1-3 into a single results summary and stop for explicit user go-ahead before any tag/push happens — this AC is satisfied by the Sprint's own milestone:true mechanism (autopilot pauses here for user review) plus an honest, unhedged results summary, not by a new automated test.",
+      "steps": [
+        {
+          "n": 1,
+          "action": "Run/Verify-phase agent writes a results summary covering: (a) build+boot outcome (AC-1), explicitly noting the exact commit SHA baked in and cross-checked per scenario-1 step 6; (b) codex/opencode dogfood verdict (AC-2) — PASS/PARTIAL/FAIL with the verbatim failure text if any, and an explicit call-out of what this means for S2b5691-1's `needs_user_review` status and the two open backlog items; (c) regression verdict (AC-3); (d) an explicit statement that NO `git tag`/push has been executed by this Sprint",
+          "expected": "the summary is presented to the user at the Sprint's milestone stop (milestone: true in ROADMAP.json already triggers this); the summary does not silently soften a PARTIAL/FAIL result from scenario-2 into a green headline"
+        },
+        {
+          "n": 2,
+          "action": "operator (Run/Verify-phase agent) tears down the disposable qemu VM (`kill $(cat qemu.pid)`) and cleans up temp overlay/seed files on the dev box; on deploy-test, optionally deletes the temporary `sfa2bab-verify` branch (`git branch -D sfa2bab-verify` — the build artifacts in the Nix store cache are left alone, they are harmless build cache)",
+          "expected": "no leftover qemu process; no leftover temp files consuming disk on either host; deploy-test's originally-checked-out branch is restored if it was changed"
+        }
+      ],
+      "cleanup": []
+    }
+  ],
+  "manual_smoke_required": [],
+  "manual_smoke_rationale": "None of the four AC strictly requires a human physically present at a keyboard: SSH, nix build, qemu boot, and browser interaction are all real operations a Claude agent with Bash access can perform directly (per the established eval-hosts.md workflow, which this Sprint's own Run phase is expected to execute almost verbatim). The one genuinely human-only element is AC-Sfa2bab-1-4's 'explicit go-ahead' itself — but that is not a test to automate, it is the Sprint's milestone:true stop, which autopilot already honors structurally. The Run-phase agent should NOT invent a synthetic substitute for that approval (e.g. auto-approving itself) — it must actually stop and let the milestone review happen. Practical risk to flag instead: wall-clock budget (nix build + first boot + npm installs + codex/opencode auth copy can plausibly take 20-40+ minutes total) and deploy-test's tight resource envelope (1 core, ~13G free disk as of this Sprint's planning) — if the build or boot cannot complete within a generous but bounded window, that is a legitimate infra escalation (test-discipline.md 'Escalation'), not a reason to fabricate results or silently downscope to a toy verification."
+}

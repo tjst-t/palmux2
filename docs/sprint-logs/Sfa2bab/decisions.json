@@ -1,0 +1,69 @@
+{
+  "sprint": "Sfa2bab",
+  "touched_adrs": [],
+  "decisions": [
+    {
+      "timestamp": "2026-07-19T08:00:00Z",
+      "category": "planning",
+      "title": "ADR relevance scan — no ADR is touched by this Sprint",
+      "detail": "docs/DESIGN/adr/ has 4 ADRs (ADR-0001..0004), all governing the S3f2658/S862203 no-halt-agent ptyhost mechanism (thin-holder ptyhost, cgroup escape, pipe-mode offset replay). This Sprint makes ZERO source code changes — it is a pure real-machine build/boot/dogfood/report Sprint (per its own brief: build a qcow2, boot it, exercise existing codex/opencode/claude/bash tabs through the already-shipped UI, and report results). AC-Sfa2bab-1-2's dogfood exercises the ptyhost mechanism at runtime (creating agent tabs, running turns) but does not modify internal/ptyhost, internal/tab/agenttui, or cmd/palmux's ptyhost subcommand, so none of the 4 ADRs are 'touched' in the Guard-7 conformance sense. If the dogfood surfaces a genuine bug requiring a code fix (e.g. confirming/deepening the opencode-in-container reliability gap), per sprint-auto.md's Failure Recovery protocol that becomes a SEPARATE inserted Sprint (with its own ADR relevance scan against whatever code it actually touches), not scope creep into this Sprint. docs/nixos-appliance-design.md and docs/palmux2-nixos-appliance-design.md are relevant PRIOR ART for the qcow2 build/boot mechanics (Sb14caa/Sd44947) but are design docs, not ADRs, and this Sprint does not need to re-litigate or amend them — it only exercises what they already describe.",
+      "reference": "docs/DESIGN/adr/ADR-0001..0004; docs/nixos-appliance-design.md; docs/palmux2-nixos-appliance-design.md",
+      "adr_ref": "none",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-19T08:05:00Z",
+      "category": "planning",
+      "title": "Story kept as-is — already a well-formed, correctly-scoped single user story",
+      "detail": "Sfa2bab-1's title already follows the {役割}として、{やりたいこと}をしたい。なぜなら、{理由}だから。 format and reads naturally for an ops/verification-shaped Sprint (product owner wanting real-machine confirmation before releasing). Granularity check: the 4 AC (build+boot, codex/opencode dogfood, regression check, report+go-ahead) are all facets of ONE cohesive 'build, boot, dogfood, report' flow that must happen in strict sequence against the SAME booted VM (AC-2 and AC-3 both depend on AC-1's VM being up; AC-4 is the report over AC-1..3's combined results) — none is independently shippable/valuable on its own, and splitting would just fragment one continuous verification session across artificial Story boundaries. No rewrite, no split. Confirmed this call explicitly per the Sprint brief's instruction to state it rather than silently skip the granularity step.",
+      "reference": "sprint-plan.md §4 (User Story validation and granularity check); story-scenarios.md",
+      "adr_ref": "none",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-19T08:10:00Z",
+      "category": "planning",
+      "title": "Story classified 'mixed', GUI spec process explicitly skipped per Sprint brief — scenario derived inline instead",
+      "detail": "Per the Sprint brief, this Story is real-machine/manual-smoke-shaped, not a 'new UI is being built' GUI Story — the codex/opencode tab-creation UI, Activity Inbox, and runtime chip already exist and were spec'd/verified under S2b5691's own gui-spec-S2b5691-2.json. Running gui-spec.md's full process here (state diagrams, endpoint contracts, data-testids) would just re-derive artifacts that already exist for functionality this Sprint does not change. Classified 'mixed' (not 'gui') because the Story's entry points span an operator's shell (SSH/nix build/qemu — cli/api-ish, AC-1) and a real end-user's browser session against the freshly booted appliance (gui-ish, AC-2/AC-3), and story-scenarios.md's own guidance ('mixed' = multiple entry points as part of one user goal, each gets its own scenario block) fits directly. Wrote docs/sprint-logs/Sfa2bab/scenario-Sfa2bab-1.json with 4 scenario blocks (build-and-boot, codex-opencode-dogfood, regression-check, report-and-cleanup), each linked to its AC(s), each step reusing concrete, already-proven mechanics from docs/local/eval-hosts.md §3b (qemu/cloud-init) and tests/e2e/s2b5691_2_agent_picker.py (API/Playwright pattern for real codex/opencode turns + Activity Inbox verification) rather than inventing new mechanics from scratch.",
+      "reference": "docs/local/eval-hosts.md §3; tests/e2e/s2b5691_2_agent_picker.py; docs/sprint-logs/S2b5691/gui-spec-S2b5691-2.json (prior art, not re-run)",
+      "adr_ref": "none",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-19T08:15:00Z",
+      "category": "planning",
+      "title": "Investigated exact transfer mechanics: local main is ahead of origin/main, and codex/opencode need host-OS-level (not container-image) installation inside the VM — both are real gotchas folded into the scenario/implementation_notes rather than left for the Run phase to discover the hard way",
+      "detail": "(1) `git log --oneline main -3` / `git log --oneline origin/main -3` show local main at cd57363 (includes the S2b5691 merge) while origin/main is still at beaeb48 — the S2b5691 'sprint done' merge landed locally but has not been pushed to GitHub yet (consistent with the release-branching memory note that main-pushes are low-stakes/routine but apparently were not yet done for this specific merge). This means deploy-test's existing ~/palmux2-build checkout (a clone of the GitHub origin) does NOT have this commit and a plain `git fetch origin && git checkout main` there would build the WRONG (pre-S2b5691) source. Scenario step 1 specifies pushing the exact local commit directly to deploy-test's own repo via `git push ssh://ubuntu@192.168.1.43/home/ubuntu/palmux2-build <sha>:refs/heads/sfa2bab-verify` (a new branch name, not deploy-test's currently-checked-out branch, to avoid the non-bare-repo denyCurrentBranch problem) rather than either (a) assuming origin has it or (b) using eval-hosts.md's git-archive-tarball transfer method — the latter is documented there specifically for pointing a flake `path:` input at raw source (which doesn't need git tracking), not for building `.#appliance-qcow2` directly from `~/palmux2-build`'s own flake, where Nix's default git-tracked-files filtering means an untracked tarball-extracted overwrite would silently BUILD STALE CONTENT (files present on disk but not in deploy-test's git index would be excluded from the flake's source tree). This is a real, previously-undocumented gotcha for THIS specific Sprint's transfer need (build the flake in place, not consume it as a path: input) and is called out explicitly in implementation_notes.\n(2) Grepped images/workspace-default/build.sh: codex/opencode are NOT baked into the palmux-ws container image. Read internal/agent/codex.go and opencode.go's ContainerBinary()/SharedContainerPaths() doc comments: they resolve and bind-mount the codex/opencode binary from the RUNTIME HOST's own npm-global install (i.e. the appliance VM's host OS npm-global, not the dev box's, and not the container image) into the workspace container. This means AC-Sfa2bab-1-2 requires `npm install -g` on the BOOTED VM ITSELF as a real setup step before any codex/opencode tab can spawn successfully in-container — omitting this would produce a guaranteed, uninformative 'binary not found' failure that says nothing about the actual reliability-gap question this AC exists to probe. Folded into scenario-2 step 1 with an explicit auth-copy step (reusing this dev box's own already-authenticated ~/.codex and ~/.local/share/opencode, matching tests/e2e/s2b5691_2_agent_picker.py's own reuse-real-auth approach) so the Run-phase agent does not need to run an interactive device-code login inside the VM.",
+      "reference": "git log main vs origin/main; images/workspace-default/build.sh; internal/agent/codex.go, opencode.go; docs/local/eval-hosts.md §2b (git-archive method, NOT reused here — different use case)",
+      "adr_ref": "none",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-19T08:20:00Z",
+      "category": "planning",
+      "title": "AC-Sfa2bab-1-2 must run on incus-container runtime specifically, not host runtime, inside the VM — this is the single most load-bearing scenario design choice in this Sprint",
+      "detail": "Read the S2b5691 backlog bug 'opencode-in-container reliability gap' (added_in: S2b5691, kind: bug, status: open) and its ~44-56% pass-rate finding, plus the independent verifier's correction entry in S2b5691/decisions.json documenting 3+ distinct failure symptom clusters including a genuine D5-style crash-loop — this is explicitly the concern the Sprint brief asks this Plan to fold in as the FIRST real opportunity for fresh, uncontended evidence. The concern is specifically about the incus-container code path (SetAgentSharedPaths / the host-wide-singleton palmux-shared profile reconcile race, Sd44947 architecture) — testing on host runtime (which S2b5691-2's own existing E2E test already does, and passes cleanly) would produce a green result that is TRUE but says nothing about the flagged concern, and would risk being mis-read by a future reader as 'Sfa2bab re-confirmed opencode works' when it would have silently dodged the exact risk area. scenario-2 step 4 explicitly requires switching the test workspace to incus-container runtime before creating/running the codex/opencode tabs, and step 6/7 explicitly instruct capturing the verbatim failure text and cross-referencing the two open backlog items rather than treating a fail as a fresh test's own bug. Also noted per the Sprint brief's context: the fresh qcow2 VM is a single-instance environment (no other production incus containers sharing its palmux-shared profile), so if a failure IS observed here despite the uncontended environment, that is materially stronger evidence the gap is architectural (not merely a contention artifact of S2b5691 Verify's unusually busy host) than if it passes cleanly.",
+      "reference": "docs/ROADMAP.json backlog: 'opencode-in-container reliability gap...' (added_in: S2b5691); docs/sprint-logs/S2b5691/decisions.json (2026-07-19T07:20:00Z correction entry); Sd44947 shared-profile architecture (CLAUDE.md)",
+      "adr_ref": "none",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-19T08:25:00Z",
+      "category": "planning",
+      "title": "AC-Sfa2bab-1-4 is satisfied structurally by this Sprint's own milestone:true, not by a new automated test — flagged explicitly so Run/Verify does not invent a synthetic self-approval",
+      "detail": "AC-4's wording ('検証結果をユーザーに提示し、明示的なgo-aheadを得てから...git tag v0.15.2 + pushを実行する') describes a human-approval gate, and the Sprint is already marked milestone: true in ROADMAP.json, which causes autopilot to stop for user review after Done. There is nothing to script here beyond compiling an honest, unhedged results summary (scenario-4) — the actual approval and any subsequent tag/push are explicitly OUT OF SCOPE for this Story/Sprint per the Sprint's own description field ('このSprintのStoryとして自動実行しない'). manual_smoke_required is therefore empty for this Story's AC-linked TEST steps (all 4 AC have real, automatable verification paths), but the overall Story cannot be autonomously carried past the milestone stop — that is by design, not a gap in the scenario.",
+      "reference": "docs/ROADMAP.json .sprints.Sfa2bab.milestone; sprint-auto.md 'Done 判定の事前ガード' / milestone handling in autopilot-start.md",
+      "adr_ref": "none",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-19T08:30:00Z",
+      "category": "planning",
+      "title": "ROADMAP.json left unmodified — Story/AC/Tasks are already accurate and observable as written",
+      "detail": "Re-read .sprints.Sfa2bab in full: title/description/AC/Tasks are already precise, already correctly scope this Sprint as verification-only (no tag/push), and every AC maps to at least one concrete scenario step (AC-1 -> scenario-1, AC-2 -> scenario-2, AC-3 -> scenario-3, AC-4 -> scenario-4). No wording was inaccurate or unobservable, so no jq mutation was needed this Plan pass beyond creating the scenario/decisions artifacts. Progress counts (79/81 done, current_sprint=Sfa2bab) are already correct from S2b5691's own Done phase and do not need recomputation here.",
+      "reference": "docs/ROADMAP.json .sprints.Sfa2bab, .progress",
+      "adr_ref": "none",
+      "drift_flag": "none"
+    }
+  ]
+}
