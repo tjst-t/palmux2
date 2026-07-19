@@ -121,6 +121,81 @@ func TestParseHookArgs(t *testing.T) {
 	}
 }
 
+// TestLastNonFlagHookArg_ValueAware is the code-review-cycle-1 regression
+// test for lastNonFlagHookArg: it must be aware that a known flag (--event,
+// --url) consumes the FOLLOWING argv element as its value, not just that the
+// flag token itself starts with "--". A naive backward scan for "the last
+// element not starting with --" would mistake a flag's value (e.g.
+// "http://x/api/notify", which itself doesn't start with "--") for codex's
+// JSON payload if that flag+value pair were ever placed after the payload —
+// silently dropping the real notification. This is currently unreachable in
+// production (codex always appends the JSON payload strictly last with no
+// trailing flags — see internal/agent/codex.go's SpawnSpec), but the parser
+// must not depend on that ordering to stay correct.
+func TestLastNonFlagHookArg_ValueAware(t *testing.T) {
+	payload := `{"type":"agent-turn-complete"}`
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{"payload last (production shape)", []string{"--agent=codex", payload}},
+		{"flag+value AFTER the payload", []string{"--agent=codex", payload, "--url", "http://x/api/notify"}},
+		{"flag+value BEFORE the payload", []string{"--url", "http://x/api/notify", "--agent=codex", payload}},
+		{"--event with value interleaved", []string{"--event", "Stop", payload, "--url", "http://y/api/notify"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := lastNonFlagHookArg(tc.args); got != payload {
+				t.Errorf("lastNonFlagHookArg(%v) = %q, want %q", tc.args, got, payload)
+			}
+		})
+	}
+
+	// A flag's value that isn't the JSON payload (no payload present at all)
+	// must never be picked up as one just because it doesn't start with "--".
+	if got := lastNonFlagHookArg([]string{"--url", "http://x/api/notify"}); got != "" {
+		t.Errorf("lastNonFlagHookArg with only a flag+value = %q, want empty (the value must not be mistaken for a payload)", got)
+	}
+}
+
+// TestScenario3_CodexHookDispatch_FlagValueAfterPayload is the end-to-end
+// (runHook, not just the lastNonFlagHookArg unit) regression test for the
+// same review finding: a --url flag+value placed AFTER the JSON payload
+// must not cause the notification to be silently dropped.
+func TestScenario3_CodexHookDispatch_FlagValueAfterPayload(t *testing.T) {
+	var got []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+
+	t.Setenv("PALMUX_REPO_ID", "r")
+	t.Setenv("PALMUX_BRANCH_ID", "b")
+	t.Setenv("PALMUX_TAB_ID", "codex:codex")
+
+	withStdin(t, ``, func() {
+		payload := `{"type":"agent-turn-complete","last-assistant-message":"done"}`
+		// --url (with its value) trails the JSON payload here, unlike codex's
+		// real invocation shape — proves the dispatch is robust to argv order.
+		if code := runHook([]string{"--agent=codex", payload, "--url", srv.URL}); code != 0 {
+			t.Fatalf("runHook exit = %d, want 0", code)
+		}
+	})
+
+	if len(got) == 0 {
+		t.Fatal("stub received no POST — a trailing --url flag+value caused the payload to be dropped")
+	}
+	var req notify.IngestRequest
+	if err := json.Unmarshal(got, &req); err != nil {
+		t.Fatalf("posted body invalid: %v\n%s", err, got)
+	}
+	if req.Type != "claudetui.task_complete" || req.Message != "done" {
+		t.Errorf("type/message = %q/%q, want claudetui.task_complete/done", req.Type, req.Message)
+	}
+}
+
 // TestRunHookPostsNotification drives runHook end-to-end: stdin payload + env →
 // HTTP POST whose body is a valid IngestRequest.
 func TestRunHookPostsNotification(t *testing.T) {

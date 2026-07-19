@@ -98,6 +98,19 @@ func runHook(args []string) int {
 	return 0
 }
 
+// hookFlagsWithValues lists the hook subcommand's known flags that consume
+// the FOLLOWING argv element as their value (as opposed to an inline
+// `--flag=value` token). parseHookArgs and lastNonFlagHookArg both need this
+// same knowledge — parseHookArgs to consume the value, lastNonFlagHookArg to
+// skip past it so it can never be mistaken for codex's JSON payload (e.g.
+// `--url http://x/api/notify` placed after the payload) — so it is kept as a
+// single shared table rather than two separately-maintained heuristics.
+// Extend this alongside any new such flag.
+var hookFlagsWithValues = map[string]bool{
+	"--event": true,
+	"--url":   true,
+}
+
 // parseHookArgs extracts the optional --event, --url, and --agent=<kind>
 // overrides. Unknown flags are ignored (fail-open).
 func parseHookArgs(args []string) (event, url, agentKind string) {
@@ -238,17 +251,36 @@ func runOpencodeHook(urlOverride string) int {
 	return 0
 }
 
-// lastNonFlagHookArg returns the last element of args that does not look
-// like a `--flag` (codex's JSON payload always starts with `{`, which never
-// collides with a flag spelling). Empty when every arg looks like a flag or
-// args is empty.
+// lastNonFlagHookArg returns the last element of args that is neither a
+// known flag nor a known flag's VALUE (codex's JSON payload always starts
+// with `{`, which never collides with a flag spelling). Value-aware via the
+// shared hookFlagsWithValues table: `--url http://x/api/notify` is a single
+// flag+value pair, not two independent tokens, so `http://x/api/notify`
+// (which doesn't start with `--` either) must never be picked up as the
+// payload just because it happens to be the trailing argv element — walking
+// forward and tracking "the next token belongs to the flag we just saw" is
+// what a naive `!strings.HasPrefix(a, "--")` backward scan cannot do. An
+// inline `--agent=<kind>` token and any other unrecognized `--`-prefixed
+// flag are also excluded, conservatively, from ever being the payload.
+// Empty when no such element exists.
 func lastNonFlagHookArg(args []string) string {
-	for i := len(args) - 1; i >= 0; i-- {
-		if !strings.HasPrefix(args[i], "--") {
-			return args[i]
+	var last string
+	skipNext := false
+	for _, a := range args {
+		if skipNext {
+			skipNext = false
+			continue
 		}
+		if hookFlagsWithValues[a] {
+			skipNext = true
+			continue
+		}
+		if strings.HasPrefix(a, "--") {
+			continue
+		}
+		last = a
 	}
-	return ""
+	return last
 }
 
 // hookRequestID is the stable per-tab RequestID for claude-tui hook
