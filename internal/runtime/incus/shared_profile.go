@@ -138,6 +138,21 @@ type SharedProfileManager struct {
 
 	ensuredOnce   bool   // whether the profile has been created at least once
 	lastHookInode uint64 // inode of the last-reconciled palmux hook binary (S52fc2c-5 at profile scope)
+
+	// reconcileMu (Sc4f091-2) serializes the ENTIRE Ensure() read-modify-write
+	// critical section (list current devices -> diff -> remove/add via `incus`
+	// CLI calls) against itself, within THIS process only. Ensure() has at
+	// least 3 call sites sharing one SharedProfileManager (Start(), the
+	// per-container applySharedProfile fast path, and the ~10s scan-loop
+	// ReconcileShared tick) — without this lock two of them firing close
+	// together (e.g. a new Workspace's Start() landing mid-tick) can interleave
+	// their own currentDevices()/profileDeviceAdd()/profileDeviceRemove() calls
+	// against the same profile. m.mu (above) only ever guards small field
+	// reads/writes, never the multi-step incus-CLI sequence itself — this is a
+	// separate, coarser lock scoped to exactly that sequence so normal field
+	// access (SetSharedDirs, SetAgentSharedPaths, etc.) is never blocked by an
+	// in-flight reconcile.
+	reconcileMu sync.Mutex
 }
 
 // NewSharedProfileManager builds the manager. run may be nil → defaultRunner.
@@ -420,12 +435,28 @@ func sharedDirDeviceName(abs string) string {
 // source path changed — e.g. the palmux binary after a Nix update). Idempotent
 // and safe to call every scan tick. It is the single reconcile primitive used
 // by both Reconcile() (scan loop) and Start() (container launch).
+//
+// Sc4f091-2: the whole method runs under reconcileMu so at most one
+// list-diff-mutate cycle is in flight per PROCESS at a time (see reconcileMu's
+// doc comment on the struct). This does not, by itself, solve cross-PROCESS
+// contention — palmux-shared is still a true host-wide singleton with no
+// per-instance namespacing (see the agent-share skip below and the backlog
+// item this Story files for the full fix) — but it removes one genuine
+// self-inflicted race (two goroutines in the SAME process interleaving their
+// own incus CLI calls against the same profile).
 func (m *SharedProfileManager) Ensure(ctx context.Context) error {
+	m.reconcileMu.Lock()
+	defer m.reconcileMu.Unlock()
+
 	desired := m.declaredDevices()
 	desiredByName := make(map[string]deviceSpec, len(desired))
 	for _, d := range desired {
 		desiredByName[d.name] = d
 	}
+
+	m.mu.Lock()
+	hasAgentOpinion := len(m.agentPaths) > 0
+	m.mu.Unlock()
 
 	// List current profile devices; create the profile if it does not exist.
 	current, exists, err := m.currentDevices(ctx)
@@ -441,9 +472,44 @@ func (m *SharedProfileManager) Ensure(ctx context.Context) error {
 
 	// Remove devices present in the profile but not desired (drift or a removed
 	// shared dir). The profile is palmux-owned, so any device not in the
-	// declaration is stale.
+	// declaration is stale — EXCEPT agent-adapter-shared ("ag-*", S2b5691)
+	// devices when THIS instance has no [agents.*] paths of its own
+	// (hasAgentOpinion == false).
+	//
+	// Root cause (Sc4f091-2, confirmed by live reproduction — see
+	// docs/sprint-logs/Sc4f091/decisions.json): palmux-shared is a HOST-WIDE
+	// singleton profile, not scoped per palmux2 instance/process. An instance
+	// with no codex/opencode configured has an empty agentPaths and therefore
+	// an empty `desired` set for the "ag-*" namespace — under the OLD blind
+	// "not in my desired set -> stale, remove" rule, that instance's own
+	// routine ~10s reconcile tick would strip ANOTHER instance's live
+	// codex/opencode container shares (binary/npm-tree/auth dirs) out from
+	// under it, then that other instance's next tick re-adds them, forever,
+	// for as long as both processes run (exactly the flicker this Story's
+	// acceptance test's wait_for_agent_share() doc comment already describes
+	// having reproduced live). Bind-mount removal is briefly visible INSIDE
+	// already-running containers (the profile live-propagates), so an
+	// in-container opencode/codex process doing a "create if missing"
+	// filesystem operation during that window sees a stub/absent/wrong-owner
+	// path — reproduced directly in this Story with a synthetic busy-writer +
+	// device-toggle loop, yielding the SAME symptom text as the historical
+	// failures (`mkdir: ... Permission denied`, `No such file or directory`)
+	// at a comparable failure rate.
+	//
+	// An instance that HAS agents configured continues to manage "ag-*"
+	// devices exactly as before (add missing, remove ones whose source
+	// genuinely vanished, replace on drift) — only a non-opinionated instance
+	// defers. This does not fully solve the singleton-profile design (two
+	// instances that BOTH have different agents.* configured could still
+	// disagree — see backlog for the full per-instance-namespacing fix), but
+	// it eliminates the common, documented, and highly disruptive "one
+	// instance has agents enabled, others (e.g. an INSTANCE=dev rig) don't"
+	// pattern without requiring any cross-instance coordination.
 	for name := range current {
 		if _, ok := desiredByName[name]; !ok {
+			if !hasAgentOpinion && strings.HasPrefix(name, agentDeviceNamePrefix) {
+				continue
+			}
 			if rerr := m.profileDeviceRemove(ctx, name); rerr != nil {
 				m.log.Warn("incus shared profile: device remove failed", "device", name, "err", rerr)
 			}

@@ -717,6 +717,48 @@ func resolveClaudeBin(bin string) string {
 	return bin
 }
 
+// sharedPathsReadyBudget/sharedPathsReadyPoll bound waitForSharedPaths (S
+// c4f091-2): long enough to ride out one in-flight reconcile tick's
+// remove-then-add window (observed to complete well under a second per
+// device in this Sprint's live reproduction), short enough that a genuinely
+// broken/never-converging profile does not meaningfully delay every agent
+// spawn — after the budget it always proceeds anyway (fail-open).
+const (
+	sharedPathsReadyBudget = 5 * time.Second
+	sharedPathsReadyPoll   = 200 * time.Millisecond
+)
+
+// waitForSharedPaths polls checker.PathsReady(paths) for up to
+// sharedPathsReadyBudget before returning — it NEVER returns an error and
+// NEVER blocks past the budget: this is a best-effort pre-flight nudge (see
+// runtime.SharedPathChecker's doc comment), not a gate that can fail the
+// spawn. Mirrors tests/acceptance/s2b5691_codex_opencode_incontainer.py's own
+// wait_for_agent_share helper, now applied on the production spawn path
+// instead of only in the test harness.
+func waitForSharedPaths(ctx context.Context, checker runtime.SharedPathChecker, paths []string, logger *slog.Logger) {
+	deadline := time.Now().Add(sharedPathsReadyBudget)
+	attempts := 0
+	for {
+		attempts++
+		ready, err := checker.PathsReady(ctx, paths)
+		if err == nil && ready {
+			return
+		}
+		if time.Now().After(deadline) {
+			if logger != nil {
+				logger.Warn("agenttui: in-container shared paths not confirmed ready before spawn budget — spawning anyway (fail-open)",
+					"attempts", attempts, "paths", paths, "err", err)
+			}
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(sharedPathsReadyPoll):
+		}
+	}
+}
+
 // spawnWithArgs asks the Adapter (S0e8afb-2 graft) to build a SpawnSpec for a
 // fresh spawn (resumeSessionID == "") or a resume (resumeSessionID == the
 // session to resume), then hands the resulting argv/env/cwd to
@@ -754,6 +796,31 @@ func (d *Daemon) spawnWithArgs(resumeSessionID string, isRespawn bool) error {
 		pc = d.runtimeResolver(d.repoID, d.branchID)
 	}
 	inContainer := pc != nil
+
+	// Sc4f091-2: before spawning an in-container agent that depends on its
+	// own bind-mounted shared paths (codex/opencode's binary + npm tree +
+	// auth/config dirs — internal/agent's InContainerProvider), give the
+	// palmux-shared incus profile a brief, bounded chance to actually have
+	// those paths mounted. See runtime.SharedPathChecker's doc comment for
+	// why this window exists (a host-wide singleton profile reconciled
+	// independently by every palmux2 process on the host can transiently
+	// strip a device's bind-mount from an already-running container). This
+	// is defense-in-depth, not a fix for the underlying race (see
+	// shared_profile.go's Ensure() for the primary mitigation) — it only
+	// covers the single highest-risk moment (spawning directly into a
+	// stripped window), and is strictly best-effort/fail-open: a checker
+	// that errors, a runtime that doesn't implement the capability at all
+	// (e.g. host), or a budget that runs out without success all fall
+	// through to spawning anyway rather than blocking the user.
+	if inContainer {
+		if icp, ok := d.adapter.(agent.InContainerProvider); ok {
+			if paths := icp.SharedContainerPaths(); len(paths) > 0 {
+				if spc, ok := pc.(runtime.SharedPathChecker); ok {
+					waitForSharedPaths(d.daemonCtx, spc, paths, d.logger)
+				}
+			}
+		}
+	}
 
 	// Runtime-aware hook/notify resolution — main's logic, preserved
 	// VERBATIM by the S0e8afb-2 graft (design doc: "notify URL/hook-bin の

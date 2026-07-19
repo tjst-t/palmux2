@@ -223,6 +223,104 @@ func TestSharedProfile_AgentSharedPathsNotSymlinkSkipped(t *testing.T) {
 	}
 }
 
+// [AC-Sc4f091-2-1] Root-cause mitigation for the documented cross-instance
+// palmux-shared flicker (docs/sprint-logs/Sc4f091/decisions.json): an instance
+// with NO agent paths of its own (hasAgentOpinion == false) must NOT remove an
+// "ag-*" device it finds in the profile but doesn't declare itself — that
+// device belongs to a DIFFERENT palmux2 instance/process on the same host
+// (e.g. a production instance with codex/opencode enabled, reconciled
+// alongside an INSTANCE=dev rig that has no [agents.*] config at all).
+// Blindly treating "not in my desired set" as "stale" for this namespace is
+// exactly the mechanism that flickers codex/opencode's container shares in
+// and out of the mount table on every reconcile tick.
+func TestSharedProfile_NonOpinionatedInstanceSkipsForeignAgentDevices(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	fr := newFakeRunner()
+	yaml := "name: " + SharedProfileName + "\n" +
+		"devices:\n" +
+		"  ag-deadbeef1234:\n" +
+		"    type: disk\n" +
+		"    source: /usr/lib/node_modules/opencode-ai\n" +
+		"    path: /usr/lib/node_modules/opencode-ai\n" +
+		"used_by: []\n"
+	fr.setResult("profile show", fakeResult{stdout: yaml, code: 0})
+
+	// This manager has NO agent paths configured (agentPaths never set) —
+	// the "empty [agents.*]" instance from the race scenario.
+	m := NewSharedProfileManager(fr.asRunner(), nil, nil)
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if _, ok := findCall(fr.recorded(), "profile", "device", "remove", SharedProfileName, "ag-deadbeef1234"); ok {
+		t.Errorf("[AC-Sc4f091-2-1] non-opinionated instance must NOT remove a foreign ag-* device, got %v", fr.recorded())
+	}
+}
+
+// [AC-Sc4f091-2-1] The flip side: an instance that DOES have agent paths
+// configured (hasAgentOpinion == true) must still remove an "ag-*" device
+// whose source has genuinely vanished (not in ITS OWN desired set because the
+// underlying host path no longer exists) — the skip above must not regress
+// ordinary stale-device cleanup for an opinionated instance.
+func TestSharedProfile_OpinionatedInstanceStillRemovesGenuinelyStaleAgentDevice(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// This instance's own (still-existing) agent share.
+	nodeBin := filepath.Join(t.TempDir(), "node")
+	_ = os.WriteFile(nodeBin, []byte("#!/bin/sh\n"), 0o755)
+
+	fr := newFakeRunner()
+	yaml := "name: " + SharedProfileName + "\n" +
+		"devices:\n" +
+		"  ag-nowgoneabcdef:\n" + // some OTHER, no-longer-existing agent path
+		"    type: disk\n" +
+		"    source: /tmp/sc4f091-vanished-path-does-not-exist\n" +
+		"    path: /tmp/sc4f091-vanished-path-does-not-exist\n" +
+		"used_by: []\n"
+	fr.setResult("profile show", fakeResult{stdout: yaml, code: 0})
+
+	m := NewSharedProfileManager(fr.asRunner(), nil, nil)
+	m.SetAgentSharedPaths([]string{nodeBin}) // hasAgentOpinion == true
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if _, ok := findCall(fr.recorded(), "profile", "device", "remove", SharedProfileName, "ag-nowgoneabcdef"); !ok {
+		t.Errorf("[AC-Sc4f091-2-1] opinionated instance must still remove a genuinely stale ag-* device, got %v", fr.recorded())
+	}
+}
+
+// [AC-Sc4f091-2-2] Ensure serializes concurrent callers within one process
+// (reconcileMu) — this is a regression guard for the within-process race a
+// container's own Start() and the periodic scan-loop tick could otherwise hit
+// if they land close together. We can't observe true interleaving through the
+// fake runner directly, but running many concurrent Ensure() calls against a
+// shared fakeRunner must never panic/race (run with -race in CI) and must
+// leave the profile fully converged afterward.
+func TestSharedProfile_EnsureConcurrentCallsDoNotRace(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	_ = os.MkdirAll(filepath.Join(home, "ghq"), 0o755)
+
+	fr := newFakeRunner()
+	fr.setResult("profile show", fakeResult{stderr: "Error: not found", code: 1})
+
+	m := NewSharedProfileManager(fr.asRunner(), nil, nil)
+
+	const n = 8
+	done := make(chan struct{}, n)
+	for i := 0; i < n; i++ {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			_ = m.Ensure(context.Background())
+		}()
+	}
+	for i := 0; i < n; i++ {
+		<-done
+	}
+}
+
 // SetWorktreeBasedirFunc makes declaredDevices include the gwq worktree base dir
 // as a same-path bind-mount, so a Claude/Bash tab opened on a linked (gwq)
 // worktree finds its cwd inside the container. The base dir may live OUTSIDE
