@@ -3,14 +3,14 @@
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
     "sprints_done": 79,
-    "sprints_total": 81,
+    "sprints_total": 82,
     "done": 79,
-    "total": 81,
+    "total": 82,
     "remaining": 2,
-    "in_progress": 0,
+    "in_progress": 1,
     "percent": 97,
     "percentage": 97,
-    "current_sprint": "Sfa2bab"
+    "current_sprint": "Sc4f091"
   },
   "execution_order": [
     "S001",
@@ -93,7 +93,8 @@
     "S0e8afb",
     "S4db2fe",
     "S2b5691",
-    "Sfa2bab"
+    "Sfa2bab",
+    "Sc4f091"
   ],
   "sprints": {
     "S001": {
@@ -12926,6 +12927,93 @@
           }
         }
       }
+    },
+    "Sc4f091": {
+      "title": "リリースブロッカー修正: in-container通知フック欠落 + opencodeコンテナ内信頼性調査",
+      "description": "Sfa2bab実機ドッグフーディングで発見・root cause特定済みの「wildcard bind/domain未設定時にin-containerエージェント通知フックが全種別で無効化される」バグを修正し、実機で再検証する。加えてS2b5691で見つかったopencodeのコンテナ内実行信頼性ギャップ(過去成功率~44-56%)を調査し、実際の原因を特定した上で妥当な修正を行う。ユーザーが次のリリース判断の前に両方の解消を明示的に希望したため着手。",
+      "milestone": true,
+      "status": "in_progress",
+      "detail_level": "detailed",
+      "stories": {
+        "Sc4f091-1": {
+          "title": "運用者として、public domainを設定していないpalmuxOSアプライアンス(初回起動の既定状態)でも、コンテナ内で動くエージェント(claude/codex/opencode)のturn完了通知がActivity Inboxに届いてほしい。なぜなら、現状は通知だけが無条件に欠落し、ユーザーが気づかず放置されてしまうから。",
+          "status": "pending",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sc4f091-1-1",
+              "description": "services.palmux.domainが未設定(wildcard bind)の状態でも、in-containerエージェントの通知フックに実際に到達可能なURLが注入される(現状のincusBridgeListenAddr()/bridgeNotifyURL()が空文字を返す経路を修正)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sc4f091-1-2",
+              "description": "claude/codex/opencodeの3種いずれについても、実incusコンテナ内で1ターン実行後、Activity Inboxに通知が実際に届く(Sfa2babで検証した『ターンは完走するが通知が来ない』症状が解消されたことを、同種の実機ドッグフーディングで再確認する)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sc4f091-1-3",
+              "description": "public domain設定済み(既存のwildcardでない構成)では、修正前と挙動が変わらない(既存の公開サブドメイン+SSO運用への回帰が無い)",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "Sc4f091-1-1": {
+              "title": "cmd/palmux/main.go: incusBridgeListenAddr()/bridgeNotifyURL()を修正し、メインリスナーがwildcardでもbridge listener用に別の到達可能アドレス(incusbr0のIP等)を解決してnotify URLを組み立てるようにする",
+              "status": "pending"
+            },
+            "Sc4f091-1-2": {
+              "title": "internal/tab/agenttui/daemon.go 等、空NotifyURLInContainerで『フック省略』にフォールバックしている箇所の前提が崩れないことを確認(空でなくなったので通常経路に乗るはず、副作用がないか確認)",
+              "status": "pending"
+            },
+            "Sc4f091-1-3": {
+              "title": "回帰テスト: wildcard bind時のnotify URL解決の単体テスト + public domain設定時に既存動作が変わらないことの単体テスト",
+              "status": "pending"
+            },
+            "Sc4f091-1-4": {
+              "title": "実機再検証: Sfa2babと同様に実qcow2ビルド+起動 (またはこのdev箱上の実incusコンテナ) でclaude/codex/opencodeそれぞれの通知round-tripを確認",
+              "status": "pending"
+            }
+          }
+        },
+        "Sc4f091-2": {
+          "title": "開発者として、opencodeのコンテナ内実行信頼性ギャップ(過去実機テストで成功率~44-56%、実クラッシュ事例含む)の真因を特定し、妥当な修正を行いたい。なぜなら、原因不明のまま放置するとin-container opencodeが本番で信頼できないままになるから。",
+          "status": "pending",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sc4f091-2-1",
+              "description": "過去の実機テストログ(docs/sprint-logs/S2b5691配下)に記録された失敗症状 (EACCES/FileSystem.NotFound/LLMバックエンドエラー/D5クラッシュループ) を再現条件付きで分類し、それぞれの真因を特定する (palmux-sharedプロファイルのreconcileレース起因か、opencode自体の問題か、別の要因か)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sc4f091-2-2",
+              "description": "特定した真因に対して妥当な修正を実施する (例: palmux-sharedプロファイルのreconcileレースが原因なら、device追加のリトライ/ロック機構を改善する等。修正方針は調査結果次第で決定する)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sc4f091-2-3",
+              "description": "修正後、実incusコンテナで複数回 (最低5回) 連続でopencodeのin-container実行+notify round-tripを行い、Sfa2bab/S2b5691で観測された ~44-56% ではなく安定して成功することを実機で確認する (toyデータでの単発passでは不可、DESIGN_PRINCIPLES priority_rule 0/1 に基づき実際の発火条件を再現する)",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "Sc4f091-2-1": {
+              "title": "docs/sprint-logs/S2b5691の過去run1-9ログ相当の記録を精査し、失敗症状ごとに再現手順を組み立てる",
+              "status": "pending"
+            },
+            "Sc4f091-2-2": {
+              "title": "palmux-sharedプロファイルのreconcileループ (internal/runtime/incus/shared_profile.go) と opencode起動シーケンスの競合条件を実機で再現・特定する",
+              "status": "pending"
+            },
+            "Sc4f091-2-3": {
+              "title": "特定した真因に対する修正を実装",
+              "status": "pending"
+            },
+            "Sc4f091-2-4": {
+              "title": "実機で最低5回の連続実行による信頼性再検証",
+              "status": "pending"
+            }
+          }
+        }
+      }
     }
   },
   "dependencies": {
@@ -13290,6 +13378,12 @@
         "S61c9a6"
       ],
       "reason": "S61c9a6の実機検証中に発覚した根本的な穴(palmux2アプリ本体のソース変更がqcow2ビルドに一切反映されない)を解消する。S61c9a6のNixOSモジュール変更が土台として必要。"
+    },
+    "Sc4f091": {
+      "depends_on": [
+        "Sfa2bab"
+      ],
+      "reason": "Sfa2bab実機ドッグフーディングで発見された通知フックバグの修正 + S2b5691で見つかったopencode信頼性ギャップの調査。両方ともmerge済みのSfa2bab/S2b5691の成果の上に積む修正作業。"
     }
   },
   "backlog": [
