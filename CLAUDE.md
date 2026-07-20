@@ -10,7 +10,7 @@
 |---|---|---|
 | [01-architecture.md](docs/original-specs/01-architecture.md) | アーキテクチャ全容（ドメインモデル、API、WS、ルーティング、ADR） | 設計判断・API追加時 |
 | [02-CLAUDE-rules.md](docs/original-specs/02-CLAUDE-rules.md) | 本ルールの原典 | このCLAUDE.mdで不足したとき |
-| [03-implementation-plan.md](docs/original-specs/03-implementation-plan.md) | Phase 0〜10 の実装計画 | フェーズ着手時 |
+| [03-implementation-plan.md](docs/original-specs/03-implementation-plan.md) | 初期実装計画（Phase 0〜10）**※完了済みの歴史的文書** | 初期実装の経緯を辿るときだけ |
 | [04-ui-requirements.md](docs/original-specs/04-ui-requirements.md) | UI 詳細（Activity Inbox、⌘K パレット、Toolbar 2モード） | UI 実装時 |
 | [05-claude-agent-tab.md](docs/original-specs/05-claude-agent-tab.md) | Claude タブ (stream-json + MCP) Phase 1 設計書 | Claude タブ実装時 |
 | [06-claude-tab-roadmap.md](docs/original-specs/06-claude-tab-roadmap.md) | Claude タブ Phase 2+ ロードマップとコア共通化計画 | 機能拡張時 |
@@ -23,7 +23,9 @@
 
 - **未完了 Sprint**: `S2b5691` (codex/opencode の registry 登録 + FE 露出) と `Sfa2bab` (実機ドッグフーディング検証) が `partial`。原因は Sc4f091 で解消済みだが Story ステータスは未クローズ。
 - **恒久修正が残る既知課題**: `palmux-shared` incus プロファイルがホスト全体で単一な件は緩和策のみで、恒久対応 (per-instance namespacing 等) は backlog。
-- **フェーズ**: Phase 0〜5 完了。Phase 6 (マルチエージェント) 進行中、Phase 7 (Control/Worker 並行開発の安全化) / Phase 8 (claude-tui の tmux 回帰 + Docs タブ) 計画中。
+- **進行中**: マルチエージェント対応 (codex / opencode)。**計画中**: Control/Worker による並行開発の安全化、claude-tui の tmux 回帰 (ADR-0009)、Docs タブ (ADR-0010/0011)。
+
+> **「Phase」という区切りは使わない**（2026-07-20 廃止）。原典 03 の Phase 0〜10・VISION の発展段階・ROADMAP の `phase` フィールドで 3 体系が並存し番号が衝突していたため、区切りは **ROADMAP.json の Sprint の並びと `milestone: true`** に一本化した。新しく Phase 番号を導入しないこと。
 
 真実がどこにあるか:
 

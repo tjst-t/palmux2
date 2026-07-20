@@ -8657,7 +8657,6 @@
       "title": "incus コンテナポートの公開サブドメイン化 (TLS + Caddy admin API)",
       "status": "done",
       "milestone": true,
-      "phase": "Phase 5",
       "description": "incus-container ランタイムでコンテナ内に立てた dev サーバを、ホスト VM の Caddy 経由で <port>--<workspace>--<repo>.<base> の HTTPS サブドメインとして公開できるようにする。portman が host runtime のポートに対してやっていること (S85caca: wildcard 証明書 + 動的サブドメイン + エッジ basic_auth) の incus-container 版。\n\n現状 (調査済み): S8478ca-4 で port scan ループ + ExposePort + caddy.go (writeSnippet) は実装済みだが、(1) 生成されるのが http://<inst>-<port>.palmux.local の平文ローカルドメイン (TLS なし)、(2) デプロイ Caddy は system-manager 管理の単一 apex vhost で conf.d を import しない (= snippet がロードされない)、(3) wildcard 証明書も Ports UI もない、ため本番では機能しない。\n\n設計判断 (ユーザ確定 2026-06-11):\n  - route 注入方式: palmux → Caddy admin API (localhost:2019) 直叩き。portman 非依存。conf.d ファイル + 手動 reload はやめる (system-manager Caddyfile と競合しないため)\n  - サブドメイン命名: <port>--<workspace>--<repo>.<base> (host model B の {name}--{wt}--{repo} と対称、衝突安全)\n  - 認証: 全サブドメインに既定でエッジ basic_auth、Public=true の port のみ無認証で除外\n\n依存: S8478ca (incus runtime + ExposePort/ListListeningPorts) と S85caca (wildcard DNS-01 + admin API 知見)。両方 done。",
       "stories": {
         "See8bd4-1": {
@@ -8815,7 +8814,6 @@
       "title": "palmux forward_auth SSO (apex + 公開サブドメイン単一ログイン)",
       "status": "done",
       "milestone": true,
-      "phase": "Phase 5",
       "description": "Caddy basic_auth をやめ、palmux 自身を SSO プロバイダにする。apex(palmux本体) と See8bd4 の公開サブドメインを、Domain=.<base> の署名付き Cookie による単一ログインで認証。サブドメインごとの basic 認証再入力を解消する。\n\n設計判断 (ユーザ確定 2026-06-11, option A):\n  - palmux が /auth/login (フォーム) + /auth/verify (forward_auth用) + /auth/logout を提供。/auth/* は認証バイパス\n  - 正しいパスワードで Domain=.<base> の HMAC 署名 Cookie 発行 (HttpOnly/Secure/SameSite=Lax)\n  - Caddy: per-port route と apex を basic_auth → forward_auth(→palmux /auth/verify) に切替。Public=true は素通し。未認証は /auth/login?rd=<元URL> へリダイレクト\n  - パスワード源 = 既存 BASIC_AUTH_USER/HASH(bcrypt) を流用 (新シークレット無し)\n  - 署名鍵は stable env secret (PALMUX_SSO_SECRET、無ければ BASIC_AUTH_HASH 派生) → 再起動/再デプロイでログアウトされない (caddy-security の restart-logout footgun 回避)\n  - remember me: チェック → 永続 Cookie (長期 Max-Age 365日) + sliding renewal (アクセスごとに期限延長)。未チェック → セッション Cookie\n  - local dev (--public-domain 未設定) は今の --token/open 認証のまま、Caddy 非介在で無変更\n\n依存: See8bd4 (Caddy admin API route 注入 + --public-domain/runtime.env 配線)。VISION 適合 (OIDC/OAuth ではなく単一共有パスワードの Cookie 化、シングルユーザ前提のまま)。",
       "stories": {
         "Sbe4eee-1": {
@@ -8951,7 +8949,6 @@
       "title": "incus コンテナの dev 環境共有 (shell + gh/git/ssh + ツール同梱)",
       "status": "done",
       "milestone": false,
-      "phase": "Phase 5",
       "description": "incus-container Workspace のコンテナ内シェルを、palmux が動くホストのシェルにそのまま揃える。現状コンテナは素の Ubuntu bash (PS1空・ツール無し) で、gh トークン/SSH 鍵も無いため git/gh 操作ができない。\n\n方針 (ユーザ確定 2026-06-12): ~/.claude 共有と同じ思想で dev 環境ごと bind-mount 共有する。\n  - Story-1: incus runtime が host の shell dotfiles (~/.bashrc, ~/.profile, ~/.bash_profile, ~/.bashrc.d) + GitHub 認証 (~/.config/gh, ~/.gitconfig, ~/.ssh) を同じパスで bind-mount。~/.config 丸ごとではなく gh だけ (chrome/pulse/systemd/incus 等の host 固有 dir は除外)。source が無いホストでは skip。\n  - Story-2: palmux-ws イメージに shell-UX ツール (starship/eza/bat/ripgrep/fd/fzf/zoxide/yazi/delta) を同梱。host では /usr/local・/usr/bin にあり bind-mount では届かないためイメージに焼く。\n\n承知の上のトレードオフ: SSH 秘密鍵 + gh トークンがコンテナに露出する (フル機能・再認証なしのため。既存の ~/.claude 共有と同じ前提)。\n\n依存: S8478ca (incus runtime の bind-mount 機構 + palmux-ws イメージ build)。VISION 適合 (PC/モバイルから同じ環境・シングルユーザ自前ホスティング)。",
       "stories": {
         "S5818e8-1": {
@@ -9032,7 +9029,6 @@
       "title": "Workspace 共有ブラウザ (CDP-screencast + CLI/Skill)",
       "status": "done",
       "milestone": true,
-      "phase": "Phase 5",
       "description": "incus-container Workspace ごとに、Claude(Playwright/CDP) とユーザが同一の chromium を共有して操作・観察できる「Browser」タブを追加する。WebRTC/Neko 不要、既存の Workspace コンテナ・Caddy・SSO・タブ機構を流用。設計は docs/workspace-runtime-design.md §7 (本 Sprint で CDP-screencast 主・Neko 後 に更新)。\n\n確定した設計判断 (ユーザ確認済み 2026-06-13):\n  - コンテナは per-worktree (per-Workspace)。chromium も worktree ごとに1個 → 各ブラウザは自分の worktree の dev server(localhost) に到達し、profile/cookie も worktree ごとに独立。\n  - 自動起動しない: Browser タブは常設 (incus-container conditional) だが chromium プロセスは既定 stopped。明示 Start/Stop。ブラウザ不要 dev では起動させない。\n  - 起動権限: ユーザ (UI [Start]) + Claude (CLI `palmux-browser start`、Activity Inbox に出る明示アクション) の両方。\n  - Claude の操作機構は MCP ではなく CLI + Skill。理由: MCP は常時コンテキストを消費する (多ツール定義 + 大きな snapshot を毎ターン) ため、複数 Claude 並列 + 使用枠制約に不利。CLI 中身は Playwright connectOverCDP の薄ラッパにして auto-wait/a11y snapshot の品質を保ちつつ、出力をトリム (compact snapshot / screenshot パス) してトークンを浪費させない。skill は start を含むライフサイクル全体を教える (progressive disclosure なので browser 不要 dev では skill も展開されない)。\n  - CDP は Caddy で公開しない: localhost/bridge のみ bind、palmux host が incusbr0 経由で containerIP:9222 に直結して仲介。ユーザは既存 SSO 経由でしか触れない。\n  - profile 永続: --user-data-dir を host bind-mount の永続パスに置きログイン状態を保持 (§7.5 揮発の例外)。\n\n依存: S8478ca (incus-container runtime + 管理ブリッジ + Caddy 直結 + palmux-ws イメージ build)。VISION 適合 (PC/モバイルから同じ環境を観察・操作、シングルユーザ自前ホスティング。共有相手は『ユーザ自身 + 自分の Claude』でありマルチテナントではない)。",
       "stories": {
         "S62374c-1": {
@@ -9269,7 +9265,6 @@
       "title": "Workspace コンテナのイメージ更新 (drift 検出 + ワンクリック再生成)",
       "status": "done",
       "milestone": false,
-      "phase": "Phase 5",
       "description": "palmux / palmux-ws イメージを更新しても、既存の incus-container は作成時の image fingerprint に固定されたままで新イメージに追従しない (chromium 等の新機能が入らない)。手動再生成 (runtime switch) は面倒。これを「drift 検出 + ユーザ起点のワンクリック再生成」の仕組みにする。\n\n設計判断 (ユーザ確認済み 2026-06-14):\n  - コンテナ rootfs は使い捨て (~/ghq・~/.claude・dotfiles・profile は全部 host bind-mount)。失うのは in-container の npm-g/apt パッケージと走行プロセスのみで、tmux は再生成・claude は --resume で復帰 → 再生成は安全。\n  - **自動再生成はしない** (走行中の claude/tmux を勝手に落とすのは破壊的)。drift は能動的に提示するが、再生成はユーザ明示アクション。\n  - 再生成は既存の runtime-switch トランザクショナル機構を再利用 (新コンテナ起動成功を確認してから旧を破棄、失敗時ロールバック)。\n  - 新規 Workspace は自動的に新イメージを使うので自然に世代交代もする。\n\n依存: S8478ca (runtime switch のトランザクショナル機構) + S62374c (chromium 同梱でイメージ更新が現実の運用課題になった)。VISION 適合 (複数 Workspace 並行運用・シングルユーザ自前ホスティング)。",
       "stories": {
         "S7364e3-1": {
@@ -9387,7 +9382,6 @@
       "title": "Claude をコンテナ内で動かす (in-container claude — 隔離の完成 + browser skill 解禁)",
       "status": "done",
       "milestone": false,
-      "phase": "Phase 5",
       "description": "incus-container Workspace で claude CLI 本体をホストではなくコンテナ内で動かす。背景: 現状 Claude タブ (agent/tui どちらも) は palmux ホストから exec 直叩きで、コンテナを通るのはユーザの Bash タブだけ。よって Claude が Bash ツールで npm/pip/ファイル生成すると host を汚染し、incus 隔離の主目的が Claude に関して半分破れている。加えて palmux-browser の skill+CLI はコンテナ image にしか無いためホスト claude から届かない (S62374c の積み残し、--add-dir は skill を登録しない=--plugin-dir が正)。Claude をコンテナ内で動かせば両問題が同時に解決する。設計は docs/claude-in-container-design.md。実機で核心 (incus exec 経由で claude 起動・~/.claude マウントで認証・--plugin-dir で skill ロード) は de-risk 済み。runtime は既に bash タブ用のコンテナ内インタラクティブ PTY (incus exec -t + host pty) を持つので TUI は流用可。段階導入: Phase1=TUI、Phase2=agent(stream-json 用の非PTY interactive primitive が必要、MCP は in-process なので無改造)。",
       "stories": {
         "S4d8b1c-1": {
@@ -10362,7 +10356,6 @@
       "title": "palmuxOS — NixOS アプライアンス化 (host 宣言化 + 配布 image + ユーザ拡張 + 更新)",
       "status": "done",
       "milestone": true,
-      "phase": "Phase 6 — palmuxOS",
       "goal": "palmux ホストを NixOS で全体宣言化し、palmux を不変アプライアンス image として配布する。incus/Caddy/SSO/設定プレーンを services.palmux.* + virtualisation.incus + services.caddy に集約。更新は flake pin + nixos-rebuild の世代ロールバックで install.sh self-update(Sa8e7d0)を構造的に置換。設計は docs/nixos-appliance-design.md、scaffold は nixos/。 【実行制約(ユーザ指示)】Stage 1-4(Sb14caa-1〜4)の実装・実機テストは disposable VM で行う(推奨: test VM 192.168.1.41 か新規。deploy VM 192.168.1.43 は install.sh canary として温存)。dev VM(dev.tjstkm.net=Claude が乗る箱)では実装テストしない — dev VM は Stage 5(Sb14caa-5)の最終 blue-green 採用先のみ。",
       "stories": {
         "Sb14caa-1": {
@@ -10944,7 +10937,6 @@
       "title": "共有フォルダの宣言化 (profile-as-mold) + 実行時反映",
       "description": "全 Workspace コンテナが従う共有 device 群を palmux の単一宣言 (incus profile 'palmux-shared') に集約し、毎 scan で冪等 reconcile する。さらにユーザが config/GUI から共有フォルダ (例 ~/.infisical) を追加でき、稼働中コンテナ含め live 反映される。設計原則 docs/palmux2-nixos-appliance-design.md §5-§8 の profile-as-mold と 2フェーズ適用+Reconcile を最小実装する。",
       "milestone": true,
-      "phase": "Phase 6 — palmuxOS",
       "status": "done",
       "detail_level": "detailed",
       "review_reason": "incus profile の live device 伝播と reconcile は実 incus でしか検証できない。障害シナリオではないので priority_rule 9 の通常 real-mode smoke を deploy-test (192.168.1.43) の実 incus で行う。",
@@ -11053,7 +11045,6 @@
       "title": "GUI からの更新キック復活（NixOS アプライアンス: 本体 nixos-rebuild + palmux-ws image）",
       "description": "palmuxOS アプライアンスで『更新』を再び GUI からキックできるようにする。現状 update-panel は NixOS host で案内文のみ（Sb14caa の operator-driven 抑止）で、ユーザは SSH で `nix flake update palmux && nixos-rebuild switch` を手打ちする必要がある。既存の GUI キック nixos-rebuild 機構（`palmux-rebuild.service` / `POST /api/deploy/rebuild`、domain/TLS 用）を版数更新にも使えるよう拡張し、update-panel に更新ボタンを出す。あわせて案内文の flake パスバグ（`/etc/palmux#appliance` → 実パス `/persist/palmux/nixos#appliance`）を修正し、palmux-ws image の更新（release asset 取得 + S7364e3 regenerate）も appliance で GUI キック可能にする。",
       "milestone": false,
-      "phase": "Phase 6 — palmuxOS",
       "status": "done",
       "detail_level": "detailed",
       "review_reason": "実 NixOS アプライアンスでしか GUI→nixos-rebuild キック→版数 bump→palmux2 再起動→再接続の一連は検証できない。障害シナリオではないので priority_rule 9 の通常 real-mode smoke を green.tjstkm.net (192.168.1.46) の実アプライアンスで行う。",
@@ -11186,7 +11177,6 @@
       "title": "§8.3 GUI アプリカードモデル（1アプリ=1カード: install + フォルダ共有 従属トグル）",
       "description": "設計ドキュメント docs/palmux2-nixos-appliance-design.md §8.3 [提案] を実装する。頻度の高い操作（アプリ導入・フォルダ共有）を UI の中心に据え、1アプリ=1カードで見せる。裏では複数レイヤー（§7 パッケージ集合 = home.packages + Sd44947 共有 device 金型）に書き込むが、ユーザには1枚のカード。install トグル（home.packages 追加→ nixos-rebuild、軽）+ フォルダ共有トグル（Sd44947 の shared_dirs 金型、hot）。共有は install に従属（未 install はグレーアウト）、両トグルとも全コンテナ一律（金型=単一プロファイル維持）。§8.2 の『構造化データを正とし .nix を一方向生成』に乗せる。あわせて Sd44947 で folder-share が hot 化された実態を設計ドキュメント（§7/§8.3/§8.4 の陳腐化した [提案]/『重』マーカー）に反映する。",
       "milestone": false,
-      "phase": "Phase 6 — palmuxOS",
       "status": "done",
       "detail_level": "detailed",
       "review_reason": "install（home.packages 生成→nixos-rebuild→共有 /nix 経由で全コンテナ反映）と共有トグルの hot 反映は実 NixOS アプライアンスでしか検証できない。priority_rule 9 の real-mode smoke を green.tjstkm.net (192.168.1.46) で行う。",
@@ -11364,7 +11354,6 @@
       "title": "Sprint タブを現行 skill artifact に追随（verification/done-judgment/compromises/comprehension/prototype/gui-spec 表示 + 旧 reader 置換 + IA 刷新）",
       "description": "Sprint タブ (internal/tab/sprint + frontend/src/tabs/sprint) は 2026-05〜06 時点の sprint/autopilot skill 向けに作られており、以降 skill が正典化した artifact 群に追随していない。現状タブが読むのは decisions.json / acceptance-matrix.json / e2e-results.json / refine.json / failures.json だが、現行 skill (Sd44947 の sprint-log dir が実態) が書くのは verify-run.json(機械判定) / verification-report.json(独立 verifier) / done-judgment.json(6-guard) / compromises.json / comprehension-report.md / prototype-review.json / reopen.json / gui-spec-*.json / scenario-*.json / verify-run-*.log。結果、acceptance-matrix.json / e2e-results.json は現行スプリントで生成されず**タブの該当セクションが空**で、trust source である verification/done-judgment/compromises/comprehension が**一切表示されない**。本スプリントで (1) 表示情報の抜け漏れを塞ぎ、(2) trust-source を前面に出す情報設計へ刷新する。skill の SPRINT_LOGS_SCHEMA.json も実態に合わせて更新し、再ドリフトを防ぐ。",
       "milestone": true,
-      "phase": "Phase 6 — palmuxOS",
       "status": "done",
       "detail_level": "detailed",
       "review_reason": "Sprint タブはローカル docs/sprint-logs を読む純 GUI/REST 機能で、dev インスタンスの E2E で全経路検証できる。実 VM / 実 incus は不要（priority_rule 9 の real-VM smoke 対象外）。",
@@ -13084,7 +13073,7 @@
     "Se223cc": {
       "title": "Control/Worker 基盤 (1): 汎用 tab-input API + Sprint Claim Store",
       "status": "pending",
-      "description": "Phase 7 (並行開発の安全化) の土台。Claude 専用にしない汎用の非対話タブ入力 API (ADR-0007) と、git に載せず palmux 内部で完結する Sprint Claim Store (ADR-0006) を先に作る。dispatch 本体と CLI/Skill は次 Sprint。",
+      "description": "並行開発の安全化の土台。Claude 専用にしない汎用の非対話タブ入力 API (ADR-0007) と、git に載せず palmux 内部で完結する Sprint Claim Store (ADR-0006) を先に作る。dispatch 本体と CLI/Skill は次 Sprint。",
       "milestone": false,
       "detail_level": "detailed",
       "stories": {

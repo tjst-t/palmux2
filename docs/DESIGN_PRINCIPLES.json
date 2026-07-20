@@ -22,8 +22,8 @@
     },
     {
       "priority": 3,
-      "rule": "Phase 区切り > 半完成投入",
-      "detail": "各 Phase 終了時点で main で動く。中間状態は残さない"
+      "rule": "milestone 区切り > 半完成投入",
+      "detail": "ROADMAP.json で milestone: true を付けた Sprint の完了時点で main が動く状態になっている。中間状態は残さない。旧称『Phase 区切り』— Phase という概念は 3 体系が並存して番号が衝突していたため 2026-07-20 に廃止し、区切りは milestone に一本化した"
     },
     {
       "priority": 4,
