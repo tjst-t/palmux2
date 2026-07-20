@@ -3,13 +3,13 @@
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
     "sprints_done": 80,
-    "sprints_total": 82,
+    "sprints_total": 88,
     "done": 80,
-    "total": 82,
-    "remaining": 2,
+    "total": 88,
+    "remaining": 8,
     "in_progress": 0,
-    "percent": 97,
-    "percentage": 97,
+    "percent": 90,
+    "percentage": 90,
     "current_sprint": "Sc4f091"
   },
   "execution_order": [
@@ -94,7 +94,13 @@
     "S4db2fe",
     "S2b5691",
     "Sfa2bab",
-    "Sc4f091"
+    "Sc4f091",
+    "Sf6c55b",
+    "Se223cc",
+    "S16113e",
+    "S7010fa",
+    "Sbbf27b",
+    "Se7515a"
   ],
   "sprints": {
     "S001": {
@@ -13014,6 +13020,330 @@
           }
         }
       }
+    },
+    "Sf6c55b": {
+      "title": "ADR-0009 前提検証スパイク: claude-tui を tmux backend に戻して旧不満が再現しないか確かめる",
+      "status": "pending",
+      "description": "ADR-0009 (claude-tui backend の tmux 回帰) は reversibility_cost=high のフルリライトだが、Track B で custom PTY daemon を選んだ当時の不満 (複数クライアント接続時の最小クライアントへの resize 強制・repaint ノイズ・tmux sync loop との lifecycle 絡み) が tmux backend で実用上再現しないかは未検証。ADR-0009 は tentative:true でこのスパイクを待っている。使い捨ての検証経路で前提を確かめ、PASS なら tentative を外し、FAIL なら supersede 案を添えてユーザへ差し戻す。",
+      "milestone": false,
+      "detail_level": "detailed",
+      "stories": {
+        "Sf6c55b-1": {
+          "title": "palmux 開発者として、claude-tui を tmux backend に戻しても過去の不満が実用上再現しないことをフルリライト前に確認したい",
+          "status": "pending",
+          "user_story": "palmux 開発者として、claude-tui の backend を tmux に戻す前に旧不満 (resize 強制 / repaint ノイズ / sync loop 絡み) が実用上再現しないかを小さく確かめたい。なぜなら、ADR-0009 は reversibility_cost=high の大改修で、前提が崩れたまま着手すると改修まるごとが無駄になるから。",
+          "user_review_required": true,
+          "review_reason": "スパイクの合否判定は ADR-0009 の tentative 解除 / supersede というユーザ承認済み設計判断の変更に直結するため、結果はユーザ確認を要する",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sf6c55b-1-1",
+              "description": "tmux window 上で動く claude CLI に、PC 相当とモバイル相当の異なる画面幅の WS クライアントから同時に接続したとき、小さい方の幅へ強制 resize されて大きい方の表示が壊れる現象が起きないことを実機で確認できる (起きる場合は aggressive-resize off 等の設定で回避できるかまで確認する)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sf6c55b-1-2",
+              "description": "実 claude セッション相当の出力 (実 ANSI 制御列を含む実ターン、合成 toy データではない) を流した後に再 attach したとき、画面が正しく復元され repaint ノイズが実用上気にならないことを実機で目視確認できる [MANUAL SMOKE]",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sf6c55b-1-3",
+              "description": "claude-tui 用 tmux window が、既存の sync_worktree の zombie セッション kill ループや Bash タブの lifecycle と競合しないことを確認できる (誤 kill されない / orphan が残らない)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Sf6c55b-1-4",
+              "description": "スパイク結果が decisions.json に記録され、PASS なら ADR-0009 の tentative フラグが外れる / FAIL なら supersede 案を添えてユーザに差し戻される",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "Sf6c55b-1-1": {
+              "title": "使い捨ての検証用 tmux window で claude CLI を起動し、既存 Bash タブの attach 経路を流用して2クライアント同時接続を再現する最小リグを組む (本実装には手を入れない)",
+              "status": "pending"
+            },
+            "Sf6c55b-1-2": {
+              "title": "resize 挙動を計測: 異なる幅の2クライアント同時 attach、片方 detach、再 attach。aggressive-resize off / status off 等の設定差分での改善有無も記録",
+              "status": "pending"
+            },
+            "Sf6c55b-1-3": {
+              "title": "実 claude ターンを実行して repaint / scrollback 復元を目視確認 (dev 箱の実 incus workspace で本番モード実行、MOCK 不可)",
+              "status": "pending"
+            },
+            "Sf6c55b-1-4": {
+              "title": "sync_worktree の zombie kill ループとの干渉を確認 (10s scan を跨いで window が生存すること)",
+              "status": "pending"
+            },
+            "Sf6c55b-1-5": {
+              "title": "結果を decisions.json に記録し、PASS なら ADR-0009 の tentative/tentative_reason を除去、FAIL なら supersede 用 ADR ドラフトを添えてユーザへ提示",
+              "status": "pending"
+            }
+          }
+        }
+      }
+    },
+    "Se223cc": {
+      "title": "Control/Worker 基盤 (1): 汎用 tab-input API + Sprint Claim Store",
+      "status": "pending",
+      "description": "Phase 7 (並行開発の安全化) の土台。Claude 専用にしない汎用の非対話タブ入力 API (ADR-0007) と、git に載せず palmux 内部で完結する Sprint Claim Store (ADR-0006) を先に作る。dispatch 本体と CLI/Skill は次 Sprint。",
+      "milestone": false,
+      "detail_level": "detailed",
+      "stories": {
+        "Se223cc-1": {
+          "title": "外部ツールの利用者として、任意のタブへプログラムからテキストを注入したい",
+          "status": "pending",
+          "user_story": "palmux を外部から自動操作したい利用者として、Claude タブに限らず任意のタブへ非対話でテキストを注入したい。なぜなら、dispatch のプロンプト投入を Claude 専用 API で作ると、DESIGN_PRINCIPLES 優先度2『タブ間の対称性 > Claude 専用 API』に反し、後から他タブに広げられなくなるから。",
+          "user_review_required": false,
+          "review_reason": null,
+          "acceptance_criteria": [
+            {
+              "id": "AC-Se223cc-1-1",
+              "description": "POST /api/repos/{repoId}/branches/{branchId}/tabs/{tabId}/input にテキストを送ると、人間が WS でターミナルに打った場合と同じ結果になる (Bash タブでコマンドが実行され、Claude タブでプロンプトが投入される)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Se223cc-1-2",
+              "description": "API は tabId のタブ種別を解釈せず、terminal 系タブであれば同一経路で動く (Claude タブ専用の分岐を持たない)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Se223cc-1-3",
+              "description": "既存の /api/* 認証 (Cookie / Bearer) が適用され、未認証リクエストは拒否される (新規の認可レイヤーは増えていない)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Se223cc-1-4",
+              "description": "存在しない tabId / terminal ではないタブ (Files / Git / Docs) への注入は、サーバを落とさず具体的なエラーメッセージで 4xx を返す",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "Se223cc-1-1": {
+              "title": "internal/server に POST .../tabs/{tabId}/input ハンドラを追加し、既存 WS input と同じ内部関数を呼ぶ (経路を二重化しない)",
+              "status": "pending"
+            },
+            "Se223cc-1-2": {
+              "title": "terminal 系でないタブ / 未知 tabId のエラーハンドリング",
+              "status": "pending"
+            },
+            "Se223cc-1-3": {
+              "title": "tests/acceptance: 実 HTTP クライアントから Bash タブへ注入しコマンド実行結果を観測する受入テスト",
+              "status": "pending"
+            }
+          }
+        },
+        "Se223cc-2": {
+          "title": "並行開発する利用者として、どの Sprint がどの Workspace で進行中かを palmux 側で追跡したい",
+          "status": "pending",
+          "user_story": "複数の Workspace で並行開発する利用者として、どの Sprint がどの Worker Workspace で進行中かを追跡したい。なぜなら、追跡が無いと autopilot が既に着手済みの Sprint に重複着手する事故が起きるから。",
+          "user_review_required": false,
+          "review_reason": null,
+          "acceptance_criteria": [
+            {
+              "id": "AC-Se223cc-2-1",
+              "description": "GET/POST/PATCH /api/repos/{repoId}/claims で SprintClaim を参照・登録・更新でき、1 sprintId につき active な claim が最大1件に保たれる",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Se223cc-2-2",
+              "description": "claim の更新時に既存の /api/events へ sprint.claim_updated が broadcast され、接続中のクライアントが再読み込みなしに状態変化を受け取れる (新規プロトコルは増えていない)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Se223cc-2-3",
+              "description": "claim 対象の worktree が消滅すると、既存 sync_worktree ループの次の tick で該当 claim が cleared になる",
+              "status": "pending"
+            },
+            {
+              "id": "AC-Se223cc-2-4",
+              "description": "palmux2 を再起動して claim 情報が失われても、worktree と実行中プロセスは無傷で、利用者は作業を継続できる (claim はヒントでありベストエフォート、DESIGN/non-functional.json 準拠)",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "Se223cc-2-1": {
+              "title": "internal/claim に SprintClaim ストアを新設 (DESIGN/data.json のフィールド定義と不変条件に準拠、gitignore 対象)",
+              "status": "pending"
+            },
+            "Se223cc-2-2": {
+              "title": "REST ハンドラ + sprint.claim_updated イベントの broadcast",
+              "status": "pending"
+            },
+            "Se223cc-2-3": {
+              "title": "sync_worktree ループに claim の自動クリア (worktree 消滅 / merge 済み検知) を相乗りさせる",
+              "status": "pending"
+            },
+            "Se223cc-2-4": {
+              "title": "tests/acceptance: claim の一意性不変条件・イベント到達・再起動後の縮退動作",
+              "status": "pending"
+            }
+          }
+        }
+      }
+    },
+    "S16113e": {
+      "title": "[MILESTONE] Control/Worker 基盤 (2): dispatch + palmux-workspace CLI/Skill",
+      "status": "pending",
+      "description": "Control Plane (ghq primary) から Worker Workspace (gwq worktree) を dispatch する経路を通し、claude-skills とは注入 Skill アダプタ経由の疎結合で繋ぐ (ADR-0005 / ADR-0008)。ここまでで『並行開発の安全化』が実運用可能になるためマイルストーン。",
+      "milestone": true,
+      "detail_level": "detailed",
+      "stories": {
+        "S16113e-1": {
+          "title": "Control Plane で計画する利用者として、1コマンドで Worker Workspace を作って作業を開始させたい",
+          "status": "pending",
+          "user_story": "Control Plane で計画する利用者として、Sprint を1つの操作で Worker Workspace に引き渡したい。なぜなら、worktree 作成・タブ起動・初期プロンプト投入・claim 登録を手作業で並べると抜けが出て、二重着手や取り違えの原因になるから。",
+          "user_review_required": false,
+          "review_reason": null,
+          "acceptance_criteria": [
+            {
+              "id": "AC-S16113e-1-1",
+              "description": "dispatch を実行すると、Worker Workspace (gwq worktree) が作成され、Claude タブが自動起動し、初期プロンプトが投入され、SprintClaim が dispatched → in_progress に遷移するまでが1操作で完了する",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S16113e-1-2",
+              "description": "Claude タブの起動完了を待ってからプロンプトが注入される (起動途中に投入されて取りこぼされることがない)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S16113e-1-3",
+              "description": "既に active な claim がある Sprint を dispatch しようとすると拒否され、どの Workspace が保持しているかが利用者に示される",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S16113e-1-4",
+              "description": "dispatch 途中で失敗した場合、中途半端な Workspace や claim が残らない (worktree 作成後にタブ起動が失敗したら片付ける)",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S16113e-1-1": {
+              "title": "既存 POST /api/repos/{repoId}/branches を流用した Worker Workspace 作成 + role=worker の付与",
+              "status": "pending"
+            },
+            "S16113e-1-2": {
+              "title": "Claude タブ起動待ち → Se223cc の tab-input API でプロンプト注入 → claim を in_progress へ",
+              "status": "pending"
+            },
+            "S16113e-1-3": {
+              "title": "重複 dispatch の拒否と、失敗時のロールバック",
+              "status": "pending"
+            },
+            "S16113e-1-4": {
+              "title": "tests/acceptance: 実 gwq worktree + 実 claude タブでの dispatch 一気通貫、重複拒否、失敗ロールバック",
+              "status": "pending"
+            }
+          }
+        },
+        "S16113e-2": {
+          "title": "Claude セッションの利用者として、palmux の dispatch/claim の使い方をセッションに自動で知らせたい",
+          "status": "pending",
+          "user_story": "Claude セッションの利用者として、palmux 固有の dispatch/claim の使い方が Claude 側に自動で伝わってほしい。なぜなら、claude-skills は他プロジェクトでも使う汎用スキル集であり、palmux の REST API 仕様をそちらに埋め込むと再利用性が壊れるから。",
+          "user_review_required": false,
+          "review_reason": null,
+          "acceptance_criteria": [
+            {
+              "id": "AC-S16113e-2-1",
+              "description": "palmux workspace dispatch / palmux workspace claim update を CLI から実行でき、REST API を直接叩いた場合と同じ結果になる",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S16113e-2-2",
+              "description": "Workspace の Claude セッションに palmux-workspace Skill が自動で読み込まれ、palmux 固有の手順が Claude 側から参照できる (palmux-browser と同じ --plugin-dir 注入パターン)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S16113e-2-3",
+              "description": "palmux2 のリポジトリに claude-skills への依存 (ビルド時・実行時とも) が増えていない。Skill が無い環境でも palmux は従来通り動作する",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S16113e-2-4",
+              "description": "incus-container Workspace でもコンテナ内の Claude から CLI が到達でき、host runtime と同じ結果になる",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S16113e-2-1": {
+              "title": "cmd/palmux に workspace サブコマンド (dispatch / claim update) を追加",
+              "status": "pending"
+            },
+            "S16113e-2-2": {
+              "title": ".claude-plugin レイアウトで palmux-workspace Skill を用意し、既存の Skill 注入経路に載せる",
+              "status": "pending"
+            },
+            "S16113e-2-3": {
+              "title": "in-container からの到達性 (notify URL 導出と同じ経路) の確認と配線",
+              "status": "pending"
+            },
+            "S16113e-2-4": {
+              "title": "tests/acceptance: CLI 経由の dispatch/claim、Skill ロード確認、Skill 不在時の縮退",
+              "status": "pending"
+            }
+          }
+        },
+        "S16113e-3": {
+          "title": "並行開発する利用者として、どの Sprint がどこで動いているかを画面上で一目で把握したい",
+          "status": "pending",
+          "user_story": "複数 Worker を走らせる利用者として、どの Sprint がどの Workspace でどの状態かを画面で把握したい。なぜなら、状態が CLI でしか見えないと、外出先やモバイルから並行状況を確認できず『いま何が動いてる？』が解消されないから。",
+          "user_review_required": true,
+          "review_reason": "GUI の見え方 (Drawer / Activity Inbox のどこにどう出すか) は実画面を見ないと妥当性が判断できないため、milestone の demo/refine でユーザ確認を取る",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S16113e-3-1",
+              "description": "実ブラウザで、active な SprintClaim の一覧 (Sprint ID / Workspace / 状態) を確認でき、Worker 側で状態が変わると再読み込みなしに反映される",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S16113e-3-2",
+              "description": "Control Plane の Workspace と Worker の Workspace が画面上で見分けられる (role 属性の可視化)",
+              "status": "pending"
+            },
+            {
+              "id": "AC-S16113e-3-3",
+              "description": "モバイル幅 (<600px) でも一覧が破綻せず読める (DESIGN_PRINCIPLES priority_rule 10)",
+              "status": "pending"
+            }
+          ],
+          "tasks": {
+            "S16113e-3-1": {
+              "title": "sprint.claim_updated を購読するフロント state と一覧表示",
+              "status": "pending"
+            },
+            "S16113e-3-2": {
+              "title": "Workspace の role (control / worker) を Drawer に表示",
+              "status": "pending"
+            },
+            "S16113e-3-3": {
+              "title": "GUI テスト2層 (mock + 実ブラウザ E2E) をレスポンシブ込みで作成",
+              "status": "pending"
+            }
+          }
+        }
+      }
+    },
+    "S7010fa": {
+      "title": "claude-tui backend の tmux 回帰 (ADR-0009)",
+      "status": "pending",
+      "description": "目標: claude-tui タブの backend を custom PTY daemon (ptyhost) + VT Emulator から tmux window へ移し、scrollback/history の保持を claude CLI 内蔵 History に委ねる。role coordination は VT 解析を要さない薄い input gate として移植する。ptyhost は claude-agent (pipe モード) 専用に scope 縮小。Sf6c55b のスパイクが PASS していることが着手条件。",
+      "milestone": false,
+      "detail_level": "coarse",
+      "stories": {}
+    },
+    "Sbbf27b": {
+      "title": "Docs タブ (1): 汎用ドキュメントスキーマへの置換 (ADR-0010)",
+      "status": "pending",
+      "description": "目標: Sprint タブを Docs タブへ改称し、claude-skills 固有の7種類の専用 Go 構造体を DESIGN/data.json 準拠の汎用ドキュメントパーサ1本に置き換える。Conditional 表示条件を投影ファイルの存在に変更し、未知フィールド無視・解釈不能な $schema の fallback で前方互換を担保する。",
+      "milestone": false,
+      "detail_level": "coarse",
+      "stories": {}
+    },
+    "Se7515a": {
+      "title": "[MILESTONE] Docs タブ (2): ブロック語彙 + SKILL 側所有 view template (ADR-0011)",
+      "status": "pending",
+      "description": "目標: 固定ブロック語彙 (heading / statusBadge / progressBar / table / timeline / tree / card / keyValueGrid / panel / decisionList / taskList / linkList / markdown / section) の汎用レンダラーを実装し、kind ごとのレイアウトを出力側所有の view template に委ねる。未知ブロック・壊れた template は汎用 fallback で耐える。ここまでで claude-skills との文書結合が切れるためマイルストーン。",
+      "milestone": true,
+      "detail_level": "coarse",
+      "stories": {}
     }
   },
   "dependencies": {
@@ -13384,6 +13714,24 @@
         "Sfa2bab"
       ],
       "reason": "Sfa2bab実機ドッグフーディングで発見された通知フックバグの修正 + S2b5691で見つかったopencode信頼性ギャップの調査。両方ともmerge済みのSfa2bab/S2b5691の成果の上に積む修正作業。"
+    },
+    "S16113e": {
+      "depends_on": [
+        "Se223cc"
+      ],
+      "reason": "dispatch は Se223cc の tab-input API と Sprint Claim Store の上に乗る"
+    },
+    "S7010fa": {
+      "depends_on": [
+        "Sf6c55b"
+      ],
+      "reason": "ADR-0009 は tentative。Sf6c55b のスパイクが PASS するまで着手できない"
+    },
+    "Se7515a": {
+      "depends_on": [
+        "Sbbf27b"
+      ],
+      "reason": "ブロックレンダラーは Sbbf27b の汎用ドキュメントパーサを前提とする"
     }
   },
   "backlog": [

@@ -1,7 +1,44 @@
 {
   "performance": [],
-  "availability": [],
+  "availability": [
+    {
+      "metric": "palmux2 再起動を跨いだ実行中エージェントの生存",
+      "target": "self-update / systemctl restart / palmux2 のクラッシュのいずれでも、実行中の claude プロセスとその作業が失われない。再接続後もユーザは同じセッションを継続できる",
+      "rationale": "palmux2 の更新のたびに走行中の agent 作業が消えるのは実運用上致命的だった (no-halt-agent マイルストーンの動機)",
+      "confidence": "high",
+      "drives_adr": ["ADR-0001", "ADR-0002", "ADR-0003"]
+    },
+    {
+      "metric": "detached プロセスの systemd cgroup 道連れ耐性",
+      "target": "palmux2 が systemd user unit として動く構成でも、unit の停止で子プロセスが KillMode に巻き込まれない。非 systemd 環境 (D-Bus 不在) でも同等の分離を実行時 fallback で達成する",
+      "rationale": "cgroup 道連れは self-update を途中死させる実障害として観測済み (Sa8e7d0)",
+      "confidence": "high",
+      "drives_adr": ["ADR-0003"]
+    }
+  ],
   "consistency": [
+    {
+      "metric": "agent transcript の無欠損性 (再起動跨ぎ)",
+      "target": "palmux2 の再起動・kill -9 を跨いでも stream-json transcript の二重処理と欠落を起こさない。再起動中に到着した permission 要求も replay で UI に届き、応答が受理される。ring 溢れで復元不能になった場合は黙って欠けた transcript を出さず、新規セッション扱いであることを明示する",
+      "rationale": "会話履歴は CLI が真実 (priority_rule 1) だが、palmux 側のミラー描画が黙って欠けると『何が起きたか分からない』状態になり、静かな欠落は誤表示より有害",
+      "confidence": "high",
+      "drives_adr": ["ADR-0004"]
+    },
+    {
+      "metric": "claude-tui の scrollback 忠実性",
+      "target": "palmux 側でバイト単位の正確な scrollback バッファを保持することは目標としない (ADR-0009 で意図的に降格)。目標は『再接続時に現在の画面が正しく復元されること』までとし、過去ログの遡行は claude CLI 内蔵 History 機能に委ねる",
+      "rationale": "tmux は server 側で解決済みの pane 状態を新規 attach へ送るため現在画面の復元は構造的に満たされる。一方それより過去の遡行を palmux が独自 VT 解析で保証するのは、claude 内蔵 History の登場後は重複投資 (ADR-0009)",
+      "confidence": "medium",
+      "drives_adr": ["ADR-0009"],
+      "notes": "この降格は ADR-0009 のスパイク結果に依存する。スパイクで旧不満 (resize/repaint) が再現した場合、この目標ごと見直す"
+    },
+    {
+      "metric": "汎用ドキュメント契約の前方互換性",
+      "target": "claude-skills 側がスキーマを進化させても palmux をリリース同期なしに追随できる。未知フィールドは無視、未知ブロック種別と解釈不能な $schema は汎用 fallback で表示し、例外で画面を落とさない",
+      "rationale": "リポジトリ分離を維持したまま結合を切るのが ADR-0008/0010 の目的であり、契約の硬直はその目的を無効化する",
+      "confidence": "high",
+      "drives_adr": ["ADR-0010", "ADR-0011"]
+    },
     {
       "metric": "Sprint Claim Store の永続性",
       "target": "ベストエフォート。palmux 再起動で claim 情報が失われても致命的ではない (worktree の存在と tmux/ptyhost の生存が一次情報であり、claim は『二重着手防止のヒント』に過ぎない)",
@@ -36,5 +73,20 @@
     }
   ],
   "compliance": [],
-  "operational": []
+  "operational": [
+    {
+      "metric": "壊れた入力に対する Docs タブの耐性",
+      "target": "1つのドキュメントまたは view template が壊れていても、当該ドキュメントのみ汎用 fallback (生データの最小限表示) に落とし、タブ全体や他ドキュメントの表示を巻き込まない",
+      "rationale": "投影ファイルの出力側は別リポジトリで独立に進化するため、壊れた入力は例外ではなく常態として設計する",
+      "confidence": "high",
+      "drives_adr": ["ADR-0011"]
+    },
+    {
+      "metric": "orphan ptyhost の回収",
+      "target": "参照されなくなった ptyhost は既存 10s scan ループ相乗りの GC で SHUTDOWN される。参照中の ptyhost は不可侵。INSTANCE 違いのホスト同士が互いのプロセスを claim / GC しない",
+      "rationale": "detached 化の代償としてプロセスリークの経路が生まれるため、回収を設計時点の要件として明示する",
+      "confidence": "high",
+      "drives_adr": ["ADR-0001", "ADR-0003"]
+    }
+  ]
 }

@@ -27,5 +27,5 @@
   ],
   "supersedes": null,
   "superseded_by": null,
-  "notes": "thin→fat は後から機能を ptyhost 側へ段階移行できる (中コスト)。fat→thin は protocol 互換を切るため高コスト。SIGWINCH ジグルで画面が収束しない TUI 状態が受入テストで見つかった場合に revisit。"
+  "notes": "thin→fat は後から機能を ptyhost 側へ段階移行できる (中コスト)。fat→thin は protocol 互換を切るため高コスト。SIGWINCH ジグルで画面が収束しない TUI 状態が受入テストで見つかった場合に revisit。2026-07-20: ADR-0009 により claude-tui (pty モード) は tmux backend へ回帰するため、affects の internal/tab/claudetui は ADR-0009 実行後に無効となる。本 ADR の thin holder 原則は claude-agent (pipe モード) の範囲で引き続き有効 (ADR-0004 参照)。"
 }

@@ -2,6 +2,8 @@
   "id": "ADR-0009",
   "title": "claude-tui backend を tmux に回帰、scrollback/history は claude 自身に委譲",
   "status": "accepted",
+  "tentative": true,
+  "tentative_reason": "方針はユーザ承認済み (2026-07-19) だが、notes 記載の前提検証スパイク (tmux backend で旧不満 = 複数クライアント接続時の resize 強制・repaint ノイズ・sync loop 絡みが実用上気にならないか) が未実施。reversibility_cost=high のフルリライトであり、スパイクが赤ならこの ADR を supersede する必要がある。スパイク PASS をもって tentative を外す。",
   "date": "2026-07-19",
   "context": "Track B (S1d2278〜Sadf90e) で claude-tui は custom PTY daemon + charmbracelet/x/vt Emulator を採用した。当時のロードマップ (docs/sprint-logs/S1d2278/track-b-roadmap.md) を読み直すと、この選択の本当の駆動要因は Agent SDK の課金オーバー (Max 20x $200/月上限を2週間で消費) からの脱却であり、tmux ベースの復帰 (`Sprint X: Track A pivot`) は当時から『subscription quota で動く最低限の経路』として対等な fallback 案として明記されていた。それでも custom 実装 (Track B) を選んだ理由は、旧 tmux ベース claude タブで実際に経験していた不満 (複数クライアント接続時の最小クライアントへの resize 強制・repaint ノイズ・tmux sync loop との lifecycle 絡み) を併せて解消したかったためである。\n\nその後 (1) no-halt-agent (ADR-0001) が claude-tui の palmux2 再起動跨ぎ生存のために ptyhost を新設したが、この性質は tmux セッションがネイティブに持つものと重複している。(2) tmux はそもそも raw byte replay ではなく server 側で解決済みの pane 状態を新規 attach クライアントへ送るアーキテクチャであり、Emulator の RenderSnapshot が解決していた『再接続時の壊れた scrollback』問題は tmux 自体の設計でも構造的に起きにくいことが判明した (現に Bash タブの OSC52 クリップボードは今も tmux 経由で正常動作している)。(3) claude CLI が内蔵 History 機能を持つようになり、ユーザーがターミナルネイティブの scrollback に依存して過去ログを遡る場面自体が減った。これにより、tmux 側でバイト単位の正確な scrollback バッファを持つ必要性も薄れた。(4) 残る非冗長な価値は role coordination (複数 WS クライアント同時接続時の単一書き込み者制御) のみで、これは VT 解析を要さない薄い gate として tmux backend の上にも同じコストで実装できる。",
   "alternatives": [

@@ -14,6 +14,7 @@
     "Phase 4: 磨き込み (virtualization / syntax highlight / 会話内検索 / export / モバイル UX 総点検)",
     "Phase 5: incus Workspace Runtime / palmuxOS NixOS アプライアンス化 / no-halt-agent (ptyhost) — 完了",
     "Phase 6 (進行中): マルチエージェント対応 — agent registry + Provider 抽象化で Claude Code に加え Codex / opencode をビルトインサポート (resume + notify + in-container 実行)。2026-07 に実需要 (自分自身の開発ワークフローで複数エージェントを併用したい) が明確化し着手",
+    "Phase 8 (計画中): 結合の整理 — (a) claude-tui backend を custom PTY daemon から tmux window へ回帰させ、scrollback/history は claude CLI 内蔵 History に委譲する (ADR-0009、実行前に前提検証スパイクが必要)。(b) Sprint タブを Docs タブへ改称し、claude-skills 固有の7種類の専用パーサを汎用ドキュメントスキーマ + 固定ブロック語彙 + 出力側所有の view template に置き換える (ADR-0010 / ADR-0011)。いずれも『palmux が持たなくてよい責務を外部へ返す』方向の整理",
     "Phase 7 (計画中): 並行開発の安全化 — ghq primary を Control Plane (常時 main、計画/dispatch 専任) に固定し、gwq worktree を Worker (実装専任) として扱う。Sprint Claim Store でどの Sprint がどの Worker で進行中かを追跡し、autopilot の二重着手を防止する。claude-skills (別リポジトリの汎用スキル集) とは注入 Skill 経由の疎結合連携とし、monorepo 化しない"
   ],
   "out_of_scope": [

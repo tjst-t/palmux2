@@ -22,7 +22,15 @@
       "identity": "Workspace に従属 (単独の identity なし)",
       "lifecycle": [],
       "owns": ["Tab"],
-      "notes": "Claude / Files / Git / Sprint は protected、Bash のみ複数可"
+      "notes": "Claude / Files / Git / Docs は protected、Bash のみ複数可。Docs タブは ADR-0010 で Sprint タブから改称され、Conditional 表示条件も docs/ROADMAP.json の存在から汎用ドキュメント投影ファイル (docs/**/*.doc.json) の存在に変わる"
+    },
+    {
+      "name": "Document",
+      "definition": "汎用ドキュメントスキーマ (kind/title/status/body/meta/tags/links/children の再帰ノード) に準拠した投影ファイル。Docs タブが表示する対象",
+      "identity": "リポジトリ内のファイルパス",
+      "lifecycle": ["detected", "updated", "removed"],
+      "owns": [],
+      "notes": "palmux は Document を所有しない — 出力側 (claude-skills 等) が真実の所在で、palmux は読み取り専用のレンダラーに徹する。palmux は kind / meta / tags / links.rel の値集合を一切解釈せず、レイアウトは出力側が所有する ViewTemplate に委ねる (ADR-0010 / ADR-0011)。スキーマ契約は DESIGN/data.json"
     },
     {
       "name": "SprintClaim",
@@ -34,6 +42,14 @@
     }
   ],
   "value_objects": [
+    {
+      "name": "Block",
+      "definition": "Document の中身のレイアウト要素。heading / statusBadge / progressBar / table / timeline / tree / card / keyValueGrid / panel / decisionList / taskList / linkList / markdown / section の固定語彙 (+ 子要素専用の decisionItem / taskItem)。語彙は palmux 本体のコードが持つ固定集合で、出力側は勝手に増やせない (ADR-0011)"
+    },
+    {
+      "name": "ViewTemplate",
+      "definition": "kind → Block 構成のマッピング。出力側 (claude-skills 等) が所有・出力する。所有範囲は『1ドキュメントの中身のレイアウト』のみで、ナビゲーション・一覧・検索の枠は palmux 本体が持つ (ADR-0011)"
+    },
     {
       "name": "WorkspaceRole",
       "definition": "control | worker。Workspace の分類属性。control = 常に main を HEAD に保ち計画・dispatch のみ行う (ghq primary が該当)。worker = dispatch されて実装を行う (gwq worktree が該当)"
@@ -57,9 +73,29 @@
       "to": "SprintClaim",
       "kind": "one_to_one",
       "label": "role=worker の Workspace は同時に最大1件の active SprintClaim を持つ。historical claim は保持しない (cleared で消える)"
+    },
+    {
+      "from": "Workspace",
+      "to": "Document",
+      "kind": "one_to_many",
+      "label": "1 Workspace の worktree 内に 0 個以上の Document (投影ファイル) が存在しうる。1つ以上あるとき Docs タブが Conditional に生成される"
+    },
+    {
+      "from": "Document",
+      "to": "ViewTemplate",
+      "kind": "many_to_one",
+      "label": "Document.kind で ViewTemplate を索く。対応する template が無い kind も汎用 fallback で表示できる"
     }
   ],
   "glossary": [
+    {
+      "term": "Docs タブ",
+      "definition": "旧 Sprint タブ (ADR-0010 で改称)。汎用ドキュメントスキーマに準拠した投影ファイルを、出力側が所有する view template に従ってレンダリングする Conditional タブ。claude-skills 固有の JSON 形式 (ROADMAP.json 等) を直接解釈しない"
+    },
+    {
+      "term": "投影ファイル",
+      "definition": "claude-skills 等が自分の内部形式 (ROADMAP.json 等) とは別に、汎用ドキュメントスキーマ準拠で出力するファイル。内部形式はそのまま維持してよく、契約を満たすのは投影の側 (ADR-0010)"
+    },
     {
       "term": "Control Plane",
       "definition": "role=control の Workspace (通常 ghq primary)。常に main を HEAD に保ち、計画・ロードマップ更新・Sprint の dispatch 判断のみを行う。実装は行わない"

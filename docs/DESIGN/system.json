@@ -24,12 +24,68 @@
     },
     {
       "name": "Tab Provider System",
-      "responsibility": "タブタイプのプラグイン機構 (Claude / Files / Git / Sprint / Bash)",
+      "responsibility": "タブタイプのプラグイン機構 (Claude / Files / Git / Docs / Bash)",
       "language_or_stack": "Go, internal/tab/*",
       "deploys_as": "in-process module",
       "key_interfaces": [{ "kind": "function", "summary": "tab.Provider interface + optional capability (HeadChangedHook 等)" }],
       "depends_on": [],
       "notes": "既存コンポーネント。今回は変更しないが、汎用 tab-input API (Workspace Dispatch API) がこの上に薄く乗る"
+    },
+    {
+      "name": "claude-tui Tab",
+      "responsibility": "claude CLI の TUI をターミナルとして中継するタブ。複数 WS クライアント同時接続時の単一書き込み者制御 (active/viewer role gate) を持つ",
+      "language_or_stack": "Go, internal/tab/claudetui",
+      "deploys_as": "in-process module",
+      "key_interfaces": [
+        { "kind": "http", "summary": "WS .../tabs/claude/attach (terminal pty I/O)" },
+        { "kind": "function", "summary": "hook 注入 (Notification / Stop / UserPromptSubmit → palmux hook → POST /api/notify)" }
+      ],
+      "depends_on": ["tmux Backend", "Store"],
+      "notes": "ADR-0009 により backend は custom PTY daemon (ptyhost) + VT Emulator から tmux window へ回帰する。scrollback/history は claude CLI 内蔵 History に委譲し、palmux 側で独自の VT 解析・scrollback 再構成は行わない。role gate は VT 解析を要さない薄い input gate として tmux backend 上に移植する。※ADR-0009 は実行前スパイクによる前提検証待ち (tentative)"
+    },
+    {
+      "name": "claude-agent Tab",
+      "responsibility": "claude CLI を stream-json で制御する構造化エージェント UI。in-process MCP 権限サーバと transcript 管理を持つ",
+      "language_or_stack": "Go, internal/tab/claudeagent",
+      "deploys_as": "in-process module",
+      "key_interfaces": [
+        { "kind": "function", "summary": "stream-json stdio pump (binary-clean、stderr 分離)" },
+        { "kind": "function", "summary": "OffsetStore — 処理済み絶対 offset の永続化と再接続時 replay" }
+      ],
+      "depends_on": ["ptyhost", "Store"],
+      "notes": "非 tty の binary-clean pipe が必要なため tmux に乗せられず、ptyhost (pipe モード) の利用を継続する (ADR-0004 / ADR-0009)"
+    },
+    {
+      "name": "ptyhost",
+      "responsibility": "palmux2 のライフサイクルから切り離された汎用プロセスホルダ。opaque な argv/env/cwd を PTY 付き (pty) または stdio (pipe) で spawn し、絶対 offset 付き ring + framed socket protocol を提供する",
+      "language_or_stack": "Go, internal/ptyhost + cmd/palmux (ptyhost サブコマンド)",
+      "deploys_as": "detached process (systemd-run --user --scope、失敗時 setsid + double-fork に fallback)",
+      "key_interfaces": [
+        { "kind": "protocol", "summary": "unix socket framed protocol: HELLO / ATTACH / DATA / INPUT / RESIZE / ACK / STATUS / SHUTDOWN (+ pipe 用 MsgStderrData)" }
+      ],
+      "depends_on": [],
+      "notes": "thin holder — claude/incus/tmux を一切知らず、orchestration (respawn 判断・resume 引数組み立て・永続化) は palmux2 側に残す (ADR-0002)。cgroup 脱出は ADR-0003。ADR-0009 により利用範囲は claude-agent (pipe モード) のみに縮小し、claude-tui (pty モード) からは外れる"
+    },
+    {
+      "name": "tmux Backend",
+      "responsibility": "tmux セッション/ウィンドウの生成・attach・lifecycle 管理",
+      "language_or_stack": "Go, internal/tmux (Client interface + exec 実装)",
+      "deploys_as": "external process (tmux server)",
+      "key_interfaces": [{ "kind": "function", "summary": "tmux.Client interface (exec.Command 直呼び禁止)" }],
+      "depends_on": [],
+      "notes": "既存コンポーネント。Bash タブが使用中。ADR-0009 で claude-tui タブもここに回帰する。tmux server 側で解決済みの pane 状態を新規 attach クライアントへ送るため、再接続時の scrollback 破損が構造的に起きにくい"
+    },
+    {
+      "name": "Docs Tab",
+      "responsibility": "汎用ドキュメント投影ファイルの検出・パースと、ブロック語彙によるレンダリング。旧 Sprint タブ",
+      "language_or_stack": "Go, internal/tab/sprint (Docs へ改名) + frontend/src/tabs/sprint (同)",
+      "deploys_as": "in-process module + SPA タブモジュール",
+      "key_interfaces": [
+        { "kind": "http", "summary": "GET .../docs, GET .../docs/{docPath} (DESIGN/data.json 参照)" },
+        { "kind": "function", "summary": "汎用ドキュメントパーサ1本 + 固定ブロック語彙レンダラー" }
+      ],
+      "depends_on": ["Store"],
+      "notes": "claude-skills 固有の7種類の専用 Go 構造体 (roadmapDoc/decisionsDoc/...) は汎用パーサ1本に置き換えて削除する (ADR-0010)。レイアウトは出力側所有の view template に従い、未知ブロック・壊れた template は汎用 fallback で耐える (ADR-0011)。ナビゲーション・一覧・検索の『枠』は kind 非依存なので palmux 本体のコードのまま"
     },
     {
       "name": "Sprint Claim Store",
@@ -73,6 +129,14 @@
     {
       "between": ["Workspace Dispatch API", "Tab Provider System"],
       "justification": "Dispatch API はタブ種別を知らない汎用の『非対話入力』を提供するだけで、Claude タブ固有の解釈 (プロンプトの意味等) は持たない"
+    },
+    {
+      "between": ["Docs Tab", "claude-skills のドキュメント形式"],
+      "justification": "palmux は汎用ドキュメントスキーマとブロック語彙のみを知り、claude-skills 内部の ROADMAP.json 等の形式を直接解釈しない。契約を満たす責務は投影を出力する側にある (ADR-0010)。レイアウトの決定権も view template として出力側に置き、palmux 側は kind ごとのハードコードを持たない (ADR-0011)"
+    },
+    {
+      "between": ["ptyhost", "palmux2 (orchestration)"],
+      "justification": "ptyhost は opaque な argv/env を預かるだけの thin holder で、claude / incus / tmux のドメイン知識を持たない。respawn 判断・--resume 引数の組み立て・offset の永続化は palmux2 側に残す (ADR-0002)"
     }
   ],
   "data_flows": [
@@ -113,9 +177,15 @@
     },
     {
       "name": "claude CLI",
-      "purpose": "Worker/Control 双方の Claude タブの実行本体",
+      "purpose": "Worker/Control 双方の Claude タブの実行本体。ADR-0009 以降は会話履歴/scrollback の保持責務も担う (内蔵 History 機能)",
       "swappable": false,
-      "notes": "既存依存。変更なし"
+      "notes": "既存依存。DESIGN_PRINCIPLES priority_rule 1 『CLI が真実 > Palmux が真実』の適用先"
+    },
+    {
+      "name": "tmux (≥ 3.2)",
+      "purpose": "ターミナルセッションの永続化。Bash タブと、ADR-0009 以降は claude-tui タブの backend",
+      "swappable": false,
+      "notes": "既存依存。ADR-0009 で用途が拡大する (control mode は使わず、status off + aggressive-resize off 程度の素朴な設定を想定)"
     },
     {
       "name": "claude-skills",

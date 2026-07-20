@@ -1,0 +1,134 @@
+{
+  "$comment": "Palmux2 の永続状態・外部契約のスケッチ。完全な DDL / OpenAPI ではない。ADR-0006 (Sprint Claim Store)・ADR-0007 (汎用 tab-input API)・ADR-0010 (汎用ドキュメントスキーマ)・ADR-0011 (ブロック語彙 + view template) の契約を構造化したもの。",
+  "datastores": [
+    {
+      "name": "Sprint Claim Store (palmux 内部)",
+      "purpose": "SprintClaim (どの Sprint がどの Worker Workspace で dispatch 中か)",
+      "consistency": "単一プロセス内で strong。複数ホスト間の同期は対象外 (non-functional.json 参照)",
+      "backup": "取らない。ベストエフォート永続化のみで、失われても worktree の存在と ptyhost/tmux の生存が一次情報 (ADR-0006)"
+    },
+    {
+      "name": "Document projection files (リポジトリ内ファイル)",
+      "purpose": "claude-skills 等が出力する汎用ドキュメント投影ファイル (例 docs/**/*.doc.json) と view template",
+      "consistency": "ファイルシステムが真実。palmux は読み取り専用で、書き戻さない",
+      "backup": "git 管理 (投影元リポジトリの責務)。palmux はバックアップ責務を持たない"
+    }
+  ],
+  "schemas": [
+    {
+      "entity": "SprintClaim",
+      "stored_in": "Sprint Claim Store (palmux 内部)",
+      "table": "claims (gitignore 対象の内部 store)",
+      "fields": [
+        { "name": "sprintId", "type": "string", "notes": "claude-skills の ROADMAP.json 上の Sprint ID。identity" },
+        { "name": "repoId", "type": "string", "notes": "対象 Repository" },
+        { "name": "workspaceId", "type": "string", "notes": "dispatch 先の role=worker Workspace" },
+        { "name": "status", "type": "enum", "notes": "dispatched | in_progress | blocked | done | cleared" },
+        { "name": "updatedAt", "type": "timestamp", "notes": "最終更新" },
+        { "name": "note", "type": "string?", "notes": "Worker からの自由記述ステータス (任意)" }
+      ],
+      "invariants": [
+        "1 sprintId につき active な claim は最大1件 (cleared は保持しない)",
+        "1 Worker Workspace につき active な claim は最大1件",
+        "claim は一次情報のミラーではない — worktree 消滅時は無条件に cleared にしてよい"
+      ]
+    },
+    {
+      "entity": "Document",
+      "stored_in": "Document projection files (リポジトリ内ファイル)",
+      "table": "docs/**/*.doc.json (再帰ノード形式、1ファイル = 1 ルートノード)",
+      "fields": [
+        { "name": "$schema", "type": "string", "notes": "契約バージョンの明示。自己記述的にするため必須 (ADR-0010)" },
+        { "name": "kind", "type": "string", "notes": "ドキュメント種別。palmux は値の意味を解釈せず、view template の索引キーとしてのみ使う" },
+        { "name": "title", "type": "string", "notes": "表示名" },
+        { "name": "status", "type": "string?", "notes": "自由文字列のステータス表示値" },
+        { "name": "statusKind", "type": "enum?", "notes": "status の意味づけ。色/バッジ表現の決定にのみ使う (info|note|warning|success|error 等)" },
+        { "name": "body", "type": "markdown?", "notes": "自由記述本文。既存 Markdown レンダラーに丸投げする" },
+        { "name": "meta", "type": "map<string,any>?", "notes": "自由な key-value。palmux はスキーマを規定しない" },
+        { "name": "tags", "type": "string[]?", "notes": "分類・絞り込み用" },
+        { "name": "links", "type": "{rel,ref}[]?", "notes": "任意の rel + ref による相互参照。rel の語彙は出力側が決める" },
+        { "name": "children", "type": "Document[]?", "notes": "再帰。深さ制限は設けない" }
+      ],
+      "invariants": [
+        "palmux は kind / meta / tags / links.rel の値集合を一切ハードコードしない (ADR-0010 の核心)",
+        "未知フィールドは破棄せず無視して通す (出力側の前方互換な拡張を壊さない)",
+        "$schema が解釈不能な場合も汎用 fallback で最低限の表示を行い、エラーで画面を落とさない",
+        "children は循環しない (ファイル内の木構造。相互参照は links で表現する)"
+      ]
+    },
+    {
+      "entity": "Block",
+      "stored_in": "Document projection files (リポジトリ内ファイル)",
+      "table": "view template 内のレイアウト要素 (ADR-0011)",
+      "fields": [
+        { "name": "type", "type": "enum", "notes": "heading | statusBadge | progressBar | table | timeline | tree | card | keyValueGrid | panel | decisionList | taskList | linkList | markdown | section の 14 種 (+ 子要素専用の decisionItem / taskItem)" },
+        { "name": "props", "type": "map<string,any>", "notes": "type ごとの表示パラメータ。panel は info|note|warning|success|error の5段階 (ADF taxonomy 参考)" },
+        { "name": "bind", "type": "string?", "notes": "Document ノードのどのフィールドを描画するかの参照" },
+        { "name": "children", "type": "Block[]?", "notes": "section / decisionList / taskList など入れ子を取るブロック用" }
+      ],
+      "invariants": [
+        "ブロック語彙は palmux 本体のコードが持つ固定集合。出力側が新しい type を勝手に生やすことはできない",
+        "未知の type は汎用 fallback (生データの最小限表示) で耐える。例外を投げない (ADR-0011)",
+        "リッチテキストの内部表現は持たない — 自由記述は markdown ブロックに委譲する",
+        "語彙拡張は sprint plan / design refresh を通す。むやみに増やさない (ADR-0011 のガードレール)"
+      ]
+    },
+    {
+      "entity": "ViewTemplate",
+      "stored_in": "Document projection files (リポジトリ内ファイル)",
+      "table": "kind → Block 構成のマッピングを記述した JSON (claude-skills 等が出力・所有)",
+      "fields": [
+        { "name": "$schema", "type": "string", "notes": "契約バージョン" },
+        { "name": "kind", "type": "string", "notes": "適用対象の Document.kind" },
+        { "name": "blocks", "type": "Block[]", "notes": "1ドキュメントの中身のレイアウト" }
+      ],
+      "invariants": [
+        "view template が所有するのは『1ドキュメントの中身のレイアウト』のみ。ナビゲーション・一覧・検索の枠は palmux 本体のコードが持つ (ADR-0011)",
+        "対応する view template が存在しない kind も汎用 fallback で表示できる",
+        "壊れた view template は当該ドキュメントのみ fallback に落とし、他ドキュメントの表示を巻き込まない"
+      ]
+    }
+  ],
+  "design_indexes": [],
+  "api_contracts": [
+    {
+      "group": "Sprint Claim",
+      "base_path": "/api/repos/{repoId}/claims",
+      "summary": "SprintClaim の参照・登録・更新 (ADR-0006)",
+      "endpoints": [
+        { "method": "GET", "path": "/api/repos/{repoId}/claims", "summary": "active な claim 一覧" },
+        { "method": "POST", "path": "/api/repos/{repoId}/claims", "summary": "dispatch 時に claim を登録" },
+        { "method": "PATCH", "path": "/api/repos/{repoId}/claims/{sprintId}", "summary": "Worker からのステータス更新" }
+      ]
+    },
+    {
+      "group": "Workspace Dispatch",
+      "base_path": "/api/repos/{repoId}/branches",
+      "summary": "Worker Workspace 作成と汎用の非対話タブ入力注入 (ADR-0007)",
+      "endpoints": [
+        { "method": "POST", "path": "/api/repos/{repoId}/branches", "summary": "既存流用。gwq worktree 作成 = Worker Workspace 作成" },
+        { "method": "POST", "path": "/api/repos/{repoId}/branches/{branchId}/tabs/{tabId}/input", "summary": "任意タブへのテキスト注入。タブ種別を解釈しない汎用 API (Claude 専用にしない)" }
+      ]
+    },
+    {
+      "group": "Docs",
+      "base_path": "/api/repos/{repoId}/branches/{branchId}/docs",
+      "summary": "汎用ドキュメント投影ファイルと view template の読み取り (ADR-0010 / ADR-0011)。Sprint タブ時代の kind 別エンドポイントを置き換える",
+      "endpoints": [
+        { "method": "GET", "path": "/api/repos/{repoId}/branches/{branchId}/docs", "summary": "検出されたドキュメント一覧 (kind / title / status / tags のサマリ)" },
+        { "method": "GET", "path": "/api/repos/{repoId}/branches/{branchId}/docs/{docPath}", "summary": "1ドキュメントの全ノードと、適用される view template" }
+      ]
+    }
+  ],
+  "event_contracts": [
+    {
+      "name": "sprint.claim_updated",
+      "producer": "Sprint Claim Store",
+      "consumers": ["frontend (Activity Inbox / Docs タブ)", "Control Plane の Claude セッション"],
+      "payload_sketch": "{ repoId, sprintId, workspaceId, status, note?, updatedAt }",
+      "ordering": "unordered (既存 /api/events broadcast に相乗り。新規プロトコルは作らない)",
+      "idempotency": "consumer は再接続時に REST でフル状態を再取得する前提。イベントはヒントであり、取りこぼしても整合性は壊れない"
+    }
+  ],
+  "versioning_policy": "Document / ViewTemplate は自己記述的な $schema フィールドで版を明示する (ADR-0010)。palmux は未知フィールドを無視、未知の Block type と解釈不能な $schema を汎用 fallback で耐えることで、claude-skills 側が palmux のリリースと同期せずにスキーマを進化させられる。破壊的変更が必要な場合のみ $schema の版を上げ、palmux は旧版を最低1版分は fallback より上のレベルで読めるようにする。palmux 内部の REST API は既存方針どおりパッチ間互換を保つ (DESIGN_PRINCIPLES forbidden)。"
+}
