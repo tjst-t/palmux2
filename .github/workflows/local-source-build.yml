@@ -1,0 +1,65 @@
+# Guard the local-source build path (S31ad96) against silent rot.
+#
+# `palmux2-local` builds palmux2 from THIS repo's working-tree source, and is
+# the ONLY way to dogfood unreleased changes on a real palmuxOS appliance boot
+# (`appliance-qcow2` bakes in the fetchurl'd RELEASE asset, so it cannot test
+# unreleased code). Nothing else in CI builds it: appliance-qcow2 and
+# appliance-no-baked-keys both go through the release package.
+#
+# That gap let `vendorHash` in nix/packages/palmux2-local.nix go stale and stay
+# stale, silently, twice (found the hard way during Sfa2bab and again on
+# 2026-07-20). The non-obvious mechanism: under Go 1.17+ module-graph pruning,
+# the set of .mod files `go mod download` fetches depends on which packages the
+# main module actually imports — so a pure internal-import refactor invalidates
+# vendorHash while go.mod / go.sum / flake.lock stay byte-identical. There is no
+# lockfile diff to notice; only building it catches this.
+#
+# Hence: build it on every change to the Go source or the packaging.
+name: local-source-build
+
+on:
+  pull_request:
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "frontend/**"
+      - "nix/**"
+      - "flake.nix"
+      - "flake.lock"
+      - ".github/workflows/local-source-build.yml"
+  push:
+    branches: [main]
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "frontend/**"
+      - "nix/**"
+      - "flake.nix"
+      - "flake.lock"
+  workflow_dispatch:
+
+jobs:
+  palmux2-local:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: DeterminateSystems/nix-installer-action@main
+      - name: Build palmux2 from local source
+        run: |
+          out=$(nix build --no-link --print-out-paths --print-build-logs '.#palmux2-local')
+          echo "palmux2-local: $out"
+          "$out"/bin/palmux2 --version
+      - name: Explain a hash mismatch instead of just failing
+        if: failure()
+        run: |
+          cat <<'EOF'
+          If this step failed with "hash mismatch in fixed-output derivation
+          ...-go-modules.drv", vendorHash in nix/packages/palmux2-local.nix is
+          stale. Copy the `got:` hash from the log into that file.
+
+          Note this happens even when go.mod / go.sum are untouched: under Go
+          module-graph pruning, changing which packages the main module imports
+          changes what `go mod download` fetches, and therefore the hash.
+          EOF

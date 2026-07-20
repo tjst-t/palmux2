@@ -96,6 +96,29 @@
           # disko builds the image(s) for disko.devices in a VM (partitions, mkfs by
           # label, copies the closure, installs GRUB). One disk → one qcow2.
           sys.config.system.build.diskoImages;
+
+        # BUILD-ONLY variant (not for distribution): identical to
+        # appliance-qcow2 except palmux2 comes from local working-tree source
+        # (palmux2-local) instead of the fetchurl'd release asset, so that
+        # UNRELEASED changes can be dogfooded on a real appliance boot.
+        appliance-qcow2-local =
+          let
+            sys = nixpkgs-appliance.lib.nixosSystem {
+              inherit system;
+              modules = [
+                { nixpkgs.overlays = [ self.overlays.default ]; }
+                disko.nixosModules.disko
+                ./nixos/modules/disko-layout.nix
+                ./nixos/modules/image-hardware.nix
+                self.nixosModules.appliance
+                ({ lib, ... }: {
+                  services.palmux.domain = lib.mkDefault null;
+                  services.palmux.package = self.packages.${system}.palmux2-local;
+                })
+              ];
+            };
+          in
+          sys.config.system.build.diskoImages;
       });
 
       lib.mkPalmuxHost = import ./nix/lib/mkPalmuxHost.nix { inherit inputs; };

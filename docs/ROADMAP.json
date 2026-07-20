@@ -2,14 +2,14 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 80,
+    "sprints_done": 81,
     "sprints_total": 88,
-    "done": 80,
+    "done": 81,
     "total": 88,
-    "remaining": 8,
+    "remaining": 7,
     "in_progress": 0,
-    "percent": 90,
-    "percentage": 90,
+    "percent": 92,
+    "percentage": 92,
     "current_sprint": "Sc4f091"
   },
   "execution_order": [
@@ -12686,12 +12686,12 @@
       "title": "codex/opencodeアダプタのregistry登録 + FE露出",
       "description": "フェーズBで internal/agent/** に取り込み済みのはずのcodex/opencodeアダプタ実装 (maultiagentブランチの S339021 スコープ: built-in codex adapter, built-in opencode adapter, in-container対応, notify-capability badge) を、cmd/palmux/main.go のagent registryに実際に登録し、FEのタブ追加ピッカーに露出する。前提: v0.15.1が実際にリリース済み(tag push完了)であること。",
       "milestone": false,
-      "status": "partial",
+      "status": "done",
       "detail_level": "detailed",
       "stories": {
         "S2b5691-1": {
           "title": "開発者として、codex/opencodeアダプタをmain.goのagent registryに登録したい。なぜなら、フェーズBでは実装ファイルのみ取り込みregistry登録を見送っていたから。",
-          "status": "needs_user_review",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S2b5691-1-1",
@@ -12738,7 +12738,8 @@
               "title": "notify hub の agentKind スタンプ + TabName 配線を S339021-3 backend half (internal/notify/hub.go, internal/agent/claude.go, internal/tab/agenttui/{daemon,manager}.go) から移植 (main の ptyhost 化後の構造に合わせて手動再適用、ADR-0001/0002 の thin-holder 境界を侵さないこと)",
               "status": "done"
             }
-          }
+          },
+          "review_reason": "Sprint 内 verify で「opencode-in-container の notify round-trip が実機で ~44-56% しか成功しない (実クラッシュ事例含む)」という信頼性ギャップが独立検証で見つかり backlog 化したため。実装と AC 3件はすべて pass 済み。真因 (palmux-shared incus プロファイルの host-wide 単一性によるデバイス削除レース) は Sc4f091-2 で特定・緩和済みで、2026-07-20 にユーザが本 Story の close を明示承認した。恒久修正 (per-instance namespacing) は backlog に残る。"
         },
         "S2b5691-2": {
           "title": "ユーザーとして、⌘Kやタブ追加ピッカーからcodex/opencodeタブを作成したい。なぜなら、registryに登録されただけではUIから使えないから。",
@@ -12840,7 +12841,8 @@
               "title": "検証結果サマリをmilestone summaryに含める",
               "status": "done"
             }
-          }
+          },
+          "review_reason": "実機ドッグフーディングで codex/opencode の実ターンは完走したが (PALMUXOK 出力を実機確認)、Activity Inbox 通知が一切届かず AC-Sfa2bab-1-2 を fail とした。root cause は services.palmux.domain 未設定時の wildcard bind で bridgeNotifyURL() が空を返し、全 in-container エージェントの通知フックが無条件スキップされる設計バグ。Sc4f091-1 で修正済み。ただし本 Story が検証したビルドは Sc4f091 より前のため、修正を含むビルドでのドッグフーディング再実行をもって close する (リリースゲートのため別 Sprint の検証結果を流用しない)。"
         }
       }
     },
