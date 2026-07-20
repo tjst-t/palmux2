@@ -1,0 +1,40 @@
+{
+  "performance": [],
+  "availability": [],
+  "consistency": [
+    {
+      "metric": "Sprint Claim Store の永続性",
+      "target": "ベストエフォート。palmux 再起動で claim 情報が失われても致命的ではない (worktree の存在と tmux/ptyhost の生存が一次情報であり、claim は『二重着手防止のヒント』に過ぎない)",
+      "rationale": "claim は git や実行中プロセスのような一次情報のミラーではなく、純粋に palmux 側の調整用メタデータのため、強い永続性保証は過剰",
+      "confidence": "high",
+      "drives_adr": ["ADR-0006"]
+    },
+    {
+      "metric": "複数ホストにまたがる claim の一貫性",
+      "target": "対象外 (単一ホスト内の単一 palmux インスタンスに閉じたスコープ)。複数ホストで並行開発する要求が出た時点で改めて検討する",
+      "rationale": "現時点でその要求が無く、内部 store で先取りして複雑化するのは過剰設計",
+      "confidence": "medium",
+      "drives_adr": ["ADR-0006"]
+    }
+  ],
+  "scalability": [
+    {
+      "metric": "同時に active な Worker Workspace 数",
+      "target": "2〜4本を目標値。ハード上限は設けず、ホストリソース (incus workspace runtime 使用時はコンテナ数) に委ねる",
+      "rationale": "『本気で並列開発したい』というユーザ要求",
+      "confidence": "medium",
+      "drives_adr": ["ADR-0005"]
+    }
+  ],
+  "security": [
+    {
+      "metric": "Dispatch API / tab-input 注入 API の認可",
+      "target": "既存の /api/* 認証 (Cookie/Bearer) をそのまま適用。新規の認可レイヤーは作らない",
+      "rationale": "シングルユーザ前提 (VISION out_of_scope) なので既存認証で十分",
+      "confidence": "high",
+      "drives_adr": ["ADR-0007"]
+    }
+  ],
+  "compliance": [],
+  "operational": []
+}

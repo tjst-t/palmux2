@@ -1,0 +1,25 @@
+{
+  "id": "ADR-0006",
+  "title": "Sprint Claim Store は Palmux 内部管理、Control⇔Worker 通信は既存 event WS に相乗り",
+  "status": "accepted",
+  "date": "2026-07-19",
+  "context": "Control Plane が『どの Sprint がどの Worker で dispatch 中か』を把握し autopilot の二重着手を防ぐには、claim 状態をどこかに永続化する必要がある。加えて、Worker Agent が Control Plane Agent に進捗・完了を伝える通信手段も要る。git 管理ファイル (ROADMAP.json 拡張や専用ファイル) にすると dispatch のたびに Control Plane (main) へのコミットが発生し、本来クリーンに保ちたい Control Plane を汚す。",
+  "alternatives": [
+    { "name": "git 管理ファイル (ROADMAP.json 拡張 or 専用 sprint-claims.json)", "tradeoff": "他クローン/CI からも見えるが、dispatch のたびに main へのコミットが増え、Control Plane を汚す" },
+    { "name": "Palmux 内部 store のみ (採用)", "tradeoff": "main のコミット履歴を汚さない。ただし他クローンや別ホストには伝播しない" },
+    { "name": "両方 (store はリアルタイム表示用キャッシュ、git ファイルは節目だけ記録)", "tradeoff": "両方の利点を取れるが複雑さが増す。MVP としては過剰" }
+  ],
+  "decision": "SprintClaim は git 管理せず、Palmux 内部 store (gitignore 対象) で管理する。Worker → Control のステータス通知は既存の event WS (/api/events) に sprint.claim_updated イベントを追加する形で相乗りし、新規プロトコルは作らない。Control → Worker の追加指示は ADR-0007 の汎用 tab-input API を再利用する。",
+  "consequences": [
+    "+ main のコミット履歴を汚さない",
+    "+ 新しい通信プロトコルを作らず、既存の event WS / Activity Inbox の資産をそのまま使える",
+    "+ claim は palpux 内部の調整用メタデータに過ぎないため、失われても worktree の存在と実行中プロセスから再導出できる (強い永続性を要求しない)",
+    "- 単一ホスト・単一 palmux インスタンスに閉じたスコープ。palmux を複数ホストで動かして並行開発する場合はこの内部 store では同期できない",
+    "- palmux 再起動を跨いだ claim の保持方法は別途実装が要る (best-effort でよいなら簡易実装で足りる)"
+  ],
+  "reversibility_cost": "low",
+  "affects": ["internal/store", "internal/claim (新設)", "Sprint タブ"],
+  "supersedes": null,
+  "superseded_by": null,
+  "notes": "複数ホストにまたがる並行開発 (例: 複数の物理/仮想マシンで別々の palmux インスタンスを動かし、同じ claude-skills プロジェクトを並行開発する) をサポートしたくなった場合、Palmux 内部 store では同期できないため、git 管理されたファイル (ROADMAP.json 拡張や専用ファイル等) など別の伝播手段への切り替えが必要になる。現時点ではその要求が無いため対象外とし、要求が明確化した時点でこの ADR を supersede する新規 ADR を起こすこと。ユーザ指摘済み (2026-07-19)。"
+}

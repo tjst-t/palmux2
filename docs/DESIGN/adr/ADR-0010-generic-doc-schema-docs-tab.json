@@ -1,0 +1,27 @@
+{
+  "id": "ADR-0010",
+  "title": "汎用ドキュメントデータスキーマを新設し Sprint タブを Docs タブへ改称",
+  "status": "accepted",
+  "date": "2026-07-20",
+  "context": "Sprint タブ (internal/tab/sprint/parser/types.go) は claude-skills が吐く7種類のJSON (ROADMAP.json, decisions.json, acceptance-matrix.json, e2e-results.json, refine.json, failures.json, gui-spec-*.json) それぞれに専用の Go 構造体 (roadmapDoc/decisionsDoc/acceptanceMatrixDoc/e2eResultsDoc/refineDoc/failuresDoc/guiSpecDoc) を持ち、claude-skills 側の内部スキーマ変更が起きるたびに Palmux 側の実装変更が必要になっている。これは仮説ではなく既に実際に起きている問題で、コード中に drift-tolerance の対応コメントが残っている (`roadmapProgressDoc` が `sprints_total`/`sprints_done`/`percent` という別名フィールドを両対応するフォールバックを持つ)。claude-skills は palmux2 専用ではない汎用の再利用可能スキル集 (ADR-0008 参照) であり、今後も独自の都合でスキーマを進化させる。この結合を切るため、Palmux 側は claude-skills 固有の JSON 形式を直接知らない汎用ドキュメントスキーマだけを解釈するように変える。",
+  "alternatives": [
+    { "name": "現状維持 (claude-skills 各 JSON 形式に専用パーサ)", "tradeoff": "claude-skills 側のスキーマ変更のたびに Palmux 側の実装変更が必要。既に drift 対応コードが存在しており、今後も同種の対応が繰り返される" },
+    { "name": "claude-skills 側に Palmux の Go 構造体へ合わせてもらう (逆方向の結合)", "tradeoff": "claude-skills は他プロジェクトでも使う汎用ツールであり、Palmux 都合でその内部設計の自由度を奪うのは筋が悪い" },
+    { "name": "汎用再帰ノードスキーマ + claude-skills が投影ファイルを別途出力 (採用)", "tradeoff": "両リポジトリにまたがる移行コストが一度発生するが、以降はどちらの内部形式変更も他方に波及しない" }
+  ],
+  "decision": "Palmux は `kind` / `title` / `status` / `statusKind` / `body` (markdown) / `meta` (自由な key-value) / `tags` / `links` (任意 rel+ref の相互参照) / `children` (再帰) を持つ、自己記述的 (`$schema` でバージョン明示) な再帰ノード形式の汎用ドキュメントスキーマを新設する。Sprint タブを『Docs タブ』に改称し、この契約に準拠したファイル (例: `docs/**/*.doc.json`) の存在を Conditional 表示条件にする。claude-skills 内部の `ROADMAP.json` 等の形式はそのまま維持してよく、claude-skills はこの汎用スキーマに準拠した投影ファイルを別途出力することで契約を満たす。Palmux 側の `internal/tab/sprint/parser` にある claude-skills 固有の7種類の専用構造体は、この汎用パーサ1本に置き換えて最終的に削除する。ADR/VISION/domain/system (design skill の成果物) も同じ契約で表現可能であることを確認済みで、対象は Sprint/Roadmap に限らず claude-skills の全ドキュメント種別に広げる。",
+  "consequences": [
+    "+ claude-skills 側の ROADMAP.json 等の内部スキーマ変更が Palmux に一切波及しなくなる。既に発生している drift 対応コードが不要になる",
+    "+ 7種類の専用構造体・専用パーサが1つの汎用再帰パーサに統合され、保守コストが大きく下がる",
+    "+ claude-skills 以外の任意のツール・スキルも同じ契約に従うだけで Docs タブに表示される、Sprint 専用ではない汎用機能になる",
+    "+ ADR/VISION/domain/system も同じ契約で表現でき、今まで Palmux 上でブラウズできなかったこれらのドキュメントが初めて閲覧可能になる",
+    "- ADR の supersedes/affects や domain.json の relationships のような相互参照は木構造 (children) では表現できず、親子関係とは別の links[] (任意 rel+ref) が必須。ツリーとグラフ2つの関係性モデルを同時に持つ複雑さが増える",
+    "- 移行コストは両リポジトリにまたがる。Palmux 側は internal/tab/sprint/parser 丸ごと書き換え + FE 型変更、claude-skills 側は投影ファイル生成ロジックの新規実装が要る",
+    "- 投影ファイルが古い (claude-skills 側が更新を忘れる) 場合、Docs タブの表示が実体と食い違うリスクがある。$schema のバージョン不一致検出による最低限の fail-safe が要る"
+  ],
+  "reversibility_cost": "high",
+  "affects": ["internal/tab/sprint (Docs タブへ改名・再実装)", "frontend/src/tabs/sprint (Docs タブへ改名・再実装)", "claude-skills (外部リポジトリ、投影ファイル出力ロジック新設)"],
+  "supersedes": null,
+  "superseded_by": null,
+  "notes": "ADR-0008 (claude-skills との疎結合は汎用契約 + 注入アダプタで、monorepo 化しない) と同じ思想の文書版。レイアウト (見せ方) の決定は別途 ADR-0011。ユーザ承認: 『OKです』(2026-07-20)。"
+}

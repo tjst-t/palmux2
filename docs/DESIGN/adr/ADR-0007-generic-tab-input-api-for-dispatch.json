@@ -1,0 +1,23 @@
+{
+  "id": "ADR-0007",
+  "title": "Dispatch 用プロンプト注入は Claude 専用にせず汎用 tab-input API として実装",
+  "status": "accepted",
+  "date": "2026-07-19",
+  "context": "Dispatch (ADR-0005) で Worker Workspace を作成した後、その Claude タブに初期プロンプトを非対話で流し込む口が必要。既存の Workspace Open (OnBranchOpen で Claude タブが自動起動) はあるが、非対話でテキストを入力する経路はまだ無い。人間が手でタイプするのと同じ WS input 経路 (pty I/O) は既に存在する。",
+  "alternatives": [
+    { "name": "Claude タブ専用の新規 API (例: POST .../tabs/claude/prompt)", "tradeoff": "実装は素直だが、DESIGN_PRINCIPLES 優先度2『タブ間の対称性 > Claude 専用 API』に反し、将来 Bash タブ等への同様の需要が出たときに作り直しになる" },
+    { "name": "任意タブへの非対話テキスト入力として汎用 API 化 (採用)", "tradeoff": "既存の WS input 経路 (人間の入力と同じ内部関数) をそのまま再利用でき、Claude タブに限定しない。実装コストは専用 API とほぼ同じ" }
+  ],
+  "decision": "Control → Worker のプロンプト注入は『任意タブへの非対話テキスト入力』(POST /api/repos/{repoId}/branches/{branchId}/tabs/{tabId}/input) という汎用 REST API として実装し、内部的には既存の WS input と同じ経路 (pty I/O への書き込み) を呼ぶ。Claude タブ専用のロジックは持たない。",
+  "consequences": [
+    "+ DESIGN_PRINCIPLES 優先度2 (タブ間の対称性) と整合する",
+    "+ 既存の WS input 経路を再利用でき、新規サブシステムを作らずに済む (既存資産活用 > 新規実装)",
+    "+ 将来 Bash タブ等への非対話コマンド注入にも同じ API がそのまま使える",
+    "- 汎用ゆえ、プロンプトの『意味』(改行タイミング、Enter 送信のタイミング等) は呼び出し側 (palmux-workspace CLI) が責任を持つ必要がある"
+  ],
+  "reversibility_cost": "low",
+  "affects": ["internal/server (handler_branch 等)", "internal/tab/claudetui", "internal/tab/claudeagent"],
+  "supersedes": null,
+  "superseded_by": null,
+  "notes": "初回実装では PoC として palmux-workspace CLI が既存の WS attach をクライアントとして叩く形で検証し、UX上の問題が出た場合にこの専用 REST エンドポイントを正式に切り出す、という順序も許容する。"
+}

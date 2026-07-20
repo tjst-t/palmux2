@@ -41,5 +41,5 @@
   ],
   "supersedes": null,
   "superseded_by": null,
-  "notes": "設計詳細は docs/no-halt-agent-design.md。palmux2 が systemd user unit として動く場合の cgroup 道連れ対策は ADR-0003。"
+  "notes": "設計詳細は docs/no-halt-agent-design.md。palmux2 が systemd user unit として動く場合の cgroup 道連れ対策は ADR-0003。2026-07-19: claude-tui (TUI モード) の ptyhost 利用は ADR-0009 で tmux backend への回帰が決定 (ptyhost の生存機構が tmux ネイティブ機能と重複していたため)。claude-agent (pipe モード) についてはこの ADR の decision が引き続き有効 (ADR-0004 参照)。"
 }

@@ -1,0 +1,25 @@
+{
+  "id": "ADR-0008",
+  "title": "claude-skills と palmux2 はリポジトリ分離を維持し、注入 Skill アダプタで疎結合連携する",
+  "status": "accepted",
+  "date": "2026-07-19",
+  "context": "Dispatch (ADR-0005〜0007) を実現するには、claude-skills の sprint/autopilot ロジックと palmux の worktree/agent 起動機構が協調する必要がある。claude-skills (github.com/tjst-t/claude-skills) は palmux2 専用ではなく、他プロジェクトでも使われる汎用の再利用可能スキル集として README で明示的に設計されている。一方 palmux2 には既に palmux-browser (S62374c/S4d8b1c) という前例があり、palmux 固有の能力を薄い CLI + 注入 Skill として公開するパターンが確立している。",
+  "alternatives": [
+    { "name": "monorepo 統合 (claude-skills を palmux2 に取り込む)", "tradeoff": "統合は密にできるが、claude-skills の他プロジェクトでの再利用性が失われるか、実質 palmux2 の一機能に格下げされる" },
+    { "name": "claude-skills が palmux REST API を直接叩く (env 変数検知 + curl)", "tradeoff": "リポジトリは分離できるが、claude-skills 側に palmux 固有の API 知識が埋め込まれ、非 palmux ユーザーの claude-skills にとって不要な複雑さになる。ユーザ指摘: 『Claude-Skillと密結合にし過ぎると、使わない人には微妙になる』" },
+    { "name": "palmux が注入 Skill + CLI アダプタとして dispatch 能力を公開し、claude-skills は薄い分岐のみ持つ (採用)", "tradeoff": "palmux-browser と同型で実装パターンが確立済み。claude-skills は『利用可能なら使う、無ければ従来の手動 gwq フローにフォールバック』という一箇所の分岐だけで済み、palmux 固有知識を持たない" }
+  ],
+  "decision": "claude-skills と palmux2 は別リポジトリ・別バージョニングのまま維持し monorepo 化しない。palmux は cmd/palmux の新規サブコマンド (palmux workspace dispatch / palmux workspace claim) と、それを教える注入 Skill (.claude-plugin 形式、--plugin-dir 注入、palmux-browser と同型) としてダispatch/claim 能力を公開する。claude-skills の sprint/autopilot SKILL.md は『この Skill/CLI が利用可能なら dispatch に使う、無ければ従来の手動 gwq 案内にフォールバック』という薄い分岐のみを持ち、palmux の REST API 仕様を直接知らない。",
+  "consequences": [
+    "+ claude-skills は palmux 非依存のまま、他プロジェクトでの再利用性を保つ",
+    "+ 非 claude-skills ユーザーの palmux でも dispatch 能力自体は (手動で palmux workspace コマンドを叩けば) 使える汎用機能になる",
+    "+ palmux 固有ロジックは palmux-workspace CLI/Skill 側に閉じ込められ、claude-skills 側の変更コストが最小になる",
+    "- 2つの独立リポジトリの integration surface (CLI コマンド名・引数・Skill の教え方) を両者で維持する必要があり、どちらか一方だけ更新すると連携が壊れる可能性がある",
+    "- claude-skills が実際にこの Skill を検知して使うかどうかは SKILL.md の指示文と Claude の判断に依存し、コードレベルで強制されない"
+  ],
+  "reversibility_cost": "medium",
+  "affects": ["cmd/palmux (新規 workspace サブコマンド)", "claude-skills (外部リポジトリ、sprint/autopilot SKILL.md)"],
+  "supersedes": null,
+  "superseded_by": null,
+  "notes": "palmux-browser (S62374c/S4d8b1c) を実装パターンの前例として踏襲。palmux-workspace の CLI/Skill 実装は別 Sprint で行う。"
+}

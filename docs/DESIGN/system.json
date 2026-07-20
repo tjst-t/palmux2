@@ -1,0 +1,127 @@
+{
+  "components": [
+    {
+      "name": "HTTP/WS Server",
+      "responsibility": "REST API + WebSocket (terminal attach / event broadcast) のハンドリング",
+      "language_or_stack": "Go 1.25 + net/http + nhooyr.io/websocket",
+      "deploys_as": "single binary",
+      "key_interfaces": [
+        { "kind": "http", "summary": "/api/repos/{repoId}/branches/... 系 REST" },
+        { "kind": "http", "summary": "WS /api/repos/{repoId}/branches/{branchId}/tabs/{tabId}/attach (terminal pty I/O)" },
+        { "kind": "http", "summary": "WS /api/events (broadcast: branch.opened, notification, sprint.claim_updated 等)" }
+      ],
+      "depends_on": ["Store", "Sprint Claim Store", "Tab Provider System"],
+      "notes": "既存コンポーネント。今回の変更は Workspace Dispatch API・Sprint Claim Store 用のハンドラ追加のみ"
+    },
+    {
+      "name": "Store",
+      "responsibility": "メモリ状態ストア。repos.json → git worktree list → tmux の順で真実を解決するハイブリッドポーリング",
+      "language_or_stack": "Go, internal/store",
+      "deploys_as": "in-process module",
+      "key_interfaces": [{ "kind": "function", "summary": "sync_worktree ループ (10s) が各種イベントを発行" }],
+      "depends_on": [],
+      "notes": "既存コンポーネント。sync_worktree ループに claim の merge 検知/自動クリアを相乗りさせる"
+    },
+    {
+      "name": "Tab Provider System",
+      "responsibility": "タブタイプのプラグイン機構 (Claude / Files / Git / Sprint / Bash)",
+      "language_or_stack": "Go, internal/tab/*",
+      "deploys_as": "in-process module",
+      "key_interfaces": [{ "kind": "function", "summary": "tab.Provider interface + optional capability (HeadChangedHook 等)" }],
+      "depends_on": [],
+      "notes": "既存コンポーネント。今回は変更しないが、汎用 tab-input API (Workspace Dispatch API) がこの上に薄く乗る"
+    },
+    {
+      "name": "Sprint Claim Store",
+      "responsibility": "SprintClaim の CRUD。git 管理せず palmux 内部のみで完結する状態",
+      "language_or_stack": "Go, 新設 internal/claim (もしくは internal/store 拡張)",
+      "deploys_as": "in-process module",
+      "key_interfaces": [
+        { "kind": "http", "summary": "GET/POST/PATCH /api/repos/{repoId}/claims" },
+        { "kind": "event", "summary": "更新の度に sprint.claim_updated を /api/events へ broadcast" }
+      ],
+      "depends_on": ["Store"],
+      "notes": "永続化は best-effort (ADR-0006)。単一ホスト内の単一 palmux インスタンスに閉じたスコープ"
+    },
+    {
+      "name": "Workspace Dispatch API",
+      "responsibility": "Worker Workspace 作成 (既存 Branch-open 流用) と、任意タブへの非対話テキスト入力注入 (Claude 専用にしない汎用 API)",
+      "language_or_stack": "Go, internal/server ハンドラ追加",
+      "deploys_as": "in-process module (HTTP/WS Server に統合)",
+      "key_interfaces": [
+        { "kind": "http", "summary": "POST /api/repos/{repoId}/branches (既存流用、gwq worktree 作成)" },
+        { "kind": "http", "summary": "POST /api/repos/{repoId}/branches/{branchId}/tabs/{tabId}/input (新規、汎用非対話入力)" }
+      ],
+      "depends_on": ["Store", "Sprint Claim Store", "Tab Provider System"],
+      "notes": "既存の WS input 経路 (人間のターミナル入力と同じ内部関数) を再利用する。DESIGN_PRINCIPLES 優先度2『タブ間の対称性 > Claude 専用 API』に従い、Claude タブ限定にしない"
+    },
+    {
+      "name": "palmux-workspace CLI + Skill",
+      "responsibility": "Claude Code セッションに『palmux の dispatch/claim の使い方』を注入するアダプタ。palmux 固有ロジックはここに閉じ込め、claude-skills 側には持たせない",
+      "language_or_stack": "Go (cmd/palmux の新規サブコマンド、既存バイナリに同梱)",
+      "deploys_as": "single binary subcommand (palmux workspace dispatch / palmux workspace claim) + .claude-plugin (palmux-browser と同型、--plugin-dir 注入)",
+      "key_interfaces": [{ "kind": "cli", "summary": "palmux workspace dispatch --sprint <id> --branch <name> --prompt-file <path> / palmux workspace claim update --status <x>" }],
+      "depends_on": ["Workspace Dispatch API", "Sprint Claim Store"],
+      "notes": "palmux-browser (S62374c/S4d8b1c) と同じパターン。claude-skills はこの Skill の有無を検知して使うかどうかを判断するだけで、palmux の REST API 仕様を直接知らない (ADR-0008)"
+    }
+  ],
+  "boundaries": [
+    {
+      "between": ["palmux2", "claude-skills"],
+      "justification": "claude-skills は palmux2 専用ではない汎用の再利用可能スキル集として、意図的に別リポジトリ・別バージョニングを維持する (ADR-0008)。境界は palmux-workspace CLI + Skill 1点のみ"
+    },
+    {
+      "between": ["Workspace Dispatch API", "Tab Provider System"],
+      "justification": "Dispatch API はタブ種別を知らない汎用の『非対話入力』を提供するだけで、Claude タブ固有の解釈 (プロンプトの意味等) は持たない"
+    }
+  ],
+  "data_flows": [
+    {
+      "name": "Sprint dispatch",
+      "steps": [
+        "Control Plane の Claude (claude-skills 側ロジック) が Sprint の dispatch を判断する",
+        "palmux workspace dispatch --sprint S099 ... を呼ぶ",
+        "Workspace Dispatch API が Worker Workspace (gwq worktree) を作成し、Sprint Claim Store に dispatched で登録",
+        "既存 OnBranchOpen で Worker Workspace の Claude タブが自動起動",
+        "起動待ちの上で Dispatch API が初期プロンプトをタブ入力として注入し、Claim を in_progress に更新",
+        "event WS が sprint.claim_updated を broadcast、Control Plane 側 Activity Inbox に表示"
+      ]
+    },
+    {
+      "name": "Worker status report",
+      "steps": [
+        "Worker Claude が palmux workspace claim update --status <x> を呼ぶ",
+        "Sprint Claim Store が更新される",
+        "event WS が broadcast し、Control Plane 側 Sprint タブ / Activity Inbox で可視化される"
+      ]
+    },
+    {
+      "name": "Merge & claim clear",
+      "steps": [
+        "ユーザ (または SKILL 運用ルールに従う Control Plane 側 Claude) が Worker branch を main に手動 merge",
+        "既存 sync_worktree ループが worktree の消滅または merge 済み状態を検知",
+        "対応する SprintClaim が cleared になる"
+      ]
+    }
+  ],
+  "external_dependencies": [
+    {
+      "name": "gwq",
+      "purpose": "worktree の作成/削除 (Worker Workspace の実体)",
+      "swappable": false,
+      "notes": "既存依存。変更なし"
+    },
+    {
+      "name": "claude CLI",
+      "purpose": "Worker/Control 双方の Claude タブの実行本体",
+      "swappable": false,
+      "notes": "既存依存。変更なし"
+    },
+    {
+      "name": "claude-skills",
+      "purpose": "Control Plane 側の判断ロジック (いつ・何を dispatch するか) を提供する外部スキル集",
+      "swappable": true,
+      "notes": "palmux はビルド時・実行時ともにこれに依存しない。Dispatch API は汎用なので claude-skills 以外のワークフローからも呼べる (ADR-0008)"
+    }
+  ]
+}

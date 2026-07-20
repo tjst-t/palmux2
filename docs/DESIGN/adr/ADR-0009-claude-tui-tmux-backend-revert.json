@@ -1,0 +1,28 @@
+{
+  "id": "ADR-0009",
+  "title": "claude-tui backend を tmux に回帰、scrollback/history は claude 自身に委譲",
+  "status": "accepted",
+  "date": "2026-07-19",
+  "context": "Track B (S1d2278〜Sadf90e) で claude-tui は custom PTY daemon + charmbracelet/x/vt Emulator を採用した。当時のロードマップ (docs/sprint-logs/S1d2278/track-b-roadmap.md) を読み直すと、この選択の本当の駆動要因は Agent SDK の課金オーバー (Max 20x $200/月上限を2週間で消費) からの脱却であり、tmux ベースの復帰 (`Sprint X: Track A pivot`) は当時から『subscription quota で動く最低限の経路』として対等な fallback 案として明記されていた。それでも custom 実装 (Track B) を選んだ理由は、旧 tmux ベース claude タブで実際に経験していた不満 (複数クライアント接続時の最小クライアントへの resize 強制・repaint ノイズ・tmux sync loop との lifecycle 絡み) を併せて解消したかったためである。\n\nその後 (1) no-halt-agent (ADR-0001) が claude-tui の palmux2 再起動跨ぎ生存のために ptyhost を新設したが、この性質は tmux セッションがネイティブに持つものと重複している。(2) tmux はそもそも raw byte replay ではなく server 側で解決済みの pane 状態を新規 attach クライアントへ送るアーキテクチャであり、Emulator の RenderSnapshot が解決していた『再接続時の壊れた scrollback』問題は tmux 自体の設計でも構造的に起きにくいことが判明した (現に Bash タブの OSC52 クリップボードは今も tmux 経由で正常動作している)。(3) claude CLI が内蔵 History 機能を持つようになり、ユーザーがターミナルネイティブの scrollback に依存して過去ログを遡る場面自体が減った。これにより、tmux 側でバイト単位の正確な scrollback バッファを持つ必要性も薄れた。(4) 残る非冗長な価値は role coordination (複数 WS クライアント同時接続時の単一書き込み者制御) のみで、これは VT 解析を要さない薄い gate として tmux backend の上にも同じコストで実装できる。",
+  "alternatives": [
+    { "name": "現状維持 (ptyhost + Emulator + roleCoordinator)", "tradeoff": "ptyhost の当初の存在理由 (palmux2 再起動を跨ぐ生存) が tmux ネイティブ機能と重複しており、独自実装・保守コストに見合わなくなっている" },
+    { "name": "完全 tmux 回帰 (role gate なしの単純復帰)", "tradeoff": "実装は最小だが、複数クライアント同時接続時の入力衝突 (role.go が解決していた問題) が再発する" },
+    { "name": "tmux backend + 薄い role gate層 (採用)", "tradeoff": "生存・reconnect の複雑さは tmux に委ね、実用上必要な role coordination だけを維持する。Emulator の VT 解析・grid 管理・独自 scrollback は丸ごと不要になる" }
+  ],
+  "decision": "claude-tui タブの backend を、custom PTY daemon (ptyhost) + charmbracelet/x/vt Emulator から、tmux window (Bash タブと同じ機構、internal/tmux.Client 経由) に回帰させる。scrollback/history の正確な保持は claude CLI 自身の内蔵 History 機能に委ね、palmux 側で独自の VT 解析・scrollback 再構成は行わない。複数 WS クライアント同時接続時の単一書き込み者制御 (active/viewer) は、既存 role.go のロジックを tmux backend 向けの薄い input gate として移植し維持する。claude-agent (stream-json/pipe モード) は非 tty の binary-clean pipe が必要で tmux に乗せられないため、ptyhost 利用を継続し無改造とする (ADR-0002〜0004 は agent モードの範囲で引き続き有効)。",
+  "consequences": [
+    "+ palmux2 再起動を跨ぐ claude 生存が tmux ネイティブの性質として得られ、claude-tui 向けの ptyhost cgroup 脱出・orphan GC・socket protocol の維持コストが不要になる",
+    "+ Bash タブと同じ tmux sync loop / zombie kill 機構を再利用でき、claude-tui 専用の discovery/reconnect 機構 (ring replay + SIGWINCH ジグル) を削除できる",
+    "+ charmbracelet/x/vt Emulator (VT 解析・grid 管理・OSC52 コールバック) を丸ごと削除でき、保守面が大きく軽くなる",
+    "+ incus in-container claude (S4d8b1c) の PTYCommander (`incus exec -t`) は既に Bash タブの AttachByIndex と同型なので、claude-tui が tmux backend に戻ることでむしろ実装パターンが揃う",
+    "- 旧 tmux ベース claude タブで経験していた具体的な不満 (最小クライアント resize・repaint ノイズ・sync loop との絡み) が再発するリスクがある。移行前に小さいスパイクで検証すること (このADRの実行条件、下記 notes 参照)",
+    "- claude-agent と claude-tui で backend が非対称になる (agent は ptyhost 継続、tui は tmux)。ただし Bash タブも含めた全体で見れば tmux が主流で ptyhost は agent 専用という、既存の非対称性 (agent だけが元々特別扱いだった) に近づく方向であり、新たな非対称の増加ではない",
+    "- OSC52 クリップボードハンドリングを Emulator の独自コールバックから tmux ネイティブの `set-clipboard on` 経路に切り替える必要があり、移行時に動作確認が要る",
+    "- grid JSON snapshot mode (S0fd64b で追加された mobile chat UI PoC 向け grid diff WS) を実際に使っている経路があれば、tmux backend では別実装が必要 (移行 Sprint で利用有無を確認すること)"
+  ],
+  "reversibility_cost": "high",
+  "affects": ["internal/tab/claudetui", "internal/ptyhost (agent モードのみ利用に scope 縮小)", "internal/tmux", "frontend claude-tui terminal-view"],
+  "supersedes": null,
+  "superseded_by": null,
+  "notes": "ADR-0001 は agent モード (ADR-0004) の範囲では引き続き有効なため supersede はしないが、TUI モード分について ADR-0001 側に本 ADR へのクロスリファレンスを追記した。実行前に、tmux (control mode 不要、`status off` + `aggressive-resize off` + 単一 pane 程度の素朴な設定) で旧不満 (resize/repaint/sync loop 絡み) が実用上気にならないかを小さくスパイクして確認すること — 過去の課金起因の判断 (S1d2278) とは前提が変わっている (claude 内蔵 History 機能の登場) ため、フルリライト着手前にこの前提を検証する。ユーザ承認: 『tmuxに戻す方向、過去の履歴はclaudeの実装に任す方向で』(2026-07-19)。"
+}

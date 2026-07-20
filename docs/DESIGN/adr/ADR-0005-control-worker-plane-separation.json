@@ -1,0 +1,24 @@
+{
+  "id": "ADR-0005",
+  "title": "ghq primary を Control Plane、gwq worktree を Worker とする役割分離",
+  "status": "accepted",
+  "date": "2026-07-19",
+  "context": "現在 palmux は ghq primary (リポジトリ本体) と gwq worktree を対等に扱い、どちらでもブランチをチェックアウトして実装できる。この対称性のせいで、計画・ロードマップ更新の作業がたまたま乗っているブランチに紛れ込んだり、primary 側と worktree 側が互いの作業状況を知らないまま autopilot の自動実行が既に進行中の Sprint に重複着手する事故が起きる。並行開発 (複数 Sprint を複数 worktree で同時に進める) をしたいという実需要が明確化したことで、この曖昧さが看過できなくなった。",
+  "alternatives": [
+    { "name": "現状維持 (symmetric worktree)", "tradeoff": "変更コストはゼロだが、まさに今困っている重複着手・作業散逸の問題がそのまま残る" },
+    { "name": "Palmux 本体で primary の git checkout 自体を禁止/警告する", "tradeoff": "最も強い強制力を持てるが、既存の head_changed ドメインモデル (worktree 上での git checkout を正式に許容する設計) への変更を伴い、影響範囲が大きい" },
+    { "name": "SKILL 側ガードのみで運用規約として強制する (採用)", "tradeoff": "Palmux 本体は無改造で済み、既存ドメインモデルを壊さない。ただし強制力は claude-skills 側の実装品質に依存する" }
+  ],
+  "decision": "ghq primary Workspace は常に main を HEAD とし、計画・ロードマップ更新・Sprint の dispatch 判断のみを行う Control Plane として役割固定する。実装は必ず dispatch された gwq worktree (Worker) で行う。強制は claude-skills 側の SKILL ガード (autopilot/sprint run が primary の HEAD ≠ main、または primary 上での実装試行を検知したら処理を止める) とし、Palmux 本体・既存の head_changed ドメインモデルは無改造とする。",
+  "consequences": [
+    "+ 計画作業と実装作業の置き場所が明確に分離され、autopilot の二重着手事故を防げる",
+    "+ Palmux 本体・既存ドメインモデル (head_changed 許容) を変更せずに済む",
+    "- 強制力が SKILL 側の実装に依存するため、claude-skills を使わない/古いバージョンを使うワークフローでは primary 上で直接実装されてしまう余地が残る",
+    "- role (control/worker) の判定ロジック自体は今回 SKILL 側に委ねており、Palmux の domain.json 上の WorkspaceRole は分類目的の記述に留まる (強制ではない)"
+  ],
+  "reversibility_cost": "medium",
+  "affects": ["claude-skills (外部リポジトリ、sprint/autopilot SKILL.md)"],
+  "supersedes": null,
+  "superseded_by": null,
+  "notes": "この決定の実効性は claude-skills 側の SKILL ガード実装に依存する。将来 Palmux 本体側でより強い強制 (checkout 警告等) が必要になった場合は、この ADR を supersede する新規 ADR を起こすこと。ユーザ確認済み: 『どちらかというとスキル側に書く事でもあるけど、いったんはこのままでもいい』(2026-07-19)。"
+}

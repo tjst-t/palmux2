@@ -1,0 +1,26 @@
+{
+  "id": "ADR-0011",
+  "title": "宣言的ブロック語彙 + SKILL側所有の view template でドキュメントレイアウトを表現",
+  "status": "accepted",
+  "date": "2026-07-20",
+  "context": "ADR-0010 で汎用データスキーマを導入しても、Palmux 側のコードが『kind ごとにどう並べるか』をハードコードしたレンダラーを持つ限り、新しい kind の追加やレイアウト変更のたびに Palmux のコード変更が要り、結合が半分しか解消されない。業界の類似事例 (Slack Block Kit、Atlassian Document Format、Notion API blocks、Portable Text) を調査した結果、いずれもそのまま採用するには不適合と判断した: Slack Block Kit / Notion blocks は自社製品専用の taxonomy で外部が汎用ライブラリとして import できない、Atlassian Document Format (ADF) は概念 (panel/decisionList/taskList/status) は的確だが実体が `@atlaskit/editor-*` という ProseMirror ベースの重量級 WYSIWYG エディタ一式で single-binary な Palmux (Go + 軽量 React SPA) には不釣り合い、Portable Text はリッチテキスト (inline装飾) 専用でテーブル・タイムライン・進捗バーのような構造化ダッシュボード表現は対象外。ただし ADF の `panel` (info/note/warning/success/error の5段階) ・`decisionList`/`decisionItem`・`taskList`/`taskItem`・`status` という命名と粒度は、プロジェクト管理ドキュメントの表現として実績があり taxonomy として参考にする価値がある。",
+  "alternatives": [
+    { "name": "Palmux が kind 別レンダラーをコードで持つ (現状の発展形)", "tradeoff": "データは汎用化されてもレイアウトロジックが Palmux 側に残り、新 kind 追加・レイアウト変更のたびに Palmux の変更が必要で、ADR-0010 の目的を半分しか達成しない" },
+    { "name": "外部 spec (ADF 等) をそのまま採用", "tradeoff": "重量級依存の追加、リッチテキスト限定でダッシュボード表現非対応など、調査の通り不適合" },
+    { "name": "小さく固定されたブロック語彙 + SKILL 側が所有する view template (採用)", "tradeoff": "語彙の設計・バージョニング・fallback 戦略の設計コストが増えるが、レイアウト変更が Palmux のコード変更なしに SKILL 側だけで完結する" }
+  ],
+  "decision": "Palmux は `heading` / `statusBadge` / `progressBar` / `table` / `timeline` / `tree` / `card` / `keyValueGrid` / `panel` (info/note/warning/success/error) / `decisionList`+`decisionItem` / `taskList`+`taskItem` / `linkList` / `markdown` / `section` という固定された小さいブロック語彙の汎用レンダラーのみをコードとして持つ。`panel`/`decisionList`/`decisionItem`/`taskList`/`taskItem`/`statusBadge` の命名と粒度は Atlassian Document Format を参考にする (コード・依存は取り込まず taxonomy のみ)。本文の自由記述は `markdown` ブロックに丸投げし、既存の Markdown レンダラーを再利用する (独自リッチテキストは作らない)。各 kind のレイアウトは SKILL 側が所有する view template (kind → ブロック構成のマッピングを記述した JSON) で定義され、claude-skills がこれも合わせて出力する。ナビゲーション・一覧・検索等の『枠』は kind 非依存のため Palmux 本体のコードのままとし、宣言的スペックの対象は『1ドキュメントの中身のレイアウト』のみに限定する。未知のブロック種別・壊れた view template は汎用 fallback (生データの最小限表示) で耐える。",
+  "consequences": [
+    "+ SKILL 側が view template を書き換えるだけでレイアウトを進化させられ、Palmux のコード変更が不要になる (ADR-0010 の目的を完全に達成)",
+    "+ ブロック語彙が小さく固定されているため、Palmux 側の実装・テストの対象が絞られる",
+    "+ 実績ある taxonomy (ADF 由来) を参考にしているため、語彙の抜け漏れ・命名の迷いが少ない",
+    "- ブロック語彙・view template 機構自体の初期実装コストが発生する (汎用インタプリタ + 14種程度の React コンポーネント)",
+    "- 語彙にないレイアウトが必要になった場合、(a) 語彙を拡張する (Palmux 変更が必要) か (b) 個別の Tab Provider として実装するかの判断が都度要る。語彙の拡張が際限なく増えると本 ADR の目的が形骸化するリスクがあり、拡張には慎重さが要る",
+    "- view template のバージョン不整合 (SKILL 側が古い語彙の template を出す) への耐性設計 (fallback) が要る"
+  ],
+  "reversibility_cost": "medium",
+  "affects": ["frontend/src/tabs/sprint (Docs タブのブロックレンダラー実装)", "claude-skills (外部リポジトリ、view template 出力ロジック新設)"],
+  "supersedes": null,
+  "superseded_by": null,
+  "notes": "ブロック語彙の初期セットは ADF (https://developer.atlassian.com/cloud/jira/platform/apis/document/structure/)・Slack Block Kit・Notion API blocks・Portable Text を比較検討した上でのオリジナル設計 (いずれのコード・ライブラリも不採用、2026-07-20 の検討ログ参照)。語彙拡張のガードレール (むやみに増やさない) は今後 sprint plan / design refresh で運用しながら確認すること。ユーザ承認: 『OKです』(2026-07-20)。"
+}

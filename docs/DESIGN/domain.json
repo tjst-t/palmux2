@@ -1,0 +1,84 @@
+{
+  "entities": [
+    {
+      "name": "Repository",
+      "definition": "ghq で管理され、palmux に Open されたリポジトリ。primary worktree (IsPrimary) を必ず1つ持つ",
+      "identity": "repoId (owner--repo--hash4)",
+      "lifecycle": ["opened", "closed"],
+      "owns": ["Workspace"],
+      "notes": "真実の所在は repos.json。palmux 独自の状態は持たない"
+    },
+    {
+      "name": "Workspace",
+      "definition": "git worktree path を identity とする作業単位。旧称 Branch。path が同じ限り git checkout で HEAD が変わっても identity は不変",
+      "identity": "worktree path 由来の workspaceId (domain.WorkspaceSlugIDFromPath)",
+      "lifecycle": ["opened", "head_changed (0回以上)", "closed"],
+      "owns": ["TabSet"],
+      "notes": "role 属性 (WorkspaceRole 参照) を持つ: primary Workspace は常に role=control、dispatch で作られた Workspace は role=worker。role は identity ではなく分類用の属性で、既存の IsPrimary 判定とは独立して扱う (将来 primary 以外にも control 相当が生まれる可能性を閉じないため)"
+    },
+    {
+      "name": "TabSet",
+      "definition": "Workspace が持つタブの集合。タブは Provider が生成し、順序は登録順",
+      "identity": "Workspace に従属 (単独の identity なし)",
+      "lifecycle": [],
+      "owns": ["Tab"],
+      "notes": "Claude / Files / Git / Sprint は protected、Bash のみ複数可"
+    },
+    {
+      "name": "SprintClaim",
+      "definition": "ある Sprint (claude-skills の ROADMAP.json 上の ID) が、どの Worker Workspace で dispatch 中かを示す palmux 内部の追跡レコード",
+      "identity": "sprintId",
+      "lifecycle": ["dispatched", "in_progress", "blocked", "done", "cleared"],
+      "owns": [],
+      "notes": "Sprint そのものは claude-skills の成果物 (ROADMAP.json) であり palmux は所有しない。SprintClaim は『どこで誰が触っているか』を追跡する palmux 側の調整用メタデータに過ぎず、一次情報のミラーではない (ADR-0006)。単一ホスト内の palmux インスタンスに閉じたスコープで、複数ホストにまたがる同期は対象外 (ADR-0006 notes 参照)"
+    }
+  ],
+  "value_objects": [
+    {
+      "name": "WorkspaceRole",
+      "definition": "control | worker。Workspace の分類属性。control = 常に main を HEAD に保ち計画・dispatch のみ行う (ghq primary が該当)。worker = dispatch されて実装を行う (gwq worktree が該当)"
+    }
+  ],
+  "relationships": [
+    {
+      "from": "Repository",
+      "to": "Workspace",
+      "kind": "one_to_many",
+      "label": "1 Repository は複数の Workspace (primary 1 + linked worktree N) を持つ"
+    },
+    {
+      "from": "Workspace",
+      "to": "TabSet",
+      "kind": "one_to_one",
+      "label": "1 Workspace は1つの TabSet を持つ"
+    },
+    {
+      "from": "Workspace",
+      "to": "SprintClaim",
+      "kind": "one_to_one",
+      "label": "role=worker の Workspace は同時に最大1件の active SprintClaim を持つ。historical claim は保持しない (cleared で消える)"
+    }
+  ],
+  "glossary": [
+    {
+      "term": "Control Plane",
+      "definition": "role=control の Workspace (通常 ghq primary)。常に main を HEAD に保ち、計画・ロードマップ更新・Sprint の dispatch 判断のみを行う。実装は行わない"
+    },
+    {
+      "term": "Worker",
+      "definition": "role=worker の Workspace。dispatch によって作られた gwq worktree で、1 Sprint = 1 Worker Workspace が基本単位。実装を行う"
+    },
+    {
+      "term": "Dispatch",
+      "definition": "Control Plane が Worker Workspace を作成し (gwq worktree 作成 + Claude タブ自動起動)、初期プロンプトを注入する一連の操作"
+    },
+    {
+      "term": "Claim",
+      "definition": "SprintClaim エンティティのカジュアルな呼び方。「この Sprint は claim されている (dispatch 済みで誰かが触っている)」という状態を指す"
+    },
+    {
+      "term": "claude-skills",
+      "definition": "palmux2 とは別リポジトリ (github.com/tjst-t/claude-skills) の汎用 Claude Code スキル集 (autopilot / sprint / design 等)。palmux2 の一部ではなく、他プロジェクトでも使われる再利用可能な独立プロダクト。palmux はこれに依存せず、汎用 API と注入 Skill を介して疎結合に連携するのみ (ADR-0008)"
+    }
+  ]
+}
