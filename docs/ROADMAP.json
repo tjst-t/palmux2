@@ -14227,6 +14227,20 @@
       "kind": "bug",
       "added_in": "Sc4f091",
       "status": "open"
+    },
+    {
+      "title": "codex/opencode タブが条件により claude を黙って起動する (サイレント誤エージェント実行)",
+      "kind": "bug",
+      "description": "実機再現済み (2026-07-20、palmuxOS アプライアンス VM 上、palmux2 v0.0.0-local = main 相当)。同一インスタンス・同一 incus-container ランタイム上で、ワークスペースによって挙動が分かれた: (a) 既存ワークスペース tjst-t--palmux2--2d59 の codex:codex / opencode:opencode タブ → 正しく codex / opencode を起動。(b) 新規作成した使い捨てワークスペース local--sfa2bab-dogfood--8bc3 の同名タブ → 両方とも /home/ubuntu/.local/bin/claude を起動。証拠は ptyhost の /proc/<pid>/cmdline を直接読んで確認 (--seed local--sfa2bab-dogfood--8bc3__..._codex:codex の argv 末尾が claude)。当初は host runtime 固有かと考えたが、使い捨て側を incus-container に切り替えた後も claude のままで、host/container は判別要因ではなかった。ユーザー影響は大きい: codex タブを開いたつもりで claude が動き、別エージェントの認証情報とクォータを消費する。画面を注視しないと気づけない。根本原因は未特定。有力な仮説2つ: (1) internal/tab/agenttui/manager.go:117 SetClaudeBin がアダプタ種別を問わず configurable.SetBin(claudeBin) を呼ぶため CodexAdapter/OpencodeAdapter の bin が claude で上書きされ得る (当該コメント自体が claude 単独時代の前提を明記している)。(2) 既存 backlog の『kind名にコロンを含む場合の誤ルーティング』『agentRegistry.Get(KindClaude) の ok 破棄』と同根で kind:name 形式の解決ミス。差分はデーモン生成タイミングにありそうだが未追跡。**関連する参考情報 (同日ユーザー報告、未再現)**: 「claude タブを追加→削除→再追加すると、削除したはずのタブが復活して見える」「タブ周りの動作がだいぶ怪しい」との所見あり。no-halt-agent (S3f2658) の ptyhost discovery/adopt は seed = repoId__branchId__tabId で既存プロセスを adopt するため、タブ削除時に ptyhost が SHUTDOWN されずに残ると同名タブの再追加で古いプロセスを拾い「復活」に見え得る。本バグ (タブ ID に対応するデーモンが別エージェントを保持している) と同じ「タブ ID とデーモン実体の対応が崩れる」形をしており、共通の根を持つ可能性が高い。既存 backlog の「kind名にコロンを含む場合の誤ルーティング」「agentRegistry.Get(KindClaude) の ok 破棄」「store.recomputeTabs の OnBranchOpen 呼び出し統一」も同領域で未修正のまま残っている。",
+      "added_in": "Sfa2bab",
+      "reason": "Sfa2bab の再ドッグフーディング中に発見。リリース判断に直結するため要修正。根本原因未特定のため Story 化前に調査が必要"
+    },
+    {
+      "title": "codex/opencode タブのマウスホイール/スクロール挙動の調査 (前回測定は無効、仕切り直し)",
+      "kind": "enhancement",
+      "description": "ユーザー提起 (2026-07-20): 「palmux が scrollback を持たない方針 (ADR-0009) なら、ホイールイベントは codex/opencode に行くべきでは？ ソフトに応じて変えられないか」。実機観測: (a) opencode は PageUp/PageDown で自身のチャット履歴を辿れる = 内部にスクロール可能なビューを持つ。(b) Windows のネイティブ TUI では opencode はマウスホイールでチャット履歴を辿れる = 環境によってはマウス追跡を有効化していると推測される。(c) codex は Windows でも端末のスクロールバックを使っている様子で、codex --help の『Runs the TUI in inline mode, preserving terminal scrollback history』とも一致する。**重要: 2026-07-20 に行った『両アプリともマウス追跡 (DECSET 1000/1002/1003/1006) を要求しない』という測定は無効。** 測定に使った使い捨てワークスペースが同日発見のバグ (codex/opencode タブが claude を起動する) を踏んでおり、実際には claude を2回測っていた。したがって『ホイールを転送すべきでない』という結論も根拠を失っており、ユーザーの当初の指摘は棄却されていない。**やること**: (1) 正しいエージェントが起動するワークスペースで、プロセス起動直後から attach してバイト列を取得し、codex/opencode が実際にマウス追跡を要求するかを測り直す。(2) 要求している場合は palmux 側の取りこぼし (emulator がモードを落としている / attach 時のスナップショット再生成でモードを再宣言していない) を疑い、バグとして修正する。xterm.js はアプリがモードを有効化していれば自動でホイールを転送するため、フロント側の追加実装は不要なはず。(3) 要求していない場合は、agent.Capabilities に per-agent の scrollback 方針 (例 terminal | app) を追加し、app のときだけホイールを SGR マウスシーケンスに変換して転送する分岐を agent-tui-tab.tsx に置く設計を検討する。マウス非対応アプリに送ると入力欄が壊れるため、必ず実測に基づいて分類すること。**ADR-0009 との関係**: 現状 attach 時に palmux が返すのは emulator の『現在描画されている画面』のスナップショットのみで、それ以前のバイト履歴は破棄される (agent-tui-tab.tsx の scrollback コメント参照)。codex/opencode は代替画面 (1049) を使わない inline TUI で端末スクロールバックに履歴を積む設計のため、この破棄が履歴喪失に直結している。tmux はサーバ側で pane のスクロールバックを保持するので、ADR-0009 の tmux 回帰 (S7010fa) はこの問題も解消する見込み。ADR-0009 の根拠は『claude が内蔵 History を持つようになった』という claude 固有の観察に立っているが、codex/opencode は内蔵 History ではなく端末スクロールバックに依存しており、エージェントごとに事情が異なる点を ADR に書き足す価値がある。",
+      "added_in": "Sfa2bab",
+      "reason": "ユーザー提起の UX 課題。前回測定が無効だったため再測定から。ADR-0009 (S7010fa) の実装で自然に解消する可能性があり、着手前に S7010fa との重複を確認すること"
     }
   ]
 }
