@@ -49,5 +49,54 @@
   ],
   "supersedes": null,
   "superseded_by": null,
-  "notes": "ADR-0009 (claude-tui backend の tmux 回帰) とは矛盾せず、その前提検証スパイクの結果にも依存しない — claude-tui の backend が ptyhost / tmux のどちらであっても本 ADR の Provider 契約は成立する。むしろ 0009 が通れば Conditional 流用の当事者である agenttui が claude 向けには消えるため、本 ADR の適用範囲は縮む。したがって本 ADR の実装 (Provider interface 手術 + 通知一本化) は 0009 スパイクを待たずに着手してよい。\n\n一方、FE 側のレンダラ解決の一本化 (tab-content.tsx が `tab.windowName` の有無でレンダラレジストリを短絡している件、および claude_mode と agent registry という2つの非同期ソースに描画判定が依存している件) と、claudeagent/agenttab の重複統合は、いずれも ADR-0009 の結果で形が変わるため本 ADR のスコープ外とし、スパイク後に判断する。\n\nADR-0010 (Docs タブ) との用語干渉に注意 — ADR-0010 の decision は『準拠ファイルの存在を Conditional 表示条件にする』と書いており、`Conditional()` を機構名として参照している。本 ADR はその機構を廃止するが、意図 (準拠ファイルがあるときだけタブを出す) は完全に保存される: `Tabs()` が0件を返すことで同じ可視性が表現される。したがって ADR-0010 の supersede は不要だが、Docs タブを実装する Sprint では既に存在しない `Conditional()` を実装しようとしないこと。現行の Sprint provider は唯一の Conditional 実装であり、本 ADR の移行対象の代表例でもある。\n\n案D (タブ集合を単一ストアに正規化し tmux を従属させる) の棄却理由は alternatives に記載のとおり。将来 Bash タブの tmux 撤廃 (backlog: 「Bash タブの tmux 撤廃 + ptytui 共通基盤化」) が実施された場合、外部 tmux 操作という制約自体が消えるため案D の再検討価値が生まれる — その時点で本 ADR の supersede を検討すること。\n\n実装前に固定した characterization test: internal/store/recompute_characterization_test.go (16件、導出マトリクス5系統 / S009-fix-1 の回帰 / 冪等性 / tabOverrides の置換不変性 / host scope 制約 / 意図的に pin した欠陥2件)。"
+  "notes": "ADR-0009 (claude-tui backend の tmux 回帰) とは矛盾せず、その前提検証スパイクの結果にも依存しない — claude-tui の backend が ptyhost / tmux のどちらであっても本 ADR の Provider 契約は成立する。むしろ 0009 が通れば Conditional 流用の当事者である agenttui が claude 向けには消えるため、本 ADR の適用範囲は縮む。したがって本 ADR の実装 (Provider interface 手術 + 通知一本化) は 0009 スパイクを待たずに着手してよい。\n\n一方、FE 側のレンダラ解決の一本化 (tab-content.tsx が `tab.windowName` の有無でレンダラレジストリを短絡している件、および claude_mode と agent registry という2つの非同期ソースに描画判定が依存している件) と、claudeagent/agenttab の重複統合は、いずれも ADR-0009 の結果で形が変わるため本 ADR のスコープ外とし、スパイク後に判断する。\n\nADR-0010 (Docs タブ) との用語干渉に注意 — ADR-0010 の decision は『準拠ファイルの存在を Conditional 表示条件にする』と書いており、`Conditional()` を機構名として参照している。本 ADR はその機構を廃止するが、意図 (準拠ファイルがあるときだけタブを出す) は完全に保存される: `Tabs()` が0件を返すことで同じ可視性が表現される。したがって ADR-0010 の supersede は不要だが、Docs タブを実装する Sprint では既に存在しない `Conditional()` を実装しようとしないこと。現行の Sprint provider は唯一の Conditional 実装であり、本 ADR の移行対象の代表例でもある。\n\n案D (タブ集合を単一ストアに正規化し tmux を従属させる) の棄却理由は alternatives に記載のとおり。将来 Bash タブの tmux 撤廃 (backlog: 「Bash タブの tmux 撤廃 + ptytui 共通基盤化」) が実施された場合、外部 tmux 操作という制約自体が消えるため案D の再検討価値が生まれる — その時点で本 ADR の supersede を検討すること。\n\n実装前に固定した characterization test: internal/store/recompute_characterization_test.go (16件、導出マトリクス5系統 / S009-fix-1 の回帰 / 冪等性 / tabOverrides の置換不変性 / host scope 制約 / 意図的に pin した欠陥2件)。",
+  "machine_check": {
+    "$comment": "Guard 7 (sprint-done-judgment.md) reads this block and runs the greps against the Sprint diff. These are the invariants of ADR-0012 that a future change could silently break — exactly the failure mode this ADR exists to stop.",
+    "checks": [
+      {
+        "id": "no-onbranchopen-from-reducer",
+        "kind": "forbidden_grep",
+        "paths": [
+          "internal/store/store.go",
+          "internal/store/host.go",
+          "internal/store/sync_tmux.go"
+        ],
+        "pattern": "\\.OnBranchOpen\\(",
+        "expect": "zero hits",
+        "why": "The tab-set derivation must read providers only through the pure Tabs() query. The lifecycle hook is legitimate ONLY from collectOpenSpecs (internal/store/branch.go), which is deliberately excluded from the path list."
+      },
+      {
+        "id": "no-direct-tabset-assignment",
+        "kind": "forbidden_grep",
+        "paths": [
+          "internal/store/"
+        ],
+        "pattern": "TabSet\\.Tabs\\s*=(?!.*append\\(\\[\\]domain\\.Tab)",
+        "expect": "hits only in swapTabs and cloneBranch",
+        "why": "Every tab-set change must go through swapTabs so recomputeAndPublish can diff and publish it. A direct assignment elsewhere reintroduces the silent-overwrite defect (12 of 13 call sites before ADR-0012)."
+      },
+      {
+        "id": "conditional-flag-stays-dead",
+        "kind": "forbidden_grep",
+        "paths": [
+          "internal/tab/",
+          "internal/store/"
+        ],
+        "pattern": "func \\([^)]*\\) Conditional\\(\\) bool",
+        "expect": "zero hits",
+        "why": "Conditional() was removed because it had drifted into meaning 'please call my lifecycle hook'. Conditional visibility is expressed by Tabs() returning zero tabs."
+      },
+      {
+        "id": "registry-get-not-called-from-provider-tabs",
+        "kind": "forbidden_grep",
+        "paths": [
+          "internal/tab/browser/provider.go",
+          "internal/tab/ports/provider.go"
+        ],
+        "pattern": "RuntimeRegistry\\(\\)\\.Get\\(",
+        "expect": "zero hits",
+        "why": "Registry.Get lazily constructs and caches a Runtime and its worktree resolver re-enters the Store. Providers must use the pure Kind() query for visibility decisions."
+      }
+    ]
+  }
 }

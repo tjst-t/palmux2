@@ -161,14 +161,25 @@ func (s *Store) AddTab(ctx context.Context, repoID, branchID, providerType, name
 		return domain.Tab{}, fmt.Errorf("recompute after AddTab: %w", err)
 	}
 	var added domain.Tab
+	var found bool
 	s.mu.RLock()
 	for _, t := range branch.TabSet.Tabs {
 		if t.WindowName == windowName {
-			added = t
+			added, found = t, true
 			break
 		}
 	}
 	s.mu.RUnlock()
+	if !found {
+		// ADR-0012 widened the window here: the derivation now runs outside
+		// s.mu, so a concurrent recompute (sync_tmux recovery, a runtime
+		// switch) can swap in a tab set derived from a snapshot taken before
+		// our window existed. The tmux window IS created and the next
+		// reconciliation (<=5 s) picks it up, but we must not pretend to
+		// return the tab: an empty domain.Tab would reach the HTTP handler as
+		// a 200 with a blank id. Report it instead.
+		return domain.Tab{}, fmt.Errorf("tab %q was created but is not in the recomputed tab set (concurrent recompute); it will appear on the next reconciliation", windowName)
+	}
 	return added, nil
 }
 

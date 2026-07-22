@@ -40,9 +40,9 @@ func TestProvider_TypeAndShape(t *testing.T) {
 	if p.NeedsTmuxWindow() {
 		t.Error("NeedsTmuxWindow() = true, want false")
 	}
-	if p.Conditional() {
-		t.Error("Conditional() = true, want false")
-	}
+	// ADR-0012 removed Conditional(); a provider that is always visible simply
+	// returns its tabs unconditionally from Tabs().
+	var _ tab.Provider = p
 }
 
 func TestProvider_LimitsDefaultsAndSettingsView(t *testing.T) {

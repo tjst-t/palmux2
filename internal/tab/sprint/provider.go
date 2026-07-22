@@ -72,11 +72,6 @@ func (p *Provider) Protected() bool       { return false }
 func (p *Provider) Multiple() bool        { return false }
 func (p *Provider) NeedsTmuxWindow() bool { return false }
 
-// Conditional — Sprint is the first conditional tab. recomputeTabs honours
-// the empty-result branch of OnBranchOpen for non-Multiple non-tmux providers
-// when this returns true.
-func (p *Provider) Conditional() bool { return true }
-
 // Limits — singleton when present.
 func (p *Provider) Limits(_ tab.SettingsView) tab.InstanceLimits {
 	return tab.InstanceLimits{Min: 1, Max: 1}

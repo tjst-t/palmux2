@@ -53,8 +53,8 @@ func main() {
 	writeSessionDir := ""
 	writeSessionID := ""
 	printCwd := false
-	emitOsc52 := ""      // non-empty → emit OSC 52 with this text as the payload
-	dumpInvocation := "" // non-empty → write argv + PALMUX_* env as JSON to this path
+	emitOsc52 := ""       // non-empty → emit OSC 52 with this text as the payload
+	dumpInvocation := ""  // non-empty → write argv + PALMUX_* env as JSON to this path
 	counterWinch := false // S3f2658-2: incrementing counter + SIGWINCH trap, for restart/reconnect + screen-restore-jiggle tests
 	queryBurstBytes := 0  // Sfeed64-1: >0 → emit a query-heavy burst of at least this many bytes
 

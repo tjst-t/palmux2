@@ -203,6 +203,51 @@
       "reference": "internal/store/tab.go, frontend/src/stores/palmux-store.ts applyEvent",
       "adr_ref": "ADR-0012",
       "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "verification",
+      "title": "hooks/run-guards.py と run-verify.py が環境に無いため、契約を保つローカル代替で機械実行した",
+      "detail": "CLAUDE_PLUGIN_ROOT が未設定で skill の hooks/ ディレクトリも存在せず、.claude/verify.json も無い。skill は『verify コマンド未設定は pass ではなく gap』と定めるため、契約の本質 (事実は機械が出す / status は実 exit code から複写し、モデルが出力を読んで判断しない) を保つ代替を用意した: (a) guards はスクリプトが grep を実行して guards-run.json を生成、(b) verify はシェルが `\"$@\"; code=$?` で exit code を捕捉し各ログ末尾に __VERIFY_EXIT_CODE__ マーカーを追記、その マーカーを解析して verify-run.json を生成。両ファイルの $machine_authored にこの逸脱を明記した。恒久対応として .claude/verify.json と .claude/guards.json をリポジトリに置くべき。",
+      "reference": "docs/sprint-logs/Sd0e1a9/{guards-run.json,verify-run.json}",
+      "adr_ref": "none",
+      "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "verification",
+      "title": "ADR-0012 に machine_check ブロックを追加したところ、即座に dead code を検出した",
+      "detail": "Guard 7 は touched_adrs の ADR が machine_check でカバーされていることを要求するが、本リポジトリの ADR にはブロックが1つも無く、ADR-0012 の不変条件が機械検査されない状態だった。まさに本 Sprint が防ごうとしている『無言の回帰』なので4件を追加した (recompute から OnBranchOpen を呼ばない / TabSet.Tabs の直接代入は swapTabs のみ / Conditional() が復活しない / provider の Tabs() が Registry.Get を呼ばない)。初回実行で conditional-flag-stays-dead が8ヒット — interface から Conditional() を外したのに9つの provider に実装が dead code として残っていた。コンパイルは通るが将来の読み手を誤解させるので削除した。追加したチェック自体が即座に実害を1件回収した形。",
+      "reference": "docs/DESIGN/adr/ADR-0012-pure-tab-set-derivation.json machine_check, internal/tab/*/provider.go",
+      "adr_ref": "ADR-0012",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "verification",
+      "title": "Guard 3/4 は本リポジトリでは n/a — 8ガード文書の priority_rule 9 が別プロジェクトのもの",
+      "detail": "sprint-done-judgment.md の Guard 3/4 は priority_rule 9 を『dev VM 実機 deploy + smoke test』として参照するが、本リポジトリの DESIGN_PRINCIPLES.json の priority_rule 9 は『明示的 > 暗黙的』であり全くの別物 (ガード文書は別プロジェクト向けに書かれている)。対応する実機規律はこのリポジトリでは priority_rule 2 『AC はコードパスを通すだけでなく失敗が発火する条件を再現する / lifecycle 変更は実セッション dogfood してからリリース』。本 Sprint はこれを満たす: 両 E2E は make serve INSTANCE=dev の本番モード実インスタンス (embed フロント、MOCK/fake フラグ無し) に対して実行し、新規ロックテストは mutation check で実際に落ちることを確認済み。この読み替えを verification-results.json の guard_notes に明記した。",
+      "reference": "docs/DESIGN_PRINCIPLES.json priority_rules, docs/sprint-logs/Sd0e1a9/verification-results.json guard_notes",
+      "adr_ref": "none",
+      "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "review",
+      "title": "cross-Story レビューで Story 2 が持ち込んだ race を発見し、沈黙する失敗を明示エラー化した",
+      "detail": "Story 1/2 が共有する internal/store/{store.go,host.go} の統合面を精査した結果、recomputeAndPublish が導出をロック外で行うため、2つの recompute が interleave すると (compute A → compute B → swap B → swap A) 古い方が勝つ窓ができることが判明。タブ列自体は導出中に読む live な tmux/provider 状態から作られ、reducer は冪等で5秒ループが再収束し、かつ phase 4 が必ず publish するので自己修復する — ロック保持は本 ADR が除去したデッドロックそのものなので、この interleave は受け入れる trade-off としてコメントに明記した。ただし AddTab は recompute 後に windowName でタブを引き直しており、この窓に当たると『ゼロ値の domain.Tab を 200 で返す』= 空 id のタブが HTTP 応答に乗るという沈黙する失敗になっていた。見つからない場合は明示エラーを返すよう修正した。",
+      "reference": "internal/store/tab.go AddTab, internal/store/store.go recomputeAndPublish",
+      "adr_ref": "ADR-0012",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "review",
+      "title": "Phase 1.8 独立検証と Phase 2 の /review は実行していない",
+      "detail": "(1) 独立検証 (--with-verifier) は別 Claude セッションを Agent として起動する必要があるが、本セッションには AgentTool をユーザ要求なしに呼ばない制約があり、ユーザが打ったのはフラグ無しの `sprint verify` (手動実行時の既定は verifier OFF)。よって Phase 1.8 はスキップし、単一セッションの8ガードが唯一のゲートである — 自己採点バイアスが残っている点を明記する。(2) Phase 2 の /review も、working diff 用の /code-review が harness 上ユーザ起動専用のため実行不可。代替として cross-Story 共有面 (store.go / host.go / provider.go) を自分で精査し、上記 race を1件発見・修正した。バグ探索の網羅性は保証できない。",
+      "reference": ".claude/skills/sprint/references/sprint-verify.md Phase 1.8 / Phase 2",
+      "adr_ref": "none",
+      "drift_flag": "minor"
     }
   ]
 }

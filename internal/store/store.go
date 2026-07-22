@@ -782,6 +782,17 @@ func (s *Store) publishTabDiff(repoID, branchID string, prev, next []domain.Tab)
 // reload. Every path now goes through here — do not reintroduce a direct
 // tab-set assignment.
 //
+// CONCURRENCY: because phase 2 runs without the lock, two overlapping
+// recomputes can interleave (compute A, compute B, swap B, swap A) and the
+// older derivation wins. This is bounded and self-correcting: the tab list is
+// derived from live tmux + live provider state read during phase 2 (not from
+// the snapshot), the reducer is idempotent, and the 5 s sync loop reconciles
+// again — and because phase 4 always publishes, the browser is told either
+// way. The alternative (holding the write lock across the derivation) is the
+// deadlock this ADR exists to remove, so the interleave is the accepted
+// trade-off. Callers that need the post-recompute tab set must handle "my tab
+// is not there yet" rather than assume it (see AddTab).
+//
 // MUST be called WITHOUT s.mu held.
 func (s *Store) recomputeAndPublish(ctx context.Context, repoID, branchID string) error {
 	s.mu.RLock()

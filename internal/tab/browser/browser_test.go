@@ -90,8 +90,10 @@ func (f *fakeRuntime) findExecContaining(fragments ...string) (fakeExecCall, boo
 }
 
 // Stub implementations of the runtime.Runtime interface (unused in browser tests).
-func (f *fakeRuntime) Kind() runtime.Kind     { return runtime.KindIncusContainer }
-func (f *fakeRuntime) Config() runtime.Config { return runtime.Config{Kind: runtime.KindIncusContainer} }
+func (f *fakeRuntime) Kind() runtime.Kind { return runtime.KindIncusContainer }
+func (f *fakeRuntime) Config() runtime.Config {
+	return runtime.Config{Kind: runtime.KindIncusContainer}
+}
 func (f *fakeRuntime) Start(_ context.Context) error { return nil }
 func (f *fakeRuntime) Stop(_ context.Context) error  { return nil }
 func (f *fakeRuntime) Status() runtime.Status {
@@ -108,7 +110,7 @@ func (f *fakeRuntime) ExposePort(_ context.Context, _ runtime.PortSpec) (runtime
 	return runtime.PortMapping{}, nil
 }
 func (f *fakeRuntime) UnexposePort(_ context.Context, _ string) error { return nil }
-func (f *fakeRuntime) TmuxClient() tmux.Client                         { return nil }
+func (f *fakeRuntime) TmuxClient() tmux.Client                        { return nil }
 
 // ---------------------------------------------------------------------------
 // fakeDeviceAdder records calls but does nothing real.
@@ -496,8 +498,10 @@ func (s *seqFakeRuntime) Exec(_ context.Context, cmd []string, opts runtime.Exec
 	}
 	return runtime.ExecResult{ExitCode: 0}, nil
 }
-func (s *seqFakeRuntime) Kind() runtime.Kind     { return runtime.KindIncusContainer }
-func (s *seqFakeRuntime) Config() runtime.Config { return runtime.Config{Kind: runtime.KindIncusContainer} }
+func (s *seqFakeRuntime) Kind() runtime.Kind { return runtime.KindIncusContainer }
+func (s *seqFakeRuntime) Config() runtime.Config {
+	return runtime.Config{Kind: runtime.KindIncusContainer}
+}
 func (s *seqFakeRuntime) Start(_ context.Context) error { return nil }
 func (s *seqFakeRuntime) Stop(_ context.Context) error  { return nil }
 func (s *seqFakeRuntime) Status() runtime.Status {
@@ -514,7 +518,7 @@ func (s *seqFakeRuntime) ExposePort(_ context.Context, _ runtime.PortSpec) (runt
 	return runtime.PortMapping{}, nil
 }
 func (s *seqFakeRuntime) UnexposePort(_ context.Context, _ string) error { return nil }
-func (s *seqFakeRuntime) TmuxClient() tmux.Client                         { return nil }
+func (s *seqFakeRuntime) TmuxClient() tmux.Client                        { return nil }
 
 func TestPersistenceMount(t *testing.T) {
 	const containerAddr = "10.100.0.5"

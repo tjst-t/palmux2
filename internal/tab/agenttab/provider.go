@@ -76,7 +76,6 @@ func (p *Provider) DisplayName() string   { return p.adapter.DisplayName() }
 func (p *Provider) Protected() bool       { return false }
 func (p *Provider) Multiple() bool        { return true }
 func (p *Provider) NeedsTmuxWindow() bool { return false }
-func (p *Provider) Conditional() bool     { return false }
 
 // Limits: at least one tab of this kind is seeded on a fresh branch (so the
 // TabBar shows a default entry, matching claude/bash); the upper bound is

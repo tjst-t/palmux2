@@ -60,9 +60,6 @@ func (p *Provider) Protected() bool       { return false }
 func (p *Provider) Multiple() bool        { return false }
 func (p *Provider) NeedsTmuxWindow() bool { return false }
 
-// Conditional — the Browser tab hides itself on host-runtime workspaces.
-func (p *Provider) Conditional() bool { return true }
-
 // Limits — singleton when present.
 func (p *Provider) Limits(_ tab.SettingsView) tab.InstanceLimits {
 	return tab.InstanceLimits{Min: 1, Max: 1}
