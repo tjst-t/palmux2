@@ -1,0 +1,34 @@
+{
+  "sprint": "S3f3cb2",
+  "touched_adrs": ["ADR-0012"],
+  "decisions": [
+    {
+      "timestamp": "2026-07-22T00:00:00Z", "category": "implementation",
+      "title": "Story 1: 再購読の意図をコードから確認したうえで『root 不変なら再利用』に置き換えた",
+      "detail": "git/sprint の OnBranchOpen が毎回 old.Unsubscribe() → Subscribe() していた意図は、コメントに『Replace any stale subscription (e.g. branch closed and reopened without provider teardown)』と明記されていた。両 provider とも OnBranchClose で購読解除しているため、この防御が効くのは teardown を経ずに close→reopen した場合のみ。購読に root を持たせ、root が変わっていなければ再利用、変わっていれば従来どおり張り替える形にした。S1e8d02 で BranchID が path 由来になったので、キー不変 ⇒ root 不変が成り立ち、常用パスは必ず再利用になる。",
+      "reference": "internal/tab/{git,sprint}/provider.go, internal/tab/sprint/watcher_reuse_test.go",
+      "adr_ref": "none", "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z", "category": "verification",
+      "title": "Story 1 の効果測定: 常用パスは 4.06〜7.40 秒 → 0.03〜0.05 秒",
+      "detail": "実 dev インスタンス (本番モード)、Mirante-demo workspace に対する POST /tabs を4回連続実測: 3.61s / 0.04s / 0.03s / 0.05s。初回のみ購読の初期登録が入るため 3.61 秒、以降は約100倍高速。ユーザーが報告した『タブ追加が遅い』『タブに戻ると Reconnecting が長い』は繰り返し操作なので、体感はこの2回目以降の値で決まる。回帰テストは mutation check (再購読に戻すと落ちる) 済み。",
+      "reference": "docs/sprint-logs/S3f3cb2/measurements-preexisting.json",
+      "adr_ref": "none", "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z", "category": "implementation",
+      "title": "【要ユーザー判断】Story 2 の当初案 (ensureBranchSession の fast path) は回帰だったので revert した",
+      "detail": "『セッションが生きていれば collectOpenSpecs を呼ばずに早期リターンする』を実装したが、inotify watch 数の実測で回帰を確認した: fast path なしで既存ブランチに WS attach すると watch 数が 345 → 54,395 に増える (購読が走る) のに対し、fast path ありでは 345 のまま = 購読が一度も走らない。ADR-0012 以降 PopulateTabs は OnBranchOpen を呼ばないため、サーバ再起動後に tmux セッションが生き残っているブランチでは watcher が二度と購読されず、Sprint タブのライブ更新と git ステータス通知が黙って止まる。レイテンシと引き換えに機能を失う変更なので revert した。既存 E2E は throwaway repo を新規 open する経路なのでこの回帰を検出できず、inotify の実測で初めて分かった。",
+      "reference": "internal/store/tab.go (revert 済み), /proc/PID/fdinfo による inotify watch 実測",
+      "adr_ref": "ADR-0012", "drift_flag": "major"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z", "category": "implementation",
+      "title": "【要ユーザー判断】真の根本原因は監視範囲: sprint は 26 ディレクトリで足りるのに 27,025 個を登録している",
+      "detail": "worktreewatch.Subscribe は Spec.Roots を addRecursiveLocked で再帰登録する。Mirante-demo は全 27,025 ディレクトリ (node_modules 55 ルートを含む) で、git と sprint が各々全体を張るため合計 54,395 watch になる。しかし sprintFilter が実際に受理するのは docs/ROADMAP.json・docs/sprint-logs/**・.claude/autopilot-*.lock だけで、docs/ 配下は 26 ディレクトリしかない。約1000分の1で足りる。git は working tree 全体の変更で status を更新する仕様なので範囲自体は正当だが、.git/objects や node_modules の除外余地はある。inotify の上限は 1,048,576 なので今は余裕があるが、30 workspace × 54k = 約160万で超過する計算になる。**この修正には worktreewatch.Spec に非再帰 root (docs 作成を検知するため worktree 直下を浅く見る必要がある) を足す API 追加が要るため、着手前にユーザー判断を仰ぐ。**",
+      "reference": "internal/worktreewatch/watcher.go addRecursiveLocked, internal/tab/sprint/provider.go sprintFilter",
+      "adr_ref": "none", "drift_flag": "major"
+    }
+  ]
+}

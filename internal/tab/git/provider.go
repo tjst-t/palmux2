@@ -18,6 +18,15 @@ import (
 // TabType is the stable provider identifier.
 const TabType = "git"
 
+// watchSub is a live worktree-watch subscription plus the root it was
+// created for. The root is what makes subscription REUSE safe: the provider
+// resubscribes only when the worktree behind a branch key actually changed
+// (S3f3cb2).
+type watchSub struct {
+	sub  *worktreewatch.Subscription
+	root string
+}
+
 // Provider implements tab.Provider for the Git tab.
 //
 // S012: provider now owns a single shared *worktreewatch.Watcher and an
@@ -31,14 +40,14 @@ type Provider struct {
 	mu      sync.Mutex
 	watcher *worktreewatch.Watcher
 	// subs is keyed "{repoID}/{branchID}".
-	subs map[string]*worktreewatch.Subscription
+	subs map[string]watchSub
 }
 
 // New returns a Provider with a Store reference for path resolution.
 func New(s *store.Store) *Provider {
 	return &Provider{
 		store: s,
-		subs:  map[string]*worktreewatch.Subscription{},
+		subs:  map[string]watchSub{},
 	}
 }
 
@@ -79,10 +88,26 @@ func (p *Provider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.P
 		root := params.Branch.WorktreePath
 		key := repoID + "/" + branchID
 		p.mu.Lock()
-		// Replace any stale subscription (e.g. branch closed and reopened
-		// without provider teardown).
 		if old, ok := p.subs[key]; ok {
-			old.Unsubscribe()
+			if old.root == root {
+				// Already watching exactly this worktree — reuse it.
+				//
+				// S3f3cb2: re-subscribing here cost ~1.7 s on a large worktree
+				// (recursive inotify registration), and OnBranchOpen runs from
+				// ensureBranchSession, which is on the path of BOTH tab creation
+				// and every WS attach.
+				//
+				// The unconditional Unsubscribe this replaces was guarding a
+				// stale subscription after "branch closed and reopened without
+				// provider teardown". That case is still handled: the root
+				// comparison resubscribes whenever the worktree behind this key
+				// changed. Since S1e8d02 made BranchID path-derived, an
+				// unchanged key implies an unchanged root, so the common path
+				// now reuses.
+				p.mu.Unlock()
+				return tab.ProviderResult{}, nil
+			}
+			old.sub.Unsubscribe()
 			delete(p.subs, key)
 		}
 		sub, err := p.watcher.Subscribe(worktreewatch.Spec{
@@ -98,7 +123,7 @@ func (p *Provider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.P
 			},
 		})
 		if err == nil {
-			p.subs[key] = sub
+			p.subs[key] = watchSub{sub: sub, root: root}
 		}
 		p.mu.Unlock()
 	}
@@ -112,7 +137,7 @@ func (p *Provider) OnBranchClose(_ context.Context, params tab.CloseParams) erro
 	key := params.Branch.RepoID + "/" + params.Branch.ID
 	p.mu.Lock()
 	if sub, ok := p.subs[key]; ok {
-		sub.Unsubscribe()
+		sub.sub.Unsubscribe()
 		delete(p.subs, key)
 	}
 	p.mu.Unlock()
@@ -213,7 +238,7 @@ func gitFilter(root string) worktreewatch.Filter {
 func (p *Provider) Close() {
 	p.mu.Lock()
 	for k, sub := range p.subs {
-		sub.Unsubscribe()
+		sub.sub.Unsubscribe()
 		delete(p.subs, k)
 	}
 	w := p.watcher

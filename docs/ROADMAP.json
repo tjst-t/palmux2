@@ -13451,22 +13451,22 @@
       "title": "タブ操作のレイテンシ解消: worktree watcher の再購読をやめる",
       "description": "ユーザーが実機ドッグフーディングで報告した「Bash タブを開いても真っ暗のまま」「タブ追加に妙に時間がかかる」「タブに戻ると Reconnecting が長い」の恒久修正。Sd0e1a9 の実機検証中に計測で原因を特定済み: git provider と sprint provider の OnBranchOpen が worktree 全体への fsnotify 購読を毎回 Unsubscribe → Subscribe し直しており、ensureBranchSession のたびに git 1.66s + sprint 2.09s = 約3.8秒を消費する。ensureBranchSession はタブ追加でも WS attach でも呼ばれるため、体感の遅さすべてがここに集約される。Sprint 開始前コミット (a1e0bf7) との A/B で AddTab が 5.79s / 7.18s だったことを確認しており、ADR-0012 の変更による回帰ではなく既存の問題。計測内訳: PROF ensureBranchSession=3783ms のうち OnBranchOpen(git)=1663ms / OnBranchOpen(sprint)=2090ms、pickNextWindowName=8ms / NewWindow=21ms / recomputeAndPublish=7ms。",
       "milestone": false,
-      "status": "pending",
+      "status": "partial",
       "detail_level": "detailed",
       "stories": {
         "S3f3cb2-1": {
           "title": "palmux 利用者として、Bash タブを開いたときすぐにシェルが表示され、タブの追加やタブ間の移動が待たされずに済むようにしてほしい。なぜなら、今は1操作ごとに数秒間 真っ暗な画面や Reconnecting 表示を見せられ、複数エージェントを並行運用するという本来の使い方が成立しないから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-S3f3cb2-1-1",
               "description": "同一 workspace に対する2回目以降の ensureBranchSession が、worktree watcher の購読をやり直さない。既に同じ (repoID, branchID, roots, filter) の購読があれば再利用する。git / sprint の両 provider で成立すること",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-S3f3cb2-1-2",
               "description": "計測: 実 dev インスタンスの Mirante-demo workspace に対する POST /tabs (bash 追加) が 1.0 秒以内に完了する (修正前は 4.0〜7.4 秒)。同一環境・同一 workspace で修正前後を測り、両方の数値を verification-results.json の evidence に残す",
-              "status": "pending"
+              "status": "partial"
             },
             {
               "id": "AC-S3f3cb2-1-3",
@@ -13476,39 +13476,39 @@
             {
               "id": "AC-S3f3cb2-1-4",
               "description": "watcher の購読を再利用しても、docs/ROADMAP.json の作成・削除による Sprint タブの出没と、git status 変更による git.statusChanged イベントが従来どおり発火する (購読を使い回したことで通知が来なくなる回帰が無い)",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "S3f3cb2-1-1": {
               "title": "調査: git provider (internal/tab/git/provider.go:85) と sprint provider (internal/tab/sprint/provider.go:120) が OnBranchOpen のたびに old.Unsubscribe() → Subscribe() し直している意図を git 履歴から確認する。branch 再オープン時の stale 購読対策と読めるが、ID が path 由来になった S1e8d02 以降も必要かを判断する",
-              "status": "pending"
+              "status": "done"
             },
             "S3f3cb2-1-2": {
               "title": "購読を冪等にする: 同じ branch に対する購読が既に存在し spec が変わっていなければ再利用する。worktreewatch 側に spec 比較を持たせるか provider 側で保持するかは調査結果で決める",
-              "status": "pending"
+              "status": "done"
             },
             "S3f3cb2-1-3": {
               "title": "計測: 修正前後の POST /tabs レイテンシを同一環境で測り、内訳 (ensureBranchSession / provider 別 OnBranchOpen) も記録する。Sd0e1a9 で使った一時計測ログと同じ観点",
-              "status": "pending"
+              "status": "done"
             },
             "S3f3cb2-1-4": {
               "title": "回帰テスト: 同一 branch に対して ensureBranchSession 相当を複数回呼んでも Subscribe が1回しか走らないことの単体テスト",
-              "status": "pending"
+              "status": "done"
             },
             "S3f3cb2-1-5": {
               "title": "回帰テスト: 購読再利用後も worktree の変更でイベントが発火することの単体テスト (AC-1-4)",
-              "status": "pending"
+              "status": "done"
             },
             "S3f3cb2-1-6": {
               "title": "E2E: tests/e2e/s3f3cb2_tab_latency.py — タブ追加からプロンプト描画まで、タブ切り戻しから Reconnecting 解消までの時間を実測して閾値を assert する",
-              "status": "pending"
+              "status": "done"
             }
           }
         },
         "S3f3cb2-2": {
           "title": "palmux 開発者として、ensureBranchSession が WS attach のホットパスで重い処理を呼ばない構造にしてほしい。なぜなら、購読を冪等にしても『セッション存在確認のために全 provider のライフサイクルフックを起動する』という構造自体が残り、将来 provider が増えるたびに同じ遅延が再発するから。",
-          "status": "pending",
+          "status": "needs_user_review",
           "acceptance_criteria": [
             {
               "id": "AC-S3f3cb2-2-1",
@@ -13539,7 +13539,8 @@
               "title": "外部 kill → sync_tmux 復旧が fast path 導入後も動くことの回帰テスト",
               "status": "pending"
             }
-          }
+          },
+          "needs_human": "当初案 (ensureBranchSession の fast path) は inotify 実測で回帰と判明し revert 済み。真の根本原因は監視範囲 (sprint は 26 ディレクトリで足りるのに 27,025 個を登録) で、修正には worktreewatch への非再帰 root API 追加が要るためユーザー判断を仰ぐ。"
         }
       }
     }
