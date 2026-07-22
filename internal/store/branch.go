@@ -187,7 +187,7 @@ func (s *Store) RenameBranch(ctx context.Context, repoID, branchID, newName stri
 	s.mu.Unlock()
 
 	// Notify Providers (default no-op for everyone except those that opt in).
-	for _, p := range s.registry.Providers() {
+	for _, p := range s.registry.Participants() {
 		if hc, ok := p.(tab.HeadChangedHook); ok {
 			if err := hc.OnBranchHeadChanged(ctx, tab.HeadChangedParams{
 				Branch: snap, OldBranch: oldName, NewBranch: newName,
@@ -273,7 +273,7 @@ func (s *Store) CloseBranch(ctx context.Context, repoID, branchID string) error 
 		}
 	}
 	// Run OnBranchClose hooks.
-	for _, p := range s.registry.Providers() {
+	for _, p := range s.registry.Participants() {
 		if err := p.OnBranchClose(ctx, tab.CloseParams{Branch: branch}); err != nil {
 			s.logger.Warn("OnBranchClose error", "provider", p.Type(), "err", err)
 		}
@@ -679,7 +679,7 @@ func (s *Store) restartBranchTabDaemons(ctx context.Context, branch *domain.Bran
 	if branch == nil {
 		return
 	}
-	for _, p := range s.registry.Providers() {
+	for _, p := range s.registry.Participants() {
 		if h, ok := p.(tab.RuntimeRestartHook); ok {
 			if err := h.OnBranchRuntimeRestarted(ctx, tab.CloseParams{Branch: branch}); err != nil {
 				s.logger.Warn("OnBranchRuntimeRestarted error", "provider", p.Type(), "err", err)

@@ -38,80 +38,50 @@ func newTestProvider(t *testing.T) *Provider {
 
 // --- TestProviderShape --------------------------------------------------------
 
-// TestProviderShape verifies the Provider's static interface method contracts.
+// TestParticipantShape verifies the post-ADR-0012 contract: agenttui is a
+// SERVICE PARTICIPANT, not a tab.Provider.
 //
-// Sadf90e collapsed the previous Claude(TUI) tab into a service-only Provider:
-//   - it no longer surfaces a tab from OnBranchOpen
-//   - Limits is {0, 0}
-//   - Conditional() is still true so the lifecycle hooks run during
-//     store.recomputeTabs.
-func TestProviderShape(t *testing.T) {
+// History: Sadf90e collapsed the Claude(TUI) tab into a service-only Provider
+// that returned zero tabs but declared Conditional()==true purely so
+// store.recomputeTabs would call its lifecycle hook. ADR-0012 removed that
+// masquerade — a visibility flag was doing the job of a subscription
+// mechanism. There is now no way for this type to contribute a tab, which is
+// stronger than the old "returns an empty slice" invariant: it is enforced by
+// the type, not by the implementation remembering to return nothing.
+func TestParticipantShape(t *testing.T) {
 	p := newTestProvider(t)
 
 	if got := p.Type(); got != "claude-tui" {
 		t.Errorf("Type() = %q, want %q", got, "claude-tui")
 	}
-	if got := p.DisplayName(); got == "" {
-		t.Error("DisplayName() should be non-empty (diagnostic label)")
-	}
-	if !p.Protected() {
-		t.Error("Protected() should be true")
-	}
-	if p.Multiple() {
-		t.Error("Multiple() should be false")
-	}
-	if p.NeedsTmuxWindow() {
-		t.Error("NeedsTmuxWindow() should be false")
-	}
-	if !p.Conditional() {
-		// S7ce250-fix-2: must be true so store.recomputeTabs() invokes
-		// OnBranchOpen and the lifecycle hooks run.
-		t.Error("Conditional() should be true")
-	}
 
-	limits := p.Limits(nil)
-	if limits.Min != 0 || limits.Max != 0 {
-		t.Errorf("Limits() = {Min:%d, Max:%d}, want {0, 0} — Provider creates 0 tabs since Sadf90e",
-			limits.Min, limits.Max)
+	// Compile-time: it is a Participant, and it is NOT a tab.Provider.
+	var _ tab.Participant = p
+	if _, isProvider := any(p).(tab.Provider); isProvider {
+		t.Error("agenttui must NOT satisfy tab.Provider — it contributes no tabs (ADR-0012)")
 	}
-
-	// Verify it satisfies the tab.Provider interface at compile time.
-	var _ tab.Provider = p
 }
 
-// --- TestOnBranchOpen ---------------------------------------------------------
-
-// TestOnBranchOpenReturnsNoTabs verifies the Sadf90e invariant: the Provider
-// no longer creates a tab from OnBranchOpen. The visible Claude tab is owned
-// by the claudeagent Provider; this Provider only hosts the TUI runtime
-// endpoints and the daemon is created lazily on first WS attach.
-func TestOnBranchOpenReturnsNoTabs(t *testing.T) {
+// TestRegisterServiceKeepsItOutOfTabDerivation is the behavioural half of the
+// contract: a service participant never reaches the Store's tab-set
+// derivation, which only ever iterates Providers().
+func TestRegisterServiceKeepsItOutOfTabDerivation(t *testing.T) {
 	p := newTestProvider(t)
-	ctx := context.Background()
+	r := tab.NewRegistry()
+	r.RegisterService(p)
 
-	branch := &domain.Branch{ID: "branch-1", RepoID: "repo-1", Name: "main"}
-	result, err := p.OnBranchOpen(ctx, tab.OpenParams{Branch: branch})
-	if err != nil {
-		t.Fatalf("OnBranchOpen: %v", err)
+	if n := len(r.Providers()); n != 0 {
+		t.Errorf("Providers() = %d, want 0 — a service must not appear in tab derivation", n)
 	}
-	if len(result.Tabs) != 0 {
-		t.Errorf("Tabs len = %d, want 0 (Sadf90e — Provider no longer surfaces tabs)", len(result.Tabs))
+	if n := len(r.Participants()); n != 1 {
+		t.Errorf("Participants() = %d, want 1 — lifecycle dispatch must still reach it", n)
 	}
-	// And no daemon is registered eagerly — spawn is fully lazy.
+	if got := r.Get("claude-tui"); got != nil {
+		t.Error("Registry.Get must not resolve a service as a tab Provider")
+	}
+	// Spawn stays lazy: registration alone must not create a daemon.
 	if p.manager.Len() != 0 {
 		t.Errorf("manager.Len() = %d, want 0 (lazy spawn)", p.manager.Len())
-	}
-}
-
-// TestOnBranchOpenNilBranch ensures OnBranchOpen handles a nil Branch safely.
-func TestOnBranchOpenNilBranch(t *testing.T) {
-	p := newTestProvider(t)
-	result, err := p.OnBranchOpen(context.Background(), tab.OpenParams{Branch: nil})
-	if err != nil {
-		t.Fatalf("OnBranchOpen(nil branch): unexpected error: %v", err)
-	}
-	if len(result.Tabs) != 0 {
-		t.Errorf("expected 0 tabs for nil branch, got %d", len(result.Tabs))
 	}
 }
 

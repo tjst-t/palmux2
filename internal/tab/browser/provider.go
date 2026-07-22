@@ -70,6 +70,37 @@ func (p *Provider) Limits(_ tab.SettingsView) tab.InstanceLimits {
 
 // OnBranchOpen returns a single Browser tab iff the workspace runtime is
 // incus-container; otherwise no tabs.
+// Tabs reports the Browser tab iff the workspace runs on incus-container.
+//
+// Pure (ADR-0012): it asks the registry for the resolved KIND, never Get() —
+// Get lazily constructs and caches a Runtime, and its worktree resolver can
+// re-enter the Store. Creating the per-workspace Manager is a side effect and
+// stays in OnBranchOpen.
+func (p *Provider) Tabs(_ context.Context, params tab.TabsParams) ([]domain.Tab, error) {
+	if params.Branch == nil || !p.isIncusKind(params.Branch.RepoID, params.Branch.ID) {
+		return nil, nil
+	}
+	return []domain.Tab{{
+		ID:        TabType,
+		Type:      TabType,
+		Name:      p.DisplayName(),
+		Protected: false,
+		Multiple:  false,
+	}}, nil
+}
+
+// isIncusKind is the pure visibility predicate used by Tabs.
+func (p *Provider) isIncusKind(repoID, branchID string) bool {
+	if p.st == nil {
+		return false
+	}
+	reg := p.st.RuntimeRegistry()
+	if reg == nil {
+		return false
+	}
+	return reg.Kind(repoID, branchID) == runtime.KindIncusContainer
+}
+
 func (p *Provider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.ProviderResult, error) {
 	if params.Branch == nil {
 		return tab.ProviderResult{}, nil
@@ -81,15 +112,7 @@ func (p *Provider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.P
 	// Ensure a Manager exists for this workspace.
 	p.getOrCreateManager(params.Branch.RepoID, params.Branch.ID)
 
-	return tab.ProviderResult{
-		Tabs: []domain.Tab{{
-			ID:        TabType,
-			Type:      TabType,
-			Name:      p.DisplayName(),
-			Protected: false,
-			Multiple:  false,
-		}},
-	}, nil
+	return tab.ProviderResult{}, nil
 }
 
 // OnBranchClose stops the browser (if running) and removes the Manager.

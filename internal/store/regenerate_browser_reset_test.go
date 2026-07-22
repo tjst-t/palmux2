@@ -54,9 +54,11 @@ func (*recordingResetProvider) DisplayName() string   { return "Recording Reset"
 func (*recordingResetProvider) Protected() bool       { return false }
 func (*recordingResetProvider) Multiple() bool        { return false }
 func (*recordingResetProvider) NeedsTmuxWindow() bool { return false }
-func (*recordingResetProvider) Conditional() bool     { return false }
 func (*recordingResetProvider) Limits(_ tab.SettingsView) tab.InstanceLimits {
 	return tab.InstanceLimits{Min: 1, Max: 1}
+}
+func (*recordingResetProvider) Tabs(_ context.Context, _ tab.TabsParams) ([]domain.Tab, error) {
+	return nil, nil
 }
 func (*recordingResetProvider) OnBranchOpen(_ context.Context, _ tab.OpenParams) (tab.ProviderResult, error) {
 	return tab.ProviderResult{}, nil

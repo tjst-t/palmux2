@@ -698,7 +698,11 @@ func run(rc resolved) error {
 	// the live Store as a WorktreeResolver — it satisfies the interface
 	// because *Store has BranchWorktreePath via the helper in store.go.
 	claudetuiProvider.SetWorktreeResolver(storeWorktreeResolver{store: st})
-	registry.Register(claudetuiProvider)
+	// ADR-0012: agenttui contributes no tabs — it is a PTY runtime that wants
+	// lifecycle callbacks + HTTP routes. Registering it as a service keeps it
+	// out of the tab-derivation path entirely (it used to fake Conditional()
+	// just to get its lifecycle hook called).
+	registry.RegisterService(claudetuiProvider)
 
 	// S0e8afb-3 (P3 — multiplicity + ownership): one agenttui.Manager +
 	// VISIBLE agenttab.Provider per enabled, NON-claude agent kind in the

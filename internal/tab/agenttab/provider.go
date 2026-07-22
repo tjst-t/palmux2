@@ -150,9 +150,12 @@ func (p *Provider) tabsForBranch(repoID, branchID string) []string {
 
 // OnBranchOpen returns the persisted per-branch tab list for this kind,
 // auto-seeding the canonical tab on a branch that has never had one.
-func (p *Provider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.ProviderResult, error) {
+// Tabs reports this branch's persisted agent tabs. Pure (ADR-0012): it only
+// reads the per-branch tab-id list the provider already persisted, which is
+// exactly what the Store's tab-set derivation needs and nothing more.
+func (p *Provider) Tabs(_ context.Context, params tab.TabsParams) ([]domain.Tab, error) {
 	if params.Branch == nil {
-		return tab.ProviderResult{}, nil
+		return nil, nil
 	}
 	tabIDs := p.tabsForBranch(params.Branch.RepoID, params.Branch.ID)
 	tabs := make([]domain.Tab, 0, len(tabIDs))
@@ -165,7 +168,13 @@ func (p *Provider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.P
 			Multiple:  true,
 		})
 	}
-	return tab.ProviderResult{Tabs: tabs}, nil
+	return tabs, nil
+}
+
+// OnBranchOpen has no windows to declare — the agent owns its own PTY, and
+// daemon spawn is lazy (first WS attach). Tabs are declared by Tabs.
+func (p *Provider) OnBranchOpen(_ context.Context, _ tab.OpenParams) (tab.ProviderResult, error) {
+	return tab.ProviderResult{}, nil
 }
 
 // OnBranchClose tears down every daemon of this kind owned by the branch and

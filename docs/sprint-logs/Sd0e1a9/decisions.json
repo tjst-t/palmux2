@@ -104,6 +104,69 @@
       "reference": ".claude/skills/sprint/references/gui-spec.md Phase 4, CLAUDE.md 『長時間かかる実機テストの待ち方』",
       "adr_ref": "none",
       "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "implementation",
+      "title": "【重大】Story 2 の AC-2-3 を既に解決済みのコードとテストが未マージブランチに埋もれていることを発見",
+      "detail": "実装中に commit 65fc548 'fix(store): stop recomputeTabs from touching the runtime registry under s.mu' が HEAD の祖先でないことが判明。ブランチ customize-ws-container (main から 27 ahead / 205 behind) にのみ存在する。内容は本 Sprint の Story 2 AC-2-3 そのもの: recomputeTabs を gatherRecomputeWindows (ロック不要、registry に触れてよい) と recomputeTabsLocked (純粋、ロック必須、in-memory state 以外に触れない) に分割し、Store.mu に LOCK ORDER INVARIANT を明文化している。付随して internal/store/recompute_lock_test.go に5テスト (TestGatherRecomputeWindows_NotReadyIncusRuntime_NeverStarts / _ReadyIncusRuntime_ListsWindows / TestPopulateTabs_ReentrantResolver_DoesNotDeadlock / TestRecomputeBranchTabs_ReentrantResolver_DoesNotDeadlock / TestOpenRepo_ReentrantResolver_DoesNotDeadlock)。さらに 380577d 'verify(Seeb4b9): deadlock fixed' で実機 (appliance) 検証済み。つまり『検証まで済んだ修正が、ブランチが取り込まれないまま205コミット分陳腐化して失われた』。本 Sprint の前提 (タブ層は無言で回帰する) の実例そのもの。Story 2 ではこの設計を prior art として読み、失われた5テストを現行構造に合わせて復元する。cherry-pick は 205 コミット差のため期待しない。",
+      "reference": "git show 65fc548, git show 380577d, branch customize-ws-container",
+      "adr_ref": "ADR-0012",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "implementation",
+      "title": "runtime.Registry に純粋クエリ Kind() を追加し、browser/ports の Tabs() は Get() を呼ばない",
+      "detail": "browser/ports の可視性判定 isIncus() は runtime.Registry.Get() を呼ぶが、Get は incus-container の場合に Runtime を遅延生成してキャッシュに入れる = 副作用。さらに 65fc548 の記述どおり Get の worktree resolver は Store.Branch (s.mu.Lock) にコールバックしうるため、s.mu 保持下で呼ぶと再入デッドロックになる。Tabs() の契約 (副作用禁止・安価) を満たすため、cfg 解決だけを行い Runtime を構築しない Kind(repoID, branchID) を runtime.Registry に追加し、browser/ports の Tabs() はこれを使う。Get() は従来どおりライフサイクル経路 (OnBranchOpen / tmuxFor) が使う。",
+      "reference": "internal/runtime/registry.go, internal/runtime/incus/registry.go Get(), internal/tab/{browser,ports}/provider.go",
+      "adr_ref": "ADR-0012",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "implementation",
+      "title": "AC-1-5 の『14件が無改変で緑』は数え間違いで、正しくは13件 + 契約反転3件",
+      "detail": "plan 時に characterization 16件のうち DEFECT 2件だけが反転すると書いたが、実装して分かったのは3件目がある: TestChar_Reducer_CallsOnBranchOpenAsQueryWithResumeFalse は『reducer が OnBranchOpen を Resume=false 固定のクエリとして呼ぶ』という旧契約そのものを pin しており、ADR-0012 はまさにそれを廃止する。よってアサーション不変で緑なのは13件、契約反転が3件 (Registry / Reducer-query / Notification=Story2)。当該テストは TestChar_Reducer_UsesPureTabsQueryNotLifecycleHook へ改名し『Tabs() が N 回・OnBranchOpen が 0 回』を assert する形へ反転した。fixture の interface 追随 (Tabs メソッド追加、Conditional 削除) は AC-1-5 が明示的に許容した範囲。",
+      "reference": "internal/store/recompute_characterization_test.go",
+      "adr_ref": "ADR-0012",
+      "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "implementation",
+      "title": "AC-1-4 の違法フラグ組み合わせを、Conditional 廃止後の等価な不変条件へ読み替えた",
+      "detail": "plan の AC-1-4 は『Conditional かつ Multiple、または Conditional かつ NeedsTmuxWindow』を違法条件としていたが、Conditional 自体が廃止されるので literal には満たせない。Register が実際に守るべき不変条件を洗い出して置き換えた: (a) Type() が空、(b) Type() が tab-ID 区切り文字 ':' を含む (domain.TabID / ParseWindowName が曖昧になる)、(c) Limits.Min > Limits.Max、(d) Multiple()==false なのに Max>1、(e) Multiple()==true なのに Max==1 (AddTab が永久に失敗する)。いずれも従来は無検査で、矛盾すると AddTab/RemoveTab の片方が到達不能になる実害があった。誤検知で本番が起動不能にならないことは、実バイナリを起動して9 provider + 1 service が panic なく登録され HTTP 200 を返すことで確認済み。",
+      "reference": "internal/tab/provider.go validate(), TestChar_Registry_RejectsIllegalProvider / _AcceptsLegalProviders",
+      "adr_ref": "ADR-0012",
+      "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "implementation",
+      "title": "host scope のタブ表示名が変わる (bash → Bash) — 重複コードのドリフト修正の副作用",
+      "detail": "recomputeHostTabs は displayNameForBash という自前の命名関数を持ち『bash provider の命名をミラーする』とコメントしていたが、実際にはドリフトしていた: canonical を 'bash'、追加分を 'bash-2' と表示する一方、通常の workspace は 'Bash' / 'Bash 2'。host scope を provider の Tabs() 経由に統合したことでこのドリフトが解消し、結果として Host スコープのタブ『ラベル』が変わる (ID は不変)。characterization test は ID しか見ていなかったため捕捉できておらず、自己レビューで発見した。意図的な変更として TestChar_HostScope_TabNamesMatchWorkspaceNaming で新しい命名を明示的に pin した。さらに再発防止として、この命名規約を tab.InstanceDisplayName として tab パッケージへ集約し、provider ごとの複製をやめた (同じドリフトが2度起きないように)。",
+      "reference": "internal/store/host.go, internal/tab/provider.go InstanceDisplayName, TestChar_HostScope_TabNamesMatchWorkspaceNaming",
+      "adr_ref": "ADR-0012",
+      "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "review",
+      "title": "skill 指定の /review を実行できないため、4観点の自己レビューで代替した",
+      "detail": "sprint-run.md は各 Story で /review を Skill 経由で呼べと定めるが、この harness で working diff 用の /code-review はユーザ起動専用で私からは実行できず、利用可能な review skill は GitHub PR 向け。代替として simplify skill を起動し、その4観点 (reuse / simplification / efficiency / altitude) を自分で diff に適用した (skill 本体は4つの Agent を並列起動する設計だが、本セッションには AgentTool をユーザ要求なしに呼ばない制約があるため直列に自分で実施)。発見して修正した実害2件: (1) incus/registry.go で Kind() を挿入した位置が悪く Get() の doc コメントが Kind() に付け替わり Get() が無文書化していた、(2) bash provider に閉じ込めた表示名規約が将来の2つ目の tmux-multi provider で再びドリフトしうる (tab.InstanceDisplayName へ集約)。併せて Kind()/Get() の cfg 解決を resolveConfig() に共通化した。バグ探索の観点は skill の対象外なので、必要ならユーザが /code-review を実行する必要がある。",
+      "reference": ".claude/skills/sprint/references/sprint-run.md Step 2, simplify skill",
+      "adr_ref": "none",
+      "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "implementation",
+      "title": "Story 1 の E2E は既存 workspace の観測 + throwaway repo でのライブ検証に分けた",
+      "detail": "gui-spec の scenario-2 は『worktree の docs/ROADMAP.json を退避して Sprint タブの出現/消失を見る』としていたが、dev instance が指すのはユーザーの実リポジトリなので実ファイルを動かすのは避けた。代わりに (a) 条件付き可視性は既存30 workspace の観測で検証 (Sprint 表示19 / 非表示11、browser/ports は incus workspace のみ)、(b) リロード無しのライブ反映は ghq root 配下に作った throwaway repo で検証し、SIGTERM ハンドラ + finally の二重で必ず後始末する構成にした (CLAUDE.md の『timeout の SIGTERM では finally が走らない』教訓を反映)。実行後に repo 残存ゼロを確認済み。",
+      "reference": "tests/e2e/sd0e1a9_tab_set.py, docs/sprint-logs/Sd0e1a9/gui-spec-Sd0e1a9-1.json",
+      "adr_ref": "none",
+      "drift_flag": "minor"
     }
   ]
 }

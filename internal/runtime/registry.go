@@ -12,7 +12,21 @@ import "context"
 type Registry interface {
 	// Get returns the Runtime for the given workspace, or nil if no runtime
 	// has been registered for it yet (caller should fall back to host).
+	//
+	// NOT a pure query: for incus-container workspaces this constructs and
+	// caches a Runtime, and its worktree resolver may call back into the
+	// Store (taking s.mu). Never call it from a tab.Provider.Tabs
+	// implementation or from anywhere holding the Store write lock — use
+	// Kind for visibility decisions instead (ADR-0012).
 	Get(repoID, branchID string) Runtime
+
+	// Kind reports which runtime kind the workspace resolves to WITHOUT
+	// constructing, caching, or starting anything. It is the pure query that
+	// tab.Provider.Tabs implementations use to decide runtime-conditional
+	// visibility (Browser / Ports appear only on incus-container).
+	//
+	// Returns KindHost when nothing is configured.
+	Kind(repoID, branchID string) Kind
 }
 
 // SharedProfileReconciler is an OPTIONAL capability a Registry may implement to

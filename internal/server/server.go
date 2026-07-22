@@ -62,7 +62,8 @@ func NewMux(deps Deps) *http.ServeMux {
 
 	// Let registered tab providers attach their REST endpoints under their
 	// own prefix. (Files / Git providers — Phase 4 / 5.)
-	for _, p := range deps.Store.Registry().Providers() {
+	// ADR-0012: services (agenttui) own routes too, so iterate Participants.
+	for _, p := range deps.Store.Registry().Participants() {
 		prefix := "/api/repos/{repoId}/branches/{branchId}/" + p.Type()
 		p.RegisterRoutes(apiMux, prefix)
 	}

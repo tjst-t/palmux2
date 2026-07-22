@@ -54,6 +54,22 @@ func (p *Provider) Limits(_ tab.SettingsView) tab.InstanceLimits {
 	return tab.InstanceLimits{Min: 1, Max: 1}
 }
 
+// Tabs reports the single Git tab. Pure (ADR-0012) — note this deliberately
+// does NOT start the worktree watcher: that is a side effect and lives in
+// OnBranchOpen, which fires only on a genuine branch open. Before ADR-0012
+// the two were in the same method.
+func (p *Provider) Tabs(_ context.Context, _ tab.TabsParams) ([]domain.Tab, error) {
+	return []domain.Tab{{
+		ID:        TabType,
+		Type:      TabType,
+		Name:      p.DisplayName(),
+		Protected: true,
+	}}, nil
+}
+
+// OnBranchOpen subscribes the worktree watcher for this branch so Git status
+// changes publish an event. Side effects are legitimate here — this fires on
+// a real branch open, not on every tab recompute.
 func (p *Provider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.ProviderResult, error) {
 	// Lazily start the watcher so unit tests that don't need fsnotify
 	// (e.g. parseStatus) skip it.
@@ -87,14 +103,7 @@ func (p *Provider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.P
 		}
 		p.mu.Unlock()
 	}
-	return tab.ProviderResult{
-		Tabs: []domain.Tab{{
-			ID:        TabType,
-			Type:      TabType,
-			Name:      p.DisplayName(),
-			Protected: true,
-		}},
-	}, nil
+	return tab.ProviderResult{}, nil
 }
 
 func (p *Provider) OnBranchClose(_ context.Context, params tab.CloseParams) error {

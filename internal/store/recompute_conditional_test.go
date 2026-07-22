@@ -27,15 +27,22 @@ func (condProvider) DisplayName() string   { return "Cond" }
 func (condProvider) Protected() bool       { return false }
 func (condProvider) Multiple() bool        { return false }
 func (condProvider) NeedsTmuxWindow() bool { return false }
-func (condProvider) Conditional() bool     { return true }
 func (condProvider) Limits(_ tab.SettingsView) tab.InstanceLimits {
 	return tab.InstanceLimits{Min: 0, Max: 1}
 }
-func (p condProvider) OnBranchOpen(_ context.Context, _ tab.OpenParams) (tab.ProviderResult, error) {
+
+// Tabs expresses conditional visibility by returning zero tabs — after
+// ADR-0012 there is no Conditional() flag; "sometimes invisible" is just a
+// provider whose pure query returns nothing.
+func (p condProvider) Tabs(_ context.Context, _ tab.TabsParams) ([]domain.Tab, error) {
 	if p.visible == nil || !*p.visible {
-		return tab.ProviderResult{}, nil
+		return nil, nil
 	}
-	return tab.ProviderResult{Tabs: []domain.Tab{{ID: "cond", Type: "cond", Name: "Cond"}}}, nil
+	return []domain.Tab{{ID: "cond", Type: "cond", Name: "Cond"}}, nil
+}
+
+func (condProvider) OnBranchOpen(_ context.Context, _ tab.OpenParams) (tab.ProviderResult, error) {
+	return tab.ProviderResult{}, nil
 }
 func (condProvider) OnBranchClose(_ context.Context, _ tab.CloseParams) error { return nil }
 func (condProvider) RegisterRoutes(_ *http.ServeMux, _ string)                {}

@@ -175,3 +175,7 @@ func NewDefaultRegistry(t tmux.Client) *DefaultRegistry {
 
 // Get always returns the single host Runtime regardless of the workspace IDs.
 func (r *DefaultRegistry) Get(_, _ string) runtime.Runtime { return r.rt }
+
+// Kind always reports host — this registry only ever hands out host runtimes.
+// Pure (ADR-0012).
+func (r *DefaultRegistry) Kind(_, _ string) runtime.Kind { return runtime.KindHost }

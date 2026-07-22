@@ -42,27 +42,33 @@ import (
 
 // charRestProvider is a non-tmux, non-conditional singleton — the Files/Git
 // shape. recomputeTabs synthesises its tab without consulting the provider.
-type charRestProvider struct{ typ string }
+type charRestProvider struct {
+	typ            string
+	lifecycleCalls *atomic.Int64
+}
 
 func (p charRestProvider) Type() string        { return p.typ }
 func (p charRestProvider) DisplayName() string { return "Rest " + p.typ }
 func (charRestProvider) Protected() bool       { return true }
 func (charRestProvider) Multiple() bool        { return false }
 func (charRestProvider) NeedsTmuxWindow() bool { return false }
-func (charRestProvider) Conditional() bool     { return false }
 func (charRestProvider) Limits(_ tab.SettingsView) tab.InstanceLimits {
 	return tab.InstanceLimits{Min: 1, Max: 1}
 }
 
-// OnBranchOpen deliberately returns a tab the reducer must IGNORE: for
-// non-conditional non-tmux singletons recomputeTabs synthesises the tab
-// itself and never calls the provider. If the surgery starts routing this
-// shape through the provider, this sentinel name shows up and the test
-// catches the semantic change.
+func (p charRestProvider) Tabs(_ context.Context, _ tab.TabsParams) ([]domain.Tab, error) {
+	return []domain.Tab{{
+		ID: p.typ, Type: p.typ, Name: "Rest " + p.typ, Protected: true,
+	}}, nil
+}
+
+// OnBranchOpen is the LIFECYCLE hook. Post-ADR-0012 the reducer must never
+// call it, so the sentinel name below must never reach a tab. Keeping the
+// sentinel here is the whole point: it turns "did the reducer call the
+// lifecycle hook?" into an observable assertion.
 func (p charRestProvider) OnBranchOpen(_ context.Context, _ tab.OpenParams) (tab.ProviderResult, error) {
-	return tab.ProviderResult{Tabs: []domain.Tab{{
-		ID: p.typ, Type: p.typ, Name: "SENTINEL-must-not-appear",
-	}}}, nil
+	p.lifecycleCalls.Add(1)
+	return tab.ProviderResult{}, nil
 }
 func (charRestProvider) OnBranchClose(_ context.Context, _ tab.CloseParams) error { return nil }
 func (charRestProvider) RegisterRoutes(_ *http.ServeMux, _ string)                {}
@@ -74,9 +80,10 @@ func (charRestProvider) RegisterRoutes(_ *http.ServeMux, _ string)              
 type charMultiProvider struct {
 	typ   string
 	tabs  *[]string     // provider-owned tab ids (stand-in for claudeagent.Store)
-	calls *atomic.Int64 // OnBranchOpen invocations
-	// resumeSeen records the Resume flag of the last OnBranchOpen call.
-	resumeSeen *atomic.Bool
+	calls *atomic.Int64 // Tabs() invocations — the pure query
+	// lifecycleCalls counts OnBranchOpen invocations. Post-ADR-0012 the
+	// reducer must never touch it.
+	lifecycleCalls *atomic.Int64
 }
 
 func (p charMultiProvider) Type() string        { return p.typ }
@@ -84,20 +91,23 @@ func (p charMultiProvider) DisplayName() string { return "Multi " + p.typ }
 func (charMultiProvider) Protected() bool       { return true }
 func (charMultiProvider) Multiple() bool        { return true }
 func (charMultiProvider) NeedsTmuxWindow() bool { return false }
-func (charMultiProvider) Conditional() bool     { return false }
 func (charMultiProvider) Limits(_ tab.SettingsView) tab.InstanceLimits {
 	return tab.InstanceLimits{Min: 1, Max: 3}
 }
-func (p charMultiProvider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.ProviderResult, error) {
+func (p charMultiProvider) Tabs(_ context.Context, _ tab.TabsParams) ([]domain.Tab, error) {
 	p.calls.Add(1)
-	p.resumeSeen.Store(params.Resume)
 	out := make([]domain.Tab, 0, len(*p.tabs))
 	for _, id := range *p.tabs {
 		out = append(out, domain.Tab{
 			ID: id, Type: p.typ, Name: id, Protected: true, Multiple: true,
 		})
 	}
-	return tab.ProviderResult{Tabs: out}, nil
+	return out, nil
+}
+
+func (p charMultiProvider) OnBranchOpen(_ context.Context, _ tab.OpenParams) (tab.ProviderResult, error) {
+	p.lifecycleCalls.Add(1)
+	return tab.ProviderResult{}, nil
 }
 func (charMultiProvider) OnBranchClose(_ context.Context, _ tab.CloseParams) error { return nil }
 func (charMultiProvider) RegisterRoutes(_ *http.ServeMux, _ string)                {}
@@ -181,11 +191,12 @@ func eq(a, b []string) bool {
 
 // ───────────────── A. derivation matrix ─────────────────
 
-// A1: a non-tmux, non-conditional singleton always yields exactly one tab,
-// synthesised by the reducer — the provider's own OnBranchOpen result is
-// NOT consulted (hence the SENTINEL name must never appear).
+// A1: a non-tmux singleton yields exactly one tab, and it comes from the pure
+// Tabs() query — the reducer must NOT call the OnBranchOpen lifecycle hook.
+// The assertions are unchanged from the pre-ADR-0012 pin; only the mechanism
+// behind them moved (reducer-side synthesis → provider-side Tabs()).
 func TestChar_RestSingleton_SynthesisedNotProviderDriven(t *testing.T) {
-	s, _, repoID, branchID := charFixture(t, charRestProvider{typ: "files"})
+	s, _, repoID, branchID := charFixture(t, charRestProvider{typ: "files", lifecycleCalls: &atomic.Int64{}})
 	if err := s.RecomputeBranchTabs(repoID, branchID); err != nil {
 		t.Fatal(err)
 	}
@@ -286,12 +297,12 @@ func TestChar_TmuxMulti_EmptyLiveSessionSeedsCanonical(t *testing.T) {
 }
 
 // A6: a non-tmux multi provider is authoritative — the reducer takes its
-// OnBranchOpen tab list verbatim.
+// Tabs() list verbatim.
 func TestChar_NonTmuxMulti_ProviderIsAuthoritative(t *testing.T) {
 	ids := []string{"claude:claude"}
 	calls := &atomic.Int64{}
-	resume := &atomic.Bool{}
-	p := charMultiProvider{typ: "claude", tabs: &ids, calls: calls, resumeSeen: resume}
+	lifecycle := &atomic.Int64{}
+	p := charMultiProvider{typ: "claude", tabs: &ids, calls: calls, lifecycleCalls: lifecycle}
 	s, _, repoID, branchID := charFixture(t, p)
 
 	if err := s.RecomputeBranchTabs(repoID, branchID); err != nil {
@@ -310,16 +321,20 @@ func TestChar_NonTmuxMulti_ProviderIsAuthoritative(t *testing.T) {
 	}
 }
 
-// A7: the reducer calls the lifecycle hook OnBranchOpen with Resume=false,
-// unconditionally, on every recompute. This is the overload the interface
-// surgery removes: a lifecycle event doubling as a state query. Pinned so
-// the change is visible rather than silent.
-func TestChar_Reducer_CallsOnBranchOpenAsQueryWithResumeFalse(t *testing.T) {
+// A7 — CONTRACT FLIPPED BY ADR-0012. This used to pin the defect: the reducer
+// called the OnBranchOpen LIFECYCLE hook once per recompute, with Resume
+// hardcoded to false, and relied on a comment to promise that was harmless.
+// It was not — the sprint provider allocated an inotify handle from that path
+// and the browser provider created a per-workspace Manager, both under the
+// Store write lock, on every 5 s sync cycle.
+//
+// The contract now: the reducer calls the pure Tabs() query once per provider
+// per recompute, and never touches OnBranchOpen.
+func TestChar_Reducer_UsesPureTabsQueryNotLifecycleHook(t *testing.T) {
 	ids := []string{"claude:claude"}
 	calls := &atomic.Int64{}
-	resume := &atomic.Bool{}
-	resume.Store(true) // poisoned: a real call must reset it to false
-	p := charMultiProvider{typ: "claude", tabs: &ids, calls: calls, resumeSeen: resume}
+	lifecycle := &atomic.Int64{}
+	p := charMultiProvider{typ: "claude", tabs: &ids, calls: calls, lifecycleCalls: lifecycle}
 	s, _, repoID, branchID := charFixture(t, p)
 
 	for i := 0; i < 3; i++ {
@@ -328,10 +343,10 @@ func TestChar_Reducer_CallsOnBranchOpenAsQueryWithResumeFalse(t *testing.T) {
 		}
 	}
 	if n := calls.Load(); n != 3 {
-		t.Errorf("want one OnBranchOpen per recompute (3), got %d", n)
+		t.Errorf("want one Tabs() call per recompute (3), got %d", n)
 	}
-	if resume.Load() {
-		t.Error("reducer must pass Resume=false when using OnBranchOpen as a query")
+	if n := lifecycle.Load(); n != 0 {
+		t.Errorf("reducer must never call the OnBranchOpen lifecycle hook; got %d calls", n)
 	}
 }
 
@@ -342,9 +357,9 @@ func TestChar_Reducer_CallsOnBranchOpenAsQueryWithResumeFalse(t *testing.T) {
 func TestChar_Reducer_IsIdempotent(t *testing.T) {
 	ids := []string{"claude:claude", "claude:claude-2"}
 	p := charMultiProvider{
-		typ: "claude", tabs: &ids, calls: &atomic.Int64{}, resumeSeen: &atomic.Bool{},
+		typ: "claude", tabs: &ids, calls: &atomic.Int64{}, lifecycleCalls: &atomic.Int64{},
 	}
-	s, mock, repoID, branchID := charFixture(t, p, bash.New(), charRestProvider{typ: "files"})
+	s, mock, repoID, branchID := charFixture(t, p, bash.New(), charRestProvider{typ: "files", lifecycleCalls: &atomic.Int64{}})
 	sess := sessionOf(t, s, repoID, branchID)
 	mock.SeedSession(sess,
 		tmux.Window{Index: 0, Name: domain.WindowName("bash", "bash")},
@@ -368,10 +383,10 @@ func TestChar_Reducer_IsIdempotent(t *testing.T) {
 func TestChar_Reducer_TabOrderFollowsRegistrationOrder(t *testing.T) {
 	ids := []string{"claude:claude"}
 	p := charMultiProvider{
-		typ: "claude", tabs: &ids, calls: &atomic.Int64{}, resumeSeen: &atomic.Bool{},
+		typ: "claude", tabs: &ids, calls: &atomic.Int64{}, lifecycleCalls: &atomic.Int64{},
 	}
 	s, mock, repoID, branchID := charFixture(t,
-		p, charRestProvider{typ: "files"}, charRestProvider{typ: "git"}, bash.New())
+		p, charRestProvider{typ: "files", lifecycleCalls: &atomic.Int64{}}, charRestProvider{typ: "git", lifecycleCalls: &atomic.Int64{}}, bash.New())
 	sess := sessionOf(t, s, repoID, branchID)
 	mock.SeedSession(sess, tmux.Window{Index: 0, Name: domain.WindowName("bash", "bash")})
 	if err := s.RecomputeBranchTabs(repoID, branchID); err != nil {
@@ -396,7 +411,7 @@ func TestChar_Reducer_TabOrderFollowsRegistrationOrder(t *testing.T) {
 func TestChar_Notification_DirectRecomputeEmitsNothing_DEFECT(t *testing.T) {
 	ids := []string{"claude:claude"}
 	p := charMultiProvider{
-		typ: "claude", tabs: &ids, calls: &atomic.Int64{}, resumeSeen: &atomic.Bool{},
+		typ: "claude", tabs: &ids, calls: &atomic.Int64{}, lifecycleCalls: &atomic.Int64{},
 	}
 	s, _, repoID, branchID := charFixture(t, p)
 	if err := s.RecomputeBranchTabs(repoID, branchID); err != nil {
@@ -447,7 +462,7 @@ collect:
 // C1: rename overrides apply only to Multiple()=true tabs; singletons keep
 // their DisplayName.
 func TestChar_Overrides_RenameOnlyAffectsMultiTabs(t *testing.T) {
-	s, mock, repoID, branchID := charFixture(t, bash.New(), charRestProvider{typ: "files"})
+	s, mock, repoID, branchID := charFixture(t, bash.New(), charRestProvider{typ: "files", lifecycleCalls: &atomic.Int64{}})
 	sess := sessionOf(t, s, repoID, branchID)
 	mock.SeedSession(sess, tmux.Window{Index: 0, Name: domain.WindowName("bash", "bash")})
 
@@ -533,9 +548,9 @@ func TestChar_Overrides_OrderIsPermutationOnly(t *testing.T) {
 func TestChar_HostScope_BashOnlyAndAlwaysSeeded(t *testing.T) {
 	ids := []string{"claude:claude"}
 	p := charMultiProvider{
-		typ: "claude", tabs: &ids, calls: &atomic.Int64{}, resumeSeen: &atomic.Bool{},
+		typ: "claude", tabs: &ids, calls: &atomic.Int64{}, lifecycleCalls: &atomic.Int64{},
 	}
-	s, _, _, _ := charFixture(t, p, bash.New(), charRestProvider{typ: "files"})
+	s, _, _, _ := charFixture(t, p, bash.New(), charRestProvider{typ: "files", lifecycleCalls: &atomic.Int64{}})
 	hostRepo, hostBranch, _ := s.HostScope()
 
 	if err := s.RecomputeBranchTabs(hostRepo, hostBranch); err != nil {
@@ -547,13 +562,45 @@ func TestChar_HostScope_BashOnlyAndAlwaysSeeded(t *testing.T) {
 	}
 }
 
+// D1b — BEHAVIOUR CHANGE PINNED BY ADR-0012. recomputeHostTabs used to build
+// its tabs with a local displayNameForBash that had drifted from the bash
+// provider it claimed to mirror: the host scope showed "bash" / "bash-2" while
+// every ordinary workspace showed "Bash" / "Bash 2". Routing the host scope
+// through the provider's Tabs() removes the duplicate and therefore changes
+// the host labels. This test states the new, unified naming so the change is
+// deliberate rather than incidental.
+func TestChar_HostScope_TabNamesMatchWorkspaceNaming(t *testing.T) {
+	s, mock, _, _ := charFixture(t, bash.New())
+	hostRepo, hostBranch, _ := s.HostScope()
+	sess := sessionOf(t, s, hostRepo, hostBranch)
+	mock.SeedSession(sess,
+		tmux.Window{Index: 0, Name: domain.WindowName("bash", "bash")},
+		tmux.Window{Index: 1, Name: domain.WindowName("bash", "bash-2")},
+	)
+	if err := s.RecomputeBranchTabs(hostRepo, hostBranch); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	want := map[string]string{"bash:bash": "Bash", "bash:bash-2": "Bash 2"}
+	for _, tb := range s.repos[hostRepo].OpenBranches[0].TabSet.Tabs {
+		if w, ok := want[tb.ID]; ok && tb.Name != w {
+			t.Errorf("host tab %s: name = %q, want %q (unified with workspace naming)", tb.ID, tb.Name, w)
+		}
+		delete(want, tb.ID)
+	}
+	if len(want) != 0 {
+		t.Errorf("host scope missing tabs: %v", want)
+	}
+}
+
 // D2: AddTab rejects non-bash types in the host scope at the API boundary
 // (S0c6a1b) — otherwise the tab would be created and then silently stripped
 // by recomputeHostTabs, desyncing FE and BE.
 func TestChar_HostScope_AddTabRejectsNonBash(t *testing.T) {
 	ids := []string{"claude:claude"}
 	p := charMultiProvider{
-		typ: "claude", tabs: &ids, calls: &atomic.Int64{}, resumeSeen: &atomic.Bool{},
+		typ: "claude", tabs: &ids, calls: &atomic.Int64{}, lifecycleCalls: &atomic.Int64{},
 	}
 	s, _, _, _ := charFixture(t, p, bash.New())
 	hostRepo, hostBranch, _ := s.HostScope()
@@ -573,49 +620,73 @@ func TestChar_Registry_RejectsDuplicateType(t *testing.T) {
 		}
 	}()
 	r := tab.NewRegistry()
-	r.Register(charRestProvider{typ: "dup"})
-	r.Register(charRestProvider{typ: "dup"})
+	r.Register(charRestProvider{typ: "dup", lifecycleCalls: &atomic.Int64{}})
+	r.Register(charRestProvider{typ: "dup", lifecycleCalls: &atomic.Int64{}})
 }
 
-// E2 — DEFECT (pinned deliberately). tab.Provider documents that a
-// Conditional provider MUST be non-Multiple and non-NeedsTmuxWindow, but
-// nothing enforces it: Register accepts an illegal combination happily.
-// The interface surgery should make this representable-illegal or checked
-// at registration; when it does, this test must start failing.
-func TestChar_Registry_AcceptsIllegalFlagCombo_DEFECT(t *testing.T) {
-	r := tab.NewRegistry()
-	func() {
-		defer func() {
-			if rec := recover(); rec != nil {
-				t.Fatalf("DEFECT FIXED: registry now rejects the illegal combo (%v) — "+
-					"update this test to assert the validation contract", rec)
-			}
-		}()
-		r.Register(charIllegalProvider{})
-	}()
-	if got := r.Get("illegal"); got == nil {
-		t.Fatal("provider not registered")
+// E2 — CONTRACT ESTABLISHED BY ADR-0012. This used to pin the defect: the
+// documented invariant on flag combinations lived only in a comment and
+// Register accepted anything. Registration problems are programmer errors, so
+// they now panic at boot rather than producing a tab set nobody can explain.
+func TestChar_Registry_RejectsIllegalProvider(t *testing.T) {
+	cases := []struct {
+		name string
+		p    charBadProvider
+	}{
+		{"empty type", charBadProvider{typ: ""}},
+		{"type contains the tab-id separator", charBadProvider{typ: "a:b", max: 3, multiple: true}},
+		{"Min greater than Max", charBadProvider{typ: "minmax", min: 5, max: 2, multiple: true}},
+		{"singleton with Max > 1", charBadProvider{typ: "single", min: 1, max: 4, multiple: false}},
+		{"multi-instance capped at 1", charBadProvider{typ: "multi", min: 1, max: 1, multiple: true}},
 	}
-	t.Log("pinned defect: Conditional+Multiple+NeedsTmuxWindow is documented as " +
-		"illegal but accepted — the invariant lives only in a comment")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("Register accepted an illegal provider (%s)", tc.name)
+				}
+			}()
+			tab.NewRegistry().Register(tc.p)
+		})
+	}
 }
 
-// charIllegalProvider violates the documented Conditional invariant.
-type charIllegalProvider struct{}
+// TestChar_Registry_AcceptsEveryRealProvider guards the other direction: the
+// validation must not reject a legitimate configuration. A false positive here
+// would make the binary refuse to boot.
+func TestChar_Registry_AcceptsLegalProviders(t *testing.T) {
+	r := tab.NewRegistry()
+	r.Register(charRestProvider{typ: "files", lifecycleCalls: &atomic.Int64{}})
+	r.Register(bash.New())
+	r.Register(charMultiProvider{
+		typ: "claude", tabs: &[]string{}, calls: &atomic.Int64{}, lifecycleCalls: &atomic.Int64{},
+	})
+	if len(r.Providers()) != 3 {
+		t.Fatalf("want 3 registered providers, got %d", len(r.Providers()))
+	}
+}
 
-func (charIllegalProvider) Type() string        { return "illegal" }
-func (charIllegalProvider) DisplayName() string { return "Illegal" }
-func (charIllegalProvider) Protected() bool     { return false }
-func (charIllegalProvider) Multiple() bool      { return true } // illegal with Conditional
-func (charIllegalProvider) NeedsTmuxWindow() bool {
-	return true // also illegal with Conditional
+// charBadProvider is a configurable provider used to drive Register's
+// validation table.
+type charBadProvider struct {
+	typ      string
+	min, max int
+	multiple bool
 }
-func (charIllegalProvider) Conditional() bool { return true }
-func (charIllegalProvider) Limits(_ tab.SettingsView) tab.InstanceLimits {
-	return tab.InstanceLimits{Min: 0, Max: 1}
+
+func (p charBadProvider) Type() string        { return p.typ }
+func (p charBadProvider) DisplayName() string { return "Bad" }
+func (charBadProvider) Protected() bool       { return false }
+func (p charBadProvider) Multiple() bool      { return p.multiple }
+func (charBadProvider) NeedsTmuxWindow() bool { return false }
+func (p charBadProvider) Limits(_ tab.SettingsView) tab.InstanceLimits {
+	return tab.InstanceLimits{Min: p.min, Max: p.max}
 }
-func (charIllegalProvider) OnBranchOpen(_ context.Context, _ tab.OpenParams) (tab.ProviderResult, error) {
+func (charBadProvider) Tabs(_ context.Context, _ tab.TabsParams) ([]domain.Tab, error) {
+	return nil, nil
+}
+func (charBadProvider) OnBranchOpen(_ context.Context, _ tab.OpenParams) (tab.ProviderResult, error) {
 	return tab.ProviderResult{}, nil
 }
-func (charIllegalProvider) OnBranchClose(_ context.Context, _ tab.CloseParams) error { return nil }
-func (charIllegalProvider) RegisterRoutes(_ *http.ServeMux, _ string)                {}
+func (charBadProvider) OnBranchClose(_ context.Context, _ tab.CloseParams) error { return nil }
+func (charBadProvider) RegisterRoutes(_ *http.ServeMux, _ string)                {}

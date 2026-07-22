@@ -29,19 +29,21 @@ func (fakeTerminalProvider) DisplayName() string   { return "Fake Term" }
 func (fakeTerminalProvider) Protected() bool       { return true }
 func (fakeTerminalProvider) Multiple() bool        { return false }
 func (fakeTerminalProvider) NeedsTmuxWindow() bool { return true }
-func (fakeTerminalProvider) Conditional() bool     { return false }
 func (fakeTerminalProvider) Limits(_ tab.SettingsView) tab.InstanceLimits {
 	return tab.InstanceLimits{Min: 1, Max: 1}
 }
+func (fakeTerminalProvider) Tabs(_ context.Context, _ tab.TabsParams) ([]domain.Tab, error) {
+	return []domain.Tab{{
+		ID:         fakeTerminalType,
+		Type:       fakeTerminalType,
+		Name:       "Fake Term",
+		Protected:  true,
+		WindowName: fakeTerminalWindow,
+	}}, nil
+}
+
 func (fakeTerminalProvider) OnBranchOpen(_ context.Context, _ tab.OpenParams) (tab.ProviderResult, error) {
 	return tab.ProviderResult{
-		Tabs: []domain.Tab{{
-			ID:         fakeTerminalType,
-			Type:       fakeTerminalType,
-			Name:       "Fake Term",
-			Protected:  true,
-			WindowName: fakeTerminalWindow,
-		}},
 		Windows: []tab.WindowSpec{{Name: fakeTerminalWindow, Command: "sh"}},
 	}, nil
 }

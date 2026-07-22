@@ -55,22 +55,37 @@ func (p *Provider) Limits(_ tab.SettingsView) tab.InstanceLimits {
 
 // OnBranchOpen returns a single Ports tab iff the workspace runtime is
 // incus-container; otherwise no tabs.
-func (p *Provider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.ProviderResult, error) {
-	if params.Branch == nil {
-		return tab.ProviderResult{}, nil
+// Tabs reports the Ports tab iff the workspace runs on incus-container.
+// Pure (ADR-0012) — kind lookup only, no Runtime construction.
+func (p *Provider) Tabs(_ context.Context, params tab.TabsParams) ([]domain.Tab, error) {
+	if params.Branch == nil || !p.isIncusKind(params.Branch.RepoID, params.Branch.ID) {
+		return nil, nil
 	}
-	if !p.isIncus(params.Branch.RepoID, params.Branch.ID) {
-		return tab.ProviderResult{}, nil
+	return []domain.Tab{{
+		ID:        TabType,
+		Type:      TabType,
+		Name:      p.DisplayName(),
+		Protected: false,
+		Multiple:  false,
+	}}, nil
+}
+
+// isIncusKind is the pure visibility predicate used by Tabs.
+func (p *Provider) isIncusKind(repoID, branchID string) bool {
+	if p.st == nil {
+		return false
 	}
-	return tab.ProviderResult{
-		Tabs: []domain.Tab{{
-			ID:        TabType,
-			Type:      TabType,
-			Name:      p.DisplayName(),
-			Protected: false,
-			Multiple:  false,
-		}},
-	}, nil
+	reg := p.st.RuntimeRegistry()
+	if reg == nil {
+		return false
+	}
+	return reg.Kind(repoID, branchID) == runtime.KindIncusContainer
+}
+
+// OnBranchOpen has no windows and no side effects for Ports; the tab is
+// declared by Tabs (ADR-0012).
+func (p *Provider) OnBranchOpen(_ context.Context, _ tab.OpenParams) (tab.ProviderResult, error) {
+	return tab.ProviderResult{}, nil
 }
 
 // OnBranchClose is a no-op — the Ports tab holds no per-branch resources.

@@ -85,6 +85,30 @@ func (p *Provider) Limits(_ tab.SettingsView) tab.InstanceLimits {
 // OnBranchOpen returns a single Sprint tab iff ROADMAP.json exists in the
 // branch's worktree; otherwise it returns no tabs (the branch's TabBar
 // simply skips Sprint).
+// Tabs reports the Sprint tab iff docs/ROADMAP.json exists in the branch's
+// worktree; otherwise no tabs, which is how conditional visibility is
+// expressed after ADR-0012 removed Conditional().
+//
+// Pure: a single filesystem stat. It deliberately does NOT start the worktree
+// watcher — before ADR-0012 that lived in OnBranchOpen, which the Store called
+// as a query from every recompute (including the 5 s sync loop), so an inotify
+// handle was being allocated under the Store write lock.
+func (p *Provider) Tabs(_ context.Context, params tab.TabsParams) ([]domain.Tab, error) {
+	if params.Branch == nil || params.Branch.WorktreePath == "" {
+		return nil, nil
+	}
+	if !roadmapExists(params.Branch.WorktreePath) {
+		return nil, nil
+	}
+	return []domain.Tab{{
+		ID:        TabType,
+		Type:      TabType,
+		Name:      p.DisplayName(),
+		Protected: false,
+		Multiple:  false,
+	}}, nil
+}
+
 func (p *Provider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.ProviderResult, error) {
 	if params.Branch == nil || params.Branch.WorktreePath == "" {
 		return tab.ProviderResult{}, nil
@@ -118,18 +142,7 @@ func (p *Provider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.P
 		p.mu.Unlock()
 	}
 
-	if !roadmapExists(root) {
-		return tab.ProviderResult{}, nil
-	}
-	return tab.ProviderResult{
-		Tabs: []domain.Tab{{
-			ID:        TabType,
-			Type:      TabType,
-			Name:      p.DisplayName(),
-			Protected: false,
-			Multiple:  false,
-		}},
-	}, nil
+	return tab.ProviderResult{}, nil
 }
 
 // OnBranchClose tears down this branch's filewatch subscription.

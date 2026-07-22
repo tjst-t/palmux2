@@ -613,17 +613,27 @@ func (s *Store) buildBranchFromWorktree(repo *domain.Repository, wt worktree.Wor
 // the registered providers. Called whenever the underlying state may have
 // changed. Caller MUST hold the write lock.
 //
-// S009-fix-1: ListWindows can fail transiently when sync_tmux is mid-cycle
-// — the old behaviour of treating that as "no windows" caused multi-instance
-// tmux-backed tabs (Bash) to vanish from the snapshot whenever an unrelated
-// non-tmux mutation (e.g. POST /tabs {type:claude}) triggered a recompute,
-// which in turn broke the FE: the user added a Claude tab and watched their
-// Bash tabs disappear (and re-appear after sync_tmux recreated the session
-// 5s later). We now distinguish "ListWindows failed transiently" from
-// "session legitimately has zero windows of this type" and, in the failure
-// case, fall back to the previously-known tab list for tmux-backed multi
-// providers. Singletons stay deterministic; non-tmux providers were
-// already unaffected.
+// ADR-0012: the provider-side input is now [tab.Provider.Tabs], a pure query,
+// instead of the OnBranchOpen lifecycle hook. Before that split this function
+// called OnBranchOpen with Resume=false and asserted in a comment that doing
+// so was side-effect free; it was not (the sprint provider allocated an
+// inotify handle from here, and the browser provider created a per-workspace
+// Manager — both under the write lock, on every 5 s sync cycle).
+//
+// tmux policy stays HERE, not in the providers, so Tabs() stays a plain
+// function of its arguments:
+//
+//   - S009-fix-1: ListWindows can fail transiently when sync_tmux is mid-cycle.
+//     Treating that as "no windows" used to make multi-instance tmux-backed
+//     tabs (Bash) vanish from the snapshot whenever an unrelated non-tmux
+//     mutation (e.g. POST /tabs {type:claude}) triggered a recompute — the user
+//     added a Claude tab and watched their Bash tabs disappear, then reappear
+//     5 s later. We distinguish "ListWindows failed transiently" from "session
+//     legitimately has zero windows of this type" and, in the failure case,
+//     fall back to the previously-known tab list for tmux-backed multi
+//     providers.
+//   - A live session with no windows of a multi type still seeds the canonical
+//     instance, so a branch always shows at least one Bash tab.
 func (s *Store) recomputeTabs(ctx context.Context, branch *domain.Branch) {
 	if IsHostRepoID(branch.RepoID) {
 		// S0c6a1b: reserved host scope is bash-only (no Claude/Files/Git/Sprint)
@@ -663,80 +673,35 @@ func (s *Store) recomputeTabs(ctx context.Context, branch *domain.Branch) {
 
 	var tabs []domain.Tab
 	for _, p := range s.registry.Providers() {
-		if !p.NeedsTmuxWindow() {
-			// Non-tmux singletons (Files, Git): one fixed tab unless the
-			// provider is Conditional (S016 Sprint), in which case its
-			// OnBranchOpen result drives visibility per-branch.
-			if !p.Multiple() {
-				if p.Conditional() {
-					res, err := p.OnBranchOpen(ctx, tab.OpenParams{Branch: branch, Resume: false})
-					if err != nil {
-						s.logger.Warn("recomputeTabs: OnBranchOpen for conditional singleton",
-							"type", p.Type(), "err", err)
-						continue
-					}
-					tabs = append(tabs, res.Tabs...)
+		params := tab.TabsParams{Branch: branch}
+		if p.NeedsTmuxWindow() {
+			names := byType[p.Type()]
+			if p.Multiple() {
+				if listFailed && len(names) == 0 {
+					// Tmux query failed and we have no live data. Fall back to
+					// the previous tab list for this type so we don't
+					// transiently drop the user's Bash tabs while sync_tmux is
+					// mid-recovery.
+					tabs = append(tabs, prevByType[p.Type()]...)
 					continue
 				}
-				tabs = append(tabs, domain.Tab{
-					ID:        p.Type(),
-					Type:      p.Type(),
-					Name:      p.DisplayName(),
-					Protected: p.Protected(),
-					Multiple:  p.Multiple(),
-				})
-				continue
+				if !listFailed && len(names) == 0 {
+					// Live session with no windows of this type yet (e.g. fresh
+					// session pre-ensureSession): seed the canonical instance.
+					names = []string{p.Type()}
+				}
 			}
-			// Non-tmux multi (Claude post-S009): re-derive from the
-			// provider via OnBranchOpen so the persisted tab list is the
-			// source of truth. recomputeTabs is read-only; it doesn't
-			// re-trigger any side effects.
-			res, err := p.OnBranchOpen(ctx, tab.OpenParams{Branch: branch, Resume: false})
-			if err != nil {
-				s.logger.Warn("recomputeTabs: OnBranchOpen for non-tmux multi", "type", p.Type(), "err", err)
-				continue
-			}
-			tabs = append(tabs, res.Tabs...)
-			continue
+			params.Windows = names
 		}
-		// Singleton terminal-backed: exactly one tab. The Window may not be
-		// up yet (sync_tmux pending) but the tab still exists logically.
-		if !p.Multiple() {
-			tabs = append(tabs, domain.Tab{
-				ID:         p.Type(),
-				Type:       p.Type(),
-				Name:       p.DisplayName(),
-				Protected:  p.Protected(),
-				Multiple:   false,
-				WindowName: domain.WindowName(p.Type(), p.Type()),
-			})
-			continue
-		}
-		// Multi-instance (Bash): one tab per window.
-		names := byType[p.Type()]
-		if listFailed && len(names) == 0 {
-			// Tmux query failed and we have no live data. Fall back to the
-			// previous tab list for this type so we don't transiently drop
-			// the user's Bash tabs while sync_tmux is mid-recovery.
+		got, err := p.Tabs(ctx, params)
+		if err != nil {
+			s.logger.Warn("recomputeTabs: provider Tabs failed", "type", p.Type(), "err", err)
+			// Keep whatever this provider contributed last time rather than
+			// silently dropping its tabs on a transient error.
 			tabs = append(tabs, prevByType[p.Type()]...)
 			continue
 		}
-		// If the live session is up but has no windows of this type yet
-		// (e.g. fresh session pre-ensureSession), seed the canonical
-		// instance so the user always sees at least one Bash tab.
-		if !listFailed && len(names) == 0 {
-			names = []string{p.Type()} // canonical "bash"
-		}
-		for _, n := range names {
-			tabs = append(tabs, domain.Tab{
-				ID:         domain.TabID(p.Type(), n),
-				Type:       p.Type(),
-				Name:       displayNameFor(p, n),
-				Protected:  false,
-				Multiple:   true,
-				WindowName: domain.WindowName(p.Type(), n),
-			})
-		}
+		tabs = append(tabs, got...)
 	}
 	// S020: apply per-branch name overrides + user-set ordering recorded
 	// in repos.json `tabOverrides`. Singleton (Files/Git) tabs ignore both.
@@ -820,18 +785,6 @@ func (s *Store) applyTabOverrides(branch *domain.Branch, in []domain.Tab) []doma
 		i = j
 	}
 	return out
-}
-
-func displayNameFor(p tab.Provider, windowName string) string {
-	// Default display: capitalised window suffix unless it's the canonical name.
-	if windowName == p.Type() {
-		return p.DisplayName()
-	}
-	if strings.HasPrefix(windowName, p.Type()+"-") {
-		// e.g. "bash-2" → "Bash 2"
-		return p.DisplayName() + " " + strings.TrimPrefix(windowName, p.Type()+"-")
-	}
-	return windowName
 }
 
 // AvailableRepos returns ghq's list of all known repositories so the UI can

@@ -40,22 +40,34 @@ func (p *Provider) Limits(view tab.SettingsView) tab.InstanceLimits {
 	return tab.InstanceLimits{Min: 1, Max: max}
 }
 
-func (p *Provider) OnBranchOpen(_ context.Context, _ tab.OpenParams) (tab.ProviderResult, error) {
-	// Initial open creates exactly one Bash tab using the canonical
-	// "palmux:bash:bash" name. Additional Bash tabs are added via
-	// POST /api/repos/{repoId}/branches/{branchId}/tabs (Phase 1 server).
-	windowName := domain.WindowName(TabType, "bash")
-	return tab.ProviderResult{
-		Tabs: []domain.Tab{{
-			ID:         domain.TabID(TabType, "bash"),
+// Tabs turns the tmux window suffixes the Store resolved for this provider
+// into Bash tabs, one per window, preserving tmux index order so user-added
+// tabs keep stable positions.
+//
+// Pure (ADR-0012): every input arrives via params. The Store owns the tmux
+// policy — transient-ListWindows-failure fallback (S009-fix-1) and canonical
+// seeding — so this stays a plain mapping.
+func (p *Provider) Tabs(_ context.Context, params tab.TabsParams) ([]domain.Tab, error) {
+	out := make([]domain.Tab, 0, len(params.Windows))
+	for _, n := range params.Windows {
+		out = append(out, domain.Tab{
+			ID:         domain.TabID(TabType, n),
 			Type:       TabType,
-			Name:       p.DisplayName(),
+			Name:       tab.InstanceDisplayName(p.DisplayName(), TabType, n),
 			Protected:  false,
 			Multiple:   true,
-			WindowName: windowName,
-		}},
+			WindowName: domain.WindowName(TabType, n),
+		})
+	}
+	return out, nil
+}
+
+// OnBranchOpen declares the canonical Bash tmux window. Additional Bash
+// windows are created via POST /tabs. Tabs are declared by Tabs (ADR-0012).
+func (p *Provider) OnBranchOpen(_ context.Context, _ tab.OpenParams) (tab.ProviderResult, error) {
+	return tab.ProviderResult{
 		Windows: []tab.WindowSpec{{
-			Name: windowName,
+			Name: domain.WindowName(TabType, "bash"),
 			// no Command → tmux uses the default shell
 		}},
 	}, nil
