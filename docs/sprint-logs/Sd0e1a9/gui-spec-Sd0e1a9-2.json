@@ -1,0 +1,85 @@
+{
+  "$comment": "GUI spec for Story Sd0e1a9-2 (ADR-0012 Step 2: 通知一本化 + ロック外化). Produced by sprint plan.",
+  "$file": "docs/sprint-logs/Sd0e1a9/gui-spec-Sd0e1a9-2.json",
+  "story": "palmux 利用者として、タブの追加・削除・表示条件の変化がブラウザをリロードしなくても TabBar に反映されてほしい。なぜなら、今はタブ集合を更新する12経路のうち通知を出すのは1つだけで、sync ループや runtime 切替でタブ集合が変わっても画面が古いまま取り残されるから。",
+  "user_role": "palmux 利用者",
+  "story_type": "gui",
+  "entry_point": "既存の TabBar。ユーザーは何も操作しない — バックエンド側の状態変化 (tmux セッションの外部 kill → sync_tmux の復旧サイクル) が起点。ユーザーから見ると『画面を触っていないのにタブ集合が正しく追随する』ことが観測対象。",
+  "notes": "本 Story の欠陥は『変化が起きたのにイベントが出ない』ことなので、E2E は必ず『リロードしない』ことを明示的な条件として組む。リロードしてしまうと REST フルリロードで正しい状態が取れてしまい、欠陥を見逃す (この取り違えが起きると AC が無意味になるため、テスト内で page.reload() を一切呼ばないことをコメントで明記する)。characterization test の TestChar_Notification_DirectRecomputeEmitsNothing_DEFECT が同じ契約を Go 側で押さえるので、E2E と unit の二重で守る。",
+  "state_diagram": "stateDiagram-v2\n    [*] --> Synced: Workspace を開く (TabBar = BE のタブ集合)\n    Synced --> BackendChanged: 外部で tmux セッションが kill される\n    BackendChanged --> BackendRecomputed: sync_tmux の復旧サイクル (最大5s) が session を再生成し recomputeTabs が走る\n    BackendRecomputed --> Stale: 【修正前】イベント無し → TabBar は古いまま\n    BackendRecomputed --> Synced: 【修正後】tab.added / tab.removed が届き TabBar が追随\n    Stale --> Synced: ページリロード (= 回避策。これに頼らないことが本 Story のゴール)\n    note right of Stale\n        現状の欠陥。12経路中11経路が\n        無言で TabSet.Tabs を上書きする\n    end note",
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "linked_ac": ["AC-Sd0e1a9-2-2"],
+      "description": "外部 tmux kill → sync_tmux 復旧で生じたタブ集合の変化が、リロードなしに TabBar へ反映される",
+      "steps": [
+        {
+          "n": 1,
+          "action": "dev インスタンスで Workspace を開き、Bash タブを2つ追加して合計3つにする (bash:bash / bash:bash-2 / bash:bash-3)",
+          "expected": "TabBar に tab-bash:bash, tab-bash:bash-2, tab-bash:bash-3 が並ぶ。DOM で3件確認"
+        },
+        {
+          "n": 2,
+          "action": "ブラウザは開いたまま (リロード禁止)、ホスト側で tmux kill-session -t <該当セッション> を実行する",
+          "expected": "コマンドは成功する。この時点ではまだ TabBar は変わらない"
+        },
+        {
+          "n": 3,
+          "action": "sync_tmux の復旧サイクル (最大5s) を待つ。page.reload() は絶対に呼ばない",
+          "expected": "BE 側でセッションが再生成され recomputeTabs が走る。tab.added / tab.removed が /api/events を通じてブラウザに届く"
+        },
+        {
+          "n": 4,
+          "action": "TabBar の DOM と GET /api/repos/{repoId}/branches/{branchId}/tabs を突き合わせる",
+          "expected": "リロードしていないにもかかわらず、DOM 上のタブ集合が BE のタブ集合と完全一致する。修正前はここで乖離する (DOM が3件のまま、BE は復旧後の集合) のが欠陥"
+        }
+      ]
+    },
+    {
+      "id": "scenario-2",
+      "linked_ac": ["AC-Sd0e1a9-2-1"],
+      "description": "タブ追加/削除の通常操作でも従来どおりイベントが届く (通知経路の一本化による回帰が無い)",
+      "steps": [
+        {
+          "n": 1,
+          "action": "TabBar の data-testid=tab-add-bash をクリックして Bash タブを追加する",
+          "expected": "tab.added が届き、新しい tab-bash:* が TabBar に現れる (リロード不要)"
+        },
+        {
+          "n": 2,
+          "action": "追加したタブを閉じる",
+          "expected": "tab.removed が届き TabBar から消える (リロード不要)。既存の AddTab / RemoveTab 経路が新しい共通 diff+publish 経路へ移行しても挙動が変わらないことの確認"
+        }
+      ]
+    }
+  ],
+  "data_testids": [
+    {"testid": "tab-bash:bash", "element": "Bash タブ (canonical)", "status": "既存 (tab-${tab.id})"},
+    {"testid": "tab-bash:bash-2", "element": "Bash タブ 2", "status": "既存 (tab-${tab.id})"},
+    {"testid": "tab-add-bash", "element": "Bash タブ追加ボタン", "status": "既存 (tab-add-${group.type})"}
+  ],
+  "endpoint_contracts": [
+    {
+      "method": "WS",
+      "path": "/api/events",
+      "response_fields": "Event { type: 'tab.added' | 'tab.removed', repoId, branchId, tabId, payload }",
+      "note": "本 Story の中核。修正前は RecomputeBranchTabs 経由でしか発行されない。修正後は全 recompute 経路が発行する。"
+    },
+    {
+      "method": "GET",
+      "path": "/api/repos/{repoId}/branches/{branchId}/tabs",
+      "response_fields": "TabSet { tmuxSession, tabs: Tab[] }",
+      "note": "E2E では『真実』側として参照し、DOM と突き合わせる。テスト内でこれを取得すること自体は FE のリロードではないので可。"
+    },
+    {
+      "method": "POST",
+      "path": "/api/repos/{repoId}/branches/{branchId}/tabs",
+      "response_fields": "Tab { id, type, name, protected, multiple, windowName }",
+      "note": "scenario-2 のタブ追加。既存経路の回帰確認用。"
+    }
+  ],
+  "test_files": {
+    "e2e": "tests/e2e/sd0e1a9_tab_events.py",
+    "mock": "tests/e2e/sd0e1a9_tab_events_mock.py"
+  }
+}

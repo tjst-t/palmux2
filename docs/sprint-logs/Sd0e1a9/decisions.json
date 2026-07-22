@@ -1,0 +1,109 @@
+{
+  "sprint": "Sd0e1a9",
+  "touched_adrs": [
+    "ADR-0012",
+    "ADR-0009",
+    "ADR-0010"
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "planning",
+      "title": "ADR-0012 の Step 1 (契約手術) と Step 2 (通知一本化 + ロック外化) を1 Sprint 2 Story にまとめる",
+      "detail": "両者は独立に検証可能 (Story 1 は Provider 契約、Story 2 は通知経路) だが、Step 2 の diff+publish 一本化とロック外化は Step 1 の reducer 純粋化が成立して初めて可能になるため、根拠を追える単位として同じ Sprint に置く。逆に1 Story にまとめないのは、sprint-plan.md の粒度基準 (独立にデリバー・検証できる複数の user-facing behavior を含むなら分割) に該当するため。",
+      "reference": "docs/DESIGN/adr/ADR-0012-pure-tab-set-derivation.json, .claude/skills/sprint/references/sprint-plan.md §4",
+      "adr_ref": "ADR-0012",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "planning",
+      "title": "本 Sprint を execution_order 上 Sfa2bab (リリース検証 milestone) の後ろに置く",
+      "detail": "Sfa2bab は v0.15.2 相当の実機ドッグフーディング検証 milestone で、Story Sfa2bab-1 が needs_user_review。タブ層を触るリファクタを先に入れると、その検証結果が無効になる (ドッグフーディングはまさにタブ経路を通る)。したがってリリース検証を先に閉じ、本 Sprint はその後ろに置く。ただし作業自体は refactor/tab-reducer ブランチで並行可能で、merge をリリース後にすればよい。ユーザー確認済み。",
+      "reference": "docs/ROADMAP.json execution_order, docs/sprint-logs/Sfa2bab/",
+      "adr_ref": "none",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "planning",
+      "title": "両 Story を GUI Story として扱い、non-GUI 分類はしない",
+      "detail": "gui-spec.md Phase 1 の default-on ルール (React プロジェクトでブラウザ観測可能な Story は既定で GUI Story、non-GUI 分類は高コストな判断) を適用。Story 2 は TabBar の live 更新そのものが AC なので明確に GUI。Story 1 は Go 内部契約の手術だが、AC-1-2 の条件付き可視性 (Sprint タブの出現/消失) と『タブ集合が手術前後で不変』はいずれもブラウザ観測可能であり、リファクタが既存の見え方を壊していないことの end-to-end な証跡は E2E でしか取れない。よって AC-1-6 を追加して E2E を必須にした。",
+      "reference": ".claude/skills/sprint/references/gui-spec.md Phase 1",
+      "adr_ref": "none",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "planning",
+      "title": "E2E/mock テストはリポジトリ規約の Python + Playwright (tests/e2e/sNNN_*.py) に従い、skill 既定の TypeScript (*.e2e.spec.ts) は使わない",
+      "detail": "gui-spec.md Phase 4 の既定パスは tests/e2e/{story-slug}.e2e.spec.ts (TypeScript) だが、本リポジトリの CLAUDE.md は『E2E: tests/e2e/sNNN_*.py (Python + Playwright headless) で AC 単位の検証、acceptance criteria は [AC-{StoryID}-{N}] タグで紐付け』と明記しており、tests/e2e/ の既存119ファイルは全て .py。mock 版も *_mock.py の前例がある (s62374c_browser_ui_mock.py 等)。プロジェクト固有規約が skill 既定に優先する。AC タグ規約と exit code 0 = ALL PASS の慣習は維持する。",
+      "reference": "CLAUDE.md テスト方針, tests/e2e/*.py (119 files)",
+      "adr_ref": "none",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "planning",
+      "title": "gui-spec.md Phase 5 の定型 GUI AC 5件を各 Story に機械的に追加せず、実質的な AC のみ ROADMAP に載せる",
+      "detail": "Phase 5 は『state diagram 確認済み / mock pass / E2E pass / 全要素に data-testid / 全 AC に [AC-*] タグ付きテスト』の5件を AC として追加せよとするが、本 Sprint は新規 UI をほぼ作らない (既存 TabBar の testid を再利用するだけ) ため、これらは大半が自明または verify 側の機械チェックと重複する。ROADMAP には実質的な AC のみを載せ、state diagram・data-testid 一覧・AC↔テスト対応は gui-spec-{StoryID}.json 側に記録した。sprint verify のトレーサビリティチェック ([AC-*] タグ) は通常どおり効く。",
+      "reference": ".claude/skills/sprint/references/gui-spec.md Phase 5, docs/sprint-logs/Sd0e1a9/gui-spec-Sd0e1a9-{1,2}.json",
+      "adr_ref": "none",
+      "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "planning",
+      "title": "着手前に characterization test 16件を先行コミット済み (Step 0)",
+      "detail": "タブ層は fix コミットが106件あるが、その回帰は葉 (ptyhost daemon / ring / VT emulator) でしか守られておらず、実際に壊れやすい reducer 本体を直接検証するテストは4ファイルしか無かった。Provider interface を9実装横断で変える前に現行の導出契約を固定する必要があったため、Sprint 本体に先立って internal/store/recompute_characterization_test.go を追加した (commit 5815866)。うち2件は本 Sprint で修正される欠陥を意図的に pin しており、修正時に赤くなって契約 assert への書き換えを促す。",
+      "reference": "internal/store/recompute_characterization_test.go, commit 5815866",
+      "adr_ref": "ADR-0012",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "planning",
+      "title": "ADR-0009 (tentative) の前提検証スパイクを待たずに着手する",
+      "detail": "ADR-0009 は claude-tui の backend を tmux へ回帰させる tentative な ADR で、前提検証スパイク (Sf6c55b) が未実施。しかし ADR-0012 の Provider 契約は claude-tui の backend が ptyhost / tmux のいずれでも成立するため依存しない。むしろ 0009 が通れば Conditional 流用の当事者である agenttui が claude 向けには消え、本 Sprint の適用範囲は縮む。一方、FE のレンダラ解決一本化と claudeagent/agenttab の統合は 0009 の結果で形が変わるため本 Sprint のスコープ外とした。",
+      "reference": "docs/DESIGN/adr/ADR-0009-claude-tui-tmux-backend-revert.json, docs/DESIGN/adr/ADR-0012-pure-tab-set-derivation.json notes",
+      "adr_ref": "ADR-0009, ADR-0012",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "planning",
+      "title": "ADR-0010 (Docs タブ) の supersede は不要と判断",
+      "detail": "ADR-0010 の decision 本文は『準拠ファイルの存在を Conditional 表示条件にする』と書いており Conditional() を機構名として参照している。本 Sprint はその機構を廃止するが、意図 (準拠ファイルがあるときだけタブを出す) は Tabs() の0件返却で完全に保存されるため矛盾しない。よって supersede せず、ADR-0012 の notes に『Docs タブ実装時に存在しない Conditional() を実装しようとしないこと』を明記するに留めた。",
+      "reference": "docs/DESIGN/adr/ADR-0010-generic-doc-schema-docs-tab.json, docs/DESIGN/adr/ADR-0012-pure-tab-set-derivation.json notes",
+      "adr_ref": "ADR-0010, ADR-0012",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "planning",
+      "title": "陳腐化した CLAUDE.md の実装ステータス記述を本 Sprint で修正する",
+      "detail": "CLAUDE.md の『未完了 Sprint: S2b5691 と Sfa2bab が partial』は誤り — ROADMAP 上 S2b5691 は done で、partial は Sfa2bab のみ。毎セッション全文が読まれるファイルなので誤情報のコストが高い。sprint done 時に現在ステータスの数行差し替えとして修正する (CLAUDE.md の更新ポリシー『更新するのは確定した規約・現在のステータス数行』に従い、Sprint 別の実装内容は書き足さない)。ユーザー確認済み。",
+      "reference": "CLAUDE.md 実装ステータス, docs/ROADMAP.json .sprints.S2b5691.status",
+      "adr_ref": "none",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "planning",
+      "title": "AC の妥当性点検で2件を Task へ降格し、3件を構造 AC として明示した",
+      "detail": "sprint-plan.md §6 の『全 AC はいずれかの scenario step で実行され、ユーザー surface で観測できない AC は invalid』を当初の AC 10件に適用した結果: (a) AC-1-3 は gui-spec scenario-1 step 3 が実際にカバーしていたので linked_ac を修正、(b) AC-1-5 / AC-2-4 は『characterization test が緑であること』という テスト整備の義務で、受入基準に置くと循環するため Task へ降格、(c) AC-1-1 / 1-4 / 2-3 は受入内容がコード構造そのもので、いかなるユーザー入口からも直接観測できない。(c) を library scenario に偽装するのは誤り — internal/ はモジュール外から import できず、story-scenarios.md の library 型が要求する『プロジェクト外の消費者が公開 API を叩く』テストは原理的に書けない。よって scenario-Sd0e1a9-structural.json に構造 AC として明示し、各々に機械検証可能な手段 (grep / unit) を紐づけたうえで flagged_for_user に記録した。最終的に AC 8件が全て gui-spec または structural でカバーされ、未カバー0・宙吊り参照0。",
+      "reference": ".claude/skills/sprint/references/sprint-plan.md §6, .claude/skills/sprint/references/story-scenarios.md, docs/sprint-logs/Sd0e1a9/scenario-Sd0e1a9-structural.json",
+      "adr_ref": "none",
+      "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "planning",
+      "title": "gui-spec Phase 4 のテストファイル生成は sprint run へ持ち越す (plan では仕様のみ確定)",
+      "detail": "gui-spec.md Phase 4 は plan 中に E2E/mock テストファイルを生成せよとするが、本リポジトリの E2E は Python + Playwright スクリプトで、実行に live な dev インスタンス (make serve INSTANCE=dev) を要する。CLAUDE.md は実機を要するテストの待ち方に固有の注意 (10分ルール、tail -f 禁止、throwaway インスタンスの後始末) を定めており、plan フェーズで書いて即検証するのは適切でない。代わりに gui-spec-{StoryID}.json に scenario の steps/expected・data_testids・endpoint_contracts を実装可能な粒度まで書き切ったので、sprint run はこれを機械的にテストへ落とせる。skill 既定からの意図的な逸脱として記録する。",
+      "reference": ".claude/skills/sprint/references/gui-spec.md Phase 4, CLAUDE.md 『長時間かかる実機テストの待ち方』",
+      "adr_ref": "none",
+      "drift_flag": "minor"
+    }
+  ]
+}
