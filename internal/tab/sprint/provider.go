@@ -360,11 +360,21 @@ func sprintSkipDir(root string) func(string) bool {
 		if relSlash == "." {
 			return false // never prune the root
 		}
-		top := relSlash
-		if i := strings.IndexByte(top, '/'); i >= 0 {
-			top = top[:i]
+		// docs/** in full: sprintFilter accepts docs/ROADMAP.json and
+		// everything under docs/sprint-logs/.
+		if relSlash == "docs" || strings.HasPrefix(relSlash, "docs/") {
+			return false
 		}
-		return top != "docs" && top != ".claude"
+		// .claude ITSELF only — the filter's sole interest there is the
+		// autopilot-*.lock files sitting directly in it. Recursing is what
+		// made this predicate useless in practice: .claude/worktrees/ holds
+		// full agent checkouts (21,251 directories on a real repo, complete
+		// with their own node_modules), which is where essentially all of the
+		// Sprint tab's watch registration was going.
+		if relSlash == ".claude" {
+			return false
+		}
+		return true
 	}
 }
 

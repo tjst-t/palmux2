@@ -23,6 +23,12 @@ func TestSprintSkipDir_PrunesEverythingButDocsAndClaude(t *testing.T) {
 		"/w/.claude",
 	}
 	prune := []string{
+		// .claude/worktrees holds full agent checkouts (21,251 directories on a
+		// real repo). The filter only wants autopilot-*.lock directly in
+		// .claude, so recursing there is what made the original predicate
+		// useless — it kept 21,278 of the 21,287 directories it walked.
+		"/w/.claude/worktrees",
+		"/w/.claude/worktrees/agent-1/node_modules",
 		"/w/node_modules",
 		"/w/node_modules/react/dist",
 		"/w/src",
