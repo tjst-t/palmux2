@@ -66,6 +66,33 @@
       "reference": "internal/tab/git/provider.go gitFilter",
       "adr_ref": "none",
       "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "implementation",
+      "title": "枝刈りが実質無効だった原因は .claude/worktrees — 実測ログで発覚",
+      "detail": "SkipDir 導入後も sprint の OnBranchOpen が 2.1 秒かかったままだったので walk の内訳をログに出したところ dirs=21287 / skipped=9 だった。Mirante-demo の depth-1 内訳は .claude 21,251 / node_modules 5,051 / .git 302 / docs 26。.claude/worktrees/ にエージェント用 worktree が (それぞれの node_modules ごと) 入っており、そこを『残す』判定にしていたのが原因。sprintFilter が .claude に対して受理するのは直下の autopilot-*.lock だけなので、.claude ディレクトリ自体は watch するが配下には降りない形に修正。3.77s → 2.27s。",
+      "reference": "internal/tab/sprint/provider.go sprintSkipDir",
+      "adr_ref": "none",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "implementation",
+      "title": "ユーザー指摘を受けて購読を非同期化 — 初回待ちが完全に消えた",
+      "detail": "『バックグラウンドでやればいいのでは』というユーザー指摘は正しく、私の当初の判断が過剰に保守的だった。購読の結果はリクエスト処理に一切使われない (呼び出し側が使うのは WindowSpec だけ) ので、goroutine に逃がせる。revert した fast path とは性質が異なる: fast path は購読を『やらない』ので再起動後に通知が永久に失われたが、非同期化は購読を『必ずやる』ので失うのは開いた直後の数秒間の取りこぼしだけ。desired[key] を真実として持ち、購読完了時に不一致なら自分で Unsubscribe することで、in-flight 中に branch が閉じた場合の watcher 漏れを防いだ。実測: 2.27s → 0.09〜0.14s (再起動直後の1発目から)。",
+      "reference": "internal/tab/{sprint,git}/provider.go subscribeAsync",
+      "adr_ref": "none",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "verification",
+      "title": "非同期化テストが最初『落ちないテスト』だった + フレークを直列化で解消",
+      "detail": "(1) TestOnBranchOpen_ReturnsWithoutWaitingForRegistration の初版は 300 ディレクトリの木を使っており、同期に戻す mutation check で落ちなかった (同期でも 100ms 未満で終わるため)。6000 ディレクトリに増やし、mutation で 182ms で落ちることを確認した。(2) 非同期化直後の E2E 実行 1 回が AC-2-2a で失敗した (3/3 再実行は成功)。非同期化は仕事を消したのではなく移しただけなので、再起動直後に複数 workspace の購読 (各数万 syscall) が同時に走ると I/O 競合する。provider ごとに regMu で登録を直列化して解消 (呼び出し側はどちらにせよ待たない)。以降 E2E 3連続 + tab_set すべて PASS。",
+      "reference": "internal/tab/sprint/watcher_reuse_test.go, internal/tab/{sprint,git}/provider.go regMu",
+      "adr_ref": "none",
+      "drift_flag": "none"
     }
   ]
 }

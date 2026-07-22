@@ -67,12 +67,28 @@ type Provider struct {
 	watcher *worktreewatch.Watcher
 	// subs is keyed "{repoID}/{branchID}".
 	subs map[string]watchSub
+	// desired records, per key, the worktree root that SHOULD be watched.
+	// It is the single source of truth for the ASYNC subscribe path: a
+	// subscription that lands after the branch closed (or moved to another
+	// worktree) finds a mismatch here and throws itself away instead of
+	// installing a stale watcher.
+	desired map[string]string
+	// inflight records a subscribe currently running in the background, so
+	// two opens in quick succession do not each pay the registration.
+	inflight map[string]string
+	// regMu serialises the background registrations. Async removed the wait
+	// from the request path but did not remove the WORK: each registration is
+	// tens of thousands of syscalls, so letting several run at once just moves
+	// the stall into I/O contention (observed as a flaky E2E right after a
+	// restart, when several workspaces subscribe at once). One at a time keeps
+	// the box responsive; the caller never waits on this either way.
+	regMu sync.Mutex
 }
 
 // New returns a Provider with a Store reference for path resolution and
 // event publishing.
 func New(s *store.Store) *Provider {
-	return &Provider{st: s, subs: map[string]watchSub{}}
+	return &Provider{st: s, subs: map[string]watchSub{}, desired: map[string]string{}, inflight: map[string]string{}}
 }
 
 func (p *Provider) Type() string          { return TabType }
@@ -113,6 +129,25 @@ func (p *Provider) Tabs(_ context.Context, params tab.TabsParams) ([]domain.Tab,
 	}}, nil
 }
 
+// OnBranchOpen registers the worktree watcher for this branch. The
+// registration runs in the BACKGROUND (S3f3cb2).
+//
+// Registering an inotify watch costs one syscall per directory, recursively —
+// ~1.8 s on a real repo. OnBranchOpen is called from ensureBranchSession,
+// which sits on the path of BOTH tab creation and every WS attach, so doing
+// that work synchronously is exactly what made opening a Bash tab sit black
+// for seconds.
+//
+// Nothing in the request path consumes the subscription: the caller only uses
+// the returned WindowSpecs. So we hand the registration to a goroutine and
+// return immediately. The cost is a short window right after opening in which
+// worktree changes are not yet observed — acceptable, because the tab reads
+// its state fresh when rendered and the next change fires normally.
+//
+// This is deliberately NOT the same as skipping the subscription when the tmux
+// session already exists: that variant was tried and reverted because after a
+// restart with surviving sessions the watcher would never be registered at all
+// and live updates silently died. Here the subscription always happens.
 func (p *Provider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.ProviderResult, error) {
 	if params.Branch == nil || params.Branch.WorktreePath == "" {
 		return tab.ProviderResult{}, nil
@@ -120,54 +155,67 @@ func (p *Provider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.P
 	root := params.Branch.WorktreePath
 
 	p.startWatcher()
-	if p.watcher != nil {
-		repoID := params.Branch.RepoID
-		branchID := params.Branch.ID
-		key := repoID + "/" + branchID
-		p.mu.Lock()
-		if old, ok := p.subs[key]; ok {
-			if old.root == root {
-				// Already watching exactly this worktree — reuse it.
-				//
-				// S3f3cb2: re-subscribing here cost ~2 s on a large worktree
-				// (recursive inotify registration), and OnBranchOpen runs from
-				// ensureBranchSession, which is on the path of BOTH tab creation
-				// and every WS attach. That is the whole of the "Bash tab is
-				// black for seconds / Reconnecting takes forever" latency the
-				// user reported.
-				//
-				// The unconditional Unsubscribe this replaces was guarding a
-				// stale subscription after "branch closed and reopened without
-				// provider teardown". That case is still handled: the root
-				// comparison below resubscribes whenever the worktree behind
-				// this key changed. Since S1e8d02 made BranchID path-derived,
-				// an unchanged key implies an unchanged root, so the common
-				// path now reuses.
-				p.mu.Unlock()
-				return tab.ProviderResult{}, nil
-			}
-			old.sub.Unsubscribe()
-			delete(p.subs, key)
-		}
-		roots := []string{root}
-		sub, err := p.watcher.Subscribe(worktreewatch.Spec{
-			Roots:    roots,
-			Filter:   sprintFilter(root),
-			SkipDir:  sprintSkipDir(root),
-			Debounce: 1000 * time.Millisecond,
-			OnEvent: func(events []worktreewatch.Event) {
-				p.handleEvents(repoID, branchID, events)
-			},
-		})
-		if err == nil {
-			p.subs[key] = watchSub{sub: sub, root: root}
-		} else {
-			slog.Warn("sprint provider: subscribe failed", "err", err)
-		}
-		p.mu.Unlock()
+	if p.watcher == nil {
+		return tab.ProviderResult{}, nil
 	}
+	repoID := params.Branch.RepoID
+	branchID := params.Branch.ID
+	key := repoID + "/" + branchID
 
+	p.mu.Lock()
+	p.desired[key] = root
+	if cur, ok := p.subs[key]; ok && cur.root == root {
+		p.mu.Unlock() // already watching exactly this worktree
+		return tab.ProviderResult{}, nil
+	}
+	if inflightRoot, ok := p.inflight[key]; ok && inflightRoot == root {
+		p.mu.Unlock() // a background subscribe for this exact root is already running
+		return tab.ProviderResult{}, nil
+	}
+	p.inflight[key] = root
+	p.mu.Unlock()
+
+	go p.subscribeAsync(key, repoID, branchID, root)
 	return tab.ProviderResult{}, nil
+}
+
+// subscribeAsync performs the expensive registration off the request path and
+// installs the result only if it is still wanted.
+func (p *Provider) subscribeAsync(key, repoID, branchID, root string) {
+	p.regMu.Lock()
+	sub, err := p.watcher.Subscribe(worktreewatch.Spec{
+		Roots:    []string{root},
+		Filter:   sprintFilter(root),
+		SkipDir:  sprintSkipDir(root),
+		Debounce: 1000 * time.Millisecond,
+		OnEvent: func(events []worktreewatch.Event) {
+			p.handleEvents(repoID, branchID, events)
+		},
+	})
+
+	p.regMu.Unlock()
+
+	p.mu.Lock()
+	if cur, ok := p.inflight[key]; ok && cur == root {
+		delete(p.inflight, key)
+	}
+	if err != nil {
+		p.mu.Unlock()
+		slog.Warn("sprint provider: subscribe failed", "err", err, "root", root)
+		return
+	}
+	// The branch may have closed, or moved to a different worktree, while we
+	// were registering. Installing now would leak a watcher nobody unsubscribes.
+	if want, ok := p.desired[key]; !ok || want != root {
+		p.mu.Unlock()
+		sub.Unsubscribe()
+		return
+	}
+	if old, ok := p.subs[key]; ok {
+		old.sub.Unsubscribe()
+	}
+	p.subs[key] = watchSub{sub: sub, root: root}
+	p.mu.Unlock()
 }
 
 // OnBranchClose tears down this branch's filewatch subscription.
@@ -177,6 +225,10 @@ func (p *Provider) OnBranchClose(_ context.Context, params tab.CloseParams) erro
 	}
 	key := params.Branch.RepoID + "/" + params.Branch.ID
 	p.mu.Lock()
+	// Dropping `desired` first is what makes an in-flight background subscribe
+	// discard itself instead of installing a watcher for a closed branch.
+	delete(p.desired, key)
+	delete(p.inflight, key)
 	if sub, ok := p.subs[key]; ok {
 		sub.sub.Unsubscribe()
 		delete(p.subs, key)

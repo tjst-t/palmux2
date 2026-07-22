@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -13,6 +14,23 @@ import (
 	"github.com/tjst-t/palmux2/internal/tab"
 	"github.com/tjst-t/palmux2/internal/tmux"
 )
+
+// waitForSub polls until the background subscribe has installed a subscription
+// for key (S3f3cb2 made registration async), or the deadline passes.
+func waitForSub(t *testing.T, p *Provider, key string, d time.Duration) (watchSub, bool) {
+	t.Helper()
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		p.mu.Lock()
+		got, ok := p.subs[key]
+		p.mu.Unlock()
+		if ok {
+			return got, true
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return watchSub{}, false
+}
 
 // TestOnBranchOpen_ReusesSubscriptionForSameWorktree is the regression test for
 // the latency defect the user reported as "opening a Bash tab shows black for
@@ -35,9 +53,7 @@ func TestOnBranchOpen_ReusesSubscriptionForSameWorktree(t *testing.T) {
 	if _, err := p.OnBranchOpen(context.Background(), tab.OpenParams{Branch: branch}); err != nil {
 		t.Fatalf("OnBranchOpen #1: %v", err)
 	}
-	p.mu.Lock()
-	first, ok := p.subs[key]
-	p.mu.Unlock()
+	first, ok := waitForSub(t, p, key, 10*time.Second)
 	if !ok {
 		t.Skip("worktree watcher unavailable in this environment (no inotify)")
 	}
@@ -78,9 +94,7 @@ func TestOnBranchOpen_ResubscribesWhenWorktreeChanged(t *testing.T) {
 	if _, err := p.OnBranchOpen(context.Background(), tab.OpenParams{Branch: branchA}); err != nil {
 		t.Fatalf("OnBranchOpen A: %v", err)
 	}
-	p.mu.Lock()
-	first, ok := p.subs[key]
-	p.mu.Unlock()
+	first, ok := waitForSub(t, p, key, 10*time.Second)
 	if !ok {
 		t.Skip("worktree watcher unavailable in this environment (no inotify)")
 	}
@@ -90,9 +104,17 @@ func TestOnBranchOpen_ResubscribesWhenWorktreeChanged(t *testing.T) {
 		t.Fatalf("OnBranchOpen B: %v", err)
 	}
 
-	p.mu.Lock()
-	got := p.subs[key]
-	p.mu.Unlock()
+	var got watchSub
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		p.mu.Lock()
+		got = p.subs[key]
+		p.mu.Unlock()
+		if got.root == dirB {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 
 	if got.sub == first.sub {
 		t.Error("worktree changed for this branch key but the stale subscription was reused; " +
@@ -137,10 +159,7 @@ func TestReusedSubscription_StillDeliversEvents(t *testing.T) {
 			t.Fatalf("OnBranchOpen #%d: %v", i+1, err)
 		}
 	}
-	p.mu.Lock()
-	_, ok := p.subs["r--0001/b--0001"]
-	p.mu.Unlock()
-	if !ok {
+	if _, ok := waitForSub(t, p, "r--0001/b--0001", 10*time.Second); !ok {
 		t.Skip("worktree watcher unavailable in this environment (no inotify)")
 	}
 
@@ -162,5 +181,81 @@ func TestReusedSubscription_StillDeliversEvents(t *testing.T) {
 			t.Fatal("no sprint.changed within 15s of creating docs/ROADMAP.json — reusing the " +
 				"subscription silently lost the notification (AC-S3f3cb2-1-4)")
 		}
+	}
+}
+
+// TestOnBranchOpen_ReturnsWithoutWaitingForRegistration is the point of the
+// async change (S3f3cb2): OnBranchOpen sits on ensureBranchSession, which runs
+// on every tab creation AND every WS attach. Registering an inotify watch costs
+// one syscall per directory and measured ~1.8 s on a real repo, so the call
+// must not wait for it.
+func TestOnBranchOpen_ReturnsWithoutWaitingForRegistration(t *testing.T) {
+	dir := t.TempDir()
+	// The tree must be big enough that a SYNCHRONOUS registration would blow
+	// the threshold below — otherwise this test passes against the very bug it
+	// is supposed to catch. Registration runs at roughly 15 dirs/ms here, so
+	// 6000 directories costs ~400 ms synchronously versus a few map operations
+	// asynchronously. (An earlier draft used 300 dirs and did NOT fail when the
+	// async call was reverted to a synchronous one.)
+	const dirs = 6000
+	for i := 0; i < dirs; i++ {
+		if err := os.MkdirAll(filepath.Join(dir, "docs", strconv.Itoa(i)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := New(nil)
+	branch := &domain.Branch{ID: "b--0001", RepoID: "r--0001", Name: "main", WorktreePath: dir}
+
+	start := time.Now()
+	if _, err := p.OnBranchOpen(context.Background(), tab.OpenParams{Branch: branch}); err != nil {
+		t.Fatal(err)
+	}
+	elapsed := time.Since(start)
+
+	if _, ok := waitForSub(t, p, "r--0001/b--0001", 10*time.Second); !ok {
+		t.Skip("worktree watcher unavailable in this environment (no inotify)")
+	}
+	// The registration itself is what we moved off the caller's thread; the
+	// synchronous part is just a couple of map operations.
+	if elapsed > 150*time.Millisecond {
+		t.Errorf("OnBranchOpen blocked for %v — registration must happen in the background", elapsed)
+	}
+}
+
+// TestOnBranchClose_DuringInFlightSubscribeLeavesNothing pins the hazard the
+// async path introduces: a subscription that finishes registering AFTER the
+// branch closed must throw itself away, not install a watcher nobody will ever
+// unsubscribe. `desired` is what makes that decidable.
+func TestOnBranchClose_DuringInFlightSubscribeLeavesNothing(t *testing.T) {
+	dir := t.TempDir()
+	for i := 0; i < 300; i++ {
+		if err := os.MkdirAll(filepath.Join(dir, "docs", strconv.Itoa(i)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := New(nil)
+	branch := &domain.Branch{ID: "b--0001", RepoID: "r--0001", Name: "main", WorktreePath: dir}
+
+	if _, err := p.OnBranchOpen(context.Background(), tab.OpenParams{Branch: branch}); err != nil {
+		t.Fatal(err)
+	}
+	// Close immediately — the background subscribe is very likely still running.
+	if err := p.OnBranchClose(context.Background(), tab.CloseParams{Branch: branch}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Give any in-flight registration time to land and discard itself.
+	time.Sleep(2 * time.Second)
+
+	p.mu.Lock()
+	nSubs, nDesired, nInflight := len(p.subs), len(p.desired), len(p.inflight)
+	p.mu.Unlock()
+
+	if nSubs != 0 {
+		t.Errorf("a subscription survived OnBranchClose (%d) — an in-flight background "+
+			"subscribe installed a watcher for a closed branch", nSubs)
+	}
+	if nDesired != 0 || nInflight != 0 {
+		t.Errorf("bookkeeping leaked after close: desired=%d inflight=%d", nDesired, nInflight)
 	}
 }

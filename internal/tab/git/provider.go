@@ -41,13 +41,27 @@ type Provider struct {
 	watcher *worktreewatch.Watcher
 	// subs is keyed "{repoID}/{branchID}".
 	subs map[string]watchSub
+	// desired records, per key, the worktree root that SHOULD be watched — the
+	// source of truth for the async subscribe path (see subscribeAsync).
+	desired map[string]string
+	// inflight records a background subscribe currently running.
+	inflight map[string]string
+	// regMu serialises the background registrations. Async removed the wait
+	// from the request path but did not remove the WORK: each registration is
+	// tens of thousands of syscalls, so letting several run at once just moves
+	// the stall into I/O contention (observed as a flaky E2E right after a
+	// restart, when several workspaces subscribe at once). One at a time keeps
+	// the box responsive; the caller never waits on this either way.
+	regMu sync.Mutex
 }
 
 // New returns a Provider with a Store reference for path resolution.
 func New(s *store.Store) *Provider {
 	return &Provider{
-		store: s,
-		subs:  map[string]watchSub{},
+		store:    s,
+		subs:     map[string]watchSub{},
+		desired:  map[string]string{},
+		inflight: map[string]string{},
 	}
 }
 
@@ -78,57 +92,88 @@ func (p *Provider) Tabs(_ context.Context, _ tab.TabsParams) ([]domain.Tab, erro
 // OnBranchOpen subscribes the worktree watcher for this branch so Git status
 // changes publish an event. Side effects are legitimate here — this fires on
 // a real branch open, not on every tab recompute.
+// OnBranchOpen registers the worktree watcher for this branch. The
+// registration runs in the BACKGROUND (S3f3cb2).
+//
+// The Git tab keeps its status display live by watching the working tree, and
+// inotify charges one syscall per directory, recursively — 26,735 directories
+// (~1.8 s) on a real repo. OnBranchOpen is called from ensureBranchSession,
+// which sits on the path of BOTH tab creation and every WS attach, so paying
+// that synchronously is what made opening a Bash tab sit black for seconds.
+//
+// Nothing in the request path consumes the subscription, so it goes to a
+// goroutine. The cost is a short window right after opening in which working-
+// tree changes do not push a git.statusChanged event; the tab reads status
+// fresh when rendered, and the next change fires normally.
 func (p *Provider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.ProviderResult, error) {
 	// Lazily start the watcher so unit tests that don't need fsnotify
 	// (e.g. parseStatus) skip it.
 	p.startWatcher()
-	if p.watcher != nil && params.Branch != nil {
-		repoID := params.Branch.RepoID
-		branchID := params.Branch.ID
-		root := params.Branch.WorktreePath
-		key := repoID + "/" + branchID
-		p.mu.Lock()
-		if old, ok := p.subs[key]; ok {
-			if old.root == root {
-				// Already watching exactly this worktree — reuse it.
-				//
-				// S3f3cb2: re-subscribing here cost ~1.7 s on a large worktree
-				// (recursive inotify registration), and OnBranchOpen runs from
-				// ensureBranchSession, which is on the path of BOTH tab creation
-				// and every WS attach.
-				//
-				// The unconditional Unsubscribe this replaces was guarding a
-				// stale subscription after "branch closed and reopened without
-				// provider teardown". That case is still handled: the root
-				// comparison resubscribes whenever the worktree behind this key
-				// changed. Since S1e8d02 made BranchID path-derived, an
-				// unchanged key implies an unchanged root, so the common path
-				// now reuses.
-				p.mu.Unlock()
-				return tab.ProviderResult{}, nil
-			}
-			old.sub.Unsubscribe()
-			delete(p.subs, key)
-		}
-		sub, err := p.watcher.Subscribe(worktreewatch.Spec{
-			Roots:    []string{root},
-			Filter:   gitFilter(root),
-			SkipDir:  gitSkipDir(root),
-			Debounce: 1000 * time.Millisecond,
-			OnEvent: func(_ []worktreewatch.Event) {
-				p.store.Hub().Publish(store.Event{
-					Type:     EventGitStatusChanged,
-					RepoID:   repoID,
-					BranchID: branchID,
-				})
-			},
-		})
-		if err == nil {
-			p.subs[key] = watchSub{sub: sub, root: root}
-		}
-		p.mu.Unlock()
+	if p.watcher == nil || params.Branch == nil {
+		return tab.ProviderResult{}, nil
 	}
+	repoID := params.Branch.RepoID
+	branchID := params.Branch.ID
+	root := params.Branch.WorktreePath
+	key := repoID + "/" + branchID
+
+	p.mu.Lock()
+	p.desired[key] = root
+	if cur, ok := p.subs[key]; ok && cur.root == root {
+		p.mu.Unlock() // already watching exactly this worktree
+		return tab.ProviderResult{}, nil
+	}
+	if inflightRoot, ok := p.inflight[key]; ok && inflightRoot == root {
+		p.mu.Unlock() // a background subscribe for this exact root is running
+		return tab.ProviderResult{}, nil
+	}
+	p.inflight[key] = root
+	p.mu.Unlock()
+
+	go p.subscribeAsync(key, repoID, branchID, root)
 	return tab.ProviderResult{}, nil
+}
+
+// subscribeAsync performs the expensive registration off the request path and
+// installs the result only if it is still wanted.
+func (p *Provider) subscribeAsync(key, repoID, branchID, root string) {
+	p.regMu.Lock()
+	sub, err := p.watcher.Subscribe(worktreewatch.Spec{
+		Roots:    []string{root},
+		Filter:   gitFilter(root),
+		SkipDir:  gitSkipDir(root),
+		Debounce: 1000 * time.Millisecond,
+		OnEvent: func(_ []worktreewatch.Event) {
+			p.store.Hub().Publish(store.Event{
+				Type:     EventGitStatusChanged,
+				RepoID:   repoID,
+				BranchID: branchID,
+			})
+		},
+	})
+
+	p.regMu.Unlock()
+
+	p.mu.Lock()
+	if cur, ok := p.inflight[key]; ok && cur == root {
+		delete(p.inflight, key)
+	}
+	if err != nil {
+		p.mu.Unlock()
+		return
+	}
+	// The branch may have closed, or moved to a different worktree, while we
+	// were registering. Installing now would leak a watcher nobody unsubscribes.
+	if want, ok := p.desired[key]; !ok || want != root {
+		p.mu.Unlock()
+		sub.Unsubscribe()
+		return
+	}
+	if old, ok := p.subs[key]; ok {
+		old.sub.Unsubscribe()
+	}
+	p.subs[key] = watchSub{sub: sub, root: root}
+	p.mu.Unlock()
 }
 
 func (p *Provider) OnBranchClose(_ context.Context, params tab.CloseParams) error {
@@ -137,6 +182,10 @@ func (p *Provider) OnBranchClose(_ context.Context, params tab.CloseParams) erro
 	}
 	key := params.Branch.RepoID + "/" + params.Branch.ID
 	p.mu.Lock()
+	// Dropping `desired` first is what makes an in-flight background subscribe
+	// discard itself instead of installing a watcher for a closed branch.
+	delete(p.desired, key)
+	delete(p.inflight, key)
 	if sub, ok := p.subs[key]; ok {
 		sub.sub.Unsubscribe()
 		delete(p.subs, key)
