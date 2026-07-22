@@ -50,6 +50,15 @@ const TabType = "sprint"
 // invalidates the affected dashboard view.
 const EventSprintChanged store.EventType = "sprint.changed"
 
+// watchSub is a live worktree-watch subscription plus the root it was
+// created for. The root is what makes subscription REUSE safe: the provider
+// resubscribes only when the worktree behind a branch key actually changed
+// (S3f3cb2).
+type watchSub struct {
+	sub  *worktreewatch.Subscription
+	root string
+}
+
 // Provider implements tab.Provider for the Sprint Dashboard tab.
 type Provider struct {
 	st *store.Store
@@ -57,13 +66,13 @@ type Provider struct {
 	mu      sync.Mutex
 	watcher *worktreewatch.Watcher
 	// subs is keyed "{repoID}/{branchID}".
-	subs map[string]*worktreewatch.Subscription
+	subs map[string]watchSub
 }
 
 // New returns a Provider with a Store reference for path resolution and
 // event publishing.
 func New(s *store.Store) *Provider {
-	return &Provider{st: s, subs: map[string]*worktreewatch.Subscription{}}
+	return &Provider{st: s, subs: map[string]watchSub{}}
 }
 
 func (p *Provider) Type() string          { return TabType }
@@ -117,20 +126,41 @@ func (p *Provider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.P
 		key := repoID + "/" + branchID
 		p.mu.Lock()
 		if old, ok := p.subs[key]; ok {
-			old.Unsubscribe()
+			if old.root == root {
+				// Already watching exactly this worktree — reuse it.
+				//
+				// S3f3cb2: re-subscribing here cost ~2 s on a large worktree
+				// (recursive inotify registration), and OnBranchOpen runs from
+				// ensureBranchSession, which is on the path of BOTH tab creation
+				// and every WS attach. That is the whole of the "Bash tab is
+				// black for seconds / Reconnecting takes forever" latency the
+				// user reported.
+				//
+				// The unconditional Unsubscribe this replaces was guarding a
+				// stale subscription after "branch closed and reopened without
+				// provider teardown". That case is still handled: the root
+				// comparison below resubscribes whenever the worktree behind
+				// this key changed. Since S1e8d02 made BranchID path-derived,
+				// an unchanged key implies an unchanged root, so the common
+				// path now reuses.
+				p.mu.Unlock()
+				return tab.ProviderResult{}, nil
+			}
+			old.sub.Unsubscribe()
 			delete(p.subs, key)
 		}
 		roots := []string{root}
 		sub, err := p.watcher.Subscribe(worktreewatch.Spec{
 			Roots:    roots,
 			Filter:   sprintFilter(root),
+			SkipDir:  sprintSkipDir(root),
 			Debounce: 1000 * time.Millisecond,
 			OnEvent: func(events []worktreewatch.Event) {
 				p.handleEvents(repoID, branchID, events)
 			},
 		})
 		if err == nil {
-			p.subs[key] = sub
+			p.subs[key] = watchSub{sub: sub, root: root}
 		} else {
 			slog.Warn("sprint provider: subscribe failed", "err", err)
 		}
@@ -148,7 +178,7 @@ func (p *Provider) OnBranchClose(_ context.Context, params tab.CloseParams) erro
 	key := params.Branch.RepoID + "/" + params.Branch.ID
 	p.mu.Lock()
 	if sub, ok := p.subs[key]; ok {
-		sub.Unsubscribe()
+		sub.sub.Unsubscribe()
 		delete(p.subs, key)
 	}
 	p.mu.Unlock()
@@ -175,7 +205,7 @@ func (p *Provider) RegisterRoutes(mux *http.ServeMux, prefix string) {
 func (p *Provider) Close() {
 	p.mu.Lock()
 	for k, sub := range p.subs {
-		sub.Unsubscribe()
+		sub.sub.Unsubscribe()
 		delete(p.subs, k)
 	}
 	w := p.watcher
@@ -307,6 +337,37 @@ func roadmapExists(root string) bool {
 //
 // Anything else returns false. *.md / *.md.bak / *.txt are deliberately
 // dropped — the dashboard never reads them.
+// sprintSkipDir prunes watch REGISTRATION to the only two subtrees
+// sprintFilter can ever accept: docs/ and .claude/. The worktree root itself
+// is still watched (non-recursively in effect), which is what lets us see
+// docs/ being created in a repo that does not have it yet.
+//
+// S3f3cb2: without this the Sprint tab registered an inotify watch for every
+// directory in the worktree — 27,025 on a real repo where the 26 under docs/
+// were all it could act on. That cost ~2 s on every tab open and WS attach,
+// and 30 workspaces would have approached the system-wide inotify limit.
+//
+// MUST stay consistent with sprintFilter: anything the filter accepts has to
+// live under a subtree this function does NOT prune.
+func sprintSkipDir(root string) func(string) bool {
+	root = filepath.Clean(root)
+	return func(dir string) bool {
+		rel, err := filepath.Rel(root, dir)
+		if err != nil {
+			return true
+		}
+		relSlash := filepath.ToSlash(rel)
+		if relSlash == "." {
+			return false // never prune the root
+		}
+		top := relSlash
+		if i := strings.IndexByte(top, '/'); i >= 0 {
+			top = top[:i]
+		}
+		return top != "docs" && top != ".claude"
+	}
+}
+
 func sprintFilter(root string) worktreewatch.Filter {
 	root = filepath.Clean(root)
 	return func(ev worktreewatch.Event) bool {
