@@ -167,6 +167,42 @@
       "reference": "tests/e2e/sd0e1a9_tab_set.py, docs/sprint-logs/Sd0e1a9/gui-spec-Sd0e1a9-1.json",
       "adr_ref": "none",
       "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "implementation",
+      "title": "未マージ prior art (65fc548) の設計を移植し、失われた5テストを復元した",
+      "detail": "ユーザー確認のうえ推奨案を採用。customize-ws-container の 65fc548 は recomputeTabs を gatherRecomputeWindows (ロック不要・registry 可・Start は絶対に呼ばない) と recomputeTabsLocked (純粋・ロック必須) に分割し、Store.mu に LOCK ORDER INVARIANT を明文化していた。205コミット差のため cherry-pick はせず設計を移植し、ADR-0012 の Tabs() 純粋化に合わせて三分割 (gatherRecomputeWindows / computeTabs / swapTabs) + recomputeAndPublish に再構成した。internal/store/recompute_lock_test.go の5テストは provenance をヘッダに明記して復元。今回さらに強い直接検証 TestRecomputeAndPublish_HoldsNoLockDuringDerivation を追加した。",
+      "reference": "git show 65fc548, internal/store/recompute_lock_test.go, internal/store/store.go",
+      "adr_ref": "ADR-0012",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "implementation",
+      "title": "新規ロックテストが最初『落ちないテスト』だった — mutation check で発見し修正",
+      "detail": "TestRecomputeAndPublish_HoldsNoLockDuringDerivation の初版は『リーダーがいずれ s.mu を取得できる』ことを見ていた。これは書きロックを持ったままでも、導出が終われば取得できるため成立してしまう。実際に store.go へ意図的に s.mu.Lock() を再導入する mutation check を回したところ、PopulateTabs のデッドロックテストは正しく落ちたのに当該テストは PASS した。アサーションを『導出が実行中のあいだにリーダーが取得できること』(1.5s 以内に取れなければ失敗) へ修正し、mutation check で落ちることを再確認した。テストに歯があることを確認せずに緑を信用しない。",
+      "reference": "internal/store/recompute_lock_test.go TestRecomputeAndPublish_HoldsNoLockDuringDerivation",
+      "adr_ref": "none",
+      "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "implementation",
+      "title": "AC-2-2 の当初の観測対象は成立しないので修正した (plan 時の仕様ミス)",
+      "detail": "plan では『外部から tmux セッションを kill → sync_tmux 復旧 → タブ集合の変化がリロードなしに反映される』としたが、実装を読むと復旧経路は enrichRecoverySpecs によって in-memory のタブ集合を保存するよう意図的に設計されている (S009-fix-2)。つまり復旧でタブ集合は変化しないのが正しい挙動で、変化を待つテストは永久に成立しない = 落ちないテストになる。観測可能な形へ AC を修正した: (a) ブラウザ外 (REST API) からのタブ追加・削除がリロードなしに TabBar へ反映される、(b) 外部 kill + 復旧の後も TabBar と BE が一致し続ける (S009-fix-1 クラスの消失が起きない)。両方とも実機 E2E で PASS。",
+      "reference": "docs/ROADMAP.json AC-Sd0e1a9-2-2, tests/e2e/sd0e1a9_tab_events.py, internal/store/sync_tmux.go enrichRecoverySpecs",
+      "adr_ref": "none",
+      "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "implementation",
+      "title": "AddTab / RemoveTab の手動 publish を削除し、汎用差分に一本化した",
+      "detail": "従来 AddTab/RemoveTab は recompute 後に自前で EventTabAdded/EventTabRemoved を publish していた。recomputeAndPublish が同じ差分を出すため重複する。FE (palmux-store.ts applyEvent) はタブ系イベントの payload を一切見ず全体リロードするだけなので重複は無害だが、二重リロードを避けるため手動 publish を削除した。一方 tab.renamed / tab.reordered は残す — 改名 (ID 不変) と並べ替えはタブ ID 集合を変えないので汎用差分では検出できず、意味イベントが唯一の通知手段になる。",
+      "reference": "internal/store/tab.go, frontend/src/stores/palmux-store.ts applyEvent",
+      "adr_ref": "ADR-0012",
+      "drift_flag": "none"
     }
   ]
 }

@@ -13403,44 +13403,44 @@
         },
         "Sd0e1a9-2": {
           "title": "palmux 利用者として、タブの追加・削除・表示条件の変化がブラウザをリロードしなくても TabBar に反映されてほしい。なぜなら、今はタブ集合を更新する12経路のうち通知を出すのは1つだけで、sync ループや runtime 切替でタブ集合が変わっても画面が古いまま取り残されるから。",
-          "status": "pending",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-Sd0e1a9-2-1",
               "description": "タブ集合を変更する全経路が diff+publish を通り tab.added/tab.removed を発行する。branch.TabSet.Tabs を無言で上書きする経路がコード上ゼロ (sync_tmux.go / branch.go / PopulateTabs を含む)",
-              "status": "pending"
+              "status": "pass"
             },
             {
               "id": "AC-Sd0e1a9-2-2",
-              "description": "実ブラウザ E2E: 外部から tmux セッションを kill し sync_tmux の復旧が走った後、タブ集合の変化がページリロードなしに TabBar へ反映される (現状 sync_tmux.go:167 が無通知な経路)",
-              "status": "pending"
+              "description": "実ブラウザ E2E: (a) ブラウザ外 (REST API) からのタブ追加・削除がページリロードなしに TabBar へ反映される。(b) 外部から tmux セッションを kill して sync_tmux の復旧が走った後も、TabBar と BE のタブ集合が一致し続ける (S009-fix-1 クラスの消失が起きない)。当初『復旧でタブ集合が変化することを観測する』と書いたが、enrichRecoverySpecs は復旧時にタブ集合を保存する設計なので変化しないのが正しい挙動であり、観測対象を実際に成立する形へ修正した。",
+              "status": "pass"
             },
             {
               "id": "AC-Sd0e1a9-2-3",
               "description": "recomputeTabs の I/O (tmux ListWindows / provider Tabs()) が store の書きロック外で実行される。incus-container workspace でコンテナ起動が書きロックを保持しない",
-              "status": "pending"
+              "status": "pass"
             }
           ],
           "tasks": {
             "Sd0e1a9-2-1": {
               "title": "store: 純粋化した reducer をロック外で評価し、短時間の書きロックで swap + diff+publish する共通経路を新設",
-              "status": "pending"
+              "status": "done"
             },
             "Sd0e1a9-2-2": {
               "title": "recomputeTabs の12呼び出し元すべてを新経路へ移行し、無言上書きを撲滅 (sync_tmux.go:167 / branch.go:92,778 / tab.go 6箇所 / store.go PopulateTabs 等)",
-              "status": "pending"
+              "status": "done"
             },
             "Sd0e1a9-2-3": {
               "title": "tmuxFor 経由のコンテナ起動が書きロック内で起きないことを確認・是正 (store.go:635 のコメントが認める経路)",
-              "status": "pending"
+              "status": "done"
             },
             "Sd0e1a9-2-4": {
               "title": "characterization test: DEFECT-1件 (Notification) を契約 assert へ書き換え (旧 AC-2-4 — 同上)",
-              "status": "pending"
+              "status": "done"
             },
             "Sd0e1a9-2-5": {
               "title": "E2E: tests/e2e/sd0e1a9_tab_events.py — 外部 tmux kill → 復旧 → リロードなしで TabBar 追随",
-              "status": "pending"
+              "status": "done"
             }
           }
         }

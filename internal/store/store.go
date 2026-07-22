@@ -65,7 +65,27 @@ type Deps struct {
 
 // Store is concurrency-safe.
 type Store struct {
-	deps              Deps
+	deps Deps
+
+	// LOCK ORDER INVARIANT (ADR-0012, restoring the rule established by
+	// 65fc548 on the unmerged customize-ws-container branch and lost when that
+	// branch was never merged):
+	//
+	// Never call RuntimeRegistry.Get / rt.Start / tmuxFor / a provider's Tabs
+	// while holding mu. The registry's worktree resolver calls back into
+	// Store.Branch, which takes mu again from the SAME goroutine — Go's
+	// sync.RWMutex is not reentrant, so that hangs forever. Even when the
+	// resolver is not involved, tmuxFor may Start an incus container and wedge
+	// every /api/* request behind a multi-minute launch.
+	//
+	// The tab-set derivation is therefore split in two:
+	//
+	//	gatherRecomputeWindows + computeTabs   — no lock, may touch the
+	//	                                         registry and the filesystem
+	//	swapTabs                               — lock held, in-memory only
+	//
+	// recomputeAndPublish sequences them. Do not reintroduce a registry, tmux,
+	// or provider call inside swapTabs or any other function that runs under mu.
 	mu                sync.RWMutex
 	repos             map[string]*domain.Repository // by RepoID
 	conns             map[string]*domain.Connection
@@ -146,83 +166,49 @@ func New(deps Deps) (*Store, error) {
 	return s, nil
 }
 
-// RecomputeBranchTabs is the public entry point used by Conditional tab
-// providers (S016 Sprint) when their visibility may have changed without
-// any tmux activity — e.g. ROADMAP.md was created or deleted in the
-// worktree. It re-runs `recomputeTabs` for the given branch and diffs
-// the previous TabSet against the new one, emitting `tab.added` /
-// `tab.removed` events for the differences so subscribed browsers can
-// update their TabBar immediately.
+// RecomputeBranchTabs is the public entry point used by tab providers whose
+// visibility may have changed without any tmux activity — e.g. docs/ROADMAP.json
+// was created or deleted in the worktree (the Sprint tab), or a runtime switch
+// made Browser/Ports appear.
 //
-// The diff is keyed on Tab.ID + Tab.Type so multiple Bash instances
-// (which share Type but differ on ID) are handled correctly.
+// ADR-0012: this is now a thin wrapper over recomputeAndPublish, which every
+// other recompute path also uses. It used to be the ONLY one of thirteen call
+// sites that diffed and published; the rest mutated the tab set in silence.
 //
 // Returns ErrRepoNotFound / ErrBranchNotFound when the IDs don't match.
 func (s *Store) RecomputeBranchTabs(repoID, branchID string) error {
-	ctx := context.Background()
-	s.mu.Lock()
-	repo, ok := s.repos[repoID]
-	if !ok {
-		s.mu.Unlock()
-		return ErrRepoNotFound
-	}
-	var branch *domain.Branch
-	for _, b := range repo.OpenBranches {
-		if b.ID == branchID {
-			branch = b
-			break
-		}
-	}
-	if branch == nil {
-		s.mu.Unlock()
-		return ErrBranchNotFound
-	}
-	prev := append([]domain.Tab(nil), branch.TabSet.Tabs...)
-	s.recomputeTabs(ctx, branch)
-	next := append([]domain.Tab(nil), branch.TabSet.Tabs...)
-	s.mu.Unlock()
-
-	prevSet := map[string]struct{}{}
-	for _, t := range prev {
-		prevSet[t.Type+"\x00"+t.ID] = struct{}{}
-	}
-	nextSet := map[string]struct{}{}
-	for _, t := range next {
-		nextSet[t.Type+"\x00"+t.ID] = struct{}{}
-	}
-	for _, t := range next {
-		if _, was := prevSet[t.Type+"\x00"+t.ID]; !was {
-			s.hub.Publish(Event{
-				Type: EventTabAdded, RepoID: repoID, BranchID: branchID, TabID: t.ID,
-				Payload: map[string]any{"tab": t},
-			})
-		}
-	}
-	for _, t := range prev {
-		if _, still := nextSet[t.Type+"\x00"+t.ID]; !still {
-			s.hub.Publish(Event{
-				Type: EventTabRemoved, RepoID: repoID, BranchID: branchID, TabID: t.ID,
-			})
-		}
-	}
-	return nil
+	return s.recomputeAndPublish(context.Background(), repoID, branchID)
 }
 
-// PopulateTabs walks every Open branch and runs recomputeTabs against it.
-// This must be called AFTER every Provider has been registered (otherwise
-// REST-only tabs like Files / Git would be missing) and BEFORE the sync
-// loops start (so the first GET /api/repos sees a populated tab list).
+// PopulateTabs walks every Open branch and derives its tab set. This must be
+// called AFTER every Provider has been registered (otherwise REST-only tabs
+// like Files / Git would be missing) and BEFORE the sync loops start (so the
+// first GET /api/repos sees a populated tab list).
 //
-// The fallback was previously: SyncTmux's recovery path called recomputeTabs
-// for branches whose tmux session was missing, but if the previous palmux
-// died and left its sessions alive, recovery is a no-op and Tabs stays
-// empty. main.go calls this before Run() to close that gap.
+// The fallback was previously: SyncTmux's recovery path recomputed for branches
+// whose tmux session was missing, but if the previous palmux died and left its
+// sessions alive, recovery is a no-op and Tabs stays empty. main.go calls this
+// before Run() to close that gap.
+//
+// ADR-0012: it no longer holds the write lock across the whole walk. Deriving a
+// tab set consults the runtime registry and the filesystem, and doing that
+// under s.mu for every branch in turn is exactly the pattern the lock-order
+// invariant forbids. We snapshot the branch ids first, then recompute each one
+// through the normal path.
 func (s *Store) PopulateTabs(ctx context.Context) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	type ref struct{ repoID, branchID string }
+	var refs []ref
+	s.mu.RLock()
 	for _, repo := range s.repos {
 		for _, b := range repo.OpenBranches {
-			s.recomputeTabs(ctx, b)
+			refs = append(refs, ref{repo.ID, b.ID})
+		}
+	}
+	s.mu.RUnlock()
+
+	for _, r := range refs {
+		if err := s.recomputeAndPublish(ctx, r.repoID, r.branchID); err != nil {
+			s.logger.Warn("PopulateTabs: recompute", "repo", r.repoID, "branch", r.branchID, "err", err)
 		}
 	}
 }
@@ -609,49 +595,75 @@ func (s *Store) buildBranchFromWorktree(repo *domain.Repository, wt worktree.Wor
 	return branch
 }
 
-// recomputeTabs rebuilds branch.TabSet.Tabs from current tmux window state +
-// the registered providers. Called whenever the underlying state may have
-// changed. Caller MUST hold the write lock.
+// gatherRecomputeWindows lists the tmux windows for a workspace's session, for
+// use by computeTabs. It MUST be called WITHOUT s.mu held — see the LOCK ORDER
+// INVARIANT on Store.mu. Unlike tmuxFor it NEVER starts a container: deriving
+// the tab set is a read-only reconciliation pass, not a trigger for a
+// multi-minute incus launch.
 //
-// ADR-0012: the provider-side input is now [tab.Provider.Tabs], a pure query,
-// instead of the OnBranchOpen lifecycle hook. Before that split this function
-// called OnBranchOpen with Resume=false and asserted in a comment that doing
-// so was side-effect free; it was not (the sprint provider allocated an
-// inotify handle from here, and the browser provider created a per-workspace
-// Manager — both under the write lock, on every 5 s sync cycle).
+// listFailed=true (windows=nil) covers: no live session yet, a real ListWindows
+// error, AND an incus-container workspace whose runtime is not yet StateReady
+// (stopped / evicted / mid-Start elsewhere). computeTabs treats all of those
+// the same way (S009-fix-1): tmux-backed multi tabs keep their previously-known
+// list, singletons stay deterministic, and whatever brings the container up
+// triggers its own recompute later.
 //
-// tmux policy stays HERE, not in the providers, so Tabs() stays a plain
+// (Restored from 65fc548 — see the LOCK ORDER INVARIANT comment for why that
+// fix had to be rebuilt.)
+func (s *Store) gatherRecomputeWindows(ctx context.Context, repoID, branchID, sessionName string) (windows []tmux.Window, listFailed bool) {
+	tc := s.deps.Tmux
+	if !IsHostRepoID(repoID) && s.deps.RuntimeRegistry != nil {
+		rt := s.deps.RuntimeRegistry.Get(repoID, branchID)
+		if rt == nil {
+			return nil, true
+		}
+		if rt.Kind() == runtime.KindIncusContainer && rt.Status().State != runtime.StateReady {
+			// Do NOT Start() here — that is tmuxFor's job, called from paths
+			// (ensureSession, AddTab, …) that already run outside s.mu.
+			return nil, true
+		}
+		tc = rt.TmuxClient()
+	}
+	if tc == nil {
+		return nil, true
+	}
+	windows, err := tc.ListWindows(ctx, sessionName)
+	if err != nil {
+		return nil, true
+	}
+	return windows, false
+}
+
+// computeTabs derives the tab set for a branch from precomputed tmux window
+// state plus the registered providers. PURE with respect to the Store: it
+// reads no Store state beyond the `branch` snapshot handed to it, mutates
+// nothing, and MUST run WITHOUT s.mu held (it calls provider Tabs()
+// implementations, which may stat the filesystem or consult the runtime
+// registry).
+//
+// ADR-0012: the provider-side input is [tab.Provider.Tabs], a pure query.
+// Before that split this ran OnBranchOpen with Resume=false and asserted in a
+// comment that doing so was side-effect free; it was not — the sprint provider
+// allocated an inotify handle from here and the browser provider created a
+// per-workspace Manager, both under the write lock on every 5 s sync cycle.
+//
+// tmux policy lives HERE, not in the providers, so Tabs() stays a plain
 // function of its arguments:
 //
 //   - S009-fix-1: ListWindows can fail transiently when sync_tmux is mid-cycle.
 //     Treating that as "no windows" used to make multi-instance tmux-backed
-//     tabs (Bash) vanish from the snapshot whenever an unrelated non-tmux
-//     mutation (e.g. POST /tabs {type:claude}) triggered a recompute — the user
-//     added a Claude tab and watched their Bash tabs disappear, then reappear
-//     5 s later. We distinguish "ListWindows failed transiently" from "session
-//     legitimately has zero windows of this type" and, in the failure case,
-//     fall back to the previously-known tab list for tmux-backed multi
-//     providers.
+//     tabs (Bash) vanish whenever an unrelated non-tmux mutation (e.g. POST
+//     /tabs {type:claude}) triggered a recompute — the user added a Claude tab
+//     and watched their Bash tabs disappear, then reappear 5 s later. In the
+//     failure case we fall back to the previously-known tab list.
 //   - A live session with no windows of a multi type still seeds the canonical
 //     instance, so a branch always shows at least one Bash tab.
-func (s *Store) recomputeTabs(ctx context.Context, branch *domain.Branch) {
+func (s *Store) computeTabs(ctx context.Context, branch *domain.Branch, windows []tmux.Window, listFailed bool) []domain.Tab {
 	if IsHostRepoID(branch.RepoID) {
-		// S0c6a1b: reserved host scope is bash-only (no Claude/Files/Git/Sprint)
-		// and always advertises the canonical bash tab even before its tmux
-		// session is lazily created.
-		s.recomputeHostTabs(ctx, branch)
-		return
-	}
-	// S8478ca-2: route through tmuxFor so incus-container workspaces query
-	// the in-container tmux server.  Note: tmuxFor may Start the container
-	// when kind=incus-container; we hold the write lock here so keep Start
-	// fast (it short-circuits via status check when the container is already
-	// running).  For host workspaces tmuxFor returns s.deps.Tmux unchanged.
-	windows, err := s.tmuxFor(ctx, branch.RepoID, branch.ID).ListWindows(ctx, branch.TabSet.TmuxSession)
-	listFailed := err != nil
-	if listFailed {
-		// Session may not exist yet; sync_tmux will recreate it within 5s.
-		windows = nil
+		// S0c6a1b: the reserved host scope is bash-only (no Claude/Files/Git/
+		// Sprint) and always advertises the canonical bash tab even before its
+		// tmux session is lazily created.
+		return s.computeHostTabs(ctx, branch, windows)
 	}
 	// Index windows by tab type, preserving tmux index order so user-added
 	// bash tabs stay in stable positions.
@@ -664,7 +676,7 @@ func (s *Store) recomputeTabs(ctx context.Context, branch *domain.Branch) {
 		byType[typ] = append(byType[typ], name)
 	}
 
-	// Index existing tabs by type so we can preserve them across a failed
+	// Index the previous tabs by type so we can preserve them across a failed
 	// ListWindows (S009-fix-1).
 	prevByType := map[string][]domain.Tab{}
 	for _, t := range branch.TabSet.Tabs {
@@ -678,24 +690,18 @@ func (s *Store) recomputeTabs(ctx context.Context, branch *domain.Branch) {
 			names := byType[p.Type()]
 			if p.Multiple() {
 				if listFailed && len(names) == 0 {
-					// Tmux query failed and we have no live data. Fall back to
-					// the previous tab list for this type so we don't
-					// transiently drop the user's Bash tabs while sync_tmux is
-					// mid-recovery.
 					tabs = append(tabs, prevByType[p.Type()]...)
 					continue
 				}
 				if !listFailed && len(names) == 0 {
-					// Live session with no windows of this type yet (e.g. fresh
-					// session pre-ensureSession): seed the canonical instance.
-					names = []string{p.Type()}
+					names = []string{p.Type()} // canonical instance
 				}
 			}
 			params.Windows = names
 		}
 		got, err := p.Tabs(ctx, params)
 		if err != nil {
-			s.logger.Warn("recomputeTabs: provider Tabs failed", "type", p.Type(), "err", err)
+			s.logger.Warn("computeTabs: provider Tabs failed", "type", p.Type(), "err", err)
 			// Keep whatever this provider contributed last time rather than
 			// silently dropping its tabs on a transient error.
 			tabs = append(tabs, prevByType[p.Type()]...)
@@ -703,10 +709,108 @@ func (s *Store) recomputeTabs(ctx context.Context, branch *domain.Branch) {
 		}
 		tabs = append(tabs, got...)
 	}
-	// S020: apply per-branch name overrides + user-set ordering recorded
-	// in repos.json `tabOverrides`. Singleton (Files/Git) tabs ignore both.
-	tabs = s.applyTabOverrides(branch, tabs)
-	branch.TabSet.Tabs = tabs
+	// S020: apply per-branch name overrides + user-set ordering recorded in
+	// repos.json `tabOverrides`. Singleton (Files/Git) tabs ignore both.
+	return s.applyTabOverrides(branch, tabs)
+}
+
+// swapTabs installs a freshly derived tab set on the live branch and returns
+// the previous and new lists for diffing. Takes the write lock and touches
+// nothing but in-memory state — see the LOCK ORDER INVARIANT on Store.mu.
+func (s *Store) swapTabs(repoID, branchID string, tabs []domain.Tab) (prev, next []domain.Tab, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	repo, found := s.repos[repoID]
+	if !found {
+		return nil, nil, false
+	}
+	for _, b := range repo.OpenBranches {
+		if b.ID != branchID {
+			continue
+		}
+		prev = append([]domain.Tab(nil), b.TabSet.Tabs...)
+		b.TabSet.Tabs = tabs
+		next = append([]domain.Tab(nil), tabs...)
+		return prev, next, true
+	}
+	return nil, nil, false
+}
+
+// publishTabDiff emits tab.added / tab.removed for the difference between two
+// tab lists. The diff is keyed on Tab.ID + Tab.Type so multiple Bash instances
+// (same Type, different ID) are handled correctly.
+func (s *Store) publishTabDiff(repoID, branchID string, prev, next []domain.Tab) {
+	key := func(t domain.Tab) string { return t.Type + "\x00" + t.ID }
+	prevSet := map[string]struct{}{}
+	for _, t := range prev {
+		prevSet[key(t)] = struct{}{}
+	}
+	nextSet := map[string]struct{}{}
+	for _, t := range next {
+		nextSet[key(t)] = struct{}{}
+	}
+	for _, t := range next {
+		if _, was := prevSet[key(t)]; !was {
+			s.hub.Publish(Event{
+				Type: EventTabAdded, RepoID: repoID, BranchID: branchID, TabID: t.ID,
+				Payload: map[string]any{"tab": t},
+			})
+		}
+	}
+	for _, t := range prev {
+		if _, still := nextSet[key(t)]; !still {
+			s.hub.Publish(Event{
+				Type: EventTabRemoved, RepoID: repoID, BranchID: branchID, TabID: t.ID,
+			})
+		}
+	}
+}
+
+// recomputeAndPublish is THE way to refresh a branch's tab set (ADR-0012).
+//
+// It sequences the three phases so the lock-order invariant holds and so the
+// frontend always learns about the change:
+//
+//  1. snapshot the branch            (read lock)
+//  2. gather tmux windows + derive   (NO lock — registry / filesystem / providers)
+//  3. swap the tab set               (write lock, in-memory only)
+//  4. publish the prev→next diff     (no lock)
+//
+// Before ADR-0012 there were 13 recompute call sites and only ONE of them
+// diffed and published; the other twelve overwrote branch.TabSet.Tabs in
+// silence, so the browser kept showing a stale TabBar until the next full REST
+// reload. Every path now goes through here — do not reintroduce a direct
+// tab-set assignment.
+//
+// MUST be called WITHOUT s.mu held.
+func (s *Store) recomputeAndPublish(ctx context.Context, repoID, branchID string) error {
+	s.mu.RLock()
+	repo, found := s.repos[repoID]
+	if !found {
+		s.mu.RUnlock()
+		return ErrRepoNotFound
+	}
+	var snap *domain.Branch
+	for _, b := range repo.OpenBranches {
+		if b.ID == branchID {
+			snap = cloneBranch(b)
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if snap == nil {
+		return ErrBranchNotFound
+	}
+
+	windows, listFailed := s.gatherRecomputeWindows(ctx, repoID, branchID, snap.TabSet.TmuxSession)
+	tabs := s.computeTabs(ctx, snap, windows, listFailed)
+
+	prev, next, ok := s.swapTabs(repoID, branchID, tabs)
+	if !ok {
+		return ErrBranchNotFound // branch closed while we were deriving
+	}
+	s.publishTabDiff(repoID, branchID, prev, next)
+	return nil
 }
 
 // applyTabOverrides (S020) consults RepoStore for any user-set rename or
@@ -837,15 +941,27 @@ func (s *Store) OpenRepo(ctx context.Context, ghqPath string) (*domain.Repositor
 		return cloneRepo(existing), nil
 	}
 	s.repos[repoID] = repo
-	// Compute initial tab sets for any pre-existing branches.
+	branchIDs := make([]string, 0, len(repo.OpenBranches))
 	for _, b := range repo.OpenBranches {
-		s.recomputeTabs(ctx, b)
+		branchIDs = append(branchIDs, b.ID)
 	}
-	snap := cloneRepo(repo)
 	s.mu.Unlock()
 
+	// ADR-0012: derive the initial tab sets OUTSIDE the write lock — the
+	// derivation consults the runtime registry, whose worktree resolver calls
+	// back into Store.Branch (see the LOCK ORDER INVARIANT on Store.mu).
+	for _, bid := range branchIDs {
+		if err := s.recomputeAndPublish(ctx, repoID, bid); err != nil {
+			s.logger.Warn("OpenRepo: recompute", "repo", repoID, "branch", bid, "err", err)
+		}
+	}
+
+	s.mu.RLock()
+	snap := cloneRepo(s.repos[repoID])
+	s.mu.RUnlock()
+
 	// Sadf90e (review fix): Branches discovered at OpenRepo time get their
-	// tab lists computed via recomputeTabs above, which bypasses store.AddTab
+	// tab lists computed via recomputeAndPublish above, which bypasses store.AddTab
 	// and openBranchInternal. Seed TabClaudeModes for each Claude tab now so
 	// the global settings.claude.default_mode applies to the canonical first
 	// tab on a freshly-opened workspace. Idempotent — re-opening a repo with

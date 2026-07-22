@@ -400,15 +400,16 @@ func TestChar_Reducer_TabOrderFollowsRegistrationOrder(t *testing.T) {
 
 // ───────────────── B. notification contract ─────────────────
 
-// B1 — DEFECT (pinned deliberately). Only RecomputeBranchTabs diffs and
-// publishes; the other 11 recompute call sites overwrite branch.TabSet.Tabs
-// silently. Here we drive the reducer the way sync_tmux does (direct call
-// under the lock) and record that NO tab event is emitted — so the browser
-// never learns the tab set changed.
+// B1 — CONTRACT ESTABLISHED BY ADR-0012. This used to pin the defect: only
+// RecomputeBranchTabs diffed and published; the other twelve recompute call
+// sites (sync_tmux recovery, container regenerate, PopulateTabs, OpenRepo,
+// OpenBranch, the tab.go mutations) assigned branch.TabSet.Tabs in silence, so
+// a connected browser kept rendering a stale TabBar until its next full REST
+// reload.
 //
-// When the diff+publish unification lands, this test MUST start failing.
-// Flip it to assert the events at that point.
-func TestChar_Notification_DirectRecomputeEmitsNothing_DEFECT(t *testing.T) {
+// Every path now goes through recomputeAndPublish — the same internal function
+// sync_tmux calls — and that function always publishes the prev→next diff.
+func TestChar_Notification_EveryRecomputePathPublishesDiff(t *testing.T) {
 	ids := []string{"claude:claude"}
 	p := charMultiProvider{
 		typ: "claude", tabs: &ids, calls: &atomic.Int64{}, lifecycleCalls: &atomic.Int64{},
@@ -421,40 +422,82 @@ func TestChar_Notification_DirectRecomputeEmitsNothing_DEFECT(t *testing.T) {
 	ch, unsub := s.hub.Subscribe()
 	defer unsub()
 
-	// A tab appears in provider state, then the reducer runs the way
-	// sync_tmux.go:167 / branch.go:778 / PopulateTabs run it.
-	ids = append(ids, "claude:claude-2")
-	s.mu.Lock()
-	for _, b := range s.repos[repoID].OpenBranches {
-		if b.ID == branchID {
-			s.recomputeTabs(context.Background(), b)
+	drain := func() []Event {
+		var evs []Event
+		deadline := time.After(500 * time.Millisecond)
+		for {
+			select {
+			case e := <-ch:
+				evs = append(evs, e)
+			case <-deadline:
+				return evs
+			}
 		}
 	}
-	s.mu.Unlock()
-
-	if got := tabIDs(t, s, repoID, branchID); len(got) != 2 {
-		t.Fatalf("setup: reducer should have picked up the new tab, got %v", got)
+	has := func(evs []Event, typ EventType) bool {
+		for _, e := range evs {
+			if e.Type == typ {
+				return true
+			}
+		}
+		return false
 	}
 
-	var events []Event
-	deadline := time.After(300 * time.Millisecond)
-collect:
+	// A tab appears in provider state; drive the reducer the way sync_tmux
+	// (and every other internal path) does.
+	ids = append(ids, "claude:claude-2")
+	if err := s.recomputeAndPublish(context.Background(), repoID, branchID); err != nil {
+		t.Fatal(err)
+	}
+	if got := tabIDs(t, s, repoID, branchID); len(got) != 2 {
+		t.Fatalf("reducer did not pick up the new tab: %v", got)
+	}
+	if evs := drain(); !has(evs, EventTabAdded) {
+		t.Errorf("internal recompute path did not publish tab.added; got %+v", evs)
+	}
+
+	// And the removal direction.
+	ids = ids[:1]
+	if err := s.recomputeAndPublish(context.Background(), repoID, branchID); err != nil {
+		t.Fatal(err)
+	}
+	if evs := drain(); !has(evs, EventTabRemoved) {
+		t.Errorf("internal recompute path did not publish tab.removed; got %+v", evs)
+	}
+}
+
+// B2: a recompute that changes nothing must stay silent, otherwise the 5 s
+// sync loop would spam every connected browser into a full REST reload twelve
+// times a minute.
+func TestChar_Notification_NoOpRecomputeIsSilent(t *testing.T) {
+	ids := []string{"claude:claude"}
+	p := charMultiProvider{
+		typ: "claude", tabs: &ids, calls: &atomic.Int64{}, lifecycleCalls: &atomic.Int64{},
+	}
+	s, _, repoID, branchID := charFixture(t, p)
+	if err := s.RecomputeBranchTabs(repoID, branchID); err != nil {
+		t.Fatal(err)
+	}
+
+	ch, unsub := s.hub.Subscribe()
+	defer unsub()
+
+	for i := 0; i < 3; i++ {
+		if err := s.recomputeAndPublish(context.Background(), repoID, branchID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deadline := time.After(400 * time.Millisecond)
 	for {
 		select {
 		case e := <-ch:
-			events = append(events, e)
+			if e.Type == EventTabAdded || e.Type == EventTabRemoved {
+				t.Fatalf("no-op recompute published %s — the FE would reload for nothing", e.Type)
+			}
 		case <-deadline:
-			break collect
+			return
 		}
 	}
-	for _, e := range events {
-		if e.Type == EventTabAdded || e.Type == EventTabRemoved {
-			t.Fatalf("DEFECT FIXED: direct recompute now emits %s — "+
-				"update this test to assert the diff+publish contract", e.Type)
-		}
-	}
-	t.Log("pinned defect: tab set changed with no tab.added/tab.removed event " +
-		"(11 of 12 recompute call sites are silent)")
 }
 
 // ───────────────── C. overrides ─────────────────

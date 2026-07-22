@@ -6,6 +6,7 @@ import (
 
 	"github.com/tjst-t/palmux2/internal/domain"
 	"github.com/tjst-t/palmux2/internal/tab"
+	"github.com/tjst-t/palmux2/internal/tmux"
 )
 
 // Host scope (S0c6a1b) — a reserved, repository-independent Workspace that
@@ -91,29 +92,24 @@ func (s *Store) HostScope() (repoID, branchID, displayName string) {
 	return HostRepoID, HostBranchID, HostDisplayName
 }
 
-// recomputeHostTabs is the bash-only equivalent of recomputeTabs for the
-// reserved host branch. It never generates Claude/Files/Git/Sprint tabs, and
-// it always advertises the canonical `bash:bash` tab even before the tmux
-// session exists (lazy spawn) so GET /api/host tabs returns a usable default
-// the moment the app boots.
+// computeHostTabs is the bash-only equivalent of computeTabs for the reserved
+// host branch. It never generates Claude/Files/Git/Sprint tabs, and it always
+// advertises the canonical `bash:bash` tab even before the tmux session exists
+// (lazy spawn) so GET /api/host tabs returns a usable default the moment the
+// app boots.
 //
-// ADR-0012: the tab construction now goes through the bash provider's pure
-// Tabs() query instead of being duplicated here. The old inline copy claimed
-// to "mirror the bash provider's display naming" but had actually DRIFTED from
+// ADR-0012: the tab construction goes through the bash provider's pure Tabs()
+// query instead of being duplicated here. The old inline copy claimed to
+// "mirror the bash provider's display naming" but had actually DRIFTED from
 // it — it labelled the canonical tab "bash" and extras "bash-2", where the
-// provider produces "Bash" and "Bash 2". Unifying fixes that drift, which does
+// provider produces "Bash" and "Bash 2". Unifying fixed that drift, which does
 // change the Host scope's tab LABELS (ids are unchanged). See
 // TestChar_HostScope_TabNamesMatchWorkspaceNaming.
 //
-// The bash-only POLICY stays here; only the mapping moved.
-//
-// Caller holds s.mu (write lock), same contract as recomputeTabs.
-func (s *Store) recomputeHostTabs(ctx context.Context, branch *domain.Branch) {
+// The bash-only POLICY stays here; only the mapping moved. Like computeTabs
+// this is pure and MUST run WITHOUT s.mu held.
+func (s *Store) computeHostTabs(ctx context.Context, branch *domain.Branch, windows []tmux.Window) []domain.Tab {
 	const bashType = "bash"
-
-	// ListWindows errors when the session does not exist yet (lazy spawn);
-	// that's fine — we fall through to seeding the canonical bash tab below.
-	windows, _ := s.deps.Tmux.ListWindows(ctx, branch.TabSet.TmuxSession)
 
 	var names []string
 	for _, w := range windows {
@@ -123,8 +119,8 @@ func (s *Store) recomputeHostTabs(ctx context.Context, branch *domain.Branch) {
 		}
 	}
 	// Always seed the canonical bash window name so the host scope shows at
-	// least one Bash tab as metadata — even when the session is still lazy
-	// and has no live windows yet.
+	// least one Bash tab as metadata — even when the session is still lazy and
+	// has no live windows yet.
 	if len(names) == 0 {
 		names = []string{bashType} // canonical "bash" → tab id bash:bash
 	}
@@ -132,15 +128,14 @@ func (s *Store) recomputeHostTabs(ctx context.Context, branch *domain.Branch) {
 	p := s.registry.Get(bashType)
 	if p == nil {
 		// Should not happen: main.go always registers bash. Blanking the host
-		// scope silently would look like "the Host terminal disappeared", so
-		// say so and keep whatever we had.
-		s.logger.Warn("recomputeHostTabs: bash provider not registered; host scope left unchanged")
-		return
+		// scope silently would look like "the Host terminal disappeared".
+		s.logger.Warn("computeHostTabs: bash provider not registered; host scope left unchanged")
+		return branch.TabSet.Tabs
 	}
 	tabs, err := p.Tabs(ctx, tab.TabsParams{Branch: branch, Windows: names})
 	if err != nil {
-		s.logger.Warn("recomputeHostTabs: bash provider Tabs failed", "err", err)
-		return // keep the previous tab list rather than blanking the host scope
+		s.logger.Warn("computeHostTabs: bash provider Tabs failed", "err", err)
+		return branch.TabSet.Tabs // keep the previous list rather than blanking
 	}
-	branch.TabSet.Tabs = s.applyTabOverrides(branch, tabs)
+	return s.applyTabOverrides(branch, tabs)
 }

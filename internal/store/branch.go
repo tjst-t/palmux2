@@ -34,6 +34,22 @@ func (s *Store) OpenBranchAuto(ctx context.Context, repoID, branchName string) (
 	return s.openBranchInternal(ctx, repoID, branchName, false)
 }
 
+// branchSnapshot returns a deep copy of a live branch, or nil when it is gone.
+func (s *Store) branchSnapshot(repoID, branchID string) *domain.Branch {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	repo, ok := s.repos[repoID]
+	if !ok {
+		return nil
+	}
+	for _, b := range repo.OpenBranches {
+		if b.ID == branchID {
+			return cloneBranch(b)
+		}
+	}
+	return nil
+}
+
 func (s *Store) openBranchInternal(ctx context.Context, repoID, branchName string, markUserOpened bool) (*domain.Branch, error) {
 	branchName = strings.TrimSpace(branchName)
 	if branchName == "" {
@@ -80,36 +96,52 @@ func (s *Store) openBranchInternal(ctx context.Context, repoID, branchName strin
 		return nil, fmt.Errorf("ensureSession: %w", err)
 	}
 
-	// 5. Register in Store + publish event.
+	// 5. Register in Store, derive the tab set, publish.
+	//
+	// ADR-0012: registration takes the write lock; the tab derivation does NOT.
+	// It consults the runtime registry and the filesystem, and the registry's
+	// worktree resolver calls back into Store.Branch — doing that under s.mu
+	// deadlocks (see the LOCK ORDER INVARIANT on Store.mu).
 	s.mu.Lock()
 	repo, ok := s.repos[repoID]
 	if !ok {
 		s.mu.Unlock()
 		return nil, ErrRepoNotFound
 	}
+	alreadyOpen := false
 	for _, existing := range repo.OpenBranches {
 		if existing.ID == branchID {
-			s.recomputeTabs(ctx, existing)
-			s.applyCategoriesUnlocked(repo)
-			snap := cloneBranch(existing)
-			s.mu.Unlock()
-			// S015-1-6: only the *explicit* drawer path records this as
-			// user-opened. The auto path (sync_worktree) leaves it
-			// alone so CLI-created worktrees stay `unmanaged`.
-			if markUserOpened {
-				if _, err := s.deps.RepoStore.AddUserOpenedBranch(repoID, wt.Branch); err != nil {
-					s.logger.Warn("OpenBranch: AddUserOpenedBranch failed", "repo", repoID, "branch", wt.Branch, "err", err)
-				}
-			}
-			return snap, nil
+			alreadyOpen = true
+			break
 		}
 	}
-	repo.OpenBranches = append(repo.OpenBranches, branch)
-	sortBranches(repo.OpenBranches)
-	s.recomputeTabs(ctx, branch)
+	if !alreadyOpen {
+		repo.OpenBranches = append(repo.OpenBranches, branch)
+		sortBranches(repo.OpenBranches)
+	}
 	s.applyCategoriesUnlocked(repo)
-	snap := cloneBranch(branch)
 	s.mu.Unlock()
+
+	if err := s.recomputeAndPublish(ctx, repoID, branchID); err != nil {
+		s.logger.Warn("OpenBranch: recompute", "repo", repoID, "branch", branchID, "err", err)
+	}
+
+	snap := s.branchSnapshot(repoID, branchID)
+	if snap == nil {
+		return nil, ErrBranchNotFound
+	}
+
+	if alreadyOpen {
+		// S015-1-6: only the *explicit* drawer path records this as
+		// user-opened. The auto path (sync_worktree) leaves it alone so
+		// CLI-created worktrees stay `unmanaged`.
+		if markUserOpened {
+			if _, err := s.deps.RepoStore.AddUserOpenedBranch(repoID, wt.Branch); err != nil {
+				s.logger.Warn("OpenBranch: AddUserOpenedBranch failed", "repo", repoID, "branch", wt.Branch, "err", err)
+			}
+		}
+		return snap, nil
+	}
 
 	// Sadf90e (review fix): seed TabClaudeModes for every Claude tab on
 	// this branch. AddTab covers `+`-added tabs, but the canonical first
@@ -771,16 +803,9 @@ func (s *Store) RegenerateBranchContainer(ctx context.Context, repoID, branchID 
 	}
 
 	// ── 5. Recompute tabs + clear drift + publish events ─────────────────────
-	s.mu.Lock()
-	if r2, ok3 := s.repos[repoID]; ok3 {
-		for _, b := range r2.OpenBranches {
-			if b.ID == branchID {
-				s.recomputeTabs(ctx, b)
-				break
-			}
-		}
+	if err := s.recomputeAndPublish(ctx, repoID, branchID); err != nil {
+		s.logger.Warn("RegenerateBranchContainer: recompute", "repo", repoID, "branch", branchID, "err", err)
 	}
-	s.mu.Unlock()
 
 	// The fresh container is created from the current alias → no longer stale.
 	if s.setDriftCached(repoID, branchID, false) {
