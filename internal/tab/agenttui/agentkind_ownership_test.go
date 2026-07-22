@@ -48,7 +48,12 @@ import (
 // "claude" by design, which would defeat this test for the generic side).
 func startRawKindPtyHost(t *testing.T, runDir, bin, kind, repoID, branchID, tabID string) (sockPath, statusPath string, done chan struct{}, pid int) {
 	t.Helper()
-	seed := repoID + "__" + branchID + "__" + tabID
+	// Compute the seed the SAME way production's Daemon.ptyHostSeed does, via
+	// the shared ptyHostSeedFor helper — since the Sfa2bab fix this includes
+	// the agent kind for non-claude kinds, so a raw generic-kind ptyhost must
+	// live at the kind-suffixed path or the generic Manager's discovery would
+	// recompute a different path and respawn instead of adopting.
+	seed := ptyHostSeedFor(repoID, branchID, tabID, agent.Kind(kind))
 	sockPath = ptyhost.SocketPath(runDir, seed)
 	statusPath = ptyhost.StatusPath(runDir, seed)
 	srv, err := ptyhost.NewServer(ptyhost.Config{
@@ -256,6 +261,85 @@ func TestAgentKindOwnership_EmptyAgentKindTreatedAsClaude(t *testing.T) {
 	}
 	if genericAdopted != 0 {
 		t.Fatalf("generic manager adopted = %d, want 0 (an empty-AgentKind legacy entry must NOT be claimed by a non-claude kind)", genericAdopted)
+	}
+}
+
+// TestPtyHostSeedFor_KindSeparation pins the Sfa2bab fix contract at the seed
+// level: for a given (repo, branch, tabId), claude keeps the historical
+// suffix-less seed while every non-claude kind gets a distinct one, so the
+// claude-tui bare route (/tabs/{tabId}/tui/attach, which accepts ANY tabId)
+// and a codex/opencode Manager can never derive the SAME ptyhost socket path
+// for the same tabId.
+func TestPtyHostSeedFor_KindSeparation(t *testing.T) {
+	const repo, branch, tab = "local--x--1a2b", "main--3c4d", "codex:codex"
+
+	claudeSeed := ptyHostSeedFor(repo, branch, tab, agent.KindClaude)
+	codexSeed := ptyHostSeedFor(repo, branch, tab, agent.KindCodex)
+	opencodeSeed := ptyHostSeedFor(repo, branch, tab, agent.KindOpencode)
+
+	if want := repo + "__" + branch + "__" + tab; claudeSeed != want {
+		t.Fatalf("claude seed = %q, want the unchanged (suffix-less) %q — claude must NOT be forced to respawn on upgrade", claudeSeed, want)
+	}
+	for name, s := range map[string]string{"codex": codexSeed, "opencode": opencodeSeed} {
+		if s == claudeSeed {
+			t.Fatalf("%s seed %q collides with the claude bare-route seed for the same tabId — the Sfa2bab silent-wrong-agent bug", name, s)
+		}
+	}
+	if codexSeed == opencodeSeed {
+		t.Fatalf("codex and opencode seeds collide for the same tabId: %q", codexSeed)
+	}
+
+	// The seed is hashed to the socket filename; the collision that actually
+	// caused the cross-adopt was at the path level, so assert that too.
+	dir := t.TempDir()
+	if a, b := ptyhost.SocketPath(dir, claudeSeed), ptyhost.SocketPath(dir, codexSeed); a == b {
+		t.Fatalf("claude and codex socket paths collide for the same tabId: %s", a)
+	}
+}
+
+// TestPtyHostSeed_ClaudeBareRouteDoesNotInfectCodexTab is the direct Sfa2bab
+// regression. A claude-kind ptyhost sits at the seed the claude-tui bare route
+// produces for a CODEX tab id (it accepts any tabId, so a mis-route or manual
+// probe can create one). The codex Manager then starts that SAME identity (the
+// correct /codex route). It must spawn its OWN fresh ptyhost, NOT adopt the
+// claude one. Before the fix both derived the same kindless seed → same socket
+// path → the codex daemon adopted the claude ptyhost kind-blind
+// (launchAndAttach does not check AgentKind) and the codex tab silently ran
+// claude, sticking that way across restarts.
+func TestPtyHostSeed_ClaudeBareRouteDoesNotInfectCodexTab(t *testing.T) {
+	fakeClaudeBin := fakeBin(t)
+	runDir := t.TempDir()
+	ctx := context.Background()
+
+	const repo, branch, tab = "local--sfa2bab--8bc3", "main--1ffc", "codex:codex"
+
+	// The claude-kind ptyhost the bare route would have created at this codex
+	// tab id (suffix-less seed — claude keeps the historical seed).
+	claudeSock, _, claudeDone, claudePid := startRawKindPtyHost(t, runDir, fakeClaudeBin, "claude", repo, branch, tab)
+	t.Cleanup(func() {
+		_ = SendOrphanShutdown(claudeSock, 5*time.Second)
+		select {
+		case <-claudeDone:
+		case <-time.After(5 * time.Second):
+			t.Log("stray claude bare-route ptyhost did not tear down within 5s")
+		}
+	})
+
+	codexMgr := NewManager(ManagerConfig{
+		Adapter:        agent.NewCodexAdapter(fakeClaudeBin, nil),
+		RingSize:       1 << 16,
+		RunDirOverride: runDir,
+	})
+	t.Cleanup(func() { _ = codexMgr.ShutdownAll(ctx) })
+
+	d, err := codexMgr.EnsureStarted(ctx, repo, branch, tab)
+	if err != nil {
+		t.Fatalf("codex EnsureStarted: %v", err)
+	}
+	waitForOwnershipRunning(t, d, 5*time.Second)
+
+	if got := d.CurrentStats().PID; got == claudePid {
+		t.Fatalf("codex daemon adopted the claude bare-route ptyhost (pid %d) for tabId %q — Sfa2bab silent-wrong-agent bug not fixed", got, tab)
 	}
 }
 

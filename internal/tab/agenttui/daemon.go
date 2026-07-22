@@ -696,13 +696,53 @@ func (d *Daemon) EnsureStarted(ctx context.Context) error {
 	return nil
 }
 
+// ptyHostSeedFor computes the ptyhost discovery seed for a tab. The seed
+// determines this Daemon's ptyhost socket/status file paths (it is hashed to
+// a short, fixed-length filename — see ptyHostPaths / [ptyhost.FileKey]) and
+// must be STABLE across respawns AND across a palmux2 restart, so a freshly
+// reconstructed Daemon re-finds its surviving ptyhost (no-halt-agent design
+// §3).
+//
+// Sfa2bab fix — the seed now includes the agent kind for every NON-claude
+// kind. Previously the seed was repoID__branchID__tabID with no kind, so two
+// Managers of DIFFERENT kinds derived the SAME socket path for the same
+// tabID. The claude-tui service Provider's bare /tabs/{tabId}/tui/attach route
+// accepts ANY tabId — including a codex/opencode tab's id ("codex:codex") —
+// and would create a claude-kind ptyhost at that shared path; the codex/
+// opencode Manager's adopt path (launchAndAttach) then latched onto it kind-
+// blind, so the codex tab silently ran claude and stuck that way across
+// restarts (the seed round-tripped, so re-adoption kept picking the wrong
+// process). Appending the kind for non-claude adapters separates their socket
+// path from the claude bare route's, so a codex/opencode Daemon can never
+// share a ptyhost with a claude one.
+//
+// claude itself keeps the historical suffix-less seed so already-running
+// claude ptyhosts are re-adopted byte-for-byte on the upgrade to this build —
+// no forced respawn of every live claude, honouring ADR-0001/0002's "a
+// palmux2 restart must not take down running claude". This is sufficient: two
+// DIFFERENT non-claude kinds never share a tabId (a codex tab's id is always
+// "codex:*", an opencode tab's "opencode:*"), so the only cross-kind path
+// collision that ever existed was claude-bare-route vs the owning kind, which
+// this closes.
+//
+// The seed is OPAQUE — it is hashed to a filename and never parsed back into
+// its parts (discovery/GC use the ptyhost status file's explicit
+// RepoID/BranchID/TabID/AgentKind fields, not a split of Seed — see
+// discover.go / ptyhost/server.go), so appending "__"+kind is safe even
+// though domain IDs may themselves contain "__".
+func ptyHostSeedFor(repoID, branchID, tabID string, kind agent.Kind) string {
+	seed := repoID + "__" + branchID + "__" + tabID
+	if kind != agent.KindClaude {
+		seed += "__" + string(kind)
+	}
+	return seed
+}
+
 // ptyHostSeed is the discovery key used to compute this Daemon's ptyhost
-// socket/status paths — repoID__branchID__tabID, per
-// docs/no-halt-agent-design.md §3. Stable across respawns AND across a
-// palmux2 restart (a freshly reconstructed Daemon after restart computes the
-// SAME seed, letting launchAndAttach find the surviving ptyhost).
+// socket/status paths. See [ptyHostSeedFor] for the format and the Sfa2bab
+// cross-kind-collision fix.
 func (d *Daemon) ptyHostSeed() string {
-	return d.repoID + "__" + d.branchID + "__" + d.tabID
+	return ptyHostSeedFor(d.repoID, d.branchID, d.tabID, d.adapter.Kind())
 }
 
 // ptyHostPaths returns the socket and status file paths for this Daemon's
