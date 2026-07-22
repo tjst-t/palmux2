@@ -583,7 +583,7 @@ func run(rc resolved) error {
 			}
 			return nil
 		},
-		RuntimeStarter: runtimeStarter,
+		RuntimeStarter:        runtimeStarter,
 		NotifyURLInContainer:  bridgeNotifyURL(addr, basePath),
 		NotifyToken:           token,
 		DefaultPermissionMode: settingsStore.Get().ClaudePermissionMode(), // global setting, default "auto"
@@ -764,7 +764,7 @@ func run(rc resolved) error {
 	// own agenttab.Provider (empty map in production today — see the loop
 	// above).
 	st.SetMultiTabHook(multiAgentTabHook{
-		claude:   claudeMultiTabHook{mgr: agentManager, registry: registry},
+		claude:   claudeMultiTabHook{mgr: agentManager, registry: registry, tuiMgr: claudetuiMgr},
 		generics: genericAgentProviders,
 	})
 
@@ -1347,6 +1347,17 @@ func (s agentNotificationSink) ClearByRequestID(repoID, branchID, requestID stri
 type claudeMultiTabHook struct {
 	mgr      *claudeagent.Manager
 	registry *tab.Registry
+	// tuiMgr owns the PTY daemons that back a Claude tab in "tui" mode (the
+	// default). Deleting a tab must tear that down too — see DeleteTab.
+	// Declared as an interface rather than *agenttui.Manager so the teardown
+	// wiring is testable without spawning a real PTY daemon.
+	tuiMgr tuiDaemonCloser
+}
+
+// tuiDaemonCloser is the one method of agenttui.Manager that tab deletion
+// needs. *agenttui.Manager satisfies it.
+type tuiDaemonCloser interface {
+	CloseDaemon(ctx context.Context, repoID, branchID, tabID string) error
 }
 
 func (h claudeMultiTabHook) CreateTab(_ context.Context, repoID, branchID, providerType string) (domain.Tab, error) {
@@ -1366,8 +1377,29 @@ func (h claudeMultiTabHook) CreateTab(_ context.Context, repoID, branchID, provi
 	}, nil
 }
 
+// DeleteTab tears down BOTH runtimes a Claude tab can be using: the
+// stream-json agent (claudeagent, "agent" mode) and the PTY daemon +
+// ptyhost (agenttui, "tui" mode — the default).
+//
+// Closing only the agent was a real bug: a tui-mode tab's ptyhost survived
+// tab deletion, and because pickNextClaudeTabID reuses the lowest free id,
+// re-adding a Claude tab produced the SAME id and the first WS attach
+// re-adopted the surviving process — the user saw their deleted session, with
+// whatever they had typed, come back from the dead. agenttui.Manager's
+// CloseDaemon was already documented as "called from the tab-removal handler"
+// but nothing ever called it; agenttab (the generic non-claude kinds) had the
+// correct teardown all along, so this was a claude-vs-generic asymmetry.
+//
+// Both calls are no-ops when the corresponding runtime was never started, so
+// the mode the tab happened to be in does not matter.
 func (h claudeMultiTabHook) DeleteTab(ctx context.Context, repoID, branchID, tabID string) error {
-	return h.mgr.RemoveTabForBranch(ctx, repoID, branchID, tabID)
+	if err := h.mgr.RemoveTabForBranch(ctx, repoID, branchID, tabID); err != nil {
+		return err
+	}
+	if h.tuiMgr == nil {
+		return nil
+	}
+	return h.tuiMgr.CloseDaemon(ctx, repoID, branchID, tabID)
 }
 
 // multiAgentTabHook (S0e8afb-3) generalizes claudeMultiTabHook into a
