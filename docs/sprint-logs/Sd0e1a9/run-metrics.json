@@ -15,5 +15,7 @@
   "verifier_skip_reason": "Phase 1.8 requires spawning a separate Claude session via the Agent tool; this session may not call it without an explicit user request, and the user invoked `sprint verify` without --with-verifier (manual default is OFF). Single-session 8-guard pass is therefore the only gate — self-grading bias is not backstopped.",
   "sprint_review_runs": 1,
   "sprint_review_note": "Phase 2 /review could not be invoked (working-diff /code-review is user-triggered in this harness). Substituted a manual cross-Story inspection of the shared surface (store.go / host.go / provider.go), which found and fixed one real race-induced silent failure in AddTab.",
-  "guards_machine_run": true
+  "guards_machine_run": true,
+  "guards_rerun_at_done": true,
+  "guards_drift_at_done": "none"
 }

@@ -26,5 +26,6 @@
       "status": "pass",
       "log": "docs/sprint-logs/Sd0e1a9/verify-run-e2e_story2.log"
     }
-  ]
+  ],
+  "$reverified_at_done": "Re-run after the claude-tab-teardown hotfix (8651e71) changed the tree post-verify, per sprint-done.md Step 0/0.5."
 }

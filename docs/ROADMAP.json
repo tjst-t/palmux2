@@ -2,15 +2,15 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 81,
+    "sprints_done": 82,
     "sprints_total": 90,
-    "done": 81,
+    "done": 82,
     "total": 90,
     "remaining": 8,
-    "in_progress": 1,
-    "percent": 90,
-    "percentage": 90,
-    "current_sprint": "Sd0e1a9"
+    "in_progress": 0,
+    "percent": 91,
+    "percentage": 91,
+    "current_sprint": "S3f3cb2"
   },
   "execution_order": [
     "S001",
@@ -13342,7 +13342,7 @@
       "title": "タブ集合の導出を純粋関数化 (ADR-0012 Step 1+2)",
       "description": "ADR-0012 に基づき、store.recomputeTabs をタブ集合の純粋な再導出関数にする。Provider に副作用禁止・冪等を契約とする Tabs() を新設して reducer が provider から読む唯一の入力とし、OnBranchOpen/OnBranchClose はライフサイクル通知に純化する。Conditional() は廃止し条件付き可視性は Tabs() の0件返却で表現する。そのうえでタブ集合の変化が FE に届く経路を diff+publish 一本に統一し、reducer の I/O を書きロック外へ出す。着手前に characterization test 16件 (internal/store/recompute_characterization_test.go) で現行の導出契約を固定済み。うち2件は本 Sprint で修正される欠陥を意図的に pin しており、修正が入ると赤くなるので契約 assert へ書き換える。",
       "milestone": false,
-      "status": "in_progress",
+      "status": "done",
       "detail_level": "detailed",
       "stories": {
         "Sd0e1a9-1": {

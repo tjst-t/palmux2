@@ -21,9 +21,10 @@
 
 現在: **v0.16.0 リリース済み**。**次の一手はユーザ判断待ち** — Sc4f091 でリリースブロッカー 2 件 (in-container 通知フック欠落 / `palmux-shared` プロファイル競合) を修正済みで、これを踏まえて次リリースを出すかどうか。
 
-- **未完了 Sprint**: `S2b5691` (codex/opencode の registry 登録 + FE 露出) と `Sfa2bab` (実機ドッグフーディング検証) が `partial`。原因は Sc4f091 で解消済みだが Story ステータスは未クローズ。
+- **未完了 Sprint**: `Sfa2bab` (実機ドッグフーディング検証) が `partial`。原因は Sc4f091 で解消済みだが Story ステータスは未クローズ。
 - **恒久修正が残る既知課題**: `palmux-shared` incus プロファイルがホスト全体で単一な件は緩和策のみで、恒久対応 (per-instance namespacing 等) は backlog。
-- **進行中**: マルチエージェント対応 (codex / opencode)。**計画中**: Control/Worker による並行開発の安全化、claude-tui の tmux 回帰 (ADR-0009)、Docs タブ (ADR-0010/0011)。
+- **タブ層のリファクタ進行中** (branch `refactor/tab-reducer`): `Sd0e1a9` で ADR-0012 (タブ集合の導出を純粋関数化) を実装済み。**main へのマージは `Sfa2bab` のリリース判断後**。次は `S3f3cb2` (タブ操作のレイテンシ解消)。
+- **計画中**: Control/Worker による並行開発の安全化、claude-tui の tmux 回帰 (ADR-0009)、Docs タブ (ADR-0010/0011)。
 
 > **「Phase」という区切りは使わない**（2026-07-20 廃止）。原典 03 の Phase 0〜10・VISION の発展段階・ROADMAP の `phase` フィールドで 3 体系が並存し番号が衝突していたため、区切りは **ROADMAP.json の Sprint の並びと `milestone: true`** に一本化した。新しく Phase 番号を導入しないこと。
 
