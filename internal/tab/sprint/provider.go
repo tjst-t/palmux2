@@ -153,6 +153,7 @@ func (p *Provider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.P
 		sub, err := p.watcher.Subscribe(worktreewatch.Spec{
 			Roots:    roots,
 			Filter:   sprintFilter(root),
+			SkipDir:  sprintSkipDir(root),
 			Debounce: 1000 * time.Millisecond,
 			OnEvent: func(events []worktreewatch.Event) {
 				p.handleEvents(repoID, branchID, events)
@@ -336,6 +337,37 @@ func roadmapExists(root string) bool {
 //
 // Anything else returns false. *.md / *.md.bak / *.txt are deliberately
 // dropped — the dashboard never reads them.
+// sprintSkipDir prunes watch REGISTRATION to the only two subtrees
+// sprintFilter can ever accept: docs/ and .claude/. The worktree root itself
+// is still watched (non-recursively in effect), which is what lets us see
+// docs/ being created in a repo that does not have it yet.
+//
+// S3f3cb2: without this the Sprint tab registered an inotify watch for every
+// directory in the worktree — 27,025 on a real repo where the 26 under docs/
+// were all it could act on. That cost ~2 s on every tab open and WS attach,
+// and 30 workspaces would have approached the system-wide inotify limit.
+//
+// MUST stay consistent with sprintFilter: anything the filter accepts has to
+// live under a subtree this function does NOT prune.
+func sprintSkipDir(root string) func(string) bool {
+	root = filepath.Clean(root)
+	return func(dir string) bool {
+		rel, err := filepath.Rel(root, dir)
+		if err != nil {
+			return true
+		}
+		relSlash := filepath.ToSlash(rel)
+		if relSlash == "." {
+			return false // never prune the root
+		}
+		top := relSlash
+		if i := strings.IndexByte(top, '/'); i >= 0 {
+			top = top[:i]
+		}
+		return top != "docs" && top != ".claude"
+	}
+}
+
 func sprintFilter(root string) worktreewatch.Filter {
 	root = filepath.Clean(root)
 	return func(ev worktreewatch.Event) bool {

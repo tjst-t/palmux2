@@ -113,6 +113,7 @@ func (p *Provider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.P
 		sub, err := p.watcher.Subscribe(worktreewatch.Spec{
 			Roots:    []string{root},
 			Filter:   gitFilter(root),
+			SkipDir:  gitSkipDir(root),
 			Debounce: 1000 * time.Millisecond,
 			OnEvent: func(_ []worktreewatch.Event) {
 				p.store.Hub().Publish(store.Event{
@@ -200,6 +201,35 @@ func (p *Provider) startWatcher() {
 //
 // Path comparisons are made relative to root (the worktree path) so the
 // filter is portable.
+// gitSkipDir prunes watch REGISTRATION inside .git/ down to what gitFilter
+// actually accepts: the ref pointers directly in .git/ plus .git/refs/**.
+// Everything else under .git/ (objects/, logs/, hooks/, modules/, …) is
+// rejected by the filter anyway, so watching it is pure cost.
+//
+// The working tree itself is NOT pruned — gitFilter accepts any change there
+// because that is what moves `git status` (S3f3cb2).
+//
+// MUST stay consistent with gitFilter: anything the filter accepts has to live
+// under a path this function does NOT prune.
+func gitSkipDir(root string) func(string) bool {
+	root = filepath.Clean(root)
+	gitDir := filepath.Join(root, ".git")
+	return func(dir string) bool {
+		rel, err := filepath.Rel(gitDir, dir)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return false // outside .git/ — working tree, keep watching
+		}
+		if rel == "." {
+			return false // .git itself holds HEAD / packed-refs
+		}
+		top := filepath.ToSlash(rel)
+		if i := strings.IndexByte(top, '/'); i >= 0 {
+			top = top[:i]
+		}
+		return top != "refs"
+	}
+}
+
 func gitFilter(root string) worktreewatch.Filter {
 	root = filepath.Clean(root)
 	return func(ev worktreewatch.Event) bool {

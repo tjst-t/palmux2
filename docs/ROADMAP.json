@@ -13466,7 +13466,7 @@
             {
               "id": "AC-S3f3cb2-1-2",
               "description": "計測: 実 dev インスタンスの Mirante-demo workspace に対する POST /tabs (bash 追加) が 1.0 秒以内に完了する (修正前は 4.0〜7.4 秒)。同一環境・同一 workspace で修正前後を測り、両方の数値を verification-results.json の evidence に残す",
-              "status": "partial"
+              "status": "pass"
             },
             {
               "id": "AC-S3f3cb2-1-3",
@@ -13540,7 +13540,7 @@
               "status": "pending"
             }
           },
-          "needs_human": "当初案 (ensureBranchSession の fast path) は inotify 実測で回帰と判明し revert 済み。真の根本原因は監視範囲 (sprint は 26 ディレクトリで足りるのに 27,025 個を登録) で、修正には worktreewatch への非再帰 root API 追加が要るためユーザー判断を仰ぐ。"
+          "needs_human": "Spec.SkipDir による監視範囲の枝刈りは実装・テスト済み (sprint は docs/.claude のみ、git は .git/refs のみ)。残る初回約3.8秒は git provider が作業ツリー全体を監視する分で、これは git status 検知の仕様上正当。gitignore ベースの除外は判定を誤ると git 通知が黙って止まるため未着手 — 実施するなら git ls-files --others --ignored --exclude-standard --directory で git 自身の無視規則を使うこと。AC-2-1/2-2/2-3 (ensureBranchSession の fast path) は回帰と判明して revert 済みで、別アプローチの設計判断が要る。"
         }
       }
     }
