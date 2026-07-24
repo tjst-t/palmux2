@@ -286,7 +286,12 @@ func TestRecomputeAndPublish_HoldsNoLockDuringDerivation(t *testing.T) {
 	s.deps.RuntimeRegistry = &gatingRegistry{onGet: func() {
 		got := make(chan struct{})
 		go func() {
+			// Actually read shared state under the read lock — this is what a
+			// real reader does, and it is what proves s.mu is acquirable while
+			// the derivation runs. (An empty RLock/RUnlock pair is both a
+			// staticcheck SA2001 hit and a weaker assertion.)
 			s.mu.RLock()
+			_ = len(s.repos)
 			s.mu.RUnlock()
 			close(got)
 		}()

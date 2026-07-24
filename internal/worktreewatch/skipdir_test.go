@@ -50,7 +50,7 @@ func TestSubscribe_SkipDirPrunesRegistration(t *testing.T) {
 	if err != nil {
 		t.Skipf("watcher unavailable: %v", err)
 	}
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 
 	// Baseline: no pruning ⇒ every directory registered.
 	subAll, err := w.Subscribe(Spec{Roots: []string{root}, OnEvent: func([]Event) {}})
@@ -102,7 +102,7 @@ func TestSubscribe_SkipDirNeverPrunesTheRoot(t *testing.T) {
 	if err != nil {
 		t.Skipf("watcher unavailable: %v", err)
 	}
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 
 	sub, err := w.Subscribe(Spec{
 		Roots:   []string{root},
