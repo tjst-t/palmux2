@@ -40,9 +40,9 @@ func TestProvider_TypeAndShape(t *testing.T) {
 	if p.NeedsTmuxWindow() {
 		t.Error("NeedsTmuxWindow() = true, want false")
 	}
-	if p.Conditional() {
-		t.Error("Conditional() = true, want false")
-	}
+	// ADR-0012 removed Conditional(); a provider that is always visible simply
+	// returns its tabs unconditionally from Tabs().
+	var _ tab.Provider = p
 }
 
 func TestProvider_LimitsDefaultsAndSettingsView(t *testing.T) {
@@ -68,14 +68,14 @@ func (f fakeSettingsView) MaxTabsPerBranch(kind string) int { return f.max }
 func TestProvider_OnBranchOpenSeedsCanonicalTab(t *testing.T) {
 	p, _ := newTestProvider(t)
 	branch := &domain.Branch{ID: "b1", RepoID: "r1"}
-	result, err := p.OnBranchOpen(context.Background(), tab.OpenParams{Branch: branch})
+	result, err := p.Tabs(context.Background(), tab.TabsParams{Branch: branch})
 	if err != nil {
-		t.Fatalf("OnBranchOpen: %v", err)
+		t.Fatalf("Tabs: %v", err)
 	}
-	if len(result.Tabs) != 1 {
-		t.Fatalf("Tabs = %v, want exactly 1 (auto-seeded canonical)", result.Tabs)
+	if len(result) != 1 {
+		t.Fatalf("Tabs = %v, want exactly 1 (auto-seeded canonical)", result)
 	}
-	got := result.Tabs[0]
+	got := result[0]
 	if got.ID != "dummy:dummy" {
 		t.Errorf("Tabs[0].ID = %q, want dummy:dummy", got.ID)
 	}
@@ -101,15 +101,15 @@ func TestProvider_AddTabForBranchAndOnBranchOpenReflectsIt(t *testing.T) {
 	}
 
 	branch := &domain.Branch{ID: "b1", RepoID: "r1"}
-	result, err := p.OnBranchOpen(context.Background(), tab.OpenParams{Branch: branch})
+	result, err := p.Tabs(context.Background(), tab.TabsParams{Branch: branch})
 	if err != nil {
-		t.Fatalf("OnBranchOpen: %v", err)
+		t.Fatalf("Tabs: %v", err)
 	}
-	if len(result.Tabs) != 2 {
-		t.Fatalf("Tabs = %v, want 2 (canonical + added)", result.Tabs)
+	if len(result) != 2 {
+		t.Fatalf("Tabs = %v, want 2 (canonical + added)", result)
 	}
-	if result.Tabs[1].Name != "dummy 2" {
-		t.Errorf("Tabs[1].Name = %q, want %q", result.Tabs[1].Name, "dummy 2")
+	if result[1].Name != "dummy 2" {
+		t.Errorf("Tabs[1].Name = %q, want %q", result[1].Name, "dummy 2")
 	}
 }
 
@@ -163,14 +163,14 @@ func TestProvider_KindNamespacedPersistenceSurvivesRestart(t *testing.T) {
 	}
 	dummyProvider2 := New("dummy", dummyAdapter, dummyMgr, store2)
 	branch := &domain.Branch{ID: "b1", RepoID: "r1"}
-	result, err := dummyProvider2.OnBranchOpen(context.Background(), tab.OpenParams{Branch: branch})
+	result, err := dummyProvider2.Tabs(context.Background(), tab.TabsParams{Branch: branch})
 	if err != nil {
-		t.Fatalf("OnBranchOpen (restart): %v", err)
+		t.Fatalf("Tabs (restart): %v", err)
 	}
-	if len(result.Tabs) != 2 {
-		t.Fatalf("after restart: dummy Tabs = %v, want 2 (own kind only, not polluted by 'other')", result.Tabs)
+	if len(result) != 2 {
+		t.Fatalf("after restart: dummy Tabs = %v, want 2 (own kind only, not polluted by 'other')", result)
 	}
-	for _, tb := range result.Tabs {
+	for _, tb := range result {
 		if tb.Type != "dummy" {
 			t.Errorf("restart leaked a tab of the wrong kind: %+v", tb)
 		}

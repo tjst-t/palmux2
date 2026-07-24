@@ -1,0 +1,27 @@
+{
+  "$comment": "Sd0e1a9 の実機ドッグフーディング中にユーザー報告を受けて取った計測。S3f3cb2 の着手時に『修正前』の基準値として使う。",
+  "sprint": "S3f3cb2",
+  "measured_at": "2026-07-22",
+  "environment": "dev instance (make serve INSTANCE=dev, 本番モード), workspace = clinical-hishow--Mirante-demo--406f / Mirante-demo--fca6 (runtime=host)",
+  "user_report": [
+    "Bash タブを開いても真っ暗なまま。すごく待つと Bash が出てくる",
+    "Bash タブの追加に妙に時間がかかる",
+    "開いた Bash タブに戻っても Reconnecting にめちゃくちゃ時間がかかる"
+  ],
+  "post_addtab_latency": {
+    "current_head": ["4.06s", "4.85s", "7.40s"],
+    "pre_sprint_baseline_a1e0bf7": ["5.79s", "7.18s"],
+    "conclusion": "ADR-0012 (Sd0e1a9) による回帰ではない。既存の問題で、むしろ現行の方がわずかに速い (sprint provider の2秒購読が5秒ループから外れたため)。"
+  },
+  "breakdown_ms": {
+    "ensureBranchSession": 3783,
+    "  OnBranchOpen(git)": 1663,
+    "  OnBranchOpen(sprint)": 2090,
+    "pickNextWindowName": 8,
+    "NewWindow": 21,
+    "recomputeAndPublish": 7
+  },
+  "root_cause": "git provider (internal/tab/git/provider.go:85) と sprint provider (internal/tab/sprint/provider.go:120) の OnBranchOpen が、worktree 全体への fsnotify 購読を毎回 old.Unsubscribe() → Subscribe() し直している。ensureBranchSession はタブ追加でも WS attach でも呼ばれるため、1操作ごとに約3.8秒かかる。worktree が大きいほど悪化する。",
+  "side_finding": "旧コード (a1e0bf7) の PopulateTabs は書きロックを保持したまま全 workspace を回すため、30 workspace の環境で起動後18秒間 API が応答しなかった。この点は Sd0e1a9 で解消済み (ロック外化)。",
+  "method": "一時的な計測ログを AddTab と collectOpenSpecs に挿入してビルド・計測後に revert。ベースラインは git worktree で a1e0bf7 をチェックアウトしてビルドし、dev の config-dir をコピーした別ポート・別 tmux prefix のインスタンスで同一 workspace に対して測定。"
+}

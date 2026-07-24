@@ -1,0 +1,253 @@
+{
+  "sprint": "Sd0e1a9",
+  "touched_adrs": [
+    "ADR-0012",
+    "ADR-0009",
+    "ADR-0010"
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "planning",
+      "title": "ADR-0012 の Step 1 (契約手術) と Step 2 (通知一本化 + ロック外化) を1 Sprint 2 Story にまとめる",
+      "detail": "両者は独立に検証可能 (Story 1 は Provider 契約、Story 2 は通知経路) だが、Step 2 の diff+publish 一本化とロック外化は Step 1 の reducer 純粋化が成立して初めて可能になるため、根拠を追える単位として同じ Sprint に置く。逆に1 Story にまとめないのは、sprint-plan.md の粒度基準 (独立にデリバー・検証できる複数の user-facing behavior を含むなら分割) に該当するため。",
+      "reference": "docs/DESIGN/adr/ADR-0012-pure-tab-set-derivation.json, .claude/skills/sprint/references/sprint-plan.md §4",
+      "adr_ref": "ADR-0012",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "planning",
+      "title": "本 Sprint を execution_order 上 Sfa2bab (リリース検証 milestone) の後ろに置く",
+      "detail": "Sfa2bab は v0.15.2 相当の実機ドッグフーディング検証 milestone で、Story Sfa2bab-1 が needs_user_review。タブ層を触るリファクタを先に入れると、その検証結果が無効になる (ドッグフーディングはまさにタブ経路を通る)。したがってリリース検証を先に閉じ、本 Sprint はその後ろに置く。ただし作業自体は refactor/tab-reducer ブランチで並行可能で、merge をリリース後にすればよい。ユーザー確認済み。",
+      "reference": "docs/ROADMAP.json execution_order, docs/sprint-logs/Sfa2bab/",
+      "adr_ref": "none",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "planning",
+      "title": "両 Story を GUI Story として扱い、non-GUI 分類はしない",
+      "detail": "gui-spec.md Phase 1 の default-on ルール (React プロジェクトでブラウザ観測可能な Story は既定で GUI Story、non-GUI 分類は高コストな判断) を適用。Story 2 は TabBar の live 更新そのものが AC なので明確に GUI。Story 1 は Go 内部契約の手術だが、AC-1-2 の条件付き可視性 (Sprint タブの出現/消失) と『タブ集合が手術前後で不変』はいずれもブラウザ観測可能であり、リファクタが既存の見え方を壊していないことの end-to-end な証跡は E2E でしか取れない。よって AC-1-6 を追加して E2E を必須にした。",
+      "reference": ".claude/skills/sprint/references/gui-spec.md Phase 1",
+      "adr_ref": "none",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "planning",
+      "title": "E2E/mock テストはリポジトリ規約の Python + Playwright (tests/e2e/sNNN_*.py) に従い、skill 既定の TypeScript (*.e2e.spec.ts) は使わない",
+      "detail": "gui-spec.md Phase 4 の既定パスは tests/e2e/{story-slug}.e2e.spec.ts (TypeScript) だが、本リポジトリの CLAUDE.md は『E2E: tests/e2e/sNNN_*.py (Python + Playwright headless) で AC 単位の検証、acceptance criteria は [AC-{StoryID}-{N}] タグで紐付け』と明記しており、tests/e2e/ の既存119ファイルは全て .py。mock 版も *_mock.py の前例がある (s62374c_browser_ui_mock.py 等)。プロジェクト固有規約が skill 既定に優先する。AC タグ規約と exit code 0 = ALL PASS の慣習は維持する。",
+      "reference": "CLAUDE.md テスト方針, tests/e2e/*.py (119 files)",
+      "adr_ref": "none",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "planning",
+      "title": "gui-spec.md Phase 5 の定型 GUI AC 5件を各 Story に機械的に追加せず、実質的な AC のみ ROADMAP に載せる",
+      "detail": "Phase 5 は『state diagram 確認済み / mock pass / E2E pass / 全要素に data-testid / 全 AC に [AC-*] タグ付きテスト』の5件を AC として追加せよとするが、本 Sprint は新規 UI をほぼ作らない (既存 TabBar の testid を再利用するだけ) ため、これらは大半が自明または verify 側の機械チェックと重複する。ROADMAP には実質的な AC のみを載せ、state diagram・data-testid 一覧・AC↔テスト対応は gui-spec-{StoryID}.json 側に記録した。sprint verify のトレーサビリティチェック ([AC-*] タグ) は通常どおり効く。",
+      "reference": ".claude/skills/sprint/references/gui-spec.md Phase 5, docs/sprint-logs/Sd0e1a9/gui-spec-Sd0e1a9-{1,2}.json",
+      "adr_ref": "none",
+      "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "planning",
+      "title": "着手前に characterization test 16件を先行コミット済み (Step 0)",
+      "detail": "タブ層は fix コミットが106件あるが、その回帰は葉 (ptyhost daemon / ring / VT emulator) でしか守られておらず、実際に壊れやすい reducer 本体を直接検証するテストは4ファイルしか無かった。Provider interface を9実装横断で変える前に現行の導出契約を固定する必要があったため、Sprint 本体に先立って internal/store/recompute_characterization_test.go を追加した (commit 5815866)。うち2件は本 Sprint で修正される欠陥を意図的に pin しており、修正時に赤くなって契約 assert への書き換えを促す。",
+      "reference": "internal/store/recompute_characterization_test.go, commit 5815866",
+      "adr_ref": "ADR-0012",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "planning",
+      "title": "ADR-0009 (tentative) の前提検証スパイクを待たずに着手する",
+      "detail": "ADR-0009 は claude-tui の backend を tmux へ回帰させる tentative な ADR で、前提検証スパイク (Sf6c55b) が未実施。しかし ADR-0012 の Provider 契約は claude-tui の backend が ptyhost / tmux のいずれでも成立するため依存しない。むしろ 0009 が通れば Conditional 流用の当事者である agenttui が claude 向けには消え、本 Sprint の適用範囲は縮む。一方、FE のレンダラ解決一本化と claudeagent/agenttab の統合は 0009 の結果で形が変わるため本 Sprint のスコープ外とした。",
+      "reference": "docs/DESIGN/adr/ADR-0009-claude-tui-tmux-backend-revert.json, docs/DESIGN/adr/ADR-0012-pure-tab-set-derivation.json notes",
+      "adr_ref": "ADR-0009, ADR-0012",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "planning",
+      "title": "ADR-0010 (Docs タブ) の supersede は不要と判断",
+      "detail": "ADR-0010 の decision 本文は『準拠ファイルの存在を Conditional 表示条件にする』と書いており Conditional() を機構名として参照している。本 Sprint はその機構を廃止するが、意図 (準拠ファイルがあるときだけタブを出す) は Tabs() の0件返却で完全に保存されるため矛盾しない。よって supersede せず、ADR-0012 の notes に『Docs タブ実装時に存在しない Conditional() を実装しようとしないこと』を明記するに留めた。",
+      "reference": "docs/DESIGN/adr/ADR-0010-generic-doc-schema-docs-tab.json, docs/DESIGN/adr/ADR-0012-pure-tab-set-derivation.json notes",
+      "adr_ref": "ADR-0010, ADR-0012",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "planning",
+      "title": "陳腐化した CLAUDE.md の実装ステータス記述を本 Sprint で修正する",
+      "detail": "CLAUDE.md の『未完了 Sprint: S2b5691 と Sfa2bab が partial』は誤り — ROADMAP 上 S2b5691 は done で、partial は Sfa2bab のみ。毎セッション全文が読まれるファイルなので誤情報のコストが高い。sprint done 時に現在ステータスの数行差し替えとして修正する (CLAUDE.md の更新ポリシー『更新するのは確定した規約・現在のステータス数行』に従い、Sprint 別の実装内容は書き足さない)。ユーザー確認済み。",
+      "reference": "CLAUDE.md 実装ステータス, docs/ROADMAP.json .sprints.S2b5691.status",
+      "adr_ref": "none",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "planning",
+      "title": "AC の妥当性点検で2件を Task へ降格し、3件を構造 AC として明示した",
+      "detail": "sprint-plan.md §6 の『全 AC はいずれかの scenario step で実行され、ユーザー surface で観測できない AC は invalid』を当初の AC 10件に適用した結果: (a) AC-1-3 は gui-spec scenario-1 step 3 が実際にカバーしていたので linked_ac を修正、(b) AC-1-5 / AC-2-4 は『characterization test が緑であること』という テスト整備の義務で、受入基準に置くと循環するため Task へ降格、(c) AC-1-1 / 1-4 / 2-3 は受入内容がコード構造そのもので、いかなるユーザー入口からも直接観測できない。(c) を library scenario に偽装するのは誤り — internal/ はモジュール外から import できず、story-scenarios.md の library 型が要求する『プロジェクト外の消費者が公開 API を叩く』テストは原理的に書けない。よって scenario-Sd0e1a9-structural.json に構造 AC として明示し、各々に機械検証可能な手段 (grep / unit) を紐づけたうえで flagged_for_user に記録した。最終的に AC 8件が全て gui-spec または structural でカバーされ、未カバー0・宙吊り参照0。",
+      "reference": ".claude/skills/sprint/references/sprint-plan.md §6, .claude/skills/sprint/references/story-scenarios.md, docs/sprint-logs/Sd0e1a9/scenario-Sd0e1a9-structural.json",
+      "adr_ref": "none",
+      "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "planning",
+      "title": "gui-spec Phase 4 のテストファイル生成は sprint run へ持ち越す (plan では仕様のみ確定)",
+      "detail": "gui-spec.md Phase 4 は plan 中に E2E/mock テストファイルを生成せよとするが、本リポジトリの E2E は Python + Playwright スクリプトで、実行に live な dev インスタンス (make serve INSTANCE=dev) を要する。CLAUDE.md は実機を要するテストの待ち方に固有の注意 (10分ルール、tail -f 禁止、throwaway インスタンスの後始末) を定めており、plan フェーズで書いて即検証するのは適切でない。代わりに gui-spec-{StoryID}.json に scenario の steps/expected・data_testids・endpoint_contracts を実装可能な粒度まで書き切ったので、sprint run はこれを機械的にテストへ落とせる。skill 既定からの意図的な逸脱として記録する。",
+      "reference": ".claude/skills/sprint/references/gui-spec.md Phase 4, CLAUDE.md 『長時間かかる実機テストの待ち方』",
+      "adr_ref": "none",
+      "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "implementation",
+      "title": "【重大】Story 2 の AC-2-3 を既に解決済みのコードとテストが未マージブランチに埋もれていることを発見",
+      "detail": "実装中に commit 65fc548 'fix(store): stop recomputeTabs from touching the runtime registry under s.mu' が HEAD の祖先でないことが判明。ブランチ customize-ws-container (main から 27 ahead / 205 behind) にのみ存在する。内容は本 Sprint の Story 2 AC-2-3 そのもの: recomputeTabs を gatherRecomputeWindows (ロック不要、registry に触れてよい) と recomputeTabsLocked (純粋、ロック必須、in-memory state 以外に触れない) に分割し、Store.mu に LOCK ORDER INVARIANT を明文化している。付随して internal/store/recompute_lock_test.go に5テスト (TestGatherRecomputeWindows_NotReadyIncusRuntime_NeverStarts / _ReadyIncusRuntime_ListsWindows / TestPopulateTabs_ReentrantResolver_DoesNotDeadlock / TestRecomputeBranchTabs_ReentrantResolver_DoesNotDeadlock / TestOpenRepo_ReentrantResolver_DoesNotDeadlock)。さらに 380577d 'verify(Seeb4b9): deadlock fixed' で実機 (appliance) 検証済み。つまり『検証まで済んだ修正が、ブランチが取り込まれないまま205コミット分陳腐化して失われた』。本 Sprint の前提 (タブ層は無言で回帰する) の実例そのもの。Story 2 ではこの設計を prior art として読み、失われた5テストを現行構造に合わせて復元する。cherry-pick は 205 コミット差のため期待しない。",
+      "reference": "git show 65fc548, git show 380577d, branch customize-ws-container",
+      "adr_ref": "ADR-0012",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "implementation",
+      "title": "runtime.Registry に純粋クエリ Kind() を追加し、browser/ports の Tabs() は Get() を呼ばない",
+      "detail": "browser/ports の可視性判定 isIncus() は runtime.Registry.Get() を呼ぶが、Get は incus-container の場合に Runtime を遅延生成してキャッシュに入れる = 副作用。さらに 65fc548 の記述どおり Get の worktree resolver は Store.Branch (s.mu.Lock) にコールバックしうるため、s.mu 保持下で呼ぶと再入デッドロックになる。Tabs() の契約 (副作用禁止・安価) を満たすため、cfg 解決だけを行い Runtime を構築しない Kind(repoID, branchID) を runtime.Registry に追加し、browser/ports の Tabs() はこれを使う。Get() は従来どおりライフサイクル経路 (OnBranchOpen / tmuxFor) が使う。",
+      "reference": "internal/runtime/registry.go, internal/runtime/incus/registry.go Get(), internal/tab/{browser,ports}/provider.go",
+      "adr_ref": "ADR-0012",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "implementation",
+      "title": "AC-1-5 の『14件が無改変で緑』は数え間違いで、正しくは13件 + 契約反転3件",
+      "detail": "plan 時に characterization 16件のうち DEFECT 2件だけが反転すると書いたが、実装して分かったのは3件目がある: TestChar_Reducer_CallsOnBranchOpenAsQueryWithResumeFalse は『reducer が OnBranchOpen を Resume=false 固定のクエリとして呼ぶ』という旧契約そのものを pin しており、ADR-0012 はまさにそれを廃止する。よってアサーション不変で緑なのは13件、契約反転が3件 (Registry / Reducer-query / Notification=Story2)。当該テストは TestChar_Reducer_UsesPureTabsQueryNotLifecycleHook へ改名し『Tabs() が N 回・OnBranchOpen が 0 回』を assert する形へ反転した。fixture の interface 追随 (Tabs メソッド追加、Conditional 削除) は AC-1-5 が明示的に許容した範囲。",
+      "reference": "internal/store/recompute_characterization_test.go",
+      "adr_ref": "ADR-0012",
+      "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "implementation",
+      "title": "AC-1-4 の違法フラグ組み合わせを、Conditional 廃止後の等価な不変条件へ読み替えた",
+      "detail": "plan の AC-1-4 は『Conditional かつ Multiple、または Conditional かつ NeedsTmuxWindow』を違法条件としていたが、Conditional 自体が廃止されるので literal には満たせない。Register が実際に守るべき不変条件を洗い出して置き換えた: (a) Type() が空、(b) Type() が tab-ID 区切り文字 ':' を含む (domain.TabID / ParseWindowName が曖昧になる)、(c) Limits.Min > Limits.Max、(d) Multiple()==false なのに Max>1、(e) Multiple()==true なのに Max==1 (AddTab が永久に失敗する)。いずれも従来は無検査で、矛盾すると AddTab/RemoveTab の片方が到達不能になる実害があった。誤検知で本番が起動不能にならないことは、実バイナリを起動して9 provider + 1 service が panic なく登録され HTTP 200 を返すことで確認済み。",
+      "reference": "internal/tab/provider.go validate(), TestChar_Registry_RejectsIllegalProvider / _AcceptsLegalProviders",
+      "adr_ref": "ADR-0012",
+      "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "implementation",
+      "title": "host scope のタブ表示名が変わる (bash → Bash) — 重複コードのドリフト修正の副作用",
+      "detail": "recomputeHostTabs は displayNameForBash という自前の命名関数を持ち『bash provider の命名をミラーする』とコメントしていたが、実際にはドリフトしていた: canonical を 'bash'、追加分を 'bash-2' と表示する一方、通常の workspace は 'Bash' / 'Bash 2'。host scope を provider の Tabs() 経由に統合したことでこのドリフトが解消し、結果として Host スコープのタブ『ラベル』が変わる (ID は不変)。characterization test は ID しか見ていなかったため捕捉できておらず、自己レビューで発見した。意図的な変更として TestChar_HostScope_TabNamesMatchWorkspaceNaming で新しい命名を明示的に pin した。さらに再発防止として、この命名規約を tab.InstanceDisplayName として tab パッケージへ集約し、provider ごとの複製をやめた (同じドリフトが2度起きないように)。",
+      "reference": "internal/store/host.go, internal/tab/provider.go InstanceDisplayName, TestChar_HostScope_TabNamesMatchWorkspaceNaming",
+      "adr_ref": "ADR-0012",
+      "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "review",
+      "title": "skill 指定の /review を実行できないため、4観点の自己レビューで代替した",
+      "detail": "sprint-run.md は各 Story で /review を Skill 経由で呼べと定めるが、この harness で working diff 用の /code-review はユーザ起動専用で私からは実行できず、利用可能な review skill は GitHub PR 向け。代替として simplify skill を起動し、その4観点 (reuse / simplification / efficiency / altitude) を自分で diff に適用した (skill 本体は4つの Agent を並列起動する設計だが、本セッションには AgentTool をユーザ要求なしに呼ばない制約があるため直列に自分で実施)。発見して修正した実害2件: (1) incus/registry.go で Kind() を挿入した位置が悪く Get() の doc コメントが Kind() に付け替わり Get() が無文書化していた、(2) bash provider に閉じ込めた表示名規約が将来の2つ目の tmux-multi provider で再びドリフトしうる (tab.InstanceDisplayName へ集約)。併せて Kind()/Get() の cfg 解決を resolveConfig() に共通化した。バグ探索の観点は skill の対象外なので、必要ならユーザが /code-review を実行する必要がある。",
+      "reference": ".claude/skills/sprint/references/sprint-run.md Step 2, simplify skill",
+      "adr_ref": "none",
+      "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "implementation",
+      "title": "Story 1 の E2E は既存 workspace の観測 + throwaway repo でのライブ検証に分けた",
+      "detail": "gui-spec の scenario-2 は『worktree の docs/ROADMAP.json を退避して Sprint タブの出現/消失を見る』としていたが、dev instance が指すのはユーザーの実リポジトリなので実ファイルを動かすのは避けた。代わりに (a) 条件付き可視性は既存30 workspace の観測で検証 (Sprint 表示19 / 非表示11、browser/ports は incus workspace のみ)、(b) リロード無しのライブ反映は ghq root 配下に作った throwaway repo で検証し、SIGTERM ハンドラ + finally の二重で必ず後始末する構成にした (CLAUDE.md の『timeout の SIGTERM では finally が走らない』教訓を反映)。実行後に repo 残存ゼロを確認済み。",
+      "reference": "tests/e2e/sd0e1a9_tab_set.py, docs/sprint-logs/Sd0e1a9/gui-spec-Sd0e1a9-1.json",
+      "adr_ref": "none",
+      "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "implementation",
+      "title": "未マージ prior art (65fc548) の設計を移植し、失われた5テストを復元した",
+      "detail": "ユーザー確認のうえ推奨案を採用。customize-ws-container の 65fc548 は recomputeTabs を gatherRecomputeWindows (ロック不要・registry 可・Start は絶対に呼ばない) と recomputeTabsLocked (純粋・ロック必須) に分割し、Store.mu に LOCK ORDER INVARIANT を明文化していた。205コミット差のため cherry-pick はせず設計を移植し、ADR-0012 の Tabs() 純粋化に合わせて三分割 (gatherRecomputeWindows / computeTabs / swapTabs) + recomputeAndPublish に再構成した。internal/store/recompute_lock_test.go の5テストは provenance をヘッダに明記して復元。今回さらに強い直接検証 TestRecomputeAndPublish_HoldsNoLockDuringDerivation を追加した。",
+      "reference": "git show 65fc548, internal/store/recompute_lock_test.go, internal/store/store.go",
+      "adr_ref": "ADR-0012",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "implementation",
+      "title": "新規ロックテストが最初『落ちないテスト』だった — mutation check で発見し修正",
+      "detail": "TestRecomputeAndPublish_HoldsNoLockDuringDerivation の初版は『リーダーがいずれ s.mu を取得できる』ことを見ていた。これは書きロックを持ったままでも、導出が終われば取得できるため成立してしまう。実際に store.go へ意図的に s.mu.Lock() を再導入する mutation check を回したところ、PopulateTabs のデッドロックテストは正しく落ちたのに当該テストは PASS した。アサーションを『導出が実行中のあいだにリーダーが取得できること』(1.5s 以内に取れなければ失敗) へ修正し、mutation check で落ちることを再確認した。テストに歯があることを確認せずに緑を信用しない。",
+      "reference": "internal/store/recompute_lock_test.go TestRecomputeAndPublish_HoldsNoLockDuringDerivation",
+      "adr_ref": "none",
+      "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "implementation",
+      "title": "AC-2-2 の当初の観測対象は成立しないので修正した (plan 時の仕様ミス)",
+      "detail": "plan では『外部から tmux セッションを kill → sync_tmux 復旧 → タブ集合の変化がリロードなしに反映される』としたが、実装を読むと復旧経路は enrichRecoverySpecs によって in-memory のタブ集合を保存するよう意図的に設計されている (S009-fix-2)。つまり復旧でタブ集合は変化しないのが正しい挙動で、変化を待つテストは永久に成立しない = 落ちないテストになる。観測可能な形へ AC を修正した: (a) ブラウザ外 (REST API) からのタブ追加・削除がリロードなしに TabBar へ反映される、(b) 外部 kill + 復旧の後も TabBar と BE が一致し続ける (S009-fix-1 クラスの消失が起きない)。両方とも実機 E2E で PASS。",
+      "reference": "docs/ROADMAP.json AC-Sd0e1a9-2-2, tests/e2e/sd0e1a9_tab_events.py, internal/store/sync_tmux.go enrichRecoverySpecs",
+      "adr_ref": "none",
+      "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "implementation",
+      "title": "AddTab / RemoveTab の手動 publish を削除し、汎用差分に一本化した",
+      "detail": "従来 AddTab/RemoveTab は recompute 後に自前で EventTabAdded/EventTabRemoved を publish していた。recomputeAndPublish が同じ差分を出すため重複する。FE (palmux-store.ts applyEvent) はタブ系イベントの payload を一切見ず全体リロードするだけなので重複は無害だが、二重リロードを避けるため手動 publish を削除した。一方 tab.renamed / tab.reordered は残す — 改名 (ID 不変) と並べ替えはタブ ID 集合を変えないので汎用差分では検出できず、意味イベントが唯一の通知手段になる。",
+      "reference": "internal/store/tab.go, frontend/src/stores/palmux-store.ts applyEvent",
+      "adr_ref": "ADR-0012",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "verification",
+      "title": "hooks/run-guards.py と run-verify.py が環境に無いため、契約を保つローカル代替で機械実行した",
+      "detail": "CLAUDE_PLUGIN_ROOT が未設定で skill の hooks/ ディレクトリも存在せず、.claude/verify.json も無い。skill は『verify コマンド未設定は pass ではなく gap』と定めるため、契約の本質 (事実は機械が出す / status は実 exit code から複写し、モデルが出力を読んで判断しない) を保つ代替を用意した: (a) guards はスクリプトが grep を実行して guards-run.json を生成、(b) verify はシェルが `\"$@\"; code=$?` で exit code を捕捉し各ログ末尾に __VERIFY_EXIT_CODE__ マーカーを追記、その マーカーを解析して verify-run.json を生成。両ファイルの $machine_authored にこの逸脱を明記した。恒久対応として .claude/verify.json と .claude/guards.json をリポジトリに置くべき。",
+      "reference": "docs/sprint-logs/Sd0e1a9/{guards-run.json,verify-run.json}",
+      "adr_ref": "none",
+      "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "verification",
+      "title": "ADR-0012 に machine_check ブロックを追加したところ、即座に dead code を検出した",
+      "detail": "Guard 7 は touched_adrs の ADR が machine_check でカバーされていることを要求するが、本リポジトリの ADR にはブロックが1つも無く、ADR-0012 の不変条件が機械検査されない状態だった。まさに本 Sprint が防ごうとしている『無言の回帰』なので4件を追加した (recompute から OnBranchOpen を呼ばない / TabSet.Tabs の直接代入は swapTabs のみ / Conditional() が復活しない / provider の Tabs() が Registry.Get を呼ばない)。初回実行で conditional-flag-stays-dead が8ヒット — interface から Conditional() を外したのに9つの provider に実装が dead code として残っていた。コンパイルは通るが将来の読み手を誤解させるので削除した。追加したチェック自体が即座に実害を1件回収した形。",
+      "reference": "docs/DESIGN/adr/ADR-0012-pure-tab-set-derivation.json machine_check, internal/tab/*/provider.go",
+      "adr_ref": "ADR-0012",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "verification",
+      "title": "Guard 3/4 は本リポジトリでは n/a — 8ガード文書の priority_rule 9 が別プロジェクトのもの",
+      "detail": "sprint-done-judgment.md の Guard 3/4 は priority_rule 9 を『dev VM 実機 deploy + smoke test』として参照するが、本リポジトリの DESIGN_PRINCIPLES.json の priority_rule 9 は『明示的 > 暗黙的』であり全くの別物 (ガード文書は別プロジェクト向けに書かれている)。対応する実機規律はこのリポジトリでは priority_rule 2 『AC はコードパスを通すだけでなく失敗が発火する条件を再現する / lifecycle 変更は実セッション dogfood してからリリース』。本 Sprint はこれを満たす: 両 E2E は make serve INSTANCE=dev の本番モード実インスタンス (embed フロント、MOCK/fake フラグ無し) に対して実行し、新規ロックテストは mutation check で実際に落ちることを確認済み。この読み替えを verification-results.json の guard_notes に明記した。",
+      "reference": "docs/DESIGN_PRINCIPLES.json priority_rules, docs/sprint-logs/Sd0e1a9/verification-results.json guard_notes",
+      "adr_ref": "none",
+      "drift_flag": "minor"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "review",
+      "title": "cross-Story レビューで Story 2 が持ち込んだ race を発見し、沈黙する失敗を明示エラー化した",
+      "detail": "Story 1/2 が共有する internal/store/{store.go,host.go} の統合面を精査した結果、recomputeAndPublish が導出をロック外で行うため、2つの recompute が interleave すると (compute A → compute B → swap B → swap A) 古い方が勝つ窓ができることが判明。タブ列自体は導出中に読む live な tmux/provider 状態から作られ、reducer は冪等で5秒ループが再収束し、かつ phase 4 が必ず publish するので自己修復する — ロック保持は本 ADR が除去したデッドロックそのものなので、この interleave は受け入れる trade-off としてコメントに明記した。ただし AddTab は recompute 後に windowName でタブを引き直しており、この窓に当たると『ゼロ値の domain.Tab を 200 で返す』= 空 id のタブが HTTP 応答に乗るという沈黙する失敗になっていた。見つからない場合は明示エラーを返すよう修正した。",
+      "reference": "internal/store/tab.go AddTab, internal/store/store.go recomputeAndPublish",
+      "adr_ref": "ADR-0012",
+      "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-22T00:00:00Z",
+      "category": "review",
+      "title": "Phase 1.8 独立検証と Phase 2 の /review は実行していない",
+      "detail": "(1) 独立検証 (--with-verifier) は別 Claude セッションを Agent として起動する必要があるが、本セッションには AgentTool をユーザ要求なしに呼ばない制約があり、ユーザが打ったのはフラグ無しの `sprint verify` (手動実行時の既定は verifier OFF)。よって Phase 1.8 はスキップし、単一セッションの8ガードが唯一のゲートである — 自己採点バイアスが残っている点を明記する。(2) Phase 2 の /review も、working diff 用の /code-review が harness 上ユーザ起動専用のため実行不可。代替として cross-Story 共有面 (store.go / host.go / provider.go) を自分で精査し、上記 race を1件発見・修正した。バグ探索の網羅性は保証できない。",
+      "reference": ".claude/skills/sprint/references/sprint-verify.md Phase 1.8 / Phase 2",
+      "adr_ref": "none",
+      "drift_flag": "minor"
+    }
+  ]
+}

@@ -2,15 +2,15 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 81,
-    "sprints_total": 88,
-    "done": 81,
-    "total": 88,
-    "remaining": 7,
+    "sprints_done": 84,
+    "sprints_total": 90,
+    "done": 84,
+    "total": 90,
+    "remaining": 6,
     "in_progress": 0,
-    "percent": 92,
-    "percentage": 92,
-    "current_sprint": "Sc4f091"
+    "percent": 93,
+    "percentage": 93,
+    "current_sprint": "Sf6c55b"
   },
   "execution_order": [
     "S001",
@@ -95,6 +95,8 @@
     "S2b5691",
     "Sfa2bab",
     "Sc4f091",
+    "Sd0e1a9",
+    "S3f3cb2",
     "Sf6c55b",
     "Se223cc",
     "S16113e",
@@ -12798,12 +12800,12 @@
       "title": "リリース準備: 実機ドッグフーディング検証 (codex/opencode含む、S2b5691完了後の次リリース)",
       "description": "フェーズD (codex/opencode registry登録) の成果をv0.15.2としてリリースする前に実機で検証する。フェーズCと同様、実際の `git tag v0.15.2` + push はこのSprintのStoryとして自動実行しない — 検証結果をもってmilestone停止時にユーザーへ提示し、明示的な確認を得てから(このSprintの外で)tag pushを行う。",
       "milestone": true,
-      "status": "partial",
+      "status": "done",
       "detail_level": "detailed",
       "stories": {
         "Sfa2bab-1": {
           "title": "プロダクトオーナーとして、v0.15.2相当のビルドでcodex/opencodeタブが実機で動くことを確認してからリリースしたい。なぜなら、フェーズCと同じ理由でリリース前の実機ドッグフーディングを省略したくないから。",
-          "status": "needs_user_review",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-Sfa2bab-1-1",
@@ -12813,8 +12815,8 @@
             {
               "id": "AC-Sfa2bab-1-2",
               "description": "codexタブ・opencodeタブをワークスペース内で実際に作成し、簡単なターンが動く",
-              "status": "fail",
-              "note": "Both codex and opencode completed real turns correctly (verbatim PALMUXOK captured) but Activity Inbox notification never arrived — root-caused to in-container notify hooks being structurally disabled under wildcard-bind/no-domain deployments (backlog bug filed, added_in Sfa2bab). Distinct from the S2b5691 opencode crash-loop backlog item (neither confirmed nor refuted here)."
+              "status": "pass",
+              "note": "当初 fail (codex/opencode タブがターンを完走するが通知が来ない/claude 誤起動)。後続の Sc4f091 (done) が真因を修正し、実 incus コンテナで AC-Sc4f091-1-2 (3種の通知 round-trip) と AC-Sc4f091-2-3 (opencode 5回連続) を pass させたことで解消・再検証済み。C 判断で覆う。"
             },
             {
               "id": "AC-Sfa2bab-1-3",
@@ -12844,7 +12846,8 @@
           },
           "review_reason": "実機ドッグフーディングで codex/opencode の実ターンは完走したが (PALMUXOK 出力を実機確認)、Activity Inbox 通知が一切届かず AC-Sfa2bab-1-2 を fail とした。root cause は services.palmux.domain 未設定時の wildcard bind で bridgeNotifyURL() が空を返し、全 in-container エージェントの通知フックが無条件スキップされる設計バグ。Sc4f091-1 で修正済み。ただし本 Story が検証したビルドは Sc4f091 より前のため、修正を含むビルドでのドッグフーディング再実行をもって close する (リリースゲートのため別 Sprint の検証結果を流用しない)。"
         }
-      }
+      },
+      "rescope_note": "リリース対象だった v0.15.2 という番号は実在しない (プロジェクトは v0.15.0 → v0.16.0 と進み、codex/opencode 一式は main 上で v0.16.0 より 49 コミット先行して未リリース)。本 milestone の検証意図 (codex/opencode の実機ドッグフーディング) は Sc4f091 で充足済みのため done とする。実際のリリース (tag + push) は AC-1-4 の設計どおりユーザーの明示判断に残す。"
     },
     "S31ad96": {
       "title": "palmux2 ローカルソースビルド + アプライアンス更新フロー検証 (フェーズBの前提)",
@@ -13335,6 +13338,211 @@
       "milestone": true,
       "detail_level": "coarse",
       "stories": {}
+    },
+    "Sd0e1a9": {
+      "title": "タブ集合の導出を純粋関数化 (ADR-0012 Step 1+2)",
+      "description": "ADR-0012 に基づき、store.recomputeTabs をタブ集合の純粋な再導出関数にする。Provider に副作用禁止・冪等を契約とする Tabs() を新設して reducer が provider から読む唯一の入力とし、OnBranchOpen/OnBranchClose はライフサイクル通知に純化する。Conditional() は廃止し条件付き可視性は Tabs() の0件返却で表現する。そのうえでタブ集合の変化が FE に届く経路を diff+publish 一本に統一し、reducer の I/O を書きロック外へ出す。着手前に characterization test 16件 (internal/store/recompute_characterization_test.go) で現行の導出契約を固定済み。うち2件は本 Sprint で修正される欠陥を意図的に pin しており、修正が入ると赤くなるので契約 assert へ書き換える。",
+      "milestone": false,
+      "status": "done",
+      "detail_level": "detailed",
+      "stories": {
+        "Sd0e1a9-1": {
+          "title": "palmux 開発者として、タブ集合の再導出が provider の状態を一切変更しないことを型と起動時検証で保証してほしい。なぜなら、現状は OnBranchOpen が5秒ごとのポーリングからクエリとして呼ばれており、sprint provider が書きロック内で inotify ハンドルを確保するなど『副作用なし』というコメントの約束が既に破れているから。",
+          "status": "done",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sd0e1a9-1-1",
+              "description": "Provider.Tabs(ctx, TabsParams) が新設され、reducer が provider から読む唯一の入力になっている。store.recomputeTabs から OnBranchOpen を呼ぶ経路がコード上ゼロ (grep で検証可能)。ProviderResult から Tabs が落ち、Windows のみ残っている",
+              "status": "pass"
+            },
+            {
+              "id": "AC-Sd0e1a9-1-2",
+              "description": "Conditional() が tab.Provider interface から消え、Sprint/Browser/Ports の条件付き可視性が Tabs() の0件返却で維持されている。既存の TestRecomputeBranchTabs_ConditionalTabAddRemoveEmitsEvents が (fixture の interface 追随のみで) 緑",
+              "status": "pass"
+            },
+            {
+              "id": "AC-Sd0e1a9-1-3",
+              "description": "agenttui が zero-tab provider を装うのをやめ、HeadChangedHook/RuntimeRestartHook と同型の任意ライフサイクルフックとして登録されている。タブ集合に claude-tui 型が現れない現行挙動は不変",
+              "status": "pass"
+            },
+            {
+              "id": "AC-Sd0e1a9-1-4",
+              "description": "違法なフラグ組み合わせ (Conditional かつ Multiple、または Conditional かつ NeedsTmuxWindow) での Register が起動時に落ちる。TestChar_Registry_AcceptsIllegalFlagCombo_DEFECT が契約 assert へ書き換えられている",
+              "status": "pass"
+            },
+            {
+              "id": "AC-Sd0e1a9-1-6",
+              "description": "実ブラウザ E2E: 手術前後で TabBar が示すタブ集合が同一であり、docs/ROADMAP.json の有無に応じた Sprint タブの出現/消失 (条件付き可視性) がリロードなしに従来どおり動く",
+              "status": "pass"
+            }
+          ],
+          "tasks": {
+            "Sd0e1a9-1-1": {
+              "title": "internal/tab/provider.go: Tabs(ctx, TabsParams) を追加、ProviderResult から Tabs を削除、Conditional() を削除、Register にフラグ組み合わせ検証を追加",
+              "status": "done"
+            },
+            "Sd0e1a9-1-2": {
+              "title": "provider 9個 (bash/files/git/sprint/browser/ports/claudeagent/agenttab/agenttui) を新 interface へ移行。sprint provider の startWatcher() は Tabs() から切り離し OnBranchOpen 側へ寄せる",
+              "status": "done"
+            },
+            "Sd0e1a9-1-3": {
+              "title": "agenttui を zero-tab provider から任意ライフサイクルフックへ移行し、registry 登録経路を main.go で更新",
+              "status": "done"
+            },
+            "Sd0e1a9-1-4": {
+              "title": "store.recomputeTabs / recomputeHostTabs を Tabs() ベースへ書き換え、OnBranchOpen 呼び出しを除去",
+              "status": "done"
+            },
+            "Sd0e1a9-1-5": {
+              "title": "characterization test: DEFECT-1件 (Registry) を契約 assert へ書き換え、残り14件がアサーション無改変で緑であることを確認 (旧 AC-1-5 — 受入基準ではなくテスト整備の義務なので Task へ降格)",
+              "status": "done"
+            },
+            "Sd0e1a9-1-6": {
+              "title": "E2E: tests/e2e/sd0e1a9_tab_set.py — タブ集合の同一性 + Sprint タブの条件付き可視性",
+              "status": "done"
+            }
+          }
+        },
+        "Sd0e1a9-2": {
+          "title": "palmux 利用者として、タブの追加・削除・表示条件の変化がブラウザをリロードしなくても TabBar に反映されてほしい。なぜなら、今はタブ集合を更新する12経路のうち通知を出すのは1つだけで、sync ループや runtime 切替でタブ集合が変わっても画面が古いまま取り残されるから。",
+          "status": "done",
+          "acceptance_criteria": [
+            {
+              "id": "AC-Sd0e1a9-2-1",
+              "description": "タブ集合を変更する全経路が diff+publish を通り tab.added/tab.removed を発行する。branch.TabSet.Tabs を無言で上書きする経路がコード上ゼロ (sync_tmux.go / branch.go / PopulateTabs を含む)",
+              "status": "pass"
+            },
+            {
+              "id": "AC-Sd0e1a9-2-2",
+              "description": "実ブラウザ E2E: (a) ブラウザ外 (REST API) からのタブ追加・削除がページリロードなしに TabBar へ反映される。(b) 外部から tmux セッションを kill して sync_tmux の復旧が走った後も、TabBar と BE のタブ集合が一致し続ける (S009-fix-1 クラスの消失が起きない)。当初『復旧でタブ集合が変化することを観測する』と書いたが、enrichRecoverySpecs は復旧時にタブ集合を保存する設計なので変化しないのが正しい挙動であり、観測対象を実際に成立する形へ修正した。",
+              "status": "pass"
+            },
+            {
+              "id": "AC-Sd0e1a9-2-3",
+              "description": "recomputeTabs の I/O (tmux ListWindows / provider Tabs()) が store の書きロック外で実行される。incus-container workspace でコンテナ起動が書きロックを保持しない",
+              "status": "pass"
+            }
+          ],
+          "tasks": {
+            "Sd0e1a9-2-1": {
+              "title": "store: 純粋化した reducer をロック外で評価し、短時間の書きロックで swap + diff+publish する共通経路を新設",
+              "status": "done"
+            },
+            "Sd0e1a9-2-2": {
+              "title": "recomputeTabs の12呼び出し元すべてを新経路へ移行し、無言上書きを撲滅 (sync_tmux.go:167 / branch.go:92,778 / tab.go 6箇所 / store.go PopulateTabs 等)",
+              "status": "done"
+            },
+            "Sd0e1a9-2-3": {
+              "title": "tmuxFor 経由のコンテナ起動が書きロック内で起きないことを確認・是正 (store.go:635 のコメントが認める経路)",
+              "status": "done"
+            },
+            "Sd0e1a9-2-4": {
+              "title": "characterization test: DEFECT-1件 (Notification) を契約 assert へ書き換え (旧 AC-2-4 — 同上)",
+              "status": "done"
+            },
+            "Sd0e1a9-2-5": {
+              "title": "E2E: tests/e2e/sd0e1a9_tab_events.py — 外部 tmux kill → 復旧 → リロードなしで TabBar 追随",
+              "status": "done"
+            }
+          }
+        }
+      }
+    },
+    "S3f3cb2": {
+      "title": "タブ操作のレイテンシ解消: worktree watcher の再購読をやめる",
+      "description": "ユーザーが実機ドッグフーディングで報告した「Bash タブを開いても真っ暗のまま」「タブ追加に妙に時間がかかる」「タブに戻ると Reconnecting が長い」の恒久修正。Sd0e1a9 の実機検証中に計測で原因を特定済み: git provider と sprint provider の OnBranchOpen が worktree 全体への fsnotify 購読を毎回 Unsubscribe → Subscribe し直しており、ensureBranchSession のたびに git 1.66s + sprint 2.09s = 約3.8秒を消費する。ensureBranchSession はタブ追加でも WS attach でも呼ばれるため、体感の遅さすべてがここに集約される。Sprint 開始前コミット (a1e0bf7) との A/B で AddTab が 5.79s / 7.18s だったことを確認しており、ADR-0012 の変更による回帰ではなく既存の問題。計測内訳: PROF ensureBranchSession=3783ms のうち OnBranchOpen(git)=1663ms / OnBranchOpen(sprint)=2090ms、pickNextWindowName=8ms / NewWindow=21ms / recomputeAndPublish=7ms。",
+      "milestone": false,
+      "status": "done",
+      "detail_level": "detailed",
+      "stories": {
+        "S3f3cb2-1": {
+          "title": "palmux 利用者として、Bash タブを開いたときすぐにシェルが表示され、タブの追加やタブ間の移動が待たされずに済むようにしてほしい。なぜなら、今は1操作ごとに数秒間 真っ暗な画面や Reconnecting 表示を見せられ、複数エージェントを並行運用するという本来の使い方が成立しないから。",
+          "status": "done",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S3f3cb2-1-1",
+              "description": "同一 workspace に対する2回目以降の ensureBranchSession が、worktree watcher の購読をやり直さない。既に同じ (repoID, branchID, roots, filter) の購読があれば再利用する。git / sprint の両 provider で成立すること",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S3f3cb2-1-2",
+              "description": "計測: 実 dev インスタンスの Mirante-demo workspace に対する POST /tabs (bash 追加) が 1.0 秒以内に完了する (修正前は 4.0〜7.4 秒)。同一環境・同一 workspace で修正前後を測り、両方の数値を verification-results.json の evidence に残す",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S3f3cb2-1-3",
+              "description": "実ブラウザ E2E: Bash タブを追加してから xterm にプロンプトが描画されるまで、および既存タブへ切り戻してから Reconnecting 表示が消えるまでが、それぞれ 2 秒以内に収まる",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S3f3cb2-1-4",
+              "description": "watcher の購読を再利用しても、docs/ROADMAP.json の作成・削除による Sprint タブの出没と、git status 変更による git.statusChanged イベントが従来どおり発火する (購読を使い回したことで通知が来なくなる回帰が無い)",
+              "status": "pass"
+            }
+          ],
+          "tasks": {
+            "S3f3cb2-1-1": {
+              "title": "調査: git provider (internal/tab/git/provider.go:85) と sprint provider (internal/tab/sprint/provider.go:120) が OnBranchOpen のたびに old.Unsubscribe() → Subscribe() し直している意図を git 履歴から確認する。branch 再オープン時の stale 購読対策と読めるが、ID が path 由来になった S1e8d02 以降も必要かを判断する",
+              "status": "done"
+            },
+            "S3f3cb2-1-2": {
+              "title": "購読を冪等にする: 同じ branch に対する購読が既に存在し spec が変わっていなければ再利用する。worktreewatch 側に spec 比較を持たせるか provider 側で保持するかは調査結果で決める",
+              "status": "done"
+            },
+            "S3f3cb2-1-3": {
+              "title": "計測: 修正前後の POST /tabs レイテンシを同一環境で測り、内訳 (ensureBranchSession / provider 別 OnBranchOpen) も記録する。Sd0e1a9 で使った一時計測ログと同じ観点",
+              "status": "done"
+            },
+            "S3f3cb2-1-4": {
+              "title": "回帰テスト: 同一 branch に対して ensureBranchSession 相当を複数回呼んでも Subscribe が1回しか走らないことの単体テスト",
+              "status": "done"
+            },
+            "S3f3cb2-1-5": {
+              "title": "回帰テスト: 購読再利用後も worktree の変更でイベントが発火することの単体テスト (AC-1-4)",
+              "status": "done"
+            },
+            "S3f3cb2-1-6": {
+              "title": "E2E: tests/e2e/s3f3cb2_tab_latency.py — タブ追加からプロンプト描画まで、タブ切り戻しから Reconnecting 解消までの時間を実測して閾値を assert する",
+              "status": "done"
+            }
+          }
+        },
+        "S3f3cb2-2": {
+          "title": "palmux 開発者として、ensureBranchSession が WS attach のホットパスで重い処理を呼ばない構造にしてほしい。なぜなら、購読を冪等にしても『セッション存在確認のために全 provider のライフサイクルフックを起動する』という構造自体が残り、将来 provider が増えるたびに同じ遅延が再発するから。",
+          "status": "done",
+          "acceptance_criteria": [
+            {
+              "id": "AC-S3f3cb2-2-1",
+              "description": "tmux セッションが既に存在し必要な window が揃っている場合、ensureBranchSession が provider の OnBranchOpen を1つも呼ばずに早期リターンする (セッション新規作成・window 不足時のみフルパスを通る)",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S3f3cb2-2-2",
+              "description": "早期リターン経路でも、セッションが外部から kill された場合の復旧 (sync_tmux) と、window が欠けている場合の再作成は従来どおり動く",
+              "status": "pass"
+            },
+            {
+              "id": "AC-S3f3cb2-2-3",
+              "description": "計測: 定常状態 (セッション存在・window 充足) の WS attach で ensureBranchSession が 50ms 以内に返る",
+              "status": "pass"
+            }
+          ],
+          "tasks": {
+            "S3f3cb2-2-1": {
+              "title": "ensureBranchSession に fast path を入れる: has-session + ListWindows で充足を確認できたら collectOpenSpecs を呼ばずに返す",
+              "status": "done"
+            },
+            "S3f3cb2-2-2": {
+              "title": "fast path が誤って発火して window 不足を見逃さないことの単体テスト (window を1つ削った状態で fast path に入らないこと)",
+              "status": "done"
+            },
+            "S3f3cb2-2-3": {
+              "title": "外部 kill → sync_tmux 復旧が fast path 導入後も動くことの回帰テスト",
+              "status": "done"
+            }
+          }
+        }
+      }
     }
   },
   "dependencies": {
@@ -14241,6 +14449,34 @@
       "description": "ユーザー提起 (2026-07-20): 「palmux が scrollback を持たない方針 (ADR-0009) なら、ホイールイベントは codex/opencode に行くべきでは？ ソフトに応じて変えられないか」。実機観測: (a) opencode は PageUp/PageDown で自身のチャット履歴を辿れる = 内部にスクロール可能なビューを持つ。(b) Windows のネイティブ TUI では opencode はマウスホイールでチャット履歴を辿れる = 環境によってはマウス追跡を有効化していると推測される。(c) codex は Windows でも端末のスクロールバックを使っている様子で、codex --help の『Runs the TUI in inline mode, preserving terminal scrollback history』とも一致する。**重要: 2026-07-20 に行った『両アプリともマウス追跡 (DECSET 1000/1002/1003/1006) を要求しない』という測定は無効。** 測定に使った使い捨てワークスペースが同日発見のバグ (codex/opencode タブが claude を起動する) を踏んでおり、実際には claude を2回測っていた。したがって『ホイールを転送すべきでない』という結論も根拠を失っており、ユーザーの当初の指摘は棄却されていない。**やること**: (1) 正しいエージェントが起動するワークスペースで、プロセス起動直後から attach してバイト列を取得し、codex/opencode が実際にマウス追跡を要求するかを測り直す。(2) 要求している場合は palmux 側の取りこぼし (emulator がモードを落としている / attach 時のスナップショット再生成でモードを再宣言していない) を疑い、バグとして修正する。xterm.js はアプリがモードを有効化していれば自動でホイールを転送するため、フロント側の追加実装は不要なはず。(3) 要求していない場合は、agent.Capabilities に per-agent の scrollback 方針 (例 terminal | app) を追加し、app のときだけホイールを SGR マウスシーケンスに変換して転送する分岐を agent-tui-tab.tsx に置く設計を検討する。マウス非対応アプリに送ると入力欄が壊れるため、必ず実測に基づいて分類すること。**ADR-0009 との関係**: 現状 attach 時に palmux が返すのは emulator の『現在描画されている画面』のスナップショットのみで、それ以前のバイト履歴は破棄される (agent-tui-tab.tsx の scrollback コメント参照)。codex/opencode は代替画面 (1049) を使わない inline TUI で端末スクロールバックに履歴を積む設計のため、この破棄が履歴喪失に直結している。tmux はサーバ側で pane のスクロールバックを保持するので、ADR-0009 の tmux 回帰 (S7010fa) はこの問題も解消する見込み。ADR-0009 の根拠は『claude が内蔵 History を持つようになった』という claude 固有の観察に立っているが、codex/opencode は内蔵 History ではなく端末スクロールバックに依存しており、エージェントごとに事情が異なる点を ADR に書き足す価値がある。",
       "added_in": "Sfa2bab",
       "reason": "ユーザー提起の UX 課題。前回測定が無効だったため再測定から。ADR-0009 (S7010fa) の実装で自然に解消する可能性があり、着手前に S7010fa との重複を確認すること"
+    },
+    {
+      "title": "未マージブランチ customize-ws-container の棚卸し (検証済み修正の埋没チェック)",
+      "kind": "bug",
+      "description": "Sd0e1a9 の実装中に発見: commit 65fc548 『fix(store): stop recomputeTabs from touching the runtime registry under s.mu』は HEAD の祖先でなく、ブランチ customize-ws-container (main から 27 ahead / 205 behind) にのみ存在していた。内容は recomputeTabs のロック外化 + LOCK ORDER INVARIANT + 回帰テスト5件で、380577d 『verify(Seeb4b9): deadlock fixed — all-green on appliance』により実機検証まで完了していたにもかかわらず、ブランチが取り込まれないまま失われていた。Sd0e1a9-2 で設計を移植しテストも復元したので当該分は回収済み。**やること**: 同ブランチの残り26コミットを棚卸しし、(a) 既に main へ別経路で入っているもの、(b) 今も有効で取り込むべきもの、(c) 陳腐化して破棄してよいもの、に仕分ける。同種の埋没が他のブランチにも無いか `git branch -a --no-merged main` で確認する。**なぜ重要か**: 『検証まで済んだ修正が黙って消える』のはタブ層が106件の fix を積み上げた構造的原因と同根で、個別修正では止まらない。",
+      "added_in": "Sd0e1a9",
+      "reason": "Sd0e1a9 実装中に発見。実機検証済みの修正が失われていた実例が1件確定しており、他にも埋もれている可能性が高い"
+    },
+    {
+      "title": "gofmt 未整形ファイル4件の解消と CI での検査",
+      "kind": "enhancement",
+      "description": "リポジトリに gofmt 未整形のファイルが4件ある: internal/auth/sso_test.go, internal/tab/agenttui/testdata/fake_claude.go, internal/tab/browser/browser_test.go, cmd/palmux/main.go。いずれも Sd0e1a9 の変更以前から存在する。Makefile の lint ターゲットは golangci-lint が未インストールなら黙ってスキップする実装 (`command -v golangci-lint >/dev/null && ... || echo '(skipped)'`) のため、この種の汚れが検出されないまま残る。**やること**: (1) 4件を gofmt -w で整形する。ただし無関係な差分が他 Sprint の diff に混ざるのを避けるため単独コミットにする。(2) CI (release.yml 等) に `gofmt -l` が空であることの検査を足すか、Makefile の lint から golangci-lint 未インストール時でも gofmt 検査だけは必ず走るようにする。**注意**: Sd0e1a9 の実装中に gofmt -w をディレクトリ単位でかけた結果、意図しない2ファイルが差分に混入した (revert 済み)。ファイル単位で当てるか、この backlog を先に消化するのが望ましい。",
+      "added_in": "Sd0e1a9",
+      "reason": "既存の汚れ。lint がスキップされる構造のため放置されやすく、他 Sprint の diff を汚す実害が既に1度発生した"
+    },
+    {
+      "title": "E2E テストが残した使い捨て repo の後始末漏れ (palmux2-test--open-repo-hotfix-*)",
+      "kind": "bug",
+      "description": "dev instance の repos.json に palmux2-test--open-repo-hotfix-1784333038-3433356 など4件の使い捨て repo が open のまま残留しており、sync_worktree が毎サイクル `git worktree list` に失敗して WARN を出し続けている (実ディレクトリが既に無い)。過去の E2E / hotfix テストの後始末漏れ。**やること**: (1) 残留エントリを close して repos.json から除去する。(2) 使い捨て repo を作る E2E の後始末を、成功時だけでなく失敗・timeout(SIGTERM) 時にも必ず走る形にする — CLAUDE.md が既に『timeout の SIGTERM では Python の finally が走らないことがある』と警告しており、Sd0e1a9 の2本 (sd0e1a9_tab_set.py / sd0e1a9_tab_events.py) は signal.signal(SIGTERM) + finally の二重で実装したので、これを既存 E2E にも横展開する。(3) 起動時に『実体の無い open repo』を検出して警告するか自動 close する処理を検討する。",
+      "added_in": "Sd0e1a9",
+      "reason": "dev instance のログを恒常的に汚し、sync_worktree の WARN が本物の異常を埋もれさせる"
+    },
+    {
+      "title": "branch.runtime_drift が FE の reload 対象イベントに含まれていない",
+      "kind": "bug",
+      "description": "frontend/src/stores/palmux-store.ts の applyEvent は domainEvents セット (repo.opened/closed/starred/unstarred, branch.opened/closed, tab.added/removed/renamed/reordered) に含まれるイベントでのみ reloadRepos()/refreshHost() を呼ぶ。branch.runtime_drift はこのセットに無いため、drift 状態の変化 (S7364e3 のイメージ陳腐化検出) が発火しても UI は更新されない可能性がある。**やること**: (1) drift 状態が UI のどこに出ているかを確認し、実際に更新されないのか、それとも別経路 (WS の branch payload 等) で更新されているのかを実機で確かめる。(2) 更新されないなら domainEvents に追加するか、drift 専用の軽量な in-place 更新を実装する (全体リロードは重いため)。**発見経緯**: Sd0e1a9-2 でタブイベントの FE 側ハンドリングを読んだ際に気づいた副次的な発見で、タブ層とは独立の問題。未検証の疑いなので、まず再現確認から。",
+      "added_in": "Sd0e1a9",
+      "reason": "Sd0e1a9-2 の調査中に気づいた副次的発見。未検証のため再現確認から始めること"
     }
   ]
 }

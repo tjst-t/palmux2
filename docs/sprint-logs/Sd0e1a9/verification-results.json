@@ -1,0 +1,168 @@
+{
+  "$comment": "Every `status` is COPIED from verify-run.json (machine-authored from real exit codes). Only `evidence` is model-authored.",
+  "sprint": "Sd0e1a9",
+  "machine_verdict": "docs/sprint-logs/Sd0e1a9/verify-run.json",
+  "overall_machine_status": "pass",
+  "summary": {
+    "pass": 8,
+    "fail": 0,
+    "skip": 0
+  },
+  "tests": [
+    {
+      "name": "TestChar_Reducer_UsesPureTabsQueryNotLifecycleHook / TestTabs_IsSideEffectFree (sprint) / TestTabs_DoesNotCreateManagers (browser)",
+      "story": "Sd0e1a9-1",
+      "acceptance_criteria": [
+        "AC-Sd0e1a9-1-1"
+      ],
+      "file": "internal/store/recompute_characterization_test.go, internal/tab/sprint/tabs_purity_test.go, internal/tab/browser/tabs_purity_test.go",
+      "status": "pass",
+      "machine_run": "test",
+      "evidence": "make test exit=0 (29 ok packages). ADR-0012 machine_check `no-onbranchopen-from-reducer` executed by guards-run.json: 0 hits across internal/store/{store,host,sync_tmux}.go. Tabs() called 100x on sprint/browser providers leaves watcher==nil and len(managers)==0."
+    },
+    {
+      "name": "TestRecomputeBranchTabs_ConditionalTabAddRemoveEmitsEvents / TestTabs_IsIdempotentAcrossVisibilityFlip + [AC-Sd0e1a9-1-2] E2E",
+      "story": "Sd0e1a9-1",
+      "acceptance_criteria": [
+        "AC-Sd0e1a9-1-2"
+      ],
+      "file": "internal/store/recompute_conditional_test.go, internal/tab/sprint/tabs_purity_test.go, tests/e2e/sd0e1a9_tab_set.py",
+      "status": "pass",
+      "machine_run": "e2e_story1",
+      "evidence": "E2E log: `[AC-Sd0e1a9-1-2] Sprint visible in 19, hidden in 11 workspaces`. machine_check `conditional-flag-stays-dead`: 0 hits (the flag is gone from the interface AND from all 9 provider implementations)."
+    },
+    {
+      "name": "TestParticipantShape / TestRegisterServiceKeepsItOutOfTabDerivation + [AC-Sd0e1a9-1-3] E2E",
+      "story": "Sd0e1a9-1",
+      "acceptance_criteria": [
+        "AC-Sd0e1a9-1-3"
+      ],
+      "file": "internal/tab/agenttui/provider_test.go, tests/e2e/sd0e1a9_tab_set.py",
+      "status": "pass",
+      "machine_run": "e2e_story1",
+      "evidence": "E2E log: `[AC-Sd0e1a9-1-3] no claude-tui tab across 30 workspaces`. Compile-time assertion that *agenttui.Provider does NOT satisfy tab.Provider; RegisterService yields Providers()==0, Participants()==1."
+    },
+    {
+      "name": "TestChar_Registry_RejectsIllegalProvider / TestChar_Registry_AcceptsLegalProviders + real-binary boot",
+      "story": "Sd0e1a9-1",
+      "acceptance_criteria": [
+        "AC-Sd0e1a9-1-4"
+      ],
+      "file": "internal/store/recompute_characterization_test.go",
+      "status": "pass",
+      "machine_run": "test",
+      "evidence": "5 illegal shapes (empty Type, ':' in Type, Min>Max, singleton Max>1, Multiple Max==1) all panic at Register; the 3 legal shapes register. Real binary booted with the production registry (9 providers + 1 service): no panic, GET /api/repos -> 200."
+    },
+    {
+      "name": "[AC-Sd0e1a9-1-6] + [AC-Sd0e1a9-1-6-live] E2E",
+      "story": "Sd0e1a9-1",
+      "acceptance_criteria": [
+        "AC-Sd0e1a9-1-6"
+      ],
+      "file": "tests/e2e/sd0e1a9_tab_set.py",
+      "status": "pass",
+      "machine_run": "e2e_story1",
+      "evidence": "E2E log: `[AC-Sd0e1a9-1-6] TabBar renders all 5 backend tabs for clinical-hishow--Mirante-demo--406f/Mirante-demo--fca6` and `[AC-Sd0e1a9-1-6-live] Sprint tab appeared and disappeared live, without a page reload`."
+    },
+    {
+      "name": "TestChar_Notification_EveryRecomputePathPublishesDiff / TestChar_Notification_NoOpRecomputeIsSilent",
+      "story": "Sd0e1a9-2",
+      "acceptance_criteria": [
+        "AC-Sd0e1a9-2-1"
+      ],
+      "file": "internal/store/recompute_characterization_test.go",
+      "status": "pass",
+      "machine_run": "test",
+      "evidence": "The internal path sync_tmux uses (recomputeAndPublish) publishes tab.added and tab.removed; a no-op recompute publishes nothing. machine_check `no-direct-tabset-assignment`: the only hit is internal/store/store.go:732 inside swapTabs, which is the single sanctioned assignment."
+    },
+    {
+      "name": "[AC-Sd0e1a9-2-2a] + [AC-Sd0e1a9-2-2b] E2E",
+      "story": "Sd0e1a9-2",
+      "acceptance_criteria": [
+        "AC-Sd0e1a9-2-2"
+      ],
+      "file": "tests/e2e/sd0e1a9_tab_events.py",
+      "status": "pass",
+      "machine_run": "e2e_story2",
+      "evidence": "E2E log: `[AC-Sd0e1a9-2-2a] REST-driven add and remove both reached the TabBar without a reload` and `[AC-Sd0e1a9-2-2b] after external kill + recovery the TabBar still matches the backend (['bash:bash', 'bash:bash-2', 'bash:bash-3', 'files', 'git'])`. The test never calls page.reload()."
+    },
+    {
+      "name": "TestRecomputeAndPublish_HoldsNoLockDuringDerivation + 3 reentrant-resolver deadlock tests",
+      "story": "Sd0e1a9-2",
+      "acceptance_criteria": [
+        "AC-Sd0e1a9-2-3"
+      ],
+      "file": "internal/store/recompute_lock_test.go",
+      "status": "pass",
+      "machine_run": "test",
+      "evidence": "A reader acquires s.mu WHILE the derivation is inside RuntimeRegistry.Get. Mutation-checked: reintroducing s.mu.Lock() around the derivation makes this test fail with the AC-2-3 message and also deadlocks TestPopulateTabs_ReentrantResolver. gatherRecomputeWindows never calls Start() on a not-ready incus runtime."
+    }
+  ],
+  "guard_notes": {
+    "guard3_guard4_na_reason": "The 8-guard doc's Guards 3/4 are written against a priority_rule 9 that reads 'dev VM 実機 deploy + smoke test'. THIS repository's priority_rule 9 is '明示的 > 暗黙的' — a different rule entirely (the guard doc was authored for another project). The equivalent real-machine discipline here is priority_rule 2 ('AC はコードパスを通すだけでなく失敗が発火する条件を再現する / lifecycle 変更は実セッション dogfood してからリリース'), which this Sprint satisfies: both E2E suites ran against a real dev instance built by `make serve INSTANCE=dev` (production mode, embedded frontend, no MOCK/fake flags), and the two new lock tests were mutation-checked to confirm they actually fail when the defect is reintroduced.",
+    "guard5_na_reason": "No AC in this Sprint describes cross-service coupling (no API+Workflow trigger, no external SDK call path). The Sprint is entirely intra-process.",
+    "guard8_na_reason": "No persistence format changed. ADR-0012 explicitly keeps claudeagent.Store, agenttui.SessionStore.BranchTabs and repos.json tabOverrides untouched, so there is no data path to exercise destructively.",
+    "guard7_detail": "4 machine_check entries were added to ADR-0012 during this verify and executed by the guards scan: no-onbranchopen-from-reducer (0 hits), no-direct-tabset-assignment (1 hit, inside swapTabs as expected), conditional-flag-stays-dead (0 hits), registry-get-not-called-from-provider-tabs (0 hits). ADR-0009 and ADR-0010 are in touched_adrs but carry no machine-checkable invariant relevant to this diff (0009 is a pending backend swap, 0010 is a terminology interaction) — recorded here rather than left implicit.",
+    "e2e_wait_for_timeout_triage": "1 hit: tests/e2e/sd0e1a9_tab_events.py time.sleep(1.0). Triaged as a FALSE POSITIVE for the policy: the sleep sits inside a deadline-bounded polling loop that re-evaluates the DOM-vs-backend condition on every iteration (a progression sampler), not the forbidden 'fixed sleep then assert final state once' shape. No AC in this Sprint is tagged [time-domain]."
+  },
+  "diff_coverage": {
+    "base": "a1e0bf7d27869a953b47d27879e61aa1280e5b0e",
+    "api_routes_added": [],
+    "cli_flags_added": [],
+    "gui_surfaces_added": [],
+    "note": "Mechanically enumerated from the Sprint diff: zero new HTTP route registrations, zero new CLI flags, zero frontend changes (the FE was not touched at all). The Sprint is a backend contract refactor whose entire point is that user-observable behaviour does NOT change.",
+    "exported_symbols_added": [
+      {
+        "symbol": "tab.Provider.Tabs",
+        "covered_by": "characterization tests + sprint/browser purity tests + both E2E suites"
+      },
+      {
+        "symbol": "tab.Participant / Registry.RegisterService / Registry.Participants",
+        "covered_by": "agenttui provider_test.go + E2E [AC-Sd0e1a9-1-3]"
+      },
+      {
+        "symbol": "tab.TabsParams",
+        "covered_by": "every Tabs() test; bash windows mapping in TestChar_TmuxMulti_*"
+      },
+      {
+        "symbol": "tab.InstanceDisplayName",
+        "covered_by": "TestChar_HostScope_TabNamesMatchWorkspaceNaming + TestChar_TmuxMulti_OnePerWindowInIndexOrder"
+      },
+      {
+        "symbol": "runtime.Registry.Kind (+ host/incus implementations)",
+        "covered_by": "browser/ports purity tests + recompute_lock_test.go fakes"
+      }
+    ],
+    "resolution": "all covered — no untested addition, nothing reverted, nothing escalated"
+  },
+  "stories": [
+    {
+      "story_id": "Sd0e1a9-1",
+      "done_judgment": {
+        "guard1_user_review_required_not_done": "pass",
+        "guard2_nil_injection_mock": "pass",
+        "guard3_mock_mode_not_real_smoke": "n/a",
+        "guard4_priority_rule_9_exception_valid": "n/a",
+        "guard5_call_path_grep": "n/a",
+        "guard6_deferred_comment_clean": "pass",
+        "guard7_adr_conformance": "pass",
+        "guard8_destructive_multi_version_test": "n/a",
+        "overall": "ok"
+      }
+    },
+    {
+      "story_id": "Sd0e1a9-2",
+      "done_judgment": {
+        "guard1_user_review_required_not_done": "pass",
+        "guard2_nil_injection_mock": "pass",
+        "guard3_mock_mode_not_real_smoke": "n/a",
+        "guard4_priority_rule_9_exception_valid": "n/a",
+        "guard5_call_path_grep": "n/a",
+        "guard6_deferred_comment_clean": "pass",
+        "guard7_adr_conformance": "pass",
+        "guard8_destructive_multi_version_test": "n/a",
+        "overall": "ok"
+      }
+    }
+  ]
+}

@@ -50,6 +50,15 @@ const TabType = "sprint"
 // invalidates the affected dashboard view.
 const EventSprintChanged store.EventType = "sprint.changed"
 
+// watchSub is a live worktree-watch subscription plus the root it was
+// created for. The root is what makes subscription REUSE safe: the provider
+// resubscribes only when the worktree behind a branch key actually changed
+// (S3f3cb2).
+type watchSub struct {
+	sub  *worktreewatch.Subscription
+	root string
+}
+
 // Provider implements tab.Provider for the Sprint Dashboard tab.
 type Provider struct {
 	st *store.Store
@@ -57,13 +66,29 @@ type Provider struct {
 	mu      sync.Mutex
 	watcher *worktreewatch.Watcher
 	// subs is keyed "{repoID}/{branchID}".
-	subs map[string]*worktreewatch.Subscription
+	subs map[string]watchSub
+	// desired records, per key, the worktree root that SHOULD be watched.
+	// It is the single source of truth for the ASYNC subscribe path: a
+	// subscription that lands after the branch closed (or moved to another
+	// worktree) finds a mismatch here and throws itself away instead of
+	// installing a stale watcher.
+	desired map[string]string
+	// inflight records a subscribe currently running in the background, so
+	// two opens in quick succession do not each pay the registration.
+	inflight map[string]string
+	// regMu serialises the background registrations. Async removed the wait
+	// from the request path but did not remove the WORK: each registration is
+	// tens of thousands of syscalls, so letting several run at once just moves
+	// the stall into I/O contention (observed as a flaky E2E right after a
+	// restart, when several workspaces subscribe at once). One at a time keeps
+	// the box responsive; the caller never waits on this either way.
+	regMu sync.Mutex
 }
 
 // New returns a Provider with a Store reference for path resolution and
 // event publishing.
 func New(s *store.Store) *Provider {
-	return &Provider{st: s, subs: map[string]*worktreewatch.Subscription{}}
+	return &Provider{st: s, subs: map[string]watchSub{}, desired: map[string]string{}, inflight: map[string]string{}}
 }
 
 func (p *Provider) Type() string          { return TabType }
@@ -71,11 +96,6 @@ func (p *Provider) DisplayName() string   { return "Sprint" }
 func (p *Provider) Protected() bool       { return false }
 func (p *Provider) Multiple() bool        { return false }
 func (p *Provider) NeedsTmuxWindow() bool { return false }
-
-// Conditional — Sprint is the first conditional tab. recomputeTabs honours
-// the empty-result branch of OnBranchOpen for non-Multiple non-tmux providers
-// when this returns true.
-func (p *Provider) Conditional() bool { return true }
 
 // Limits — singleton when present.
 func (p *Provider) Limits(_ tab.SettingsView) tab.InstanceLimits {
@@ -85,6 +105,49 @@ func (p *Provider) Limits(_ tab.SettingsView) tab.InstanceLimits {
 // OnBranchOpen returns a single Sprint tab iff ROADMAP.json exists in the
 // branch's worktree; otherwise it returns no tabs (the branch's TabBar
 // simply skips Sprint).
+// Tabs reports the Sprint tab iff docs/ROADMAP.json exists in the branch's
+// worktree; otherwise no tabs, which is how conditional visibility is
+// expressed after ADR-0012 removed Conditional().
+//
+// Pure: a single filesystem stat. It deliberately does NOT start the worktree
+// watcher — before ADR-0012 that lived in OnBranchOpen, which the Store called
+// as a query from every recompute (including the 5 s sync loop), so an inotify
+// handle was being allocated under the Store write lock.
+func (p *Provider) Tabs(_ context.Context, params tab.TabsParams) ([]domain.Tab, error) {
+	if params.Branch == nil || params.Branch.WorktreePath == "" {
+		return nil, nil
+	}
+	if !roadmapExists(params.Branch.WorktreePath) {
+		return nil, nil
+	}
+	return []domain.Tab{{
+		ID:        TabType,
+		Type:      TabType,
+		Name:      p.DisplayName(),
+		Protected: false,
+		Multiple:  false,
+	}}, nil
+}
+
+// OnBranchOpen registers the worktree watcher for this branch. The
+// registration runs in the BACKGROUND (S3f3cb2).
+//
+// Registering an inotify watch costs one syscall per directory, recursively —
+// ~1.8 s on a real repo. OnBranchOpen is called from ensureBranchSession,
+// which sits on the path of BOTH tab creation and every WS attach, so doing
+// that work synchronously is exactly what made opening a Bash tab sit black
+// for seconds.
+//
+// Nothing in the request path consumes the subscription: the caller only uses
+// the returned WindowSpecs. So we hand the registration to a goroutine and
+// return immediately. The cost is a short window right after opening in which
+// worktree changes are not yet observed — acceptable, because the tab reads
+// its state fresh when rendered and the next change fires normally.
+//
+// This is deliberately NOT the same as skipping the subscription when the tmux
+// session already exists: that variant was tried and reverted because after a
+// restart with surviving sessions the watcher would never be registered at all
+// and live updates silently died. Here the subscription always happens.
 func (p *Provider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.ProviderResult, error) {
 	if params.Branch == nil || params.Branch.WorktreePath == "" {
 		return tab.ProviderResult{}, nil
@@ -92,44 +155,67 @@ func (p *Provider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.P
 	root := params.Branch.WorktreePath
 
 	p.startWatcher()
-	if p.watcher != nil {
-		repoID := params.Branch.RepoID
-		branchID := params.Branch.ID
-		key := repoID + "/" + branchID
-		p.mu.Lock()
-		if old, ok := p.subs[key]; ok {
-			old.Unsubscribe()
-			delete(p.subs, key)
-		}
-		roots := []string{root}
-		sub, err := p.watcher.Subscribe(worktreewatch.Spec{
-			Roots:    roots,
-			Filter:   sprintFilter(root),
-			Debounce: 1000 * time.Millisecond,
-			OnEvent: func(events []worktreewatch.Event) {
-				p.handleEvents(repoID, branchID, events)
-			},
-		})
-		if err == nil {
-			p.subs[key] = sub
-		} else {
-			slog.Warn("sprint provider: subscribe failed", "err", err)
-		}
-		p.mu.Unlock()
-	}
-
-	if !roadmapExists(root) {
+	if p.watcher == nil {
 		return tab.ProviderResult{}, nil
 	}
-	return tab.ProviderResult{
-		Tabs: []domain.Tab{{
-			ID:        TabType,
-			Type:      TabType,
-			Name:      p.DisplayName(),
-			Protected: false,
-			Multiple:  false,
-		}},
-	}, nil
+	repoID := params.Branch.RepoID
+	branchID := params.Branch.ID
+	key := repoID + "/" + branchID
+
+	p.mu.Lock()
+	p.desired[key] = root
+	if cur, ok := p.subs[key]; ok && cur.root == root {
+		p.mu.Unlock() // already watching exactly this worktree
+		return tab.ProviderResult{}, nil
+	}
+	if inflightRoot, ok := p.inflight[key]; ok && inflightRoot == root {
+		p.mu.Unlock() // a background subscribe for this exact root is already running
+		return tab.ProviderResult{}, nil
+	}
+	p.inflight[key] = root
+	p.mu.Unlock()
+
+	go p.subscribeAsync(key, repoID, branchID, root)
+	return tab.ProviderResult{}, nil
+}
+
+// subscribeAsync performs the expensive registration off the request path and
+// installs the result only if it is still wanted.
+func (p *Provider) subscribeAsync(key, repoID, branchID, root string) {
+	p.regMu.Lock()
+	sub, err := p.watcher.Subscribe(worktreewatch.Spec{
+		Roots:    []string{root},
+		Filter:   sprintFilter(root),
+		SkipDir:  sprintSkipDir(root),
+		Debounce: 1000 * time.Millisecond,
+		OnEvent: func(events []worktreewatch.Event) {
+			p.handleEvents(repoID, branchID, events)
+		},
+	})
+
+	p.regMu.Unlock()
+
+	p.mu.Lock()
+	if cur, ok := p.inflight[key]; ok && cur == root {
+		delete(p.inflight, key)
+	}
+	if err != nil {
+		p.mu.Unlock()
+		slog.Warn("sprint provider: subscribe failed", "err", err, "root", root)
+		return
+	}
+	// The branch may have closed, or moved to a different worktree, while we
+	// were registering. Installing now would leak a watcher nobody unsubscribes.
+	if want, ok := p.desired[key]; !ok || want != root {
+		p.mu.Unlock()
+		sub.Unsubscribe()
+		return
+	}
+	if old, ok := p.subs[key]; ok {
+		old.sub.Unsubscribe()
+	}
+	p.subs[key] = watchSub{sub: sub, root: root}
+	p.mu.Unlock()
 }
 
 // OnBranchClose tears down this branch's filewatch subscription.
@@ -139,8 +225,12 @@ func (p *Provider) OnBranchClose(_ context.Context, params tab.CloseParams) erro
 	}
 	key := params.Branch.RepoID + "/" + params.Branch.ID
 	p.mu.Lock()
+	// Dropping `desired` first is what makes an in-flight background subscribe
+	// discard itself instead of installing a watcher for a closed branch.
+	delete(p.desired, key)
+	delete(p.inflight, key)
 	if sub, ok := p.subs[key]; ok {
-		sub.Unsubscribe()
+		sub.sub.Unsubscribe()
 		delete(p.subs, key)
 	}
 	p.mu.Unlock()
@@ -167,7 +257,7 @@ func (p *Provider) RegisterRoutes(mux *http.ServeMux, prefix string) {
 func (p *Provider) Close() {
 	p.mu.Lock()
 	for k, sub := range p.subs {
-		sub.Unsubscribe()
+		sub.sub.Unsubscribe()
 		delete(p.subs, k)
 	}
 	w := p.watcher
@@ -299,6 +389,47 @@ func roadmapExists(root string) bool {
 //
 // Anything else returns false. *.md / *.md.bak / *.txt are deliberately
 // dropped — the dashboard never reads them.
+// sprintSkipDir prunes watch REGISTRATION to the only two subtrees
+// sprintFilter can ever accept: docs/ and .claude/. The worktree root itself
+// is still watched (non-recursively in effect), which is what lets us see
+// docs/ being created in a repo that does not have it yet.
+//
+// S3f3cb2: without this the Sprint tab registered an inotify watch for every
+// directory in the worktree — 27,025 on a real repo where the 26 under docs/
+// were all it could act on. That cost ~2 s on every tab open and WS attach,
+// and 30 workspaces would have approached the system-wide inotify limit.
+//
+// MUST stay consistent with sprintFilter: anything the filter accepts has to
+// live under a subtree this function does NOT prune.
+func sprintSkipDir(root string) func(string) bool {
+	root = filepath.Clean(root)
+	return func(dir string) bool {
+		rel, err := filepath.Rel(root, dir)
+		if err != nil {
+			return true
+		}
+		relSlash := filepath.ToSlash(rel)
+		if relSlash == "." {
+			return false // never prune the root
+		}
+		// docs/** in full: sprintFilter accepts docs/ROADMAP.json and
+		// everything under docs/sprint-logs/.
+		if relSlash == "docs" || strings.HasPrefix(relSlash, "docs/") {
+			return false
+		}
+		// .claude ITSELF only — the filter's sole interest there is the
+		// autopilot-*.lock files sitting directly in it. Recursing is what
+		// made this predicate useless in practice: .claude/worktrees/ holds
+		// full agent checkouts (21,251 directories on a real repo, complete
+		// with their own node_modules), which is where essentially all of the
+		// Sprint tab's watch registration was going.
+		if relSlash == ".claude" {
+			return false
+		}
+		return true
+	}
+}
+
 func sprintFilter(root string) worktreewatch.Filter {
 	root = filepath.Clean(root)
 	return func(ev worktreewatch.Event) bool {

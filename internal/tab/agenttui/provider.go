@@ -16,21 +16,24 @@ import (
 // path fragments remain identifiable, but it is NOT the Provider's Type().
 const TabType = "claude-tui"
 
-// Provider is a "service" provider — it does NOT create tabs of its own. It
-// participates in the tab.Provider lifecycle solely to (a) tear down PTY
-// daemons when a branch closes and (b) host the per-tab WS / stats / resize
-// HTTP endpoints. The visible Claude tab is owned by the claudeagent
-// Provider (Multiple=true); when its mode is "tui" the FE opens a
-// WebSocket against the routes registered here.
+// Provider is a SERVICE PARTICIPANT — it contributes no tabs. It takes part
+// in the branch lifecycle solely to (a) tear down PTY daemons when a branch
+// closes or its runtime is recreated and (b) host the per-tab WS / stats /
+// resize HTTP endpoints. The visible Claude tab is owned by the claudeagent
+// Provider; when its mode is "tui" the FE opens a WebSocket against the
+// routes registered here.
 //
-// Design decisions (Sadf90e):
+// ADR-0012: this used to be registered as a tab.Provider with
+// Conditional()==true and an OnBranchOpen that returned zero tabs — not
+// because it had conditional visibility, but purely so the Store's recompute
+// loop would call its lifecycle hook. That made a visibility flag double as a
+// subscription mechanism. It is now registered via Registry.RegisterService
+// as a plain tab.Participant, so it never appears in the tab-derivation path
+// at all.
+//
+// Design decisions:
 //   - Type() == "claude-tui" — retained for legacy log clarity; the registry
 //     uses this only as a unique key, never as a user-visible tab type.
-//   - Multiple() == false — irrelevant (returns 0 tabs from OnBranchOpen).
-//   - Conditional() == true with OnBranchOpen returning 0 tabs — keeps the
-//     Provider invisible in the TabBar while still participating in the
-//     lifecycle hooks.
-//   - NeedsTmuxWindow() == false — the daemon owns its own PTY.
 //   - Daemon spawn is LAZY (priority_rule 4): the first WS attach to a tab
 //     creates the daemon; nothing happens at branch-open time.
 type Provider struct {
@@ -39,45 +42,15 @@ type Provider struct {
 }
 
 // New returns a Provider wrapping mgr.
-func New(mgr *Manager) *Provider {
-	return &Provider{manager: mgr}
-}
+func New(mgr *Manager) *Provider { return &Provider{manager: mgr} }
 
-var _ tab.RuntimeRestartHook = (*Provider)(nil) // S4d8b1c-fix
+var (
+	_ tab.Participant        = (*Provider)(nil) // ADR-0012: service, not a tab provider
+	_ tab.RuntimeRestartHook = (*Provider)(nil) // S4d8b1c-fix
+)
 
-// Type returns the stable registry key. Not user-visible since Sadf90e.
+// Type returns the stable registry key. Not user-visible.
 func (p *Provider) Type() string { return TabType }
-
-// DisplayName is unused (Provider returns 0 tabs) but kept for diagnostics.
-func (p *Provider) DisplayName() string { return "Claude (TUI runtime)" }
-
-// Protected is unused (no tabs surfaced).
-func (p *Provider) Protected() bool { return true }
-
-// Multiple is unused (no tabs surfaced).
-func (p *Provider) Multiple() bool { return false }
-
-// NeedsTmuxWindow reports false — the daemon manages its own PTY.
-func (p *Provider) NeedsTmuxWindow() bool { return false }
-
-// Conditional reports true so the registry calls OnBranchOpen during
-// store.recomputeTabs (the short-circuit branch for non-tmux singletons
-// would skip non-Conditional providers entirely). We return 0 tabs from
-// OnBranchOpen so the user-visible tab list does not gain a "Claude (TUI)"
-// entry, but the lifecycle hook still gets the chance to run.
-func (p *Provider) Conditional() bool { return true }
-
-// Limits returns Min=0, Max=0 — this Provider never creates tabs of its own.
-func (p *Provider) Limits(_ tab.SettingsView) tab.InstanceLimits {
-	return tab.InstanceLimits{Min: 0, Max: 0}
-}
-
-// OnBranchOpen returns no tabs. The Provider exists only as a runtime for
-// the WS / stats / resize endpoints; the visible Claude tab is owned by the
-// claudeagent Provider.
-func (p *Provider) OnBranchOpen(_ context.Context, _ tab.OpenParams) (tab.ProviderResult, error) {
-	return tab.ProviderResult{}, nil
-}
 
 // OnBranchClose tears down every Daemon that belongs to this branch.
 // Idempotent — no-op when the Manager holds no entries for the branch.

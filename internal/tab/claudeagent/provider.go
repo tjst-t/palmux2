@@ -36,7 +36,6 @@ func (p *Provider) DisplayName() string   { return "Claude" }
 func (p *Provider) Protected() bool       { return true }
 func (p *Provider) Multiple() bool        { return true } // S009
 func (p *Provider) NeedsTmuxWindow() bool { return false }
-func (p *Provider) Conditional() bool     { return false }
 
 // Limits — at least one Claude tab is always present; the upper bound is
 // settings-driven (maxClaudeTabsPerBranch, default 3). Closing the last
@@ -57,9 +56,12 @@ func (p *Provider) Limits(view tab.SettingsView) tab.InstanceLimits {
 // derive its instances from `tmux ls windows`; instead we ask the Manager
 // (which reads the persisted set from sessions.json). On a fresh branch
 // the Manager auto-seeds a single canonical tab ID `claude:claude`.
-func (p *Provider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.ProviderResult, error) {
+// Tabs reports this branch's persisted agent tabs. Pure (ADR-0012): it only
+// reads the per-branch tab-id list the provider already persisted, which is
+// exactly what the Store's tab-set derivation needs and nothing more.
+func (p *Provider) Tabs(_ context.Context, params tab.TabsParams) ([]domain.Tab, error) {
 	if params.Branch == nil {
-		return tab.ProviderResult{}, nil
+		return nil, nil
 	}
 	tabIDs := p.manager.tabsForBranch(params.Branch.RepoID, params.Branch.ID)
 	tabs := make([]domain.Tab, 0, len(tabIDs))
@@ -72,7 +74,13 @@ func (p *Provider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.P
 			Multiple:  true,
 		})
 	}
-	return tab.ProviderResult{Tabs: tabs}, nil
+	return tabs, nil
+}
+
+// OnBranchOpen has no windows to declare — the agent owns its own PTY, and
+// daemon spawn is lazy (first WS attach). Tabs are declared by Tabs.
+func (p *Provider) OnBranchOpen(_ context.Context, _ tab.OpenParams) (tab.ProviderResult, error) {
+	return tab.ProviderResult{}, nil
 }
 
 // OnBranchClose terminates every Claude agent owned by this branch.

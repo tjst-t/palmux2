@@ -87,6 +87,15 @@
       "reference": "docs/sprint-logs/Sfa2bab/verification-results.json; docs/sprint-logs/Sfa2bab/dogfood-run1-excerpt.txt",
       "adr_ref": "none",
       "drift_flag": "none"
+    },
+    {
+      "timestamp": "2026-07-23T00:00:00Z",
+      "category": "planning",
+      "title": "C 判断: Sfa2bab を『v0.15.2 検証』から『main 未リリース分の検証』へ読み替えて close",
+      "detail": "ユーザーが Sfa2bab の位置づけを見直す方向 (選択肢 C) を選択。実態を調べた結果: (1) v0.15.2 という番号は実在しない — プロジェクトは v0.15.0 → v0.16.0 と進み、codex/opencode 一式 (S2b5691) は main 上で v0.16.0 より 49 コミット先行して未リリースのまま。(2) Sfa2bab の唯一の fail だった AC-1-2 (codex/opencode が実機で1ターン動く) は、後続の Sc4f091 (done) が真因を修正し、AC-Sc4f091-1-2 (claude/codex/opencode 3種の実 incus 通知 round-trip) と AC-Sc4f091-2-3 (opencode 5回連続) を pass させたことで解消・再検証済み。(3) 加えて 2026-07-23 に dev インスタンスで [agents.codex]/[agents.opencode] を有効化し、codex タブが /usr/bin/codex を起動する (claude 誤起動なし) ことを確認済み。よって本 milestone の検証意図は充足しているため done とし、AC-1-2 を pass (evidence=Sc4f091) に更新した。実際のリリース (git tag + push) は AC-1-4 の設計どおりユーザーの明示判断に残す — main の 49 未リリースコミットに次タグを打つかどうかが唯一の open item。",
+      "reference": "docs/ROADMAP.json Sfa2bab.rescope_note, docs/sprint-logs/Sc4f091/ (AC-1-2/2-3 pass), git rev-list v0.16.0..main",
+      "adr_ref": "none",
+      "drift_flag": "none"
     }
   ]
 }

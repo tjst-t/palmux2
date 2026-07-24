@@ -61,3 +61,34 @@
   - **S3f2658 (Sprint 1)**: claude-**tui** の `claudetui.Daemon` を ptyhost の thin socket client 化 (Emulator/roleCoordinator/hooks/gateRespawn/`--resume`/argv 組み立ては palmux2 側に残置、respawn = 新 ptyhost spawn)。再接続時は ring replay → Emulator feed → SIGWINCH ジグルで画面復元、protocol version 不一致は殺さず degrade。起動時 discovery で生きた ptyhost を adopt (attach、respawn しない)、既存 10s scan ループ相乗りの orphan GC (未参照 ptyhost に SHUTDOWN、参照中は不可侵)。incus workspace ではコンテナ内 claude が同一 pid で生存、SHUTDOWN で in-container reap。**実機検証: 実 systemd restart+kill-9 SURVIVAL_PASS、実 incus 7.1 で生存+reap PASS**。
   - **S862203 (Sprint 2)**: claude-**agent** の `claudeagent.Client` を pipe モード ptyhost の thin client 化。stream-json stdout を**絶対 offset 付き行 ring** に貯め、palmux2 側 `OffsetStore` が処理済み offset を永続化 → 再接続で last-ack 以降を replay しロスレス復元 (kill-9 でも二重処理/欠落なし)。ring 溢れは「復元不能」を明示し新規セッション扱い (黙って欠けた transcript を出さない)。**再起動中に来た permission 要求も replay で UI に届き応答可能** (冒頭 spike で実 claude が遅延 permission 応答を ≥60s 受理することを確認、ADR-0004 gate クリア)。実行中ターンの transcript は claude の `.jsonl` (真実の所在) から backfill + replay の合わせ技で無欠損復元。parse/MCP 権限サーバ/permstate/transcript は無改造。**実機検証: 実 claude で再起動跨ぎの transcript 無欠損 + permission 応答成立 E2E PASS**。副次で既存バグ 2 件も修正 (agent タブがそもそもどの再起動でも resume できていなかった `SetLastInit` の migration guard 潰し、起動 shutdown が `DetachAll` でなく全 kill だった件)。
 
+
+## Sd0e1a9 — タブ集合の導出を純粋関数化 (ADR-0012)
+
+タブ層に 106 件の fix が積み上がった構造的原因に手を入れた Sprint。`store.recomputeTabs`
+は 5 系統の入力をマージしてタブ集合を毎回再導出する関数だが、(a) 入力の一つが副作用を持ちうる
+ライフサイクルフック `OnBranchOpen` で、(b) 13 ある呼び出し元のうち差分を publish するのは 1 つ
+だけ、(c) 書きロック内で I/O する、という三重の問題を抱えていた。
+
+- **Step 1**: `Provider.Tabs()` (副作用禁止・冪等の純粋クエリ) を新設し reducer が provider から
+  読む唯一の入力にした。`OnBranchOpen` はライフサイクル通知に純化。`Conditional()` 廃止 (条件付き
+  可視性は `Tabs()` の 0 件返却で表現)。`agenttui` は zero-tab provider の擬装をやめ
+  `tab.Participant` として登録。`Register` にフラグ組み合わせ検証を追加。
+- **Step 2**: 導出を `gatherRecomputeWindows` / `computeTabs` (ロック外) と `swapTabs` (ロック内) に
+  分割し、`recomputeAndPublish` が差分 publish まで担う単一経路にした。`Store.mu` に
+  LOCK ORDER INVARIANT を明文化。
+
+**発見**: この Step 2 は commit 65fc548 (branch `customize-ws-container`) で既に実装され 380577d で
+実機検証まで済んでいたが、ブランチがマージされないまま 205 コミット分陳腐化して失われていた。
+設計を移植し、失われた 5 テストを `internal/store/recompute_lock_test.go` に provenance 付きで復元した。
+
+**着手前**に `recompute_characterization_test.go` で現行の導出契約を固定 (16 件)。うち 3 件は
+旧契約そのものを pin していたため契約反転が必要になった。ADR-0012 に `machine_check` ブロックを
+追加したところ、interface から外した `Conditional()` の実装が 9 provider に dead code として
+残っていたことを即座に検出した。
+
+**副作用**: host scope のタブ「ラベル」が `bash` → `Bash` に変わる。`recomputeHostTabs` が持って
+いた重複命名関数が provider からドリフトしていたための修正で、ID は不変。
+
+**関連 hotfix**: Claude タブ削除時に PTY daemon (ptyhost) が停止されない既存バグを修正 (8651e71)。
+claude と generic エージェントの非対称性で、`agenttab` は `CloseDaemon` を呼んでいたが claude 側は
+呼んでいなかった。

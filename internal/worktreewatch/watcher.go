@@ -129,6 +129,21 @@ type Spec struct {
 	// MaxBatch caps how many events are buffered before forced delivery.
 	// Defaults to 1024.
 	MaxBatch int
+	// SkipDir, when non-nil, is consulted for every directory encountered
+	// while registering watches under Roots. Returning true prunes that
+	// directory AND its whole subtree. A Root itself is never skipped.
+	//
+	// This exists because registering a watch is one inotify syscall per
+	// directory, and a subscriber that only cares about a narrow slice of a
+	// worktree otherwise pays for the entire tree. Measured on a real repo
+	// (S3f3cb2): the Sprint tab's subscription registered 27,025 directories
+	// when the 26 under docs/ were all it could ever act on, costing ~2 s on
+	// every tab open and WS attach.
+	//
+	// SkipDir prunes REGISTRATION, not delivery — Filter still decides which
+	// events reach OnEvent. Keep the two consistent: pruning a directory whose
+	// events Filter would accept means silently losing those notifications.
+	SkipDir func(dir string) bool
 }
 
 // Subscription is the handle returned by Subscribe.
@@ -168,6 +183,7 @@ type subscriber struct {
 	debounce time.Duration
 	maxBatch int
 	onEvent  func(events []Event)
+	skipDir  func(dir string) bool
 
 	mu      sync.Mutex
 	pending []Event
@@ -227,6 +243,7 @@ func (w *Watcher) Subscribe(spec Spec) (*Subscription, error) {
 	sub := &subscriber{
 		roots:    append([]string(nil), spec.Roots...),
 		filter:   spec.Filter,
+		skipDir:  spec.SkipDir,
 		debounce: debounce,
 		maxBatch: maxBatch,
 		onEvent:  spec.OnEvent,
@@ -241,7 +258,7 @@ func (w *Watcher) Subscribe(spec Spec) (*Subscription, error) {
 	sub.id = id
 	w.subscribers[id] = sub
 	for _, root := range sub.roots {
-		w.addRecursiveLocked(root)
+		w.addRecursiveLocked(root, sub.skipDir)
 	}
 	w.mu.Unlock()
 	return &Subscription{id: id, w: w, sub: sub}, nil
@@ -278,7 +295,7 @@ func (w *Watcher) unsubscribe(id uint64) {
 // up by handleCreate when fsnotify reports them.
 //
 // Caller must hold w.mu.
-func (w *Watcher) addRecursiveLocked(root string) {
+func (w *Watcher) addRecursiveLocked(root string, skip func(string) bool) {
 	root = filepath.Clean(root)
 	w.addOneLocked(root)
 	// Walk children. We tolerate per-path errors so a missing subtree
@@ -289,6 +306,9 @@ func (w *Watcher) addRecursiveLocked(root string) {
 		}
 		if !info.IsDir() {
 			return nil
+		}
+		if skip != nil && skip(p) {
+			return filepath.SkipDir
 		}
 		w.addOneLocked(p)
 		return nil
@@ -302,6 +322,22 @@ func (w *Watcher) removeRecursiveLocked(root string) {
 			w.removeOneLocked(p)
 		}
 	}
+}
+
+// anySubscriberWantsLocked reports whether any subscriber watches `dir`:
+// it must fall under that subscriber's roots and not be pruned by its
+// SkipDir. Caller holds w.mu.
+func (w *Watcher) anySubscriberWantsLocked(dir string) bool {
+	for _, s := range w.subscribers {
+		if !eventBelongs(dir, s.roots) {
+			continue
+		}
+		if s.skipDir != nil && s.skipDir(dir) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func (w *Watcher) addOneLocked(p string) {
@@ -358,7 +394,13 @@ func (w *Watcher) handleEvent(ev fsnotify.Event) {
 	if out.Op&OpCreate != 0 {
 		if isDir(out.Path) {
 			w.mu.Lock()
-			w.addOneLocked(out.Path)
+			// Only watch the new directory if some subscriber actually wants
+			// it. Without this check a pruned subtree (Spec.SkipDir) creeps
+			// back the moment one of its directories is recreated, which would
+			// quietly undo the registration savings.
+			if w.anySubscriberWantsLocked(out.Path) {
+				w.addOneLocked(out.Path)
+			}
 			w.mu.Unlock()
 		}
 	}

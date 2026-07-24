@@ -127,6 +127,27 @@ func (r *Registry) ReconcileShared(ctx context.Context) error {
 	return r.shared.Reconcile(ctx)
 }
 
+// resolveConfig resolves the effective runtime config for a workspace, with a
+// zero Kind normalised to host. Shared by Kind and Get so the two can never
+// disagree about which runtime a workspace belongs to.
+func (r *Registry) resolveConfig(repoID, branchID string) runtime.Config {
+	cfg := r.repoStore.ResolveWorkspaceRuntime(repoID, branchID, r.settingsStore.DefaultRuntime())
+	if cfg.Kind == "" {
+		cfg.Kind = runtime.KindHost
+	}
+	return cfg
+}
+
+// Kind resolves the configured runtime kind for a workspace without building
+// or caching a Runtime. Pure (ADR-0012) — this is what tab providers call to
+// decide runtime-conditional visibility, so it must not touch r.cache or the
+// worktree resolver (which would re-enter the Store; see 65fc548).
+//
+// Implements runtime.Registry.
+func (r *Registry) Kind(repoID, branchID string) runtime.Kind {
+	return r.resolveConfig(repoID, branchID).Kind
+}
+
 // Get returns the Runtime for the given workspace.  For host kind it always
 // returns the same host Runtime; for incus-container it constructs (once) and
 // caches an incusRuntime for the workspace.  Start() is NOT called here — the
@@ -134,13 +155,7 @@ func (r *Registry) ReconcileShared(ctx context.Context) error {
 //
 // Implements runtime.Registry.
 func (r *Registry) Get(repoID, branchID string) runtime.Runtime {
-	globalDefault := r.settingsStore.DefaultRuntime()
-	cfg := r.repoStore.ResolveWorkspaceRuntime(repoID, branchID, globalDefault)
-
-	// Normalise: zero Kind defaults to host.
-	if cfg.Kind == "" {
-		cfg.Kind = runtime.KindHost
-	}
+	cfg := r.resolveConfig(repoID, branchID)
 
 	if cfg.Kind == runtime.KindHost {
 		// Always return a fresh host Runtime wrapping the shared tmux.Client.

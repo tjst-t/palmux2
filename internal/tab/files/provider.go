@@ -29,22 +29,27 @@ func (p *Provider) DisplayName() string   { return "Files" }
 func (p *Provider) Protected() bool       { return true }
 func (p *Provider) Multiple() bool        { return false }
 func (p *Provider) NeedsTmuxWindow() bool { return false }
-func (p *Provider) Conditional() bool     { return false }
 
 // Limits — Files is a singleton (exactly one tab per branch).
 func (p *Provider) Limits(_ tab.SettingsView) tab.InstanceLimits {
 	return tab.InstanceLimits{Min: 1, Max: 1}
 }
 
+// Tabs reports the single Files tab. Pure — the Files tab is unconditional
+// and carries no per-branch state (ADR-0012).
+func (p *Provider) Tabs(_ context.Context, _ tab.TabsParams) ([]domain.Tab, error) {
+	return []domain.Tab{{
+		ID:        TabType,
+		Type:      TabType,
+		Name:      p.DisplayName(),
+		Protected: true,
+	}}, nil
+}
+
+// OnBranchOpen has nothing to do for Files: no tmux window, no per-branch
+// state. Tabs are declared by Tabs (ADR-0012).
 func (p *Provider) OnBranchOpen(_ context.Context, _ tab.OpenParams) (tab.ProviderResult, error) {
-	return tab.ProviderResult{
-		Tabs: []domain.Tab{{
-			ID:        TabType,
-			Type:      TabType,
-			Name:      p.DisplayName(),
-			Protected: true,
-		}},
-	}, nil
+	return tab.ProviderResult{}, nil
 }
 
 func (p *Provider) OnBranchClose(_ context.Context, _ tab.CloseParams) error { return nil }

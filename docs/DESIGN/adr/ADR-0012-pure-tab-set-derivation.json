@@ -1,0 +1,102 @@
+{
+  "id": "ADR-0012",
+  "title": "タブ集合の導出を純粋関数化 — Tabs() クエリと OnBranchOpen ライフサイクルの分離、通知は diff+publish 一本",
+  "status": "accepted",
+  "date": "2026-07-22",
+  "context": "`store.recomputeTabs` は `branch.TabSet.Tabs` を毎回ゼロから再構築する再導出関数で、(1) tmux ListWindows、(2) 直前の TabSet (ListWindows 失敗時のフォールバック)、(3) Provider.OnBranchOpen の返り値、(4) シングルトンのハードコード合成、(5) repos.json tabOverrides の5系統をマージする。呼び出し元は12箇所ある。\n\nこの関数には4つの構造的な問題がある。第一に、入力の一つである `OnBranchOpen` は本来ライフサイクルフックであり、reducer はこれを `Resume=false` 固定の状態クエリとして流用している。副作用が無いことは store.go のコメントで断言されているだけで、型でもチェックでもない — 名前は副作用を書くことを誘っておいて、実際には5秒ごとの sync ループから読み取り目的で叩かれる。実際に `65fc548 fix(store): stop recomputeTabs from touching the runtime registry under s.mu` で刺さっている。さらに現時点でもこの断言は既に破れている: sprint provider の `OnBranchOpen` は `startWatcher()` を呼び、`worktreewatch.New` で inotify ハンドルを確保して provider 状態を変異させる (internal/tab/sprint/provider.go:88,181)。二重生成は nil ガードで防がれているため実害は表面化していないが、reducer が read-only であるという前提は既に事実ではなく、しかもこの OS リソース確保は書きロック内で起きる。加えてその watcher の `handleEvents` は `RecomputeBranchTabs` を呼び返すため、recompute が生成した watcher が recompute を誘発するフィードバック経路になっている。第二に、`Conditional()` が「可視性が per-branch に変わりうる」という本来の意味ではなく「ライフサイクルフックを呼んでほしい」という購読機構として流用されている (agenttui/provider.go は0タブしか返さないサービス provider でありながら、この目的のためだけに Conditional=true を返すと自認している)。第三に、Provider interface は5つのフラグを持つが合法な組み合わせは一部だけで、その不変条件 (\"Conditional providers MUST be non-Multiple and non-NeedsTmuxWindow\") は provider.go のコメントにしか存在せず、Register は違法な組み合わせを素通しする。第四に、reducer は書きロック保持中に I/O する — `tmuxFor` は incus コンテナを起動しうるとコメント自身が認めており、provider の `OnBranchOpen` はディスクと worktree のファイルシステムを触る。\n\nさらに、12ある呼び出し元のうち prev→next を diff して `tab.added`/`tab.removed` を publish するのは `RecomputeBranchTabs` だけで、残り11箇所 (sync_tmux.go:167、branch.go:778、PopulateTabs ほか) は `branch.TabSet.Tabs` を無言で上書きする。つまりバックエンドのタブ集合はブラウザに黙って変わり、FE は次のフル REST リロードまで古い集合を表示し続ける。\n\n結果としてタブ層には fix コミットが106件積み上がった。個々は正しい修正だが、いずれも「状態は正しいのに画面が違う」「たまに直る」という同じ構造から出た症状であり、点の修正では止まらない。本 ADR に先立ち、reducer の現行導出契約を固定する characterization test 16件を `internal/store/recompute_characterization_test.go` に追加済み (うち2件は上記の欠陥を意図的に pin しており、修正が入ると赤くなる)。",
+  "alternatives": [
+    {
+      "name": "現状維持 + 規約強化 (コメント・lint・登録時チェックの追加のみ)",
+      "tradeoff": "移行コストはゼロだが、OnBranchOpen の二義性そのものは残るため不変条件は非強制のまま。characterization test が現状のバグを凍結するだけで、106件の fix を生んだ構造は温存される"
+    },
+    {
+      "name": "Tabs() 純粋クエリの分離 + ライフサイクルは別 interface (採用)",
+      "tradeoff": "provider 9個を1回 churn する必要があるが、reducer が純粋になることでロック外評価と diff+publish の一本化が初めて可能になる。永続フォーマットは不変なのでデータ移行は無い"
+    },
+    {
+      "name": "push 型への転換 (provider がタブ集合の変化を Store に通知する)",
+      "tradeoff": "polling による再導出が消えて通知は構造的に自動化されるが、tmux は外部から変更されうる本質的な外部真実であり pull が避けられない。Store が定義上持つハイブリッドポーリング設計とも衝突し、変更範囲が本 ADR の数倍になる"
+    },
+    {
+      "name": "タブ集合を単一ストアに正規化し tmux を従属させる (reconcile 方向を反転)",
+      "tradeoff": "5系統マージが消えて最も単純になるが、ユーザが tmux 側で直接 `new-window` したものが無視または kill される。現在この操作は Bash タブとして正しく見えており、enrichRecoverySpecs もその前提で存在する。既存の振る舞いを壊すため棄却"
+    }
+  ],
+  "decision": "タブ集合の導出を純粋関数にする。Provider に副作用禁止・冪等を契約とする `Tabs(ctx, TabsParams) ([]domain.Tab, error)` を新設して reducer が provider から読む唯一の入力とし、`OnBranchOpen`/`OnBranchClose` はライフサイクル通知に純化する (`ProviderResult` から `Tabs` を落とし、tmux window 生成に必要な `Windows []WindowSpec` のみ残す)。`Conditional()` は廃止し、条件付き可視性は `Tabs()` が0件を返すことで表現する。タブを持たないライフサイクル参加者は zero-tab provider を装うのをやめ、既存の `HeadChangedHook`/`RuntimeRestartHook` と同型の任意フックを実装する。フラグの組み合わせは Register 時に検証する。そのうえで、タブ集合の変化が FE に届く経路を diff+publish 一本に統一し、reducer の I/O を書きロックの外に出す。",
+  "consequences": [
+    "+ reducer が純粋になるため、ロック外で新しいタブ集合を評価してから短時間の書きロックで swap できる。incus コンテナ起動が書きロックを掴みうる現在の構造 (デッドロック・レイテンシ源) が解消する",
+    "+ 全ての recompute 経路が diff+publish を通るため、「タブ集合が変わったのに FE が知らされない」クラスのバグが構造的に消える。現在この保証があるのは12経路のうち1つだけ",
+    "+ 副作用を持つ provider が5秒ごとの sync ループから呼ばれる事故 (65fc548 の失敗モード) が、型レベルで防がれる",
+    "+ `Conditional` の二義性 (可視性ポリシー / 購読機構) が解消し、可視性は `Tabs()` の返り値だけで表現される。reducer の制御フローから、0タブしか返さない provider を世話するためだけの分岐が消える",
+    "+ 違法なフラグ組み合わせが起動時 (Register) に落ちるようになり、不変条件がコメントから実行可能な形に移る",
+    "+ agenttui が zero-tab provider を装う必要がなくなるため、ADR-0009 が適用される際に素直に削除できる",
+    "- Provider 実装9個すべてを1回 churn する。いずれも internal パッケージなので影響は閉じるが、変更量は大きく、テストも同時に追随する必要がある",
+    "- タブ宣言 (`Tabs`) と tmux window 生成 (`Windows`) が別メソッドに分かれるため、両方を持つ provider (Bash など) は2箇所の一貫性を自分で保つ必要がある",
+    "- `Conditional()` 廃止により、reducer は毎回すべての provider の `Tabs()` を呼ぶ。現在は非 Conditional シングルトンを短絡していたため呼び出し回数は増える。`Tabs()` が安いことが新たな要求になる (ロック外化と併せて評価すること)",
+    "- characterization test のうち意図的に欠陥を pin した2件 (`TestChar_Notification_DirectRecomputeEmitsNothing_DEFECT`、`TestChar_Registry_AcceptsIllegalFlagCombo_DEFECT`) が赤くなる。これは想定された挙動であり、契約 assert へ書き換えること",
+    "タブ集合の永続フォーマット (claudeagent.Store、agenttui.SessionStore.BranchTabs、repos.json tabOverrides) は一切変更しない。データ移行は発生しない"
+  ],
+  "reversibility_cost": "medium",
+  "affects": [
+    "Tab Provider System",
+    "Store",
+    "claude-tui Tab",
+    "claude-agent Tab",
+    "Docs Tab",
+    "internal/tab/provider.go (Provider interface)",
+    "internal/store (recomputeTabs / RecomputeBranchTabs / tab.go / host.go / sync_tmux.go)",
+    "internal/tab/{agenttui,agenttab,claudeagent,bash,files,git,sprint,browser,ports}"
+  ],
+  "supersedes": null,
+  "superseded_by": null,
+  "notes": "ADR-0009 (claude-tui backend の tmux 回帰) とは矛盾せず、その前提検証スパイクの結果にも依存しない — claude-tui の backend が ptyhost / tmux のどちらであっても本 ADR の Provider 契約は成立する。むしろ 0009 が通れば Conditional 流用の当事者である agenttui が claude 向けには消えるため、本 ADR の適用範囲は縮む。したがって本 ADR の実装 (Provider interface 手術 + 通知一本化) は 0009 スパイクを待たずに着手してよい。\n\n一方、FE 側のレンダラ解決の一本化 (tab-content.tsx が `tab.windowName` の有無でレンダラレジストリを短絡している件、および claude_mode と agent registry という2つの非同期ソースに描画判定が依存している件) と、claudeagent/agenttab の重複統合は、いずれも ADR-0009 の結果で形が変わるため本 ADR のスコープ外とし、スパイク後に判断する。\n\nADR-0010 (Docs タブ) との用語干渉に注意 — ADR-0010 の decision は『準拠ファイルの存在を Conditional 表示条件にする』と書いており、`Conditional()` を機構名として参照している。本 ADR はその機構を廃止するが、意図 (準拠ファイルがあるときだけタブを出す) は完全に保存される: `Tabs()` が0件を返すことで同じ可視性が表現される。したがって ADR-0010 の supersede は不要だが、Docs タブを実装する Sprint では既に存在しない `Conditional()` を実装しようとしないこと。現行の Sprint provider は唯一の Conditional 実装であり、本 ADR の移行対象の代表例でもある。\n\n案D (タブ集合を単一ストアに正規化し tmux を従属させる) の棄却理由は alternatives に記載のとおり。将来 Bash タブの tmux 撤廃 (backlog: 「Bash タブの tmux 撤廃 + ptytui 共通基盤化」) が実施された場合、外部 tmux 操作という制約自体が消えるため案D の再検討価値が生まれる — その時点で本 ADR の supersede を検討すること。\n\n実装前に固定した characterization test: internal/store/recompute_characterization_test.go (16件、導出マトリクス5系統 / S009-fix-1 の回帰 / 冪等性 / tabOverrides の置換不変性 / host scope 制約 / 意図的に pin した欠陥2件)。",
+  "machine_check": {
+    "$comment": "Guard 7 (sprint-done-judgment.md) reads this block and runs the greps against the Sprint diff. These are the invariants of ADR-0012 that a future change could silently break — exactly the failure mode this ADR exists to stop.",
+    "checks": [
+      {
+        "id": "no-onbranchopen-from-reducer",
+        "kind": "forbidden_grep",
+        "paths": [
+          "internal/store/store.go",
+          "internal/store/host.go",
+          "internal/store/sync_tmux.go"
+        ],
+        "pattern": "\\.OnBranchOpen\\(",
+        "expect": "zero hits",
+        "why": "The tab-set derivation must read providers only through the pure Tabs() query. The lifecycle hook is legitimate ONLY from collectOpenSpecs (internal/store/branch.go), which is deliberately excluded from the path list."
+      },
+      {
+        "id": "no-direct-tabset-assignment",
+        "kind": "forbidden_grep",
+        "paths": [
+          "internal/store/"
+        ],
+        "pattern": "TabSet\\.Tabs\\s*=(?!.*append\\(\\[\\]domain\\.Tab)",
+        "expect": "hits only in swapTabs and cloneBranch",
+        "why": "Every tab-set change must go through swapTabs so recomputeAndPublish can diff and publish it. A direct assignment elsewhere reintroduces the silent-overwrite defect (12 of 13 call sites before ADR-0012)."
+      },
+      {
+        "id": "conditional-flag-stays-dead",
+        "kind": "forbidden_grep",
+        "paths": [
+          "internal/tab/",
+          "internal/store/"
+        ],
+        "pattern": "func \\([^)]*\\) Conditional\\(\\) bool",
+        "expect": "zero hits",
+        "why": "Conditional() was removed because it had drifted into meaning 'please call my lifecycle hook'. Conditional visibility is expressed by Tabs() returning zero tabs."
+      },
+      {
+        "id": "registry-get-not-called-from-provider-tabs",
+        "kind": "forbidden_grep",
+        "paths": [
+          "internal/tab/browser/provider.go",
+          "internal/tab/ports/provider.go"
+        ],
+        "pattern": "RuntimeRegistry\\(\\)\\.Get\\(",
+        "expect": "zero hits",
+        "why": "Registry.Get lazily constructs and caches a Runtime and its worktree resolver re-enters the Store. Providers must use the pure Kind() query for visibility decisions."
+      }
+    ]
+  }
+}

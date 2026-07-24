@@ -1,0 +1,81 @@
+{
+  "$comment": "GUI spec for Story Sd0e1a9-1 (ADR-0012 Step 1: Provider 契約の手術). Produced by sprint plan.",
+  "$file": "docs/sprint-logs/Sd0e1a9/gui-spec-Sd0e1a9-1.json",
+  "story": "palmux 開発者として、タブ集合の再導出が provider の状態を一切変更しないことを型と起動時検証で保証してほしい。なぜなら、現状は OnBranchOpen が5秒ごとのポーリングからクエリとして呼ばれており、sprint provider が書きロック内で inotify ハンドルを確保するなど『副作用なし』というコメントの約束が既に破れているから。",
+  "user_role": "palmux 開発者 (Provider API の利用者) / palmux 利用者 (タブ集合の観測者)",
+  "story_type": "mixed",
+  "entry_point": "既存の TabBar (/{repoId}/{branchId}/{tabId})。本 Story は新しい UI を足さない — リファクタ後もタブ集合の見え方が不変であることが観測対象。条件付き可視性 (Sprint タブ) は worktree 内の docs/ROADMAP.json の有無で駆動される。",
+  "notes": "本 Story の主要 AC (1-1〜1-5) は Go 内部契約であり unit test が主戦場。ただし AC-1-6 はブラウザ観測可能で、かつ『リファクタで既存の見え方を壊していない』ことの唯一の end-to-end な証跡なので E2E を必須とする。gui-spec.md Phase 1 の default-on ルール (React プロジェクトでブラウザ観測可能な Story は GUI Story) に従い non-GUI 分類はしない。新規 UI が無いため data_testids は既存のものを再利用し、追加は不要。",
+  "state_diagram": "stateDiagram-v2\n    [*] --> TabBarRendered: Workspace を開く\n    TabBarRendered --> WithSprintTab: worktree に docs/ROADMAP.json が存在\n    TabBarRendered --> WithoutSprintTab: docs/ROADMAP.json が不在\n    WithSprintTab --> WithoutSprintTab: ROADMAP.json を削除 (worktreewatch → recompute → tab.removed)\n    WithoutSprintTab --> WithSprintTab: ROADMAP.json を作成 (worktreewatch → recompute → tab.added)\n    note right of WithSprintTab\n        本 Story の不変条件:\n        この遷移は手術の前後で同一に振る舞う\n    end note",
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "linked_ac": ["AC-Sd0e1a9-1-6", "AC-Sd0e1a9-1-3"],
+      "description": "手術後も TabBar のタブ集合 (種類・順序・ID) が従来どおりである。step 3 が AC-1-3 (agenttui のフック移行後も claude-tui 型の可視タブが生えない) のブラウザ観測面を兼ねる",
+      "steps": [
+        {
+          "n": 1,
+          "action": "dev インスタンス (make serve INSTANCE=dev) でブラウザから Workspace を開く",
+          "expected": "TabBar に claude / files / git / bash:bash が登録順で並ぶ。data-testid=claude-tab および tab-files / tab-git / tab-bash:bash が存在する"
+        },
+        {
+          "n": 2,
+          "action": "GET /api/repos/{repoId}/branches/{branchId}/tabs のレスポンスと TabBar の DOM を突き合わせる",
+          "expected": "BE が返すタブ ID 列と DOM 上の tab-* testid の集合・順序が完全一致する (FE/BE 乖離が無い)"
+        },
+        {
+          "n": 3,
+          "action": "タブ集合に claude-tui 型が現れていないことを確認",
+          "expected": "tab.type == 'claude-tui' のタブは存在しない (agenttui がライフサイクルフックへ移行しても、可視タブを生やさない現行挙動が不変)"
+        }
+      ]
+    },
+    {
+      "id": "scenario-2",
+      "linked_ac": ["AC-Sd0e1a9-1-6", "AC-Sd0e1a9-1-2"],
+      "description": "条件付き可視性 (Conditional 廃止後は Tabs() の0件返却) がリロードなしで従来どおり動く",
+      "steps": [
+        {
+          "n": 1,
+          "action": "docs/ROADMAP.json を持つ worktree の Workspace を開く",
+          "expected": "TabBar に Sprint タブ (data-testid=tab-sprint) が存在する"
+        },
+        {
+          "n": 2,
+          "action": "ページをリロードせずに、worktree の docs/ROADMAP.json を退避 (mv) する",
+          "expected": "worktreewatch のデバウンス後、tab.removed イベントにより Sprint タブが TabBar から消える。リロード不要"
+        },
+        {
+          "n": 3,
+          "action": "docs/ROADMAP.json を元に戻す",
+          "expected": "tab.added イベントにより Sprint タブが再び現れる。リロード不要。テスト終了時に必ず復元すること (finally)"
+        }
+      ]
+    }
+  ],
+  "data_testids": [
+    {"testid": "claude-tab", "element": "Claude タブ", "status": "既存"},
+    {"testid": "tab-files", "element": "Files タブ", "status": "既存 (tab-${tab.id})"},
+    {"testid": "tab-git", "element": "Git タブ", "status": "既存 (tab-${tab.id})"},
+    {"testid": "tab-sprint", "element": "Sprint タブ (条件付き)", "status": "既存 (tab-${tab.id})"},
+    {"testid": "tab-bash:bash", "element": "Bash タブ", "status": "既存 (tab-${tab.id})"}
+  ],
+  "endpoint_contracts": [
+    {
+      "method": "GET",
+      "path": "/api/repos/{repoId}/branches/{branchId}/tabs",
+      "response_fields": "TabSet { tmuxSession: string, tabs: Tab[] }。Tab { id, type, name, protected, multiple, windowName }",
+      "note": "handler を読んで実フィールド名を確認済み (domain.TabSet / domain.Tab)。本 Story はこのレスポンス形状を変更しない — 変更したら回帰。"
+    },
+    {
+      "method": "WS",
+      "path": "/api/events",
+      "response_fields": "Event { type: 'tab.added' | 'tab.removed', repoId, branchId, tabId, payload }",
+      "note": "Sprint タブの出現/消失はこの経路で届く。Story 2 で全 recompute 経路がこの経路を通るようになる。"
+    }
+  ],
+  "test_files": {
+    "e2e": "tests/e2e/sd0e1a9_tab_set.py",
+    "mock": "tests/e2e/sd0e1a9_tab_set_mock.py"
+  }
+}

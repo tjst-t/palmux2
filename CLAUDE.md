@@ -19,11 +19,12 @@
 
 ## 実装ステータス
 
-現在: **v0.16.0 リリース済み**。**次の一手はユーザ判断待ち** — Sc4f091 でリリースブロッカー 2 件 (in-container 通知フック欠落 / `palmux-shared` プロファイル競合) を修正済みで、これを踏まえて次リリースを出すかどうか。
+現在: **最新リリースは v0.16.0**。**main は v0.16.0 より 49 コミット先行し、未リリース**（codex/opencode registry 登録 S2b5691 + ブロッカー修正 Sc4f091 を含む）。**次の一手はユーザのリリース判断待ち** — この未リリース分に次のタグ (v0.16.1 or v0.17.0) を打つかどうか。tag + push は外向きの不可逆操作なので自動実行しない。
 
-- **未完了 Sprint**: `S2b5691` (codex/opencode の registry 登録 + FE 露出) と `Sfa2bab` (実機ドッグフーディング検証) が `partial`。原因は Sc4f091 で解消済みだが Story ステータスは未クローズ。
+- **リリース検証は完了済み**: `Sfa2bab` (codex/opencode 実機ドッグフーディング) は done。当初の唯一の fail (codex/opencode が実機で動く) は Sc4f091 が実 incus で再検証して解消。当初の `v0.15.2` という番号は実在しない（v0.15.0 → v0.16.0 と進んだ）ため、対象を「main の未リリース分」に読み替えて close した (2026-07-23)。
 - **恒久修正が残る既知課題**: `palmux-shared` incus プロファイルがホスト全体で単一な件は緩和策のみで、恒久対応 (per-instance namespacing 等) は backlog。
-- **進行中**: マルチエージェント対応 (codex / opencode)。**計画中**: Control/Worker による並行開発の安全化、claude-tui の tmux 回帰 (ADR-0009)、Docs タブ (ADR-0010/0011)。
+- **タブ層のリファクタ**: `refactor/tab-reducer` ブランチ (origin に push 済み、**main 未マージ**) で ADR-0012 (タブ集合の導出を純粋関数化) を実装。`Sd0e1a9` + `S3f3cb2` (タブ操作のレイテンシ解消) が done。main へのマージは、上記リリース判断のあとに行う想定。
+- **計画中**: Control/Worker による並行開発の安全化、claude-tui の tmux 回帰 (ADR-0009)、Docs タブ (ADR-0010/0011)。
 
 > **「Phase」という区切りは使わない**（2026-07-20 廃止）。原典 03 の Phase 0〜10・VISION の発展段階・ROADMAP の `phase` フィールドで 3 体系が並存し番号が衝突していたため、区切りは **ROADMAP.json の Sprint の並びと `milestone: true`** に一本化した。新しく Phase 番号を導入しないこと。
 

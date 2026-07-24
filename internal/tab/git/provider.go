@@ -18,6 +18,15 @@ import (
 // TabType is the stable provider identifier.
 const TabType = "git"
 
+// watchSub is a live worktree-watch subscription plus the root it was
+// created for. The root is what makes subscription REUSE safe: the provider
+// resubscribes only when the worktree behind a branch key actually changed
+// (S3f3cb2).
+type watchSub struct {
+	sub  *worktreewatch.Subscription
+	root string
+}
+
 // Provider implements tab.Provider for the Git tab.
 //
 // S012: provider now owns a single shared *worktreewatch.Watcher and an
@@ -31,14 +40,28 @@ type Provider struct {
 	mu      sync.Mutex
 	watcher *worktreewatch.Watcher
 	// subs is keyed "{repoID}/{branchID}".
-	subs map[string]*worktreewatch.Subscription
+	subs map[string]watchSub
+	// desired records, per key, the worktree root that SHOULD be watched — the
+	// source of truth for the async subscribe path (see subscribeAsync).
+	desired map[string]string
+	// inflight records a background subscribe currently running.
+	inflight map[string]string
+	// regMu serialises the background registrations. Async removed the wait
+	// from the request path but did not remove the WORK: each registration is
+	// tens of thousands of syscalls, so letting several run at once just moves
+	// the stall into I/O contention (observed as a flaky E2E right after a
+	// restart, when several workspaces subscribe at once). One at a time keeps
+	// the box responsive; the caller never waits on this either way.
+	regMu sync.Mutex
 }
 
 // New returns a Provider with a Store reference for path resolution.
 func New(s *store.Store) *Provider {
 	return &Provider{
-		store: s,
-		subs:  map[string]*worktreewatch.Subscription{},
+		store:    s,
+		subs:     map[string]watchSub{},
+		desired:  map[string]string{},
+		inflight: map[string]string{},
 	}
 }
 
@@ -47,54 +70,110 @@ func (p *Provider) DisplayName() string   { return "Git" }
 func (p *Provider) Protected() bool       { return true }
 func (p *Provider) Multiple() bool        { return false }
 func (p *Provider) NeedsTmuxWindow() bool { return false }
-func (p *Provider) Conditional() bool     { return false }
 
 // Limits — Git is a singleton (exactly one tab per branch).
 func (p *Provider) Limits(_ tab.SettingsView) tab.InstanceLimits {
 	return tab.InstanceLimits{Min: 1, Max: 1}
 }
 
+// Tabs reports the single Git tab. Pure (ADR-0012) — note this deliberately
+// does NOT start the worktree watcher: that is a side effect and lives in
+// OnBranchOpen, which fires only on a genuine branch open. Before ADR-0012
+// the two were in the same method.
+func (p *Provider) Tabs(_ context.Context, _ tab.TabsParams) ([]domain.Tab, error) {
+	return []domain.Tab{{
+		ID:        TabType,
+		Type:      TabType,
+		Name:      p.DisplayName(),
+		Protected: true,
+	}}, nil
+}
+
+// OnBranchOpen subscribes the worktree watcher for this branch so Git status
+// changes publish an event. Side effects are legitimate here — this fires on
+// a real branch open, not on every tab recompute.
+// OnBranchOpen registers the worktree watcher for this branch. The
+// registration runs in the BACKGROUND (S3f3cb2).
+//
+// The Git tab keeps its status display live by watching the working tree, and
+// inotify charges one syscall per directory, recursively — 26,735 directories
+// (~1.8 s) on a real repo. OnBranchOpen is called from ensureBranchSession,
+// which sits on the path of BOTH tab creation and every WS attach, so paying
+// that synchronously is what made opening a Bash tab sit black for seconds.
+//
+// Nothing in the request path consumes the subscription, so it goes to a
+// goroutine. The cost is a short window right after opening in which working-
+// tree changes do not push a git.statusChanged event; the tab reads status
+// fresh when rendered, and the next change fires normally.
 func (p *Provider) OnBranchOpen(_ context.Context, params tab.OpenParams) (tab.ProviderResult, error) {
 	// Lazily start the watcher so unit tests that don't need fsnotify
 	// (e.g. parseStatus) skip it.
 	p.startWatcher()
-	if p.watcher != nil && params.Branch != nil {
-		repoID := params.Branch.RepoID
-		branchID := params.Branch.ID
-		root := params.Branch.WorktreePath
-		key := repoID + "/" + branchID
-		p.mu.Lock()
-		// Replace any stale subscription (e.g. branch closed and reopened
-		// without provider teardown).
-		if old, ok := p.subs[key]; ok {
-			old.Unsubscribe()
-			delete(p.subs, key)
-		}
-		sub, err := p.watcher.Subscribe(worktreewatch.Spec{
-			Roots:    []string{root},
-			Filter:   gitFilter(root),
-			Debounce: 1000 * time.Millisecond,
-			OnEvent: func(_ []worktreewatch.Event) {
-				p.store.Hub().Publish(store.Event{
-					Type:     EventGitStatusChanged,
-					RepoID:   repoID,
-					BranchID: branchID,
-				})
-			},
-		})
-		if err == nil {
-			p.subs[key] = sub
-		}
-		p.mu.Unlock()
+	if p.watcher == nil || params.Branch == nil {
+		return tab.ProviderResult{}, nil
 	}
-	return tab.ProviderResult{
-		Tabs: []domain.Tab{{
-			ID:        TabType,
-			Type:      TabType,
-			Name:      p.DisplayName(),
-			Protected: true,
-		}},
-	}, nil
+	repoID := params.Branch.RepoID
+	branchID := params.Branch.ID
+	root := params.Branch.WorktreePath
+	key := repoID + "/" + branchID
+
+	p.mu.Lock()
+	p.desired[key] = root
+	if cur, ok := p.subs[key]; ok && cur.root == root {
+		p.mu.Unlock() // already watching exactly this worktree
+		return tab.ProviderResult{}, nil
+	}
+	if inflightRoot, ok := p.inflight[key]; ok && inflightRoot == root {
+		p.mu.Unlock() // a background subscribe for this exact root is running
+		return tab.ProviderResult{}, nil
+	}
+	p.inflight[key] = root
+	p.mu.Unlock()
+
+	go p.subscribeAsync(key, repoID, branchID, root)
+	return tab.ProviderResult{}, nil
+}
+
+// subscribeAsync performs the expensive registration off the request path and
+// installs the result only if it is still wanted.
+func (p *Provider) subscribeAsync(key, repoID, branchID, root string) {
+	p.regMu.Lock()
+	sub, err := p.watcher.Subscribe(worktreewatch.Spec{
+		Roots:    []string{root},
+		Filter:   gitFilter(root),
+		SkipDir:  gitSkipDir(root),
+		Debounce: 1000 * time.Millisecond,
+		OnEvent: func(_ []worktreewatch.Event) {
+			p.store.Hub().Publish(store.Event{
+				Type:     EventGitStatusChanged,
+				RepoID:   repoID,
+				BranchID: branchID,
+			})
+		},
+	})
+
+	p.regMu.Unlock()
+
+	p.mu.Lock()
+	if cur, ok := p.inflight[key]; ok && cur == root {
+		delete(p.inflight, key)
+	}
+	if err != nil {
+		p.mu.Unlock()
+		return
+	}
+	// The branch may have closed, or moved to a different worktree, while we
+	// were registering. Installing now would leak a watcher nobody unsubscribes.
+	if want, ok := p.desired[key]; !ok || want != root {
+		p.mu.Unlock()
+		sub.Unsubscribe()
+		return
+	}
+	if old, ok := p.subs[key]; ok {
+		old.sub.Unsubscribe()
+	}
+	p.subs[key] = watchSub{sub: sub, root: root}
+	p.mu.Unlock()
 }
 
 func (p *Provider) OnBranchClose(_ context.Context, params tab.CloseParams) error {
@@ -103,8 +182,12 @@ func (p *Provider) OnBranchClose(_ context.Context, params tab.CloseParams) erro
 	}
 	key := params.Branch.RepoID + "/" + params.Branch.ID
 	p.mu.Lock()
+	// Dropping `desired` first is what makes an in-flight background subscribe
+	// discard itself instead of installing a watcher for a closed branch.
+	delete(p.desired, key)
+	delete(p.inflight, key)
 	if sub, ok := p.subs[key]; ok {
-		sub.Unsubscribe()
+		sub.sub.Unsubscribe()
 		delete(p.subs, key)
 	}
 	p.mu.Unlock()
@@ -167,6 +250,35 @@ func (p *Provider) startWatcher() {
 //
 // Path comparisons are made relative to root (the worktree path) so the
 // filter is portable.
+// gitSkipDir prunes watch REGISTRATION inside .git/ down to what gitFilter
+// actually accepts: the ref pointers directly in .git/ plus .git/refs/**.
+// Everything else under .git/ (objects/, logs/, hooks/, modules/, …) is
+// rejected by the filter anyway, so watching it is pure cost.
+//
+// The working tree itself is NOT pruned — gitFilter accepts any change there
+// because that is what moves `git status` (S3f3cb2).
+//
+// MUST stay consistent with gitFilter: anything the filter accepts has to live
+// under a path this function does NOT prune.
+func gitSkipDir(root string) func(string) bool {
+	root = filepath.Clean(root)
+	gitDir := filepath.Join(root, ".git")
+	return func(dir string) bool {
+		rel, err := filepath.Rel(gitDir, dir)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return false // outside .git/ — working tree, keep watching
+		}
+		if rel == "." {
+			return false // .git itself holds HEAD / packed-refs
+		}
+		top := filepath.ToSlash(rel)
+		if i := strings.IndexByte(top, '/'); i >= 0 {
+			top = top[:i]
+		}
+		return top != "refs"
+	}
+}
+
 func gitFilter(root string) worktreewatch.Filter {
 	root = filepath.Clean(root)
 	return func(ev worktreewatch.Event) bool {
@@ -205,7 +317,7 @@ func gitFilter(root string) worktreewatch.Filter {
 func (p *Provider) Close() {
 	p.mu.Lock()
 	for k, sub := range p.subs {
-		sub.Unsubscribe()
+		sub.sub.Unsubscribe()
 		delete(p.subs, k)
 	}
 	w := p.watcher

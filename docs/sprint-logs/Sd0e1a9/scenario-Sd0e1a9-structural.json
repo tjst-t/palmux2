@@ -1,0 +1,80 @@
+{
+  "$comment": "Sprint Sd0e1a9 の構造 AC 用の検証仕様。story-scenarios.md の cli/api/gui/library いずれの『ユーザー入口』にも素直に載らない AC を、偽の library scenario を作らずに正直に扱うための補助 artifact。sprint verify はこれを AC↔検証手段の対応表として読む。",
+  "$file": "docs/sprint-logs/Sd0e1a9/scenario-Sd0e1a9-structural.json",
+  "sprint": "Sd0e1a9",
+  "why_this_file_exists": "sprint-plan.md §6 は『全 AC はいずれかの scenario step で実行されること。ユーザー向けの surface で観測できない AC は invalid なのでフラグせよ』と定める。本 Sprint の AC を点検した結果、(a) 2件はブラウザ観測可能で gui-spec 側がカバー、(b) 2件は受入基準ではなくテスト整備の義務だったので Task へ降格、(c) 残り3件は『コード構造そのもの』が受入内容であり、いかなるユーザー入口からも直接は観測できない。(c) を library scenario に偽装するのは誤り — internal/ パッケージはモジュール外から import できず、story-scenarios.md の library 型が要求する『プロジェクト外の消費者が公開 API を叩く』テストは原理的に書けない。よって (c) は構造 AC として明示し、機械的に検証可能な手段を各々に紐づける。",
+  "flagged_for_user": "AC-Sd0e1a9-1-1 / 1-4 / 2-3 は sprint-plan.md §6 の厳密な意味では『ユーザー観測可能な AC』ではない。ただし本 Sprint は外形的な振る舞いを変えないリファクタであり、受入内容が構造そのものであることは意図された性質 (ADR-0012 の目的は『壊れやすい構造を直す』こと) なので、AC を削除するのではなく検証手段を明示する方針を採った。ユーザーがこの扱いに異議があれば AC の書き換えが必要。",
+  "structural_acceptance_criteria": [
+    {
+      "id": "AC-Sd0e1a9-1-1",
+      "story": "Sd0e1a9-1",
+      "summary": "Provider.Tabs() が reducer の唯一の provider 入力であり、recomputeTabs から OnBranchOpen を呼ぶ経路がゼロ",
+      "observable_proxy": "間接的には観測可能 — 現状 sprint provider の OnBranchOpen は startWatcher() で inotify ハンドルを確保するため、recompute から呼ばれなくなれば『5秒ごとのポーリング中に watcher が新規生成されない』。ただしこれは fd 数の観測であって通常の UI/API 面には出ない。",
+      "verification": [
+        {
+          "method": "grep",
+          "detail": "internal/store/ 配下に `OnBranchOpen(` の呼び出しが recompute 経路から存在しないこと。ライフサイクル (OpenBranch) 経路からの呼び出しのみ残る。",
+          "machine_checkable": true
+        },
+        {
+          "method": "unit",
+          "detail": "既存 characterization test の charMultiProvider は OnBranchOpen 呼び出し回数を atomic.Int64 で数えている。手術後は『recompute を N 回回しても OnBranchOpen の呼び出しが 0 回、Tabs() が N 回』へ書き換える (TestChar_Reducer_CallsOnBranchOpenAsQueryWithResumeFalse の反転)。",
+          "machine_checkable": true
+        },
+        {
+          "method": "unit",
+          "detail": "sprint provider について、Tabs() を 100 回呼んでも watcher が生成されないこと (副作用が OnBranchOpen 側へ寄ったことの直接確認)。",
+          "machine_checkable": true
+        }
+      ]
+    },
+    {
+      "id": "AC-Sd0e1a9-1-4",
+      "story": "Sd0e1a9-1",
+      "summary": "違法なフラグ組み合わせでの Register が起動時に落ちる",
+      "observable_proxy": "運用者から見れば『壊れた provider を登録したビルドはサーバが起動せず即座に失敗する』であり、CLI 実行の exit code として観測できる。ただしこれはプログラマエラーへのガードであり、正規のビルドでは決して発火しない — 通常運用のユーザー入口からは観測できない。",
+      "verification": [
+        {
+          "method": "unit",
+          "detail": "TestChar_Registry_AcceptsIllegalFlagCombo_DEFECT を契約 assert へ反転。charIllegalProvider (Conditional 相当の 0 タブ + Multiple + NeedsTmuxWindow) の Register が panic またはエラーになることを assert する。Conditional() 廃止後は『0 タブを返す provider が Multiple かつ tmux 要求』という等価な違法条件へ読み替える。",
+          "machine_checkable": true
+        },
+        {
+          "method": "unit",
+          "detail": "正規の 9 provider すべてが検証を通過すること (誤検知で本番構成が起動不能にならないことの確認)。",
+          "machine_checkable": true
+        }
+      ]
+    },
+    {
+      "id": "AC-Sd0e1a9-2-3",
+      "story": "Sd0e1a9-2",
+      "summary": "recomputeTabs の I/O (tmux ListWindows / provider Tabs()) が store の書きロック外で実行される",
+      "observable_proxy": "incus-container workspace では現在 tmuxFor がコンテナ起動を伴いうる (store.go:635 のコメントが認める)。これが書きロック内で起きると、その間すべての store 読み取りが待たされる = 無関係な API がコンテナ起動時間ぶんブロックする。修正後はブロックしない。理論上は API レイテンシとして観測可能だが、タイミング依存でテストが flaky になるため主たる検証手段にはしない。",
+      "verification": [
+        {
+          "method": "unit",
+          "detail": "reducer を『純粋な導出関数 (ロック不要)』と『ロック下の swap』に分離したうえで、導出関数がロックを一切取らないことを確認する。具体的には、導出中に別 goroutine から store の読み取りロックが取得できることを assert する (現状は取得できずタイムアウトする)。",
+          "machine_checkable": true
+        },
+        {
+          "method": "code_review",
+          "detail": "s.mu.Lock() のスコープ内に ListWindows / Tabs() / tmuxFor の呼び出しが無いことをレビューで確認。grep でも補助する。",
+          "machine_checkable": true
+        }
+      ]
+    }
+  ],
+  "demoted_from_ac": [
+    {
+      "was": "AC-Sd0e1a9-1-5",
+      "now": "Task Sd0e1a9-1-5",
+      "reason": "『characterization test 14件が無改変で緑』はテスト整備の義務であって、Story の受入基準ではない。受入基準に置くと『テストが通ること』を受入基準にする循環になる。Task として残し、sprint verify の機械検証 (verify-run.json) が実際の exit code で担保する。"
+    },
+    {
+      "was": "AC-Sd0e1a9-2-4",
+      "now": "Task Sd0e1a9-2-4",
+      "reason": "同上 (DEFECT テストの契約 assert への書き換え)。"
+    }
+  ]
+}

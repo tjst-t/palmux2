@@ -91,6 +91,18 @@ type fakeRegistry struct {
 	evictCalls map[string]int
 }
 
+// Kind implements the pure runtime.Registry query (ADR-0012). The fake keeps
+// it consistent with Get: a registered runtime reports its own kind, an
+// unregistered workspace resolves to host.
+func (r *fakeRegistry) Kind(repoID, branchID string) runtime.Kind {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if rt, ok := r.runtimes[repoID+"/"+branchID]; ok && rt != nil {
+		return rt.Kind()
+	}
+	return runtime.KindHost
+}
+
 func newFakeRegistry() *fakeRegistry {
 	return &fakeRegistry{
 		runtimes:   map[string]runtime.Runtime{},

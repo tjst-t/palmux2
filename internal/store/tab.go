@@ -128,10 +128,11 @@ func (s *Store) AddTab(ctx context.Context, repoID, branchID, providerType, name
 					"repo", repoID, "branch", branchID, "tab", added.ID, "err", err)
 			}
 		}
-		s.mu.Lock()
-		s.recomputeTabs(ctx, branch)
-		s.mu.Unlock()
-		s.hub.Publish(Event{Type: EventTabAdded, RepoID: repoID, BranchID: branchID, TabID: added.ID, Payload: added})
+		// ADR-0012: recomputeAndPublish emits the tab.added diff itself, so we
+		// no longer publish a second, hand-rolled event here.
+		if err := s.recomputeAndPublish(ctx, repoID, branchID); err != nil {
+			return domain.Tab{}, fmt.Errorf("recompute after AddTab: %w", err)
+		}
 		return added, nil
 	}
 
@@ -155,19 +156,30 @@ func (s *Store) AddTab(ctx context.Context, repoID, branchID, providerType, name
 		return domain.Tab{}, err
 	}
 
-	// Recompute and return the new tab.
-	s.mu.Lock()
-	s.recomputeTabs(ctx, branch)
+	// Recompute (publishes the tab.added diff) and return the new tab.
+	if err := s.recomputeAndPublish(ctx, repoID, branchID); err != nil {
+		return domain.Tab{}, fmt.Errorf("recompute after AddTab: %w", err)
+	}
 	var added domain.Tab
+	var found bool
+	s.mu.RLock()
 	for _, t := range branch.TabSet.Tabs {
 		if t.WindowName == windowName {
-			added = t
+			added, found = t, true
 			break
 		}
 	}
-	s.mu.Unlock()
-
-	s.hub.Publish(Event{Type: EventTabAdded, RepoID: repoID, BranchID: branchID, TabID: added.ID, Payload: added})
+	s.mu.RUnlock()
+	if !found {
+		// ADR-0012 widened the window here: the derivation now runs outside
+		// s.mu, so a concurrent recompute (sync_tmux recovery, a runtime
+		// switch) can swap in a tab set derived from a snapshot taken before
+		// our window existed. The tmux window IS created and the next
+		// reconciliation (<=5 s) picks it up, but we must not pretend to
+		// return the tab: an empty domain.Tab would reach the HTTP handler as
+		// a 200 with a blank id. Report it instead.
+		return domain.Tab{}, fmt.Errorf("tab %q was created but is not in the recomputed tab set (concurrent recompute); it will appear on the next reconciliation", windowName)
+	}
 	return added, nil
 }
 
@@ -270,10 +282,10 @@ func (s *Store) RemoveTab(ctx context.Context, repoID, branchID, tabID string) e
 				"repo", repoID, "branch", branchID, "tab", tabID, "err", err)
 		}
 	}
-	s.mu.Lock()
-	s.recomputeTabs(ctx, branch)
-	s.mu.Unlock()
-	s.hub.Publish(Event{Type: EventTabRemoved, RepoID: repoID, BranchID: branchID, TabID: tabID})
+	// ADR-0012: the tab.removed diff comes from recomputeAndPublish.
+	if err := s.recomputeAndPublish(ctx, repoID, branchID); err != nil {
+		return fmt.Errorf("recompute after RemoveTab: %w", err)
+	}
 	return nil
 }
 
@@ -357,9 +369,11 @@ func (s *Store) RenameTab(ctx context.Context, repoID, branchID, tabID, newName 
 		if err := s.deps.RepoStore.SetTabName(repoID, branchName, tabID, newName); err != nil {
 			return fmt.Errorf("save tab name override: %w", err)
 		}
-		s.mu.Lock()
-		s.recomputeTabs(ctx, branch)
-		s.mu.Unlock()
+		// The generic diff cannot see a name-only change (the tab id is
+		// unchanged), so the semantic event stays.
+		if err := s.recomputeAndPublish(ctx, repoID, branchID); err != nil {
+			return fmt.Errorf("recompute after RenameTab: %w", err)
+		}
 		s.hub.Publish(Event{Type: EventTabRenamed, RepoID: repoID, BranchID: branchID, TabID: tabID, Payload: newName})
 		return nil
 	}
@@ -375,9 +389,9 @@ func (s *Store) RenameTab(ctx context.Context, repoID, branchID, tabID, newName 
 	if err := s.deps.RepoStore.RenameTabIDInOverrides(repoID, branchName, tabID, newTabID); err != nil {
 		s.logger.Warn("RenameTab: migrate overrides failed", "err", err)
 	}
-	s.mu.Lock()
-	s.recomputeTabs(ctx, branch)
-	s.mu.Unlock()
+	if err := s.recomputeAndPublish(ctx, repoID, branchID); err != nil {
+		return fmt.Errorf("recompute after RenameTab: %w", err)
+	}
 	s.hub.Publish(Event{Type: EventTabRenamed, RepoID: repoID, BranchID: branchID, TabID: newTabID, Payload: newName})
 	return nil
 }
@@ -469,9 +483,11 @@ func (s *Store) ReorderTabs(ctx context.Context, repoID, branchID string, order 
 	if err := s.deps.RepoStore.SetTabOrder(repoID, branchName, merged); err != nil {
 		return fmt.Errorf("save tab order: %w", err)
 	}
-	s.mu.Lock()
-	s.recomputeTabs(ctx, branch)
-	s.mu.Unlock()
+	// Reordering keeps every tab id, so the generic diff is silent — the
+	// semantic event is what tells the FE to reload.
+	if err := s.recomputeAndPublish(ctx, repoID, branchID); err != nil {
+		return fmt.Errorf("recompute after ReorderTabs: %w", err)
+	}
 	s.hub.Publish(Event{Type: EventTabReordered, RepoID: repoID, BranchID: branchID, Payload: map[string]any{"order": order, "type": groupType}})
 	return nil
 }

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -159,17 +160,15 @@ func (s *Store) SyncTmux(ctx context.Context) error {
 			s.logger.Warn("sync_tmux: ensureSession", "branch", r.branch.Name, "err", err)
 			continue
 		}
-		// Fold tabset back into the live branch.
-		s.mu.Lock()
-		if repo, ok := s.repos[r.repoID]; ok {
-			for _, b := range repo.OpenBranches {
-				if b.ID == r.branchID {
-					s.recomputeTabs(ctx, b)
-					break
-				}
-			}
+		// Fold the tabset back into the live branch. ADR-0012: this used to
+		// assign branch.TabSet.Tabs under the lock and publish nothing, so a
+		// recovery that changed the tab set left every connected browser
+		// showing a stale TabBar until its next full REST reload.
+		if err := s.recomputeAndPublish(ctx, r.repoID, r.branchID); err != nil &&
+			!errors.Is(err, ErrBranchNotFound) && !errors.Is(err, ErrRepoNotFound) {
+			s.logger.Warn("sync_tmux: recompute after recovery",
+				"repo", r.repoID, "branch", r.branchID, "err", err)
 		}
-		s.mu.Unlock()
 	}
 	return nil
 }
