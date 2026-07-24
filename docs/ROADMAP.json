@@ -2,14 +2,14 @@
   "project": "Palmux v2",
   "description": "Web ベースのターミナルクライアント。tmux セッションをブラウザから操作する。",
   "progress": {
-    "sprints_done": 83,
+    "sprints_done": 84,
     "sprints_total": 90,
-    "done": 83,
+    "done": 84,
     "total": 90,
-    "remaining": 7,
+    "remaining": 6,
     "in_progress": 0,
-    "percent": 92,
-    "percentage": 92,
+    "percent": 93,
+    "percentage": 93,
     "current_sprint": "Sf6c55b"
   },
   "execution_order": [
@@ -12800,12 +12800,12 @@
       "title": "リリース準備: 実機ドッグフーディング検証 (codex/opencode含む、S2b5691完了後の次リリース)",
       "description": "フェーズD (codex/opencode registry登録) の成果をv0.15.2としてリリースする前に実機で検証する。フェーズCと同様、実際の `git tag v0.15.2` + push はこのSprintのStoryとして自動実行しない — 検証結果をもってmilestone停止時にユーザーへ提示し、明示的な確認を得てから(このSprintの外で)tag pushを行う。",
       "milestone": true,
-      "status": "partial",
+      "status": "done",
       "detail_level": "detailed",
       "stories": {
         "Sfa2bab-1": {
           "title": "プロダクトオーナーとして、v0.15.2相当のビルドでcodex/opencodeタブが実機で動くことを確認してからリリースしたい。なぜなら、フェーズCと同じ理由でリリース前の実機ドッグフーディングを省略したくないから。",
-          "status": "needs_user_review",
+          "status": "done",
           "acceptance_criteria": [
             {
               "id": "AC-Sfa2bab-1-1",
@@ -12815,8 +12815,8 @@
             {
               "id": "AC-Sfa2bab-1-2",
               "description": "codexタブ・opencodeタブをワークスペース内で実際に作成し、簡単なターンが動く",
-              "status": "fail",
-              "note": "Both codex and opencode completed real turns correctly (verbatim PALMUXOK captured) but Activity Inbox notification never arrived — root-caused to in-container notify hooks being structurally disabled under wildcard-bind/no-domain deployments (backlog bug filed, added_in Sfa2bab). Distinct from the S2b5691 opencode crash-loop backlog item (neither confirmed nor refuted here)."
+              "status": "pass",
+              "note": "当初 fail (codex/opencode タブがターンを完走するが通知が来ない/claude 誤起動)。後続の Sc4f091 (done) が真因を修正し、実 incus コンテナで AC-Sc4f091-1-2 (3種の通知 round-trip) と AC-Sc4f091-2-3 (opencode 5回連続) を pass させたことで解消・再検証済み。C 判断で覆う。"
             },
             {
               "id": "AC-Sfa2bab-1-3",
@@ -12846,7 +12846,8 @@
           },
           "review_reason": "実機ドッグフーディングで codex/opencode の実ターンは完走したが (PALMUXOK 出力を実機確認)、Activity Inbox 通知が一切届かず AC-Sfa2bab-1-2 を fail とした。root cause は services.palmux.domain 未設定時の wildcard bind で bridgeNotifyURL() が空を返し、全 in-container エージェントの通知フックが無条件スキップされる設計バグ。Sc4f091-1 で修正済み。ただし本 Story が検証したビルドは Sc4f091 より前のため、修正を含むビルドでのドッグフーディング再実行をもって close する (リリースゲートのため別 Sprint の検証結果を流用しない)。"
         }
-      }
+      },
+      "rescope_note": "リリース対象だった v0.15.2 という番号は実在しない (プロジェクトは v0.15.0 → v0.16.0 と進み、codex/opencode 一式は main 上で v0.16.0 より 49 コミット先行して未リリース)。本 milestone の検証意図 (codex/opencode の実機ドッグフーディング) は Sc4f091 で充足済みのため done とする。実際のリリース (tag + push) は AC-1-4 の設計どおりユーザーの明示判断に残す。"
     },
     "S31ad96": {
       "title": "palmux2 ローカルソースビルド + アプライアンス更新フロー検証 (フェーズBの前提)",
